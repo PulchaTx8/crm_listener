@@ -351,6 +351,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_password_change: { Args: never; Returns: undefined }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
