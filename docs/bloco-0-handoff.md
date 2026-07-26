@@ -49,6 +49,7 @@ passaram por decisão humana — não relitigar.
 | Configs da raiz seguem sem lint — `--dir` **substitui** os defaults; só a migração pro ESLint CLI fecha isso | `package.json`, `.eslintrc.json` |
 | `next lint` é deprecado e some no Next 16 | `package.json` |
 | `EBADENGINE`: seis `@supabase/*` querem Node ≥ 22, CI fixa 20 | `.github/workflows/ci.yml` |
+| GitHub deprecou Node 20 nas actions — `checkout@v4`, `setup-node@v4` e `supabase/setup-cli@v1` já rodam forçadas em Node 24. Só aviso; decide junto com o item acima | `.github/workflows/ci.yml` |
 | `SmtpMailer` e `PostgresRateLimiter` sem teste unitário **(decidido)** | `src/lib/mailer`, `src/lib/rate-limit` |
 | `PostgresRateLimiter` aceita qualquer client — exigir o service client é só documentação | `src/lib/rate-limit/index.ts` |
 | `config.toml`: `site_url` http vs `additional_redirect_urls` https — importa ao ligar auth | `supabase/config.toml` |
