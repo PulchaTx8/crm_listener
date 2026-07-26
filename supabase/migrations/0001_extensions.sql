@@ -1,2 +1,22 @@
 -- Extensões usadas pelo projeto.
-create extension if not exists pgcrypto;   -- gen_random_uuid(), digest() para hash de documento
+--
+-- O Supabase (local e hospedado) já instala a pgcrypto no schema `extensions`,
+-- então `create extension if not exists pgcrypto;` — sem o `with schema` — era um
+-- no-op silencioso que só *parecia* garantir alguma coisa. Declarar o schema
+-- explicitamente documenta onde a extensão de fato vive e mantém a migração
+-- correta caso rode num banco onde ela ainda não exista.
+--
+-- Correção do comentário antigo: `gen_random_uuid()` NÃO vem da pgcrypto no
+-- PG13+, e sim do `pg_catalog` (é builtin). Da pgcrypto o projeto usa `digest()`,
+-- para hash de documento.
+--
+-- ATENÇÃO — `digest()` mora em `extensions`, não em `public`. Toda função que
+-- fixa a search_path no estilo de `public.rate_limit_hit`
+-- (`set search_path = pg_catalog, public`) precisa chamá-la **totalmente
+-- qualificada**, como `extensions.digest(...)`; sem isso o resolvedor não a
+-- encontra e a função quebra em tempo de execução, não no deploy.
+-- Conferido no banco real:
+--   set search_path = pg_catalog, public;
+--   select to_regprocedure('digest(bytea,text)');            -- NULL
+--   select to_regprocedure('extensions.digest(text,text)');  -- resolve
+create extension if not exists pgcrypto with schema extensions;
