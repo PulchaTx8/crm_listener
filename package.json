@@ -2,11 +2,14 @@
   "name": "crm-listener",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint --dir src --dir tests",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
@@ -37,6 +40,8 @@
     "@types/nodemailer": "^6.4.16",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.1.0",
