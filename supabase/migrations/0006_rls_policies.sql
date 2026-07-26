@@ -118,3 +118,28 @@ create policy contact_requests_update_admin on public.contact_requests
   for update to authenticated
   using (public.is_platform_admin())
   with check (public.is_platform_admin());
+
+-- service_role needs explicit grants. This schema's default ACL hands the
+-- Supabase roles only `Dxtm` (truncate, references, trigger, maintain), and
+-- BYPASSRLS is not a substitute for a missing GRANT — the same trap Block 0
+-- documented on rate_limit_counters. Without these the server-side clients
+-- fail at runtime rather than at deploy time.
+--
+-- Full DML only where the server genuinely writes. Tenant rows are deliberately
+-- read-only here: organizations, companies and both membership tables are
+-- written exclusively by the SECURITY DEFINER RPCs, which run as the table
+-- owner and carry the audit entry with them. Leaving service_role unable to
+-- write them means a mistake in server code cannot quietly create or move a
+-- tenant behind the audit trail's back.
+grant select, insert, update, delete on public.profiles         to service_role;
+grant select, insert, update, delete on public.contact_requests to service_role;
+grant select, insert                 on public.audit_logs       to service_role;
+grant select, insert, delete         on public.platform_admins  to service_role;
+
+grant select on public.organizations             to service_role;
+grant select on public.companies                 to service_role;
+grant select on public.organization_memberships  to service_role;
+grant select on public.company_memberships       to service_role;
+
+-- audit_logs.id is a bigserial; INSERT needs the sequence too.
+grant usage, select on sequence public.audit_logs_id_seq to service_role;

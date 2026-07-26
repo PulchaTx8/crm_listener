@@ -221,9 +221,12 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
-# Off for the same reason as [auth].enable_signup above: this one governs the
-# email provider specifically, and leaving it on would reopen the same door.
-enable_signup = false
+# Must stay true: the Supabase CLI maps this to GOTRUE_EXTERNAL_EMAIL_ENABLED,
+# which gates email sign-IN as well as sign-up. Turning it off refuses every
+# login with "Email logins are disabled". Public signup is closed by
+# [auth].enable_signup above, and tests/isolation/signup-disabled.test.ts holds
+# that line.
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
