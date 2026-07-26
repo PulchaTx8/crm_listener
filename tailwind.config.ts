@@ -1,4 +1,8 @@
 import type { Config } from 'tailwindcss';
+// Imported rather than require()d: Tailwind's config loader pulls this file in
+// through loadESMFromCJS, where `require` is undefined, and the dev server dies
+// on the first CSS compile.
+import tailwindcssAnimate from 'tailwindcss-animate';
 
 export default {
   darkMode: ['class'],
@@ -64,5 +68,5 @@ export default {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [tailwindcssAnimate],
 } satisfies Config;
