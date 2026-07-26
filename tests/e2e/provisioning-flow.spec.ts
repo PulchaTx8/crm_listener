@@ -1,0 +1,124 @@
+import { test, expect } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
+import {
+  LOCAL_SUPABASE_URL,
+  LOCAL_SUPABASE_SERVICE_ROLE_KEY,
+} from '../local-supabase';
+
+/**
+ * The whole customer journey through the real UI: an owner is provisioned by a
+ * platform admin, signs in with the password that was shown once, is forced to
+ * change it, and lands in the app. Then the subscription is suspended and the
+ * customer sees why.
+ *
+ * This replaces the plan's manual walkthrough. Clicking through it once proves
+ * it worked once; this proves it on every run.
+ */
+const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
+const stamp = Date.now();
+const platformAdminEmail = `e2e-admin-${stamp}@example.test`;
+const platformAdminPassword = `E2e-admin-${stamp}-pw`;
+const ownerEmail = `e2e-owner-${stamp}@example.test`;
+const companyName = `E2E Station ${stamp}`;
+const createdUserIds: string[] = [];
+
+test.beforeAll(async () => {
+  // There is no UI for seeding the first platform admin, by design.
+  const { data, error } = await admin.auth.admin.createUser({
+    email: platformAdminEmail,
+    password: platformAdminPassword,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`could not create admin: ${error?.message}`);
+  createdUserIds.push(data.user.id);
+
+  await admin.from('profiles').insert({ id: data.user.id, email: platformAdminEmail });
+  await admin.from('platform_admins').insert({ user_id: data.user.id });
+});
+
+test.afterAll(async () => {
+  for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
+});
+
+test('provision a customer, sign in, change the password, then suspend', async ({ page }) => {
+  // --- the admin signs in and reaches the console -------------------------
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
+  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  // The admin's own gate is clear, so the change screen bounces them onward.
+  await expect(page).toHaveURL(/\/app$/);
+  await page.getByRole('link', { name: /admin console/i }).click();
+  await expect(page).toHaveURL(/\/admin\/customers$/);
+
+  // --- provisioning reveals the password exactly once ---------------------
+  await page.getByPlaceholder('Organization name').fill(`E2E Org ${stamp}`);
+  await page.getByPlaceholder('Company (Station) name').fill(companyName);
+  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
+  await page.getByRole('button', { name: 'Provision' }).click();
+
+  const revealed = page.locator('code').first();
+  await expect(revealed).toBeVisible({ timeout: 15_000 });
+  const provisionalPassword = (await revealed.innerText()).trim();
+  expect(provisionalPassword.length).toBeGreaterThanOrEqual(16);
+
+  // It must never have travelled in the URL (spec §6).
+  expect(page.url()).not.toContain(provisionalPassword);
+  expect(page.url()).not.toContain('password=');
+
+  const { data: owner } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', ownerEmail)
+    .single();
+  if (owner) createdUserIds.push(owner.id);
+
+  // --- the customer signs in and is forced through the gate ---------------
+  const customer = await page.context().browser()!.newContext();
+  const customerPage = await customer.newPage();
+
+  await customerPage.goto('/login');
+  await customerPage.getByPlaceholder('E-mail').fill(ownerEmail);
+  await customerPage.getByPlaceholder('Password').fill(provisionalPassword);
+  await customerPage.getByRole('button', { name: 'Sign in' }).click();
+
+  await expect(customerPage).toHaveURL(/\/change-password$/);
+
+  // The gate has no holes: any other route bounces straight back.
+  await customerPage.goto('/app');
+  await expect(customerPage).toHaveURL(/\/change-password$/);
+
+  const chosenPassword = `Chosen-${stamp}-pw`;
+  await customerPage.getByPlaceholder('New password').fill(chosenPassword);
+  await customerPage.getByPlaceholder('Repeat the password').fill(chosenPassword);
+  await customerPage.getByRole('button', { name: 'Save' }).click();
+
+  await expect(customerPage).toHaveURL(/\/app$/);
+  const customerRow = customerPage.locator('li', { hasText: companyName });
+  await expect(customerRow).toBeVisible();
+  await expect(customerRow.getByText('active', { exact: true })).toBeVisible();
+
+  // --- suspension reaches the open session, without a forced sign-out -----
+  await page.reload();
+  const adminRow = page.locator('li', { hasText: companyName });
+  await adminRow.getByPlaceholder('Reason').fill('non-payment');
+  await adminRow.getByRole('button', { name: 'Suspend' }).click();
+
+  // Wait for the console to reflect it before asking the customer's session,
+  // otherwise the reload races the server action.
+  await expect(adminRow.getByRole('button', { name: 'Reactivate' })).toBeVisible({
+    timeout: 15_000,
+  });
+
+  // The open customer session loses access on its next request — no forced
+  // sign-out — because the RLS helpers query the tables on every check.
+  await customerPage.reload();
+  await expect(customerRow.getByText('suspended', { exact: true })).toBeVisible();
+  await expect(customerPage.getByText(/subscription is suspended/i)).toBeVisible();
+
+  await customer.close();
+});

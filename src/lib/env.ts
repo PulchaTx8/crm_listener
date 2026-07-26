@@ -25,8 +25,23 @@ export type Env = z.infer<typeof envSchema>;
  */
 export type LooseEnv = z.infer<typeof looseEnvSchema>;
 
+/**
+ * An empty string means "not configured", not "configured as nothing". Docker
+ * turns an `ARG` with no value into `ENV NAME=`, and an unset shell variable
+ * assigned through a script lands the same way — so without this the loose
+ * branch rejects an unset build arg as garbage rather than tolerating it, and
+ * the strict branch reports "Invalid url" where "Required" is the truth.
+ */
+function withoutBlanks(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== '') cleaned[key] = value;
+  }
+  return cleaned;
+}
+
 export function parseEnv(source: NodeJS.ProcessEnv): Env {
-  const result = envSchema.safeParse(source);
+  const result = envSchema.safeParse(withoutBlanks(source));
   if (!result.success) {
     const issues = result.error.issues
       .map((i) => `${i.path.join('.')}: ${i.message}`)
@@ -37,7 +52,7 @@ export function parseEnv(source: NodeJS.ProcessEnv): Env {
 }
 
 export function parseLooseEnv(source: NodeJS.ProcessEnv): LooseEnv {
-  return looseEnvSchema.parse(source);
+  return looseEnvSchema.parse(withoutBlanks(source));
 }
 
 // Validates at boot — the import happens in `src/instrumentation.ts`, so an

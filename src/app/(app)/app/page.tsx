@@ -1,6 +1,12 @@
 import Link from 'next/link';
 import { createUserClient } from '@/lib/supabase/user-client';
 
+// Renders from the caller's session cookies, so it can never be static. Stated
+// explicitly rather than inferred from cookies(): the Supabase client is built
+// before cookies() is reached, so during a build with no configuration this page
+// would fail as a prerender error instead of being skipped as dynamic.
+export const dynamic = 'force-dynamic';
+
 /**
  * Where a signed-in member lands. Business features arrive in Block 2; what
  * matters here is that a suspended Company still appears, with its reason —
@@ -64,8 +70,9 @@ export default async function MemberHomePage() {
               </div>
               {c.status === 'suspended' ? (
                 <p className="text-sm text-muted-foreground">
-                  Your subscription is suspended{c.suspension_reason ? `: ${c.suspension_reason}` : ''}.
-                  Contact us to restore access.
+                  Your subscription is suspended
+                  {c.suspension_reason ? `: ${c.suspension_reason}` : ''}. Contact us to restore
+                  access.
                 </p>
               ) : null}
             </li>

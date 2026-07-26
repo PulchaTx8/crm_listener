@@ -13,16 +13,31 @@ export default async function LoginPage({
   async function signIn(formData: FormData) {
     'use server';
     const supabase = await createUserClient();
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: String(formData.get('email') ?? ''),
       password: String(formData.get('password') ?? ''),
     });
     // Deliberately generic: a distinct "no such user" message would let an
     // attacker enumerate accounts (spec §9).
-    if (error) redirect('/login?error=1');
-    // Safe for everyone: the middleware bounces users who do not need the
-    // change screen straight to /app.
-    redirect('/change-password');
+    if (error || !data.user) redirect('/login?error=1');
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('must_change_password, provisional_expires_at')
+      .eq('id', data.user.id)
+      .single();
+
+    const expiresAt = profile?.provisional_expires_at;
+    if (profile?.must_change_password && expiresAt && Date.parse(expiresAt) <= Date.now()) {
+      await supabase.auth.signOut();
+      redirect('/login?error=expired');
+    }
+
+    // Chosen here rather than left to the middleware. A middleware redirect
+    // issued during a Server Action's RSC navigation leaves the address bar on
+    // the old path, so the customer would see /change-password while looking at
+    // /app. The middleware still enforces both rules for every other request.
+    redirect(profile?.must_change_password ? '/change-password' : '/app');
   }
 
   return (

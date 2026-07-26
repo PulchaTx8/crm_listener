@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { parseEnv } from '@/lib/env';
+import { parseEnv, parseLooseEnv } from '@/lib/env';
 
 const valid = {
   NODE_ENV: 'test',
@@ -21,6 +21,38 @@ describe('parseEnv', () => {
 
   it('throws when the supabase URL is invalid', () => {
     expect(() => parseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: 'not-a-url' })).toThrow();
+  });
+
+  it('treats an empty value as missing, not as invalid', () => {
+    expect(() => parseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: '' })).toThrow(
+      /NEXT_PUBLIC_SUPABASE_URL/,
+    );
+  });
+});
+
+// The Dockerfile declares NEXT_PUBLIC_* as build args and exports them
+// unconditionally, so an image built without them arrives here with empty
+// strings rather than absent keys. Treating those as garbage rather than as
+// absence is what broke `docker build`: page-data collection imports env.ts.
+describe('parseLooseEnv', () => {
+  it('tolerates empty build args the way it tolerates absent ones', () => {
+    const parsed = parseLooseEnv({
+      NODE_ENV: 'production',
+      NEXT_PUBLIC_SUPABASE_URL: '',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: '',
+    } as NodeJS.ProcessEnv);
+
+    expect(parsed.NEXT_PUBLIC_SUPABASE_URL).toBeUndefined();
+    expect(parsed.NODE_ENV).toBe('production');
+  });
+
+  it('still rejects a value that is present and malformed', () => {
+    expect(() =>
+      parseLooseEnv({
+        NODE_ENV: 'production',
+        NEXT_PUBLIC_SUPABASE_URL: 'not-a-url',
+      } as NodeJS.ProcessEnv),
+    ).toThrow();
   });
 });
 

@@ -1,11 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
-import {
-  provisionAction,
-  regenerateAction,
-  type CredentialState,
-} from './actions';
+import { provisionAction, regenerateAction, type CredentialState } from './actions';
 import { Button } from '@/components/ui/button';
 
 const INITIAL: CredentialState = { status: 'idle' };

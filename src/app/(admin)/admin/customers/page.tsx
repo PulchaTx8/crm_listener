@@ -3,6 +3,12 @@ import { Button } from '@/components/ui/button';
 import { suspendAction, reactivateAction } from './actions';
 import { ProvisionForm, RegenerateForm } from './credential-forms';
 
+// Renders from the caller's session cookies, so it can never be static. Stated
+// explicitly rather than inferred from cookies(): the Supabase client is built
+// before cookies() is reached, so during a build with no configuration this page
+// would fail as a prerender error instead of being skipped as dynamic.
+export const dynamic = 'force-dynamic';
+
 export default async function CustomersPage() {
   const supabase = await createUserClient();
 
