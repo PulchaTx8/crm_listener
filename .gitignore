@@ -44,3 +44,6 @@ Thumbs.db
 
 # Claude local settings (keep shared settings.json, ignore local overrides)
 .claude/settings.local.json
+
+# Subagent-driven-development scratch
+.superpowers/
