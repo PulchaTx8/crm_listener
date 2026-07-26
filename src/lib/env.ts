@@ -7,6 +7,8 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SMTP_URL: z.string().url().optional(),
   MAIL_FROM: z.string().email().optional(),
+  // Public base URL, used to build the password-reset callback link.
+  NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
 });
 
 // Loose schema used ONLY under `SKIP_ENV_VALIDATION=1` (that is, during

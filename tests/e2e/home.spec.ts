@@ -12,8 +12,14 @@ test('contact page renders the form', async ({ page }) => {
   await expect(page.getByPlaceholder('Your name')).toBeVisible();
 });
 
-test('login page renders the credentials form', async ({ page }) => {
+test('login page renders the credentials form and offers a reset', async ({ page }) => {
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: /Sign in/i })).toBeVisible();
   await expect(page.getByPlaceholder('E-mail')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Forgot your password/i })).toBeVisible();
+});
+
+test('an anonymous visitor is redirected away from the app', async ({ page }) => {
+  await page.goto('/app');
+  await expect(page).toHaveURL(/\/login$/);
 });

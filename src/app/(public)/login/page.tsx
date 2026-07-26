@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,9 @@ export default async function LoginPage({
         />
         <Button type="submit">Sign in</Button>
       </form>
+      <Link href="/forgot-password" className="text-sm underline">
+        Forgot your password?
+      </Link>
     </main>
   );
 }

@@ -18,11 +18,18 @@ export default async function MemberHomePage() {
 
   return (
     <main className="flex flex-col gap-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Your stations</h1>
-        <p className="text-sm text-muted-foreground">
-          Audience, prize and promotion features arrive in the next release.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Your stations</h1>
+          <p className="text-sm text-muted-foreground">
+            Audience, prize and promotion features arrive in the next release.
+          </p>
+        </div>
+        <form action="/auth/signout" method="post">
+          <button type="submit" className="text-sm underline">
+            Sign out
+          </button>
+        </form>
       </header>
 
       {list.length === 0 ? (
