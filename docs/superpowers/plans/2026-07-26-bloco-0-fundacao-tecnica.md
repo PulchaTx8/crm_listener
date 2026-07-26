@@ -1168,6 +1168,22 @@ export class PostgresRateLimiter implements RateLimiter {
 }
 ```
 
+> **Nota de execução:** a review pós-implementação (findings 2 e 3) apontou
+> que `SupabaseClient<Database = any>` colapsa o retorno do `rpc()` para
+> `any`, então `noUncheckedIndexedAccess` nunca chegava a atuar em `row` —
+> uma renomeação de coluna no SQL compilaria e só quebraria em runtime como
+> `Invalid Date`. Corrigido anotando `data` com um tipo `RateLimitHitRow`
+> explícito antes de indexar, e lançando se a linha vier vazia (sem `any`,
+> sem non-null assertion). A review também apontou que `InMemoryRateLimiter`
+> (bloqueia sem incrementar) e `rate_limit_hit` (sempre incrementa) discordam
+> sobre `allowed`/`remaining` quando `limit` varia entre chamadas para a
+> mesma chave/janela; ambos foram trazidos a um contrato comum de saturação
+> em `limit + 1` (ver `RateLimiter.check`) e ganharam um teste cobrindo
+> limite variável. `InMemoryRateLimiter` também ganhou varredura amortizada
+> de buckets expirados (a cada `RATE_LIMIT_SWEEP_INTERVAL` chamadas) — os
+> buckets nunca eram removidos, e as chaves vêm de input do atacante (IP/
+> e-mail). Ver `task-11-report.md`.
+
 - [ ] **Step 4: Criar a migração `supabase/migrations/0002_rate_limit.sql`**
 
 ```sql
@@ -1207,6 +1223,21 @@ begin
 end;
 $$;
 ```
+
+> **Nota de execução:** a review pós-implementação (finding 1, CRITICAL)
+> apontou que `rate_limit_counters` ficava exposta pelo PostgREST sem RLS —
+> qualquer holder de anon key conseguiria apagar/zerar os próprios
+> contadores. Adicionado `alter table ... enable row level security` +
+> `revoke all ... from anon, authenticated` (sem policies; só `service_role`
+> acessa, então `PostgresRateLimiter` exige um client de
+> `createServiceClient()`, D4) e `set search_path = pg_catalog, public` na
+> função (linter do Supabase acusa `function_search_path_mutable`). O
+> finding 3 trouxe `rate_limit_hit` ao mesmo contrato de saturação em
+> `limit + 1` do `InMemoryRateLimiter` (`count` para de crescer quando já
+> passou de `p_limit`, em vez de crescer sem limite). O finding 4 adicionou
+> `create index ... on rate_limit_counters (reset_at)` para dar suporte a
+> uma varredura periódica futura (por `pg_cron`, fora do Bloco 0) — nenhuma
+> `delete` foi adicionada nesta migração. Ver `task-11-report.md`.
 
 - [ ] **Step 5: Rodar e ver passar; typecheck**
 
