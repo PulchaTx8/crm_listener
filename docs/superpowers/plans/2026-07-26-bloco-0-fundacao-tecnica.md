@@ -1124,7 +1124,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type RateLimitResult = { allowed: boolean; remaining: number; resetAt: Date };
 
+// Chamadas a cada N `check()` disparam a varredura de buckets expirados do
+// InMemoryRateLimiter (custo O(n) amortizado sobre N chamadas, em vez de
+// O(n) a cada chamada ou vazamento indefinido de memória).
+export const RATE_LIMIT_SWEEP_INTERVAL = 128;
+
 export interface RateLimiter {
+  /**
+   * Contrato: uma chamada bloqueada ainda consome orçamento da janela atual,
+   * até um ponto de saturação de `limit + 1` (o contador não cresce sem
+   * limite) — e nunca estende `resetAt`; o fim da janela é fixado na
+   * primeira chamada que a abre.
+   */
   check(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult>;
 }
 
@@ -1135,24 +1146,53 @@ interface Bucket {
 
 export class InMemoryRateLimiter implements RateLimiter {
   private buckets = new Map<string, Bucket>();
+  private checksSinceSweep = 0;
   constructor(private readonly now: () => number = () => Date.now()) {}
+
+  /** Exposto só para inspeção em teste da varredura; não é uma API de eviction. */
+  get bucketCount(): number {
+    return this.buckets.size;
+  }
 
   async check(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
     const t = this.now();
+    this.sweepExpired(t);
     const existing = this.buckets.get(key);
     let bucket = existing;
     if (!bucket || t >= bucket.resetAt) {
       bucket = { count: 0, resetAt: t + windowSeconds * 1000 };
       this.buckets.set(key, bucket);
     }
-    if (bucket.count >= limit) {
-      return { allowed: false, remaining: 0, resetAt: new Date(bucket.resetAt) };
+    if (bucket.count <= limit) bucket.count += 1; // satura em limit + 1
+    const allowed = bucket.count <= limit;
+    return {
+      allowed,
+      remaining: Math.max(limit - bucket.count, 0),
+      resetAt: new Date(bucket.resetAt),
+    };
+  }
+
+  private sweepExpired(t: number): void {
+    this.checksSinceSweep += 1;
+    if (this.checksSinceSweep < RATE_LIMIT_SWEEP_INTERVAL) return;
+    this.checksSinceSweep = 0;
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetAt <= t) this.buckets.delete(key);
     }
-    bucket.count += 1;
-    return { allowed: true, remaining: limit - bucket.count, resetAt: new Date(bucket.resetAt) };
   }
 }
 
+type RateLimitHitRow = { allowed: boolean; remaining: number; reset_at: string };
+
+/**
+ * Implementação Postgres via RPC `rate_limit_hit` (ver
+ * `supabase/migrations/0002_rate_limit.sql`). A tabela `rate_limit_counters`
+ * tem RLS habilitada e sem policies, com grants revogados de `anon` e
+ * `authenticated` — só um client `service_role` consegue gravar/ler os
+ * contadores. Por isso este construtor DEVE receber um client criado por
+ * `createServiceClient()` (`@/lib/supabase/service-client`, D4); nunca um
+ * client de usuário.
+ */
 export class PostgresRateLimiter implements RateLimiter {
   constructor(private readonly client: SupabaseClient) {}
   async check(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
@@ -1162,8 +1202,14 @@ export class PostgresRateLimiter implements RateLimiter {
       p_window_seconds: windowSeconds,
     });
     if (error) throw error;
-    const row = Array.isArray(data) ? data[0] : data;
-    return { allowed: row.allowed, remaining: row.remaining, resetAt: new Date(row.reset_at) };
+    const rows: RateLimitHitRow[] | RateLimitHitRow | null = data;
+    const row = Array.isArray(rows) ? rows[0] : rows;
+    if (!row) throw new Error('rate_limit_hit não retornou linha');
+    return {
+      allowed: row.allowed,
+      remaining: row.remaining,
+      resetAt: new Date(row.reset_at),
+    };
   }
 }
 ```
@@ -1195,12 +1241,22 @@ create table if not exists public.rate_limit_counters (
 
 comment on table public.rate_limit_counters is 'Contadores atômicos de rate limiting (fallback sem Redis).';
 
+-- Infraestrutura, não tabela de negócio: fica exposta por padrão no schema
+-- `public` do PostgREST, então precisa de RLS mesmo sem policies de tenant.
+-- Sem isso, qualquer holder de anon key apaga/zera os próprios contadores.
+alter table public.rate_limit_counters enable row level security;
+revoke all on public.rate_limit_counters from anon, authenticated;
+
+create index if not exists rate_limit_counters_reset_at_idx
+  on public.rate_limit_counters (reset_at);
+
 create or replace function public.rate_limit_hit(
   p_key text,
   p_limit integer,
   p_window_seconds integer
 ) returns table(allowed boolean, remaining integer, reset_at timestamptz)
 language plpgsql
+set search_path = pg_catalog, public
 as $$
 declare
   v_now timestamptz := now();
@@ -1210,7 +1266,11 @@ begin
   insert into public.rate_limit_counters as c (key, count, reset_at)
     values (p_key, 1, v_now + make_interval(secs => p_window_seconds))
   on conflict (key) do update
-    set count = case when c.reset_at <= v_now then 1 else c.count + 1 end,
+    set count = case
+          when c.reset_at <= v_now then 1
+          when c.count <= p_limit then c.count + 1
+          else c.count   -- satura em p_limit + 1
+        end,
         reset_at = case when c.reset_at <= v_now
                         then v_now + make_interval(secs => p_window_seconds)
                         else c.reset_at end
