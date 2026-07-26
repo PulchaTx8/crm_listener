@@ -22,18 +22,27 @@ jobs:
         env:
           SKIP_ENV_VALIDATION: '1'
 
-  # pgTAP needs a Postgres with the migrations applied. `supabase start` brings
-  # the stack up and runs the migrations; the CLI comes from the official
-  # action, so this job needs neither Node nor `npm ci`.
+  # pgTAP and the isolation suite both need a Postgres with the migrations
+  # applied, so they share one stack. The isolation tests are the point of
+  # Block 1a — they create real users, sign them in, and check tenant leaks
+  # under a real JWT — so CI has to run them, not just the schema assertions.
   db:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: supabase/setup-cli@v1
         with:
           version: 2.109.1
       - run: supabase start
       - run: supabase test db
+      - run: npm ci
+      # Credentials come from vitest.isolation.config.ts, which pins the local
+      # stack and refuses any non-loopback target.
+      - run: npm run test:isolation
       - name: Stop the stack
         if: always()
         run: supabase stop --no-backup
@@ -46,10 +55,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+      # The suite drives the whole provisioning journey — sign in, forced
+      # password change, suspension — so it needs a live database. The dev
+      # server is started by playwright.config.ts, pointed at this stack.
+      - run: supabase start
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # `playwright.config.ts` starts the server (webServer) already with
-      # SKIP_ENV_VALIDATION=1, so no Supabase environment is needed here.
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -57,3 +71,6 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+      - name: Stop the stack
+        if: always()
+        run: supabase stop --no-backup
