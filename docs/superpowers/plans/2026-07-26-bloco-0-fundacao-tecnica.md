@@ -811,7 +811,19 @@ MAIL_FROM=crm@example.com
 ```ts
 export async function register() {
   // Valida o ambiente no boot do servidor. Lança e impede o start se inválido.
-  await import('@/lib/env');
+  // O Next 15 engole a rejeição da promise devolvida por `register()`
+  // (NextNodeServer.prepare().catch(...) em next-server.js) — sem o exit
+  // explícito abaixo, o processo ficaria vivo respondendo 500 em toda
+  // requisição, e um orquestrador (Docker/k8s/compose) veria um contêiner
+  // "saudável" rodando um app quebrado. O process.exit(1) garante o sinal
+  // certo: contêiner falho, não vivo servindo erro.
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  try {
+    await import('@/lib/env');
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
 }
 ```
 
@@ -827,10 +839,24 @@ export async function register() {
 > Comportamento verificado no artefato de produção: sem env válido o servidor
 > loga `Failed to prepare server … An error occurred while loading
 > instrumentation hook: Configuração de ambiente inválida — …` e responde **500
-> em toda requisição**; com env válido sobe limpo e serve 200. Atenção: o
-> processo **não** sai — ele mantém o socket e falha 100% das requisições. Para
-> um contêiner que precise morrer de fato, adicionar um `HEALTHCHECK` ou um
-> `process.exit(1)` no `register()` fica como trabalho futuro.
+> em toda requisição**; com env válido sobe limpo e serve 200.
+>
+> **Correção posterior (re-revisão focada):** o processo **não saía** —
+> `NextNodeServer` engole a rejeição de `register()` via
+> `this.prepare().catch(err => console.error('Failed to prepare server', err))`
+> (`next-server.js:565-568` e `:975-982`), e `start-server.js:401` só chama
+> `process.exit(1)` se `getRequestHandlers` lançar, o que não ocorre depois que
+> a rejeição já foi engolida. Resultado: o socket ficava aberto, o servidor
+> logava `Ready` e respondia 500 em 100% das requisições, mas o **processo
+> continuava vivo** — um orquestrador (Docker/k8s/compose) via um contêiner
+> "saudável" servindo um app quebrado. Substância da constraint cumprida (nenhum
+> request é servido com sucesso), mas o sinal errado. Por isso `register()`
+> agora envolve o `import('@/lib/env')` em `try/catch` e chama `process.exit(1)`
+> no catch — não mais "trabalho futuro". O guard `NEXT_RUNTIME !== 'nodejs'`
+> existe porque `process.exit` não existe no runtime edge; o sandbox edge do
+> Next copia o `process.env` inteiro (`sandbox/context.js:100-110`), então o
+> guard não vai barrar espuriamente o `middleware.ts` do Bloco 1 — ele só evita
+> chamar `process.exit` num runtime que não o tem.
 >
 > Consequência operacional: o stage `runner` do Dockerfile (Task 14) **não**
 > define `SKIP_ENV_VALIDATION`, então `docker run` sem variáveis de ambiente
