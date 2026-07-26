@@ -5,3 +5,5 @@ docs
 Arte
 tests
 *.md
+.env*
+!.env.example

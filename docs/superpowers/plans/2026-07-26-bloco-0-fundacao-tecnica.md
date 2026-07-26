@@ -1456,7 +1456,20 @@ docs
 Arte
 tests
 *.md
+.env*
+!.env.example
 ```
+
+> **Nota de execução:** a review pós-implementação (Important) apontou que
+> `Dockerfile` faz `COPY . .` no estágio `builder` (Step 2) sem o
+> `.dockerignore` excluir `.env*` — e `.env.example` documenta
+> `SUPABASE_SERVICE_ROLE_KEY`, então o caminho de onboarding padrão
+> (`cp .env.example .env`) colocaria o segredo mais sensível do projeto,
+> sem exclusão, no contexto de build. A imagem final não carrega esse
+> arquivo adiante, mas o layer do `builder` carrega, e esse layer persiste
+> no cache de build. Adicionado `.env*` com negação `!.env.example` (mantém
+> o template disponível no contexto; exclui qualquer `.env`/`.env.local`
+> real). Ver `task-14-report.md`.
 
 - [ ] **Step 2: Criar `Dockerfile`**
 
