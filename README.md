@@ -1,1 +1,3 @@
-# crm_listener
+# PulchaTX
+
+CRM for entertainment companies.
