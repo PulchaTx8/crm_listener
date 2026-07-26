@@ -1,18 +1,19 @@
 import { NextResponse } from 'next/server';
 
-// Sem isto o Next otimiza a rota estaticamente no build e o HEALTHCHECK passa a
-// medir um arquivo pré-renderizado em vez do processo vivo.
+// Without this, Next statically optimizes the route at build time and the
+// HEALTHCHECK ends up measuring a pre-rendered file instead of the live process.
 export const dynamic = 'force-dynamic';
 
 /**
- * Liveness probe consumida pelo `HEALTHCHECK` do Dockerfile e pelo proxy do
- * EasyPanel.
+ * Liveness probe consumed by the Dockerfile `HEALTHCHECK` and by the EasyPanel
+ * proxy.
  *
- * Deliberadamente trivial: **não toca no banco**. Um health check que consulta o
- * Supabase transforma uma oscilação do banco em restart de contêiner — o app
- * continua vivo e capaz de servir páginas, então derrubá-lo só piora o incidente.
- * A validação de configuração já acontece no boot (`src/instrumentation.ts`), de
- * modo que um contêiner mal configurado sequer chega a responder aqui.
+ * Deliberately trivial: **it does not touch the database**. A health check that
+ * queries Supabase turns a database blip into a container restart — the app is
+ * still alive and able to serve pages, so tearing it down only makes the
+ * incident worse. Configuration validation already happens at boot
+ * (`src/instrumentation.ts`), so a misconfigured container never even gets to
+ * answer here.
  */
 export function GET() {
   return NextResponse.json({ status: 'ok', uptime: Math.round(process.uptime()) });

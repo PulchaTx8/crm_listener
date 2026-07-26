@@ -2,17 +2,17 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type RateLimitResult = { allowed: boolean; remaining: number; resetAt: Date };
 
-// Chamadas a cada N `check()` disparam a varredura de buckets expirados do
-// InMemoryRateLimiter (custo O(n) amortizado sobre N chamadas, em vez de
-// O(n) a cada chamada ou vazamento indefinido de memória).
+// Every N `check()` calls triggers the InMemoryRateLimiter sweep of expired
+// buckets (O(n) cost amortized over N calls, instead of O(n) on every call or
+// unbounded memory growth).
 export const RATE_LIMIT_SWEEP_INTERVAL = 128;
 
 export interface RateLimiter {
   /**
-   * Contrato: uma chamada bloqueada ainda consome orçamento da janela atual,
-   * até um ponto de saturação de `limit + 1` (o contador não cresce sem
-   * limite) — e nunca estende `resetAt`; o fim da janela é fixado na
-   * primeira chamada que a abre.
+   * Contract: a blocked call still consumes budget from the current window, up
+   * to a saturation point of `limit + 1` (the counter does not grow without
+   * bound) — and never extends `resetAt`; the end of the window is fixed by the
+   * first call that opens it.
    */
   check(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult>;
 }
@@ -27,7 +27,7 @@ export class InMemoryRateLimiter implements RateLimiter {
   private checksSinceSweep = 0;
   constructor(private readonly now: () => number = () => Date.now()) {}
 
-  /** Exposto só para inspeção em teste da varredura; não é uma API de eviction. */
+  /** Exposed only to inspect the sweep in tests; this is not an eviction API. */
   get bucketCount(): number {
     return this.buckets.size;
   }
@@ -41,7 +41,7 @@ export class InMemoryRateLimiter implements RateLimiter {
       bucket = { count: 0, resetAt: t + windowSeconds * 1000 };
       this.buckets.set(key, bucket);
     }
-    if (bucket.count <= limit) bucket.count += 1; // satura em limit + 1
+    if (bucket.count <= limit) bucket.count += 1; // saturates at limit + 1
     const allowed = bucket.count <= limit;
     return {
       allowed,
@@ -63,13 +63,13 @@ export class InMemoryRateLimiter implements RateLimiter {
 type RateLimitHitRow = { allowed: boolean; remaining: number; reset_at: string };
 
 /**
- * Implementação Postgres via RPC `rate_limit_hit` (ver
- * `supabase/migrations/0002_rate_limit.sql`). A tabela `rate_limit_counters`
- * tem RLS habilitada e sem policies, com grants revogados de `anon` e
- * `authenticated` — só um client `service_role` consegue gravar/ler os
- * contadores. Por isso este construtor DEVE receber um client criado por
- * `createServiceClient()` (`@/lib/supabase/service-client`, D4); nunca um
- * client de usuário.
+ * Postgres implementation via the `rate_limit_hit` RPC (see
+ * `supabase/migrations/0002_rate_limit.sql`). The `rate_limit_counters` table
+ * has RLS enabled and no policies, with grants revoked from `anon` and
+ * `authenticated` — only a `service_role` client can write/read the counters.
+ * That is why this constructor MUST be given a client created by
+ * `createServiceClient()` (`@/lib/supabase/service-client`, D4); never a user
+ * client.
  */
 export class PostgresRateLimiter implements RateLimiter {
   constructor(private readonly client: SupabaseClient) {}
@@ -82,7 +82,7 @@ export class PostgresRateLimiter implements RateLimiter {
     if (error) throw error;
     const rows: RateLimitHitRow[] | RateLimitHitRow | null = data;
     const row = Array.isArray(rows) ? rows[0] : rows;
-    if (!row) throw new Error('rate_limit_hit não retornou linha');
+    if (!row) throw new Error('rate_limit_hit returned no row');
     return {
       allowed: row.allowed,
       remaining: row.remaining,

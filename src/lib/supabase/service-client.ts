@@ -2,7 +2,7 @@ import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getServiceSupabaseConfig } from './config';
 
-// SÓ para rotinas de sistema (webhook, cron, ETL, plataforma). Nunca em request de usuário. RLS é IGNORADA.
+// ONLY for system routines (webhook, cron, ETL, platform). Never in a user request. RLS is BYPASSED.
 export function createServiceClient(): SupabaseClient {
   const { url, serviceRoleKey } = getServiceSupabaseConfig();
   return createClient(url, serviceRoleKey, {
