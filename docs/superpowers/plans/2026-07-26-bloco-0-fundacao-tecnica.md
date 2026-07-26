@@ -1026,11 +1026,15 @@ export class DevMailer implements Mailer {
 
 // Impl SMTP para produção (Resend/qualquer SMTP). Config via SMTP_URL + MAIL_FROM.
 export class SmtpMailer implements Mailer {
-  private transport = nodemailer.createTransport(this.smtpUrl);
+  private readonly transport: nodemailer.Transporter;
+
   constructor(
-    private readonly smtpUrl: string,
+    smtpUrl: string,
     private readonly defaultFrom: string,
-  ) {}
+  ) {
+    this.transport = nodemailer.createTransport(smtpUrl);
+  }
+
   async send(msg: MailMessage): Promise<MailResult> {
     const info = await this.transport.sendMail({
       from: msg.from ?? this.defaultFrom,
@@ -1043,6 +1047,15 @@ export class SmtpMailer implements Mailer {
   }
 }
 ```
+
+> **Nota de execução:** a versão original deste bloco atribuía `transport`
+> via inicializador de campo lendo `this.smtpUrl` (uma parameter property),
+> o que sob `target: "ES2022"` deste repositório (`useDefineForClassFields`
+> implícito) roda **antes** da atribuição da parameter property no corpo do
+> construtor — `npm run typecheck` falhava com `TS2729` e, em runtime, o
+> transport era construído com `undefined`. Corrigido movendo a atribuição
+> para o corpo do construtor, usando o parâmetro local `smtpUrl` (que não
+> precisa mais ser guardado como campo). Ver `task-10-report.md`.
 
 - [ ] **Step 4: Rodar e ver passar; typecheck**
 
