@@ -44,6 +44,11 @@ USER nextjs
 EXPOSE 3000
 # `wget` vem do BusyBox na node:22-alpine. A rota /api/health não toca no banco
 # de propósito: uma oscilação do Supabase não pode virar restart de contêiner.
+#
+# A porta NÃO pode ser cravada: plataformas de deploy sobrescrevem PORT (o
+# EasyPanel injeta 80), e o Next escuta no valor efetivo. Um healthcheck fixo em
+# 3000 bateria numa porta sem listener e marcaria o contêiner como unhealthy
+# para sempre. Esta forma é shell, então ${PORT} expande em tempo de execução.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:${PORT:-3000}/api/health || exit 1
 CMD ["node", "server.js"]
