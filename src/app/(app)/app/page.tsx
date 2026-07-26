@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { createUserClient } from '@/lib/supabase/user-client';
 
 /**
@@ -9,10 +10,13 @@ import { createUserClient } from '@/lib/supabase/user-client';
 export default async function MemberHomePage() {
   const supabase = await createUserClient();
 
-  const { data: companies } = await supabase
-    .from('companies')
-    .select('id, name, status, suspension_reason')
-    .order('name', { ascending: true });
+  const [{ data: companies }, { data: isAdmin }] = await Promise.all([
+    supabase
+      .from('companies')
+      .select('id, name, status, suspension_reason')
+      .order('name', { ascending: true }),
+    supabase.rpc('is_platform_admin'),
+  ]);
 
   const list = companies ?? [];
 
@@ -31,6 +35,12 @@ export default async function MemberHomePage() {
           </button>
         </form>
       </header>
+
+      {isAdmin ? (
+        <Link href="/admin/customers" className="text-sm underline">
+          Go to the admin console
+        </Link>
+      ) : null}
 
       {list.length === 0 ? (
         <p className="text-muted-foreground">
