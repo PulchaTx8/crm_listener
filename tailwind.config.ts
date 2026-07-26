@@ -6,8 +6,8 @@ export default {
   theme: {
     container: { center: true, padding: '2rem', screens: { '2xl': '1400px' } },
     extend: {
-      // Mapeia as CSS variables de `src/app/globals.css` para os tokens
-      // semânticos que o shadcn/ui gera (`cssVariables: true`).
+      // Maps the CSS variables from `src/app/globals.css` to the semantic
+      // tokens shadcn/ui generates (`cssVariables: true`).
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

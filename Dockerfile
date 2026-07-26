@@ -8,18 +8,18 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# As variáveis NEXT_PUBLIC_* são inlined no bundle do cliente durante o
-# `next build` — defini-las apenas no ambiente de runtime (aba Environment do
-# EasyPanel) NÃO alcança um bundle já compilado. Precisam chegar como build args.
-# NUNCA declarar SUPABASE_SERVICE_ROLE_KEY como ARG: build args ficam gravados
-# nas camadas da imagem e viram segredo vazado.
+# NEXT_PUBLIC_* variables are inlined into the client bundle during `next build`
+# — setting them only in the runtime environment (EasyPanel's Environment tab)
+# does NOT reach an already-compiled bundle. They have to arrive as build args.
+# NEVER declare SUPABASE_SERVICE_ROLE_KEY as an ARG: build args are baked into
+# the image layers and become a leaked secret.
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-# Escopo deliberadamente restrito ao estágio de build: os segredos não existem
-# durante o `next build`. Se vazar para o runtime, `src/lib/env.ts` cai no ramo
-# frouxo e o app sobe sem configuração nenhuma, falhando na primeira query.
+# Deliberately scoped to the build stage: the secrets do not exist during
+# `next build`. If it leaks into runtime, `src/lib/env.ts` falls into the loose
+# branch and the app starts with no configuration, failing on the first query.
 ENV SKIP_ENV_VALIDATION=1
 RUN npm run build
 
@@ -27,14 +27,14 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
-# O entrypoint standalone do Next é gerado com
-# `const hostname = process.env.HOSTNAME || '0.0.0.0'`, e o Docker SEMPRE injeta
-# HOSTNAME com o ID do contêiner. Sem esta linha o processo escuta só no IP que
-# aquele hostname resolve — nunca em 0.0.0.0, nunca em 127.0.0.1. Atrás do
-# EasyPanel o contêiner entra em duas redes (a do serviço e a do proxy Traefik),
-# então o proxy pode acertar uma interface sem listener → 502, e um health check
-# em localhost nunca funcionaria. O ENV da imagem tem precedência sobre o valor
-# injetado pelo daemon.
+# Next's standalone entrypoint is generated with
+# `const hostname = process.env.HOSTNAME || '0.0.0.0'`, and Docker ALWAYS injects
+# HOSTNAME with the container ID. Without this line the process listens only on
+# the IP that hostname resolves to — never on 0.0.0.0, never on 127.0.0.1.
+# Behind EasyPanel the container joins two networks (the service one and the
+# Traefik proxy one), so the proxy may hit an interface with no listener → 502,
+# and a health check on localhost would never work. The image's ENV takes
+# precedence over the value injected by the daemon.
 ENV HOSTNAME=0.0.0.0
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 COPY --from=builder /app/public ./public
@@ -42,13 +42,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 USER nextjs
 EXPOSE 3000
-# `wget` vem do BusyBox na node:22-alpine. A rota /api/health não toca no banco
-# de propósito: uma oscilação do Supabase não pode virar restart de contêiner.
+# `wget` comes from BusyBox on node:22-alpine. The /api/health route does not
+# touch the database on purpose: a Supabase blip must not become a container
+# restart.
 #
-# A porta NÃO pode ser cravada: plataformas de deploy sobrescrevem PORT (o
-# EasyPanel injeta 80), e o Next escuta no valor efetivo. Um healthcheck fixo em
-# 3000 bateria numa porta sem listener e marcaria o contêiner como unhealthy
-# para sempre. Esta forma é shell, então ${PORT} expande em tempo de execução.
+# The port must NOT be hardcoded: deploy platforms override PORT (EasyPanel
+# injects 80), and Next listens on the effective value. A healthcheck pinned to
+# 3000 would hit a port with no listener and mark the container unhealthy
+# forever. This is the shell form, so ${PORT} expands at runtime.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:${PORT:-3000}/api/health || exit 1
 CMD ["node", "server.js"]

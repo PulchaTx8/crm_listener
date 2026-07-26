@@ -22,9 +22,9 @@ jobs:
         env:
           SKIP_ENV_VALIDATION: '1'
 
-  # pgTAP precisa de um Postgres com as migrations aplicadas. `supabase start`
-  # sobe o stack e roda as migrations; a CLI vem da action oficial, então este
-  # job não precisa de Node nem de `npm ci`.
+  # pgTAP needs a Postgres with the migrations applied. `supabase start` brings
+  # the stack up and runs the migrations; the CLI comes from the official
+  # action, so this job needs neither Node nor `npm ci`.
   db:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +34,7 @@ jobs:
           version: 2.109.1
       - run: supabase start
       - run: supabase test db
-      - name: Parar o stack
+      - name: Stop the stack
         if: always()
         run: supabase stop --no-backup
 
@@ -48,8 +48,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      # `playwright.config.ts` sobe o servidor (webServer) já com
-      # SKIP_ENV_VALIDATION=1, então não é preciso ambiente Supabase aqui.
+      # `playwright.config.ts` starts the server (webServer) already with
+      # SKIP_ENV_VALIDATION=1, so no Supabase environment is needed here.
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
