@@ -374,6 +374,10 @@ export type Database = {
         }[]
       }
       reactivate_company: { Args: { p_company_id: string }; Returns: undefined }
+      reset_provisional_password: {
+        Args: { p_user_id: string }
+        Returns: undefined
+      }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined

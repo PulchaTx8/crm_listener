@@ -53,9 +53,19 @@ export async function middleware(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('must_change_password')
+    .select('must_change_password, provisional_expires_at')
     .eq('id', user.id)
     .single();
+
+  // A provisional password travels outside the system and is treated as
+  // compromised, so it dies of old age (spec §6). Checked here rather than at
+  // sign-in because an already-open session must lose access too — Supabase
+  // Auth knows nothing about this column, so nothing else would stop it.
+  const expiresAt = profile?.provisional_expires_at;
+  if (profile?.must_change_password && expiresAt && Date.parse(expiresAt) <= Date.now()) {
+    await supabase.auth.signOut();
+    return NextResponse.redirect(new URL('/login?error=expired', request.url));
+  }
 
   // The gate has no holes: while the flag is set, every path other than the
   // change screen itself redirects to it.

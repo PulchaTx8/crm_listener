@@ -28,7 +28,13 @@ export default async function LoginPage({
   return (
     <main className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold">Sign in</h1>
-      {params.error ? <p className="text-sm text-destructive">Invalid credentials.</p> : null}
+      {params.error ? (
+        <p className="text-sm text-destructive">
+          {params.error === 'expired'
+            ? 'Your provisional password has expired. Please contact us for a new one.'
+            : 'Invalid credentials.'}
+        </p>
+      ) : null}
       <form action={signIn} className="flex flex-col gap-4">
         <input
           name="email"

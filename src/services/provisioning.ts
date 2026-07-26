@@ -3,7 +3,7 @@ import { randomInt } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/service-client';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
-import { InternalError, ValidationError } from '@/lib/errors';
+import { InternalError, UnauthorizedError, ValidationError } from '@/lib/errors';
 import { logger } from '@/lib/logger';
 import type { Database } from '@/lib/supabase/database.types';
 import type { ProvisionCustomerInput } from '@/schemas/provisioning';
@@ -90,6 +90,38 @@ export async function provisionCustomer(
     });
     throw new InternalError('Provisioning failed and was rolled back', { cause });
   }
+}
+
+/**
+ * Issues a fresh provisional password for an existing owner and restarts the
+ * seven-day clock. Without this, expiry would simply strand the customer.
+ *
+ * The permission-checked RPC runs FIRST, so a caller who is not a platform
+ * admin never reaches the Admin API and no password is changed. If the second
+ * step then fails, the gate has merely been reset — the operation is safe to
+ * retry.
+ */
+export async function regenerateProvisionalPassword(
+  userId: string,
+  accessToken: string,
+): Promise<string> {
+  const asAdmin = createUserScopedClient(accessToken);
+  const { error: rpcError } = await asAdmin.rpc('reset_provisional_password', {
+    p_user_id: userId,
+  });
+  if (rpcError) {
+    throw new UnauthorizedError(`Could not reset the provisional password: ${rpcError.message}`);
+  }
+
+  const password = generateProvisionalPassword();
+  const admin = createServiceClient();
+  const { error } = await admin.auth.admin.updateUserById(userId, { password });
+  if (error) {
+    throw new InternalError(`Could not set the new provisional password: ${error.message}`);
+  }
+
+  logger.info({ userId }, 'provisional password regenerated');
+  return password;
 }
 
 /**
