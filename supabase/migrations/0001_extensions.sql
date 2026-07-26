@@ -1,22 +1,23 @@
--- Extensões usadas pelo projeto.
+-- Extensions used by the project.
 --
--- O Supabase (local e hospedado) já instala a pgcrypto no schema `extensions`,
--- então `create extension if not exists pgcrypto;` — sem o `with schema` — era um
--- no-op silencioso que só *parecia* garantir alguma coisa. Declarar o schema
--- explicitamente documenta onde a extensão de fato vive e mantém a migração
--- correta caso rode num banco onde ela ainda não exista.
+-- Supabase (local and hosted) already installs pgcrypto in the `extensions`
+-- schema, so `create extension if not exists pgcrypto;` — without the
+-- `with schema` — was a silent no-op that only *looked* like it guaranteed
+-- something. Declaring the schema explicitly documents where the extension
+-- actually lives and keeps the migration correct if it ever runs against a
+-- database where it does not yet exist.
 --
--- Correção do comentário antigo: `gen_random_uuid()` NÃO vem da pgcrypto no
--- PG13+, e sim do `pg_catalog` (é builtin). Da pgcrypto o projeto usa `digest()`,
--- para hash de documento.
+-- Correction to the old comment: `gen_random_uuid()` does NOT come from
+-- pgcrypto on PG13+, it comes from `pg_catalog` (it is builtin). What the
+-- project uses from pgcrypto is `digest()`, for document hashing.
 --
--- ATENÇÃO — `digest()` mora em `extensions`, não em `public`. Toda função que
--- fixa a search_path no estilo de `public.rate_limit_hit`
--- (`set search_path = pg_catalog, public`) precisa chamá-la **totalmente
--- qualificada**, como `extensions.digest(...)`; sem isso o resolvedor não a
--- encontra e a função quebra em tempo de execução, não no deploy.
--- Conferido no banco real:
+-- WARNING — `digest()` lives in `extensions`, not in `public`. Any function
+-- that pins search_path the way `public.rate_limit_hit` does
+-- (`set search_path = pg_catalog, public`) must call it **fully qualified**, as
+-- `extensions.digest(...)`; without that the resolver cannot find it and the
+-- function breaks at runtime, not at deploy time.
+-- Checked against the real database:
 --   set search_path = pg_catalog, public;
 --   select to_regprocedure('digest(bytea,text)');            -- NULL
---   select to_regprocedure('extensions.digest(text,text)');  -- resolve
+--   select to_regprocedure('extensions.digest(text,text)');  -- resolves
 create extension if not exists pgcrypto with schema extensions;

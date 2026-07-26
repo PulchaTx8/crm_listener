@@ -1,5 +1,13 @@
 # Bloco 0 — Fundação Técnica — Implementation Plan
 
+> **HISTORICAL ARTIFACT — deliberately left in Portuguese.** This is the completed
+> record of an already-executed block, written before the English-only language
+> decision and the PulchaTX naming/vocabulary decision. It will never drive work
+> again, so it was excluded from the language migration. Its terminology is
+> pre-migration: read `docs/superpowers/specs/2026-07-25-crm-radios-multitenant-design.md`
+> for the current vocabulary, and `docs/language-migration-report.md` for the
+> scope call. Do not use this file as a naming reference.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Erguer o esqueleto do projeto Next.js/Supabase com todos os guard-rails (env validado no boot, dois clients Supabase isolados, taxonomia de erros, logging estruturado, mailer e rate-limit desacoplados, testes, CI e Docker), pronto para o Bloco 1 construir identidade/multi-tenant em cima.

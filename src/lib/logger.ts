@@ -1,11 +1,17 @@
 import pino from 'pino';
 
 /**
- * Nomes de campo que nunca podem ir para o log. A lista traz as variantes de
- * capitalização/grafia que este stack realmente produz — os `paths` do pino são
- * literais e case-sensitive, então `access_token` e `accessToken` são entradas
- * distintas. `access_token`/`refresh_token` são os nomes exatos dentro de uma
- * sessão do Supabase Auth.
+ * Field names that must never reach the log. The list carries the
+ * capitalization/spelling variants this stack actually produces — pino `paths`
+ * are literal and case-sensitive, so `access_token` and `accessToken` are
+ * distinct entries. `access_token`/`refresh_token` are the exact names inside a
+ * Supabase Auth session.
+ *
+ * The Portuguese entries (`senha`, `cpf`, `passaporte`) are deliberate and stay
+ * despite the English-only policy: they are *data* keys, not identifiers we
+ * own. The legacy database being migrated (and the Brazilian PII it carries)
+ * uses those column names, so dropping them from this list would be a silent
+ * redaction regression the day the ETL starts logging.
  */
 const REDACT_FIELDS = [
   'password',
@@ -31,13 +37,13 @@ const REDACT_FIELDS = [
 
 const CENSOR = '[REDACTED]';
 
-/** Redação nativa do pino: cobre o nível raiz e um nível de aninhamento. */
+/** Pino's native redaction: covers the root level and one nesting level. */
 const REDACT_PATHS = REDACT_FIELDS.flatMap((field) => [field, `*.${field}`]);
 
-/** Mesma lista, normalizada, para a varredura recursiva (case-insensitive). */
+/** Same list, normalized, for the recursive sweep (case-insensitive). */
 const SENSITIVE_KEYS = new Set(REDACT_FIELDS.map((field) => field.toLowerCase()));
 
-/** Objetos mais fundos que isto passam intactos — guarda contra logs patológicos. */
+/** Objects deeper than this pass through untouched — a guard against pathological logs. */
 const MAX_DEPTH = 8;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -76,20 +82,20 @@ function redactObject(
 }
 
 /**
- * O `redact` do pino (fast-redact) só entende curinga de UM nível (`*.campo`):
- * não existe `**`, então `session.user.cpf` escaparia. Um `censor` também não
- * resolve — ele só decide o valor de um path já casado, não descobre paths
- * novos. Por isso a varredura própria em `formatters.log`, que roda antes dos
- * stringifiers de redação (pino/lib/tools.js `_asJson`) e cobre profundidade
- * arbitrária e qualquer capitalização.
+ * Pino's `redact` (fast-redact) only understands a ONE-level wildcard
+ * (`*.field`): there is no `**`, so `session.user.cpf` would escape. A `censor`
+ * does not help either — it only decides the value of an already-matched path,
+ * it does not discover new paths. Hence the custom sweep in `formatters.log`,
+ * which runs before the redaction stringifiers (pino/lib/tools.js `_asJson`)
+ * and covers arbitrary depth and any capitalization.
  *
- * O `redact` nativo continua ativo porque ele — e não `formatters.log` — é o
- * que alcança os bindings de `child()` (`asChindings`), usados por
- * `withCorrelation`. Os dois são idempotentes entre si.
+ * Native `redact` stays enabled because it — and not `formatters.log` — is what
+ * reaches the `child()` bindings (`asChindings`) used by `withCorrelation`. The
+ * two are idempotent with respect to each other.
  *
- * A varredura só desce em objetos literais e arrays: Error, Date, Buffer e
- * instâncias de classe passam por referência, para não quebrar os serializers
- * do pino (o `err` serializer, em particular).
+ * The sweep only descends into plain objects and arrays: Error, Date, Buffer
+ * and class instances pass by reference, so as not to break pino's serializers
+ * (the `err` serializer in particular).
  */
 function redactLogObject(obj: Record<string, unknown>): Record<string, unknown> {
   const seen = new WeakSet<object>();

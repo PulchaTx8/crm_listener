@@ -1,9 +1,9 @@
-# Clients Supabase (decisão D4)
+# Supabase clients (decision D4)
 
-- `createUserClient()` — client por-requisição com o JWT do usuário (via cookies). **Padrão** para
-  toda leitura/escrita de dados de tenant. A RLS do banco é aplicada.
-- `createServiceClient()` — client `service_role`, marcado `server-only`. **RLS é ignorada.** Usar
-  APENAS em webhook do WhatsApp, jobs de cron, ETL de migração e operações de plataforma.
-  Funções `SECURITY DEFINER` chamadas com qualquer client re-checam permissão internamente (H2).
+- `createUserClient()` — per-request client carrying the user's JWT (via cookies). **The default**
+  for every read/write of tenant data. Database RLS is enforced.
+- `createServiceClient()` — `service_role` client, marked `server-only`. **RLS is bypassed.** Use it
+  ONLY in the WhatsApp webhook, cron jobs, migration ETL and platform operations.
+  `SECURITY DEFINER` functions re-check permission internally no matter which client calls them (H2).
 
-Nunca importar `service-client.ts` em componentes de cliente. Nunca expor `SUPABASE_SERVICE_ROLE_KEY`.
+Never import `service-client.ts` in client components. Never expose `SUPABASE_SERVICE_ROLE_KEY`.

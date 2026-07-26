@@ -3,7 +3,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getUserSupabaseConfig } from './config';
 
-// Client por-requisição com o JWT/sessão do usuário → RLS é aplicada de fato (D4).
+// Per-request client carrying the user's JWT/session → RLS is genuinely enforced (D4).
 export async function createUserClient(): Promise<SupabaseClient> {
   const { url, anonKey } = getUserSupabaseConfig();
   const cookieStore = await cookies();
@@ -14,8 +14,8 @@ export async function createUserClient(): Promise<SupabaseClient> {
         try {
           for (const { name, value, options } of toSet) cookieStore.set(name, value, options);
         } catch {
-          // Chamado de um Server Component: ignorável se o middleware renova a sessão.
-          // (padrão recomendado por @supabase/ssr)
+          // Called from a Server Component: ignorable if the middleware refreshes
+          // the session. (pattern recommended by @supabase/ssr)
         }
       },
     },

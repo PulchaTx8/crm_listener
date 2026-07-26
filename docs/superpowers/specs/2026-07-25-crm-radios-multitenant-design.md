@@ -1,85 +1,91 @@
-# CRM Multi-Tenant para Rádios — Documento de Design (v1)
+# PulchaTX — Multi-Tenant CRM Design Document (v1)
 
-- **Data:** 2026-07-25
-- **Status:** Aprovado para plano de implementação
-- **Revisão:** rev2 (2026-07-26) — 2ª passada de revisão: completude/segurança/LGPD (N1–N13). Ver §16 Changelog.
-- **Fonte:** "PROMPT MESTRE — Desenvolvimento de CRM Multi-Tenant para Rádios" (fornecido pelo proprietário)
-- **Autor da revisão:** sessão de brainstorming (Claude Code)
+- **Date:** 2026-07-25
+- **Status:** Approved for the implementation plan
+- **Revision:** rev3 (2026-07-26) — 3rd pass: language migration to English + PulchaTX vocabulary. See §16 Changelog.
+- **Source:** "MASTER PROMPT — Development of a Multi-Tenant CRM" (owner-supplied)
+- **Review author:** brainstorming session (Claude Code)
 
-Este documento consolida as decisões tomadas na sessão de brainstorming, refina a especificação-mestre e define o **plano de desenvolvimento em blocos**. Ele é a base para o plano de implementação (skill `writing-plans`).
+This document consolidates the decisions taken in the brainstorming session, refines the master specification and defines the **block-based development plan**. It is the basis for the implementation plan (skill `writing-plans`).
 
----
-
-## 1. Decisões-chave (fixadas nesta sessão)
-
-| # | Decisão | Escolha | Consequência |
-|---|---------|---------|--------------|
-| D1 | Plataforma | **Greenfield no Supabase/PostgreSQL** | O app existente em `pulsar-listener-crm` (Next.js + Prisma + SQL Server + NextAuth) é **arquivado**. O banco SQL Server legado do sistema "Listener" vira **apenas fonte de migração (ETL único)**. |
-| D2 | WhatsApp | **Core no v1** | Ingestão real de participações via WhatsApp Cloud API já no v1 (webhook com assinatura, idempotência, processamento assíncrono, reprocesso). |
-| D3 | Módulo Músicas | **No v1, com migração** | Domínio de músicas (catálogo, categorias, pedidos, programas) — **ausente na §22 da spec** — precisa ser **modelado do zero** e migrado do legado. |
-| D4 | Isolamento de tenant | **RLS + camada de serviço (defesa em profundidade)** | RLS ligada em toda tabela multi-tenant usando o JWT do usuário; backend opera com o token do usuário para dados de tenant; `service_role` restrito a rotinas de sistema (webhook, cron, ETL). |
-| D5 | Sequenciamento | **Núcleo-primeiro com fatia vertical (estratégia A)** | Fundação e multi-tenant primeiro; estoque de-riscado antes de tudo que depende dele; auditoria/observabilidade/testes de isolamento como cross-cutting desde o início. |
-
-**Regra para decisões não especificadas** (herdada da §36 da spec): escolher a alternativa **mais segura** e **mais simples de manter**, documentar, e criar **configuração por empresa** quando a regra puder variar.
-
-**Prioridades, nesta ordem:** segurança → integridade dos dados → isolamento multi-tenant → correção das regras de estoque → rastreabilidade → usabilidade → desempenho → extensibilidade → aparência.
+> **Vocabulary (owner decision, 2026-07-26).** The product is **PulchaTX**, a **CRM for entertainment companies** — it is explicitly *not* radio-only.
+> **Organization** (top level) → **Company/Station** (the business tenant) → data. Every multi-tenant table carries `organization_id` + `company_id`.
+> **Station** is the domain word for the customer's business; the underlying entity keeps its shipped identifiers — table `companies`, column `company_id`, RLS helper `has_company_access()`.
+> **Member** is the audience base that enters promotions and receives prizes (table `members`) — it replaces the former "Listener/Ouvinte".
+> Because `Member` now means the audience, internal panel-user links are named **`organization_memberships`** / **`company_memberships`** (never `*_members`).
 
 ---
 
-## 2. Visão do produto
+## 1. Key decisions (fixed in this session)
 
-CRM multi-tenant para emissoras de rádio gerenciarem o **relacionamento com ouvintes** e todo o **ciclo de distribuição de prêmios** de promoções. **Não** é CRM de vendas.
+| # | Decision | Choice | Consequence |
+|---|----------|--------|-------------|
+| D1 | Platform | **Greenfield on Supabase/PostgreSQL** | The existing app in `pulsar-listener-crm` (Next.js + Prisma + SQL Server + NextAuth) is **archived**. The legacy SQL Server database of the "Listener" system becomes **a migration source only (one-off ETL)**. |
+| D2 | WhatsApp | **Core in v1** | Real ingestion of participations via the WhatsApp Cloud API from v1 (signed webhook, idempotency, asynchronous processing, reprocessing). |
+| D3 | Music module | **In v1, with migration** | The music domain (catalog, categories, requests, shows) — **absent from §22 of the spec** — must be **modelled from scratch** and migrated from the legacy system. |
+| D4 | Tenant isolation | **RLS + service layer (defense in depth)** | RLS enabled on every multi-tenant table using the user's JWT; the backend operates with the user's token for tenant data; `service_role` restricted to system routines (webhook, cron, ETL). |
+| D5 | Sequencing | **Core-first with a vertical slice (strategy A)** | Foundation and multi-tenant first; inventory de-risked before everything that depends on it; audit/observability/isolation tests as cross-cutting concerns from the start. |
 
-Domínios: organizações → empresas/rádios → (ouvintes, prêmios, estoque, promoções, quizzes, participações, sorteios, entregas, retornos, músicas, relatórios, integrações).
+**Rule for unspecified decisions** (inherited from §36 of the spec): choose the **safest** and **simplest to maintain** alternative, document it, and create **per-Company configuration** whenever the rule may vary.
 
-Terminologia obrigatória (§2 da spec): **Usuário** (acesso administrativo), **Ouvinte** (base da rádio, sem acesso ao painel no v1), **Empresa/Rádio** (tenant de negócio), **Organização** (agrupa empresas de um proprietário/grupo).
+**Priorities, in this order:** security → data integrity → multi-tenant isolation → correctness of the inventory rules → traceability → usability → performance → extensibility → looks.
 
 ---
 
-## 3. Arquitetura
+## 2. Product vision
+
+Multi-tenant CRM for entertainment companies (**Stations**) to manage the **relationship with their Members** and the whole **prize distribution cycle** of promotions. It is **not** a sales CRM.
+
+Domains: Organizations → Companies/Stations → (members, prizes, inventory, promotions, quizzes, participations, draws, deliveries, returns, music, reports, integrations).
+
+Mandatory terminology (§2 of the spec): **User** (administrative access), **Member** (the Station's audience, no panel access in v1), **Company/Station** (the business tenant), **Organization** (groups the Companies of an owner/group).
+
+---
+
+## 3. Architecture
 
 ### 3.1 Stack
 
-- **Frontend/Backend:** Next.js (App Router), React, **TypeScript strict** (sem `any` sem justificativa), Server Components por padrão, Client Components só quando necessário. Server Actions e API Routes com separação clara de responsabilidades.
-- **UI:** Tailwind CSS + **shadcn/ui (Radix)** — acessível, sem lock-in. *(Substitui a mistura Bootstrap+Tailwind do app legado.)*
-- **Formulários/validação:** React Hook Form + **Zod** (validação em runtime, tipos derivados).
-- **Tabelas/estado servidor:** TanStack Table + TanStack Query; virtualização quando necessário.
-- **Gráficos:** Recharts. **Datas:** date-fns (+ date-fns-tz). **Export:** ExcelJS (Excel), CSV nativo, **`@react-pdf/renderer`** (PDF). *(L3: uma única lib de PDF.)*
-- **Banco/infra:** Supabase (PostgreSQL, Auth, Storage, RLS, migrations, funções PL/pgSQL, `pg_cron`, Edge Functions e Realtime **só onde agregam valor**).
-- **Testes (N9):** **Vitest** (unit/serviços), **Playwright** (e2e), e testes de **RLS/DB** com **pgTAP** *ou* harness que autentica como usuário real (JWT). *(Detalhe em §11.)*
-- **E-mail transacional do app (N10):** provedor desacoplado via interface `mailer` — **SMTP** (config por ambiente) com **Resend** como opção gerenciada. E-mails de **Auth** (confirm/reset/convite) usam o mecanismo do Supabase Auth; **notificações do app** usam o `mailer`.
-- **Rate limiting (N6):** store **compartilhado** (serverless não tem memória entre instâncias) — padrão **contador no Postgres** (tabela `rate_limit_counters` + função atômica); **Upstash Redis** como opção se o volume exigir. Interface desacoplada.
-- **Deploy:** Dockerfile completo + alvo Vercel (app) + Supabase gerenciado. Camada de armazenamento e integrações **desacopladas** para não acoplar a um único provedor.
+- **Frontend/Backend:** Next.js (App Router), React, **TypeScript strict** (no unjustified `any`), Server Components by default, Client Components only when necessary. Server Actions and API Routes with a clear separation of responsibilities.
+- **UI:** Tailwind CSS + **shadcn/ui (Radix)** — accessible, no lock-in. *(Replaces the legacy app's Bootstrap+Tailwind mix.)*
+- **Forms/validation:** React Hook Form + **Zod** (runtime validation, derived types).
+- **Tables/server state:** TanStack Table + TanStack Query; virtualization when needed.
+- **Charts:** Recharts. **Dates:** date-fns (+ date-fns-tz). **Export:** ExcelJS (Excel), native CSV, **`@react-pdf/renderer`** (PDF). *(L3: a single PDF library.)*
+- **Database/infra:** Supabase (PostgreSQL, Auth, Storage, RLS, migrations, PL/pgSQL functions, `pg_cron`, Edge Functions and Realtime **only where they add value**).
+- **Tests (N9):** **Vitest** (unit/services), **Playwright** (e2e), and **RLS/DB** tests with **pgTAP** *or* a harness that authenticates as a real user (JWT). *(Detail in §11.)*
+- **Transactional app e-mail (N10):** provider decoupled behind a `mailer` interface — **SMTP** (configured per environment) with **Resend** as the managed option. **Auth** e-mails (confirm/reset/invite) use the Supabase Auth mechanism; **app notifications** use the `mailer`.
+- **Rate limiting (N6):** **shared** store (serverless has no memory across instances) — default is a **counter in Postgres** (`rate_limit_counters` table + atomic function); **Upstash Redis** as an option if volume demands it. Decoupled interface.
+- **Deploy:** full Dockerfile + Vercel target (app) + managed Supabase. Storage layer and integrations **decoupled** so as not to couple to a single provider.
 
-### 3.2 Camadas (por feature)
+### 3.2 Layers (per feature)
 
 ```
 UI (Server/Client Components)
-  → Server Actions / API Routes  (autenticação + orquestração)
-    → services/       (regra de negócio, autorização granular, orquestração)
-      → repositories/ (acesso a dados/queries via client do usuário → RLS aplicada)
-        → RPC PL/pgSQL (operações atômicas críticas: estoque, sorteio, entrega)
-schemas/  (Zod)   permissions/  (RBAC)   audit/  (trilha)   lib/integrations/ (desacoplada)
+  → Server Actions / API Routes  (authentication + orchestration)
+    → services/       (business rules, granular authorization, orchestration)
+      → repositories/ (data access/queries via the user client → RLS enforced)
+        → PL/pgSQL RPC (critical atomic operations: inventory, draw, delivery)
+schemas/  (Zod)   permissions/  (RBAC)   audit/  (trail)   lib/integrations/ (decoupled)
 ```
 
-Regras: sem lógica de negócio dentro de componentes React; sem duplicação de regra em múltiplos lugares; arquivos focados (um propósito claro por unidade).
+Rules: no business logic inside React components; no rule duplicated in multiple places; focused files (one clear purpose per unit).
 
-**H2 — Onde vivem as transações.** Com o client de usuário via PostgREST/JWT (D4) **não** se executa transação multi-statement interativa a partir do Next.js. Portanto, **toda operação atômica multi-passo (vincular, desvincular, reservar, sortear, cancelar sorteio, entregar, retornar, baixar, ajustar) é encapsulada em uma função PL/pgSQL chamada por RPC** (`.rpc(...)`). A camada `services/` orquestra e valida permissão; a atomicidade e as invariantes ficam na função do banco. Leituras e CRUD simples continuam por PostgREST com RLS.
+**H2 — Where transactions live.** With the user client going through PostgREST/JWT (D4) you **cannot** run an interactive multi-statement transaction from Next.js. Therefore **every atomic multi-step operation (link, unlink, reserve, draw, cancel draw, deliver, return, write off, adjust) is encapsulated in a PL/pgSQL function called by RPC** (`.rpc(...)`). The `services/` layer orchestrates and validates permission; atomicity and invariants live in the database function. Reads and simple CRUD keep going through PostgREST with RLS.
 
-### 3.3 Dois clients Supabase (decisão D4)
+### 3.3 Two Supabase clients (decision D4)
 
-- **Client de usuário (padrão):** criado por requisição com o **JWT/sessão do usuário**. Toda leitura/escrita de dados de tenant passa por ele → **RLS é aplicada de fato**.
-- **Client de sistema (`service_role`, isolado):** usado **somente** em: webhook do WhatsApp, jobs de cron, ETL de migração e operações de plataforma. Nunca exposto ao cliente; nunca usado para atender request de usuário comum.
-- **Funções `SECURITY DEFINER` re-autorizam por conta própria (H2/H3).** Funções RPC que precisem escrever o ledger/projeção ou consultar no escopo da organização podem rodar como `SECURITY DEFINER` (contornando RLS). Nesse caso **é obrigatório** re-checar tenant + permissão **dentro do corpo** da função (`has_company_access`, `has_permission`), pois a RLS não as protege. Auditar toda invocação.
+- **User client (default):** created per request with the **user's JWT/session**. Every read/write of tenant data goes through it → **RLS is genuinely enforced**.
+- **System client (`service_role`, isolated):** used **only** in: the WhatsApp webhook, cron jobs, migration ETL and platform operations. Never exposed to the client; never used to serve an ordinary user request.
+- **`SECURITY DEFINER` functions re-authorize on their own (H2/H3).** RPC functions that need to write the ledger/projection or query at organization scope may run as `SECURITY DEFINER` (bypassing RLS). In that case it is **mandatory** to re-check tenant + permission **inside the function body** (`has_company_access`, `has_permission`), because RLS does not protect them. Audit every invocation.
 
-A camada de serviço **sempre** valida permissão granular antes de operar (autorização no backend), mesmo com RLS ligada — defesa em profundidade.
+The service layer **always** validates granular permission before operating (backend authorization), even with RLS enabled — defense in depth.
 
-### 3.4 Estrutura de pastas (alvo)
+### 3.4 Folder structure (target)
 
 ```
 src/
   app/ components/
-  features/ { auth, organizations, companies, users, listeners, prizes,
+  features/ { auth, organizations, companies, users, members, prizes,
               inventory, promotions, quizzes, participations, draws,
               deliveries, returns, music, reports, integrations, admin }
   lib/ services/ repositories/ schemas/ types/ hooks/ utils/ constants/
@@ -90,284 +96,291 @@ tests/ docs/
 
 ---
 
-## 4. Modelo de dados
+## 4. Data model
 
-### 4.1 Tabelas da spec (§22) — mantidas
+### 4.1 Tables from the spec (§22) — retained
 
-Identidade/tenant: `profiles, organizations, organization_members, companies, company_members, roles, permissions, role_permissions, member_roles, invitations` *(N1)*.
+Identity/tenant: `profiles, organizations, organization_memberships, companies, company_memberships, roles, permissions, role_permissions, membership_roles, invitations` *(N1)*.
 
-Ouvintes: `listeners, listener_company_links, listener_consents, listener_notes, listener_documents, listener_blocks`.
+Members: `members, member_company_links, member_consents, member_notes, member_documents, member_blocks`.
 
-Prêmios/estoque: `prize_categories, prizes, inventory_movements` (ledger), `inventory_balances` (projeção por prêmio), `promotion_prize_balances` (projeção por promoção — ver §5/H1).
-- **M1:** `inventory_locations` e os movimentos `TRANSFER_IN/TRANSFER_OUT` **saem do v1** (YAGNI). O saldo é por `(empresa, prêmio)`. Reintroduzir `location_id` só quando houver depósito múltiplo real.
+Prizes/inventory: `prize_categories, prizes, inventory_movements` (ledger), `inventory_balances` (per-prize projection), `promotion_prize_balances` (per-promotion projection — see §5/H1).
+- **M1:** `inventory_locations` and the `TRANSFER_IN/TRANSFER_OUT` movements are **out of v1** (YAGNI). Balance is per `(company, prize)`. Reintroduce `location_id` only when there is a real multi-warehouse need.
 
-Promoções: `promotions, promotion_whatsapp_settings, promotion_requested_fields, promotion_questions, promotion_question_options, promotion_prizes`.
+Promotions: `promotions, promotion_whatsapp_settings, promotion_requested_fields, promotion_questions, promotion_question_options, promotion_prizes`.
 
-Participações/sorteio/entrega: `participations, participation_answers, draws, draw_entries, winners, winner_status_history, deliveries, delivery_documents, return_cases, return_case_history`.
+Participations/draw/delivery: `participations, participation_answers, draws, draw_entries, winners, winner_status_history, deliveries, delivery_documents, return_cases, return_case_history`.
 
 Infra: `files, integrations, webhook_events, notifications, audit_logs, saved_reports`.
-- **L3:** `files` é a **tabela genérica** de arquivos (bucket, path imprevisível, MIME, tamanho, owner, retenção); `listener_documents` e `delivery_documents` **referenciam** `files`. `notifications` no v1 tem canais **in-app** (padrão) e **e-mail** (via `mailer`, §3.1).
+- **L3:** `files` is the **generic** file table (bucket, unpredictable path, MIME, size, owner, retention); `member_documents` and `delivery_documents` **reference** `files`. In v1 `notifications` has **in-app** (default) and **e-mail** (via `mailer`, §3.1) channels.
 
-### 4.2 Domínio Músicas — **novo** (gap da §22, decisão D3)
+### 4.2 Music domain — **new** (gap in §22, decision D3)
 
-Todas com `organization_id` + `company_id` + timestamps + soft delete:
+All of them with `organization_id` + `company_id` + timestamps + soft delete:
 
-- `music_genres` — categorias/gêneros de música. *(legado: derivado de `catalog_medias`)*
-- `record_labels` — gravadoras. *(legado: `Cad_Gravadoras`)*
-- `artists` — artistas/intérpretes. *(legado: `catalog_artists`)*
-- `songs` (mídias) — título, `artist_id`, `label_id`, `genre_id`, **nacionalidade** (nacional/internacional), **gênero vocal** (masculina/feminina), duração, código interno, status. *(legado: `catalog_medias`)*
-- `radio_shows` — programas da rádio. *(legado: `listener_shows`)*
-- `music_requests` (pedidos musicais) — `listener_id`, `song_id`, `show_id`, canal/origem, `requested_at`, status. *(legado: `ouvintes_ped_musica`)*
+- `music_genres` — music categories/genres. *(legacy: derived from `catalog_medias`)*
+- `record_labels` — record labels. *(legacy: `Cad_Gravadoras`)*
+- `artists` — artists/performers. *(legacy: `catalog_artists`)*
+- `songs` (media) — title, `artist_id`, `label_id`, `genre_id`, **nationality** (domestic/international), **vocal gender** (male/female), duration, internal code, status. *(legacy: `catalog_medias`)*
+- `shows` — the Station's shows/programmes. *(legacy: `listener_shows`)*
+- `music_requests` — `member_id`, `song_id`, `show_id`, channel/origin, `requested_at`, status. *(legacy: `ouvintes_ped_musica`)*
 
-Estes indicadores alimentam o **Dashboard de Músicas** (total, novas no período, mais pedida, categoria mais pedida, nacional/internacional, masculina/feminina).
+These indicators feed the **Music Dashboard** (total, new in the period, most requested, most requested category, domestic/international, male/female).
 
-### 4.3 Tabelas adicionais — **ideias incorporadas + achados**
+### 4.3 Additional tables — **incorporated ideas + findings**
 
-- `idempotency_keys` — chave genérica reutilizável para Server Actions sensíveis (entrega, vínculo) além de webhooks (ideia #2).
-- `entitlements` — recursos/limites contratados por empresa; base para o "Administrador libera recursos" e faturamento futuro (ideia #4).
-- `outbox_messages` — outbox para saídas confiáveis (WhatsApp/IA/webhooks de saída) com reprocesso (ideia #5).
-- `platform_admins` — vínculo de usuários que são **Administrador (dono do App)**, cross-tenant.
-- `invitations` *(N1)* — convite de usuário: `organization_id`, `company_id?`, `email`, `role_id`, `token` (hash), `status` (`PENDING/ACCEPTED/REVOKED/EXPIRED`), `expires_at`, `invited_by`.
-- `document_access_logs` *(N2)* — log por visualização de documento sensível: `file_id`, `listener_id?`, `company_id`, `viewed_by`, `viewed_at`, `ip`, `user_agent`, `purpose`.
-- `rate_limit_counters` *(N6)* — contadores atômicos para rate limiting no Postgres (chave, janela, contagem) quando não se usar Redis.
+- `idempotency_keys` — generic reusable key for sensitive Server Actions (delivery, linking) beyond webhooks (idea #2).
+- `entitlements` — features/limits contracted per Company; the basis for "the Administrator enables features" and future billing (idea #4).
+- `outbox_messages` — outbox for reliable outbound traffic (WhatsApp/AI/outbound webhooks) with reprocessing (idea #5).
+- `platform_admins` — link for users who are the **Administrator (App owner)**, cross-tenant.
+- `invitations` *(N1)* — user invitation: `organization_id`, `company_id?`, `email`, `role_id`, `token` (hashed), `status` (`PENDING/ACCEPTED/REVOKED/EXPIRED`), `expires_at`, `invited_by`.
+- `document_access_logs` *(N2)* — one log row per view of a sensitive document: `file_id`, `member_id?`, `company_id`, `viewed_by`, `viewed_at`, `ip`, `user_agent`, `purpose`.
+- `rate_limit_counters` *(N6)* — atomic counters for rate limiting in Postgres (key, window, count) when Redis is not used.
 
-### 4.4 Convenções de schema
+### 4.4 Schema conventions
 
-UUID em PKs; `timestamptz` (armazenar em UTC, exibir no fuso da empresa); FKs, checks, unicidade e índices explícitos; **soft delete** (`deleted_at`), status e anonimização em vez de exclusão física; versionamento otimista onde necessário. Índices compostos por `organization_id`, `company_id`, `status`, datas, promoção, ouvinte, prêmio, **telefone normalizado** e **documento normalizado (hash)** — cada índice documentado (§22).
+UUID primary keys; `timestamptz` (store in UTC, display in the Company's timezone); explicit FKs, checks, uniqueness and indexes; **soft delete** (`deleted_at`), status and anonymization instead of physical deletion; optimistic versioning where needed. Composite indexes on `organization_id`, `company_id`, `status`, dates, promotion, member, prize, **normalized phone** and **normalized document (hash)** — every index documented (§22).
 
-- **N5 — Unicidade × soft delete.** Toda restrição de unicidade de negócio (telefone/e-mail/CPF-hash/passaporte por org; código de integração de promoção; código interno de prêmio) é implementada como **índice único parcial** `... WHERE deleted_at IS NULL`, para permitir arquivar e recadastrar sem colidir com registros logicamente excluídos.
-- **L2 — Fuso nos filtros de período.** Todo recorte "mês atual / mês anterior / ano atual / período personalizado / comparação" (dashboard e relatórios) calcula os limites **no fuso da empresa** (`companies.timezone`), não em UTC.
+- **N5 — Uniqueness × soft delete.** Every business uniqueness constraint (phone/e-mail/CPF-hash/passport per org; promotion integration code; prize internal code) is implemented as a **partial unique index** `... WHERE deleted_at IS NULL`, so records can be archived and re-registered without colliding with logically deleted rows.
+- **L2 — Timezone in period filters.** Every "current month / previous month / current year / custom period / comparison" slice (dashboard and reports) computes its bounds **in the Company's timezone** (`companies.timezone`), not in UTC.
 
-### 4.5 Ouvinte: escopo organização × acesso por empresa (H3)
+### 4.5 Member: organization scope × per-Company access (H3)
 
-O ouvinte é **compartilhado na organização** (dedup por org; a tela de detalhes mostra "empresas em que participou") mas o **acesso é por empresa**. Regra explícita:
+A Member is **shared across the Organization** (deduplicated per org; the detail screen shows "Companies they took part in") but **access is per Company**. Explicit rule:
 
-- **Visibilidade:** um usuário só enxerga um `listener` que tenha `listener_company_links` para **ao menos uma empresa a que ele tem acesso** (RLS via `EXISTS` + `has_company_access`, nunca `USING (true)`).
-- **Detalhes agregados entre empresas:** o histórico "empresas em que participou" só lista empresas a que o usuário tem acesso.
-- **Dedup no escopo da org sem vazamento:** verificação de duplicidade via função **`SECURITY DEFINER`** no escopo da org que retorna apenas **"existe / não existe" (+ id quando o usuário já tem acesso)**. Fusão de duplicados exige permissão elevada e é auditada.
+- **Visibility:** a user only sees a `member` that has `member_company_links` for **at least one Company they have access to** (RLS via `EXISTS` + `has_company_access`, never `USING (true)`).
+- **Cross-Company aggregated details:** the "Companies they took part in" history only lists Companies the user has access to.
+- **Org-scoped dedup without leakage:** duplicate checking via a **`SECURITY DEFINER`** function at org scope that returns only **"exists / does not exist" (+ the id when the user already has access)**. Merging duplicates requires an elevated permission and is audited.
 
 ---
 
-## 5. Regras de estoque (núcleo crítico)
+## 5. Inventory rules (critical core)
 
-Modelo **ledger + duas projeções** (§14.2–14.3, §24):
+Model: **ledger + two projections** (§14.2–14.3, §24):
 
-- `inventory_movements` = **ledger imutável**. Nunca editar/excluir; correção só por novo movimento.
-- `inventory_balances` = **projeção por `(empresa, prêmio)`** (visão contábil de estoque).
-- `promotion_prize_balances` = **projeção por `promotion_prize`** — vinculado / sorteado / entregue / restante **por promoção** (**H1**). Toda movimentação que cita promoção atualiza **as duas** projeções na mesma transação.
+- `inventory_movements` = **immutable ledger**. Never edit/delete; corrections only via a new movement.
+- `inventory_balances` = **projection per `(company, prize)`** (accounting view of stock).
+- `promotion_prize_balances` = **projection per `promotion_prize`** — linked / drawn / delivered / remaining **per promotion** (**H1**). Every movement that names a promotion updates **both** projections in the same transaction.
 
-**Por que duas projeções (H1):** um mesmo prêmio pode estar vinculado a várias promoções ao mesmo tempo; "vinculado/sorteado/aguardando retirada/entregue" só fazem sentido por `(prêmio, promoção)`.
+**Why two projections (H1):** the same prize may be linked to several promotions at once; "linked/drawn/awaiting pickup/delivered" only make sense per `(prize, promotion)`.
 
-**Modelo de "baldes" (partição do estoque físico) e equação canônica (M5):**
+**"Bucket" model (partition of physical stock) and canonical equation (M5):**
 
 ```
-estoque_físico     = disponível + reservado + vinculado + aguardando_retirada + retorno_pendente
-estoque_utilizável = disponível           (livre para vincular/sortear; reservado NÃO conta)
-(fora do físico)   = entregue, baixado
+physical_stock  = available + reserved + linked + awaiting_pickup + pending_return
+usable_stock    = available            (free to link/draw; reserved does NOT count)
+(outside physical) = delivered, written_off
 ```
 
-| Movimento | Efeito |
-|-----------|--------|
-| `INITIAL_ENTRY` / `PURCHASE_ENTRY` / `MANUAL_ENTRY` / `ADJUSTMENT_POSITIVE` | + disponível |
-| `MANUAL_EXIT` / `ADJUSTMENT_NEGATIVE` | − disponível |
-| `RESERVATION` / `RESERVATION_RELEASE` | disponível ↔ reservado |
-| `PROMOTION_LINK` / `PROMOTION_UNLINK` | disponível ↔ vinculado |
-| `DRAW` / `DRAW_CANCEL` | vinculado ↔ aguardando_retirada |
-| `DELIVERY` | aguardando_retirada → entregue |
-| `RETURN_PENDING` | aguardando_retirada → retorno_pendente |
-| `RETURN_TO_STOCK` | retorno_pendente → disponível |
-| `WRITE_OFF` | (retorno_pendente | aguardando_retirada) → baixado |
+| Movement | Effect |
+|----------|--------|
+| `INITIAL_ENTRY` / `PURCHASE_ENTRY` / `MANUAL_ENTRY` / `ADJUSTMENT_POSITIVE` | + available |
+| `MANUAL_EXIT` / `ADJUSTMENT_NEGATIVE` | − available |
+| `RESERVATION` / `RESERVATION_RELEASE` | available ↔ reserved |
+| `PROMOTION_LINK` / `PROMOTION_UNLINK` | available ↔ linked |
+| `DRAW` / `DRAW_CANCEL` | linked ↔ awaiting_pickup |
+| `DELIVERY` | awaiting_pickup → delivered |
+| `RETURN_PENDING` | awaiting_pickup → pending_return |
+| `RETURN_TO_STOCK` | pending_return → available |
+| `WRITE_OFF` | (pending_return \| awaiting_pickup) → written_off |
 
-**Invariantes (validadas na função RPC, em transação, + `CHECK >= 0` em cada balde):** todo balde ≥ 0; cada transição confere o balde de origem antes de mover; não vincular > disponível; não sortear > vinculado; não entregar > aguardando_retirada; não desvincular abaixo do já sorteado (projeção por promoção — H1); não entregar o mesmo prêmio sorteado duas vezes (idempotência).
+**Invariants (validated in the RPC function, inside a transaction, + `CHECK >= 0` on each bucket):** every bucket ≥ 0; each transition checks the source bucket before moving; do not link more than available; do not draw more than linked; do not deliver more than awaiting_pickup; do not unlink below what has already been drawn (per-promotion projection — H1); do not deliver the same drawn prize twice (idempotency).
 
-Toda operação roda em **função PL/pgSQL (RPC)** com **lock** (`SELECT ... FOR UPDATE` na linha de saldo) + **chave de idempotência** + registro em `audit_logs`. Ver H2 (§3.2/§3.3) sobre `SECURITY DEFINER`.
+Every operation runs in a **PL/pgSQL function (RPC)** with a **lock** (`SELECT ... FOR UPDATE` on the balance row) + an **idempotency key** + a record in `audit_logs`. See H2 (§3.2/§3.3) about `SECURITY DEFINER`.
 
-**Job de reconciliação** (ideia #3): recalcula ambas as projeções a partir do ledger e alerta divergências.
-
----
-
-## 6. Sorteio, prazo e entrega
-
-- **Sorteio** (§17): elegibilidade validada (exclui bloqueado), método manual ou aleatório com **CSPRNG** ou processo reproduzível/auditável (guardar seed + algoritmo); registra participantes elegíveis, parâmetros, ganhadores, suplentes e evidência de auditoria; permite cancelar/refazer com justificativa.
-- **Efeito do sorteio no estoque:** movimento `DRAW` move vinculado → aguardando_retirada (nas duas projeções), associa ao ouvinte, impede dupla atribuição.
-- **Cadeia referencial (M4):** `draw → winner → delivery` carrega `promotion_prize_id` (e `draw_id`/`winner_id`) para a **entrega decrementar o contador da promoção correta**. `deliveries` referencia `winners`; `winners` referencia `draw_entries`/`promotion_prizes`.
-- **Prazo de retirada** (§18): **congelado no momento do sorteio**. Prêmio pode ter prazo padrão; promoção pode sobrescrever.
-- **Cron de prazos** (`pg_cron` + Edge Function, idempotente): processa prazos vencidos → `RETURN_PENDING` + notifica; permite prorrogar/retornar/baixar. Falha de cron gera alerta (§31).
-- **Suplentes (N8):** quando o ganhador não retira (retorno/baixa), há fluxo explícito **promover suplente**: cria novo `winner` a partir do suplente, **recalcula/rearma o prazo**, gera movimentação de estoque coerente (o prêmio volta de `retorno_pendente`/`aguardando_retirada` para o novo ganhador) e registra em `winner_status_history`.
-- **Flag "permite retorno" (N11):** o fluxo de retorno respeita o campo `prizes.permite_retorno_ao_estoque`: se **verdadeiro**, oferece `RETURN_TO_STOCK`; se **falso**, o desfecho é `WRITE_OFF` (com motivo obrigatório). A UI não oferece retorno quando o prêmio não permite.
-- **Entrega** (§13.4): fluxo transacional idempotente — localizar ouvinte → conferir → responsável/documento mascarado → **comprovante em bucket privado** → confirmar → movimento `DELIVERY` → auditoria → comprovante.
+**Reconciliation job** (idea #3): recomputes both projections from the ledger and alerts on divergences.
 
 ---
 
-## 7. RBAC e permissões (§7)
+## 6. Draw, deadline and delivery
 
-Papéis: **Proprietário** (dono da organização), **Operador**, **Consulta**, e **Administrador = dono do App** (super-admin cross-tenant, via `platform_admins` / `is_platform_admin()`).
+- **Draw** (§17): eligibility validated (excludes blocked members), manual or random method with **CSPRNG** or a reproducible/auditable process (store seed + algorithm); records eligible participants, parameters, winners, runners-up and audit evidence; allows cancelling/redoing with a justification.
+- **Effect of the draw on inventory:** the `DRAW` movement moves linked → awaiting_pickup (in both projections), associates the prize with the Member and prevents double assignment.
+- **Referential chain (M4):** `draw → winner → delivery` carries `promotion_prize_id` (and `draw_id`/`winner_id`) so that **the delivery decrements the correct promotion's counter**. `deliveries` references `winners`; `winners` references `draw_entries`/`promotion_prizes`.
+- **Pickup deadline** (§18): **frozen at the moment of the draw**. A prize may have a default deadline; a promotion may override it.
+- **Deadline cron** (`pg_cron` + Edge Function, idempotent): processes expired deadlines → `RETURN_PENDING` + notifies; allows extending/returning/writing off. A cron failure raises an alert (§31).
+- **Runners-up (N8):** when the winner does not collect the prize (return/write-off), there is an explicit **promote runner-up** flow: it creates a new `winner` from the runner-up, **recomputes/rearms the deadline**, generates a coherent inventory movement (the prize moves back from `pending_return`/`awaiting_pickup` to the new winner) and records it in `winner_status_history`.
+- **"Allows return" flag (N11):** the return flow honours the `prizes.allows_return_to_stock` field: if **true**, it offers `RETURN_TO_STOCK`; if **false**, the outcome is `WRITE_OFF` (with a mandatory reason). The UI does not offer a return when the prize does not allow it.
+- **Delivery** (§13.4): idempotent transactional flow — locate Member → verify → responsible party/masked document → **receipt in a private bucket** → confirm → `DELIVERY` movement → audit → receipt.
 
-Papéis e permissões são **dados** (`roles, permissions, role_permissions, member_roles`), com granularidade por empresa. Permissões granulares (ex.: `listeners.create`, `inventory.reserve`, `promotions.publish`, `deliveries.execute`, `reports.export`, `users.invite`, `companies.manage`) + **`reports.consolidated`** para visão consolidada.
+---
 
-**Convites (N1):** o Proprietário/usuário com `users.invite` gera um `invitations` (token com hash + expiração) → e-mail via `mailer` → o convidado aceita (autentica no Supabase Auth) → o aceite cria `organization_members`/`company_members` com o papel do convite e marca `ACCEPTED`. Convite pode ser **revogado** e **expira**.
+## 7. RBAC and permissions (§7)
 
-Ciclo de empresa: criada pelo Proprietário → **pendente** → **liberada pelo Administrador**. O Administrador também bloqueia empresas/usuários e libera recursos (`entitlements`).
+Roles: **Owner** (owner of the Organization), **Operator**, **Viewer**, and **Administrator = App owner** (cross-tenant super-admin, via `platform_admins` / `is_platform_admin()`).
 
-**Toda operação sensível valida permissão no backend** (§33).
+Roles and permissions are **data** (`roles, permissions, role_permissions, membership_roles`), with per-Company granularity. Granular permissions (e.g. `members.create`, `inventory.reserve`, `promotions.publish`, `deliveries.execute`, `reports.export`, `users.invite`, `companies.manage`) + **`reports.consolidated`** for the consolidated view.
+
+**Invitations (N1):** the Owner, or a user holding `users.invite`, creates an `invitations` row (hashed token + expiry) → e-mail via `mailer` → the invitee accepts (authenticating with Supabase Auth) → acceptance creates `organization_memberships`/`company_memberships` with the invitation's role and marks it `ACCEPTED`. An invitation can be **revoked** and it **expires**.
+
+Company lifecycle: created by the Owner → **pending** → **enabled by the Administrator**. The Administrator also blocks Companies/users and enables features (`entitlements`).
+
+**Every sensitive operation validates permission in the backend** (§33).
 
 ---
 
 ## 8. RLS (§23)
 
-- RLS **ativa** em todas as tabelas multi-tenant, cobrindo `SELECT/INSERT/UPDATE/DELETE`.
-- Funções auxiliares: `is_org_member(org)`, `has_company_access(company)`, `has_permission(perm, company)`, `is_owner(org)`, `is_platform_admin()`, `belongs_to_tenant(record)`.
-- **Ouvintes (H3):** política por `EXISTS` sobre `listener_company_links` + `has_company_access`; dedup via `SECURITY DEFINER` que só devolve existência.
-- **Funções `SECURITY DEFINER` (H2):** re-checam tenant + permissão internamente e auditam. Padrão obrigatório e coberto por teste.
-- **Storage (N12):** buckets **privados**; políticas RLS em `storage.objects` restringindo por **prefixo de caminho por empresa** (`{company_id}/...`); nada de bucket público para documentos. Upload/download só pelo backend (ver N2).
-- **Proibido** `USING (true)`. `organization_id`/`company_id` do cliente nunca aceitos sem checagem.
-- Super-admin tem bypass **controlado e auditado** via `is_platform_admin()`, nunca via `service_role` exposto.
+- RLS **enabled** on every multi-tenant table, covering `SELECT/INSERT/UPDATE/DELETE`.
+- Helper functions: `is_org_member(org)`, `has_company_access(company)`, `has_permission(perm, company)`, `is_owner(org)`, `is_platform_admin()`, `belongs_to_tenant(record)`.
+- **Members (H3):** policy via `EXISTS` over `member_company_links` + `has_company_access`; dedup via a `SECURITY DEFINER` function that only returns existence.
+- **`SECURITY DEFINER` functions (H2):** re-check tenant + permission internally and audit. A mandatory pattern, covered by tests.
+- **Storage (N12):** **private** buckets; RLS policies on `storage.objects` restricting by **per-Company path prefix** (`{company_id}/...`); no public bucket for documents. Upload/download only through the backend (see N2).
+- **Forbidden:** `USING (true)`. `organization_id`/`company_id` coming from the client are never accepted without a check.
+- The super-admin has a **controlled and audited** bypass via `is_platform_admin()`, never via an exposed `service_role`.
 
 ---
 
-## 9. Segurança e LGPD (§8, §9)
+## 9. Security and LGPD (§8, §9)
 
-Segurança: validação Zod + UUID; sanitização; proteção SQLi/XSS/CSRF; cookies seguros; headers + **CSP baseada em nonce** (Next.js); limite/validação de upload (tamanho, MIME, extensão); nomes de arquivo imprevisíveis; **URLs assinadas** para documentos privados; **rate limiting com store compartilhado** (N6); bloqueio de tentativas; logs de segurança; proteção contra enumeração de usuários; mensagens de erro sem detalhes internos; segredos só no servidor; env validado no boot; menor privilégio. Nunca expor `service_role`, segredos de webhook, tokens, credenciais, dados sensíveis, caminhos internos ou stack traces em produção.
+Security: Zod + UUID validation; sanitization; SQLi/XSS/CSRF protection; secure cookies; headers + **nonce-based CSP** (Next.js); upload limit/validation (size, MIME, extension); unpredictable file names; **signed URLs** for private documents; **rate limiting with a shared store** (N6); attempt lockout; security logs; protection against user enumeration; error messages without internal details; secrets server-side only; env validated at boot; least privilege. Never expose `service_role`, webhook secrets, tokens, credentials, sensitive data, internal paths or stack traces in production.
 
 LGPD:
-- Minimização; finalidade; consentimento (data + origem); anonimização; exclusão lógica; retenção configurável; trilha de auditoria; controle de acesso a documentos; **registro de quem consultou dado sensível**; exportação do titular; anonimização do titular.
-- **CPF/passaporte:** **hash normalizado** para dedup + últimos dígitos mascarados; imagem de documento **só em bucket privado**, acesso por empresa, log de visualização e retenção configurável (ideia #7).
-- **Log por visualização de documento (N2):** a exigência "registrar quem visualizou" **não** é atendida por signed URL pura (reutilizável). Decisão: **downloads passam por um endpoint proxy do app** que (a) checa permissão, (b) grava `document_access_logs`, (c) faz stream do arquivo; a signed URL é interna, com **expiração curta**, nunca entregue direto ao cliente para documentos sensíveis.
-- **Anonimização × auditoria imutável (N4):** `audit_logs` é imutável, mas não pode "ressuscitar" dado pessoal de um titular anonimizado. Política: para entidades com dado pessoal, os campos sensíveis são gravados na auditoria **mascarados/pseudonimizados** (ou como referência ao `listener_id`, não o valor cru). A anonimização do titular substitui os dados na tabela de origem; o histórico de auditoria mantém apenas a forma pseudonimizada. O **evento** de anonimização é auditado.
-- **Retenção (N7):** **cron de retenção** (`pg_cron`) percorre documentos e dados de titular cujo prazo expirou e aplica exclusão/anonimização conforme a política por empresa. Idempotente, auditado, com alerta de falha.
+- Minimization; purpose limitation; consent (date + origin); anonymization; logical deletion; configurable retention; audit trail; document access control; **recording who consulted sensitive data**; data-subject export; data-subject anonymization.
+- **CPF/passport:** **normalized hash** for dedup + masked last digits; document image **only in a private bucket**, per-Company access, view logging and configurable retention (idea #7).
+- **Per-view document logging (N2):** the "record who viewed it" requirement is **not** satisfied by a plain signed URL (it is reusable). Decision: **downloads go through an app proxy endpoint** that (a) checks permission, (b) writes `document_access_logs`, (c) streams the file; the signed URL is internal, **short-lived**, and never handed directly to the client for sensitive documents.
+- **Anonymization × immutable audit (N4):** `audit_logs` is immutable, but it must not "resurrect" the personal data of an anonymized subject. Policy: for entities carrying personal data, the sensitive fields are written to the audit trail **masked/pseudonymized** (or as a reference to the `member_id`, not the raw value). Anonymizing the subject replaces the data in the source table; the audit history keeps only the pseudonymized form. The anonymization **event** itself is audited.
+- **Retention (N7):** a **retention cron** (`pg_cron`) walks documents and subject data whose deadline has expired and applies deletion/anonymization according to the per-Company policy. Idempotent, audited, with a failure alert.
 
 ---
 
-## 10. Integrações (§32) — WhatsApp core no v1
+## 10. Integrations (§32) — WhatsApp core in v1
 
-Camada de integração **desacoplada**. Todo webhook: **valida assinatura → registra `webhook_events` → responde 200 rápido → processa assíncrono → registra falhas → permite reprocesso**. Preparado para WhatsApp Cloud API, IA, importação de mensagens, cadastro automático de ouvintes, intenção, pedido de música, APIs externas.
+A **decoupled** integration layer. Every webhook: **validate signature → record in `webhook_events` → respond 200 fast → process asynchronously → record failures → allow reprocessing**. Prepared for the WhatsApp Cloud API, AI, message import, automatic Member registration, intent detection, music requests, external APIs.
 
-**M2 — Mecanismo assíncrono (decisão):**
-- **Inbound:** o webhook persiste em `webhook_events` (`external_id` único = idempotência) e retorna 200. Um **worker** — Edge Function acionada por **`pg_cron`** em intervalo curto — consome eventos pendentes idempotentemente (`RECEIVED → PROCESSING → DONE/FAILED`), com retry/backoff e reprocesso manual.
-- **Outbound:** `outbox_messages` drenado pelo mesmo worker.
-- **Evolução:** trocar o polling por **`pgmq`** sem mudar o contrato do worker.
+**M2 — Asynchronous mechanism (decision):**
+- **Inbound:** the webhook persists into `webhook_events` (unique `external_id` = idempotency) and returns 200. A **worker** — an Edge Function triggered by **`pg_cron`** at a short interval — consumes pending events idempotently (`RECEIVED → PROCESSING → DONE/FAILED`), with retry/backoff and manual reprocessing.
+- **Outbound:** `outbox_messages` drained by the same worker.
+- **Evolution:** swap polling for **`pgmq`** without changing the worker contract.
 
-**Fluxo de ingestão WhatsApp (v1):** evento → dedup por `external_id` → identifica a promoção (por número/hashtag) → cria/associa ouvinte (dedup §4.5) → **cria participação com enforcement das regras (N3)** → parse de respostas do quiz.
+**WhatsApp ingestion flow (v1):** event → dedup by `external_id` → identify the promotion (by number/hashtag) → create/associate the Member (dedup §4.5) → **create the participation enforcing the rules (N3)** → parse the quiz answers.
 
-**N3 — Regras de participação sob concorrência.** "Permite mais de uma participação", "limite por pessoa" e "intervalo mínimo entre participações" são validados **transacionalmente**, com **lock por `(promoção, ouvinte)`** (advisory lock ou `SELECT ... FOR UPDATE`) dentro da RPC que cria a participação, e reforçados por **constraint** (ex.: índice único parcial quando `permite_multipla = false`). Assim, mensagens quase simultâneas não furam o limite. Participações que violam a regra ficam `INVALID/DUPLICATE` com motivo.
-
----
-
-## 11. Plano de desenvolvimento em blocos
-
-**Cross-cutting obrigatório em todo bloco:** RLS nas tabelas novas · validação Zod · `audit_logs` das operações sensíveis · testes (unit/integração) · gate `lint` + `typecheck` + testes · atualização de docs.
-
-**Testes de isolamento multi-tenant no CI (ideia #1, M3):** desde o Bloco 1, o harness **cria usuários de teste reais, faz login e usa o JWT do usuário** (nunca `service_role`) para afirmar que o acesso a dados de outra empresa **falha**, e que funções `SECURITY DEFINER` recusam quem não tem permissão. Ferramentas: **Vitest** (unit/serviço), **Playwright** (e2e), **pgTAP**/harness autenticado (RLS/DB) — N9.
-
-### Bloco 0 — Fundação técnica
-Next.js App Router + TS strict; Tailwind + shadcn/ui; Zod, RHF, TanStack Table/Query, Recharts, ExcelJS, `@react-pdf/renderer`; **Vitest + Playwright + pgTAP** (N9); interface `mailer` (SMTP/Resend — N10); interface de rate limit + `rate_limit_counters` (N6); Supabase CLI + migrations; **validação de env no boot**; dois clients Supabase (D4); taxonomia de erros (§25); logs estruturados + correlação; CI; Dockerfile.
-**Pronto quando:** app sobe local e em CI; `lint`/`typecheck`/testes passam; env inválido barra o boot; dois clients documentados.
-
-### Bloco 1 — Identidade & multi-tenant
-Tabelas de identidade/tenant + **`invitations`** (N1); Supabase Auth (signup/login/logout/reset/confirm); **fluxo de convite/aceite** com token+expiração criando membership (N1); funções RLS; ciclo empresa (pendente → liberada); seletor de empresa + visão consolidada.
-**Pronto quando:** criar conta → org → 2 empresas → **convidar/aceitar** → limitar a 1 empresa funciona; **teste de acesso cruzado (JWT de usuário) falha como esperado**; convite expira/revoga.
-
-### Bloco 2 — Estoque & prêmios (núcleo crítico)
-`prize_categories, prizes, inventory_movements` (ledger), `inventory_balances` + `promotion_prize_balances` (H1); funções RPC por movimento com idempotência/lock/`CHECK`, baldes e equação canônica (§5); reconciliação; UI de cadastro, visão contábil, movimentações, ajustes/reservas.
-**Pronto quando:** invariantes (baldes ≥ 0, transições) cobertas por testes; saldo negativo impossível; reconciliação sem divergência no seed.
-
-### Bloco 3 — Ouvintes
-Tabelas de ouvinte; CRUD + filtros server-side + detalhes; bloqueio/espera/arquivar/anonimizar; dedup no escopo da org via `SECURITY DEFINER` (§4.5) + **índices únicos parciais** (N5); RLS por `listener_company_links`; LGPD (consentimento; documento via **proxy de download + `document_access_logs`** — N2; auditoria pseudonimizada — N4).
-**Pronto quando:** dedup impede duplicidade **sem vazar ouvinte de outra empresa**; documento só acessível pelo proxy, com log por acesso; anonimização não deixa dado pessoal na auditoria.
-
-### Bloco 4 — Promoções, quiz & participações
-Tabelas de promoção/quiz/participação; abas; **vínculo de prêmio transacional** (RPC, usa Bloco 2 e projeção por promoção); máquina de estados; participação manual + importação; **enforcement de limite/intervalo por pessoa (N3)**.
-**Pronto quando:** não vincula acima do disponível; não desvincula abaixo do sorteado; **limite/intervalo por pessoa não é furado sob concorrência**; estados inválidos bloqueados; importação idempotente.
-
-### Bloco 5 — WhatsApp Cloud API
-`integrations, webhook_events`, worker (`pg_cron`→Edge Function) e `outbox_messages` (M2); webhook com assinatura + idempotência + assíncrono + reprocesso; ingestão → dedup → ouvinte → participação (com N3) → respostas.
-**Pronto quando:** evento repetido não duplica participação; assinatura inválida rejeitada; worker processa pendentes e permite reprocesso.
-
-### Bloco 6 — Sorteios & entregas
-Tabelas de sorteio/entrega/retorno com cadeia `promotion_prize_id` (M4); elegibilidade; sorteio CSPRNG auditável; **prazo congelado**; **promoção de suplente (N8)**; **flag permite-retorno (N11)**; entrega transacional idempotente; comprovante privado; retorno ao estoque; **cron de prazos** + notificação.
-**Pronto quando:** prêmio não é entregue duas vezes; entrega decrementa a promoção correta; prazo vencido vira retorno pendente automaticamente; suplente pode ser promovido com estoque/prazo coerentes; retorno respeita o flag do prêmio.
-
-### Bloco 7 — Músicas
-Modelar domínio Músicas (§4.2); UI (dashboard, catálogos, categorias, pedidos, manutenção); migração do legado.
-**Pronto quando:** pedidos musicais listáveis/filtráveis; dashboard de músicas com indicadores; dados legados migrados e conferidos.
-
-### Bloco 8 — Dashboard & relatórios
-3 dashboards (Ouvintes/Músicas/Promoções) com filtro empresa/período/consolidado (períodos no fuso da empresa — L2) e gráficos; consultas agregadas eficientes; relatórios com export Excel/CSV/PDF; **geração assíncrona p/ grandes**; `saved_reports`.
-**Pronto quando:** indicadores da §12 batem com o seed; recortes de período conferem no fuso da empresa; relatório grande gera assíncrono sem travar o cliente.
-
-### Bloco 9 — Migração do legado (ETL)
-**Runtime (N13):** **script Node único e versionado** (`supabase/seed`/`scripts`), lê o SQL Server com `mssql` e grava no Supabase com `service_role`; roda fora da app (dev/ops), com log e re-execução idempotente. Migra ouvintes, promoções, prêmios/estoque (**saldo inicial via `INITIAL_ENTRY`**), músicas; reconciliação e relatório de divergências. *(Interliga com Blocos 3 e 7.)*
-- **L1:** como o WhatsApp (Bloco 5) já pode ter criado ouvintes, o ETL **reconcilia por dedup** (telefone/e-mail/CPF-hash/passaporte no escopo da org): casa ou cria, nunca duplica; merge auditado.
-**Pronto quando:** contagens origem×destino conferem; saldos iniciais batem; nenhum ouvinte duplicado após o merge; divergências reportadas.
-
-### Bloco 10 — Administração completa
-Console do Administrador (dono do App): liberar/bloquear empresas e usuários, liberar recursos (`entitlements`), config do webhook WhatsApp; admin da org: empresas, usuários, convites, funções/permissões, config por empresa, visor de auditoria.
-**Pronto quando:** empresa pendente só opera após liberação; bloqueio de empresa/usuário efetivo; auditoria consultável.
-
-### Bloco 11 — Qualidade, segurança & produção
-E2E (fluxos §28); revisão de segurança (headers, **CSP com nonce**, rate-limit, upload/MIME); observabilidade (health, métricas, monitoramento de erros, **alerta de falha de cron/integração/retenção**); **cron de retenção (N7)** validado; docs (ARCHITECTURE/SECURITY/DATABASE/PERMISSIONS/DEPLOYMENT); seed controlado; deploy (Docker + Vercel/Supabase; backup/PITR documentado).
-**Pronto quando:** E2E do §35 passam ponta a ponta; documentação entregue; deploy reproduzível.
+**N3 — Participation rules under concurrency.** "Allows more than one participation", "limit per person" and "minimum interval between participations" are validated **transactionally**, with a **lock on `(promotion, member)`** (advisory lock or `SELECT ... FOR UPDATE`) inside the RPC that creates the participation, and reinforced by a **constraint** (e.g. a partial unique index when `allows_multiple = false`). That way near-simultaneous messages cannot break the limit. Participations that violate the rule end up `INVALID/DUPLICATE` with a reason.
 
 ---
 
-## 12. Ideias incorporadas (além da spec)
+## 11. Block-based development plan
 
-1. Auditoria + **testes de isolamento como gate de CI** desde o Bloco 1 (com JWT — M3).
-2. `idempotency_keys` **genérica** (Server Actions + webhooks).
-3. **Reconciliação** das duas projeções ledger↔saldo com alerta.
-4. **Entitlements** por empresa (base p/ faturamento futuro).
-5. **Outbox pattern** para saídas confiáveis.
-6. **Máquinas de estado explícitas** (promoção, participação, prêmio sorteado).
-7. **CPF/documento:** hash normalizado + máscara; imagem só em bucket privado.
-8. **shadcn/ui** no lugar de Bootstrap.
+**Mandatory cross-cutting work in every block:** RLS on the new tables · Zod validation · `audit_logs` for sensitive operations · tests (unit/integration) · `lint` + `typecheck` + tests gate · documentation update.
+
+**Multi-tenant isolation tests in CI (idea #1, M3):** from Block 1 onwards, the harness **creates real test users, logs in and uses the user's JWT** (never `service_role`) to assert that access to another Company's data **fails**, and that `SECURITY DEFINER` functions reject callers without permission. Tooling: **Vitest** (unit/service), **Playwright** (e2e), **pgTAP**/authenticated harness (RLS/DB) — N9.
+
+### Block 0 — Technical foundation
+Next.js App Router + TS strict; Tailwind + shadcn/ui; Zod, RHF, TanStack Table/Query, Recharts, ExcelJS, `@react-pdf/renderer`; **Vitest + Playwright + pgTAP** (N9); `mailer` interface (SMTP/Resend — N10); rate limit interface + `rate_limit_counters` (N6); Supabase CLI + migrations; **env validation at boot**; two Supabase clients (D4); error taxonomy (§25); structured logs + correlation; CI; Dockerfile.
+**Done when:** the app starts locally and in CI; `lint`/`typecheck`/tests pass; an invalid env blocks boot; both clients are documented.
+
+### Block 1 — Identity & multi-tenant
+Identity/tenant tables + **`invitations`** (N1); Supabase Auth (signup/login/logout/reset/confirm); **invite/accept flow** with token+expiry creating the membership (N1); RLS functions; Company lifecycle (pending → enabled); Company selector + consolidated view.
+**Done when:** create account → org → 2 Companies → **invite/accept** → restrict to 1 Company works; a **cross-access test (user JWT) fails as expected**; invitations expire/revoke.
+
+### Block 2 — Inventory & prizes (critical core)
+`prize_categories, prizes, inventory_movements` (ledger), `inventory_balances` + `promotion_prize_balances` (H1); RPC functions per movement with idempotency/lock/`CHECK`, buckets and the canonical equation (§5); reconciliation; UI for registration, accounting view, movements, adjustments/reservations.
+**Done when:** invariants (buckets ≥ 0, transitions) are covered by tests; a negative balance is impossible; reconciliation finds no divergence on the seed.
+
+### Block 3 — Members
+Member tables; CRUD + server-side filters + details; block/hold/archive/anonymize; org-scoped dedup via `SECURITY DEFINER` (§4.5) + **partial unique indexes** (N5); RLS via `member_company_links`; LGPD (consent; documents via **download proxy + `document_access_logs`** — N2; pseudonymized audit — N4).
+**Done when:** dedup prevents duplicates **without leaking a Member from another Company**; a document is only reachable through the proxy, with per-access logging; anonymization leaves no personal data in the audit trail.
+
+### Block 4 — Promotions, quiz & participations
+Promotion/quiz/participation tables; tabs; **transactional prize linking** (RPC, uses Block 2 and the per-promotion projection); state machine; manual participation + import; **enforcement of the per-person limit/interval (N3)**.
+**Done when:** it does not link above what is available; does not unlink below what has been drawn; **the per-person limit/interval cannot be broken under concurrency**; invalid states are blocked; import is idempotent.
+
+### Block 5 — WhatsApp Cloud API
+`integrations, webhook_events`, worker (`pg_cron`→Edge Function) and `outbox_messages` (M2); webhook with signature + idempotency + async + reprocessing; ingestion → dedup → Member → participation (with N3) → answers.
+**Done when:** a repeated event does not duplicate a participation; an invalid signature is rejected; the worker processes pending events and allows reprocessing.
+
+### Block 6 — Draws & deliveries
+Draw/delivery/return tables with the `promotion_prize_id` chain (M4); eligibility; auditable CSPRNG draw; **frozen deadline**; **runner-up promotion (N8)**; **allows-return flag (N11)**; idempotent transactional delivery; private receipt; return to stock; **deadline cron** + notification.
+**Done when:** a prize is not delivered twice; a delivery decrements the correct promotion; an expired deadline automatically becomes a pending return; a runner-up can be promoted with coherent stock/deadline; the return honours the prize's flag.
+
+### Block 7 — Music
+Model the Music domain (§4.2); UI (dashboard, catalogs, categories, requests, maintenance); legacy migration.
+**Done when:** music requests are listable/filterable; the music dashboard shows its indicators; legacy data is migrated and verified.
+
+### Block 8 — Dashboard & reports
+3 dashboards (Members/Music/Promotions) with a Company/period/consolidated filter (periods in the Company's timezone — L2) and charts; efficient aggregate queries; reports with Excel/CSV/PDF export; **asynchronous generation for large ones**; `saved_reports`.
+**Done when:** the §12 indicators match the seed; period slices check out in the Company's timezone; a large report generates asynchronously without blocking the client.
+
+### Block 9 — Legacy migration (ETL)
+**Runtime (N13):** a **single versioned Node script** (`supabase/seed`/`scripts`) that reads SQL Server with `mssql` and writes to Supabase with `service_role`; it runs outside the app (dev/ops), with logging and idempotent re-execution. Migrates members, promotions, prizes/inventory (**opening balance via `INITIAL_ENTRY`**), music; reconciliation and a divergence report. *(Interlocks with Blocks 3 and 7.)*
+- **L1:** since WhatsApp (Block 5) may already have created Members, the ETL **reconciles by dedup** (phone/e-mail/CPF-hash/passport at org scope): it matches or creates, never duplicates; merges are audited.
+**Done when:** source×target counts match; opening balances match; no duplicate Member after the merge; divergences are reported.
+
+### Block 10 — Full administration
+Administrator (App owner) console: enable/block Companies and users, enable features (`entitlements`), WhatsApp webhook configuration; org admin: Companies, users, invitations, roles/permissions, per-Company configuration, audit viewer.
+**Done when:** a pending Company only operates after being enabled; blocking a Company/user takes effect; the audit trail is queryable.
+
+### Block 11 — Quality, security & production
+E2E (§28 flows); security review (headers, **nonce CSP**, rate limiting, upload/MIME); observability (health, metrics, error monitoring, **alerts for cron/integration/retention failures**); **retention cron (N7)** validated; docs (ARCHITECTURE/SECURITY/DATABASE/PERMISSIONS/DEPLOYMENT); controlled seed; deploy (Docker + Vercel/Supabase; backup/PITR documented).
+**Done when:** the §35 E2E flows pass end to end; documentation is delivered; the deploy is reproducible.
 
 ---
 
-## 13. Riscos e mitigações
+## 12. Incorporated ideas (beyond the spec)
 
-| Risco | Mitigação |
-|-------|-----------|
-| v1 amplo (prêmios + WhatsApp + Músicas + migração) | Sequenciamento núcleo-primeiro; fatia vertical cedo; DoD por bloco. |
-| Correção de estoque sob concorrência | Ledger + duas projeções + RPC PL/pgSQL com lock + testes pesados no Bloco 2. |
-| Compromisso de prêmio por promoção mal rastreado (H1) | Projeção `promotion_prize_balances` + invariante "não desvincular abaixo do sorteado". |
-| Furar limite de participação sob concorrência (N3) | Lock por `(promoção, ouvinte)` + constraint na RPC de participação. |
-| Vazamento entre tenants / ouvinte compartilhado (H3) | RLS por `listener_company_links`; dedup `SECURITY DEFINER`; testes de isolamento com JWT. |
-| Dado sensível vazando por URL/auditoria (N2/N4) | Proxy de download + `document_access_logs`; auditoria pseudonimizada. |
-| `service_role` bypassar RLS por engano | Client de sistema isolado; funções `SECURITY DEFINER` re-autorizam (H2). |
-| Migração legada inconsistente / duplicidade com WhatsApp (L1) | Reconciliação por dedup no ETL + relatório de divergências (Bloco 9). |
-| Custos/latência de IA e WhatsApp | Camada desacoplada + outbox + worker assíncrono (M2). |
+1. Audit + **isolation tests as a CI gate** from Block 1 (with JWT — M3).
+2. **Generic** `idempotency_keys` (Server Actions + webhooks).
+3. **Reconciliation** of the two ledger↔balance projections with alerting.
+4. **Entitlements** per Company (basis for future billing).
+5. **Outbox pattern** for reliable outbound traffic.
+6. **Explicit state machines** (promotion, participation, drawn prize).
+7. **CPF/document:** normalized hash + masking; image only in a private bucket.
+8. **shadcn/ui** instead of Bootstrap.
 
 ---
 
-## 14. Critérios de aceitação do v1 (§35)
+## 13. Risks and mitigations
 
-Fluxo ponta a ponta com segurança multi-tenant: criar conta → organização → 2 empresas → convidar usuário limitado a 1 empresa → cadastrar ouvintes por empresa → **impedir acesso cruzado** → cadastrar prêmios → adicionar estoque → reservar → criar promoção → vincular prêmios (**impedir vínculo acima do saldo**) → registrar participação → sortear → criar ganhador → registrar prazo → entregar com **comprovante privado** → atualizar estoque corretamente → processar prêmio não retirado → retornar ao estoque → gerar relatório → exportar → registrar auditoria.
+| Risk | Mitigation |
+|------|------------|
+| Broad v1 (prizes + WhatsApp + Music + migration) | Core-first sequencing; early vertical slice; DoD per block. |
+| Inventory correctness under concurrency | Ledger + two projections + PL/pgSQL RPC with locking + heavy tests in Block 2. |
+| Per-promotion prize commitment poorly tracked (H1) | `promotion_prize_balances` projection + the "do not unlink below what was drawn" invariant. |
+| Breaking the participation limit under concurrency (N3) | Lock on `(promotion, member)` + a constraint in the participation RPC. |
+| Cross-tenant leakage / shared Member (H3) | RLS via `member_company_links`; `SECURITY DEFINER` dedup; isolation tests with JWT. |
+| Sensitive data leaking via URL/audit (N2/N4) | Download proxy + `document_access_logs`; pseudonymized audit. |
+| `service_role` bypassing RLS by accident | Isolated system client; `SECURITY DEFINER` functions re-authorize (H2). |
+| Inconsistent legacy migration / duplication with WhatsApp (L1) | Dedup reconciliation in the ETL + divergence report (Block 9). |
+| AI and WhatsApp cost/latency | Decoupled layer + outbox + async worker (M2). |
 
 ---
 
-## 15. Próximos passos
+## 14. v1 acceptance criteria (§35)
 
-1. Revisão deste documento pelo proprietário.
-2. Geração do **plano de implementação** (skill `writing-plans`), começando pelo **Bloco 0**.
-3. Cada bloco: implementar → `lint`/`typecheck`/testes → revisão de segurança → documentar concluído/pendências → só então avançar (§34).
+End-to-end flow with multi-tenant security: create account → Organization → 2 Companies → invite a user restricted to 1 Company → register Members per Company → **block cross-access** → register prizes → add stock → reserve → create a promotion → link prizes (**block linking above the balance**) → record a participation → run the draw → create a winner → record the deadline → deliver with a **private receipt** → update stock correctly → process an uncollected prize → return it to stock → generate a report → export it → record the audit entry.
+
+---
+
+## 15. Next steps
+
+1. Owner review of this document.
+2. Generation of the **implementation plan** (skill `writing-plans`), starting with **Block 0**.
+3. Each block: implement → `lint`/`typecheck`/tests → security review → document what is done/pending → only then move on (§34).
 
 ---
 
 ## 16. Changelog
 
-- **rev2 (2026-07-26)** — 2ª passada de revisão (completude/segurança/LGPD):
-  - **N1:** tabela + fluxo de `invitations` (convite/aceite/expiração/revogação). §4.1, §4.3, §7, Bloco 1.
-  - **N2:** log por visualização via **proxy de download** + `document_access_logs` (signed URL pura não basta). §4.3, §9, Bloco 3.
-  - **N3:** enforcement transacional de limite/intervalo de participação (lock por promoção+ouvinte). §10, Bloco 4.
-  - **N4:** anonimização × auditoria imutável — campos sensíveis pseudonimizados na auditoria. §9, Bloco 3.
-  - **N5:** índices únicos **parciais** (`WHERE deleted_at IS NULL`). §4.4.
-  - **N6:** rate limiting com store compartilhado (`rate_limit_counters` no Postgres / Upstash). §3.1, §9, Bloco 0.
-  - **N7:** **cron de retenção** LGPD. §9, Bloco 11.
-  - **N8:** fluxo de **promoção de suplente** a ganhador. §6, Bloco 6.
-  - **N9:** stack de testes definida (Vitest + Playwright + pgTAP/harness). §3.1, §11, Bloco 0.
-  - **N10:** provedor de e-mail do app (`mailer` SMTP/Resend). §3.1, §4.1.
-  - **N11:** flag `permite_retorno_ao_estoque` gateia `RETURN_TO_STOCK` vs `WRITE_OFF`. §6.
-  - **N12:** políticas RLS do Storage por prefixo de empresa. §8.
-  - **N13:** runtime do ETL (script Node com `mssql` + `service_role`). Bloco 9.
-- **rev1 (2026-07-26)** — 1ª passada: H1–H3, M1–M5, L1–L3.
-- **rev0 (2026-07-25)** — Versão inicial aprovada (decisões D1–D5, plano em blocos 0–11).
+- **rev3 (2026-07-26)** — Language migration and product vocabulary:
+  - Document converted to English (prose only; technical substance, decision IDs and block structure unchanged).
+  - Product named **PulchaTX**, described as "CRM for entertainment companies"; "radio" is no longer the primary term anywhere. Radio-specific examples generalized to entertainment.
+  - **Station** adopted as the domain word for the business tenant, while the entity keeps its shipped identifiers (`companies`, `company_id`, `has_company_access()`).
+  - Audience renamed **Listener/Ouvinte → Member**: `listeners` → `members`, `listener_company_links` → `member_company_links`, `listener_consents/notes/documents/blocks` → `member_*`, `listener_id` → `member_id`.
+  - Naming collision resolved: internal panel-user links are `organization_memberships`/`company_memberships` (was `organization_members`/`company_members`), and `member_roles` → `membership_roles` to keep "member" meaning the audience.
+  - Planned-schema identifiers translated: `prizes.permite_retorno_ao_estoque` → `prizes.allows_return_to_stock`; `permite_multipla` → `allows_multiple`; the inventory bucket names in the canonical equation (§5); `radio_shows` → `shows`. Legacy SQL Server table names (`catalog_medias`, `Cad_Gravadoras`, `catalog_artists`, `listener_shows`, `ouvintes_ped_musica`) are **unchanged** — they are the migration source.
+- **rev2 (2026-07-26)** — 2nd review pass (completeness/security/LGPD):
+  - **N1:** `invitations` table + flow (invite/accept/expiry/revocation). §4.1, §4.3, §7, Block 1.
+  - **N2:** per-view logging via a **download proxy** + `document_access_logs` (a plain signed URL is not enough). §4.3, §9, Block 3.
+  - **N3:** transactional enforcement of the participation limit/interval (lock on promotion+member). §10, Block 4.
+  - **N4:** anonymization × immutable audit — sensitive fields pseudonymized in the audit trail. §9, Block 3.
+  - **N5:** **partial** unique indexes (`WHERE deleted_at IS NULL`). §4.4.
+  - **N6:** rate limiting with a shared store (`rate_limit_counters` in Postgres / Upstash). §3.1, §9, Block 0.
+  - **N7:** LGPD **retention cron**. §9, Block 11.
+  - **N8:** **runner-up promotion** to winner flow. §6, Block 6.
+  - **N9:** test stack defined (Vitest + Playwright + pgTAP/harness). §3.1, §11, Block 0.
+  - **N10:** app e-mail provider (`mailer` SMTP/Resend). §3.1, §4.1.
+  - **N11:** the `allows_return_to_stock` flag gates `RETURN_TO_STOCK` vs `WRITE_OFF`. §6.
+  - **N12:** Storage RLS policies by Company prefix. §8.
+  - **N13:** ETL runtime (Node script with `mssql` + `service_role`). Block 9.
+- **rev1 (2026-07-26)** — 1st pass: H1–H3, M1–M5, L1–L3.
+- **rev0 (2026-07-25)** — Initial approved version (decisions D1–D5, block plan 0–11).

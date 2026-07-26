@@ -1,11 +1,11 @@
 export async function register() {
-  // Valida o ambiente no boot do servidor. Lança e impede o start se inválido.
-  // O Next 15 engole a rejeição da promise devolvida por `register()`
-  // (NextNodeServer.prepare().catch(...) em next-server.js) — sem o exit
-  // explícito abaixo, o processo ficaria vivo respondendo 500 em toda
-  // requisição, e um orquestrador (Docker/k8s/compose) veria um contêiner
-  // "saudável" rodando um app quebrado. O process.exit(1) garante o sinal
-  // certo: contêiner falho, não vivo servindo erro.
+  // Validates the environment at server boot. Throws and prevents startup if
+  // invalid. Next 15 swallows the rejection of the promise returned by
+  // `register()` (NextNodeServer.prepare().catch(...) in next-server.js) —
+  // without the explicit exit below, the process would stay alive answering 500
+  // on every request, and an orchestrator (Docker/k8s/compose) would see a
+  // "healthy" container running a broken app. The process.exit(1) sends the
+  // right signal: failed container, not a live one serving errors.
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   try {
     await import('@/lib/env');

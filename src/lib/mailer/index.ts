@@ -13,7 +13,7 @@ export interface Mailer {
   send(msg: MailMessage): Promise<MailResult>;
 }
 
-// Impl de desenvolvimento/teste: não envia nada, só registra.
+// Development/test impl: sends nothing, just records.
 export class DevMailer implements Mailer {
   readonly sent: MailMessage[] = [];
   private seq = 0;
@@ -24,7 +24,7 @@ export class DevMailer implements Mailer {
   }
 }
 
-// Impl SMTP para produção (Resend/qualquer SMTP). Config via SMTP_URL + MAIL_FROM.
+// SMTP impl for production (Resend/any SMTP). Configured via SMTP_URL + MAIL_FROM.
 export class SmtpMailer implements Mailer {
   private readonly transport: nodemailer.Transporter;
 

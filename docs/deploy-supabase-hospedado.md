@@ -1,74 +1,74 @@
-# Supabase hospedado — aplicação e verificação das migrations
+# Hosted Supabase — applying and verifying the migrations
 
-Registro do primeiro deploy do schema do Bloco 0 num projeto Supabase hospedado.
-Data: 2026-07-26.
+Record of the first deploy of the Block 0 schema to a hosted Supabase project.
+Date: 2026-07-26.
 
-## Projeto
+## Project
 
 | | |
 |---|---|
 | Ref | `djbkdyesubkedxjwcohq` |
-| Nome | CRMPulchatX |
-| Região | `sa-east-1` (São Paulo) |
-| Postgres | 17.6.1 — bate com `major_version = 17` do `config.toml` |
+| Name | CRMPulchatX |
+| Region | `sa-east-1` (São Paulo) |
+| Postgres | 17.6.1 — matches `major_version = 17` in `config.toml` |
 
-> **Atenção — dois projetos de nome quase idêntico.** `CRMPulchatX_Old`
-> (`aewffpmguhqweznfrruu`) hospeda **outra aplicação em produção**: um CRM de
-> WhatsApp com agentes de IA, 29 tabelas e dado vivo. **Sempre confira o ref, nunca
-> o nome.** O ref deste projeto termina em `...wcohq`; o do outro, em `...nfrruu`.
+> **Warning — two projects with nearly identical names.** `CRMPulchatX_Old`
+> (`aewffpmguhqweznfrruu`) hosts **another application in production**: a WhatsApp
+> CRM with AI agents, 29 tables and live data. **Always check the ref, never
+> the name.** This project's ref ends in `...wcohq`; the other one's, in `...nfrruu`.
 
-## Incidente evitado
+## Incident avoided
 
-O primeiro `db push` foi feito com `--dry-run` e recusou-se a aplicar: encontrou 52
-migrations remotas ausentes do repositório. O CLI sugeriu duas saídas, **ambas
-destrutivas neste contexto**, e nenhuma foi executada:
+The first `db push` was run with `--dry-run` and refused to apply: it found 52
+remote migrations missing from the repository. The CLI suggested two ways out, **both
+destructive in this context**, and neither was executed:
 
-- `supabase migration repair --status reverted <52 versões>` — marcaria as migrations
-  da outra aplicação como revertidas, corrompendo o histórico dela.
-- `supabase db pull` — despejaria o schema alheio dentro deste repositório.
+- `supabase migration repair --status reverted <52 versions>` — would mark the other
+  application's migrations as reverted, corrupting its history.
+- `supabase db pull` — would dump someone else's schema into this repository.
 
-A correção certa foi desvincular e criar um projeto dedicado. **Sempre rodar
-`--dry-run` antes de um push para um banco que você não criou nesta sessão.**
+The right fix was to unlink and create a dedicated project. **Always run
+`--dry-run` before pushing to a database you did not create in this session.**
 
-## Aplicação
+## Applying
 
 ```
 supabase link --project-ref djbkdyesubkedxjwcohq
-supabase db push --dry-run     # confirmou apenas 0001 e 0002 pendentes
+supabase db push --dry-run     # confirmed only 0001 and 0002 pending
 supabase db push
 ```
 
-`0001` emitiu `NOTICE: extension "pgcrypto" already exists, skipping` — confirmando
-na prática a premissa da correção feita antes do deploy: o `pgcrypto` já vem
-instalado no schema `extensions`, e a versão original da migration era um no-op.
+`0001` emitted `NOTICE: extension "pgcrypto" already exists, skipping` — confirming
+in practice the premise behind the fix made before the deploy: `pgcrypto` ships
+already installed in the `extensions` schema, and the original version of the migration was a no-op.
 
-`supabase migration list --linked` confirmou `0001` e `0002` locais e remotas.
+`supabase migration list --linked` confirmed `0001` and `0002` both locally and remotely.
 
-## Verificação de segurança — testada pela REST, não por inspeção de catálogo
+## Security verification — tested through REST, not by catalog inspection
 
-As asserções foram feitas de fora, contra a API pública, com as chaves reais — isto é,
-contra a superfície que um atacante teria.
+The assertions were made from the outside, against the public API, with the real keys — that is,
+against the surface an attacker would have.
 
-| Teste | Resultado |
+| Test | Result |
 |---|---|
-| `anon` SELECT em `rate_limit_counters` | HTTP 401 · `42501 permission denied` |
-| `anon` DELETE em `rate_limit_counters` | HTTP 401 · `42501 permission denied` |
+| `anon` SELECT on `rate_limit_counters` | HTTP 401 · `42501 permission denied` |
+| `anon` DELETE on `rate_limit_counters` | HTTP 401 · `42501 permission denied` |
 | `anon` RPC `rate_limit_hit` | HTTP 401 · `42501 permission denied` |
 | `service_role` RPC `rate_limit_hit` | HTTP 200 · `allowed: true` |
 
-A segunda linha é a que importa: era exatamente esse o defeito **crítico** encontrado
-na revisão — com a RLS desligada, qualquer portador da chave pública apagava os
-contadores e anulava o rate limiter. Está fechado no ambiente hospedado.
+The second row is the one that matters: this was exactly the **critical** defect found
+in review — with RLS off, anyone holding the public key could wipe the
+counters and nullify the rate limiter. It is closed in the hosted environment.
 
-A terceira linha confirma que a função falha fechada: `rate_limit_hit` é
-`SECURITY INVOKER` e continua com `EXECUTE` para `PUBLIC`, mas um chamador `anon`
-esbarra na ausência de DML na tabela e nunca alcança dado.
+The third row confirms the function fails closed: `rate_limit_hit` is
+`SECURITY INVOKER` and still has `EXECUTE` for `PUBLIC`, but an `anon` caller
+hits the missing DML on the table and never reaches data.
 
-### Semânticas do rate limiter
+### Rate limiter semantics
 
-Sequência executada no banco hospedado, chave nova, janela de 60s:
+Sequence executed against the hosted database, fresh key, 60s window:
 
-| Chamada | `limit` | Resultado |
+| Call | `limit` | Result |
 |---|---|---|
 | 1 | 2 | `allowed=true, remaining=1` |
 | 2 | 2 | `allowed=true, remaining=0` |
@@ -76,31 +76,31 @@ Sequência executada no banco hospedado, chave nova, janela de 60s:
 | 4 | 2 | `allowed=false, remaining=0` |
 | 5 | **5** | `allowed=true, remaining=1` |
 
-Idêntico, valor por valor, ao que `tests/unit/rate-limit.test.ts` afirma para a
-implementação em memória — incluindo a chamada 5, o caso de limite variável que
-revelou a divergência original entre as duas implementações. O contador saturou em
-`limit+1 = 3`; com `limit=5`, `3 <= 5`, então incrementa para 4 e devolve
+Identical, value for value, to what `tests/unit/rate-limit.test.ts` asserts for the
+in-memory implementation — including call 5, the varying-limit case that
+exposed the original divergence between the two implementations. The counter saturated at
+`limit+1 = 3`; with `limit=5`, `3 <= 5`, so it increments to 4 and returns
 `remaining = 5-4 = 1`.
 
-As linhas de sonda foram removidas ao final; a tabela ficou vazia.
+The probe rows were removed at the end; the table was left empty.
 
 ### RLS
 
-Os testes acima provam o **efeito** (o `anon` está bloqueado), mas não distinguem
-"RLS ligada + grants revogados" de "RLS desligada + grants revogados", porque o
-PostgREST não expõe o `pg_catalog`.
+The tests above prove the **effect** (`anon` is blocked), but they do not distinguish
+"RLS on + grants revoked" from "RLS off + grants revoked", because
+PostgREST does not expose `pg_catalog`.
 
-Confirmação por outro caminho: `supabase db diff --linked --schema public` retornou
-**`No schema changes found`**. O schema remoto é idêntico ao local, e o local tem
-`enable row level security` — verificado pelo pgTAP (7 asserções).
+Confirmation by another route: `supabase db diff --linked --schema public` returned
+**`No schema changes found`**. The remote schema is identical to the local one, and the local one has
+`enable row level security` — verified by pgTAP (7 assertions).
 
-## O que NÃO foi executado, e por quê
+## What was NOT run, and why
 
-- **`supabase config push`** — o `config.toml` é arquivo de desenvolvimento local.
-  Empurrá-lo definiria no projeto hospedado `site_url = http://127.0.0.1:3000`,
-  `enable_confirmations = false`, `minimum_password_length = 6` e limite de 2
-  e-mails por hora. Site URL e Redirect URLs se configuram pelo painel.
-- **`supabase db reset --linked`** — destrutivo.
-- **pgTAP no remoto** — a extensão não é provisionada em projeto hospedado como é
-  localmente. As mesmas propriedades foram asseguradas pelos testes REST acima, que
-  são inclusive mais próximos do risco real.
+- **`supabase config push`** — `config.toml` is a local development file.
+  Pushing it would set, on the hosted project, `site_url = http://127.0.0.1:3000`,
+  `enable_confirmations = false`, `minimum_password_length = 6` and a limit of 2
+  emails per hour. Site URL and Redirect URLs are configured through the dashboard.
+- **`supabase db reset --linked`** — destructive.
+- **pgTAP on the remote** — the extension is not provisioned on a hosted project the way it is
+  locally. The same properties were assured by the REST tests above, which
+  are in fact closer to the real risk.

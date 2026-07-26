@@ -4,18 +4,19 @@ create table if not exists public.rate_limit_counters (
   reset_at    timestamptz not null
 );
 
-comment on table public.rate_limit_counters is 'Contadores atômicos de rate limiting (fallback sem Redis).';
+comment on table public.rate_limit_counters is 'Atomic rate limiting counters (Redis-free fallback).';
 
--- Infraestrutura, não tabela de negócio: fica exposta por padrão no schema
--- `public` do PostgREST, então precisa de RLS mesmo sem policies de tenant.
--- Sem isso, qualquer holder de anon key apaga/zera os próprios contadores.
+-- Infrastructure, not a business table: it is exposed by default in PostgREST's
+-- `public` schema, so it needs RLS even without tenant policies. Without this,
+-- any anon key holder deletes/zeroes the counters themselves.
 alter table public.rate_limit_counters enable row level security;
 revoke all on public.rate_limit_counters from anon, authenticated;
 
--- O default ACL deste schema concede às roles do Supabase apenas `Dxtm`
--- (TRUNCATE/REFERENCES/TRIGGER/MAINTAIN) — nunca DML. Como `rate_limit_hit` é
--- SECURITY INVOKER e BYPASSRLS não substitui um GRANT ausente, sem esta linha o
--- PostgresRateLimiter falha com "permission denied for table" em toda chamada.
+-- This schema's default ACL grants the Supabase roles only `Dxtm`
+-- (TRUNCATE/REFERENCES/TRIGGER/MAINTAIN) — never DML. Since `rate_limit_hit` is
+-- SECURITY INVOKER and BYPASSRLS does not substitute for a missing GRANT,
+-- without this line PostgresRateLimiter fails with "permission denied for
+-- table" on every call.
 grant select, insert, update, delete on public.rate_limit_counters to service_role;
 
 create index if not exists rate_limit_counters_reset_at_idx
@@ -40,7 +41,7 @@ begin
     set count = case
           when c.reset_at <= v_now then 1
           when c.count <= p_limit then c.count + 1
-          else c.count   -- satura em p_limit + 1
+          else c.count   -- saturates at p_limit + 1
         end,
         reset_at = case when c.reset_at <= v_now
                         then v_now + make_interval(secs => p_window_seconds)

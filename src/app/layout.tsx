@@ -2,13 +2,13 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'CRM Rádios',
-  description: 'CRM multi-tenant para rádios',
+  title: 'PulchaTX',
+  description: 'CRM for entertainment companies',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR">
+    <html lang="en">
       <body>{children}</body>
     </html>
   );
