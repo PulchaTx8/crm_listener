@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { InMemoryRateLimiter, RATE_LIMIT_SWEEP_INTERVAL } from '@/lib/rate-limit';
 
 describe('InMemoryRateLimiter', () => {
-  it('permite até o limite e bloqueia depois, dentro da janela', async () => {
+  it('allows up to the limit and blocks after it, within the window', async () => {
     let t = 1_000_000;
     const rl = new InMemoryRateLimiter(() => t);
     expect((await rl.check('k', 2, 60)).allowed).toBe(true);
@@ -12,7 +12,7 @@ describe('InMemoryRateLimiter', () => {
     expect(third.remaining).toBe(0);
   });
 
-  it('reseta após a janela', async () => {
+  it('resets after the window', async () => {
     let t = 1_000_000;
     const rl = new InMemoryRateLimiter(() => t);
     await rl.check('k', 1, 60);
@@ -21,12 +21,12 @@ describe('InMemoryRateLimiter', () => {
     expect((await rl.check('k', 1, 60)).allowed).toBe(true);
   });
 
-  it('satura em limit + 1: uma chamada bloqueada com limite baixo não impede uma chamada seguinte, na mesma janela, com limite maior', async () => {
+  it('saturates at limit + 1: a blocked call with a low limit does not prevent a later call, in the same window, with a higher limit', async () => {
     const t = 1_000_000;
     const rl = new InMemoryRateLimiter(() => t);
     await rl.check('k2', 2, 60);
     await rl.check('k2', 2, 60);
-    const blocked = await rl.check('k2', 2, 60); // satura o contador em limit + 1 = 3
+    const blocked = await rl.check('k2', 2, 60); // saturates the counter at limit + 1 = 3
     expect(blocked.allowed).toBe(false);
 
     const higher = await rl.check('k2', 5, 60);
@@ -34,7 +34,7 @@ describe('InMemoryRateLimiter', () => {
     expect(higher.remaining).toBe(1);
   });
 
-  it('varre buckets expirados periodicamente, liberando memória sem escanear tudo a cada chamada', async () => {
+  it('sweeps expired buckets periodically, freeing memory without scanning everything on every call', async () => {
     let t = 1_000_000;
     const rl = new InMemoryRateLimiter(() => t);
     for (let i = 0; i < 200; i++) {
@@ -42,7 +42,7 @@ describe('InMemoryRateLimiter', () => {
     }
     expect(rl.bucketCount).toBe(200);
 
-    t += 61_000; // expira todos os buckets criados acima
+    t += 61_000; // expires every bucket created above
     for (let i = 0; i < RATE_LIMIT_SWEEP_INTERVAL; i++) {
       await rl.check('sweep-trigger', 1, 60);
     }

@@ -9,26 +9,26 @@ const valid = {
 } as NodeJS.ProcessEnv;
 
 describe('parseEnv', () => {
-  it('aceita ambiente válido', () => {
+  it('accepts a valid environment', () => {
     const env = parseEnv(valid);
     expect(env.NEXT_PUBLIC_SUPABASE_URL).toBe('https://abc.supabase.co');
   });
 
-  it('lança quando falta variável obrigatória', () => {
+  it('throws when a required variable is missing', () => {
     const { SUPABASE_SERVICE_ROLE_KEY: _omit, ...rest } = valid;
     expect(() => parseEnv(rest as NodeJS.ProcessEnv)).toThrow(/SUPABASE_SERVICE_ROLE_KEY/);
   });
 
-  it('lança quando a URL do supabase é inválida', () => {
+  it('throws when the supabase URL is invalid', () => {
     expect(() => parseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: 'not-a-url' })).toThrow();
   });
 });
 
-// O módulo é importado por `src/instrumentation.ts`, então o throw no topo do
-// módulo é o que impede o servidor de subir. Estes testes travam esse contrato.
-// `vitest.config.ts` define SKIP_ENV_VALIDATION=1 globalmente — cada caso
-// sobrescreve o process.env e restaura depois.
-describe('validação no import do módulo', () => {
+// The module is imported by `src/instrumentation.ts`, so the module-level throw
+// is what keeps the server from starting. These tests pin that contract.
+// `vitest.config.ts` sets SKIP_ENV_VALIDATION=1 globally — each case overrides
+// process.env and restores it afterwards.
+describe('validation at module import', () => {
   const snapshot = { ...process.env };
 
   afterEach(() => {
@@ -38,17 +38,17 @@ describe('validação no import do módulo', () => {
     Object.assign(process.env, snapshot);
   });
 
-  it('lança ao importar o módulo com ambiente inválido', async () => {
+  it('throws when importing the module with an invalid environment', async () => {
     vi.resetModules();
     delete process.env.SKIP_ENV_VALIDATION;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://abc.supabase.co';
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
 
-    await expect(import('@/lib/env')).rejects.toThrow(/Configuração de ambiente inválida/);
+    await expect(import('@/lib/env')).rejects.toThrow(/Invalid environment configuration/);
   });
 
-  it('não lança ao importar com ambiente válido', async () => {
+  it('does not throw when importing with a valid environment', async () => {
     vi.resetModules();
     delete process.env.SKIP_ENV_VALIDATION;
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://abc.supabase.co';
@@ -59,10 +59,10 @@ describe('validação no import do módulo', () => {
     expect(mod.env.NEXT_PUBLIC_SUPABASE_URL).toBe('https://abc.supabase.co');
   });
 
-  it('sob SKIP_ENV_VALIDATION tolera ausência e aplica o default de NODE_ENV', async () => {
+  it('under SKIP_ENV_VALIDATION tolerates absence and applies the NODE_ENV default', async () => {
     vi.resetModules();
     process.env.SKIP_ENV_VALIDATION = '1';
-    // NODE_ENV é readonly no @types/node — `delete` direto não compila.
+    // NODE_ENV is readonly in @types/node — a direct `delete` does not compile.
     Reflect.deleteProperty(process.env, 'NODE_ENV');
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
