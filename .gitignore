@@ -8,6 +8,7 @@ node_modules/
 /out/
 /build
 next-env.d.ts
+*.tsbuildinfo
 
 # Production
 /dist

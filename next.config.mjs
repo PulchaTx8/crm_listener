@@ -2,7 +2,8 @@
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
-  experimental: { typedRoutes: true },
+  // Top-level desde o Next 15.5; `experimental.typedRoutes` está deprecado.
+  typedRoutes: true,
 };
 
 export default nextConfig;
