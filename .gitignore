@@ -8,6 +8,7 @@ node_modules/
 /out/
 /build
 next-env.d.ts
+*.tsbuildinfo
 
 # Production
 /dist
@@ -30,10 +31,15 @@ yarn-error.log*
 
 # Testing
 /coverage
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # Editors / OS
 .DS_Store
 Thumbs.db
+desktop.ini
 *.swp
 .idea/
 .vscode/
@@ -44,3 +50,6 @@ Thumbs.db
 
 # Claude local settings (keep shared settings.json, ignore local overrides)
 .claude/settings.local.json
+
+# Subagent-driven-development scratch
+.superpowers/
