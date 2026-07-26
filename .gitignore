@@ -39,6 +39,7 @@ yarn-error.log*
 # Editors / OS
 .DS_Store
 Thumbs.db
+desktop.ini
 *.swp
 .idea/
 .vscode/
