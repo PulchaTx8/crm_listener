@@ -12,6 +12,12 @@ comment on table public.rate_limit_counters is 'Contadores atômicos de rate lim
 alter table public.rate_limit_counters enable row level security;
 revoke all on public.rate_limit_counters from anon, authenticated;
 
+-- O default ACL deste schema concede às roles do Supabase apenas `Dxtm`
+-- (TRUNCATE/REFERENCES/TRIGGER/MAINTAIN) — nunca DML. Como `rate_limit_hit` é
+-- SECURITY INVOKER e BYPASSRLS não substitui um GRANT ausente, sem esta linha o
+-- PostgresRateLimiter falha com "permission denied for table" em toda chamada.
+grant select, insert, update, delete on public.rate_limit_counters to service_role;
+
 create index if not exists rate_limit_counters_reset_at_idx
   on public.rate_limit_counters (reset_at);
 
