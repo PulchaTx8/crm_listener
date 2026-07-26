@@ -1387,8 +1387,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      SKIP_ENV_VALIDATION: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -1400,7 +1398,20 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
+        env:
+          SKIP_ENV_VALIDATION: '1'
 ```
+
+> **Nota de execução:** a versão original deste bloco definia
+> `SKIP_ENV_VALIDATION: '1'` no nível do `job`, aplicando o bypass a
+> `npm ci`, `lint`, `typecheck` e `test`, não só a `build`. O Global
+> Constraint do plano já dizia que a validação é pulada "exceto durante
+> `next build`" — a review pós-implementação apontou a divergência: hoje é
+> inerte (nenhum teste importa o singleton `env` no escopo do módulo), mas é
+> uma armadilha latente — se um teste futuro importar `env` no topo do
+> arquivo, o CI silenciosamente pararia de validá-lo. Corrigido movendo
+> `env: SKIP_ENV_VALIDATION: '1'` para o passo `npm run build`
+> especificamente. Ver `task-13-report.md`.
 
 - [ ] **Step 2: Verificar localmente a mesma sequência**
 
@@ -1416,6 +1427,14 @@ git push origin main
 ```
 
 Expected: o workflow "CI" fica verde no GitHub (aba Actions).
+
+> **Nota de execução:** para esta execução (Bloco 0, branch
+> `bloco-0-fundacao`), o push para `main` no Step 3 foi propositalmente
+> sobrescrito por decisão humana — apenas o commit local foi feito. A
+> integração com `main` é decidida separadamente, ao final do bloco, para
+> preservar o isolamento de branch usado em toda esta rodada. O workflow só
+> vai rodar de fato no GitHub quando a branch for integrada. Ver
+> `task-13-report.md`.
 
 ---
 
