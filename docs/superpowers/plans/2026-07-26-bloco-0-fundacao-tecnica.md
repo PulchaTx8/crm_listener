@@ -2,7 +2,7 @@
 
 > **HISTORICAL ARTIFACT — deliberately left in Portuguese.** This is the completed
 > record of an already-executed block, written before the English-only language
-> decision and the PulchaTX naming/vocabulary decision. It will never drive work
+> decision and the PulchatX naming/vocabulary decision. It will never drive work
 > again, so it was excluded from the language migration. Its terminology is
 > pre-migration: read `docs/superpowers/specs/2026-07-25-crm-radios-multitenant-design.md`
 > for the current vocabulary, and `docs/language-migration-report.md` for the

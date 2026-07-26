@@ -1,14 +1,14 @@
-# PulchaTX — Multi-Tenant CRM Design Document (v1)
+# PulchatX — Multi-Tenant CRM Design Document (v1)
 
 - **Date:** 2026-07-25
 - **Status:** Approved for the implementation plan
-- **Revision:** rev3 (2026-07-26) — 3rd pass: language migration to English + PulchaTX vocabulary. See §16 Changelog.
+- **Revision:** rev3 (2026-07-26) — 3rd pass: language migration to English + PulchatX vocabulary. See §16 Changelog.
 - **Source:** "MASTER PROMPT — Development of a Multi-Tenant CRM" (owner-supplied)
 - **Review author:** brainstorming session (Claude Code)
 
 This document consolidates the decisions taken in the brainstorming session, refines the master specification and defines the **block-based development plan**. It is the basis for the implementation plan (skill `writing-plans`).
 
-> **Vocabulary (owner decision, 2026-07-26).** The product is **PulchaTX**, a **CRM for entertainment companies** — it is explicitly *not* radio-only.
+> **Vocabulary (owner decision, 2026-07-26).** The product is **PulchatX**, a **CRM for entertainment companies** — it is explicitly *not* radio-only.
 > **Organization** (top level) → **Company/Station** (the business tenant) → data. Every multi-tenant table carries `organization_id` + `company_id`.
 > **Station** is the domain word for the customer's business; the underlying entity keeps its shipped identifiers — table `companies`, column `company_id`, RLS helper `has_company_access()`.
 > **Member** is the audience base that enters promotions and receives prizes (table `members`) — it replaces the former "Listener/Ouvinte".
@@ -363,7 +363,7 @@ End-to-end flow with multi-tenant security: create account → Organization → 
 
 - **rev3 (2026-07-26)** — Language migration and product vocabulary:
   - Document converted to English (prose only; technical substance, decision IDs and block structure unchanged).
-  - Product named **PulchaTX**, described as "CRM for entertainment companies"; "radio" is no longer the primary term anywhere. Radio-specific examples generalized to entertainment.
+  - Product named **PulchatX**, described as "CRM for entertainment companies"; "radio" is no longer the primary term anywhere. Radio-specific examples generalized to entertainment.
   - **Station** adopted as the domain word for the business tenant, while the entity keeps its shipped identifiers (`companies`, `company_id`, `has_company_access()`).
   - Audience renamed **Listener/Ouvinte → Member**: `listeners` → `members`, `listener_company_links` → `member_company_links`, `listener_consents/notes/documents/blocks` → `member_*`, `listener_id` → `member_id`.
   - Naming collision resolved: internal panel-user links are `organization_memberships`/`company_memberships` (was `organization_members`/`company_members`), and `member_roles` → `membership_roles` to keep "member" meaning the audience.
