@@ -13,29 +13,34 @@ create table public.invitation_companies (
 comment on table public.invitation_companies is
   'Which Stations the invitee is attached to on acceptance. Empty for an owner invitation.';
 
--- Pending invitations written under the fixed-role model are mapped the same way
--- memberships were in 0016: owner becomes an owner invitation, anything else
--- gets the Organization's like-named role, created if this is the first sighting.
+-- EVERY row, not only the pending ones. The check constraint below applies to
+-- the whole table, so an accepted or revoked invitation left with
+-- is_owner = false and role_id = null fails it and takes the migration down —
+-- on a live database, which is the only place such rows exist. Backfilling them
+-- also keeps the record of what each historical invitation actually granted,
+-- which the dropped `role` column was carrying.
 insert into public.roles (organization_id, name, description)
 select distinct i.organization_id, initcap(i.role::text),
        'Created when Block 1c replaced fixed roles. Holds no permissions, exactly as this role did before.'
   from public.invitations i
- where i.status = 'pending' and i.role <> 'owner'
+ where i.role <> 'owner'
 on conflict do nothing;
 
 update public.invitations i
    set is_owner = true
- where i.status = 'pending' and i.role = 'owner';
+ where i.role = 'owner';
 
 update public.invitations i
    set role_id = r.id
   from public.roles r
- where i.status = 'pending'
-   and i.role <> 'owner'
+ where i.role <> 'owner'
    and r.organization_id = i.organization_id
    and lower(r.name) = lower(i.role::text)
    and r.deleted_at is null;
 
+-- Pending only: this list drives what acceptance grants, and an invitation
+-- already accepted or revoked will never be read for it again — the Stations
+-- a past invitation actually granted live in company_memberships, not here.
 insert into public.invitation_companies (invitation_id, company_id)
 select i.id, c.id
   from public.invitations i
