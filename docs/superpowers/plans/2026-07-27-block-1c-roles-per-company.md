@@ -296,12 +296,19 @@ for each row execute function public.enforce_last_owner();
 -- The owner holds Company powers by ownership. Keeping their membership row
 -- would make them the only user in the system obliged to carry a role in order
 -- to exercise powers they already have.
+-- `om.deleted_at is null` is load-bearing, and every other owner test in the
+-- schema has it (is_owner, enforce_last_owner, organization_memberships_select).
+-- Without it, someone whose owner membership was soft-deleted by remove_member
+-- and who was later re-added as an operator has their LIVE Company membership
+-- hard-deleted here — silent access loss, no soft-delete trace, in a one-shot
+-- migration with no reverse.
 delete from public.company_memberships cm
  using public.companies c, public.organization_memberships om
  where c.id = cm.company_id
    and om.organization_id = c.organization_id
    and om.user_id = cm.user_id
-   and om.role = 'owner';
+   and om.role = 'owner'
+   and om.deleted_at is null;
 
 alter table public.company_memberships add column organization_id uuid;
 
@@ -311,6 +318,9 @@ update public.company_memberships cm
  where c.id = cm.company_id;
 
 alter table public.company_memberships alter column organization_id set not null;
+
+comment on column public.company_memberships.organization_id is
+  'Denormalised from the Company. It exists to carry the composite foreign keys below, which is what makes a role of another Organization unassignable. Not redundant — do not drop it.';
 
 -- Every surviving row is a non-owner membership, and Block 1b granted operator
 -- and viewer no permissions at all. Recreating that as an empty role is not a
@@ -439,7 +449,22 @@ as $$
   select exists (select 1 from public.permissions p where p.code = p_permission)
      and (
        public.is_platform_admin()
-       or public.is_owner(p_organization_id)
+       or (
+         -- The owner's bypass carries the same subscription gate as the role
+         -- path. Without it the two helpers disagree: has_permission runs the
+         -- owner through has_company_access and yields nothing on a suspended
+         -- Station, while this one would keep granting users.invite, audit.view
+         -- and roles.manage to an owner whose only Station is suspended. The
+         -- spec says a suspended Company grants nothing, full stop — a lapsed
+         -- customer is frozen, and reactivation is the platform admin's job.
+         public.is_owner(p_organization_id)
+         and exists (
+           select 1 from public.companies c
+           where c.organization_id = p_organization_id
+             and c.status = 'active'
+             and c.deleted_at is null
+         )
+       )
        or exists (
          select 1
          from public.company_memberships cm
@@ -506,16 +531,29 @@ begin
          updated_at             = now()
    where id = p_user_id;
 
+  -- Load-bearing: without it the function returns success for a user with no
+  -- profile row, having created the Organization, the Company, the owner
+  -- membership and the audit entry, while the provisional-password gate that
+  -- 0009 exists to enforce is silently never set.
+  if not found then
+    raise exception 'profile not found for user %', p_user_id using errcode = 'P0002';
+  end if;
+
+  -- Byte-for-byte the audit row from 0007. audit_logs.company_id is a real
+  -- column that other RPCs populate, so anything filtering the trail by Company
+  -- would stop seeing provisioning if this moved into the JSON blob.
   insert into public.audit_logs
-    (actor_id, action, target_table, target_id, organization_id, detail)
+    (actor_id, action, target_table, target_id, organization_id, company_id, detail)
   values
-    (v_actor, 'provision_customer', 'organizations', v_org, v_org,
-     jsonb_build_object('company_id', v_comp, 'owner_user_id', p_user_id));
+    (v_actor, 'provision_customer', 'companies', v_comp, v_org, v_comp,
+     jsonb_build_object('owner_user_id', p_user_id, 'organization_name', trim(p_organization_name)));
 
   return jsonb_build_object('organization_id', v_org, 'company_id', v_comp);
 end;
 $$;
 ```
+
+Removing the owner's `company_memberships` insert is the **only** change to this function. Diff your rewrite against `0007_provisioning_rpc.sql` line by line before committing — a `create or replace` that quietly drops a guard or rewrites an audit row is invisible in review unless someone compares.
 
 - [ ] **Step 2: Append the pgTAP assertions**
 
@@ -541,6 +579,12 @@ select fk_ok('public', 'company_memberships', array['company_id', 'organization_
 
 -- Declaring the constraint and having it bite are different claims. This is the
 -- one that matters, so it is asserted rather than reasoned about.
+--
+-- The user must be REAL. company_memberships.user_id references auth.users, and
+-- that constraint is older, so a random uuid trips it first — also SQLSTATE
+-- 23503, which means a throws_ok matching on the code alone goes green whether
+-- or not the composite key exists at all. Pinning the message is what makes this
+-- assertion mean what it says.
 insert into public.organizations (id, name) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'Org A'),
   ('aaaaaaaa-0000-0000-0000-000000000002', 'Org B');
@@ -549,15 +593,25 @@ insert into public.companies (id, organization_id, name) values
 insert into public.roles (id, organization_id, name) values
   ('cccccccc-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'Foreign');
 
+insert into auth.users (id, email)
+values ('dddddddd-0000-0000-0000-000000000001', 'fk-probe@example.test');
+
 select throws_ok(
   $$insert into public.company_memberships (user_id, company_id, organization_id, role_id)
-    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001',
-            'aaaaaaaa-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001')$$,
+    values ('dddddddd-0000-0000-0000-000000000001',
+            'bbbbbbbb-0000-0000-0000-000000000001',
+            'aaaaaaaa-0000-0000-0000-000000000001',
+            'cccccccc-0000-0000-0000-000000000001')$$,
   '23503',
-  null,
+  'insert or update on table "company_memberships" violates foreign key constraint "company_memberships_role_org_fk"',
   'a role from another Organization cannot be assigned'
 );
+
+select has_index('public', 'company_memberships', 'company_memberships_org_idx',
+  'live memberships are indexed by Organization, which has_org_permission reads');
 ```
+
+If a bare `insert into auth.users (id, email)` will not go in — that table is Supabase's and its NOT NULL set moves between versions — determine the minimum columns empirically and use them. If it proves impractical inside pgTAP, **do not leave the weaker assertion in place**: delete it, say so in the report, and the proof moves to the isolation suite in Task 8, where real users exist through the Admin API. A false green on this particular claim is worse than an honest gap.
 
 - [ ] **Step 3: Run the database suite and read the failure**
 
