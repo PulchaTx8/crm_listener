@@ -1,4 +1,5 @@
 import { createUserClient } from '@/lib/supabase/user-client';
+import { logger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { suspendAction, reactivateAction } from './actions';
 import { ProvisionForm, RegenerateForm } from './credential-forms';
@@ -18,19 +19,36 @@ export default async function CustomersPage() {
     .order('created_at', { ascending: false });
 
   // The owner of each Company, so a provisional password can be reissued
-  // without hunting for the user by hand. Readable here because the
-  // company_memberships policy admits platform admins.
-  const { data: owners } = await supabase
+  // without hunting for the user by hand. Both reads are permitted here because
+  // the company_memberships and profiles policies admit platform admins.
+  //
+  // Two queries joined in JS rather than one PostgREST embed: resource
+  // embedding needs a foreign key between the two tables, and there is none.
+  // company_memberships.user_id and profiles.id both reference auth.users(id),
+  // which does not give PostgREST a path from one to the other — the embed
+  // fails with PGRST200 and returns no rows at all.
+  const { data: owners, error: ownersError } = await supabase
     .from('company_memberships')
-    .select('company_id, user_id, role, profiles:user_id (email)')
+    .select('company_id, user_id')
     .eq('role', 'owner');
 
-  type OwnerRow = { company_id: string; user_id: string; profiles: { email: string } | null };
+  if (ownersError) logger.error({ err: ownersError }, 'could not load company owners');
+
+  const ownerUserIds = [...new Set((owners ?? []).map((o) => o.user_id))];
+
+  const { data: ownerProfiles, error: profilesError } = ownerUserIds.length
+    ? await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
+    : { data: [], error: null };
+
+  if (profilesError) logger.error({ err: profilesError }, 'could not load owner profiles');
+
+  const emailByUser = new Map((ownerProfiles ?? []).map((p) => [p.id, p.email]));
+
   const ownerByCompany = new Map<string, { userId: string; email: string }>();
-  for (const row of (owners ?? []) as unknown as OwnerRow[]) {
+  for (const row of owners ?? []) {
     ownerByCompany.set(row.company_id, {
       userId: row.user_id,
-      email: row.profiles?.email ?? '',
+      email: emailByUser.get(row.user_id) ?? '',
     });
   }
 

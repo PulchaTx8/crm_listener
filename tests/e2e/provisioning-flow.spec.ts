@@ -77,6 +77,31 @@ test('provision a customer, sign in, change the password, then suspend', async (
     .single();
   if (owner) createdUserIds.push(owner.id);
 
+  // --- the console resolves each Company's owner --------------------------
+  // A regression guard: this row is built from two queries joined in JS
+  // because the obvious PostgREST embed has no foreign key to travel along
+  // and silently returns nothing. Asserting the email here is what catches
+  // that, since the failure mode is an empty row rather than an error.
+  await page.reload();
+  const provisionedRow = page.locator('li', { hasText: companyName });
+  await expect(provisionedRow.getByText(`Owner: ${ownerEmail}`)).toBeVisible();
+
+  // --- and can reissue a provisional password -----------------------------
+  await provisionedRow.getByRole('button', { name: 'New password' }).click();
+  const reissued = provisionedRow.locator('code').first();
+  await expect(reissued).toBeVisible({ timeout: 15_000 });
+  const reissuedPassword = (await reissued.innerText()).trim();
+  expect(reissuedPassword.length).toBeGreaterThanOrEqual(16);
+  expect(reissuedPassword).not.toBe(provisionalPassword);
+  expect(page.url()).not.toContain(reissuedPassword);
+
+  // The customer signs in below with the ORIGINAL password, which the reissue
+  // has just invalidated — so put the account back the way the test needs it.
+  const { error: restoreError } = await admin.auth.admin.updateUserById(owner!.id, {
+    password: provisionalPassword,
+  });
+  expect(restoreError).toBeNull();
+
   // --- the customer signs in and is forced through the gate ---------------
   const customer = await page.context().browser()!.newContext();
   const customerPage = await customer.newPage();

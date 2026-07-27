@@ -17,7 +17,9 @@ revoke all on public.platform_admins          from anon, authenticated;
 revoke all on public.audit_logs               from anon, authenticated;
 revoke all on public.contact_requests         from anon, authenticated;
 
--- profiles: you see and edit your own row, and nothing else.
+-- profiles: you see and edit your own row. A platform admin also reads every
+-- row, which is what lets the provisioning console show each Company's owner;
+-- nobody but you can write yours.
 --
 -- The UPDATE grant is deliberately COLUMN-level. must_change_password and
 -- provisional_expires_at are the password gate, and a table-level UPDATE grant
