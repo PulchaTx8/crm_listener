@@ -6,9 +6,13 @@ import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-su
  * The whole per-Station roles journey through the real UI: an owner composes a
  * role from the permission catalogue, a platform admin adds a second Station,
  * the owner invites a colleague into only the first Station at that role, the
- * colleague accepts and reaches that Station and not the other, the owner then
- * grants the second Station and the colleague reaches both, and finally the
- * role cannot be deleted while someone still holds it.
+ * colleague accepts and reaches that Station and not the other. That colleague
+ * — who holds users.invite and nothing else — then opens the Team screen
+ * themselves and sends a second invitation into the Station they do not
+ * belong to, proving the invite checklist is authorised by users.invite
+ * specifically and not by users.manage. The owner then grants the second
+ * Station and the colleague reaches both, and finally the role cannot be
+ * deleted while someone still holds it.
  */
 const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -20,6 +24,7 @@ const platformAdminPassword = `E2e-roles-admin-${stamp}-pw`;
 const ownerEmail = `e2e-roles-owner-${stamp}@example.test`;
 const inviteeEmail = `e2e-roles-manager-${stamp}@example.test`;
 const inviteePassword = `Manager-${stamp}-pw`;
+const colleagueEmail = `e2e-roles-colleague-${stamp}@example.test`;
 const orgName = `Roles Org ${stamp}`;
 const stationAName = `Roles Station A ${stamp}`;
 const stationBName = `Roles Station B ${stamp}`;
@@ -171,6 +176,35 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
     inviteePage.locator('[data-testid="station-card"]', { hasText: stationBName }),
   ).toHaveCount(0);
 
+  // --- the Manager — not the owner — sends an invitation themselves --------
+  // The Manager role holds only users.invite (created above), never
+  // users.manage. list_manageable_companies is called once per Team-screen
+  // surface with the permission that surface actually needs (0023) — if the
+  // invite checklist were still fed by a users.manage-gated call, this
+  // Manager would be refused outright and see an empty checklist, unable to
+  // invite anyone into any Station at all, including their own. Sending into
+  // Station B specifically — the one this Manager does NOT belong to — also
+  // proves users.invite's Organization-wide reach, the same shape
+  // create_invitation itself checks, not merely action within their own
+  // membership.
+  await inviteePage.getByRole('link', { name: 'Team' }).click();
+  await expect(inviteePage).toHaveURL(/\/team$/);
+
+  const managerInviteForm = inviteePage.locator('form', {
+    has: inviteePage.getByPlaceholder("Colleague's e-mail"),
+  });
+  await expect(managerInviteForm.getByLabel(stationAName)).toBeVisible();
+  await expect(managerInviteForm.getByLabel(stationBName)).toBeVisible();
+
+  await managerInviteForm.getByPlaceholder("Colleague's e-mail").fill(colleagueEmail);
+  await managerInviteForm.getByRole('combobox').selectOption({ label: 'Manager' });
+  await managerInviteForm.getByLabel(stationBName).check();
+  await managerInviteForm.getByRole('button', { name: 'Send invitation' }).click();
+
+  const managerInviteLink = inviteePage.locator('code').first();
+  await expect(managerInviteLink).toBeVisible({ timeout: 15_000 });
+  expect((await managerInviteLink.innerText()).trim()).toContain('/invite/');
+
   // --- the owner grants the second Station ----------------------------------
   await ownerPage.goto('/team');
   const memberRow = ownerPage.locator('[data-testid="member-row"]', { hasText: inviteeEmail });
@@ -191,7 +225,10 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   });
 
   // --- the colleague now reaches both Stations ------------------------------
-  await inviteePage.reload();
+  // Back to /app explicitly, not a bare reload: the Manager's own invitation
+  // above left inviteePage sitting on /team, which has no station-card at
+  // all — a reload there would check the wrong page.
+  await inviteePage.goto('/app');
   await expect(inviteePage.locator('[data-testid="station-card"]')).toHaveCount(2);
   await expect(
     inviteePage.locator('[data-testid="station-card"]', { hasText: stationAName }),
