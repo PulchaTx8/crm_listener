@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(17);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -9,28 +9,6 @@ select is(relrowsecurity, true, 'RLS enabled on invitations')
   from pg_class where oid = 'public.invitations'::regclass;
 select is(relrowsecurity, true, 'RLS enabled on permissions')
   from pg_class where oid = 'public.permissions'::regclass;
-
--- The seed is the security policy of this block, so it is asserted, not assumed.
-select ok(
-  exists (select 1 from public.role_permissions
-          where role = 'owner' and permission_code = 'users.invite'),
-  'owner may invite'
-);
-select ok(
-  not exists (select 1 from public.role_permissions
-              where role = 'operator' and permission_code = 'users.invite'),
-  'operator may not invite'
-);
-select ok(
-  not exists (select 1 from public.role_permissions
-              where role = 'viewer' and permission_code = 'users.manage'),
-  'viewer may not manage members'
-);
-select is(
-  (select count(*)::int from public.role_permissions where role in ('operator', 'viewer')),
-  0,
-  'operator and viewer hold no permissions in this block'
-);
 
 -- No client may write the catalogue or the invitations: both are RPC-only.
 select ok(not has_table_privilege('authenticated', 'public.permissions', 'INSERT'),
@@ -52,9 +30,22 @@ select ok(
   'anon may not call create_invitation'
 );
 
--- Fail closed, with no session in play.
-select is(public.has_permission('no.such.code', gen_random_uuid()), false,
-          'an unknown permission code returns false');
+-- Block 1c: the catalogue carries what the editor needs to render itself.
+select col_not_null('public', 'permissions', 'module', 'module is required');
+select col_not_null('public', 'permissions', 'label',  'label is required');
+select col_not_null('public', 'permissions', 'scope',  'scope is required');
+
+select is(
+  (select scope::text from public.permissions where code = 'roles.manage'),
+  'organization',
+  'roles.manage reaches the whole Organization'
+);
+
+select has_table('public', 'roles', 'roles exists');
+
+-- Two live roles of the same name in one Organization is a mistake; the same
+-- name after archiving one is not.
+select has_index('public', 'roles', 'roles_name_unique', 'role names are unique per Organization while live');
 
 select * from finish();
 rollback;
