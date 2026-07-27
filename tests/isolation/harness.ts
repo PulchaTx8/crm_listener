@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../src/lib/supabase/database.types';
 
@@ -83,4 +84,47 @@ export async function cleanupUsers(): Promise<void> {
   for (const id of createdUserIds.splice(0)) {
     await admin.auth.admin.deleteUser(id);
   }
+}
+
+/**
+ * Adds a second person to an existing Organization at the given role, through
+ * the real invitation flow.
+ *
+ * It cannot simply insert the membership rows: Block 1a deliberately leaves the
+ * tenant tables read-only for `service_role`, so that a mistake in server code
+ * cannot create or move a tenant behind the audited RPCs' back. That decision
+ * applies to tests too — which is the point. Going the long way round means the
+ * seeding path is the production path.
+ *
+ * Order matters: the invitation is created BEFORE the auth user exists, because
+ * create_invitation refuses an address that already has an account.
+ */
+export async function addMemberByInvitation(
+  customer: ProvisionedCustomer,
+  label: string,
+  role: 'owner' | 'operator' | 'viewer',
+): Promise<{ userId: string; email: string; password: string }> {
+  const email = `${role}-${label}@example.test`;
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+
+  const ownerClient = await signInAs(customer.email, customer.password);
+  const { error: inviteError } = await ownerClient.rpc('create_invitation', {
+    p_organization_id: customer.organizationId,
+    p_email: email,
+    p_role: role,
+    p_token_hash: tokenHash,
+    p_ttl_days: 7,
+  });
+  if (inviteError) throw new Error(`create_invitation failed: ${inviteError.message}`);
+
+  const user = await createUser(email);
+
+  const { error: acceptError } = await admin.rpc('accept_invitation', {
+    p_token_hash: tokenHash,
+    p_user_id: user.userId,
+  });
+  if (acceptError) throw new Error(`accept_invitation failed: ${acceptError.message}`);
+
+  return user;
 }

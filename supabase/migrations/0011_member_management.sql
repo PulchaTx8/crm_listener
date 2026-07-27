@@ -5,9 +5,16 @@
 -- enough right now — and would silently stop being enough the first time someone
 -- adds an RPC and forgets. Same reasoning that put the 1a password gate in the
 -- column GRANT rather than in the policy.
+-- SECURITY DEFINER is load-bearing, not decoration. This trigger is DEFERRED, so
+-- it fires at COMMIT — after change_member_role's own SECURITY DEFINER context
+-- has been popped and the session is back to `authenticated`. Without it the
+-- count runs under the caller's RLS, which shows only the rows they may read:
+-- an owner demoting themselves can no longer see the other owners, counts zero,
+-- and is refused an operation that is perfectly legal.
 create or replace function public.enforce_last_owner()
 returns trigger
 language plpgsql
+security definer
 set search_path = pg_catalog, public
 as $$
 declare
