@@ -56,6 +56,14 @@ alter table public.invitations
   add constraint invitations_role_shape
   check ((is_owner and role_id is null) or (not is_owner and role_id is not null));
 
+-- Same guarantee company_memberships got in 0016: the role and the invitation
+-- must belong to the SAME Organization, enforced declaratively rather than
+-- relying only on the runtime check in create_invitation, which is the sole
+-- write path today — and "today" is how the next block inherits a hole.
+alter table public.invitations
+  add constraint invitations_role_org_fk
+  foreign key (role_id, organization_id) references public.roles (id, organization_id);
+
 -- The old create_invitation signature is the last object still holding a
 -- parameter of type member_role; it must go before the type does, or the DROP
 -- TYPE below fails with exactly that dependency.
@@ -118,12 +126,14 @@ begin
       raise exception 'that role does not belong to this organization' using errcode = '23503';
     end if;
 
-    select count(*) into v_count
+    select count(distinct cid) into v_count
     from unnest(coalesce(p_company_ids, '{}')) as cid
     join public.companies c on c.id = cid
     where c.organization_id = p_organization_id and c.deleted_at is null;
 
-    if v_count = 0 or v_count <> coalesce(array_length(p_company_ids, 1), 0) then
+    if v_count = 0
+       or v_count <> (select count(distinct x) from unnest(coalesce(p_company_ids, '{}')) as x)
+    then
       raise exception 'name at least one Station, all of them in this organization'
         using errcode = '22023';
     end if;
@@ -139,7 +149,7 @@ begin
 
   if not p_is_owner then
     insert into public.invitation_companies (invitation_id, company_id)
-    select v_id, cid from unnest(p_company_ids) as cid;
+    select distinct v_id, cid from unnest(p_company_ids) as cid;
   end if;
 
   insert into public.audit_logs
@@ -174,7 +184,15 @@ begin
   end if;
 
   select name into v_name from public.organizations where id = v_inv.organization_id;
-  select name into v_role from public.roles where id = v_inv.role_id;
+  select name into v_role from public.roles where id = v_inv.role_id and deleted_at is null;
+
+  -- A role can be archived while an invitation naming it is still pending:
+  -- delete_role counts live memberships, and an invitation is not one. The
+  -- page must not render an acceptance form for an invitation that
+  -- accept_invitation would then refuse.
+  if not v_inv.is_owner and v_role is null then
+    raise exception 'invalid or expired invitation' using errcode = '42501';
+  end if;
 
   return jsonb_build_object(
     'invitation_id',     v_inv.id,
@@ -209,6 +227,19 @@ begin
   for update;
 
   if not found then
+    raise exception 'invalid or expired invitation' using errcode = '42501';
+  end if;
+
+  -- A role can be archived while an invitation naming it is still pending:
+  -- delete_role counts live memberships, and an invitation is not one. Accepting
+  -- would then resurrect permissions the owner retired — the same hole
+  -- assign_company_role guards against, arriving by a different door. The
+  -- message is the one every other failure uses, so the page still tells an
+  -- attacker nothing about which guess landed close.
+  if not v_inv.is_owner and not exists (
+    select 1 from public.roles
+    where id = v_inv.role_id and deleted_at is null
+  ) then
     raise exception 'invalid or expired invitation' using errcode = '42501';
   end if;
 
