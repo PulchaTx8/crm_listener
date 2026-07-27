@@ -7,3 +7,14 @@ tests
 *.md
 .env*
 !.env.example
+
+# Test runner configs. They are not needed in the image, and they import from
+# `tests/`, which is excluded above — leaving them in makes `next build` fail
+# inside the container on a module the image deliberately does not ship.
+playwright.config.ts
+vitest.config.ts
+vitest.isolation.config.ts
+playwright-report
+test-results
+.playwright-mcp
+supabase

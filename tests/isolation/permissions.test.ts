@@ -153,6 +153,32 @@ describe('member management', () => {
     expect(error?.message).toMatch(/permission denied/i);
   });
 
+  it('an owner reads their own audit trail and no one else', async () => {
+    const a = await provisionCustomer(`audit-${Date.now()}`);
+    const b = await provisionCustomer(`auditb-${Date.now()}`);
+
+    const ownerA = await signInAs(a.email, a.password);
+    const { data: rows } = await ownerA
+      .from('audit_logs')
+      .select('action, organization_id');
+
+    // Provisioning wrote one, so there is something to see.
+    expect((rows ?? []).length).toBeGreaterThan(0);
+    expect((rows ?? []).every((r) => r.organization_id === a.organizationId)).toBe(true);
+    expect((rows ?? []).some((r) => r.organization_id === b.organizationId)).toBe(false);
+  });
+
+  it('an operator cannot read the audit trail at all', async () => {
+    // audit.view is the third permission this block seeds, and the only one
+    // enforced through an RLS policy rather than an RPC body.
+    const a = await provisionCustomer(`auditop-${Date.now()}`);
+    const operator = await addMemberByInvitation(a, `ao-${Date.now()}`, 'operator');
+    const operatorClient = await signInAs(operator.email, operator.password);
+
+    const { data } = await operatorClient.from('audit_logs').select('action');
+    expect(data ?? []).toEqual([]);
+  });
+
   it('a removed member loses access on the next request', async () => {
     const a = await provisionCustomer(`revoke-${Date.now()}`);
     const viewer = await addMemberByInvitation(a, `rv-${Date.now()}`, 'viewer');
