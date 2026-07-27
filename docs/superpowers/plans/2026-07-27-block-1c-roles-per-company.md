@@ -2020,6 +2020,57 @@ describe('roles', () => {
     expect(error!.message).toMatch(/assigned to 1 user/i);
   });
 
+  it('refuses to assign a role that was archived', async () => {
+    const customer = await provisionCustomer('roles-archived');
+    const role = await createRoleAs(customer, 'Retired', ['users.invite']);
+    const target = await addMemberByInvitation(customer, 'roles-archived', role, [
+      customer.companyId,
+    ]);
+
+    const owner = await signInAs(customer.email, customer.password);
+    await owner.rpc('remove_company_access', {
+      p_company_id: customer.companyId,
+      p_user_id: target.userId,
+    });
+    const archived = await owner.rpc('delete_role', { p_role_id: role });
+    expect(archived.error).toBeNull();
+
+    // The composite foreign key cannot see deleted_at — it references a
+    // non-partial constraint, because a foreign key cannot reference a partial
+    // index. Without an explicit liveness check the assignment would succeed and
+    // hand back permissions the owner had retired.
+    const { error } = await owner.rpc('assign_company_role', {
+      p_company_id: customer.companyId,
+      p_user_id: target.userId,
+      p_role_id: role,
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/role not found/i);
+  });
+
+  it('refuses to remove access that is not there', async () => {
+    const customer = await provisionCustomer('roles-noop');
+    const role = await createRoleAs(customer, 'Local', []);
+    const member = await addMemberByInvitation(customer, 'roles-noop', role, [
+      customer.companyId,
+    ]);
+
+    const owner = await signInAs(customer.email, customer.password);
+    const first = await owner.rpc('remove_company_access', {
+      p_company_id: customer.companyId,
+      p_user_id: member.userId,
+    });
+    expect(first.error).toBeNull();
+
+    // A second call must fail rather than write an audit row for a removal that
+    // did not happen.
+    const second = await owner.rpc('remove_company_access', {
+      p_company_id: customer.companyId,
+      p_user_id: member.userId,
+    });
+    expect(second.error).not.toBeNull();
+  });
+
   it('refuses a role from another Organization even with a valid id', async () => {
     const a = await provisionCustomer('roles-org-a');
     const b = await provisionCustomer('roles-org-b');
