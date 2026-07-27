@@ -53,6 +53,60 @@ describe('roles', () => {
     expect(there).toBe(false);
   });
 
+  it('lets a users.manage holder scoped to one Station list every Station through list_manageable_companies', async () => {
+    // Pins 0022_list_manageable_companies.sql: assign_company_role authorises
+    // users.manage Organization-wide (has_org_permission — a role in ANY
+    // Company grants it everywhere), but 0021 scopes a direct `companies`
+    // select to the caller's own company_memberships. Without this function,
+    // an administrator holding users.manage in only one Station would be
+    // authorised to assign roles everywhere and unable to see anywhere else to
+    // do it, and the Team screen's invite form (which shares this same list)
+    // would be unable to offer a Station the inviter cannot personally reach.
+    const label = `roles-manage-list-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const second = await addCompany(customer, 'Station Two');
+    const managerRole = await createRoleAs(customer, 'Admin', ['users.manage']);
+    const plainRole = await createRoleAs(customer, 'Trainee', []);
+    const manager = await addMemberByInvitation(customer, label, managerRole, [
+      customer.companyId,
+    ]);
+    const trainee = await addMemberByInvitation(customer, `${label}-trainee`, plainRole, [
+      customer.companyId,
+    ]);
+
+    const managerClient = await signInAs(manager.email, manager.password);
+
+    // Direct table access stays scoped to their own membership (0021) — this
+    // half is what proves the new function is doing real work, not just
+    // duplicating what a plain select already returns.
+    const { data: direct } = await managerClient.from('companies').select('id');
+    const directIds = (direct ?? []).map((r) => r.id);
+    expect(directIds).toContain(customer.companyId);
+    expect(directIds).not.toContain(second);
+
+    // But list_manageable_companies must still show every Station in the
+    // Organization, because assign_company_role authorises users.manage
+    // Organization-wide, not per-Company.
+    const { data: manageable, error: manageableError } = await managerClient.rpc(
+      'list_manageable_companies',
+      { p_organization_id: customer.organizationId },
+    );
+    expect(manageableError).toBeNull();
+    const manageableIds = (manageable ?? []).map((r) => r.id);
+    expect(manageableIds).toContain(customer.companyId);
+    expect(manageableIds).toContain(second);
+
+    // And it re-checks the permission itself rather than trusting the caller:
+    // a member with no permissions at all must be refused, not handed the
+    // roster because they happen to belong to the Organization.
+    const traineeClient = await signInAs(trainee.email, trainee.password);
+    const refused = await traineeClient.rpc('list_manageable_companies', {
+      p_organization_id: customer.organizationId,
+    });
+    expect(refused.error).not.toBeNull();
+    expect(refused.error!.message).toMatch(/users\.manage/);
+  });
+
   it('cuts access on the next request when the permission is unchecked', async () => {
     const label = `roles-live-${Date.now()}`;
     const customer = await provisionCustomer(label);

@@ -1,6 +1,14 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
-import { provisionCustomer, signInAs, createRoleAs, cleanupUsers, admin } from './harness';
+import {
+  provisionCustomer,
+  signInAs,
+  createRoleAs,
+  cleanupUsers,
+  admin,
+  addCompany,
+  addMemberByInvitation,
+} from './harness';
 
 afterAll(async () => {
   await cleanupUsers();
@@ -17,6 +25,39 @@ describe('tenant isolation', () => {
     const ids = (data ?? []).map((r) => r.id);
     expect(ids).toContain(a.companyId);
     expect(ids).not.toContain(b.companyId);
+  });
+
+  it('a member scoped to one Station cannot see another in the same Organization, but the owner sees both', async () => {
+    // Pins 0021_companies_visibility_fix.sql: companies_select_org_member used
+    // to grant ANY Organization member visibility of EVERY Company in it
+    // (is_org_member, Organization-wide), which silently defeated Block 1c's
+    // whole premise of per-Company roles — a colleague scoped to one Station
+    // could already see every other Station's metadata before ever being
+    // granted access to it. This is the two-Company, single-Organization case
+    // the earlier "reads only their own company" test above cannot exercise,
+    // since that one provisions two SEPARATE Organizations.
+    const label = `tenant-station-scope-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const second = await addCompany(customer, 'Station Two');
+    const role = await createRoleAs(customer, 'Local', []);
+    const member = await addMemberByInvitation(customer, label, role, [customer.companyId]);
+
+    const memberClient = await signInAs(member.email, member.password);
+    const { data: memberCompanies } = await memberClient.from('companies').select('id');
+    const memberIds = (memberCompanies ?? []).map((r) => r.id);
+    expect(memberIds).toContain(customer.companyId);
+    expect(memberIds).not.toContain(second);
+
+    // The other half of the same claim: the fix must narrow a plain member's
+    // view without also blinding the owner to their own Organization's
+    // Stations. Without this, the is_owner bypass in the rewritten policy
+    // would be unproven — a regression here would not fail the assertion
+    // above at all, since it only concerns the member.
+    const ownerClient = await signInAs(customer.email, customer.password);
+    const { data: ownerCompanies } = await ownerClient.from('companies').select('id');
+    const ownerIds = (ownerCompanies ?? []).map((r) => r.id);
+    expect(ownerIds).toContain(customer.companyId);
+    expect(ownerIds).toContain(second);
   });
 
   it('a user cannot write into another company', async () => {
