@@ -46,10 +46,28 @@ Created in this block:
 - `src/schemas/invitations.ts` — Zod
 - `src/services/invitations.ts` — token generation, create, revoke, validate, accept
 - `src/app/(app)/team/page.tsx`, `actions.ts`, `invite-form.tsx` — the Organization's team screen
-- `src/app/(public)/invite/[token]/page.tsx` — acceptance
+- `src/app/(auth)/invite/[token]/page.tsx` — acceptance
 - `tests/isolation/permissions.test.ts`, `tests/isolation/invitations.test.ts`
 - `tests/e2e/invitation-flow.spec.ts`
-- Modified: `src/lib/supabase/database.types.ts` (regenerated), `src/middleware.ts` (public path)
+- Modified: `src/lib/supabase/database.types.ts` (regenerated), `src/middleware.ts` (public path), `src/lib/auth/shell.ts` (nav entry)
+
+**UI conventions this block inherits.** The application shell shipped after this
+plan's first draft, so the two screen tasks below are written against it:
+
+- Pages inside the shell render `<PageHeader title description>` from
+  `@/components/layout/app-shell` and then their content. They do **not** render
+  their own `<main>` or `<h1>`, and they do not repeat the navigation — the shell
+  owns both.
+- Use `Card` / `CardHeader` / `CardTitle` / `CardDescription` / `CardContent`
+  from `@/components/ui/card` for panels, and `Input` / `Textarea` / `Select`
+  from `@/components/ui/input` for fields. Raw `<input className="rounded-md
+  border p-2">` is the pre-shell style and must not come back.
+- Navigation lives in `src/lib/auth/shell.ts`, not in page bodies.
+- Authentication screens — including invitation acceptance — belong to the
+  `(auth)` route group, which is centred and deliberately renders no shell: a
+  visitor with no session must not be shown a navigation they cannot use.
+- Rows that end-to-end tests target carry a `data-testid`, because cards have no
+  stable element name the way `<li>` did.
 
 ---
 
@@ -1683,7 +1701,7 @@ git commit -m "test: add invitation lifecycle isolation coverage"
 
 **Files:**
 - Create: `src/app/(app)/team/page.tsx`, `src/app/(app)/team/actions.ts`, `src/app/(app)/team/invite-form.tsx`
-- Modify: `src/app/(app)/app/page.tsx` (link to the team screen)
+- Modify: `src/lib/auth/shell.ts` (add Team to the sidebar)
 
 **Interfaces:**
 - Consumes: `createInvitation`, `revokeInvitation` (Task 9); `change_member_role`, `remove_member` (Task 2).
@@ -1789,6 +1807,7 @@ export async function removeMemberAction(formData: FormData): Promise<void> {
 import { useActionState } from 'react';
 import { inviteAction, type InviteState } from './actions';
 import { Button } from '@/components/ui/button';
+import { Input, Select } from '@/components/ui/input';
 
 const INITIAL: InviteState = { status: 'idle' };
 
@@ -1802,7 +1821,7 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
       ) : null}
 
       {state.status === 'revealed' && state.acceptUrl ? (
-        <div className="rounded-md border border-primary p-4">
+        <div className="rounded-md border border-primary bg-primary/5 p-4">
           <p className="text-sm">
             Invitation sent to <strong>{state.email}</strong>. If the e-mail does not arrive, share
             this link directly:
@@ -1817,18 +1836,12 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
 
       <form action={action} className="flex flex-col gap-3">
         <input type="hidden" name="organizationId" value={organizationId} />
-        <input
-          name="email"
-          type="email"
-          placeholder="Colleague's e-mail"
-          required
-          className="rounded-md border p-2"
-        />
-        <select name="role" defaultValue="operator" className="rounded-md border p-2">
+        <Input name="email" type="email" placeholder="Colleague's e-mail" required />
+        <Select name="role" defaultValue="operator">
           <option value="operator">Operator</option>
           <option value="viewer">Viewer</option>
           <option value="owner">Owner</option>
-        </select>
+        </Select>
         <Button type="submit" disabled={pending}>
           {pending ? 'Sending…' : 'Send invitation'}
         </Button>
@@ -1845,7 +1858,10 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
 ```tsx
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select } from '@/components/ui/input';
 import { changeRoleAction, removeMemberAction, revokeAction } from './actions';
 import { InviteForm } from './invite-form';
 
@@ -1884,96 +1900,150 @@ export default async function TeamPage() {
 
   if (!organizationId) {
     return (
-      <main className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Team</h1>
-        <p className="text-muted-foreground">You do not belong to an organization yet.</p>
-      </main>
+      <>
+        <PageHeader title="Team" />
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">
+              You do not belong to an organization yet.
+            </p>
+          </CardContent>
+        </Card>
+      </>
     );
   }
 
   return (
-    <main className="flex flex-col gap-10">
-      <section className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Invite a colleague</h1>
-        <InviteForm organizationId={organizationId} />
-      </section>
+    <>
+      <PageHeader
+        title="Team"
+        description="Invite colleagues and decide what each of them may do."
+      />
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-semibold">Members</h2>
-        <ul className="flex flex-col gap-2">
-          {(memberships ?? []).map((m) => {
-            const profile = profileByUser.get(m.user_id);
-            return (
-              <li key={m.id} className="flex items-center justify-between gap-4 rounded-md border p-3">
-                <span className="text-sm">
-                  {profile?.full_name ? `${profile.full_name} — ` : ''}
-                  {profile?.email ?? m.user_id} — <em>{m.role}</em>
-                </span>
-                <div className="flex items-center gap-2">
-                  <form action={changeRoleAction} className="flex items-center gap-2">
-                    <input type="hidden" name="membershipId" value={m.id} />
-                    <select name="role" defaultValue={m.role} className="rounded border p-1 text-sm">
-                      <option value="owner">Owner</option>
-                      <option value="operator">Operator</option>
-                      <option value="viewer">Viewer</option>
-                    </select>
-                    <Button type="submit" variant="outline">
-                      Save
-                    </Button>
-                  </form>
-                  <form action={removeMemberAction}>
-                    <input type="hidden" name="membershipId" value={m.id} />
-                    <Button type="submit" variant="outline">
-                      Remove
-                    </Button>
-                  </form>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
+        <Card>
+          <CardHeader>
+            <CardTitle>Invite a colleague</CardTitle>
+            <CardDescription>
+              They choose their own password, so it never travels outside their browser.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <InviteForm organizationId={organizationId} />
+          </CardContent>
+        </Card>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-semibold">Pending invitations</h2>
-        {(invitations ?? []).length === 0 ? (
-          <p className="text-muted-foreground">None.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {(invitations ?? []).map((i) => (
-              <li key={i.id} className="flex items-center justify-between gap-4 rounded-md border p-3">
-                <span className="text-sm">
-                  {i.email} — <em>{i.role}</em> — expires{' '}
-                  {new Date(i.expires_at).toLocaleDateString('en-GB')}
-                </span>
-                <form action={revokeAction}>
-                  <input type="hidden" name="invitationId" value={i.id} />
-                  <Button type="submit" variant="outline">
-                    Revoke
-                  </Button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Members</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {(memberships ?? []).map((m) => {
+                const profile = profileByUser.get(m.user_id);
+                return (
+                  <div
+                    key={m.id}
+                    data-testid="member-row"
+                    className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <span className="text-sm">
+                      {profile?.full_name ? `${profile.full_name} — ` : ''}
+                      {profile?.email ?? m.user_id}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <form action={changeRoleAction} className="flex items-center gap-2">
+                        <input type="hidden" name="membershipId" value={m.id} />
+                        <Select name="role" defaultValue={m.role} className="h-9 w-32 text-sm">
+                          <option value="owner">Owner</option>
+                          <option value="operator">Operator</option>
+                          <option value="viewer">Viewer</option>
+                        </Select>
+                        <Button type="submit" variant="outline">
+                          Save
+                        </Button>
+                      </form>
+                      <form action={removeMemberAction}>
+                        <input type="hidden" name="membershipId" value={m.id} />
+                        <Button type="submit" variant="outline">
+                          Remove
+                        </Button>
+                      </form>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Pending invitations</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {(invitations ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">None.</p>
+              ) : (
+                (invitations ?? []).map((i) => (
+                  <div
+                    key={i.id}
+                    data-testid="invitation-row"
+                    className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
+                  >
+                    <span className="text-sm">
+                      {i.email}
+                      <span className="ml-2 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                        {i.role}
+                      </span>
+                      <span className="ml-2 text-muted-foreground">
+                        expires {new Date(i.expires_at).toLocaleDateString('en-GB')}
+                      </span>
+                    </span>
+                    <form action={revokeAction}>
+                      <input type="hidden" name="invitationId" value={i.id} />
+                      <Button type="submit" variant="outline">
+                        Revoke
+                      </Button>
+                    </form>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </>
   );
 }
 ```
 
-- [ ] **Step 4: Link it from the member home**
+- [ ] **Step 4: Add it to the sidebar**
 
-In `src/app/(app)/app/page.tsx`, inside the `<header>` block and next to the
-sign-out form, add:
+Navigation lives in the shell, not in page bodies. In `src/lib/auth/shell.ts`,
+extend the Overview section:
 
-```tsx
-        <Link href="/team" className="text-sm underline">
-          Team
-        </Link>
+```ts
+  const sections: NavSection[] = [
+    {
+      label: 'Overview',
+      items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
+    },
+    {
+      label: 'Organization',
+      items: [{ href: '/team', label: 'Team', icon: ICONS.users }],
+    },
+  ];
 ```
 
-`Link` is already imported in that file.
+`ICONS.users` already exists in `src/components/layout/app-shell.tsx` and is
+currently unused — it was added for exactly this entry.
+
+> The link is visible to every member, including operators and viewers who hold
+> no `users.invite`. That is deliberate and not a hole: the page itself only
+> renders invitations the `invitations` RLS policy returns, and every write goes
+> through an RPC that re-checks permission. Hiding a link is a courtesy; the
+> boundary is in the database. Task 8's "an operator cannot invite" test is what
+> holds that line.
 
 - [ ] **Step 5: Verify**
 
@@ -1996,8 +2066,12 @@ git commit -m "feat(team): add member and invitation management screen"
 ## Task 12: The acceptance page
 
 **Files:**
-- Create: `src/app/(public)/invite/[token]/page.tsx`
+- Create: `src/app/(auth)/invite/[token]/page.tsx`
 - Modify: `src/middleware.ts`
+
+The `(auth)` group, not `(public)`: it is centred, it renders the PulchatX mark
+above the card, and it deliberately shows no navigation. A visitor arriving from
+an invitation e-mail has no session and nothing to navigate to.
 
 **Interfaces:**
 - Consumes: `validateInvitation`, `acceptInvitation` (Task 9).
@@ -2025,7 +2099,7 @@ Add above `PUBLIC_PATHS`:
 
 - [ ] **Step 2: Write the page**
 
-`src/app/(public)/invite/[token]/page.tsx`:
+`src/app/(auth)/invite/[token]/page.tsx`:
 
 ```tsx
 import { headers } from 'next/headers';
@@ -2034,6 +2108,8 @@ import { acceptInvitationSchema } from '@/schemas/invitations';
 import { acceptInvitation, validateInvitation } from '@/services/invitations';
 import { logger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 
 export const dynamic = 'force-dynamic';
 
@@ -2060,13 +2136,15 @@ export default async function AcceptInvitationPage({
   // ones would tell an attacker which guess landed close.
   if (!preview) {
     return (
-      <main className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">This invitation is not valid</h1>
-        <p className="text-muted-foreground">
-          The link may have expired, been revoked, or already been used. Please ask whoever invited
-          you to send a new one.
-        </p>
-      </main>
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-6">
+          <h1 className="text-xl font-semibold tracking-tight">This invitation is not valid</h1>
+          <p className="text-sm text-muted-foreground">
+            The link may have expired, been revoked, or already been used. Please ask whoever
+            invited you to send a new one.
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -2105,41 +2183,35 @@ export default async function AcceptInvitationPage({
   }
 
   return (
-    <main className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Join {preview.organizationName}</h1>
-      <p className="text-muted-foreground">
-        You were invited as <strong>{preview.role}</strong> using{' '}
-        <strong>{preview.email}</strong>. Choose a password to create your account.
-      </p>
-      {query.error ? (
-        <p className="text-sm text-destructive">{MESSAGES[query.error] ?? MESSAGES.failed}</p>
-      ) : null}
-      <form action={accept} className="flex flex-col gap-4">
-        <input name="fullName" placeholder="Your name (optional)" className="rounded-md border p-2" />
-        <input
-          name="password"
-          type="password"
-          placeholder="Choose a password"
-          required
-          className="rounded-md border p-2"
-        />
-        <input
-          name="confirm"
-          type="password"
-          placeholder="Repeat the password"
-          required
-          className="rounded-md border p-2"
-        />
-        <Button type="submit">Create my account</Button>
-      </form>
-    </main>
+    <Card>
+      <CardContent className="flex flex-col gap-5 pt-6">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-xl font-semibold tracking-tight">
+            Join {preview.organizationName}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            You were invited as <strong>{preview.role}</strong> using{' '}
+            <strong>{preview.email}</strong>. Choose a password to create your account.
+          </p>
+        </div>
+        {query.error ? (
+          <p className="text-sm text-destructive">{MESSAGES[query.error] ?? MESSAGES.failed}</p>
+        ) : null}
+        <form action={accept} className="flex flex-col gap-4">
+          <Input name="fullName" placeholder="Your name (optional)" />
+          <Input name="password" type="password" placeholder="Choose a password" required />
+          <Input name="confirm" type="password" placeholder="Repeat the password" required />
+          <Button type="submit">Create my account</Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 ```
 
 - [ ] **Step 3: Show a confirmation on the login page**
 
-In `src/app/(public)/login/page.tsx`, widen the `searchParams` type to
+In `src/app/(auth)/login/page.tsx`, widen the `searchParams` type to
 `Promise<{ error?: string; invited?: string }>` and add above the error paragraph:
 
 ```tsx
@@ -2158,7 +2230,7 @@ Expected: all PASS, with `/invite/[token]` listed in the build output.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add "src/app/(public)/invite" "src/app/(public)/login/page.tsx" src/middleware.ts
+git add "src/app/(auth)/invite" "src/app/(auth)/login/page.tsx" src/middleware.ts
 git commit -m "feat(invite): add the public invitation acceptance page"
 ```
 
@@ -2219,7 +2291,9 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: /admin console/i }).click();
+  // The platform links live in the sidebar, which renders them only for a
+  // platform admin.
+  await page.getByRole('link', { name: 'Customers' }).click();
   await page.getByPlaceholder('Organization name').fill(`Invite Org ${stamp}`);
   await page.getByPlaceholder('Company (Station) name').fill(`Invite Station ${stamp}`);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
@@ -2254,6 +2328,7 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await ownerPage.getByRole('button', { name: 'Save' }).click();
   await expect(ownerPage).toHaveURL(/\/app$/);
 
+  // Sidebar entry added in Task 11 Step 4.
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
