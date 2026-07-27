@@ -2,12 +2,13 @@ import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getUserSupabaseConfig } from './config';
+import type { Database } from './database.types';
 
 // Per-request client carrying the user's JWT/session → RLS is genuinely enforced (D4).
-export async function createUserClient(): Promise<SupabaseClient> {
+export async function createUserClient(): Promise<SupabaseClient<Database>> {
   const { url, anonKey } = getUserSupabaseConfig();
   const cookieStore = await cookies();
-  return createServerClient(url, anonKey, {
+  return createServerClient<Database>(url, anonKey, {
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (toSet: { name: string; value: string; options: CookieOptions }[]) => {
@@ -21,3 +22,6 @@ export async function createUserClient(): Promise<SupabaseClient> {
     },
   });
 }
+
+/** The per-request user client, for signatures that need to name the type. */
+export type UserClient = Awaited<ReturnType<typeof createUserClient>>;

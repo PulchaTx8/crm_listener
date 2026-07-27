@@ -21,16 +21,22 @@ have already been through a human decision — do not relitigate them.
 
 ## Must be addressed early in Block 1
 
-1. **`middleware.ts` does not exist.** `src/lib/supabase/user-client.ts` swallows cookie
-   write failures by design, assuming the middleware refreshes the session. Without it,
-   sessions expire silently. **Item #1 of the auth task.**
+> Items 1 and 3 were closed by Block 1a. See `docs/block-1a-report.md`.
+
+1. ~~**`middleware.ts` does not exist.**~~ **Closed in Block 1a.** `src/middleware.ts`
+   refreshes the session on every request and carries the password gate, so the cookie-write
+   guard in `user-client.ts` now rests on something real.
 2. **Logger redaction vs. Supabase.** The `access_token`/`refresh_token` fields are
    already redacted, but check the real shape of the session object when you integrate
    auth — `MAX_DEPTH = 8` in `src/lib/logger.ts`, and deeper keys pass through unredacted.
-3. **The `Database` types do not exist.** Both clients return a raw `SupabaseClient`, so
-   `.from()` and `.rpc()` are untyped — that is exactly how a library `any` slipped past
-   `noUncheckedIndexedAccess` in Block 0. Run `supabase gen types typescript`
-   early and pass the generic to both factories; it is far cheaper before the schema grows.
+   *Still open: Block 1a logs no session objects, so this was never exercised.*
+3. ~~**The `Database` types do not exist.**~~ **Closed in Block 1a.** `npm run db:types`
+   generates `src/lib/supabase/database.types.ts` and both factories take the generic.
+   Worth knowing: the first attempt looked like it worked and did not — `@supabase/ssr` 0.5
+   fed its generics into the wrong slots of the newer `SupabaseClient`, so the user client
+   silently accepted any table name. It took the plan's "prove it is not vacuous" step to
+   catch, and an upgrade to `@supabase/ssr` 0.12 to fix. **Re-run that probe after any
+   Supabase package bump.**
 4. **The validated `env` has no consumers.** `src/lib/supabase/config.ts` reads `process.env`
    directly **(decided — so the test can mutate it)**. Boot validates, but nobody uses the
    typed object. Wiring consumers to `env` is what makes `Env | LooseEnv` worth it.

@@ -1,3 +1,3 @@
-# PulchaTX
+# PulchatX
 
 CRM for entertainment companies.

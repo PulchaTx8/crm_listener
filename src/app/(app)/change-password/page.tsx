@@ -1,0 +1,68 @@
+import type { Route } from 'next';
+import { redirect } from 'next/navigation';
+import { createUserClient } from '@/lib/supabase/user-client';
+import { Button } from '@/components/ui/button';
+
+const MESSAGES: Record<string, string> = {
+  short: 'The password must be at least 10 characters.',
+  mismatch: 'The two passwords do not match.',
+  failed: 'Could not change the password. Please try again.',
+};
+
+export default async function ChangePasswordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const params = await searchParams;
+
+  async function change(formData: FormData) {
+    'use server';
+    const password = String(formData.get('password') ?? '');
+    const confirm = String(formData.get('confirm') ?? '');
+
+    // Mirrors minimum_password_length in supabase/config.toml.
+    if (password.length < 10) redirect('/change-password?error=short');
+    if (password !== confirm) redirect('/change-password?error=mismatch');
+
+    const supabase = await createUserClient();
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) redirect('/change-password?error=failed');
+
+    // Only now is the gate cleared, and only by the SECURITY DEFINER function —
+    // the columns are not writable from a client.
+    const { error: rpcError } = await supabase.rpc('complete_password_change');
+    if (rpcError) redirect('/change-password?error=failed');
+
+    redirect('/app' as Route);
+  }
+
+  return (
+    <main className="mx-auto flex max-w-md flex-col gap-6">
+      <h1 className="text-2xl font-semibold">Choose a new password</h1>
+      <p className="text-muted-foreground">
+        Your account was created with a provisional password. Choose your own to continue.
+      </p>
+      {params.error ? (
+        <p className="text-sm text-destructive">{MESSAGES[params.error] ?? MESSAGES.failed}</p>
+      ) : null}
+      <form action={change} className="flex flex-col gap-4">
+        <input
+          name="password"
+          type="password"
+          placeholder="New password"
+          required
+          className="rounded-md border p-2"
+        />
+        <input
+          name="confirm"
+          type="password"
+          placeholder="Repeat the password"
+          required
+          className="rounded-md border p-2"
+        />
+        <Button type="submit">Save</Button>
+      </form>
+    </main>
+  );
+}

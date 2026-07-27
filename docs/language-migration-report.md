@@ -3,14 +3,14 @@
 Branch `rename-and-english`, based on `main@28a3ad3`.
 Date: 2026-07-26.
 
-Converts the codebase from PT-BR to English and adopts the PulchaTX product identity and
+Converts the codebase from PT-BR to English and adopts the PulchatX product identity and
 domain vocabulary. This is a translation and renaming pass — **no behaviour was redesigned**.
 
 ---
 
 ## 1. Decisions applied
 
-**Product identity.** The application is **PulchaTX**, described as **"CRM for entertainment
+**Product identity.** The application is **PulchatX**, described as **"CRM for entertainment
 companies"**. It is not radio-only; "rádio"/"radio" is no longer the primary term anywhere.
 
 **Domain vocabulary.**
@@ -67,9 +67,9 @@ Every comment, JSDoc, error message and UI string. `package.json` `name`: `crm-l
 `pulchatx` (and the two matching `name` fields in `package-lock.json`, validated with
 `npm ci --dry-run`).
 
-- `src/app/layout.tsx` — metadata title `PulchaTX`, description `CRM for entertainment
+- `src/app/layout.tsx` — metadata title `PulchatX`, description `CRM for entertainment
   companies`; `<html lang>` changed `pt-BR` → `en` (the UI is now English).
-- `src/app/page.tsx` — heading `PulchaTX — Foundation OK`, button `Get started`.
+- `src/app/page.tsx` — heading `PulchatX — Foundation OK`, button `Get started`.
 - `src/lib/env.ts` — throw message `Configuração de ambiente inválida —` →
   `Invalid environment configuration —`.
 - `src/lib/supabase/config.ts` — both throw messages translated.
