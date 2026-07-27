@@ -32,7 +32,7 @@
 - Modify: `supabase/tests/02_permissions.test.sql`
 
 **Interfaces:**
-- Produces: table `public.roles (id, organization_id, name, description, created_by, created_at, updated_at, deleted_at)`; table `public.role_permissions (role_id, permission_code)`; type `public.permission_scope`; columns `permissions.module`, `permissions.label`, `permissions.scope`, `permissions.display_order`; permission code `roles.manage`; unique constraints `roles_id_org_unique` and `companies_id_org_unique`.
+- Produces: table `public.roles (id, organization_id, name, description, created_by, created_at, updated_at, deleted_at)`; table `public.role_permissions (role_id, permission_code)`; type `public.permission_scope`; columns `permissions.module`, `permissions.label`, `permissions.scope`, `permissions.display_order`; permission code `roles.manage`; unique constraints `roles_id_org_unique` and `companies_id_org_unique`; a transitional `public.has_permission(text, uuid)` that Task 2 replaces.
 
 - [ ] **Step 1: Write the migration**
 
@@ -126,13 +126,71 @@ create index role_permissions_code_idx on public.role_permissions (permission_co
 insert into public.permissions (code, description, introduced_by_block, module, label, scope, display_order)
 values ('roles.manage', 'Create, edit and delete the Organization''s roles', '1c',
         'organization', 'Administer roles', 'organization', 40);
+
+-- CORRECTION, made while executing this task. Dropping role_permissions above
+-- leaves has_permission (0010) joining a column that no longer exists, and it
+-- breaks the moment anything calls it — the plan originally deferred the helper
+-- rewrite to Task 2, which would have left the database inconsistent between two
+-- migrations. This transitional definition holds the line until 0016 resolves
+-- permissions through the role. `exists` rather than a scalar subquery, because
+-- a scalar subquery yields NULL with no matching row, and `if not NULL then
+-- raise` never fires — the wrong failure mode for a function whose job is to
+-- fail closed. operator and viewer get nothing here, exactly as in Block 1b.
+create or replace function public.has_permission(p_permission text, p_company_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select exists (select 1 from public.permissions p where p.code = p_permission)
+     and public.has_company_access(p_company_id)
+     and (
+       public.is_platform_admin()
+       or exists (
+         select 1
+         from public.company_memberships cm
+         where cm.user_id = auth.uid()
+           and cm.company_id = p_company_id
+           and cm.deleted_at is null
+           and cm.role = 'owner'
+       )
+     );
+$$;
+
+comment on function public.has_permission(text, uuid) is
+  'Transitional: valid code AND active subscription AND the caller is the Company owner. 0016 replaces this with resolution through the assigned role.';
 ```
 
-- [ ] **Step 2: Append the pgTAP assertions**
+- [ ] **Step 2: Update the pgTAP assertions**
 
-Append to `supabase/tests/02_permissions.test.sql`, and change its first line from `select plan(16);` to `select plan(22);`.
+In `supabase/tests/02_permissions.test.sql`:
+
+**Remove** the four assertions that read `role_permissions.role = 'owner' | 'operator' | 'viewer'`. That column no longer exists, so they cannot run. **Keep everything else**, in particular this one, which must survive untouched:
 
 ```sql
+-- Fail closed, with no session in play.
+select is(public.has_permission('no.such.code', gen_random_uuid()), false,
+          'an unknown permission code returns false');
+```
+
+It guards the trap Block 1b documented — the existence check sitting outside the bypass — and it is a named row in this block's definition of done. It passes against the transitional function above, because `exists(...)` is false for an unknown code and nothing reaches the role tables.
+
+**Then append** the following, and set the plan count on line 2 to whatever the file actually contains, confirmed against the runner rather than by arithmetic:
+
+```sql
+-- The catalogue's own seed, in the new model. Replaces the four fixed-role
+-- assertions removed above: the same claim — that the seed is asserted and not
+-- assumed — stated against the structure that now exists.
+select is(
+  (select introduced_by_block from public.permissions where code = 'roles.manage'),
+  '1c',
+  'roles.manage is seeded by this block'
+);
+
+select has_column('public', 'role_permissions', 'role_id', 'role_permissions is keyed by role');
+select hasnt_column('public', 'role_permissions', 'role', 'the fixed-role column is gone');
+
 -- Block 1c: the catalogue carries what the editor needs to render itself.
 select col_not_null('public', 'permissions', 'module', 'module is required');
 select col_not_null('public', 'permissions', 'label',  'label is required');
@@ -154,7 +212,7 @@ select has_index('public', 'roles', 'roles_name_unique', 'role names are unique 
 - [ ] **Step 3: Run the database suite and watch it fail before the migration is applied**
 
 Run: `npx supabase db reset && npx supabase test db`
-Expected: the new assertions fail with `relation "public.roles" does not exist` if the migration file is absent. With the migration in place, all pass.
+Expected: the new assertions fail with `relation "public.roles" does not exist` if the migration file is absent. With the migration in place, all pass — including the fail-closed assertion, which must appear in the output.
 
 - [ ] **Step 4: Run the database suite green**
 
