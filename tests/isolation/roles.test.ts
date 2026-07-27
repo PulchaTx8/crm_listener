@@ -53,58 +53,109 @@ describe('roles', () => {
     expect(there).toBe(false);
   });
 
-  it('lets a users.manage holder scoped to one Station list every Station through list_manageable_companies', async () => {
-    // Pins 0022_list_manageable_companies.sql: assign_company_role authorises
-    // users.manage Organization-wide (has_org_permission — a role in ANY
-    // Company grants it everywhere), but 0021 scopes a direct `companies`
-    // select to the caller's own company_memberships. Without this function,
-    // an administrator holding users.manage in only one Station would be
-    // authorised to assign roles everywhere and unable to see anywhere else to
-    // do it, and the Team screen's invite form (which shares this same list)
-    // would be unable to offer a Station the inviter cannot personally reach.
+  it('lets a users.invite holder scoped to one Station list every Station for inviting, but refuses the users.manage call', async () => {
+    // Pins 0023_list_manageable_companies_by_permission.sql, fixing what 0022
+    // got wrong: create_invitation authorises users.invite Organization-wide
+    // (has_org_permission — a role in ANY Company grants it everywhere), the
+    // same shape assign_company_role uses for users.manage, but 0022 gated
+    // the function on users.manage alone. A role holding ONLY users.invite —
+    // exactly the "Manager" role roles-flow.spec.ts composes — would have
+    // been refused outright and handed an empty invite-Station checklist,
+    // unable to invite anyone into any Station at all, including their own.
+    const label = `roles-invite-list-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const second = await addCompany(customer, 'Station Two');
+    const inviterRole = await createRoleAs(customer, 'Inviter', ['users.invite']);
+    const inviter = await addMemberByInvitation(customer, label, inviterRole, [
+      customer.companyId,
+    ]);
+
+    const inviterClient = await signInAs(inviter.email, inviter.password);
+
+    // Direct table access stays scoped to their own membership (0021) — this
+    // half is what proves the new function is doing real work, not just
+    // duplicating what a plain select already returns.
+    const { data: direct } = await inviterClient.from('companies').select('id');
+    const directIds = (direct ?? []).map((r) => r.id);
+    expect(directIds).toContain(customer.companyId);
+    expect(directIds).not.toContain(second);
+
+    // The users.invite call must show every Station in the Organization,
+    // because create_invitation authorises users.invite Organization-wide,
+    // not per-Company.
+    const { data: invitable, error: invitableError } = await inviterClient.rpc(
+      'list_manageable_companies',
+      { p_organization_id: customer.organizationId, p_permission: 'users.invite' },
+    );
+    expect(invitableError).toBeNull();
+    const invitableIds = (invitable ?? []).map((r) => r.id);
+    expect(invitableIds).toContain(customer.companyId);
+    expect(invitableIds).toContain(second);
+
+    // But this same person holds no users.manage anywhere, so the OTHER
+    // permission's call must refuse them — the two surfaces ask two different
+    // questions, and holding one answer must not answer the other.
+    const refusedManage = await inviterClient.rpc('list_manageable_companies', {
+      p_organization_id: customer.organizationId,
+      p_permission: 'users.manage',
+    });
+    expect(refusedManage.error).not.toBeNull();
+    expect(refusedManage.error!.message).toMatch(/users\.manage/);
+  });
+
+  it('lets a users.manage holder scoped to one Station list every Station for managing, but refuses the users.invite call', async () => {
+    // The mirror of the test above: proves the fix runs both ways, not just
+    // for the permission that happened to expose the regression.
     const label = `roles-manage-list-${Date.now()}`;
     const customer = await provisionCustomer(label);
     const second = await addCompany(customer, 'Station Two');
     const managerRole = await createRoleAs(customer, 'Admin', ['users.manage']);
-    const plainRole = await createRoleAs(customer, 'Trainee', []);
     const manager = await addMemberByInvitation(customer, label, managerRole, [
-      customer.companyId,
-    ]);
-    const trainee = await addMemberByInvitation(customer, `${label}-trainee`, plainRole, [
       customer.companyId,
     ]);
 
     const managerClient = await signInAs(manager.email, manager.password);
 
-    // Direct table access stays scoped to their own membership (0021) — this
-    // half is what proves the new function is doing real work, not just
-    // duplicating what a plain select already returns.
     const { data: direct } = await managerClient.from('companies').select('id');
     const directIds = (direct ?? []).map((r) => r.id);
     expect(directIds).toContain(customer.companyId);
     expect(directIds).not.toContain(second);
 
-    // But list_manageable_companies must still show every Station in the
-    // Organization, because assign_company_role authorises users.manage
-    // Organization-wide, not per-Company.
     const { data: manageable, error: manageableError } = await managerClient.rpc(
       'list_manageable_companies',
-      { p_organization_id: customer.organizationId },
+      { p_organization_id: customer.organizationId, p_permission: 'users.manage' },
     );
     expect(manageableError).toBeNull();
     const manageableIds = (manageable ?? []).map((r) => r.id);
     expect(manageableIds).toContain(customer.companyId);
     expect(manageableIds).toContain(second);
 
-    // And it re-checks the permission itself rather than trusting the caller:
-    // a member with no permissions at all must be refused, not handed the
-    // roster because they happen to belong to the Organization.
-    const traineeClient = await signInAs(trainee.email, trainee.password);
-    const refused = await traineeClient.rpc('list_manageable_companies', {
+    const refusedInvite = await managerClient.rpc('list_manageable_companies', {
       p_organization_id: customer.organizationId,
+      p_permission: 'users.invite',
     });
-    expect(refused.error).not.toBeNull();
-    expect(refused.error!.message).toMatch(/users\.manage/);
+    expect(refusedInvite.error).not.toBeNull();
+    expect(refusedInvite.error!.message).toMatch(/users\.invite/);
+  });
+
+  it('refuses a permission code outside its allowlist, even for the owner', async () => {
+    // The function's own guard, pinned directly: an open text parameter on a
+    // SECURITY DEFINER function that returns rows must not accept whatever a
+    // caller happens to send, even a real permission code (roles.manage is
+    // valid in the catalogue, just not one of the two this function serves).
+    // Checked as the owner specifically, so a denial cannot be mistaken for
+    // has_org_permission refusing an unprivileged caller — the guard must
+    // reject the shape of the request itself, before authorisation is even
+    // considered.
+    const customer = await provisionCustomer(`roles-list-guard-${Date.now()}`);
+    const owner = await signInAs(customer.email, customer.password);
+
+    const { error } = await owner.rpc('list_manageable_companies', {
+      p_organization_id: customer.organizationId,
+      p_permission: 'roles.manage',
+    });
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/unsupported permission/i);
   });
 
   it('cuts access on the next request when the permission is unchecked', async () => {
