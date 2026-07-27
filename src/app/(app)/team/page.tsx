@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/input';
-import { changeRoleAction, removeMemberAction, revokeAction } from './actions';
+import { changeOrgRoleAction, removeMemberAction, revokeAction } from './actions';
 import { InviteForm } from './invite-form';
 
 // Renders from the caller's session cookies, so it can never be static.
@@ -36,9 +36,20 @@ export default async function TeamPage() {
 
   const { data: invitations } = await supabase
     .from('invitations')
-    .select('id, email, role, status, expires_at')
+    .select('id, email, is_owner, role_id, status, expires_at')
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
+
+  // A third JS-side join, same pattern as the two above: role_id names a row in
+  // roles, and there is no reason to fetch the whole catalogue just to label a
+  // handful of pending invitations.
+  const roleIds = [
+    ...new Set((invitations ?? []).map((i) => i.role_id).filter((id): id is string => id !== null)),
+  ];
+  const { data: invitationRoles } = roleIds.length
+    ? await supabase.from('roles').select('id, name').in('id', roleIds)
+    : { data: [] };
+  const roleNameById = new Map((invitationRoles ?? []).map((r) => [r.id, r.name]));
 
   if (!organizationId) {
     return (
@@ -94,12 +105,11 @@ export default async function TeamPage() {
                       {profile?.email ?? m.user_id}
                     </span>
                     <div className="flex items-center gap-2">
-                      <form action={changeRoleAction} className="flex items-center gap-2">
+                      <form action={changeOrgRoleAction} className="flex items-center gap-2">
                         <input type="hidden" name="membershipId" value={m.id} />
                         <Select name="role" defaultValue={m.role} className="h-9 w-32 text-sm">
                           <option value="owner">Owner</option>
-                          <option value="operator">Operator</option>
-                          <option value="viewer">Viewer</option>
+                          <option value="member">Member</option>
                         </Select>
                         <Button type="submit" variant="outline">
                           Save
@@ -135,7 +145,7 @@ export default async function TeamPage() {
                     <span className="text-sm">
                       {i.email}
                       <span className="ml-2 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        {i.role}
+                        {i.is_owner ? 'Owner' : (roleNameById.get(i.role_id ?? '') ?? 'Member')}
                       </span>
                       <span className="ml-2 text-muted-foreground">
                         expires {new Date(i.expires_at).toLocaleDateString('en-GB')}

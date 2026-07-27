@@ -1,12 +1,20 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { provisionCustomer, signInAs, addMemberByInvitation, cleanupUsers, admin } from './harness';
+import {
+  provisionCustomer,
+  signInAs,
+  addMemberByInvitation,
+  addOwnerByInvitation,
+  createRoleAs,
+  cleanupUsers,
+  admin,
+} from './harness';
 
 afterAll(async () => {
   await cleanupUsers();
 });
 
 describe('permission helpers', () => {
-  it('grants the owner what the seed says and denies the operator', async () => {
+  it('grants the owner what the seed says and denies a role that holds nothing', async () => {
     const a = await provisionCustomer(`perm-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
 
@@ -16,14 +24,18 @@ describe('permission helpers', () => {
     });
     expect(ownerCan).toBe(true);
 
-    const operator = await addMemberByInvitation(a, `op-${Date.now()}`, 'operator');
-    const operatorClient = await signInAs(operator.email, operator.password);
+    // Block 1b seeded users.invite to the owner alone — operator and viewer held
+    // nothing. The role-based equivalent is a role created with no permissions,
+    // assigned in the customer's one Company.
+    const roleId = await createRoleAs(a, `NoPerms-${Date.now()}`, []);
+    const member = await addMemberByInvitation(a, `op-${Date.now()}`, roleId, [a.companyId]);
+    const memberClient = await signInAs(member.email, member.password);
 
-    const { data: operatorCan } = await operatorClient.rpc('has_org_permission', {
+    const { data: memberCan } = await memberClient.rpc('has_org_permission', {
       p_permission: 'users.invite',
       p_organization_id: a.organizationId,
     });
-    expect(operatorCan).toBe(false);
+    expect(memberCan).toBe(false);
   });
 
   it('returns false for an unknown permission code, even for a platform admin', async () => {
@@ -101,9 +113,9 @@ describe('member management', () => {
       .single();
     if (!membership) throw new Error('provisioning left no owner membership');
 
-    const { error } = await ownerClient.rpc('change_member_role', {
+    const { error } = await ownerClient.rpc('change_org_role', {
       p_membership_id: membership.id,
-      p_new_role: 'viewer',
+      p_new_role: 'member',
     });
 
     expect(error).not.toBeNull();
@@ -112,9 +124,12 @@ describe('member management', () => {
 
   it('allows demoting an owner once a second owner exists', async () => {
     // The rule is "at least one", not "never demote an owner". Without this the
-    // trigger could be over-tight and no test would notice.
+    // trigger could be over-tight and no test would notice. The second owner is
+    // added through addOwnerByInvitation: an owner takes no role and no Company
+    // membership at all, so addMemberByInvitation (which always invites a
+    // member with a role) cannot produce one.
     const a = await provisionCustomer(`second-${Date.now()}`);
-    await addMemberByInvitation(a, `co-${Date.now()}`, 'owner');
+    await addOwnerByInvitation(a, `co-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
 
     const { data: membership } = await admin
@@ -125,17 +140,18 @@ describe('member management', () => {
       .single();
     if (!membership) throw new Error('provisioning left no owner membership');
 
-    const { error } = await ownerClient.rpc('change_member_role', {
+    const { error } = await ownerClient.rpc('change_org_role', {
       p_membership_id: membership.id,
-      p_new_role: 'viewer',
+      p_new_role: 'member',
     });
     expect(error).toBeNull();
   });
 
-  it('an operator cannot change roles', async () => {
+  it('a member without users.manage cannot change org roles', async () => {
     const a = await provisionCustomer(`opmanage-${Date.now()}`);
-    const operator = await addMemberByInvitation(a, `mg-${Date.now()}`, 'operator');
-    const operatorClient = await signInAs(operator.email, operator.password);
+    const roleId = await createRoleAs(a, `NoPerms-${Date.now()}`, []);
+    const member = await addMemberByInvitation(a, `mg-${Date.now()}`, roleId, [a.companyId]);
+    const memberClient = await signInAs(member.email, member.password);
 
     const { data: victim } = await admin
       .from('organization_memberships')
@@ -144,9 +160,9 @@ describe('member management', () => {
       .single();
     if (!victim) throw new Error('no owner membership to target');
 
-    const { error } = await operatorClient.rpc('change_member_role', {
+    const { error } = await memberClient.rpc('change_org_role', {
       p_membership_id: victim.id,
-      p_new_role: 'viewer',
+      p_new_role: 'member',
     });
 
     expect(error).not.toBeNull();
@@ -168,29 +184,31 @@ describe('member management', () => {
     expect((rows ?? []).some((r) => r.organization_id === b.organizationId)).toBe(false);
   });
 
-  it('an operator cannot read the audit trail at all', async () => {
-    // audit.view is the third permission this block seeds, and the only one
+  it('a member without audit.view cannot read the audit trail at all', async () => {
+    // audit.view is one of the permissions this block seeds, and the only one
     // enforced through an RLS policy rather than an RPC body.
     const a = await provisionCustomer(`auditop-${Date.now()}`);
-    const operator = await addMemberByInvitation(a, `ao-${Date.now()}`, 'operator');
-    const operatorClient = await signInAs(operator.email, operator.password);
+    const roleId = await createRoleAs(a, `NoPerms-${Date.now()}`, []);
+    const member = await addMemberByInvitation(a, `ao-${Date.now()}`, roleId, [a.companyId]);
+    const memberClient = await signInAs(member.email, member.password);
 
-    const { data } = await operatorClient.from('audit_logs').select('action');
+    const { data } = await memberClient.from('audit_logs').select('action');
     expect(data ?? []).toEqual([]);
   });
 
   it('a removed member loses access on the next request', async () => {
     const a = await provisionCustomer(`revoke-${Date.now()}`);
-    const viewer = await addMemberByInvitation(a, `rv-${Date.now()}`, 'viewer');
-    const viewerClient = await signInAs(viewer.email, viewer.password);
+    const roleId = await createRoleAs(a, `NoPerms-${Date.now()}`, []);
+    const member = await addMemberByInvitation(a, `rv-${Date.now()}`, roleId, [a.companyId]);
+    const memberClient = await signInAs(member.email, member.password);
 
-    const { data: before } = await viewerClient.from('companies').select('id');
+    const { data: before } = await memberClient.from('companies').select('id');
     expect((before ?? []).map((r) => r.id)).toContain(a.companyId);
 
     const { data: membership } = await admin
       .from('organization_memberships')
       .select('id')
-      .eq('user_id', viewer.userId)
+      .eq('user_id', member.userId)
       .single();
     if (!membership) throw new Error('no membership to remove');
 
@@ -202,7 +220,7 @@ describe('member management', () => {
 
     // Same client, same JWT, no re-authentication: the helpers query the tables
     // on every check, so revocation is immediate.
-    const { data: after } = await viewerClient.from('companies').select('id');
+    const { data: after } = await memberClient.from('companies').select('id');
     expect(after ?? []).toEqual([]);
   });
 });

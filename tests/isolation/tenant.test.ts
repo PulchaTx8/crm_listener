@@ -24,9 +24,16 @@ describe('tenant isolation', () => {
     const b = await provisionCustomer(`wb-${Date.now()}`);
 
     const clientA = await signInAs(a.email, a.password);
-    const { error } = await clientA
-      .from('company_memberships')
-      .insert({ user_id: a.userId, company_id: b.companyId, role: 'viewer' });
+    // company_memberships takes no INSERT grant at all (Block 1c: every write
+    // goes through assign_company_role), so this is denied before role_id or
+    // organization_id are ever validated — their values only need to satisfy
+    // the Insert type, not point at a real role.
+    const { error } = await clientA.from('company_memberships').insert({
+      user_id: a.userId,
+      company_id: b.companyId,
+      organization_id: b.organizationId,
+      role_id: crypto.randomUUID(),
+    });
 
     expect(error).not.toBeNull();
   });

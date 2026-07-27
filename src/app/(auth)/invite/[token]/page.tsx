@@ -85,7 +85,7 @@ export default async function AcceptInvitationPage({
         <div className="flex flex-col gap-2">
           <h1 className="text-xl font-semibold tracking-tight">Join {preview.organizationName}</h1>
           <p className="text-sm text-muted-foreground">
-            You were invited as <strong>{preview.role}</strong> using{' '}
+            You were invited as <strong>{preview.roleName}</strong> using{' '}
             <strong>{preview.email}</strong>. Choose a password to create your account.
           </p>
         </div>

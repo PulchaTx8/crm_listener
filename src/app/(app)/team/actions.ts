@@ -64,13 +64,34 @@ export async function revokeAction(formData: FormData): Promise<void> {
   revalidatePath('/team');
 }
 
-export async function changeRoleAction(formData: FormData): Promise<void> {
+export async function changeOrgRoleAction(formData: FormData): Promise<void> {
   const supabase = await createUserClient();
-  const { error } = await supabase.rpc('change_member_role', {
+  const { error } = await supabase.rpc('change_org_role', {
     p_membership_id: String(formData.get('membershipId')),
-    p_new_role: String(formData.get('role')) as 'owner' | 'operator' | 'viewer',
+    p_new_role: String(formData.get('role')) as 'owner' | 'member',
   });
-  if (error) logger.error({ err: error }, 'change_member_role failed');
+  if (error) logger.error({ err: error }, 'change_org_role failed');
+  revalidatePath('/team');
+}
+
+export async function assignCompanyRoleAction(formData: FormData): Promise<void> {
+  const supabase = await createUserClient();
+  const { error } = await supabase.rpc('assign_company_role', {
+    p_company_id: String(formData.get('companyId')),
+    p_user_id: String(formData.get('userId')),
+    p_role_id: String(formData.get('roleId')),
+  });
+  if (error) logger.error({ err: error }, 'assign_company_role failed');
+  revalidatePath('/team');
+}
+
+export async function removeCompanyAccessAction(formData: FormData): Promise<void> {
+  const supabase = await createUserClient();
+  const { error } = await supabase.rpc('remove_company_access', {
+    p_company_id: String(formData.get('companyId')),
+    p_user_id: String(formData.get('userId')),
+  });
+  if (error) logger.error({ err: error }, 'remove_company_access failed');
   revalidatePath('/team');
 }
 

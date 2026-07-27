@@ -51,7 +51,8 @@ export interface InvitationPreview {
   organizationId: string;
   organizationName: string;
   email: string;
-  role: 'owner' | 'operator' | 'viewer';
+  isOwner: boolean;
+  roleName: string;
 }
 
 export async function createInvitation(
@@ -64,7 +65,15 @@ export async function createInvitation(
   const { data, error } = await asOwner.rpc('create_invitation', {
     p_organization_id: input.organizationId,
     p_email: input.email,
-    p_role: input.role,
+    p_is_owner: input.isOwner,
+    // p_role_id is a nullable uuid in Postgres — null for an owner invitation —
+    // but it has no SQL default, so `supabase gen types` has no signal to mark
+    // the generated Args type nullable and types it as a bare string. The
+    // assertion bridges a codegen gap, not a real type mismatch: the RPC body
+    // accepts null exactly when p_is_owner is true (schemas/invitations.ts
+    // enforces the pairing before this call is ever made).
+    p_role_id: input.roleId as string,
+    p_company_ids: input.companyIds,
     p_token_hash: hashInvitationToken(token),
     p_ttl_days: 7,
   });
@@ -126,14 +135,16 @@ export async function validateInvitation(token: string): Promise<InvitationPrevi
     organization_id: string;
     organization_name: string;
     email: string;
-    role: 'owner' | 'operator' | 'viewer';
+    is_owner: boolean;
+    role_name: string;
   };
   return {
     invitationId: row.invitation_id,
     organizationId: row.organization_id,
     organizationName: row.organization_name,
     email: row.email,
-    role: row.role,
+    isOwner: row.is_owner,
+    roleName: row.role_name,
   };
 }
 

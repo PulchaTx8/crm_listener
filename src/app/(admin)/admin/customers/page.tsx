@@ -18,21 +18,23 @@ export default async function CustomersPage() {
 
   const { data: companies } = await supabase
     .from('companies')
-    .select('id, name, status, suspension_reason, created_at')
+    .select('id, name, status, suspension_reason, created_at, organization_id')
     .order('created_at', { ascending: false });
 
-  // The owner of each Company, so a provisional password can be reissued
-  // without hunting for the user by hand. Both reads are permitted here because
-  // the company_memberships and profiles policies admit platform admins.
+  // The owner of each Company's Organization, so a provisional password can be
+  // reissued without hunting for the user by hand. Block 1c stopped giving the
+  // owner a company_memberships row — they reach every Station by ownership —
+  // so the owner now comes from organization_memberships, keyed by
+  // organization_id rather than company_id, and matched to each company below.
   //
   // Two queries joined in JS rather than one PostgREST embed: resource
   // embedding needs a foreign key between the two tables, and there is none.
-  // company_memberships.user_id and profiles.id both reference auth.users(id),
-  // which does not give PostgREST a path from one to the other — the embed
-  // fails with PGRST200 and returns no rows at all.
+  // organization_memberships.user_id and profiles.id both reference
+  // auth.users(id), which does not give PostgREST a path from one to the
+  // other — the embed fails with PGRST200 and returns no rows at all.
   const { data: owners, error: ownersError } = await supabase
-    .from('company_memberships')
-    .select('company_id, user_id')
+    .from('organization_memberships')
+    .select('organization_id, user_id')
     .eq('role', 'owner');
 
   if (ownersError) logger.error({ err: ownersError }, 'could not load company owners');
@@ -47,9 +49,10 @@ export default async function CustomersPage() {
 
   const emailByUser = new Map((ownerProfiles ?? []).map((p) => [p.id, p.email]));
 
-  const ownerByCompany = new Map<string, { userId: string; email: string }>();
+  const ownerByOrganization = new Map<string, { userId: string; email: string }>();
   for (const row of owners ?? []) {
-    ownerByCompany.set(row.company_id, {
+    if (ownerByOrganization.has(row.organization_id)) continue;
+    ownerByOrganization.set(row.organization_id, {
       userId: row.user_id,
       email: emailByUser.get(row.user_id) ?? '',
     });
@@ -84,7 +87,7 @@ export default async function CustomersPage() {
             </Card>
           ) : (
             (companies ?? []).map((c) => {
-              const owner = ownerByCompany.get(c.id);
+              const owner = ownerByOrganization.get(c.organization_id);
               return (
                 <Card key={c.id} data-testid="company-row">
                   <CardContent className="flex flex-col gap-4 pt-6">
