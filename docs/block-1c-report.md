@@ -513,3 +513,31 @@ Copied from the spec's §12, with evidence per row.
    of whichever screen's task happened to add it. Not closed in this block;
    worth a single policy (log always, and decide throw-vs-degrade per read
    deliberately) the next time any of these four screens is touched.
+
+10. **`roles.manage` was widened to full-row visibility on `company_memberships`,
+    where only a count was needed.** The final review found that a non-owner
+    holding `roles.manage` saw a holder count of zero for every role they did
+    not personally hold — which enabled Delete for roles that were in use and
+    suppressed the "N user(s) hold this role" warning that §3 of the design spec
+    names as the only mitigation for instant-effect role edits. The fix widened
+    `company_memberships_select` for `roles.manage`, and that grants full-row
+    `SELECT` — `user_id`, `company_id`, `role_id` — over every live membership
+    in the Organization, not an aggregate.
+
+    Combined with `profiles_select_org_member`, a `roles.manage`-only delegate
+    can therefore reconstruct the complete "who holds which role in which
+    Station" map. That is bounded to their own Organization and crosses no
+    tenant boundary, and it is arguably moot given item 7: a `roles.manage`
+    holder can already self-grant `users.manage` through `update_role` and read
+    the same data through the front door. But the two are not equivalent in
+    practice — self-escalation is an audited, visible act that also grants
+    `users.manage` to every other holder of that role, whereas this reads
+    silently, with no audit entry and no permission granted.
+
+    Accepted for this merge because RLS is row-grained, not column-grained, and
+    every panel user is the same Postgres grantee, so there is no cheaper way to
+    give `roles.manage` a count without the rows it is counted from. Recorded
+    here rather than left in a fix report, because it is a concession about what
+    a permission actually confers, and the next person to read this permission's
+    definition should find it. If it matters, the fix is a `SECURITY DEFINER`
+    function returning counts rather than a policy returning rows.
