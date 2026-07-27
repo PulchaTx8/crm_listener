@@ -43,9 +43,7 @@ function withoutBlanks(source: NodeJS.ProcessEnv): Record<string, string | undef
 export function parseEnv(source: NodeJS.ProcessEnv): Env {
   const result = envSchema.safeParse(withoutBlanks(source));
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ');
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid environment configuration — ${issues}`);
   }
   return result.data;

@@ -52,7 +52,9 @@ test('provision a customer, sign in, change the password, then suspend', async (
 
   // The admin's own gate is clear, so the change screen bounces them onward.
   await expect(page).toHaveURL(/\/app$/);
-  await page.getByRole('link', { name: /admin console/i }).click();
+  // The platform links live in the sidebar, which only renders for a platform
+  // admin — so reaching the console this way also asserts the nav is scoped.
+  await page.getByRole('link', { name: 'Customers' }).click();
   await expect(page).toHaveURL(/\/admin\/customers$/);
 
   // --- provisioning reveals the password exactly once ---------------------
@@ -88,7 +90,7 @@ test('provision a customer, sign in, change the password, then suspend', async (
   // and silently returns nothing. Asserting the email here is what catches
   // that, since the failure mode is an empty row rather than an error.
   await page.reload();
-  const provisionedRow = page.locator('li', { hasText: companyName });
+  const provisionedRow = page.locator('[data-testid="company-row"]', { hasText: companyName });
   await expect(provisionedRow.getByText(`Owner: ${ownerEmail}`)).toBeVisible();
 
   // --- and can reissue a provisional password -----------------------------
@@ -128,13 +130,13 @@ test('provision a customer, sign in, change the password, then suspend', async (
   await customerPage.getByRole('button', { name: 'Save' }).click();
 
   await expect(customerPage).toHaveURL(/\/app$/);
-  const customerRow = customerPage.locator('li', { hasText: companyName });
+  const customerRow = customerPage.locator('[data-testid="station-card"]', { hasText: companyName });
   await expect(customerRow).toBeVisible();
   await expect(customerRow.getByText('active', { exact: true })).toBeVisible();
 
   // --- suspension reaches the open session, without a forced sign-out -----
   await page.reload();
-  const adminRow = page.locator('li', { hasText: companyName });
+  const adminRow = page.locator('[data-testid="company-row"]', { hasText: companyName });
   await adminRow.getByPlaceholder('Reason').fill('non-payment');
   await adminRow.getByRole('button', { name: 'Suspend' }).click();
 
