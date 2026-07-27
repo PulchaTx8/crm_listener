@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(22);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -33,6 +33,12 @@ select ok(
 -- Fail closed, with no session in play.
 select is(public.has_permission('no.such.code', gen_random_uuid()), false,
           'an unknown permission code returns false');
+
+-- The same guarantee for the Organization-scoped helper. It doubles as a canary:
+-- this function is `language sql`, so a body referencing a dropped column errors
+-- at plan time — calling it at all is what proves it still resolves.
+select is(public.has_org_permission('no.such.code', gen_random_uuid()), false,
+          'an unknown Organization-scoped permission code returns false');
 
 -- Block 1c: the catalogue carries what the editor needs to render itself.
 select col_not_null('public', 'permissions', 'module', 'module is required');

@@ -112,5 +112,25 @@ as $$
 $$;
 
 comment on function public.has_permission(text, uuid) is
-  'Valid permission code AND active subscription AND the role is owner (who bypasses the lookup).';
+  'Transitional: valid code AND active subscription AND the caller is the Company owner. 0016 replaces this with resolution through the assigned role.';
+
+-- Same wound as has_permission above: 0010's body joins role_permissions on a
+-- column this migration dropped, and `language sql` means it errors at plan time
+-- on any call — taking create_invitation, member management and two Block 1b RLS
+-- policies with it. Block 1b seeded these three codes to the owner alone, so
+-- admin-or-owner is exactly what the old join resolved to. 0016 replaces this
+-- with resolution through the assigned role.
+create or replace function public.has_org_permission(p_permission text, p_organization_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select exists (select 1 from public.permissions p where p.code = p_permission)
+     and (public.is_platform_admin() or public.is_owner(p_organization_id));
+$$;
+
+comment on function public.has_org_permission(text, uuid) is
+  'Transitional: valid permission code AND (platform admin OR Organization owner). 0016 replaces this with resolution through the assigned role.';
 
