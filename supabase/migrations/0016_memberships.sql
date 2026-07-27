@@ -39,6 +39,23 @@ delete from public.company_memberships cm
    and om.role = 'owner'
    and om.deleted_at is null;
 
+-- The delete above only catches a CURRENTLY live owner (om.deleted_at is
+-- null). Block 1b's change_member_role (0011) syncs cm.role onto whatever the
+-- organization role becomes, so a plain demotion away from owner already
+-- leaves no stale 'owner' row behind — but remove_member (0011) soft-deletes
+-- both rows together without touching role at all, so a user who was removed
+-- from the Organization entirely WHILE an owner has om.deleted_at set, the
+-- join above misses their company_memberships row, and it survives into the
+-- backfill below. Left alone it mints a live, empty role literally named
+-- "Owner" for that Organization (block-1c final review, Minor 1) — in a
+-- product where the owner is recognised at Organization level and takes no
+-- role at all, and where "Owner" sitting in the Roles list and the Team
+-- dropdown is actively misleading. Purged by the historical role value alone,
+-- independent of whether the organization_membership it arrived with is still
+-- live: nothing in this model ever legitimately needs a company_membership
+-- row whose role is 'owner'.
+delete from public.company_memberships where role = 'owner';
+
 alter table public.company_memberships add column organization_id uuid;
 
 update public.company_memberships cm

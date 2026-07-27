@@ -21,10 +21,16 @@ export default async function CustomersPage({
   const params = await searchParams;
   const supabase = await createUserClient();
 
-  const { data: companies } = await supabase
+  const { data: companies, error: companiesError } = await supabase
     .from('companies')
     .select('id, name, status, suspension_reason, created_at, organization_id')
     .order('created_at', { ascending: false });
+
+  // Previously dropped entirely, unlike the owners/profiles reads below — a
+  // failed read rendered as "No company provisioned yet." to a platform
+  // admin, indistinguishable from the genuinely-empty case (block-1c final
+  // review, Minor 3).
+  if (companiesError) logger.error({ err: companiesError }, 'could not load companies');
 
   // The owner of each Company's Organization, so a provisional password can be
   // reissued without hunting for the user by hand. Block 1c stopped giving the

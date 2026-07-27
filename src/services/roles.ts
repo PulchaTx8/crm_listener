@@ -73,7 +73,10 @@ export async function listRoles(organizationId: string): Promise<RoleSummary[]> 
   // Three reads rather than one embed. Block 1a hit a PostgREST embed that could
   // not resolve the relationship it needed and had to be unwound; counting
   // holders in JavaScript is duller and does not depend on that resolution.
-  const [{ data: grants }, { data: memberships }] = await Promise.all([
+  const [
+    { data: grants, error: grantsError },
+    { data: memberships, error: membershipsError },
+  ] = await Promise.all([
     supabase.from('role_permissions').select('role_id, permission_code').in('role_id', roleIds),
     supabase
       .from('company_memberships')
@@ -81,6 +84,19 @@ export async function listRoles(organizationId: string): Promise<RoleSummary[]> 
       .eq('organization_id', organizationId)
       .is('deleted_at', null),
   ]);
+
+  // Both discarded previously. A failed role_permissions read would render the
+  // edit form with every checkbox unchecked — pressing Save then calls
+  // update_role, which replaces the set wholesale and wipes the role's real
+  // permissions with no warning at all. A failed company_memberships read
+  // silently reports holders: 0, which (a) enables Delete for a role still in
+  // use, (b) blanks the "reassign N holders first" caption, and (c) suppresses
+  // role-form.tsx's instant-effect warning — the one mitigation spec §3 names
+  // for editing a role in place. Neither failure may pass for success.
+  if (grantsError) throw new InternalError(`Could not read role permissions: ${grantsError.message}`);
+  if (membershipsError) {
+    throw new InternalError(`Could not read role holders: ${membershipsError.message}`);
+  }
 
   const holders = new Map<string, number>();
   for (const row of memberships ?? []) {
