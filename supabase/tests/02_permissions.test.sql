@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(28);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -69,6 +69,25 @@ select is(
 -- the drop-and-recreate silently did not happen.
 select has_column('public', 'role_permissions', 'role_id', 'role_permissions is keyed by role');
 select hasnt_column('public', 'role_permissions', 'role', 'the fixed-role column is gone');
+
+-- Created in Tasks 1 and 4, secured here. A table that misses this migration
+-- looks exactly like one that did not need it, so the claim is asserted rather
+-- than left to whoever reads the migration list.
+select is(relrowsecurity, true, 'RLS enabled on roles')
+  from pg_class where oid = 'public.roles'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on role_permissions')
+  from pg_class where oid = 'public.role_permissions'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on invitation_companies')
+  from pg_class where oid = 'public.invitation_companies'::regclass;
+
+-- No client writes any of them: every write goes through a SECURITY DEFINER
+-- function that carries the audit entry with it.
+select ok(not has_table_privilege('authenticated', 'public.roles', 'INSERT'),
+          'authenticated may not write roles directly');
+select ok(not has_table_privilege('authenticated', 'public.role_permissions', 'INSERT'),
+          'authenticated may not write role_permissions directly');
+select ok(not has_table_privilege('authenticated', 'public.invitation_companies', 'INSERT'),
+          'authenticated may not write invitation Stations directly');
 
 select * from finish();
 rollback;
