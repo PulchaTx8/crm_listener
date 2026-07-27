@@ -464,3 +464,80 @@ Copied from the spec's §12, with evidence per row.
    `remove_company_access`).
 6. Items 2–5 of `docs/block-1a-report.md` §5 remain open and are unrelated to
    this block's scope.
+
+7. **`roles.manage` is transitively total, and that is deliberate, not a
+   defect.** `update_role` restricts neither which permission codes a role may
+   carry nor whether the caller edits the role they themselves hold. A
+   delegate handed `roles.manage` can therefore add `users.manage`,
+   `audit.view`, or any future Block 2 permission to their own role — nothing
+   in the model stops "administer roles" from becoming "administer
+   everything." Spec §2 decision 4 makes delegating role administration
+   deliberate, so this is an accepted property of the model the owner chose,
+   not something to close in code. What was missing was visibility: an owner
+   ticking that checkbox had no way to learn what they were handing over. The
+   role editor (`role-form.tsx`) now states this beside the `roles.manage`
+   checkbox itself (block-1c final review, I3).
+
+8. **`profiles` carries a table-wide `SELECT` grant** (Task 10's deferred
+   minor, not previously carried into this report). `profiles_select_org_member`
+   (0020) needed to expose a colleague's name and e-mail to the Team screen,
+   but the grant behind it is table-wide, so it also exposes
+   `must_change_password` and `provisional_expires_at` — the provisional-
+   password gate — to every colleague in the same Organization, not just to
+   the row's own owner. Low sensitivity (nothing here is a secret, and the
+   columns are not writable by anyone but the SECURITY DEFINER functions that
+   already own them), but tighter than intended. Narrowing this later is not
+   an additive change: PostgreSQL does not let a column-level `REVOKE` claw
+   back privilege already held at the table level (the same rule 0006's
+   comment on `profiles`'s `UPDATE` grant already states for exactly this
+   reason), so closing it needs `revoke select on public.profiles from
+   authenticated` followed by an explicit column list, not a grant added on
+   top of the existing one.
+
+9. **Read-failure handling is inconsistent across the four screens that read
+   directly from Supabase.** `/team` (`team/page.tsx`) logs most failed reads
+   and degrades gracefully, except where it calls `listRoles`
+   (`src/services/roles.ts`), which throws `InternalError` — turning one
+   transient read failure into an uncaught 500 inside the same
+   `Promise.all` that the other reads on that page degrade from. `/roles`
+   (`roles/page.tsx`) throws for the same reason, on every one of its reads
+   (`listRoles`, `listPermissionCatalogue`). `/admin/customers`
+   (`admin/customers/page.tsx`) logs its `owners`/`ownerProfiles` read
+   failures and renders through them, but its `companies` read dropped its
+   error silently until block-1c final review Minor 3 fixed logging there —
+   it still does not throw. `/admin/contact-requests`
+   (`admin/contact-requests/page.tsx`) drops its read's error entirely, with
+   no logging and no degraded-state messaging at all. Four screens, three
+   different behaviours for the same class of failure (throw / log-and-
+   degrade / drop-silently), none of them chosen deliberately — each grew out
+   of whichever screen's task happened to add it. Not closed in this block;
+   worth a single policy (log always, and decide throw-vs-degrade per read
+   deliberately) the next time any of these four screens is touched.
+
+10. **`roles.manage` was widened to full-row visibility on `company_memberships`,
+    where only a count was needed.** The final review found that a non-owner
+    holding `roles.manage` saw a holder count of zero for every role they did
+    not personally hold — which enabled Delete for roles that were in use and
+    suppressed the "N user(s) hold this role" warning that §3 of the design spec
+    names as the only mitigation for instant-effect role edits. The fix widened
+    `company_memberships_select` for `roles.manage`, and that grants full-row
+    `SELECT` — `user_id`, `company_id`, `role_id` — over every live membership
+    in the Organization, not an aggregate.
+
+    Combined with `profiles_select_org_member`, a `roles.manage`-only delegate
+    can therefore reconstruct the complete "who holds which role in which
+    Station" map. That is bounded to their own Organization and crosses no
+    tenant boundary, and it is arguably moot given item 7: a `roles.manage`
+    holder can already self-grant `users.manage` through `update_role` and read
+    the same data through the front door. But the two are not equivalent in
+    practice — self-escalation is an audited, visible act that also grants
+    `users.manage` to every other holder of that role, whereas this reads
+    silently, with no audit entry and no permission granted.
+
+    Accepted for this merge because RLS is row-grained, not column-grained, and
+    every panel user is the same Postgres grantee, so there is no cheaper way to
+    give `roles.manage` a count without the rows it is counted from. Recorded
+    here rather than left in a fix report, because it is a concession about what
+    a permission actually confers, and the next person to read this permission's
+    definition should find it. If it matters, the fix is a `SECURITY DEFINER`
+    function returning counts rather than a policy returning rows.

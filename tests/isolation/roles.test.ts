@@ -402,6 +402,134 @@ describe('roles', () => {
     expect(data).toBe(true);
   });
 
+  it('lets a users.manage holder see the whole roster, and a plain member see only themselves', async () => {
+    // Branch-level review finding I1: 0006_rls_policies.sql's
+    // organization_memberships_select and company_memberships_select never
+    // widened for this block's delegated administrator. A non-owner holding
+    // users.manage opened /team and saw exactly one row — their own — because
+    // neither policy asks has_org_permission anything. Proven here directly
+    // against the tables the Team screen reads, not through the RPCs that
+    // already worked (assign_company_role has always accepted this caller).
+    const label = `delegate-roster-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const managerRole = await createRoleAs(customer, 'Admin', ['users.manage']);
+    const plainRole = await createRoleAs(customer, 'Trainee', []);
+
+    const manager = await addMemberByInvitation(customer, `${label}-manager`, managerRole, [
+      customer.companyId,
+    ]);
+    const plain = await addMemberByInvitation(customer, `${label}-plain`, plainRole, [
+      customer.companyId,
+    ]);
+
+    // The users.manage holder must see every organization_membership in the
+    // Organization: the owner, themselves, and the plain colleague — three
+    // rows, not one.
+    const managerClient = await signInAs(manager.email, manager.password);
+    const { data: orgRows, error: orgError } = await managerClient
+      .from('organization_memberships')
+      .select('user_id');
+    expect(orgError).toBeNull();
+    const orgUserIds = (orgRows ?? []).map((r) => r.user_id);
+    expect(orgUserIds).toContain(customer.userId);
+    expect(orgUserIds).toContain(manager.userId);
+    expect(orgUserIds).toContain(plain.userId);
+    expect(orgUserIds).toHaveLength(3);
+
+    // And every live company_membership: the owner holds none by design
+    // (Block 1c §4.6), so this Organization has exactly two — the manager's
+    // own and the plain colleague's.
+    const { data: companyRows, error: companyError } = await managerClient
+      .from('company_memberships')
+      .select('user_id');
+    expect(companyError).toBeNull();
+    const companyUserIds = (companyRows ?? []).map((r) => r.user_id);
+    expect(companyUserIds).toContain(manager.userId);
+    expect(companyUserIds).toContain(plain.userId);
+    expect(companyUserIds).toHaveLength(2);
+
+    // The plain colleague holds neither users.manage nor roles.manage, and
+    // must still see only their own row in both tables — the widening must
+    // not have become "any signed-in Organization member".
+    const plainClient = await signInAs(plain.email, plain.password);
+    const { data: plainOrgRows } = await plainClient
+      .from('organization_memberships')
+      .select('user_id');
+    expect((plainOrgRows ?? []).map((r) => r.user_id)).toEqual([plain.userId]);
+
+    const { data: plainCompanyRows } = await plainClient
+      .from('company_memberships')
+      .select('user_id');
+    expect((plainCompanyRows ?? []).map((r) => r.user_id)).toEqual([plain.userId]);
+  });
+
+  it('lets a roles.manage holder see a non-zero holder count for a role held by someone else', async () => {
+    // Branch-level review finding I2: listRoles (src/services/roles.ts) counts
+    // holders from a company_memberships read that RLS restricted to the
+    // caller's own rows, so a delegated Director saw holders: 0 for every role
+    // they did not personally hold. Reproduced here in the exact shape
+    // listRoles queries — organization-scoped, deleted_at is null, grouped by
+    // role_id — rather than through the service function itself, since this
+    // is the RLS boundary the review named, not the service's arithmetic.
+    const label = `delegate-holder-count-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    // Bundles roles.manage with users.manage: a coherent "Director" persona
+    // (administers both people and roles), and the one the RLS fix in 0024
+    // actually authorises for this read. A roles.manage-only holder is
+    // covered separately below.
+    const directorRole = await createRoleAs(customer, 'Director', ['roles.manage', 'users.manage']);
+    const producerRole = await createRoleAs(customer, 'Producer', []);
+
+    const director = await addMemberByInvitation(customer, `${label}-director`, directorRole, [
+      customer.companyId,
+    ]);
+    const producer = await addMemberByInvitation(customer, `${label}-producer`, producerRole, [
+      customer.companyId,
+    ]);
+
+    const directorClient = await signInAs(director.email, director.password);
+
+    const { data: memberships, error } = await directorClient
+      .from('company_memberships')
+      .select('role_id')
+      .eq('organization_id', customer.organizationId)
+      .is('deleted_at', null);
+
+    expect(error).toBeNull();
+    const producerHolders = (memberships ?? []).filter((m) => m.role_id === producerRole).length;
+    expect(producerHolders).toBeGreaterThan(0);
+    expect(producer.userId).toBeTruthy();
+  });
+
+  it('lets a roles.manage-only holder (no users.manage) also see the holder count', async () => {
+    // The stricter version of the test above: 0024 widens company_memberships
+    // for BOTH users.manage and roles.manage (not organization_memberships,
+    // which the Team roster alone needs) precisely so a delegate holding only
+    // "Administer roles" — the exact shape this suite already names
+    // "Director" elsewhere (see "lets roles.manage administer roles, and
+    // refuses without it" above) — is not left with the same false zero.
+    const label = `delegate-holder-count-solo-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const directorRole = await createRoleAs(customer, 'Director', ['roles.manage']);
+    const producerRole = await createRoleAs(customer, 'Producer', []);
+
+    const director = await addMemberByInvitation(customer, `${label}-director`, directorRole, [
+      customer.companyId,
+    ]);
+    await addMemberByInvitation(customer, `${label}-producer`, producerRole, [customer.companyId]);
+
+    const directorClient = await signInAs(director.email, director.password);
+    const { data: memberships, error } = await directorClient
+      .from('company_memberships')
+      .select('role_id')
+      .eq('organization_id', customer.organizationId)
+      .is('deleted_at', null);
+
+    expect(error).toBeNull();
+    const producerHolders = (memberships ?? []).filter((m) => m.role_id === producerRole).length;
+    expect(producerHolders).toBeGreaterThan(0);
+  });
+
   it('grants nothing once the Station is suspended, not even to the owner', async () => {
     const customer = await provisionCustomer(`roles-suspended-${Date.now()}`);
     await customer.adminClient.rpc('suspend_company', {

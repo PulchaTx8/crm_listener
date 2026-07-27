@@ -11,7 +11,12 @@ import { RoleForm } from './role-form';
 // can never be static.
 export const dynamic = 'force-dynamic';
 
-export default async function RolesPage() {
+export default async function RolesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deleteError?: string }>;
+}) {
+  const params = await searchParams;
   const supabase = await createUserClient();
   const {
     data: { user },
@@ -50,6 +55,13 @@ export default async function RolesPage() {
         title="Roles"
         description="A role is a set of powers you assign to someone in a Station."
       />
+
+      {/* Next's searchParams arrives already percent-decoded (same as every
+          other ?error=-style param in this codebase — none of them call
+          decodeURIComponent themselves), so this is rendered as-is. */}
+      {params.deleteError ? (
+        <p className="text-sm text-destructive">{params.deleteError}</p>
+      ) : null}
 
       <div className="flex flex-col gap-6">
         <Card>
