@@ -2925,6 +2925,24 @@ Temporarily change `has_permission` so the existence check moves inside the bypa
 
 Follow `docs/block-1b-report.md`: §1 what was verified with verbatim output, §2 defects found in the plan itself while executing it, §3 deployment steps, §4 a definition-of-done table copied from the spec with evidence per row, §5 open items.
 
+§5 must carry one item this block found but did not cause, because it is a product
+question rather than a bug:
+
+> **An internal user cannot be deleted once they have done anything.**
+> `audit_logs.actor_id`, `companies.provisioned_by`, `invitations.invited_by`,
+> `invitations.accepted_by` and `roles.created_by` all reference `auth.users`
+> without `on delete` behaviour, so provisioning a Station, sending an invitation
+> or creating a role permanently pins that account. Discovered while making the
+> isolation suite's teardown stop reporting success it had not achieved; the
+> suite had been leaking accounts since Block 1a.
+>
+> This is not a defect to patch. Spec §9 commits the product to LGPD erasure, and
+> the audit trail exists precisely so that who-did-what survives. Both are right,
+> and they conflict: the resolution is anonymisation — the actor row stays, the
+> person behind it is scrubbed — which is the mechanism Block 3 already designs
+> for Members and which internal users will need too. It belongs in the block
+> that builds it, with the owner's decision on how far back it applies.
+
 Migrations `0015`–`0019` apply with `npx supabase db push --linked`. Note explicitly that `0016` **deletes** the owners' `company_memberships` rows and `0018` **drops** the `member_role` type — both irreversible on a live database, so the deploy takes a snapshot first.
 
 - [ ] **Step 4: Commit and open the pull request**
