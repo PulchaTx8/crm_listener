@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(29);
 
 -- tables exist
 select has_table('public', 'profiles', 'profiles exists');
@@ -113,6 +113,12 @@ select throws_ok(
   'insert or update on table "company_memberships" violates foreign key constraint "company_memberships_role_org_fk"',
   'a role from another Organization cannot be assigned'
 );
+
+-- If any column or function signature still held member_role, the DROP TYPE in
+-- 0018 would have failed the migration — but a future CREATE could bring it
+-- back, and a lingering enum beside org_role is exactly the ambiguity this
+-- block removed.
+select hasnt_type('public', 'member_role', 'the fixed-role enum is gone');
 
 select * from finish();
 rollback;

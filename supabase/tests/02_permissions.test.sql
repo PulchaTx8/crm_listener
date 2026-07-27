@@ -26,7 +26,7 @@ select ok(
   'anon may not call accept_invitation'
 );
 select ok(
-  not has_function_privilege('anon', 'public.create_invitation(uuid, text, public.member_role, text, integer)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.create_invitation(uuid, text, boolean, uuid, uuid[], text, integer)', 'EXECUTE'),
   'anon may not call create_invitation'
 );
 
