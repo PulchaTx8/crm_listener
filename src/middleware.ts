@@ -42,8 +42,13 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
 
+  // `/invite/<token>` is public and prefix-matched, since PUBLIC_PATHS is an
+  // exact-match list and a dynamic segment cannot be enumerated. The invitee has
+  // no session yet, and bouncing them to /login would strand the invitation.
+  const isPublic = PUBLIC_PATHS.includes(path) || path.startsWith('/invite/');
+
   if (!user) {
-    if (PUBLIC_PATHS.includes(path)) return response;
+    if (isPublic) return response;
     return NextResponse.redirect(new URL('/login', request.url));
   }
 

@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; invited?: string }>;
 }) {
   const params = await searchParams;
 
@@ -46,7 +46,12 @@ export default async function LoginPage({
     <Card>
       <CardContent className="flex flex-col gap-5 pt-6">
         <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
-        {params.error ? (
+        {params.invited ? (
+        <p className="text-sm text-muted-foreground">
+          Your account is ready. Sign in with the password you just chose.
+        </p>
+      ) : null}
+      {params.error ? (
           <p className="text-sm text-destructive">
             {params.error === 'expired'
               ? 'Your provisional password has expired. Please contact us for a new one.'
