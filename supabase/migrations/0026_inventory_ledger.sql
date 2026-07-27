@@ -24,17 +24,18 @@ create table public.inventory_movements (
     foreign key (prize_id, company_id)
     references public.prizes (id, company_id),
 
-  -- A movement must move something, somewhere.
-  constraint inventory_movements_has_direction
-    check (from_bucket is not null or to_bucket is not null),
-  constraint inventory_movements_not_circular
-    check (from_bucket is distinct from to_bucket),
-
   -- Reconciliation reads the buckets, not the type, so a pair that disagrees
   -- with its movement type would corrupt the projection AND its own check in the
   -- same direction — the divergence would never show up. Enumerating the legal
   -- pairs is long and worth it: it makes that class of defect unrepresentable
-  -- rather than merely unlikely.
+  -- rather than merely unlikely. This one constraint also subsumes what would
+  -- otherwise be two separate guards — "a movement must move something,
+  -- somewhere" (from_bucket is not null or to_bucket is not null) and "a
+  -- movement is never circular" (from_bucket is distinct from to_bucket): every
+  -- branch below pins at least one bucket non-null, and none sets
+  -- from_bucket = to_bucket, so neither guard could ever be the deciding
+  -- constraint. They are omitted rather than kept on as defence that can never
+  -- fire.
   constraint inventory_movements_legal_transition check (
        (movement_type in ('INITIAL_ENTRY', 'PURCHASE_ENTRY', 'MANUAL_ENTRY', 'ADJUSTMENT_POSITIVE')
           and from_bucket is null and to_bucket = 'available')
