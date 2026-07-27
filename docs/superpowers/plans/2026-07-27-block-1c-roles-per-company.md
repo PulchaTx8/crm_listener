@@ -160,6 +160,25 @@ $$;
 
 comment on function public.has_permission(text, uuid) is
   'Transitional: valid code AND active subscription AND the caller is the Company owner. 0016 replaces this with resolution through the assigned role.';
+
+-- Same wound, same migration: 0010's has_org_permission joins role_permissions on
+-- a column this migration dropped, and `language sql` means it errors at plan time
+-- on any call — taking create_invitation, member management and two Block 1b RLS
+-- policies with it. Block 1b seeded these three codes to the owner alone, so
+-- admin-or-owner is exactly what the old join resolved to.
+create or replace function public.has_org_permission(p_permission text, p_organization_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select exists (select 1 from public.permissions p where p.code = p_permission)
+     and (public.is_platform_admin() or public.is_owner(p_organization_id));
+$$;
+
+comment on function public.has_org_permission(text, uuid) is
+  'Transitional: valid permission code AND (platform admin OR Organization owner). 0016 replaces this with resolution through the assigned role.';
 ```
 
 - [ ] **Step 2: Update the pgTAP assertions**
@@ -190,6 +209,13 @@ select is(
 
 select has_column('public', 'role_permissions', 'role_id', 'role_permissions is keyed by role');
 select hasnt_column('public', 'role_permissions', 'role', 'the fixed-role column is gone');
+
+-- The same guarantee for the Organization-scoped helper. It doubles as a canary:
+-- these helpers are `language sql`, so a body referencing a dropped column errors
+-- at plan time — calling it at all is what proves it still resolves. Without this,
+-- a migration can orphan a helper and every existing test still passes.
+select is(public.has_org_permission('no.such.code', gen_random_uuid()), false,
+          'an unknown Organization-scoped permission code returns false');
 
 -- Block 1c: the catalogue carries what the editor needs to render itself.
 select col_not_null('public', 'permissions', 'module', 'module is required');
