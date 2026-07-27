@@ -29,7 +29,11 @@ async function requireAccessToken(): Promise<string> {
 
 /**
  * The service throws the typed errors from lib/errors.ts; this is where each
- * one turns into a sentence the person filling in the form can act on.
+ * one turns into a sentence the person filling in the form can act on. Shared
+ * by both saveRoleAction and deleteRoleAction — deleteRole (services/roles.ts)
+ * throws the same taxonomy (BusinessRuleError for "role is assigned to N
+ * user(s)", NotFoundError for a stale id, UnauthorizedError for a missing
+ * roles.manage), so one mapping serves both actions.
  * ConflictError and BusinessRuleError already carry a friendly message from
  * services/roles.ts (mapRoleError) — the duplicate-name text and the holder
  * count respectively — so those pass through unchanged. NotFoundError and
@@ -42,7 +46,7 @@ async function requireAccessToken(): Promise<string> {
  * for them to fix beyond trying again, so it gets the generic fallback rather
  * than a raw database message.
  */
-function describeSaveError(cause: unknown): string {
+function describeRoleError(cause: unknown): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
@@ -52,7 +56,9 @@ function describeSaveError(cause: unknown): string {
     return 'You do not have permission to manage roles.';
   }
   if (cause instanceof ValidationError) return cause.message;
-  return 'Could not save the role. Try again.';
+  // Generic on purpose, and worded to fit both callers: InternalError means
+  // the fault is ours, not the caller's, whether they were saving or deleting.
+  return 'Something went wrong. Try again.';
 }
 
 export async function saveRoleAction(
@@ -80,23 +86,35 @@ export async function saveRoleAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause }, 'save role failed');
-    return { status: 'error', message: describeSaveError(cause) };
+    return { status: 'error', message: describeRoleError(cause) };
   }
 }
 
+/**
+ * Bound directly to a plain `<form action={deleteRoleAction}>` (no
+ * useActionState), so there is no component state to hold an error message
+ * the way saveRoleAction's does. Previously this swallowed the error into a
+ * log line and let the page re-render unchanged — the database's refusal
+ * (BusinessRuleError, when holders changed between render and click; or the
+ * count was wrong in the first place, I2) looked exactly like nothing had
+ * happened. Surfaced the same way addCompanyAction (admin/customers/actions.ts)
+ * already surfaces a failure with no state container of its own: redirect
+ * into a query param the page reads back into a banner. The success path also
+ * redirects to the bare path — revalidatePath alone re-renders in place
+ * without touching the address bar, so a stale ?deleteError= from an earlier
+ * failed attempt would otherwise still be sitting in the URL after a
+ * successful retry.
+ */
 export async function deleteRoleAction(formData: FormData): Promise<void> {
   const token = await requireAccessToken();
+  let message: string | null = null;
   try {
     await deleteRole(String(formData.get('roleId')), token);
   } catch (cause) {
-    // The database refuses a role still in use (BusinessRuleError), and the
-    // list re-renders with the holder count that explains why — the Delete
-    // button in page.tsx is already disabled and captioned for that case, so
-    // this is only reachable if holders changed between render and click.
-    // Swallowing it here and letting the re-render speak keeps the failure on
-    // the screen instead of a stack trace — same pattern as every other action
-    // in team/actions.ts (revokeAction, removeMemberAction, ...).
     logger.error({ err: cause }, 'delete role failed');
+    message = describeRoleError(cause);
   }
   revalidatePath('/roles');
+  if (message) redirect(`/roles?deleteError=${encodeURIComponent(message)}`);
+  redirect('/roles');
 }

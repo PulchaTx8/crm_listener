@@ -60,22 +60,39 @@ export function RoleForm({
             {catalogue
               .filter((p) => p.module === module)
               .map((p) => (
-                <label key={p.code} className="flex flex-wrap items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    name="permissionCodes"
-                    value={p.code}
-                    defaultChecked={held.has(p.code)}
-                  />
-                  {p.label}
-                  {/* Roles are assigned per Station, so a permission that reaches
-                      the whole Organization has to say so where it is chosen. */}
-                  {p.scope === 'organization' && (
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900">
-                      whole Organization
-                    </span>
+                <div key={p.code} className="flex flex-col gap-1">
+                  <label className="flex flex-wrap items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      name="permissionCodes"
+                      value={p.code}
+                      defaultChecked={held.has(p.code)}
+                    />
+                    {p.label}
+                    {/* Roles are assigned per Station, so a permission that reaches
+                        the whole Organization has to say so where it is chosen. */}
+                    {p.scope === 'organization' && (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900">
+                        whole Organization
+                      </span>
+                    )}
+                  </label>
+                  {/* I3 (block-1c final review): update_role restricts neither
+                      which codes a role may carry nor whether the caller edits
+                      the role they themselves hold. Ticking this checkbox is
+                      how an owner hands away the ability to grant every other
+                      permission — including this one, to anyone, including the
+                      delegate themselves. Accepted as a property of the model
+                      (spec §2 decision 4), not a defect — but the owner ticking
+                      it has no other way to learn what they are handing over. */}
+                  {p.code === 'roles.manage' && (
+                    <p className="pl-6 text-xs text-muted-foreground">
+                      Whoever holds this can grant themselves — or anyone else —
+                      any other permission, including this one. There is no
+                      further restriction on what a role holding it may compose.
+                    </p>
                   )}
-                </label>
+                </div>
               ))}
           </fieldset>
         ))}

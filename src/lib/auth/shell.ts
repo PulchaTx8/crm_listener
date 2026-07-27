@@ -29,10 +29,13 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
     },
     {
-      // Visible to every member, including operators and viewers who hold no
-      // users.invite or roles.manage. Deliberate, and not a hole: Team renders
-      // only what the invitations RLS policy returns; Roles redirects at the
-      // top of its own page for anyone lacking roles.manage, and
+      // Visible to every member, including those holding no organization-scoped
+      // permission at all. Deliberate, and not a hole: Team renders the member
+      // roster (widened per-permission by RLS, 0024), the role list, the
+      // invite form and the per-Station assignment grid — every one of those
+      // reads and writes is itself gated by RLS or by a SECURITY DEFINER
+      // function re-checking has_org_permission; Roles redirects at the top of
+      // its own page for anyone lacking roles.manage, and
       // create_role/update_role/delete_role re-check has_org_permission
       // themselves regardless of that redirect. Hiding a link is a courtesy;
       // the boundary is in the database.
