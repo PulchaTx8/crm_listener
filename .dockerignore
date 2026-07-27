@@ -5,8 +5,11 @@ docs
 Arte
 tests
 *.md
+# No exception for .env.example. It used to be un-ignored here so the image
+# could carry the template, but it now holds real environment values — and the
+# `COPY . .` in the builder stage would bake them into an image layer, where
+# gitignoring them protects nothing.
 .env*
-!.env.example
 
 # Test runner configs. They are not needed in the image, and they import from
 # `tests/`, which is excluded above — leaving them in makes `next build` fail

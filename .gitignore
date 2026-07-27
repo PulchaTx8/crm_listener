@@ -14,9 +14,16 @@ next-env.d.ts
 /dist
 
 # Environment / secrets
+#
+# .env.example is ignored too, and deliberately: it is a private scratch file
+# for real environment values, not a committed template. The variables the app
+# actually reads are documented in docs/environment.md, which carries no
+# secrets. A file whose whole purpose is to hold credentials must never be
+# tracked, however harmless its name sounds.
 .env
 .env*.local
 .env.production
+.env.example
 
 # Supabase
 supabase/.branches
