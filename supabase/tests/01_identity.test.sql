@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(27);
 
 -- tables exist
 select has_table('public', 'profiles', 'profiles exists');
@@ -65,6 +65,42 @@ select ok(
 select ok(
   not has_function_privilege('anon', 'public.suspend_company(uuid, text)', 'EXECUTE'),
   'anon may not call suspend_company'
+);
+
+-- Block 1c: a membership without a role is not representable.
+select col_not_null('public', 'company_memberships', 'role_id',
+  'a Company membership must carry a role');
+select col_not_null('public', 'company_memberships', 'organization_id',
+  'a Company membership carries its Organization, for the composite keys');
+
+select has_index('public', 'company_memberships', 'company_memberships_role_idx',
+  'live memberships are indexed by role, which delete_role reads');
+
+-- The composite foreign keys are the whole cross-tenant guarantee.
+select fk_ok('public', 'company_memberships', array['role_id', 'organization_id'],
+             'public', 'roles', array['id', 'organization_id'],
+             'a role can only be assigned inside its own Organization');
+select fk_ok('public', 'company_memberships', array['company_id', 'organization_id'],
+             'public', 'companies', array['id', 'organization_id'],
+             'a membership can only name a Company of its own Organization');
+
+-- Declaring the constraint and having it bite are different claims. This is the
+-- one that matters, so it is asserted rather than reasoned about.
+insert into public.organizations (id, name) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'Org A'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'Org B');
+insert into public.companies (id, organization_id, name) values
+  ('bbbbbbbb-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 'Station A');
+insert into public.roles (id, organization_id, name) values
+  ('cccccccc-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'Foreign');
+
+select throws_ok(
+  $$insert into public.company_memberships (user_id, company_id, organization_id, role_id)
+    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001',
+            'aaaaaaaa-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001')$$,
+  '23503',
+  null,
+  'a role from another Organization cannot be assigned'
 );
 
 select * from finish();
