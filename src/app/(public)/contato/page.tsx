@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { contactRequestSchema } from '@/schemas/contact';
 import { submitContactRequest } from '@/services/contact-requests';
 import { Button } from '@/components/ui/button';
+import { Input, Textarea } from '@/components/ui/input';
 
 export default async function ContactPage({
   searchParams,
@@ -58,26 +59,11 @@ export default async function ContactPage({
         </p>
       ) : null}
       <form action={submit} className="flex flex-col gap-4">
-        <input name="name" placeholder="Your name" required className="rounded-md border p-2" />
-        <input
-          name="email"
-          type="email"
-          placeholder="E-mail"
-          required
-          className="rounded-md border p-2"
-        />
-        <input name="phone" placeholder="Phone (optional)" className="rounded-md border p-2" />
-        <input
-          name="companyName"
-          placeholder="Company (optional)"
-          className="rounded-md border p-2"
-        />
-        <textarea
-          name="message"
-          placeholder="How can we help?"
-          rows={4}
-          className="rounded-md border p-2"
-        />
+        <Input name="name" placeholder="Your name" required />
+        <Input name="email" type="email" placeholder="E-mail" required />
+        <Input name="phone" placeholder="Phone (optional)" />
+        <Input name="companyName" placeholder="Company (optional)" />
+        <Textarea name="message" placeholder="How can we help?" rows={4} />
         <Button type="submit">Send</Button>
       </form>
     </main>

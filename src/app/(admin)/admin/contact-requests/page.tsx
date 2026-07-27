@@ -1,4 +1,6 @@
 import { createUserClient } from '@/lib/supabase/user-client';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card, CardContent } from '@/components/ui/card';
 
 // Renders from the caller's session cookies, so it can never be static. Stated
 // explicitly rather than inferred from cookies(): the Supabase client is built
@@ -14,24 +16,37 @@ export default async function ContactRequestsPage() {
     .order('created_at', { ascending: false });
 
   return (
-    <main className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Contact requests</h1>
+    <>
+      <PageHeader title="Contact requests" description="Inbound interest from the public form." />
+
       {(requests ?? []).length === 0 ? (
-        <p className="text-muted-foreground">Nothing yet.</p>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">Nothing yet.</p>
+          </CardContent>
+        </Card>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           {(requests ?? []).map((r) => (
-            <li key={r.id} className="rounded-md border p-3">
-              <p className="font-medium">
-                {r.name} — {r.email} {r.phone ? `— ${r.phone}` : ''}
-              </p>
-              {r.company_name ? <p className="text-sm">{r.company_name}</p> : null}
-              {r.message ? <p className="mt-1 text-sm text-muted-foreground">{r.message}</p> : null}
-              <p className="mt-1 text-xs text-muted-foreground">{r.status}</p>
-            </li>
+            <Card key={r.id}>
+              <CardContent className="flex flex-col gap-1 pt-6">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">
+                    {r.name} — {r.email} {r.phone ? `— ${r.phone}` : ''}
+                  </p>
+                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {r.status}
+                  </span>
+                </div>
+                {r.company_name ? <p className="text-sm">{r.company_name}</p> : null}
+                {r.message ? (
+                  <p className="mt-1 text-sm text-muted-foreground">{r.message}</p>
+                ) : null}
+              </CardContent>
+            </Card>
           ))}
-        </ul>
+        </div>
       )}
-    </main>
+    </>
   );
 }
