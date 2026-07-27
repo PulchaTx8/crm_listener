@@ -81,8 +81,36 @@ export async function signInAs(email: string, password: string): Promise<Supabas
 }
 
 export async function cleanupUsers(): Promise<void> {
-  for (const id of createdUserIds.splice(0)) {
-    await admin.auth.admin.deleteUser(id);
+  const ids = createdUserIds.splice(0);
+  const failures: string[] = [];
+
+  for (const id of ids) {
+    const { error } = await admin.auth.admin.deleteUser(id);
+    if (error) failures.push(id);
+  }
+
+  // A cleanup that lies is worse than one that fails: this reports what it
+  // could not do rather than swallowing the error. Confirmed causes, any of
+  // which can block a given user:
+  //   - audit_logs.actor_id, companies.provisioned_by, invitations.invited_by /
+  //     accepted_by, and roles.created_by all reference auth.users(id) with NO
+  //     `on delete cascade` (0003_identity_tenant.sql, 0004_audit_and_contact.sql,
+  //     0012_invitations.sql, 0015_roles.sql) — so any user who ever acted
+  //     through an audited RPC (which is most of them: accept_invitation alone
+  //     records the invitee as actor_id) leaves a row Postgres refuses to orphan.
+  //   - An Organization's sole owner additionally cascades into
+  //     organization_memberships (`on delete cascade`), which trips the deferred
+  //     "at least one owner" constraint trigger (0011_member_management.sql).
+  // The second is load-bearing product behaviour; the first is just how the
+  // schema was built. Neither is something test cleanup should work around by
+  // itself, so the row is left behind in auth.users instead of being silently
+  // (and falsely) reported as gone.
+  if (failures.length > 0) {
+    console.warn(
+      `cleanupUsers: could not delete ${failures.length} user(s), left behind in auth.users ` +
+        `(non-cascading FKs from audit_logs/companies/invitations/roles, or an Organization's ` +
+        `sole owner tripping the "at least one owner" trigger): ${failures.join(', ')}`,
+    );
   }
 }
 

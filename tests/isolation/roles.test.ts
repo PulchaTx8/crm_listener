@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   addCompany,
@@ -13,12 +14,25 @@ afterAll(cleanupUsers);
 
 describe('roles', () => {
   it('grants a permission in one Station and withholds it in another', async () => {
-    const customer = await provisionCustomer('roles-scope');
+    const label = `roles-scope-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const second = await addCompany(customer, 'Station Two');
     const manager = await createRoleAs(customer, 'Manager', ['users.invite']);
-    const member = await addMemberByInvitation(customer, 'roles-scope', manager, [
-      customer.companyId,
-    ]);
+    const bystander = await createRoleAs(customer, 'Bystander', []);
+    const member = await addMemberByInvitation(customer, label, manager, [customer.companyId]);
+
+    // The member must hold a membership in the second Station too, under a role
+    // that grants nothing. Without it, has_company_access already returns false
+    // there and has_permission short-circuits before the role branch runs — so
+    // the test would pass at the access gate and leave the line that actually
+    // implements "the role assigned in THAT Company" unproven.
+    const owner = await signInAs(customer.email, customer.password);
+    const { error: assignError } = await owner.rpc('assign_company_role', {
+      p_company_id: second,
+      p_user_id: member.userId,
+      p_role_id: bystander,
+    });
+    expect(assignError).toBeNull();
 
     const client = await signInAs(member.email, member.password);
 
@@ -30,15 +44,20 @@ describe('roles', () => {
       p_permission: 'users.invite',
       p_company_id: second,
     });
+    const { data: reachesSecond } = await client.rpc('has_company_access', {
+      p_company_id: second,
+    });
 
+    expect(reachesSecond).toBe(true);
     expect(here).toBe(true);
     expect(there).toBe(false);
   });
 
   it('cuts access on the next request when the permission is unchecked', async () => {
-    const customer = await provisionCustomer('roles-live');
+    const label = `roles-live-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const role = await createRoleAs(customer, 'Manager', ['users.invite']);
-    const member = await addMemberByInvitation(customer, 'roles-live', role, [customer.companyId]);
+    const member = await addMemberByInvitation(customer, label, role, [customer.companyId]);
 
     // The SAME client throughout: no sign-out, no token refresh.
     const client = await signInAs(member.email, member.password);
@@ -52,10 +71,8 @@ describe('roles', () => {
     const { error } = await owner.rpc('update_role', {
       p_role_id: role,
       p_name: 'Manager',
-      // p_description is optional in the generated Args (string | undefined);
-      // `null` is not part of that union under strictNullChecks. Same gap
-      // harness.ts already casts around for p_role_id in addOwnerByInvitation.
-      p_description: null as unknown as string,
+      // p_description is optional in the generated Args; omitting it compiles
+      // clean and produces identical SQL (the RPC default is null).
       p_permission_codes: [],
     });
     expect(error).toBeNull();
@@ -68,9 +85,10 @@ describe('roles', () => {
   });
 
   it('refuses to delete a role somebody holds', async () => {
-    const customer = await provisionCustomer('roles-inuse');
+    const label = `roles-inuse-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const role = await createRoleAs(customer, 'Manager', []);
-    await addMemberByInvitation(customer, 'roles-inuse', role, [customer.companyId]);
+    await addMemberByInvitation(customer, label, role, [customer.companyId]);
 
     const owner = await signInAs(customer.email, customer.password);
     const { error } = await owner.rpc('delete_role', { p_role_id: role });
@@ -80,11 +98,10 @@ describe('roles', () => {
   });
 
   it('refuses to assign a role that was archived', async () => {
-    const customer = await provisionCustomer('roles-archived');
+    const label = `roles-archived-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const role = await createRoleAs(customer, 'Retired', ['users.invite']);
-    const target = await addMemberByInvitation(customer, 'roles-archived', role, [
-      customer.companyId,
-    ]);
+    const target = await addMemberByInvitation(customer, label, role, [customer.companyId]);
 
     const owner = await signInAs(customer.email, customer.password);
     await owner.rpc('remove_company_access', {
@@ -108,32 +125,48 @@ describe('roles', () => {
   });
 
   it('accepts the same Station named twice without dying on the primary key', async () => {
-    const customer = await provisionCustomer('roles-dupe');
+    const label = `roles-dupe-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const role = await createRoleAs(customer, 'Local', []);
     const owner = await signInAs(customer.email, customer.password);
+
+    // A fixed, low-entropy hash would collide with whatever this DB already
+    // holds under the global unique index on token_hash — unrelated to this
+    // test's own claim, and the resulting 23505 would look identical to the
+    // one this test is trying to provoke. Same construction the harness uses.
+    const token = randomBytes(32).toString('base64url');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
 
     // `unnest` does not deduplicate, so a count-based validation lets the same
     // Station through twice and the insert then fails on the primary key with a
     // raw duplicate-key error. This is the only place that path is reachable —
     // create_invitation needs a real session, which pgTAP cannot provide.
-    const { error } = await owner.rpc('create_invitation', {
+    const { data: invitationId, error } = await owner.rpc('create_invitation', {
       p_organization_id: customer.organizationId,
-      p_email: 'dupe-station@example.test',
+      p_email: `dupe-station-${Date.now()}@example.test`,
       p_is_owner: false,
       p_role_id: role,
       p_company_ids: [customer.companyId, customer.companyId],
-      p_token_hash: 'a'.repeat(64),
+      p_token_hash: tokenHash,
       p_ttl_days: 7,
     });
     expect(error).toBeNull();
+
+    // A mutation that skipped the insert into invitation_companies entirely
+    // would still leave `error` null; only counting the row proves the
+    // dedup actually ran rather than just not crashing.
+    const { data: rows } = await admin
+      .from('invitation_companies')
+      .select('company_id')
+      .eq('invitation_id', invitationId as string);
+    expect(rows).toHaveLength(1);
   });
 
   it('refuses to remove access that is not there', async () => {
-    const customer = await provisionCustomer('roles-noop');
+    const label = `roles-noop-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const role = await createRoleAs(customer, 'Local', []);
-    const member = await addMemberByInvitation(customer, 'roles-noop', role, [
-      customer.companyId,
-    ]);
+    const member = await addMemberByInvitation(customer, label, role, [customer.companyId]);
 
     const owner = await signInAs(customer.email, customer.password);
     const first = await owner.rpc('remove_company_access', {
@@ -149,11 +182,12 @@ describe('roles', () => {
       p_user_id: member.userId,
     });
     expect(second.error).not.toBeNull();
+    expect(second.error!.message).toMatch(/no access to this company/i);
   });
 
   it('refuses a role from another Organization even with a valid id', async () => {
-    const a = await provisionCustomer('roles-org-a');
-    const b = await provisionCustomer('roles-org-b');
+    const a = await provisionCustomer(`roles-org-a-${Date.now()}`);
+    const b = await provisionCustomer(`roles-org-b-${Date.now()}`);
     const foreign = await createRoleAs(b, 'Foreign', []);
 
     const memberOfA = await createUserInOrgA(a);
@@ -176,20 +210,22 @@ describe('roles', () => {
   });
 
   it('lets roles.manage administer roles, and refuses without it', async () => {
-    const customer = await provisionCustomer('roles-delegate');
+    const label = `roles-delegate-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const admin_role = await createRoleAs(customer, 'Director', ['roles.manage']);
     const plain = await createRoleAs(customer, 'Trainee', []);
 
-    const director = await addMemberByInvitation(customer, 'director', admin_role, [
+    const director = await addMemberByInvitation(customer, `${label}-director`, admin_role, [
       customer.companyId,
     ]);
-    const trainee = await addMemberByInvitation(customer, 'trainee', plain, [customer.companyId]);
+    const trainee = await addMemberByInvitation(customer, `${label}-trainee`, plain, [
+      customer.companyId,
+    ]);
 
     const asDirector = await signInAs(director.email, director.password);
     const created = await asDirector.rpc('create_role', {
       p_organization_id: customer.organizationId,
       p_name: 'Producer',
-      p_description: null as unknown as string,
       p_permission_codes: [],
     });
     expect(created.error).toBeNull();
@@ -198,7 +234,6 @@ describe('roles', () => {
     const refused = await asTrainee.rpc('create_role', {
       p_organization_id: customer.organizationId,
       p_name: 'Sneaky',
-      p_description: null as unknown as string,
       p_permission_codes: [],
     });
     expect(refused.error).not.toBeNull();
@@ -206,7 +241,7 @@ describe('roles', () => {
   });
 
   it('grants the owner everything without any membership row', async () => {
-    const customer = await provisionCustomer('roles-owner');
+    const customer = await provisionCustomer(`roles-owner-${Date.now()}`);
     const owner = await signInAs(customer.email, customer.password);
 
     const { data: rows } = await admin
@@ -223,7 +258,7 @@ describe('roles', () => {
   });
 
   it('grants nothing once the Station is suspended, not even to the owner', async () => {
-    const customer = await provisionCustomer('roles-suspended');
+    const customer = await provisionCustomer(`roles-suspended-${Date.now()}`);
     await customer.adminClient.rpc('suspend_company', {
       p_company_id: customer.companyId,
       p_reason: 'non-payment',
@@ -252,6 +287,6 @@ describe('roles', () => {
 /** A second person in Organization A, needed as the target of a bad assignment. */
 async function createUserInOrgA(a: Awaited<ReturnType<typeof provisionCustomer>>) {
   const role = await createRoleAs(a, 'Local', []);
-  const member = await addMemberByInvitation(a, 'roles-target', role, [a.companyId]);
+  const member = await addMemberByInvitation(a, `roles-target-${Date.now()}`, role, [a.companyId]);
   return member.userId;
 }
