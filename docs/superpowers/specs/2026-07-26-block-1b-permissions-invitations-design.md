@@ -76,7 +76,8 @@ suspended (1a §3). `has_permission` resolves through `company_memberships.role`
 `has_company_access` — it contains it:
 
 ```sql
-select public.has_company_access(p_company_id)   -- membership AND active subscription
+select exists (select 1 from public.permissions p where p.code = p_permission)
+   and public.has_company_access(p_company_id)   -- membership AND active subscription
    and (
      public.is_platform_admin()
      or exists (
@@ -91,12 +92,24 @@ select public.has_company_access(p_company_id)   -- membership AND active subscr
    );
 ```
 
-Without this, an operator of a suspended Company would keep their permissions and
-the suspension would leak. The 1a rule — subscription cut, data blocked — must
-hold for every future block without anyone having to remember it.
+Without the `has_company_access` term, an operator of a suspended Company would
+keep their permissions and the suspension would leak. The 1a rule — subscription
+cut, data blocked — must hold for every future block without anyone having to
+remember it.
 
-**Fail closed.** An unknown permission code returns false, never true. A typo in a
-policy must deny. This is asserted by a test rather than assumed.
+**Fail closed, and the ordering is what makes it true.** An unknown permission
+code returns false for everyone, platform admins included. The existence check
+sits **outside** the admin bypass on purpose: written the obvious way, with
+`is_platform_admin() OR exists(...)` alone, the admin branch short-circuits the
+`OR` before `rp.permission_code` is ever compared, so `has_permission('typo',
+company)` would return **true** for an admin on any active Company. That is the
+exact "a typo grants access" failure this paragraph promises cannot happen.
+
+The trap is that `has_company_access` uses the same `is_platform_admin() OR
+exists(...)` shape (0005) and is correct there, because the check being bypassed
+is membership. Here the bypassed check would be the validity of the permission
+code itself. The shape does not transfer, and the difference is asserted by a
+test rather than left to whoever writes the next helper.
 
 **Each block owns its permission codes.** 1b seeds only what it enforces:
 `users.invite`, `users.manage`, `audit.view`. Block 2 adds `inventory.reserve` in
@@ -251,7 +264,7 @@ as 1a's was tenant leakage.
 | the last owner cannot be removed or demoted | the dead end only the product owner could undo |
 | a removed member loses access immediately | 1a's promise of instant revocation |
 | a suspended Company yields no permissions | `has_permission` must compose with the subscription |
-| an unknown permission code returns false | a typo in a policy must deny, not grant |
+| an unknown permission code returns false, **even for a platform admin** | a typo in a policy must deny, not grant — and the admin bypass is where that guarantee is easiest to lose |
 
 pgTAP covers structure: `role_permissions` seeded as expected, and no client write
 grants on `invitations`, `permissions` or `role_permissions`.

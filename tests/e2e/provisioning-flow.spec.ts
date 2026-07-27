@@ -70,12 +70,17 @@ test('provision a customer, sign in, change the password, then suspend', async (
   expect(page.url()).not.toContain(provisionalPassword);
   expect(page.url()).not.toContain('password=');
 
-  const { data: owner } = await admin
+  // Hard failure, not a soft guard: this row drives the password restore below
+  // and the afterAll cleanup. Letting it be null would turn a missing profile
+  // into a TypeError halfway down the test, and leak the user besides.
+  const { data: owner, error: ownerLookupError } = await admin
     .from('profiles')
     .select('id')
     .eq('email', ownerEmail)
     .single();
-  if (owner) createdUserIds.push(owner.id);
+  expect(ownerLookupError).toBeNull();
+  if (!owner) throw new Error(`provisioning left no profile row for ${ownerEmail}`);
+  createdUserIds.push(owner.id);
 
   // --- the console resolves each Company's owner --------------------------
   // A regression guard: this row is built from two queries joined in JS
@@ -97,7 +102,7 @@ test('provision a customer, sign in, change the password, then suspend', async (
 
   // The customer signs in below with the ORIGINAL password, which the reissue
   // has just invalidated — so put the account back the way the test needs it.
-  const { error: restoreError } = await admin.auth.admin.updateUserById(owner!.id, {
+  const { error: restoreError } = await admin.auth.admin.updateUserById(owner.id, {
     password: provisionalPassword,
   });
   expect(restoreError).toBeNull();
