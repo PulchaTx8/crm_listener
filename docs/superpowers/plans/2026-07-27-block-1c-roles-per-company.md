@@ -2053,12 +2053,26 @@ afterAll(cleanupUsers);
 
 describe('roles', () => {
   it('grants a permission in one Station and withholds it in another', async () => {
-    const customer = await provisionCustomer('roles-scope');
+    const label = `roles-scope-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const second = await addCompany(customer, 'Station Two');
     const manager = await createRoleAs(customer, 'Manager', ['users.invite']);
-    const member = await addMemberByInvitation(customer, 'roles-scope', manager, [
-      customer.companyId,
-    ]);
+    const bystander = await createRoleAs(customer, 'Bystander', []);
+    const member = await addMemberByInvitation(customer, label, manager, [customer.companyId]);
+
+    // The member must hold a membership in the second Station too, under a role
+    // that grants nothing. Without it, has_company_access already returns false
+    // there and has_permission short-circuits before the role branch runs — so
+    // the test would pass at the access gate and leave the line that actually
+    // implements "the role assigned in THAT Company" unproven. That line is the
+    // whole point of the block, and nothing else in the project covers it.
+    const owner = await signInAs(customer.email, customer.password);
+    const { error: assignError } = await owner.rpc('assign_company_role', {
+      p_company_id: second,
+      p_user_id: member.userId,
+      p_role_id: bystander,
+    });
+    expect(assignError).toBeNull();
 
     const client = await signInAs(member.email, member.password);
 
@@ -2070,7 +2084,13 @@ describe('roles', () => {
       p_permission: 'users.invite',
       p_company_id: second,
     });
+    // Access is granted in both; only the role differs. `there` can now be false
+    // for exactly one reason.
+    const { data: reachesSecond } = await client.rpc('has_company_access', {
+      p_company_id: second,
+    });
 
+    expect(reachesSecond).toBe(true);
     expect(here).toBe(true);
     expect(there).toBe(false);
   });
