@@ -8,6 +8,10 @@ export const roleFormSchema = z.object({
     .trim()
     .max(240)
     .nullable()
+    // The RPC treats an empty string, null and an absent argument identically
+    // (via nullif(trim(coalesce(p_description,'')), '')). Normalising both null
+    // and '' to undefined here means the system has one shape for "no description"
+    // rather than three spellings of it reaching the database.
     .transform((v) => (v === null || v === '' ? undefined : v)),
   // The database primary key would reject a duplicate anyway; catching it here
   // means the form says so instead of the request failing.

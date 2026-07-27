@@ -102,9 +102,8 @@ describe('roleFormSchema', () => {
       permissionCodes: [],
     });
     expect(parsed.success).toBe(true);
-    if (parsed.success && parsed.data.description) {
-      expect(parsed.data.description.length).toBe(240);
-    }
+    if (!parsed.success) return;
+    expect(parsed.data.description!.length).toBe(240);
   });
 
   it('trims whitespace from name', () => {
