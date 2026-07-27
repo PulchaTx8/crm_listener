@@ -91,28 +91,38 @@ export default async function TeamPage() {
 
   const roleNameById = new Map((invitationRoles ?? []).map((r) => [r.id, r.name]));
 
-  // Block 1c: what each non-owner member can do in each Station. companies is
-  // the full roster to render a row per Station even where no membership
-  // exists yet ("No access"); links is every live company_membership so each
-  // row's Select can default to what is actually assigned today.
+  // Block 1c: what each non-owner member can do in each Station. links is
+  // every live company_membership so each row's Select can default to what
+  // is actually assigned today.
   //
-  // list_manageable_companies (0022), not a direct `companies` select:
-  // assign_company_role authorises users.manage Organization-wide (any
-  // Station, via has_org_permission), but companies_select_org_member (0021)
-  // scopes a direct select to the Stations the caller personally belongs to.
-  // A non-owner administrator holding users.manage in only one Station would
-  // otherwise be authorised to assign roles everywhere and see a roster of
-  // one — the same array also feeds the invite form's Station checklist
-  // below, so that gap would silently block inviting anyone into a Station
-  // the inviter cannot personally reach either. `/app` is the screen that
-  // answers "which Stations can I reach" and keeps reading `companies`
-  // directly; this one answers "which Stations can I administer".
+  // list_manageable_companies (0022, reworked by 0023), not a direct
+  // `companies` select, and called ONCE PER SURFACE with the permission that
+  // surface actually needs: assign_company_role authorises users.manage
+  // Organization-wide (any Station, via has_org_permission), and
+  // create_invitation authorises users.invite the same way — two distinct,
+  // independently assignable permissions, not one. companies_select_org_member
+  // (0021) scopes a direct select to the Stations the caller personally
+  // belongs to, so a non-owner holding only one of these two permissions in
+  // only one Station needs the function to see every Station THAT permission
+  // authorises, not the other one's roster and not their own membership list.
+  // `/app` is the screen that answers "which Stations can I reach" and keeps
+  // reading `companies` directly; this page answers "which Stations can I
+  // administer" and "which Stations can I invite into" — two different
+  // questions with two different answers.
   const [
-    { data: companies, error: companiesError },
+    { data: manageableCompanies, error: manageableCompaniesError },
+    { data: invitableCompanies, error: invitableCompaniesError },
     roles,
     { data: links, error: linksError },
   ] = await Promise.all([
-    supabase.rpc('list_manageable_companies', { p_organization_id: organizationId }),
+    supabase.rpc('list_manageable_companies', {
+      p_organization_id: organizationId,
+      p_permission: 'users.manage',
+    }),
+    supabase.rpc('list_manageable_companies', {
+      p_organization_id: organizationId,
+      p_permission: 'users.invite',
+    }),
     listRoles(organizationId),
     supabase
       .from('company_memberships')
@@ -121,7 +131,12 @@ export default async function TeamPage() {
       .is('deleted_at', null),
   ]);
 
-  if (companiesError) logger.error({ err: companiesError }, 'could not load stations');
+  if (manageableCompaniesError) {
+    logger.error({ err: manageableCompaniesError }, 'could not load manageable stations');
+  }
+  if (invitableCompaniesError) {
+    logger.error({ err: invitableCompaniesError }, 'could not load invitable stations');
+  }
   if (linksError) logger.error({ err: linksError }, 'could not load station access links');
 
   return (
@@ -140,7 +155,11 @@ export default async function TeamPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <InviteForm organizationId={organizationId} roles={roles} companies={companies ?? []} />
+            <InviteForm
+              organizationId={organizationId}
+              roles={roles}
+              companies={invitableCompanies ?? []}
+            />
           </CardContent>
         </Card>
 
@@ -204,7 +223,7 @@ export default async function TeamPage() {
                       </p>
                     ) : (
                       <div className="flex flex-col gap-2 pl-1">
-                        {(companies ?? []).map((company) => {
+                        {(manageableCompanies ?? []).map((company) => {
                           const link = (links ?? []).find(
                             (l) => l.user_id === m.user_id && l.company_id === company.id,
                           );

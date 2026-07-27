@@ -631,7 +631,7 @@ export type Database = {
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       list_manageable_companies: {
-        Args: { p_organization_id: string }
+        Args: { p_organization_id: string; p_permission: string }
         Returns: {
           id: string
           name: string
