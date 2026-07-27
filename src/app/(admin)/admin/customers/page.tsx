@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { suspendAction, reactivateAction } from './actions';
+import { addCompanyAction, suspendAction, reactivateAction } from './actions';
 import { ProvisionForm, RegenerateForm } from './credential-forms';
 
 // Renders from the caller's session cookies, so it can never be static. Stated
@@ -13,7 +13,12 @@ import { ProvisionForm, RegenerateForm } from './credential-forms';
 // would fail as a prerender error instead of being skipped as dynamic.
 export const dynamic = 'force-dynamic';
 
-export default async function CustomersPage() {
+export default async function CustomersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stationError?: string }>;
+}) {
+  const params = await searchParams;
   const supabase = await createUserClient();
 
   const { data: companies } = await supabase
@@ -69,6 +74,12 @@ export default async function CustomersPage() {
         title="Customers"
         description="Provision a new customer, or manage an existing subscription."
       />
+
+      {params.stationError ? (
+        <p className="text-sm text-destructive">
+          Could not add the Station. Check the name and try again.
+        </p>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
         <Card>
@@ -127,12 +138,36 @@ export default async function CustomersPage() {
                         </form>
                       )}
                     </div>
-                    {owner ? (
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                        <span className="text-sm text-muted-foreground">Owner: {owner.email}</span>
-                        <RegenerateForm userId={owner.userId} email={owner.email} />
-                      </div>
-                    ) : null}
+                    <div className="flex flex-col gap-3 border-t pt-4">
+                      {owner ? (
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="text-sm text-muted-foreground">
+                            Owner: {owner.email}
+                          </span>
+                          <RegenerateForm userId={owner.userId} email={owner.email} />
+                        </div>
+                      ) : null}
+                      {/* This Organization can hold more than one Station (Block
+                          1c) — add_company is platform-admin only, which is why
+                          the form lives here rather than on the customer's own
+                          screens. organizationId comes from this row, not from
+                          a select, since every row already belongs to one. */}
+                      <form
+                        action={addCompanyAction}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <input type="hidden" name="organizationId" value={c.organization_id} />
+                        <Input
+                          name="name"
+                          placeholder="New Station name"
+                          required
+                          className="h-9 w-48 text-sm"
+                        />
+                        <Button type="submit" variant="outline">
+                          Add Station
+                        </Button>
+                      </form>
+                    </div>
                   </CardContent>
                 </Card>
               );

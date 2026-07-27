@@ -1,4 +1,5 @@
 import { createUserClient } from '@/lib/supabase/user-client';
+import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -10,9 +11,13 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Where a signed-in member lands. Business features arrive in Block 2; what
- * matters here is that a suspended Company still appears, with its reason —
- * companies metadata is visible to org members regardless of status precisely
- * so the customer sees why access stopped instead of an empty screen (spec §4).
+ * matters here is that every reachable Company still appears, suspended or
+ * not — companies_select_org_member (0006) allows reading metadata regardless
+ * of status precisely so the customer sees why access stopped instead of an
+ * empty screen (spec §4). Block 1c is what makes this list ever have more
+ * than one row: an Organization can now hold several Companies, added from
+ * the platform console, and this is how a member first discovers one was
+ * added to their account.
  *
  * The admin link lives in the sidebar now, so this page no longer resolves
  * is_platform_admin itself.
@@ -20,10 +25,13 @@ export const dynamic = 'force-dynamic';
 export default async function MemberHomePage() {
   const supabase = await createUserClient();
 
-  const { data: companies } = await supabase
+  const { data: companies, error: companiesError } = await supabase
     .from('companies')
-    .select('id, name, status, suspension_reason')
+    .select('id, name, status, timezone')
+    .is('deleted_at', null)
     .order('name', { ascending: true });
+
+  if (companiesError) logger.error({ err: companiesError }, 'could not load stations');
 
   const list = companies ?? [];
 
@@ -59,11 +67,10 @@ export default async function MemberHomePage() {
                     {c.status}
                   </span>
                 </div>
+                <span className="text-sm text-muted-foreground">{c.timezone}</span>
                 {c.status === 'suspended' ? (
                   <p className="text-sm text-muted-foreground">
-                    Your subscription is suspended
-                    {c.suspension_reason ? `: ${c.suspension_reason}` : ''}. Contact us to restore
-                    access.
+                    Suspended — no data is available while the subscription is inactive.
                   </p>
                 ) : null}
               </CardContent>

@@ -98,3 +98,27 @@ export async function reactivateAction(formData: FormData): Promise<void> {
   if (error) logger.error({ err: error }, 'reactivate_company failed');
   revalidatePath('/admin/customers');
 }
+
+/**
+ * Adds a second (or third...) Station to an existing Organization. add_company
+ * (0017) is platform-admin only — everyone who reaches this console already
+ * is one, so a denial here means something changed underneath the session
+ * rather than a normal user mistake. Unlike suspend/reactivate above, whose
+ * buttons are only ever shown for the status they apply to, this form has no
+ * such guard, so a failure is redirected into a query param the page reads
+ * back into a banner (same pattern as /login's ?error=1) instead of being a
+ * silent no-op alongside the log line.
+ */
+export async function addCompanyAction(formData: FormData): Promise<void> {
+  const supabase = await createUserClient();
+  const { error } = await supabase.rpc('add_company', {
+    p_organization_id: String(formData.get('organizationId')),
+    p_name: String(formData.get('name')),
+    p_timezone: String(formData.get('timezone') || 'America/Sao_Paulo'),
+  });
+  if (error) {
+    logger.error({ err: error }, 'add_company failed');
+    redirect('/admin/customers?stationError=1');
+  }
+  revalidatePath('/admin/customers');
+}

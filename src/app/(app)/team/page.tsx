@@ -88,7 +88,11 @@ export default async function TeamPage() {
   // the full roster to render a row per Station even where no membership
   // exists yet ("No access"); links is every live company_membership so each
   // row's Select can default to what is actually assigned today.
-  const [{ data: companies }, roles, { data: links }] = await Promise.all([
+  const [
+    { data: companies, error: companiesError },
+    roles,
+    { data: links, error: linksError },
+  ] = await Promise.all([
     supabase
       .from('companies')
       .select('id, name, status')
@@ -102,6 +106,9 @@ export default async function TeamPage() {
       .eq('organization_id', organizationId)
       .is('deleted_at', null),
   ]);
+
+  if (companiesError) logger.error({ err: companiesError }, 'could not load stations');
+  if (linksError) logger.error({ err: linksError }, 'could not load station access links');
 
   return (
     <>
