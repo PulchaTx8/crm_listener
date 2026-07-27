@@ -28,6 +28,15 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       label: 'Overview',
       items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
     },
+    {
+      // Visible to every member, including operators and viewers who hold no
+      // users.invite. Deliberate, and not a hole: the page renders only what the
+      // invitations RLS policy returns, and every write goes through an RPC that
+      // re-checks permission. Hiding a link is a courtesy; the boundary is in
+      // the database.
+      label: 'Organization',
+      items: [{ href: '/team', label: 'Team', icon: ICONS.users }],
+    },
   ];
 
   if (isAdmin) {
