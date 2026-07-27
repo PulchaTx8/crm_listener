@@ -219,12 +219,6 @@ create table public.inventory_movements (
     foreign key (prize_id, company_id)
     references public.prizes (id, company_id),
 
-  -- A movement must move something, somewhere.
-  constraint inventory_movements_has_direction
-    check (from_bucket is not null or to_bucket is not null),
-  constraint inventory_movements_not_circular
-    check (from_bucket is distinct from to_bucket),
-
   -- Reconciliation reads the buckets, not the type, so a pair that disagrees
   -- with its movement type would corrupt the projection AND its own check in the
   -- same direction — the divergence would never show up. Enumerating the legal
