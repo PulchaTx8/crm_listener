@@ -1,5 +1,5 @@
 begin;
-select plan(27);
+select plan(28);
 
 -- tables exist
 select has_table('public', 'profiles', 'profiles exists');
@@ -75,6 +75,8 @@ select col_not_null('public', 'company_memberships', 'organization_id',
 
 select has_index('public', 'company_memberships', 'company_memberships_role_idx',
   'live memberships are indexed by role, which delete_role reads');
+select has_index('public', 'company_memberships', 'company_memberships_org_idx',
+  'live memberships are indexed by Organization, which has_org_permission reads');
 
 -- The composite foreign keys are the whole cross-tenant guarantee.
 select fk_ok('public', 'company_memberships', array['role_id', 'organization_id'],
@@ -85,7 +87,12 @@ select fk_ok('public', 'company_memberships', array['company_id', 'organization_
              'a membership can only name a Company of its own Organization');
 
 -- Declaring the constraint and having it bite are different claims. This is the
--- one that matters, so it is asserted rather than reasoned about.
+-- one that matters, so it is asserted rather than reasoned about. A real user
+-- row is required: company_memberships.user_id references auth.users, and that
+-- constraint is older than company_memberships_role_org_fk, so a bare
+-- gen_random_uuid() would trip THAT foreign key first and the assertion would
+-- pass for the wrong reason. Pinning the message names the constraint that must
+-- fire.
 insert into public.organizations (id, name) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'Org A'),
   ('aaaaaaaa-0000-0000-0000-000000000002', 'Org B');
@@ -93,13 +100,17 @@ insert into public.companies (id, organization_id, name) values
   ('bbbbbbbb-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 'Station A');
 insert into public.roles (id, organization_id, name) values
   ('cccccccc-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'Foreign');
+insert into auth.users (id, email) values
+  ('dddddddd-0000-0000-0000-000000000001', 'fk-probe@example.test');
 
 select throws_ok(
   $$insert into public.company_memberships (user_id, company_id, organization_id, role_id)
-    values (gen_random_uuid(), 'bbbbbbbb-0000-0000-0000-000000000001',
-            'aaaaaaaa-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001')$$,
+    values ('dddddddd-0000-0000-0000-000000000001',
+            'bbbbbbbb-0000-0000-0000-000000000001',
+            'aaaaaaaa-0000-0000-0000-000000000001',
+            'cccccccc-0000-0000-0000-000000000001')$$,
   '23503',
-  null,
+  'insert or update on table "company_memberships" violates foreign key constraint "company_memberships_role_org_fk"',
   'a role from another Organization cannot be assigned'
 );
 

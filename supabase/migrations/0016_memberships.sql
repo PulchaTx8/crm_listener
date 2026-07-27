@@ -27,12 +27,17 @@ for each row execute function public.enforce_last_owner();
 -- The owner holds Company powers by ownership. Keeping their membership row
 -- would make them the only user in the system obliged to carry a role in order
 -- to exercise powers they already have.
+-- om.deleted_at is null matters: without it, a user whose owner membership was
+-- soft-deleted (remove_member) and who was later re-added as an operator would
+-- have their LIVE Company membership hard-deleted by this one-shot migration,
+-- with no way back.
 delete from public.company_memberships cm
  using public.companies c, public.organization_memberships om
  where c.id = cm.company_id
    and om.organization_id = c.organization_id
    and om.user_id = cm.user_id
-   and om.role = 'owner';
+   and om.role = 'owner'
+   and om.deleted_at is null;
 
 alter table public.company_memberships add column organization_id uuid;
 
@@ -86,6 +91,12 @@ create index company_memberships_role_idx
 create index company_memberships_org_idx
   on public.company_memberships (organization_id)
   where deleted_at is null;
+
+comment on column public.company_memberships.organization_id is
+  'Denormalised from the Company. It exists to carry the composite foreign keys below, which is what makes a role of another Organization unassignable. Not redundant — do not drop it.';
+
+comment on column public.company_memberships.role_id is
+  'The role assigned to this user in this Company. Resolved through role_permissions by has_permission and has_org_permission.';
 
 -- ---------------------------------------------------------------------------
 -- The three helpers. They move in this migration and not a later one because
@@ -170,7 +181,17 @@ as $$
   select exists (select 1 from public.permissions p where p.code = p_permission)
      and (
        public.is_platform_admin()
-       or public.is_owner(p_organization_id)
+       or (
+         -- The owner's bypass carries the same subscription gate as the role
+         -- path, or the two helpers disagree about a suspended Station.
+         public.is_owner(p_organization_id)
+         and exists (
+           select 1 from public.companies c
+           where c.organization_id = p_organization_id
+             and c.status = 'active'
+             and c.deleted_at is null
+         )
+       )
        or exists (
          select 1
          from public.company_memberships cm
@@ -237,11 +258,15 @@ begin
          updated_at             = now()
    where id = p_user_id;
 
+  if not found then
+    raise exception 'profile not found for user %', p_user_id using errcode = 'P0002';
+  end if;
+
   insert into public.audit_logs
-    (actor_id, action, target_table, target_id, organization_id, detail)
+    (actor_id, action, target_table, target_id, organization_id, company_id, detail)
   values
-    (v_actor, 'provision_customer', 'organizations', v_org, v_org,
-     jsonb_build_object('company_id', v_comp, 'owner_user_id', p_user_id));
+    (v_actor, 'provision_customer', 'companies', v_comp, v_org, v_comp,
+     jsonb_build_object('owner_user_id', p_user_id, 'organization_name', trim(p_organization_name)));
 
   return jsonb_build_object('organization_id', v_org, 'company_id', v_comp);
 end;
