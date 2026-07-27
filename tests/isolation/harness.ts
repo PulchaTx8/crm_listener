@@ -81,14 +81,63 @@ export async function signInAs(email: string, password: string): Promise<Supabas
 }
 
 export async function cleanupUsers(): Promise<void> {
-  for (const id of createdUserIds.splice(0)) {
-    await admin.auth.admin.deleteUser(id);
+  const ids = createdUserIds.splice(0);
+  const failures: string[] = [];
+
+  for (const id of ids) {
+    const { error } = await admin.auth.admin.deleteUser(id);
+    if (error) failures.push(id);
+  }
+
+  // A cleanup that lies is worse than one that fails: this reports what it
+  // could not do rather than swallowing the error. Confirmed causes, any of
+  // which can block a given user:
+  //   - audit_logs.actor_id, companies.provisioned_by, invitations.invited_by /
+  //     accepted_by, and roles.created_by all reference auth.users(id) with NO
+  //     `on delete cascade` (0003_identity_tenant.sql, 0004_audit_and_contact.sql,
+  //     0012_invitations.sql, 0015_roles.sql) — so any user who ever acted
+  //     through an audited RPC (which is most of them: accept_invitation alone
+  //     records the invitee as actor_id) leaves a row Postgres refuses to orphan.
+  //   - An Organization's sole owner additionally cascades into
+  //     organization_memberships (`on delete cascade`), which trips the deferred
+  //     "at least one owner" constraint trigger (0011_member_management.sql).
+  // The second is load-bearing product behaviour; the first is just how the
+  // schema was built. Neither is something test cleanup should work around by
+  // itself, so the row is left behind in auth.users instead of being silently
+  // (and falsely) reported as gone.
+  if (failures.length > 0) {
+    console.warn(
+      `cleanupUsers: could not delete ${failures.length} user(s), left behind in auth.users ` +
+        `(non-cascading FKs from audit_logs/companies/invitations/roles, or an Organization's ` +
+        `sole owner tripping the "at least one owner" trigger): ${failures.join(', ')}`,
+    );
   }
 }
 
 /**
- * Adds a second person to an existing Organization at the given role, through
- * the real invitation flow.
+ * Creates a role in the customer's Organization through the real RPC, as the
+ * owner. Tests cannot insert one directly: roles are written only by the
+ * SECURITY DEFINER functions, and going the long way round means the seeding
+ * path is the production path.
+ */
+export async function createRoleAs(
+  customer: ProvisionedCustomer,
+  name: string,
+  permissionCodes: string[],
+): Promise<string> {
+  const ownerClient = await signInAs(customer.email, customer.password);
+  const { data, error } = await ownerClient.rpc('create_role', {
+    p_organization_id: customer.organizationId,
+    p_name: name,
+    p_permission_codes: permissionCodes,
+  });
+  if (error) throw new Error(`create_role failed: ${error.message}`);
+  return data as string;
+}
+
+/**
+ * Adds a second person to an existing Organization holding the given role in
+ * the given Companies, through the real invitation flow.
  *
  * It cannot simply insert the membership rows: Block 1a deliberately leaves the
  * tenant tables read-only for `service_role`, so that a mistake in server code
@@ -102,9 +151,10 @@ export async function cleanupUsers(): Promise<void> {
 export async function addMemberByInvitation(
   customer: ProvisionedCustomer,
   label: string,
-  role: 'owner' | 'operator' | 'viewer',
+  roleId: string,
+  companyIds: string[],
 ): Promise<{ userId: string; email: string; password: string }> {
-  const email = `${role}-${label}@example.test`;
+  const email = `member-${label}@example.test`;
   const token = randomBytes(32).toString('base64url');
   const tokenHash = createHash('sha256').update(token).digest('hex');
 
@@ -112,7 +162,9 @@ export async function addMemberByInvitation(
   const { error: inviteError } = await ownerClient.rpc('create_invitation', {
     p_organization_id: customer.organizationId,
     p_email: email,
-    p_role: role,
+    p_is_owner: false,
+    p_role_id: roleId,
+    p_company_ids: companyIds,
     p_token_hash: tokenHash,
     p_ttl_days: 7,
   });
@@ -127,4 +179,64 @@ export async function addMemberByInvitation(
   if (acceptError) throw new Error(`accept_invitation failed: ${acceptError.message}`);
 
   return user;
+}
+
+/**
+ * Adds a second owner to an existing Organization, through the real invitation
+ * flow. Not in the brief's mandated harness surface — added because Block 1c
+ * removed the only other way a test had to produce one: addMemberByInvitation
+ * always invites p_is_owner: false, and an owner takes no role or Company at
+ * all, so it cannot be reused with a null role. permissions.test.ts needs a
+ * second owner to prove the last-owner guard only blocks going to zero owners,
+ * not demoting an owner outright.
+ */
+export async function addOwnerByInvitation(
+  customer: ProvisionedCustomer,
+  label: string,
+): Promise<{ userId: string; email: string; password: string }> {
+  const email = `owner-${label}@example.test`;
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+
+  const ownerClient = await signInAs(customer.email, customer.password);
+  const { error: inviteError } = await ownerClient.rpc('create_invitation', {
+    p_organization_id: customer.organizationId,
+    p_email: email,
+    p_is_owner: true,
+    // p_role_id is a nullable uuid with no SQL default, so `supabase gen types`
+    // types the generated Args as a bare string (same gap noted in
+    // src/services/invitations.ts). The RPC body requires exactly this: null
+    // when p_is_owner is true. `as unknown as string` because a literal `null`
+    // and `string` do not overlap enough for a direct assertion.
+    p_role_id: null as unknown as string,
+    p_company_ids: [],
+    p_token_hash: tokenHash,
+    p_ttl_days: 7,
+  });
+  if (inviteError) throw new Error(`create_invitation failed: ${inviteError.message}`);
+
+  const user = await createUser(email);
+
+  const { error: acceptError } = await admin.rpc('accept_invitation', {
+    p_token_hash: tokenHash,
+    p_user_id: user.userId,
+  });
+  if (acceptError) throw new Error(`accept_invitation failed: ${acceptError.message}`);
+
+  return user;
+}
+
+/**
+ * Adds a second Station through the real RPC, as the platform admin that
+ * provisioned the customer. Per-Company roles cannot be tested against an
+ * Organization holding one Company.
+ */
+export async function addCompany(customer: ProvisionedCustomer, name: string): Promise<string> {
+  const { data, error } = await customer.adminClient.rpc('add_company', {
+    p_organization_id: customer.organizationId,
+    p_name: name,
+    p_timezone: 'America/Sao_Paulo',
+  });
+  if (error) throw new Error(`add_company failed: ${error.message}`);
+  return data as string;
 }

@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { suspendAction, reactivateAction } from './actions';
+import { addCompanyAction, suspendAction, reactivateAction } from './actions';
 import { ProvisionForm, RegenerateForm } from './credential-forms';
 
 // Renders from the caller's session cookies, so it can never be static. Stated
@@ -13,27 +13,39 @@ import { ProvisionForm, RegenerateForm } from './credential-forms';
 // would fail as a prerender error instead of being skipped as dynamic.
 export const dynamic = 'force-dynamic';
 
-export default async function CustomersPage() {
+export default async function CustomersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stationError?: string }>;
+}) {
+  const params = await searchParams;
   const supabase = await createUserClient();
 
   const { data: companies } = await supabase
     .from('companies')
-    .select('id, name, status, suspension_reason, created_at')
+    .select('id, name, status, suspension_reason, created_at, organization_id')
     .order('created_at', { ascending: false });
 
-  // The owner of each Company, so a provisional password can be reissued
-  // without hunting for the user by hand. Both reads are permitted here because
-  // the company_memberships and profiles policies admit platform admins.
+  // The owner of each Company's Organization, so a provisional password can be
+  // reissued without hunting for the user by hand. Block 1c stopped giving the
+  // owner a company_memberships row — they reach every Station by ownership —
+  // so the owner now comes from organization_memberships, keyed by
+  // organization_id rather than company_id, and matched to each company below.
   //
   // Two queries joined in JS rather than one PostgREST embed: resource
   // embedding needs a foreign key between the two tables, and there is none.
-  // company_memberships.user_id and profiles.id both reference auth.users(id),
-  // which does not give PostgREST a path from one to the other — the embed
-  // fails with PGRST200 and returns no rows at all.
+  // organization_memberships.user_id and profiles.id both reference
+  // auth.users(id), which does not give PostgREST a path from one to the
+  // other — the embed fails with PGRST200 and returns no rows at all.
+  // Block 1c allows more than one owner per Organization. Ordered by
+  // created_at so which one is "the" displayed owner — and which account the
+  // password-reset form below targets — is stable across renders rather than
+  // depending on whatever order Postgres happens to return rows in.
   const { data: owners, error: ownersError } = await supabase
-    .from('company_memberships')
-    .select('company_id, user_id')
-    .eq('role', 'owner');
+    .from('organization_memberships')
+    .select('organization_id, user_id')
+    .eq('role', 'owner')
+    .order('created_at', { ascending: true });
 
   if (ownersError) logger.error({ err: ownersError }, 'could not load company owners');
 
@@ -47,9 +59,10 @@ export default async function CustomersPage() {
 
   const emailByUser = new Map((ownerProfiles ?? []).map((p) => [p.id, p.email]));
 
-  const ownerByCompany = new Map<string, { userId: string; email: string }>();
+  const ownerByOrganization = new Map<string, { userId: string; email: string }>();
   for (const row of owners ?? []) {
-    ownerByCompany.set(row.company_id, {
+    if (ownerByOrganization.has(row.organization_id)) continue;
+    ownerByOrganization.set(row.organization_id, {
       userId: row.user_id,
       email: emailByUser.get(row.user_id) ?? '',
     });
@@ -61,6 +74,12 @@ export default async function CustomersPage() {
         title="Customers"
         description="Provision a new customer, or manage an existing subscription."
       />
+
+      {params.stationError ? (
+        <p className="text-sm text-destructive">
+          Could not add the Station. Check the name and try again.
+        </p>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
         <Card>
@@ -84,7 +103,7 @@ export default async function CustomersPage() {
             </Card>
           ) : (
             (companies ?? []).map((c) => {
-              const owner = ownerByCompany.get(c.id);
+              const owner = ownerByOrganization.get(c.organization_id);
               return (
                 <Card key={c.id} data-testid="company-row">
                   <CardContent className="flex flex-col gap-4 pt-6">
@@ -119,12 +138,36 @@ export default async function CustomersPage() {
                         </form>
                       )}
                     </div>
-                    {owner ? (
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                        <span className="text-sm text-muted-foreground">Owner: {owner.email}</span>
-                        <RegenerateForm userId={owner.userId} email={owner.email} />
-                      </div>
-                    ) : null}
+                    <div className="flex flex-col gap-3 border-t pt-4">
+                      {owner ? (
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="text-sm text-muted-foreground">
+                            Owner: {owner.email}
+                          </span>
+                          <RegenerateForm userId={owner.userId} email={owner.email} />
+                        </div>
+                      ) : null}
+                      {/* This Organization can hold more than one Station (Block
+                          1c) — add_company is platform-admin only, which is why
+                          the form lives here rather than on the customer's own
+                          screens. organizationId comes from this row, not from
+                          a select, since every row already belongs to one. */}
+                      <form
+                        action={addCompanyAction}
+                        className="flex flex-wrap items-center gap-2"
+                      >
+                        <input type="hidden" name="organizationId" value={c.organization_id} />
+                        <Input
+                          name="name"
+                          placeholder="New Station name"
+                          required
+                          className="h-9 w-48 text-sm"
+                        />
+                        <Button type="submit" variant="outline">
+                          Add Station
+                        </Button>
+                      </form>
+                    </div>
                   </CardContent>
                 </Card>
               );

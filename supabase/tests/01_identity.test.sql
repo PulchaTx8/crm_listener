@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(29);
 
 -- tables exist
 select has_table('public', 'profiles', 'profiles exists');
@@ -66,6 +66,59 @@ select ok(
   not has_function_privilege('anon', 'public.suspend_company(uuid, text)', 'EXECUTE'),
   'anon may not call suspend_company'
 );
+
+-- Block 1c: a membership without a role is not representable.
+select col_not_null('public', 'company_memberships', 'role_id',
+  'a Company membership must carry a role');
+select col_not_null('public', 'company_memberships', 'organization_id',
+  'a Company membership carries its Organization, for the composite keys');
+
+select has_index('public', 'company_memberships', 'company_memberships_role_idx',
+  'live memberships are indexed by role, which delete_role reads');
+select has_index('public', 'company_memberships', 'company_memberships_org_idx',
+  'live memberships are indexed by Organization, which has_org_permission reads');
+
+-- The composite foreign keys are the whole cross-tenant guarantee.
+select fk_ok('public', 'company_memberships', array['role_id', 'organization_id'],
+             'public', 'roles', array['id', 'organization_id'],
+             'a role can only be assigned inside its own Organization');
+select fk_ok('public', 'company_memberships', array['company_id', 'organization_id'],
+             'public', 'companies', array['id', 'organization_id'],
+             'a membership can only name a Company of its own Organization');
+
+-- Declaring the constraint and having it bite are different claims. This is the
+-- one that matters, so it is asserted rather than reasoned about. A real user
+-- row is required: company_memberships.user_id references auth.users, and that
+-- constraint is older than company_memberships_role_org_fk, so a bare
+-- gen_random_uuid() would trip THAT foreign key first and the assertion would
+-- pass for the wrong reason. Pinning the message names the constraint that must
+-- fire.
+insert into public.organizations (id, name) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'Org A'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', 'Org B');
+insert into public.companies (id, organization_id, name) values
+  ('bbbbbbbb-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 'Station A');
+insert into public.roles (id, organization_id, name) values
+  ('cccccccc-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 'Foreign');
+insert into auth.users (id, email) values
+  ('dddddddd-0000-0000-0000-000000000001', 'fk-probe@example.test');
+
+select throws_ok(
+  $$insert into public.company_memberships (user_id, company_id, organization_id, role_id)
+    values ('dddddddd-0000-0000-0000-000000000001',
+            'bbbbbbbb-0000-0000-0000-000000000001',
+            'aaaaaaaa-0000-0000-0000-000000000001',
+            'cccccccc-0000-0000-0000-000000000001')$$,
+  '23503',
+  'insert or update on table "company_memberships" violates foreign key constraint "company_memberships_role_org_fk"',
+  'a role from another Organization cannot be assigned'
+);
+
+-- If any column or function signature still held member_role, the DROP TYPE in
+-- 0018 would have failed the migration — but a future CREATE could bring it
+-- back, and a lingering enum beside org_role is exactly the ambiguity this
+-- block removed.
+select hasnt_type('public', 'member_role', 'the fixed-role enum is gone');
 
 select * from finish();
 rollback;

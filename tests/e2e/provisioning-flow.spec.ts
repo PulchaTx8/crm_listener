@@ -150,7 +150,11 @@ test('provision a customer, sign in, change the password, then suspend', async (
   // sign-out — because the RLS helpers query the tables on every check.
   await customerPage.reload();
   await expect(customerRow.getByText('suspended', { exact: true })).toBeVisible();
-  await expect(customerPage.getByText(/subscription is suspended/i)).toBeVisible();
+  // Task 11 (7af640b) reworded this from "Your subscription is suspended" to
+  // the Station-card sentence below; this assertion had drifted from it.
+  await expect(
+    customerPage.getByText(/no data is available while the subscription is inactive/i),
+  ).toBeVisible();
 
   await customer.close();
 });

@@ -49,9 +49,18 @@ create policy organizations_select_member on public.organizations
   for select to authenticated
   using (deleted_at is null and public.is_org_member(id));
 
--- companies: metadata is visible to any member of the owning organization,
--- INCLUDING while suspended, so the UI can show why access stopped. Business
--- data lives in other tables and is gated by has_company_access instead.
+-- companies: metadata is visible to whoever can reach the Company, INCLUDING
+-- while suspended, so the UI can show why access stopped. Business data lives
+-- in other tables and is gated by has_company_access instead.
+--
+-- Superseded by 0021_companies_visibility_fix.sql: this policy originally read
+-- `using (deleted_at is null and public.is_org_member(organization_id))`, which
+-- let ANY member of the Organization see EVERY Company in it. That was
+-- harmless before Block 1c, when "member of the org" and "member of its one
+-- Company" were the same fact; it stopped being true once an Organization
+-- could hold several Companies with roles assigned per Company. See 0021 for
+-- the corrected policy (owner and platform admin still see every Company; a
+-- plain member only sees one where they hold a live company_membership).
 grant select on public.companies to authenticated;
 
 create policy companies_select_org_member on public.companies

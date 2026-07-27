@@ -1,6 +1,14 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { randomBytes } from 'node:crypto';
-import { provisionCustomer, signInAs, createUser, cleanupUsers, admin } from './harness';
+import {
+  provisionCustomer,
+  signInAs,
+  createUser,
+  createRoleAs,
+  addMemberByInvitation,
+  cleanupUsers,
+  admin,
+} from './harness';
 import { hashInvitationToken } from '@/services/invitations';
 
 afterAll(async () => {
@@ -12,14 +20,19 @@ function freshToken(): string {
 }
 
 describe('invitations', () => {
-  it('an owner can create one and an operator cannot', async () => {
+  it('an owner can create one and a member without users.invite cannot', async () => {
     const a = await provisionCustomer(`inv-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
+    // Block 1b seeded users.invite to the owner alone — operator and viewer
+    // held nothing. The role-based equivalent is a role with no permissions.
+    const roleId = await createRoleAs(a, `NoPerms-${Date.now()}`, []);
 
     const { data: id, error } = await ownerClient.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: `guest-${Date.now()}@example.test`,
-      p_role: 'operator',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(freshToken()),
       p_ttl_days: 7,
     });
@@ -28,26 +41,14 @@ describe('invitations', () => {
 
     // Seeded directly through the invitation flow, which is the only path that
     // can add a member: service_role cannot write the tenant tables.
-    const operatorToken = freshToken();
-    const operatorEmail = `op-${Date.now()}@example.test`;
-    await ownerClient.rpc('create_invitation', {
-      p_organization_id: a.organizationId,
-      p_email: operatorEmail,
-      p_role: 'operator',
-      p_token_hash: hashInvitationToken(operatorToken),
-      p_ttl_days: 7,
-    });
-    const operator = await createUser(operatorEmail);
-    await admin.rpc('accept_invitation', {
-      p_token_hash: hashInvitationToken(operatorToken),
-      p_user_id: operator.userId,
-    });
-
-    const operatorClient = await signInAs(operator.email, operator.password);
-    const { error: denied } = await operatorClient.rpc('create_invitation', {
+    const member = await addMemberByInvitation(a, `mem-${Date.now()}`, roleId, [a.companyId]);
+    const memberClient = await signInAs(member.email, member.password);
+    const { error: denied } = await memberClient.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: `nope-${Date.now()}@example.test`,
-      p_role: 'viewer',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(freshToken()),
       p_ttl_days: 7,
     });
@@ -58,11 +59,14 @@ describe('invitations', () => {
   it('refuses an e-mail that already has an account', async () => {
     const a = await provisionCustomer(`dup-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
+    const roleId = await createRoleAs(a, `Role-${Date.now()}`, []);
 
     const { error } = await ownerClient.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: a.email,
-      p_role: 'viewer',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(freshToken()),
       p_ttl_days: 7,
     });
@@ -76,10 +80,13 @@ describe('invitations', () => {
     const b = await provisionCustomer(`rb-${Date.now()}`);
 
     const ownerA = await signInAs(a.email, a.password);
+    const roleId = await createRoleAs(a, `Role-${Date.now()}`, []);
     await ownerA.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: `secret-${Date.now()}@example.test`,
-      p_role: 'viewer',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(freshToken()),
       p_ttl_days: 7,
     });
@@ -92,12 +99,15 @@ describe('invitations', () => {
   it('a revoked invitation cannot be accepted', async () => {
     const a = await provisionCustomer(`rev-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
+    const roleId = await createRoleAs(a, `Role-${Date.now()}`, []);
     const token = freshToken();
 
     const { data: id } = await ownerClient.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: `revoked-${Date.now()}@example.test`,
-      p_role: 'viewer',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(token),
       p_ttl_days: 7,
     });
@@ -116,6 +126,7 @@ describe('invitations', () => {
   it('an expired invitation cannot be accepted', async () => {
     const a = await provisionCustomer(`exp-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
+    const roleId = await createRoleAs(a, `Role-${Date.now()}`, []);
     const token = freshToken();
 
     // Born already expired, via the real RPC. Ageing the row afterwards is not
@@ -124,7 +135,9 @@ describe('invitations', () => {
     const { error: createError } = await ownerClient.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: `expired-${Date.now()}@example.test`,
-      p_role: 'viewer',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(token),
       p_ttl_days: -1,
     });
@@ -143,12 +156,15 @@ describe('invitations', () => {
   it('cannot be accepted twice', async () => {
     const a = await provisionCustomer(`twice-${Date.now()}`);
     const ownerClient = await signInAs(a.email, a.password);
+    const roleId = await createRoleAs(a, `Role-${Date.now()}`, []);
     const token = freshToken();
 
     await ownerClient.rpc('create_invitation', {
       p_organization_id: a.organizationId,
       p_email: `once-${Date.now()}@example.test`,
-      p_role: 'viewer',
+      p_is_owner: false,
+      p_role_id: roleId,
+      p_company_ids: [a.companyId],
       p_token_hash: hashInvitationToken(token),
       p_ttl_days: 7,
     });
@@ -170,28 +186,22 @@ describe('invitations', () => {
 
   it('acceptance grants membership at the invited role', async () => {
     const a = await provisionCustomer(`grant-${Date.now()}`);
-    const ownerClient = await signInAs(a.email, a.password);
-    const token = freshToken();
-
-    await ownerClient.rpc('create_invitation', {
-      p_organization_id: a.organizationId,
-      p_email: `granted-${Date.now()}@example.test`,
-      p_role: 'operator',
-      p_token_hash: hashInvitationToken(token),
-      p_ttl_days: 7,
-    });
-
-    const invitee = await createUser(`gi-${Date.now()}@example.test`);
-    const { error } = await admin.rpc('accept_invitation', {
-      p_token_hash: hashInvitationToken(token),
-      p_user_id: invitee.userId,
-      p_full_name: 'Granted Person',
-    });
-    expect(error).toBeNull();
+    const roleId = await createRoleAs(a, `Role-${Date.now()}`, []);
+    const invitee = await addMemberByInvitation(a, `grant-${Date.now()}`, roleId, [a.companyId]);
 
     const inviteeClient = await signInAs(invitee.email, invitee.password);
     const { data: companies } = await inviteeClient.from('companies').select('id');
     expect((companies ?? []).map((r) => r.id)).toContain(a.companyId);
+
+    // The test's name is a claim about role_id specifically, not just about
+    // reaching the Company — assert the column, not only its side effects.
+    const { data: cm } = await admin
+      .from('company_memberships')
+      .select('role_id')
+      .eq('user_id', invitee.userId)
+      .eq('company_id', a.companyId)
+      .single();
+    expect(cm?.role_id).toBe(roleId);
 
     const { data: canInvite } = await inviteeClient.rpc('has_org_permission', {
       p_permission: 'users.invite',

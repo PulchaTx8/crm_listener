@@ -30,12 +30,17 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
     },
     {
       // Visible to every member, including operators and viewers who hold no
-      // users.invite. Deliberate, and not a hole: the page renders only what the
-      // invitations RLS policy returns, and every write goes through an RPC that
-      // re-checks permission. Hiding a link is a courtesy; the boundary is in
-      // the database.
+      // users.invite or roles.manage. Deliberate, and not a hole: Team renders
+      // only what the invitations RLS policy returns; Roles redirects at the
+      // top of its own page for anyone lacking roles.manage, and
+      // create_role/update_role/delete_role re-check has_org_permission
+      // themselves regardless of that redirect. Hiding a link is a courtesy;
+      // the boundary is in the database.
       label: 'Organization',
-      items: [{ href: '/team', label: 'Team', icon: ICONS.users }],
+      items: [
+        { href: '/team', label: 'Team', icon: ICONS.users },
+        { href: '/roles', label: 'Roles', icon: ICONS.shield },
+      ],
     },
   ];
 

@@ -4,7 +4,14 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/input';
-import { changeRoleAction, removeMemberAction, revokeAction } from './actions';
+import { listRoles } from '@/services/roles';
+import {
+  assignCompanyRoleAction,
+  changeOrgRoleAction,
+  removeCompanyAccessAction,
+  removeMemberAction,
+  revokeAction,
+} from './actions';
 import { InviteForm } from './invite-form';
 
 // Renders from the caller's session cookies, so it can never be static.
@@ -22,24 +29,14 @@ export default async function TeamPage() {
 
   const organizationId = memberships?.[0]?.organization_id;
 
-  // Two queries joined in JS, not a PostgREST embed: organization_memberships
-  // and profiles both reference auth.users, so there is no foreign key for an
-  // embed to travel along and it would fail with PGRST200 (Block 1a review).
-  const userIds = [...new Set((memberships ?? []).map((m) => m.user_id))];
-  const { data: profiles, error: profilesError } = userIds.length
-    ? await supabase.from('profiles').select('id, email, full_name').in('id', userIds)
-    : { data: [], error: null };
-
-  if (profilesError) logger.error({ err: profilesError }, 'could not load member profiles');
-
-  const profileByUser = new Map((profiles ?? []).map((p) => [p.id, p]));
-
-  const { data: invitations } = await supabase
-    .from('invitations')
-    .select('id, email, role, status, expires_at')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false });
-
+  // Moved ahead of the rest of this page's reads (it used to sit after them):
+  // every query below is scoped to this Organization, and the Companies/roles/
+  // memberships read added for Block 1c would otherwise need its own
+  // organizationId ?? '' fallback just to keep TypeScript happy — worse, an
+  // empty-string uuid filter on `roles` would make listRoles's own error
+  // handling throw, turning "no organization yet" into a 500. Returning here
+  // first lets everything after this point treat organizationId as a plain
+  // string.
   if (!organizationId) {
     return (
       <>
@@ -54,6 +51,93 @@ export default async function TeamPage() {
       </>
     );
   }
+
+  // Two queries joined in JS, not a PostgREST embed: organization_memberships
+  // and profiles both reference auth.users, so there is no foreign key for an
+  // embed to travel along and it would fail with PGRST200 (Block 1a review).
+  const userIds = [...new Set((memberships ?? []).map((m) => m.user_id))];
+  const { data: profiles, error: profilesError } = userIds.length
+    ? await supabase.from('profiles').select('id, email, full_name').in('id', userIds)
+    : { data: [], error: null };
+
+  if (profilesError) logger.error({ err: profilesError }, 'could not load member profiles');
+
+  const profileByUser = new Map((profiles ?? []).map((p) => [p.id, p]));
+
+  const { data: invitations, error: invitationsError } = await supabase
+    .from('invitations')
+    .select('id, email, is_owner, role_id, status, expires_at')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+
+  if (invitationsError) logger.error({ err: invitationsError }, 'could not load invitations');
+
+  // A third JS-side join, same pattern as the two above: role_id names a row in
+  // roles, and there is no reason to fetch the whole catalogue just to label a
+  // handful of pending invitations. The roles_select_org_member policy filters
+  // deleted_at is null, so a role archived after the invitation was sent comes
+  // back missing here — which is also exactly the case validate_invitation
+  // refuses on acceptance, so the fallback below must not say "Member".
+  const roleIds = [
+    ...new Set((invitations ?? []).map((i) => i.role_id).filter((id): id is string => id !== null)),
+  ];
+  const { data: invitationRoles, error: invitationRolesError } = roleIds.length
+    ? await supabase.from('roles').select('id, name').in('id', roleIds)
+    : { data: [], error: null };
+
+  if (invitationRolesError) {
+    logger.error({ err: invitationRolesError }, 'could not load invitation roles');
+  }
+
+  const roleNameById = new Map((invitationRoles ?? []).map((r) => [r.id, r.name]));
+
+  // Block 1c: what each non-owner member can do in each Station. links is
+  // every live company_membership so each row's Select can default to what
+  // is actually assigned today.
+  //
+  // list_manageable_companies (0022, reworked by 0023), not a direct
+  // `companies` select, and called ONCE PER SURFACE with the permission that
+  // surface actually needs: assign_company_role authorises users.manage
+  // Organization-wide (any Station, via has_org_permission), and
+  // create_invitation authorises users.invite the same way — two distinct,
+  // independently assignable permissions, not one. companies_select_org_member
+  // (0021) scopes a direct select to the Stations the caller personally
+  // belongs to, so a non-owner holding only one of these two permissions in
+  // only one Station needs the function to see every Station THAT permission
+  // authorises, not the other one's roster and not their own membership list.
+  // `/app` is the screen that answers "which Stations can I reach" and keeps
+  // reading `companies` directly; this page answers "which Stations can I
+  // administer" and "which Stations can I invite into" — two different
+  // questions with two different answers.
+  const [
+    { data: manageableCompanies, error: manageableCompaniesError },
+    { data: invitableCompanies, error: invitableCompaniesError },
+    roles,
+    { data: links, error: linksError },
+  ] = await Promise.all([
+    supabase.rpc('list_manageable_companies', {
+      p_organization_id: organizationId,
+      p_permission: 'users.manage',
+    }),
+    supabase.rpc('list_manageable_companies', {
+      p_organization_id: organizationId,
+      p_permission: 'users.invite',
+    }),
+    listRoles(organizationId),
+    supabase
+      .from('company_memberships')
+      .select('user_id, company_id, role_id')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null),
+  ]);
+
+  if (manageableCompaniesError) {
+    logger.error({ err: manageableCompaniesError }, 'could not load manageable stations');
+  }
+  if (invitableCompaniesError) {
+    logger.error({ err: invitableCompaniesError }, 'could not load invitable stations');
+  }
+  if (linksError) logger.error({ err: linksError }, 'could not load station access links');
 
   return (
     <>
@@ -71,7 +155,11 @@ export default async function TeamPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <InviteForm organizationId={organizationId} />
+            <InviteForm
+              organizationId={organizationId}
+              roles={roles}
+              companies={invitableCompanies ?? []}
+            />
           </CardContent>
         </Card>
 
@@ -83,35 +171,109 @@ export default async function TeamPage() {
             <CardContent className="flex flex-col gap-3">
               {(memberships ?? []).map((m) => {
                 const profile = profileByUser.get(m.user_id);
+                const isOwner = m.role === 'owner';
                 return (
                   <div
                     key={m.id}
                     data-testid="member-row"
-                    className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
+                    className="flex flex-col gap-3 border-b pb-3 last:border-0 last:pb-0"
                   >
-                    <span className="text-sm">
-                      {profile?.full_name ? `${profile.full_name} — ` : ''}
-                      {profile?.email ?? m.user_id}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <form action={changeRoleAction} className="flex items-center gap-2">
-                        <input type="hidden" name="membershipId" value={m.id} />
-                        <Select name="role" defaultValue={m.role} className="h-9 w-32 text-sm">
-                          <option value="owner">Owner</option>
-                          <option value="operator">Operator</option>
-                          <option value="viewer">Viewer</option>
-                        </Select>
-                        <Button type="submit" variant="outline">
-                          Save
-                        </Button>
-                      </form>
-                      <form action={removeMemberAction}>
-                        <input type="hidden" name="membershipId" value={m.id} />
-                        <Button type="submit" variant="outline">
-                          Remove
-                        </Button>
-                      </form>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-sm">
+                        {profile?.full_name ? `${profile.full_name} — ` : ''}
+                        {profile?.email ?? m.user_id}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <form action={changeOrgRoleAction} className="flex items-center gap-2">
+                          <input type="hidden" name="membershipId" value={m.id} />
+                          <Select name="role" defaultValue={m.role} className="h-9 w-32 text-sm">
+                            <option value="owner">Owner</option>
+                            <option value="member">Member</option>
+                          </Select>
+                          <Button type="submit" variant="outline">
+                            Save
+                          </Button>
+                        </form>
+                        <form action={removeMemberAction}>
+                          <input type="hidden" name="membershipId" value={m.id} />
+                          <Button type="submit" variant="outline">
+                            Remove
+                          </Button>
+                        </form>
+                      </div>
                     </div>
+
+                    {/* Per-Station role assignment. An owner holds no
+                        company_memberships row by design — mapping the
+                        Company list for them would render every Station as
+                        "No access", which is false; they reach all of them by
+                        ownership. So they get one line instead, and no
+                        controls: assign_company_role itself refuses to give
+                        the owner a role ("the owner already has full access
+                        and takes no role"), so there is nothing here for a
+                        control to do. */}
+                    {isOwner ? (
+                      <p className="pl-1 text-sm text-muted-foreground" data-testid="owner-access-label">
+                        Owner — full access to every Station
+                      </p>
+                    ) : roles.length === 0 ? (
+                      <p className="pl-1 text-sm text-muted-foreground">
+                        No roles yet. Create one on the Roles screen, then grant Station access
+                        here.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-2 pl-1">
+                        {(manageableCompanies ?? []).map((company) => {
+                          const link = (links ?? []).find(
+                            (l) => l.user_id === m.user_id && l.company_id === company.id,
+                          );
+                          return (
+                            <div
+                              key={company.id}
+                              data-testid="station-access-row"
+                              className="flex flex-wrap items-center gap-3 text-sm"
+                            >
+                              <span className="w-40 truncate text-muted-foreground">
+                                {company.name}
+                              </span>
+                              <form
+                                action={assignCompanyRoleAction}
+                                className="flex items-center gap-2"
+                              >
+                                <input type="hidden" name="companyId" value={company.id} />
+                                <input type="hidden" name="userId" value={m.user_id} />
+                                <Select
+                                  name="roleId"
+                                  defaultValue={link?.role_id ?? ''}
+                                  className="h-9 w-40 text-sm"
+                                >
+                                  <option value="" disabled>
+                                    No access
+                                  </option>
+                                  {roles.map((role) => (
+                                    <option key={role.id} value={role.id}>
+                                      {role.name}
+                                    </option>
+                                  ))}
+                                </Select>
+                                <Button type="submit" variant="outline">
+                                  Apply
+                                </Button>
+                              </form>
+                              {link ? (
+                                <form action={removeCompanyAccessAction}>
+                                  <input type="hidden" name="companyId" value={company.id} />
+                                  <input type="hidden" name="userId" value={m.user_id} />
+                                  <Button type="submit" variant="outline">
+                                    Remove
+                                  </Button>
+                                </form>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -135,7 +297,7 @@ export default async function TeamPage() {
                     <span className="text-sm">
                       {i.email}
                       <span className="ml-2 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        {i.role}
+                        {i.is_owner ? 'Owner' : (roleNameById.get(i.role_id ?? '') ?? 'Role unavailable')}
                       </span>
                       <span className="ml-2 text-muted-foreground">
                         expires {new Date(i.expires_at).toLocaleDateString('en-GB')}

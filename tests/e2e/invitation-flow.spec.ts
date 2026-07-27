@@ -82,7 +82,15 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
+  // Task 10 replaced the fixed-role dropdown with an owner checkbox, a role
+  // select and a Station checklist (schemas/invitations.ts:
+  // createInvitationSchema requires a role and at least one Station for a
+  // non-owner invite, and rejects either one for an owner invite). This
+  // Organization holds no role yet — Block 1c's per-Station roles are the
+  // subject of roles-flow.spec.ts, not this one — so the invitee is brought
+  // in as a second owner, which needs neither.
   await ownerPage.getByPlaceholder("Colleague's e-mail").fill(inviteeEmail);
+  await ownerPage.getByLabel('Invite as owner (full access to every Station)').check();
   await ownerPage.getByRole('button', { name: 'Send invitation' }).click();
 
   const linkBox = ownerPage.locator('code').first();

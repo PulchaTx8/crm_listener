@@ -1,6 +1,14 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
-import { provisionCustomer, signInAs, cleanupUsers, admin } from './harness';
+import {
+  provisionCustomer,
+  signInAs,
+  createRoleAs,
+  cleanupUsers,
+  admin,
+  addCompany,
+  addMemberByInvitation,
+} from './harness';
 
 afterAll(async () => {
   await cleanupUsers();
@@ -19,16 +27,63 @@ describe('tenant isolation', () => {
     expect(ids).not.toContain(b.companyId);
   });
 
+  it('a member scoped to one Station cannot see another in the same Organization, but the owner sees both', async () => {
+    // Pins 0021_companies_visibility_fix.sql: companies_select_org_member used
+    // to grant ANY Organization member visibility of EVERY Company in it
+    // (is_org_member, Organization-wide), which silently defeated Block 1c's
+    // whole premise of per-Company roles — a colleague scoped to one Station
+    // could already see every other Station's metadata before ever being
+    // granted access to it. This is the two-Company, single-Organization case
+    // the earlier "reads only their own company" test above cannot exercise,
+    // since that one provisions two SEPARATE Organizations.
+    const label = `tenant-station-scope-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const second = await addCompany(customer, 'Station Two');
+    const role = await createRoleAs(customer, 'Local', []);
+    const member = await addMemberByInvitation(customer, label, role, [customer.companyId]);
+
+    const memberClient = await signInAs(member.email, member.password);
+    const { data: memberCompanies } = await memberClient.from('companies').select('id');
+    const memberIds = (memberCompanies ?? []).map((r) => r.id);
+    expect(memberIds).toContain(customer.companyId);
+    expect(memberIds).not.toContain(second);
+
+    // The other half of the same claim: the fix must narrow a plain member's
+    // view without also blinding the owner to their own Organization's
+    // Stations. Without this, the is_owner bypass in the rewritten policy
+    // would be unproven — a regression here would not fail the assertion
+    // above at all, since it only concerns the member.
+    const ownerClient = await signInAs(customer.email, customer.password);
+    const { data: ownerCompanies } = await ownerClient.from('companies').select('id');
+    const ownerIds = (ownerCompanies ?? []).map((r) => r.id);
+    expect(ownerIds).toContain(customer.companyId);
+    expect(ownerIds).toContain(second);
+  });
+
   it('a user cannot write into another company', async () => {
     const a = await provisionCustomer(`wa-${Date.now()}`);
     const b = await provisionCustomer(`wb-${Date.now()}`);
 
     const clientA = await signInAs(a.email, a.password);
-    const { error } = await clientA
-      .from('company_memberships')
-      .insert({ user_id: a.userId, company_id: b.companyId, role: 'viewer' });
+    // Every field must be real, or a fake one can produce the error instead of
+    // the boundary this test names. role_id has a composite foreign key to
+    // (roles.id, roles.organization_id) — a random uuid trips that FK (23503)
+    // unconditionally, for anyone, authorized or not, which would let a real
+    // authorization hole (say, a future sloppy `with check` granting INSERT)
+    // hide behind a constraint violation instead of surfacing. bRole is a real
+    // role in b's Organization, so the only thing left that can reject this
+    // insert is the missing INSERT grant on company_memberships (Block 1c:
+    // every write goes through assign_company_role).
+    const bRole = await createRoleAs(b, `Role-${Date.now()}`, []);
+    const { error } = await clientA.from('company_memberships').insert({
+      user_id: a.userId,
+      company_id: b.companyId,
+      organization_id: b.organizationId,
+      role_id: bRole,
+    });
 
     expect(error).not.toBeNull();
+    expect(error?.code).toBe('42501');
   });
 
   it('an ordinary user cannot provision', async () => {
