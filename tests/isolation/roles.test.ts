@@ -209,6 +209,46 @@ describe('roles', () => {
     expect(error!.message).toMatch(/role not found in this organization/i);
   });
 
+  it('lets an Organization member read a colleague\'s profile, never one from another Organization', async () => {
+    // profiles_select_org_member (0020_profiles_visibility.sql): the Team
+    // screen renders a row per member per Station and needs the colleague's
+    // name/e-mail to do it, but the policy must stop at the Organization
+    // boundary — it joins organization_memberships to itself, so proving it
+    // requires a SECOND Organization whose owner must stay unreadable.
+    const label = `profiles-visibility-${Date.now()}`;
+    const a = await provisionCustomer(label);
+    const b = await provisionCustomer(`${label}-b`);
+
+    const role = await createRoleAs(a, 'Local', []);
+    const colleague = await addMemberByInvitation(a, label, role, [a.companyId]);
+
+    const client = await signInAs(colleague.email, colleague.password);
+
+    // Within A: the colleague can read the owner's profile row (not just
+    // their own — profiles_select_self alone would already cover "your own
+    // row", so this pins the new, wider grant).
+    const { data: withinOrg, error: withinError } = await client
+      .from('profiles')
+      .select('id')
+      .eq('id', a.userId)
+      .maybeSingle();
+    expect(withinError).toBeNull();
+    expect(withinOrg?.id).toBe(a.userId);
+
+    // Across Organizations: the same colleague reading B's owner comes back
+    // with no row and no error — RLS silently excludes it, exactly like every
+    // other cross-tenant select in this suite. A `.single()` would turn "zero
+    // rows" into a thrown error and mask the distinction between "excluded by
+    // RLS" and "a real query fault"; `.maybeSingle()` keeps that visible.
+    const { data: acrossOrg, error: acrossError } = await client
+      .from('profiles')
+      .select('id')
+      .eq('id', b.userId)
+      .maybeSingle();
+    expect(acrossError).toBeNull();
+    expect(acrossOrg).toBeNull();
+  });
+
   it('lets roles.manage administer roles, and refuses without it', async () => {
     const label = `roles-delegate-${Date.now()}`;
     const customer = await provisionCustomer(label);
