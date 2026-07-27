@@ -2067,6 +2067,17 @@ describe('roles', () => {
       p_company_id: customer.companyId,
     });
     expect(data).toBe(false);
+
+    // The Organization-scoped helper must agree. The owner's bypass carries its
+    // own subscription gate for exactly this case, and nothing else in the suite
+    // pins it — a later block could drop the gate and every other test would
+    // still pass. A lapsed customer is frozen; reactivation is the platform
+    // admin's job, not theirs.
+    const { data: orgScoped } = await owner.rpc('has_org_permission', {
+      p_permission: 'users.invite',
+      p_organization_id: customer.organizationId,
+    });
+    expect(orgScoped).toBe(false);
   });
 });
 
