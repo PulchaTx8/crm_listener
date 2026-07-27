@@ -4,7 +4,14 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/input';
-import { changeOrgRoleAction, removeMemberAction, revokeAction } from './actions';
+import { listRoles } from '@/services/roles';
+import {
+  assignCompanyRoleAction,
+  changeOrgRoleAction,
+  removeCompanyAccessAction,
+  removeMemberAction,
+  revokeAction,
+} from './actions';
 import { InviteForm } from './invite-form';
 
 // Renders from the caller's session cookies, so it can never be static.
@@ -21,6 +28,29 @@ export default async function TeamPage() {
   if (membershipsError) logger.error({ err: membershipsError }, 'could not load memberships');
 
   const organizationId = memberships?.[0]?.organization_id;
+
+  // Moved ahead of the rest of this page's reads (it used to sit after them):
+  // every query below is scoped to this Organization, and the Companies/roles/
+  // memberships read added for Block 1c would otherwise need its own
+  // organizationId ?? '' fallback just to keep TypeScript happy — worse, an
+  // empty-string uuid filter on `roles` would make listRoles's own error
+  // handling throw, turning "no organization yet" into a 500. Returning here
+  // first lets everything after this point treat organizationId as a plain
+  // string.
+  if (!organizationId) {
+    return (
+      <>
+        <PageHeader title="Team" />
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">
+              You do not belong to an organization yet.
+            </p>
+          </CardContent>
+        </Card>
+      </>
+    );
+  }
 
   // Two queries joined in JS, not a PostgREST embed: organization_memberships
   // and profiles both reference auth.users, so there is no foreign key for an
@@ -54,20 +84,24 @@ export default async function TeamPage() {
     : { data: [] };
   const roleNameById = new Map((invitationRoles ?? []).map((r) => [r.id, r.name]));
 
-  if (!organizationId) {
-    return (
-      <>
-        <PageHeader title="Team" />
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              You do not belong to an organization yet.
-            </p>
-          </CardContent>
-        </Card>
-      </>
-    );
-  }
+  // Block 1c: what each non-owner member can do in each Station. companies is
+  // the full roster to render a row per Station even where no membership
+  // exists yet ("No access"); links is every live company_membership so each
+  // row's Select can default to what is actually assigned today.
+  const [{ data: companies }, roles, { data: links }] = await Promise.all([
+    supabase
+      .from('companies')
+      .select('id, name, status')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null)
+      .order('name'),
+    listRoles(organizationId),
+    supabase
+      .from('company_memberships')
+      .select('user_id, company_id, role_id')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null),
+  ]);
 
   return (
     <>
@@ -85,7 +119,7 @@ export default async function TeamPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <InviteForm organizationId={organizationId} />
+            <InviteForm organizationId={organizationId} roles={roles} companies={companies ?? []} />
           </CardContent>
         </Card>
 
@@ -97,34 +131,109 @@ export default async function TeamPage() {
             <CardContent className="flex flex-col gap-3">
               {(memberships ?? []).map((m) => {
                 const profile = profileByUser.get(m.user_id);
+                const isOwner = m.role === 'owner';
                 return (
                   <div
                     key={m.id}
                     data-testid="member-row"
-                    className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 last:border-0 last:pb-0"
+                    className="flex flex-col gap-3 border-b pb-3 last:border-0 last:pb-0"
                   >
-                    <span className="text-sm">
-                      {profile?.full_name ? `${profile.full_name} — ` : ''}
-                      {profile?.email ?? m.user_id}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <form action={changeOrgRoleAction} className="flex items-center gap-2">
-                        <input type="hidden" name="membershipId" value={m.id} />
-                        <Select name="role" defaultValue={m.role} className="h-9 w-32 text-sm">
-                          <option value="owner">Owner</option>
-                          <option value="member">Member</option>
-                        </Select>
-                        <Button type="submit" variant="outline">
-                          Save
-                        </Button>
-                      </form>
-                      <form action={removeMemberAction}>
-                        <input type="hidden" name="membershipId" value={m.id} />
-                        <Button type="submit" variant="outline">
-                          Remove
-                        </Button>
-                      </form>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-sm">
+                        {profile?.full_name ? `${profile.full_name} — ` : ''}
+                        {profile?.email ?? m.user_id}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <form action={changeOrgRoleAction} className="flex items-center gap-2">
+                          <input type="hidden" name="membershipId" value={m.id} />
+                          <Select name="role" defaultValue={m.role} className="h-9 w-32 text-sm">
+                            <option value="owner">Owner</option>
+                            <option value="member">Member</option>
+                          </Select>
+                          <Button type="submit" variant="outline">
+                            Save
+                          </Button>
+                        </form>
+                        <form action={removeMemberAction}>
+                          <input type="hidden" name="membershipId" value={m.id} />
+                          <Button type="submit" variant="outline">
+                            Remove
+                          </Button>
+                        </form>
+                      </div>
                     </div>
+
+                    {/* Per-Station role assignment. An owner holds no
+                        company_memberships row by design — mapping the
+                        Company list for them would render every Station as
+                        "No access", which is false; they reach all of them by
+                        ownership. So they get one line instead, and no
+                        controls: assign_company_role itself refuses to give
+                        the owner a role ("the owner already has full access
+                        and takes no role"), so there is nothing here for a
+                        control to do. */}
+                    {isOwner ? (
+                      <p className="pl-1 text-sm text-muted-foreground" data-testid="owner-access-label">
+                        Owner — full access to every Station
+                      </p>
+                    ) : roles.length === 0 ? (
+                      <p className="pl-1 text-sm text-muted-foreground">
+                        No roles yet. Create one on the Roles screen, then grant Station access
+                        here.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-2 pl-1">
+                        {(companies ?? []).map((company) => {
+                          const link = (links ?? []).find(
+                            (l) => l.user_id === m.user_id && l.company_id === company.id,
+                          );
+                          return (
+                            <div
+                              key={company.id}
+                              data-testid="station-access-row"
+                              className="flex flex-wrap items-center gap-3 text-sm"
+                            >
+                              <span className="w-40 truncate text-muted-foreground">
+                                {company.name}
+                              </span>
+                              <form
+                                action={assignCompanyRoleAction}
+                                className="flex items-center gap-2"
+                              >
+                                <input type="hidden" name="companyId" value={company.id} />
+                                <input type="hidden" name="userId" value={m.user_id} />
+                                <Select
+                                  name="roleId"
+                                  defaultValue={link?.role_id ?? ''}
+                                  className="h-9 w-40 text-sm"
+                                >
+                                  <option value="" disabled>
+                                    No access
+                                  </option>
+                                  {roles.map((role) => (
+                                    <option key={role.id} value={role.id}>
+                                      {role.name}
+                                    </option>
+                                  ))}
+                                </Select>
+                                <Button type="submit" variant="outline">
+                                  Apply
+                                </Button>
+                              </form>
+                              {link ? (
+                                <form action={removeCompanyAccessAction}>
+                                  <input type="hidden" name="companyId" value={company.id} />
+                                  <input type="hidden" name="userId" value={m.user_id} />
+                                  <Button type="submit" variant="outline">
+                                    Remove
+                                  </Button>
+                                </form>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}

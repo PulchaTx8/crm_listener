@@ -28,14 +28,26 @@ async function requireAccessToken(): Promise<string> {
 }
 
 export async function inviteAction(_prev: InviteState, formData: FormData): Promise<InviteState> {
+  const isOwner = formData.get('isOwner') === 'on';
   const parsed = createInvitationSchema.safeParse({
     organizationId: formData.get('organizationId'),
     email: formData.get('email'),
-    role: formData.get('role'),
+    isOwner,
+    // Forced to the shape the schema requires regardless of what the disabled
+    // fields happen to carry: a checked owner box means no role and no
+    // Stations, full stop, whether or not the browser actually stripped them.
+    roleId: isOwner ? null : (formData.get('roleId') as string) || null,
+    companyIds: isOwner ? [] : formData.getAll('companyIds').map(String),
   });
 
   if (!parsed.success) {
-    return { status: 'error', message: 'Check the address and the role.' };
+    // createInvitationSchema's two .refine messages ("Choose a role for this
+    // person." / "Choose at least one Station.") are written to be shown
+    // verbatim here, not collapsed into one generic sentence.
+    return {
+      status: 'error',
+      message: parsed.error.issues[0]?.message ?? 'Check the address, role and Stations.',
+    };
   }
 
   const token = await requireAccessToken();
@@ -75,11 +87,24 @@ export async function changeOrgRoleAction(formData: FormData): Promise<void> {
 }
 
 export async function assignCompanyRoleAction(formData: FormData): Promise<void> {
+  const roleId = String(formData.get('roleId') ?? '');
+  // The Select's "No access" option is a placeholder for a member with no
+  // company_membership row yet, not a role to assign — it exists so the row
+  // has something to display, and is disabled precisely so nobody can pick
+  // it deliberately. But it can still be the value Apply submits if someone
+  // never changed a fresh "No access" row, and there is nothing to assign in
+  // that case. Skip the RPC rather than send it an empty uuid and let
+  // assign_company_role fail on a request nobody actually made; removing an
+  // existing assignment already has its own explicit Remove button.
+  if (!roleId) {
+    revalidatePath('/team');
+    return;
+  }
   const supabase = await createUserClient();
   const { error } = await supabase.rpc('assign_company_role', {
     p_company_id: String(formData.get('companyId')),
     p_user_id: String(formData.get('userId')),
-    p_role_id: String(formData.get('roleId')),
+    p_role_id: roleId,
   });
   if (error) logger.error({ err: error }, 'assign_company_role failed');
   revalidatePath('/team');
