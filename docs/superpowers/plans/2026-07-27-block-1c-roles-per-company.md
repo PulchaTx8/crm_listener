@@ -1484,15 +1484,44 @@ grant select on public.role_permissions     to service_role;
 grant select on public.invitation_companies to service_role;
 ```
 
-- [ ] **Step 2: Run the database suite**
+- [ ] **Step 2: Assert it, for all three tables**
+
+Three tables were created across Tasks 1, 2 and 4 and secured here. That split is
+deliberate — Blocks 1a and 1b sequenced it the same way — but it means a forgotten
+table would be silent, and this project has already shipped one table with RLS off
+(`rate_limit_counters`, Block 0). Append to `supabase/tests/02_permissions.test.sql`
+and set its plan count from the runner:
+
+```sql
+-- Created in Tasks 1 and 4, secured here. A table that misses this migration
+-- looks exactly like one that did not need it, so the claim is asserted rather
+-- than left to whoever reads the migration list.
+select is(relrowsecurity, true, 'RLS enabled on roles')
+  from pg_class where oid = 'public.roles'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on role_permissions')
+  from pg_class where oid = 'public.role_permissions'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on invitation_companies')
+  from pg_class where oid = 'public.invitation_companies'::regclass;
+
+-- No client writes any of them: every write goes through a SECURITY DEFINER
+-- function that carries the audit entry with it.
+select ok(not has_table_privilege('authenticated', 'public.roles', 'INSERT'),
+          'authenticated may not write roles directly');
+select ok(not has_table_privilege('authenticated', 'public.role_permissions', 'INSERT'),
+          'authenticated may not write role_permissions directly');
+select ok(not has_table_privilege('authenticated', 'public.invitation_companies', 'INSERT'),
+          'authenticated may not write invitation Stations directly');
+```
+
+- [ ] **Step 3: Run the database suite**
 
 Run: `npx supabase db reset && npx supabase test db`
-Expected: green.
+Expected: green, with the six new assertions present in the output.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/0019_rls_1c.sql
+git add supabase/migrations/0019_rls_1c.sql supabase/tests/02_permissions.test.sql
 git commit -m "feat(db): enable RLS on roles and invitation Stations"
 ```
 
@@ -2095,6 +2124,27 @@ describe('roles', () => {
     });
     expect(error).not.toBeNull();
     expect(error!.message).toMatch(/role not found/i);
+  });
+
+  it('accepts the same Station named twice without dying on the primary key', async () => {
+    const customer = await provisionCustomer('roles-dupe');
+    const role = await createRoleAs(customer, 'Local', []);
+    const owner = await signInAs(customer.email, customer.password);
+
+    // `unnest` does not deduplicate, so a count-based validation lets the same
+    // Station through twice and the insert then fails on the primary key with a
+    // raw duplicate-key error. This is the only place that path is reachable —
+    // create_invitation needs a real session, which pgTAP cannot provide.
+    const { error } = await owner.rpc('create_invitation', {
+      p_organization_id: customer.organizationId,
+      p_email: 'dupe-station@example.test',
+      p_is_owner: false,
+      p_role_id: role,
+      p_company_ids: [customer.companyId, customer.companyId],
+      p_token_hash: 'a'.repeat(64),
+      p_ttl_days: 7,
+    });
+    expect(error).toBeNull();
   });
 
   it('refuses to remove access that is not there', async () => {
