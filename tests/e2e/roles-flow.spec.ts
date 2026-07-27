@@ -145,12 +145,14 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await inviteePage.getByRole('button', { name: 'Create my account' }).click();
   await expect(inviteePage).toHaveURL(/\/login/);
 
-  const { data: inviteeProfile } = await admin
+  const { data: inviteeProfile, error: inviteeLookupError } = await admin
     .from('profiles')
     .select('id')
     .eq('email', inviteeEmail)
     .single();
-  if (inviteeProfile) createdUserIds.push(inviteeProfile.id);
+  expect(inviteeLookupError).toBeNull();
+  if (!inviteeProfile) throw new Error(`no profile row for ${inviteeEmail}`);
+  createdUserIds.push(inviteeProfile.id);
 
   await inviteePage.getByPlaceholder('E-mail').fill(inviteeEmail);
   await inviteePage.getByPlaceholder('Password').fill(inviteePassword);
@@ -177,6 +179,16 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   });
   await stationBAccessRow.getByRole('combobox').selectOption({ label: 'Manager' });
   await stationBAccessRow.getByRole('button', { name: 'Apply' }).click();
+
+  // Wait for the Team screen to reflect the grant before asking the invitee's
+  // session, otherwise the reload below races the server action — same
+  // concern, same fix, as provisioning-flow.spec.ts's suspend/reactivate step.
+  // "Remove" only renders once a company_membership row exists for this user
+  // in this Station, so its appearance is proof the write landed, not just
+  // that the click happened.
+  await expect(stationBAccessRow.getByRole('button', { name: 'Remove' })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // --- the colleague now reaches both Stations ------------------------------
   await inviteePage.reload();
