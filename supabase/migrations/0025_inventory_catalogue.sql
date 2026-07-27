@@ -1,3 +1,5 @@
+-- supabase/migrations/0025_inventory_catalogue.sql
+
 -- The full bucket vocabulary, including the four this block cannot move. The
 -- ledger is immutable: its shape has to account from the first row for the
 -- transitions Blocks 4 and 6 will make, or those blocks backfill a projection
@@ -79,7 +81,7 @@ alter table public.prizes add constraint prizes_id_company_unique unique (id, co
 -- was built wrong and this is where we find out.
 insert into public.permissions (code, description, introduced_by_block, module, label, scope, display_order) values
   ('inventory.view',      'Read prizes and stock levels',              '2', 'inventory', 'See prizes and stock',                      'company', 10),
-  ('inventory.catalogue', 'Register, edit and archive prizes',         '2', 'inventory', 'Register, edit and archive prizes',         'company', 20),
+  ('inventory.catalogue', 'Register, edit and archive prizes',         '2', 'inventory', 'Register, edit and archive prizes and categories', 'company', 20),
   ('inventory.entry',     'Add quantity to stock',                     '2', 'inventory', 'Add stock',                                 'company', 30),
   ('inventory.exit',      'Record a manual exit from stock',           '2', 'inventory', 'Record a manual exit',                      'company', 40),
   ('inventory.adjust',    'Adjust stock to match a physical count',    '2', 'inventory', 'Adjust stock to match a count',             'company', 50),

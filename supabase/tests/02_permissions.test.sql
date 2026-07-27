@@ -1,5 +1,5 @@
 begin;
-select plan(34);
+select plan(38);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -113,6 +113,36 @@ select has_table('public', 'prizes', 'prizes exists');
 select has_table('public', 'prize_categories', 'prize_categories exists');
 select has_index('public', 'prizes', 'prizes_internal_code_unique',
   'an internal code is unique per Station while the prize is live');
+
+-- Block 2, Task 2: the constraints that make a wrong number unrepresentable.
+select col_not_null('public', 'inventory_movements', 'quantity', 'a movement has a quantity');
+select hasnt_column('public', 'inventory_movements', 'updated_at',
+  'the ledger has no updated_at, because it is never updated');
+select hasnt_column('public', 'inventory_movements', 'deleted_at',
+  'the ledger has no deleted_at, because it is never deleted');
+
+-- The bucket floor. Declaring it and having it bite are different claims. A
+-- Station and a prize must exist first, following the same pattern
+-- 01_identity.test.sql uses for its cross-Organization probe — otherwise a
+-- fabricated id would trip an unrelated foreign key before the throws_ok below
+-- ever reaches the check constraint it means to prove. prizes.created_by is
+-- nullable, so no auth.users row is needed to seed one here.
+insert into public.organizations (id, name) values
+  ('99999999-0000-0000-0000-000000000001', 'Ledger Test Org');
+insert into public.companies (id, organization_id, name) values
+  ('99999999-0000-0000-0000-000000000002', '99999999-0000-0000-0000-000000000001', 'Ledger Test Station');
+insert into public.prizes (id, organization_id, company_id, name) values
+  ('99999999-0000-0000-0000-000000000003', '99999999-0000-0000-0000-000000000001',
+   '99999999-0000-0000-0000-000000000002', 'Ledger Test Prize');
+
+select throws_ok(
+  $$insert into public.inventory_balances (company_id, prize_id, organization_id, available)
+    select c.id, p.id, c.organization_id, -1
+    from public.companies c join public.prizes p on p.company_id = c.id limit 1$$,
+  '23514',
+  'new row for relation "inventory_balances" violates check constraint "inventory_balances_available_check"',
+  'a negative bucket is rejected by the check constraint'
+);
 
 select * from finish();
 rollback;
