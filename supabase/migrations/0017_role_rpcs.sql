@@ -155,6 +155,13 @@ begin
     raise exception 'permission denied: roles.manage required' using errcode = '42501';
   end if;
 
+  -- Lock the role row before counting. Without it, an assign_company_role
+  -- landing between the count and the update leaves a live membership pointing
+  -- at a role that is now archived. assign_company_role takes FOR SHARE on the
+  -- same row, so the two serialize; both take roles before memberships, so they
+  -- cannot deadlock.
+  perform 1 from public.roles where id = p_role_id for update;
+
   select count(*) into v_in_use
   from public.company_memberships
   where role_id = p_role_id and deleted_at is null;
@@ -221,6 +228,20 @@ begin
     raise exception 'the owner already has full access and takes no role' using errcode = '22023';
   end if;
 
+  -- The composite foreign key proves the role belongs to this Organization; it
+  -- says nothing about deleted_at, because roles_id_org_unique is non-partial —
+  -- it has to be, since a foreign key cannot reference a partial index. So an
+  -- archived role would still satisfy the FK, and assigning one would resurrect
+  -- permissions the owner believed retired. FOR SHARE holds the row against a
+  -- concurrent delete_role, which takes FOR UPDATE on it.
+  perform 1 from public.roles
+   where id = p_role_id and organization_id = v_org and deleted_at is null
+     for share;
+
+  if not found then
+    raise exception 'role not found in this organization: %', p_role_id using errcode = 'P0002';
+  end if;
+
   update public.company_memberships
      set role_id = p_role_id, updated_at = now()
    where user_id = p_user_id and company_id = p_company_id and deleted_at is null
@@ -251,6 +272,7 @@ as $$
 declare
   v_actor uuid := auth.uid();
   v_org   uuid;
+  v_id    uuid;
 begin
   select organization_id into v_org
   from public.companies
@@ -269,12 +291,20 @@ begin
   -- check, so the next request from an open session already fails.
   update public.company_memberships
      set deleted_at = now(), updated_at = now()
-   where user_id = p_user_id and company_id = p_company_id and deleted_at is null;
+   where user_id = p_user_id and company_id = p_company_id and deleted_at is null
+  returning id into v_id;
+
+  -- Without this, a call that matched nothing still writes a success row, and
+  -- the audit trail claims access was removed from someone who never had it.
+  -- The caller gets no error either. Same shape as revoke_invitation in 0013.
+  if not found then
+    raise exception 'that user has no access to this company' using errcode = 'P0002';
+  end if;
 
   insert into public.audit_logs
     (actor_id, action, target_table, target_id, organization_id, detail)
   values
-    (v_actor, 'remove_company_access', 'company_memberships', null, v_org,
+    (v_actor, 'remove_company_access', 'company_memberships', v_id, v_org,
      jsonb_build_object('user_id', p_user_id, 'company_id', p_company_id));
 end;
 $$;
