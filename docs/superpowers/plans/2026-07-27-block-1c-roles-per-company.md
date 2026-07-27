@@ -1090,7 +1090,7 @@ git commit -m "feat(db): add the role lifecycle and per-Company assignment RPCs"
 
 **Interfaces:**
 - Consumes: `public.roles`, `public.org_role` (Tasks 1–2).
-- Produces: `invitations.is_owner`, `invitations.role_id`, table `public.invitation_companies (invitation_id, company_id)`; `create_invitation(uuid, text, boolean, uuid, uuid[], text, integer) returns uuid`; `validate_invitation(text) returns jsonb` unchanged in shape; `accept_invitation(text, uuid, text) returns jsonb`. Type `public.member_role` is dropped.
+- Produces: `invitations.is_owner`, `invitations.role_id`, table `public.invitation_companies (invitation_id, company_id)`; `create_invitation(uuid, text, boolean, uuid, uuid[], text, integer) returns uuid`; `accept_invitation(text, uuid, text) returns jsonb`; `validate_invitation(text) returns jsonb` with a **changed payload** — `role` is replaced by `is_owner` and `role_name`, and Task 6 updates `InvitationPreview` in `src/services/invitations.ts` to match. Type `public.member_role` is dropped.
 
 - [ ] **Step 1: Write the migration**
 
@@ -1157,6 +1157,14 @@ alter table public.invitations
   add constraint invitations_role_shape
   check ((is_owner and role_id is null) or (not is_owner and role_id is not null));
 
+-- Declarative, like company_memberships in 0016, rather than trusting the runtime
+-- check in create_invitation. It is the only write path today, but "today" is how
+-- the next block inherits a hole. invitations already carries organization_id, so
+-- the composite key costs nothing.
+alter table public.invitations
+  add constraint invitations_role_org_fk
+  foreign key (role_id, organization_id) references public.roles (id, organization_id);
+
 create index invitation_companies_company_idx on public.invitation_companies (company_id);
 
 -- ---------------------------------------------------------------------------
@@ -1220,12 +1228,18 @@ begin
       raise exception 'that role does not belong to this organization' using errcode = '23503';
     end if;
 
-    select count(*) into v_count
+    -- Count DISTINCT on both sides. `unnest` does not deduplicate, so comparing
+    -- matched rows against array_length lets the same Station passed twice
+    -- satisfy the check — and the insert below then fails on the primary key
+    -- with a raw duplicate-key error instead of this sentence.
+    select count(distinct cid) into v_count
     from unnest(coalesce(p_company_ids, '{}')) as cid
     join public.companies c on c.id = cid
     where c.organization_id = p_organization_id and c.deleted_at is null;
 
-    if v_count = 0 or v_count <> coalesce(array_length(p_company_ids, 1), 0) then
+    if v_count = 0
+       or v_count <> (select count(distinct x) from unnest(coalesce(p_company_ids, '{}')) as x)
+    then
       raise exception 'name at least one Station, all of them in this organization'
         using errcode = '22023';
     end if;
@@ -1241,7 +1255,7 @@ begin
 
   if not p_is_owner then
     insert into public.invitation_companies (invitation_id, company_id)
-    select v_id, cid from unnest(p_company_ids) as cid;
+    select distinct v_id, cid from unnest(p_company_ids) as cid;
   end if;
 
   insert into public.audit_logs
@@ -1276,7 +1290,16 @@ begin
   end if;
 
   select name into v_name from public.organizations where id = v_inv.organization_id;
-  select name into v_role from public.roles where id = v_inv.role_id;
+
+  -- Same archived-role check accept_invitation makes, so the page never renders
+  -- a form for an invitation that acceptance would refuse.
+  select name into v_role
+  from public.roles
+  where id = v_inv.role_id and deleted_at is null;
+
+  if not v_inv.is_owner and v_role is null then
+    raise exception 'invalid or expired invitation' using errcode = '42501';
+  end if;
 
   return jsonb_build_object(
     'invitation_id',     v_inv.id,
@@ -1311,6 +1334,19 @@ begin
   for update;
 
   if not found then
+    raise exception 'invalid or expired invitation' using errcode = '42501';
+  end if;
+
+  -- A role can be archived while an invitation naming it is still pending:
+  -- delete_role counts live memberships, and an invitation is not one. Accepting
+  -- would then resurrect permissions the owner retired — the same hole
+  -- assign_company_role guards against, arriving by a different door. The
+  -- message is the one every other failure uses, so the page still tells an
+  -- attacker nothing about which guess landed close.
+  if not v_inv.is_owner and not exists (
+    select 1 from public.roles
+    where id = v_inv.role_id and deleted_at is null
+  ) then
     raise exception 'invalid or expired invitation' using errcode = '42501';
   end if;
 
