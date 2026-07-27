@@ -197,3 +197,18 @@ export async function addOwnerByInvitation(
 
   return user;
 }
+
+/**
+ * Adds a second Station through the real RPC, as the platform admin that
+ * provisioned the customer. Per-Company roles cannot be tested against an
+ * Organization holding one Company.
+ */
+export async function addCompany(customer: ProvisionedCustomer, name: string): Promise<string> {
+  const { data, error } = await customer.adminClient.rpc('add_company', {
+    p_organization_id: customer.organizationId,
+    p_name: name,
+    p_timezone: 'America/Sao_Paulo',
+  });
+  if (error) throw new Error(`add_company failed: ${error.message}`);
+  return data as string;
+}
