@@ -2,7 +2,14 @@ import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
-import { UnauthorizedError, ValidationError } from '@/lib/errors';
+import {
+  BusinessRuleError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+} from '@/lib/errors';
 import type { Database } from '@/lib/supabase/database.types';
 import type { RoleFormInput } from '@/schemas/roles';
 
@@ -44,33 +51,36 @@ export async function listPermissionCatalogue(): Promise<PermissionEntry[]> {
     .order('display_order')
     .order('label');
 
-  if (error) throw new UnauthorizedError(`Could not read the permission catalogue: ${error.message}`);
+  if (error) throw new InternalError(`Could not read the permission catalogue: ${error.message}`);
   return (data ?? []) as PermissionEntry[];
 }
 
 export async function listRoles(organizationId: string): Promise<RoleSummary[]> {
   const supabase = await createUserClient();
 
-  // Two reads rather than one embed. Block 1a hit a PostgREST embed that could
+  const { data: roles, error: rolesError } = await supabase
+    .from('roles')
+    .select('id, name, description')
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null)
+    .order('name');
+
+  if (rolesError) throw new InternalError(`Could not read roles: ${rolesError.message}`);
+
+  const roleIds = (roles ?? []).map((r) => r.id);
+  if (roleIds.length === 0) return [];
+
+  // Three reads rather than one embed. Block 1a hit a PostgREST embed that could
   // not resolve the relationship it needed and had to be unwound; counting
   // holders in JavaScript is duller and does not depend on that resolution.
-  const [{ data: roles, error: rolesError }, { data: grants }, { data: memberships }] =
-    await Promise.all([
-      supabase
-        .from('roles')
-        .select('id, name, description')
-        .eq('organization_id', organizationId)
-        .is('deleted_at', null)
-        .order('name'),
-      supabase.from('role_permissions').select('role_id, permission_code'),
-      supabase
-        .from('company_memberships')
-        .select('role_id')
-        .eq('organization_id', organizationId)
-        .is('deleted_at', null),
-    ]);
-
-  if (rolesError) throw new UnauthorizedError(`Could not read roles: ${rolesError.message}`);
+  const [{ data: grants }, { data: memberships }] = await Promise.all([
+    supabase.from('role_permissions').select('role_id, permission_code').in('role_id', roleIds),
+    supabase
+      .from('company_memberships')
+      .select('role_id')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null),
+  ]);
 
   const holders = new Map<string, number>();
   for (const row of memberships ?? []) {
@@ -96,7 +106,10 @@ export async function createRole(input: RoleFormInput, accessToken: string): Pro
     p_permission_codes: input.permissionCodes,
   });
   if (error) throw mapRoleError(error.code, error.message);
-  return data as string;
+  if (typeof data !== 'string') {
+    throw new InternalError('create_role returned no id');
+  }
+  return data;
 }
 
 export async function updateRole(
@@ -119,13 +132,22 @@ export async function deleteRole(roleId: string, accessToken: string): Promise<v
 }
 
 /**
- * 23505 is a duplicate name, 23503 a role still assigned, 22023 a bad argument.
- * Each is the caller's mistake and gets a sentence they can act on; anything
- * else is a refusal.
+ * The error taxonomy in lib/errors.ts exists so that a caller can tell these
+ * apart; collapsing them into one class throws that away. In particular, a stale
+ * role id is a 404, not a refusal — telling someone they lack permission when
+ * the row simply no longer exists sends them to fix the wrong thing.
  */
 function mapRoleError(code: string | undefined, message: string): Error {
-  if (code === '23505') return new ValidationError('There is already a role with that name.');
-  if (code === '23503') return new ValidationError(message);
+  // The partial unique index on (organization_id, lower(name)).
+  if (code === '23505') return new ConflictError('There is already a role with that name.');
+  // delete_role refusing a role somebody holds. The message carries the holder
+  // count, which is what the screen needs to say.
+  if (code === '23503') return new BusinessRuleError(message);
   if (code === '22023') return new ValidationError(message);
-  return new UnauthorizedError(message);
+  if (code === 'P0002') return new NotFoundError(message);
+  if (code === '42501') return new UnauthorizedError(message);
+  // Anything else is ours, not the caller's. Labelling an unexpected database
+  // error a refusal hides a real fault behind a plausible-looking permission
+  // message.
+  return new InternalError(message);
 }
