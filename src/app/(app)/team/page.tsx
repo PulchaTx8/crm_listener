@@ -64,11 +64,13 @@ export default async function TeamPage() {
 
   const profileByUser = new Map((profiles ?? []).map((p) => [p.id, p]));
 
-  const { data: invitations } = await supabase
+  const { data: invitations, error: invitationsError } = await supabase
     .from('invitations')
     .select('id, email, is_owner, role_id, status, expires_at')
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
+
+  if (invitationsError) logger.error({ err: invitationsError }, 'could not load invitations');
 
   // A third JS-side join, same pattern as the two above: role_id names a row in
   // roles, and there is no reason to fetch the whole catalogue just to label a
@@ -79,9 +81,14 @@ export default async function TeamPage() {
   const roleIds = [
     ...new Set((invitations ?? []).map((i) => i.role_id).filter((id): id is string => id !== null)),
   ];
-  const { data: invitationRoles } = roleIds.length
+  const { data: invitationRoles, error: invitationRolesError } = roleIds.length
     ? await supabase.from('roles').select('id, name').in('id', roleIds)
-    : { data: [] };
+    : { data: [], error: null };
+
+  if (invitationRolesError) {
+    logger.error({ err: invitationRolesError }, 'could not load invitation roles');
+  }
+
   const roleNameById = new Map((invitationRoles ?? []).map((r) => [r.id, r.name]));
 
   // Block 1c: what each non-owner member can do in each Station. companies is

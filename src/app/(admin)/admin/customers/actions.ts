@@ -88,6 +88,13 @@ export async function suspendAction(formData: FormData): Promise<void> {
   });
   if (error) logger.error({ err: error }, 'suspend_company failed');
   revalidatePath('/admin/customers');
+  // Explicit redirect, not just the revalidatePath above: revalidatePath alone
+  // re-renders in place and leaves the address bar untouched, so a stale
+  // ?stationError=1 from an earlier failed Add Station would survive this
+  // click too. Redirecting to the bare path on every completion — success or
+  // failure, there is no error banner of this action's own to preserve — is
+  // what actually clears it.
+  redirect('/admin/customers');
 }
 
 export async function reactivateAction(formData: FormData): Promise<void> {
@@ -97,17 +104,26 @@ export async function reactivateAction(formData: FormData): Promise<void> {
   });
   if (error) logger.error({ err: error }, 'reactivate_company failed');
   revalidatePath('/admin/customers');
+  redirect('/admin/customers');
 }
 
 /**
  * Adds a second (or third...) Station to an existing Organization. add_company
  * (0017) is platform-admin only — everyone who reaches this console already
- * is one, so a denial here means something changed underneath the session
- * rather than a normal user mistake. Unlike suspend/reactivate above, whose
- * buttons are only ever shown for the status they apply to, this form has no
- * such guard, so a failure is redirected into a query param the page reads
- * back into a banner (same pattern as /login's ?error=1) instead of being a
- * silent no-op alongside the log line.
+ * is one, so a denial here usually means ordinary bad input (a whitespace-only
+ * name passes the form's `required` but still trips the RPC's own "company
+ * name is required") rather than something adversarial. Unlike suspend/
+ * reactivate above, whose buttons are only ever shown for the status they
+ * apply to, this form has no such guard, so a failure is redirected into a
+ * query param the page reads back into a banner (same pattern as /login's
+ * ?error=1) instead of being a silent no-op alongside the log line.
+ *
+ * The success path must ALSO redirect, to the bare path with no query string:
+ * revalidatePath re-renders in place without touching the address bar, so
+ * without this a failed attempt's ?stationError=1 would still be sitting in
+ * the URL after the admin fixes the name and successfully retries — the
+ * banner would say "Could not add the Station" underneath a Station that was
+ * just added.
  */
 export async function addCompanyAction(formData: FormData): Promise<void> {
   const supabase = await createUserClient();
@@ -121,4 +137,5 @@ export async function addCompanyAction(formData: FormData): Promise<void> {
     redirect('/admin/customers?stationError=1');
   }
   revalidatePath('/admin/customers');
+  redirect('/admin/customers');
 }
