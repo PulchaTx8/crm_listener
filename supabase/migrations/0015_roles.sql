@@ -86,9 +86,9 @@ insert into public.permissions (code, description, introduced_by_block, module, 
 values ('roles.manage', 'Create, edit and delete the Organization''s roles', '1c',
         'organization', 'Administer roles', 'organization', 40);
 
--- The old role_permissions keyed by member_role is gone. This block's owner
--- bypasses the lookup; operator and viewer hold no permissions. The function
--- stays stable until 0016 wires up dynamic roles.
+-- The old role_permissions keyed by member_role is gone; the join died with the
+-- table. This holds the line until 0016 resolves permissions through the role.
+-- Owner bypasses; operator and viewer hold nothing because Block 1b held nothing.
 create or replace function public.has_permission(p_permission text, p_company_id uuid)
 returns boolean
 language sql
@@ -100,12 +100,13 @@ as $$
      and public.has_company_access(p_company_id)
      and (
        public.is_platform_admin()
-       or (
-         select cm.role = 'owner'
+       or exists (
+         select 1
          from public.company_memberships cm
          where cm.user_id = auth.uid()
            and cm.company_id = p_company_id
            and cm.deleted_at is null
+           and cm.role = 'owner'
        )
      );
 $$;

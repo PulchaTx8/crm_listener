@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(21);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -30,6 +30,10 @@ select ok(
   'anon may not call create_invitation'
 );
 
+-- Fail closed, with no session in play.
+select is(public.has_permission('no.such.code', gen_random_uuid()), false,
+          'an unknown permission code returns false');
+
 -- Block 1c: the catalogue carries what the editor needs to render itself.
 select col_not_null('public', 'permissions', 'module', 'module is required');
 select col_not_null('public', 'permissions', 'label',  'label is required');
@@ -46,6 +50,19 @@ select has_table('public', 'roles', 'roles exists');
 -- Two live roles of the same name in one Organization is a mistake; the same
 -- name after archiving one is not.
 select has_index('public', 'roles', 'roles_name_unique', 'role names are unique per Organization while live');
+
+-- The catalogue's own seed, in the new model.
+select is(
+  (select introduced_by_block from public.permissions where code = 'roles.manage'),
+  '1c',
+  'roles.manage is seeded by this block'
+);
+
+-- role_permissions is keyed by the role now, not by a fixed enum. Asserting the
+-- absence matters as much as the presence: a leftover `role` column would mean
+-- the drop-and-recreate silently did not happen.
+select has_column('public', 'role_permissions', 'role_id', 'role_permissions is keyed by role');
+select hasnt_column('public', 'role_permissions', 'role', 'the fixed-role column is gone');
 
 select * from finish();
 rollback;
