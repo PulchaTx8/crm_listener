@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(34);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -88,6 +88,31 @@ select ok(not has_table_privilege('authenticated', 'public.role_permissions', 'I
           'authenticated may not write role_permissions directly');
 select ok(not has_table_privilege('authenticated', 'public.invitation_companies', 'INSERT'),
           'authenticated may not write invitation Stations directly');
+
+-- Block 2: the catalogue's own seed, and the scope that decides which helper
+-- resolves it. inventory.* must be company-scoped — an Organization-scoped
+-- inventory permission would grant stock rights in Stations the holder has no
+-- role in, which is the opposite of what Block 1c built.
+select is(
+  (select count(*)::int from public.permissions where module = 'inventory'),
+  6,
+  'six inventory permissions are seeded'
+);
+select is(
+  (select count(*)::int from public.permissions where module = 'inventory' and scope = 'company'),
+  6,
+  'every inventory permission is Company-scoped'
+);
+select is(
+  (select introduced_by_block from public.permissions where code = 'inventory.adjust'),
+  '2',
+  'inventory.adjust is seeded by this block'
+);
+
+select has_table('public', 'prizes', 'prizes exists');
+select has_table('public', 'prize_categories', 'prize_categories exists');
+select has_index('public', 'prizes', 'prizes_internal_code_unique',
+  'an internal code is unique per Station while the prize is live');
 
 select * from finish();
 rollback;
