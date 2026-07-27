@@ -1,3 +1,11 @@
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto min-h-screen max-w-3xl px-6 py-12">{children}</div>;
+import { AppShell } from '@/components/layout/app-shell';
+import { getShellContext } from '@/lib/auth/shell';
+
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const { sections, user } = await getShellContext();
+  return (
+    <AppShell sections={sections} user={user}>
+      {children}
+    </AppShell>
+  );
 }

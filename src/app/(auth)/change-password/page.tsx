@@ -2,6 +2,8 @@ import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 
 const MESSAGES: Record<string, string> = {
   short: 'The password must be at least 10 characters.',
@@ -38,31 +40,21 @@ export default async function ChangePasswordPage({
   }
 
   return (
-    <main className="mx-auto flex max-w-md flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Choose a new password</h1>
-      <p className="text-muted-foreground">
-        Your account was created with a provisional password. Choose your own to continue.
-      </p>
-      {params.error ? (
-        <p className="text-sm text-destructive">{MESSAGES[params.error] ?? MESSAGES.failed}</p>
-      ) : null}
-      <form action={change} className="flex flex-col gap-4">
-        <input
-          name="password"
-          type="password"
-          placeholder="New password"
-          required
-          className="rounded-md border p-2"
-        />
-        <input
-          name="confirm"
-          type="password"
-          placeholder="Repeat the password"
-          required
-          className="rounded-md border p-2"
-        />
-        <Button type="submit">Save</Button>
-      </form>
-    </main>
+    <Card>
+      <CardContent className="flex flex-col gap-5 pt-6">
+        <h1 className="text-xl font-semibold tracking-tight">Choose a new password</h1>
+        <p className="text-muted-foreground">
+          Your account was created with a provisional password. Choose your own to continue.
+        </p>
+        {params.error ? (
+          <p className="text-sm text-destructive">{MESSAGES[params.error] ?? MESSAGES.failed}</p>
+        ) : null}
+        <form action={change} className="flex flex-col gap-4">
+          <Input name="password" type="password" placeholder="New password" required />
+          <Input name="confirm" type="password" placeholder="Repeat the password" required />
+          <Button type="submit">Save</Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

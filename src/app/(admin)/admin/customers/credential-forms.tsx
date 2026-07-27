@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import { provisionAction, regenerateAction, type CredentialState } from './actions';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 const INITIAL: CredentialState = { status: 'idle' };
 
@@ -34,30 +35,10 @@ export function ProvisionForm() {
     <div className="flex flex-col gap-4">
       <CredentialNotice state={state} />
       <form action={action} className="flex flex-col gap-3">
-        <input
-          name="organizationName"
-          placeholder="Organization name"
-          required
-          className="rounded-md border p-2"
-        />
-        <input
-          name="companyName"
-          placeholder="Company (Station) name"
-          required
-          className="rounded-md border p-2"
-        />
-        <input
-          name="ownerEmail"
-          type="email"
-          placeholder="Owner e-mail"
-          required
-          className="rounded-md border p-2"
-        />
-        <input
-          name="ownerName"
-          placeholder="Owner name (optional)"
-          className="rounded-md border p-2"
-        />
+        <Input name="organizationName" placeholder="Organization name" required />
+        <Input name="companyName" placeholder="Company (Station) name" required />
+        <Input name="ownerEmail" type="email" placeholder="Owner e-mail" required />
+        <Input name="ownerName" placeholder="Owner name (optional)" />
         <Button type="submit" disabled={pending}>
           {pending ? 'Provisioning…' : 'Provision'}
         </Button>

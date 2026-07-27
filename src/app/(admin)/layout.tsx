@@ -1,6 +1,7 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
+import { AppShell } from '@/components/layout/app-shell';
+import { getShellContext } from '@/lib/auth/shell';
 
 // Renders from the caller's session cookies, so it can never be static. Stated
 // explicitly rather than inferred from cookies(): the Supabase client is built
@@ -17,27 +18,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // belongs — bouncing them to /login would loop, since they are signed in.
   if (!isAdmin) redirect('/app');
 
+  const { sections, user } = await getShellContext();
+
   return (
-    <div className="mx-auto min-h-screen max-w-4xl px-6 py-12">
-      <nav className="mb-8 flex items-center justify-between">
-        <div className="flex gap-4 text-sm">
-          <Link href="/admin/customers" className="underline">
-            Customers
-          </Link>
-          <Link href="/admin/contact-requests" className="underline">
-            Contact requests
-          </Link>
-          <Link href="/app" className="underline">
-            My stations
-          </Link>
-        </div>
-        <form action="/auth/signout" method="post">
-          <button type="submit" className="text-sm underline">
-            Sign out
-          </button>
-        </form>
-      </nav>
+    <AppShell sections={sections} user={user}>
       {children}
-    </div>
+    </AppShell>
   );
 }

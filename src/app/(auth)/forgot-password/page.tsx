@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 
 export default async function ForgotPasswordPage({
   searchParams,
@@ -26,28 +28,26 @@ export default async function ForgotPasswordPage({
 
   if (params.sent) {
     return (
-      <main className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Check your inbox</h1>
-        <p className="text-muted-foreground">
-          If that address belongs to an account, we sent a link to reset the password.
-        </p>
-      </main>
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-6">
+          <h1 className="text-xl font-semibold tracking-tight">Check your inbox</h1>
+          <p className="text-muted-foreground">
+            If that address belongs to an account, we sent a link to reset the password.
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <main className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Reset your password</h1>
-      <form action={request} className="flex flex-col gap-4">
-        <input
-          name="email"
-          type="email"
-          placeholder="E-mail"
-          required
-          className="rounded-md border p-2"
-        />
-        <Button type="submit">Send the link</Button>
-      </form>
-    </main>
+    <Card>
+      <CardContent className="flex flex-col gap-5 pt-6">
+        <h1 className="text-xl font-semibold tracking-tight">Reset your password</h1>
+        <form action={request} className="flex flex-col gap-4">
+          <Input name="email" type="email" placeholder="E-mail" required />
+          <Button type="submit">Send the link</Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

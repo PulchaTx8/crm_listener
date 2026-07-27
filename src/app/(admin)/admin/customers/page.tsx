@@ -1,6 +1,9 @@
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { suspendAction, reactivateAction } from './actions';
 import { ProvisionForm, RegenerateForm } from './credential-forms';
 
@@ -53,62 +56,82 @@ export default async function CustomersPage() {
   }
 
   return (
-    <main className="flex flex-col gap-10">
-      <section className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Provision a customer</h1>
-        <ProvisionForm />
-      </section>
+    <>
+      <PageHeader
+        title="Customers"
+        description="Provision a new customer, or manage an existing subscription."
+      />
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-xl font-semibold">Companies</h2>
-        {(companies ?? []).length === 0 ? (
-          <p className="text-muted-foreground">No company provisioned yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {(companies ?? []).map((c) => {
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
+        <Card>
+          <CardHeader>
+            <CardTitle>Provision a customer</CardTitle>
+            <CardDescription>
+              Creates the organization, the station and the owner account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProvisionForm />
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-3">
+          {(companies ?? []).length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-muted-foreground">No company provisioned yet.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            (companies ?? []).map((c) => {
               const owner = ownerByCompany.get(c.id);
               return (
-                <li key={c.id} className="flex flex-col gap-3 rounded-md border p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <span>
-                      {c.name} — <em>{c.status}</em>
-                      {c.suspension_reason ? (
-                        <span className="text-muted-foreground"> ({c.suspension_reason})</span>
-                      ) : null}
-                    </span>
-                    {c.status === 'active' ? (
-                      <form action={suspendAction} className="flex items-center gap-2">
-                        <input type="hidden" name="companyId" value={c.id} />
-                        <input
-                          name="reason"
-                          placeholder="Reason"
-                          className="rounded border p-1 text-sm"
-                        />
-                        <Button type="submit" variant="outline">
-                          Suspend
-                        </Button>
-                      </form>
-                    ) : (
-                      <form action={reactivateAction}>
-                        <input type="hidden" name="companyId" value={c.id} />
-                        <Button type="submit" variant="outline">
-                          Reactivate
-                        </Button>
-                      </form>
-                    )}
-                  </div>
-                  {owner ? (
-                    <div className="flex items-center justify-between gap-4 border-t pt-3">
-                      <span className="text-sm text-muted-foreground">Owner: {owner.email}</span>
-                      <RegenerateForm userId={owner.userId} email={owner.email} />
+                <Card key={c.id} data-testid="company-row">
+                  <CardContent className="flex flex-col gap-4 pt-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium">{c.name}</span>
+                        <span
+                          className={
+                            c.status === 'active'
+                              ? 'w-fit rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary'
+                              : 'w-fit rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive'
+                          }
+                        >
+                          {c.status}
+                          {c.suspension_reason ? ` — ${c.suspension_reason}` : ''}
+                        </span>
+                      </div>
+                      {c.status === 'active' ? (
+                        <form action={suspendAction} className="flex items-center gap-2">
+                          <input type="hidden" name="companyId" value={c.id} />
+                          <Input name="reason" placeholder="Reason" className="h-9 w-40 text-sm" />
+                          <Button type="submit" variant="outline">
+                            Suspend
+                          </Button>
+                        </form>
+                      ) : (
+                        <form action={reactivateAction}>
+                          <input type="hidden" name="companyId" value={c.id} />
+                          <Button type="submit" variant="outline">
+                            Reactivate
+                          </Button>
+                        </form>
+                      )}
                     </div>
-                  ) : null}
-                </li>
+                    {owner ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                        <span className="text-sm text-muted-foreground">Owner: {owner.email}</span>
+                        <RegenerateForm userId={owner.userId} email={owner.email} />
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
               );
-            })}
-          </ul>
-        )}
-      </section>
-    </main>
+            })
+          )}
+        </div>
+      </div>
+    </>
   );
 }
