@@ -626,9 +626,18 @@ export type Database = {
         Args: { p_company_id: string; p_permission: string }
         Returns: boolean
       }
+      is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      list_manageable_companies: {
+        Args: { p_organization_id: string }
+        Returns: {
+          id: string
+          name: string
+          status: Database["public"]["Enums"]["company_status"]
+        }[]
+      }
       provision_customer: {
         Args: {
           p_company_name: string
@@ -659,6 +668,10 @@ export type Database = {
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
+      }
+      shares_organization_with: {
+        Args: { p_user_id: string }
+        Returns: boolean
       }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }

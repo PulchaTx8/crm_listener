@@ -95,17 +95,24 @@ export default async function TeamPage() {
   // the full roster to render a row per Station even where no membership
   // exists yet ("No access"); links is every live company_membership so each
   // row's Select can default to what is actually assigned today.
+  //
+  // list_manageable_companies (0022), not a direct `companies` select:
+  // assign_company_role authorises users.manage Organization-wide (any
+  // Station, via has_org_permission), but companies_select_org_member (0021)
+  // scopes a direct select to the Stations the caller personally belongs to.
+  // A non-owner administrator holding users.manage in only one Station would
+  // otherwise be authorised to assign roles everywhere and see a roster of
+  // one — the same array also feeds the invite form's Station checklist
+  // below, so that gap would silently block inviting anyone into a Station
+  // the inviter cannot personally reach either. `/app` is the screen that
+  // answers "which Stations can I reach" and keeps reading `companies`
+  // directly; this one answers "which Stations can I administer".
   const [
     { data: companies, error: companiesError },
     roles,
     { data: links, error: linksError },
   ] = await Promise.all([
-    supabase
-      .from('companies')
-      .select('id, name, status')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .order('name'),
+    supabase.rpc('list_manageable_companies', { p_organization_id: organizationId }),
     listRoles(organizationId),
     supabase
       .from('company_memberships')

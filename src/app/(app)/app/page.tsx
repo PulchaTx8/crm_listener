@@ -12,12 +12,16 @@ export const dynamic = 'force-dynamic';
 /**
  * Where a signed-in member lands. Business features arrive in Block 2; what
  * matters here is that every reachable Company still appears, suspended or
- * not — companies_select_org_member (0006) allows reading metadata regardless
- * of status precisely so the customer sees why access stopped instead of an
- * empty screen (spec §4). Block 1c is what makes this list ever have more
- * than one row: an Organization can now hold several Companies, added from
- * the platform console, and this is how a member first discovers one was
- * added to their account.
+ * not — companies_select_org_member (0006, corrected by 0021 to scope by
+ * actual per-Company access rather than blanket Organization membership)
+ * allows reading metadata regardless of status precisely so the customer sees
+ * why access stopped instead of an empty screen (spec §4). Block 1c is what
+ * makes this list ever have more than one row: an Organization can now hold
+ * several Companies, added from the platform console, and this is how a
+ * member first discovers they were granted a role in one — this page reads
+ * `companies` directly (not the Team screen's list_manageable_companies),
+ * since "which Stations can I reach" and "which Stations can I administer"
+ * are different questions with different answers for a non-owner.
  *
  * The admin link lives in the sidebar now, so this page no longer resolves
  * is_platform_admin itself.
