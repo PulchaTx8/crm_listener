@@ -218,6 +218,62 @@ export type Database = {
         }
         Relationships: []
       }
+      invitations: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string | null
+          organization_id: string
+          revoked_at: string | null
+          role: Database["public"]["Enums"]["member_role"]
+          status: Database["public"]["Enums"]["invitation_status"]
+          token_hash: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          invited_by?: string | null
+          organization_id: string
+          revoked_at?: string | null
+          role: Database["public"]["Enums"]["member_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          token_hash: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string | null
+          organization_id?: string
+          revoked_at?: string | null
+          role?: Database["public"]["Enums"]["member_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          token_hash?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_memberships: {
         Row: {
           created_at: string
@@ -277,6 +333,27 @@ export type Database = {
           id?: string
           name?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      permissions: {
+        Row: {
+          code: string
+          created_at: string
+          description: string
+          introduced_by_block: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description: string
+          introduced_by_block: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string
+          introduced_by_block?: string
         }
         Relationships: []
       }
@@ -346,13 +423,65 @@ export type Database = {
         }
         Relationships: []
       }
+      role_permissions: {
+        Row: {
+          permission_code: string
+          role: Database["public"]["Enums"]["member_role"]
+        }
+        Insert: {
+          permission_code: string
+          role: Database["public"]["Enums"]["member_role"]
+        }
+        Update: {
+          permission_code?: string
+          role?: Database["public"]["Enums"]["member_role"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_permissions_permission_code_fkey"
+            columns: ["permission_code"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      accept_invitation: {
+        Args: { p_full_name?: string; p_token_hash: string; p_user_id: string }
+        Returns: Json
+      }
+      change_member_role: {
+        Args: {
+          p_membership_id: string
+          p_new_role: Database["public"]["Enums"]["member_role"]
+        }
+        Returns: undefined
+      }
       complete_password_change: { Args: never; Returns: undefined }
+      create_invitation: {
+        Args: {
+          p_email: string
+          p_organization_id: string
+          p_role: Database["public"]["Enums"]["member_role"]
+          p_token_hash: string
+          p_ttl_days?: number
+        }
+        Returns: string
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
+      has_org_permission: {
+        Args: { p_organization_id: string; p_permission: string }
+        Returns: boolean
+      }
+      has_permission: {
+        Args: { p_company_id: string; p_permission: string }
+        Returns: boolean
+      }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
@@ -374,18 +503,25 @@ export type Database = {
         }[]
       }
       reactivate_company: { Args: { p_company_id: string }; Returns: undefined }
+      remove_member: { Args: { p_membership_id: string }; Returns: undefined }
       reset_provisional_password: {
         Args: { p_user_id: string }
+        Returns: undefined
+      }
+      revoke_invitation: {
+        Args: { p_invitation_id: string }
         Returns: undefined
       }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined
       }
+      validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
     }
     Enums: {
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      invitation_status: "pending" | "accepted" | "revoked"
       member_role: "owner" | "operator" | "viewer"
     }
     CompositeTypes: {
@@ -519,6 +655,7 @@ export const Constants = {
     Enums: {
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      invitation_status: ["pending", "accepted", "revoked"],
       member_role: ["owner", "operator", "viewer"],
     },
   },
