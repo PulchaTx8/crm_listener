@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { contactRequestSchema } from '@/schemas/contact';
 import { submitContactRequest } from '@/services/contact-requests';
+import { logger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 
@@ -33,7 +34,12 @@ export default async function ContactPage({
     let destination: Route = '/contato?sent=1';
     try {
       await submitContactRequest(parsed.data, ip);
-    } catch {
+    } catch (cause) {
+      // The visitor gets a deliberately vague sentence; the operator needs the
+      // real one. Swallowing the cause here left a production failure with no
+      // server-side trace at all, and the only way to diagnose it was to
+      // reproduce the insert by hand against both databases.
+      logger.error({ err: cause }, 'contact request submission failed');
       destination = '/contato?error=failed';
     }
     redirect(destination);
