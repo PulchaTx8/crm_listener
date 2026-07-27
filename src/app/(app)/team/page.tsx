@@ -42,7 +42,10 @@ export default async function TeamPage() {
 
   // A third JS-side join, same pattern as the two above: role_id names a row in
   // roles, and there is no reason to fetch the whole catalogue just to label a
-  // handful of pending invitations.
+  // handful of pending invitations. The roles_select_org_member policy filters
+  // deleted_at is null, so a role archived after the invitation was sent comes
+  // back missing here — which is also exactly the case validate_invitation
+  // refuses on acceptance, so the fallback below must not say "Member".
   const roleIds = [
     ...new Set((invitations ?? []).map((i) => i.role_id).filter((id): id is string => id !== null)),
   ];
@@ -145,7 +148,7 @@ export default async function TeamPage() {
                     <span className="text-sm">
                       {i.email}
                       <span className="ml-2 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        {i.is_owner ? 'Owner' : (roleNameById.get(i.role_id ?? '') ?? 'Member')}
+                        {i.is_owner ? 'Owner' : (roleNameById.get(i.role_id ?? '') ?? 'Role unavailable')}
                       </span>
                       <span className="ml-2 text-muted-foreground">
                         expires {new Date(i.expires_at).toLocaleDateString('en-GB')}

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createClient } from '@supabase/supabase-js';
-import { provisionCustomer, signInAs, cleanupUsers, admin } from './harness';
+import { provisionCustomer, signInAs, createRoleAs, cleanupUsers, admin } from './harness';
 
 afterAll(async () => {
   await cleanupUsers();
@@ -24,18 +24,25 @@ describe('tenant isolation', () => {
     const b = await provisionCustomer(`wb-${Date.now()}`);
 
     const clientA = await signInAs(a.email, a.password);
-    // company_memberships takes no INSERT grant at all (Block 1c: every write
-    // goes through assign_company_role), so this is denied before role_id or
-    // organization_id are ever validated — their values only need to satisfy
-    // the Insert type, not point at a real role.
+    // Every field must be real, or a fake one can produce the error instead of
+    // the boundary this test names. role_id has a composite foreign key to
+    // (roles.id, roles.organization_id) — a random uuid trips that FK (23503)
+    // unconditionally, for anyone, authorized or not, which would let a real
+    // authorization hole (say, a future sloppy `with check` granting INSERT)
+    // hide behind a constraint violation instead of surfacing. bRole is a real
+    // role in b's Organization, so the only thing left that can reject this
+    // insert is the missing INSERT grant on company_memberships (Block 1c:
+    // every write goes through assign_company_role).
+    const bRole = await createRoleAs(b, `Role-${Date.now()}`, []);
     const { error } = await clientA.from('company_memberships').insert({
       user_id: a.userId,
       company_id: b.companyId,
       organization_id: b.organizationId,
-      role_id: crypto.randomUUID(),
+      role_id: bRole,
     });
 
     expect(error).not.toBeNull();
+    expect(error?.code).toBe('42501');
   });
 
   it('an ordinary user cannot provision', async () => {

@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const createInvitationSchema = z
   .object({
     organizationId: z.string().uuid(),
-    email: z.string().trim().toLowerCase().email(),
+    email: z.string().trim().toLowerCase().email().max(320),
     isOwner: z.boolean(),
     roleId: z.string().uuid().nullable(),
     companyIds: z.array(z.string().uuid()),

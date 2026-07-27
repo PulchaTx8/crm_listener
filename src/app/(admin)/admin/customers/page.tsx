@@ -32,10 +32,15 @@ export default async function CustomersPage() {
   // organization_memberships.user_id and profiles.id both reference
   // auth.users(id), which does not give PostgREST a path from one to the
   // other — the embed fails with PGRST200 and returns no rows at all.
+  // Block 1c allows more than one owner per Organization. Ordered by
+  // created_at so which one is "the" displayed owner — and which account the
+  // password-reset form below targets — is stable across renders rather than
+  // depending on whatever order Postgres happens to return rows in.
   const { data: owners, error: ownersError } = await supabase
     .from('organization_memberships')
     .select('organization_id, user_id')
-    .eq('role', 'owner');
+    .eq('role', 'owner')
+    .order('created_at', { ascending: true });
 
   if (ownersError) logger.error({ err: ownersError }, 'could not load company owners');
 

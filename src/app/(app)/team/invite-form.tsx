@@ -3,7 +3,7 @@
 import { useActionState } from 'react';
 import { inviteAction, type InviteState } from './actions';
 import { Button } from '@/components/ui/button';
-import { Input, Select } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 
 const INITIAL: InviteState = { status: 'idle' };
 
@@ -30,14 +30,18 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
         </div>
       ) : null}
 
+      {/*
+        Block 1c: the operator/viewer/owner select this form used to post no
+        longer names anything real — invitations now carry isOwner, a roleId
+        from the Organization's own roles, and a set of Company ids. Removed
+        rather than left in place, so the form never suggests those fixed
+        roles are still choices. Task 10 adds the owner checkbox, role select
+        and Company picker; wiring an interim version here would only be
+        thrown away when it lands.
+      */}
       <form action={action} className="flex flex-col gap-3">
         <input type="hidden" name="organizationId" value={organizationId} />
         <Input name="email" type="email" placeholder="Colleague's e-mail" required />
-        <Select name="role" defaultValue="operator">
-          <option value="operator">Operator</option>
-          <option value="viewer">Viewer</option>
-          <option value="owner">Owner</option>
-        </Select>
         <Button type="submit" disabled={pending}>
           {pending ? 'Sending…' : 'Send invitation'}
         </Button>

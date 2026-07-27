@@ -193,6 +193,16 @@ describe('invitations', () => {
     const { data: companies } = await inviteeClient.from('companies').select('id');
     expect((companies ?? []).map((r) => r.id)).toContain(a.companyId);
 
+    // The test's name is a claim about role_id specifically, not just about
+    // reaching the Company — assert the column, not only its side effects.
+    const { data: cm } = await admin
+      .from('company_memberships')
+      .select('role_id')
+      .eq('user_id', invitee.userId)
+      .eq('company_id', a.companyId)
+      .single();
+    expect(cm?.role_id).toBe(roleId);
+
     const { data: canInvite } = await inviteeClient.rpc('has_org_permission', {
       p_permission: 'users.invite',
       p_organization_id: a.organizationId,
