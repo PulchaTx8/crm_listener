@@ -35,7 +35,7 @@ export default async function PrizeDetailPage({
   let viewable: ViewableCompany[];
   let capped: boolean;
   try {
-    ({ viewable, capped } = await listCompanyAccess(supabase));
+    ({ viewable, capped } = await listCompanyAccess(supabase, 'inventory.view'));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
     return <LoadError message={describeInventoryReadError(cause)} />;

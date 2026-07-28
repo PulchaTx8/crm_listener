@@ -26,16 +26,26 @@ const REASON_LABELS = {
  *   appears in the audience list afterwards (page.tsx's own
  *   `member.anonymizedAt ? 'Personal data erased' : ...` branch is what that
  *   looks like) — archiving is `archive_member`, a different action, not this
- *   one.
+ *   one. This paragraph is deliberately scoped to the ROW and its
+ *   dates/types/authors — it does not say the free text inside those rows
+ *   survives, because it does not (see the next paragraph). The two used to
+ *   sit far enough apart, and the second used to omit one column, that
+ *   reading only the first implied the opposite (Task 9 review, Important
+ *   1) — fixed by naming all three scrubbed free-text columns in the very
+ *   next sentence, not by softening this one.
  * - "Does not survive": full_name, phone, email, cpf_hash, cpf_last_digits,
  *   passport, birth_date, every address column and discovery_source are set
  *   to null by this same function, plus first_contact_origin (kept separate
  *   in the copy below from first_contact_at, which this function does NOT
  *   null — a real, deliberately-unfixed asymmetry the block's own ledger
  *   records, so this copy does not claim first contact is erased wholesale).
- *   The free text in member_notes.body, member_consents.origin and
+ *   The free text in member_notes.body, member_consents.origin (0034:767-769
+ *   — the exact field consent-form.tsx's own Origin input writes) and
  *   member_blocks.reason/lift_reason for this listener is nulled too (Ruling
- *   B), while those rows and their dates/types/authors stay.
+ *   B), while those rows and their dates/types/authors stay. All THREE are
+ *   named explicitly below — an earlier draft named only notes and blocks,
+ *   which (read beside the "Survives" paragraph above) told an operator
+ *   consent origins were untouched when they are not.
  * - "No undo": there is no function anywhere in this codebase that reverses
  *   anonymize_member. Once the UPDATE commits, the data it nulled is gone.
  *
@@ -64,9 +74,10 @@ export function EraseMemberForm({ memberId }: { memberId: string }) {
         <p>
           <strong>What does not survive:</strong> their name, phone, e-mail, CPF, passport, birth
           date, full address, how they found the station, and how they first contacted the
-          Station are permanently removed from this record. The free text in their notes and in
-          the reason (and lift reason) of their blocks is removed the same way — the notes and
-          blocks themselves stay, empty of that text.
+          Station are permanently removed from this record. The free text is removed the same way
+          from three more places: the origin recorded with a consent, a note&apos;s body, and a
+          block&apos;s reason (and lift reason) — the consents, notes and blocks themselves stay,
+          only that text goes.
         </p>
         <p>
           <strong>This cannot be undone.</strong> There is no function in this system that

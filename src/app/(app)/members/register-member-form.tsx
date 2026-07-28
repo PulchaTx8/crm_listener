@@ -13,7 +13,7 @@ import {
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
-import type { RegistrableStation } from './station-access';
+import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 const CHECK_INITIAL: CheckIdentifierState = { status: 'idle' };
 const REGISTER_INITIAL: RegisterMemberState = { status: 'idle' };
@@ -28,15 +28,40 @@ const LINK_INITIAL: LinkMemberState = { status: 'idle' };
  * 'none' answer reveals the rest of the identity fields and the actual
  * registerMemberAction submit button below them.
  *
- * The four identifying inputs are locked (not merely re-usable) the moment a
- * check comes back, and carried into the registration submit as hidden
- * fields read from the SAME React state the check just ran against — not
- * re-read live from the (now-disabled) visible inputs — so what gets
- * registered is provably what was checked. "Edit search" is the only way to
- * change them, and doing so hides the registration step until a fresh check
- * runs.
+ * The four identifying inputs are locked (not merely re-usable) for the
+ * ENTIRE round trip — from the moment "Check for an existing listener" is
+ * clicked (checkPending) through however long checkState then stays
+ * 'checked' — and carried into the registration submit as hidden fields read
+ * from the SAME React state the check just ran against, not re-read live
+ * from the visible inputs. Locking only once checkState itself changed (Task
+ * 9 review, Important 2) left every field editable while checkPending was
+ * still true, since checkState is still the PREVIOUS value during that
+ * window: typing a new phone after clicking Check but before the answer
+ * lands meant the answer that came back (for the OLD value) locked the
+ * fields around whatever the NEW value now was, and that new, never-checked
+ * value is exactly what registerAction below would submit — the "constraint
+ * violation after the fact" this two-stage design exists to prevent,
+ * reachable on the very first check. "Edit search" is the only way to change
+ * the fields once locked, and doing so hides the registration step until a
+ * fresh check runs.
  */
-export function RegisterMemberForm({ stations }: { stations: RegistrableStation[] }) {
+export function RegisterMemberForm({
+  stations,
+  suspended = [],
+}: {
+  stations: ViewableCompany[];
+  /**
+   * Visible but suspended (has_company_access refuses every permission for
+   * it unconditionally, 0016) — rendered as a disabled option naming the
+   * reason, not simply omitted. Without this a Station a delegate expects to
+   * see just vanishes from the picker with no explanation, the same defect
+   * inventory/station-access.ts's own SuspendedCompany documents guarding
+   * against for its Station switcher (Task 9 review, minor: this list used
+   * to be dropped entirely when this form had its own hand-copied station
+   * helper).
+   */
+  suspended?: SuspendedCompany[];
+}) {
   const [companyId, setCompanyId] = useState(stations[0]?.id ?? '');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -64,6 +89,13 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
   }, [checkState]);
 
   const fieldsLocked = checkState.status === 'checked' && !manualEditing;
+  // Locks for the whole round trip, not only once an answer has landed — see
+  // this component's own doc comment (Important 2, Task 9 review) for the
+  // race this closes: without checkPending here, the fields stayed editable
+  // for however long the server call took, and whatever was typed during
+  // that window — not what was actually checked — is what the hidden inputs
+  // below would carry into registerAction.
+  const fieldsDisabled = fieldsLocked || checkPending;
   const showRegistrationStep =
     checkState.status === 'checked' && checkState.outcome === 'none' && !manualEditing;
 
@@ -76,11 +108,16 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
             name="companyId"
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
-            disabled={fieldsLocked}
+            disabled={fieldsDisabled}
           >
             {stations.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
+              </option>
+            ))}
+            {suspended.map((s) => (
+              <option key={s.id} value={s.id} disabled>
+                {s.name} (suspended — no data is available while the subscription is inactive)
               </option>
             ))}
           </Select>
@@ -98,7 +135,7 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
             name="phone"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            disabled={fieldsLocked}
+            disabled={fieldsDisabled}
             maxLength={40}
             placeholder="e.g. 5511987654321"
           />
@@ -110,7 +147,7 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            disabled={fieldsLocked}
+            disabled={fieldsDisabled}
             maxLength={320}
           />
         </label>
@@ -120,7 +157,7 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
             name="cpf"
             value={cpf}
             onChange={(e) => setCpf(e.target.value)}
-            disabled={fieldsLocked}
+            disabled={fieldsDisabled}
             placeholder="000.000.000-00 or digits only"
           />
         </label>
@@ -130,7 +167,7 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
             name="passport"
             value={passport}
             onChange={(e) => setPassport(e.target.value)}
-            disabled={fieldsLocked}
+            disabled={fieldsDisabled}
             maxLength={40}
           />
         </label>
@@ -184,6 +221,24 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
         </div>
       )}
 
+      {/* member_reachable (0033) — what find_member_by_identifier's
+          'elsewhere' branch is actually built on — is false for a caller who
+          is neither the owner nor the platform admin in THREE distinct
+          situations, not one: (1) the Member is linked only to Station(s)
+          this caller lacks the permission at, (2) the Member is linked to
+          NO Station at all (0033's own comment on the candidates CTE: "a
+          Member with zero rows in member_company_links has no link for
+          has_permission to ever approve"), or (3) the Member is linked only
+          to a suspended/archived Station (has_permission requires an ACTIVE
+          Station, 0033:26-29). Only case (1) has a colleague who could look
+          the listener up by gaining nothing more than their own access; in
+          (2) and (3) no amount of Station-reachability change resolves it
+          for an ordinary delegate — only the owner/platform-admin bypass in
+          member_reachable does. The copy below therefore does not name "that
+          Station" as a knowable, colleague-populated place (Task 9 review,
+          minor 3 — an earlier draft did, and promised reaching it would
+          resolve things, which is false for cases 2 and 3), and softens
+          "will find" to "may find" for the same reason. */}
       {checkState.status === 'checked' && checkState.outcome === 'elsewhere' && !manualEditing && (
         <div
           data-testid="member-check-elsewhere"
@@ -191,15 +246,15 @@ export function RegisterMemberForm({ stations }: { stations: RegistrableStation[
         >
           <p>
             A listener matching one of these details is already registered in your Organization,
-            at a Station you don&apos;t have access to. This screen can&apos;t show you who it is
+            at a Station you can&apos;t currently reach. This screen can&apos;t show you who it is
             or which Station — that is by design, the same as it would be for anyone else&apos;s
             audience you cannot reach.
           </p>
           <p className="mt-2">
-            Ask a colleague who works at that Station to look them up for you, or ask whoever
-            manages access in your Organization to add you there. Once you can reach that Station,
-            checking these same details again will find the existing record instead of stopping
-            here.
+            Ask a colleague with broader access to look them up for you, or ask whoever manages
+            access in your Organization — they can resolve this whether it takes adding you to a
+            Station or something else on their side. Once your access changes, checking these
+            same details again may find the existing record instead of stopping here.
           </p>
         </div>
       )}

@@ -11,7 +11,8 @@ import { describeMembersReadError } from './errors';
 import { formatDate } from './format';
 import { MemberSearchForm } from './member-search-form';
 import { RegisterMemberForm } from './register-member-form';
-import { listStationsWithPermission } from './station-access';
+import { listCompanyAccess } from '../inventory/station-access';
+import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
@@ -94,15 +95,24 @@ export default async function MembersPage({
   // Rendered only as a courtesy, the same reasoning inventory/page.tsx gives
   // for its own catalogue forms: create_member (0034) re-checks members.create
   // itself before writing anything, so hiding this card from someone who
-  // holds it nowhere is convenience, not the refusal itself. A failed check
-  // throws rather than folding into "no stations" — see
-  // listStationsWithPermission's own comment.
-  let registrableStations: { id: string; name: string }[] = [];
+  // holds it nowhere is convenience, not the refusal itself.
+  //
+  // listCompanyAccess (inventory/station-access.ts, generalised over an
+  // explicit `permission` parameter by the Task 9 review rather than staying
+  // a second hand-copy of the same scan-plus-fan-out) genuinely throws on a
+  // failed read or permission check, per its own doc comment — caught here
+  // and folded into an empty list anyway, a DELIBERATE, NARROWER choice made
+  // only at this call site: this screen's primary purpose is the audience
+  // list below, not registration, so a failure resolving who can register
+  // should not take down the whole page the way it legitimately does for
+  // inventory/page.tsx, whose entire content depends on resolving Company
+  // access first.
+  let registrableStations: ViewableCompany[] = [];
+  let suspendedStations: SuspendedCompany[] = [];
+  let registrationCapped = false;
   try {
-    ({ stations: registrableStations } = await listStationsWithPermission(
-      supabase,
-      'members.create',
-    ));
+    ({ viewable: registrableStations, suspended: suspendedStations, capped: registrationCapped } =
+      await listCompanyAccess(supabase, 'members.create'));
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not resolve registration access');
   }
@@ -114,13 +124,20 @@ export default async function MembersPage({
         description="The audience across every Station you can reach."
       />
 
-      {registrableStations.length > 0 && (
+      {(registrableStations.length > 0 || suspendedStations.length > 0) && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Register a listener</CardTitle>
           </CardHeader>
-          <CardContent>
-            <RegisterMemberForm stations={registrableStations} />
+          <CardContent className="flex flex-col gap-3">
+            {registrationCapped && (
+              <p className="text-xs text-muted-foreground">
+                Only the first {registrableStations.length + suspendedStations.length} Stations
+                you can reach were checked. If the Station you want is not listed below, contact
+                us.
+              </p>
+            )}
+            <RegisterMemberForm stations={registrableStations} suspended={suspendedStations} />
           </CardContent>
         </Card>
       )}

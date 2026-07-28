@@ -48,13 +48,25 @@ export function BlockForm({
 
       <label className="flex flex-col gap-1 text-sm">
         Scope
-        <Select name="companyId" defaultValue="">
-          <option value="">Whole Organization</option>
+        {/* Defaults to the first Station, not "Whole Organization" (Task 9
+            review, minor): defaulting a destructive action to its widest
+            blast radius is backwards, even though block_member's own
+            has_org_permission gate refuses most delegates who would try it
+            by accident and a mistaken block is recoverable via Lift.
+            "Whole Organization" is still one click away — a deliberate
+            choice, not the untouched default. Falls back to "" only when
+            this listener has no reachable Station at all (stations is
+            empty), which can only happen for an owner/platform-admin caller
+            (member_reachable's own bypass), since anyone else without a
+            reachable link would not see this card at all. */}
+        <Select name="companyId" defaultValue={stations[0]?.companyId ?? ''}>
+          {stations.length === 0 && <option value="">Whole Organization</option>}
           {stations.map((s) => (
             <option key={s.companyId} value={s.companyId}>
               {s.companyName}
             </option>
           ))}
+          {stations.length > 0 && <option value="">Whole Organization</option>}
         </Select>
       </label>
 

@@ -54,12 +54,22 @@ export function describeMembersReadError(cause: unknown): string {
  * person's own words, so that message is rewritten here rather than passed
  * through.
  *
- * ConflictError and BusinessRuleError already carry a complete, specific
- * sentence from mapMemberError's own mapping — a duplicate phone/e-mail/CPF/
- * passport, a listener already linked to a Station, a block already lifted —
- * and pass through verbatim, the same reasoning
- * describeInventoryWriteError's own doc comment gives for not replacing those
- * with something generic.
+ * ConflictError already carries a complete, specific sentence from
+ * mapMemberError's own mapping (23505) — a duplicate phone/e-mail/CPF/
+ * passport from create_member/update_member, or "this listener is already
+ * linked to that station" from link_member_to_company — and passes through
+ * verbatim, the same reasoning describeInventoryWriteError's own doc comment
+ * gives for not replacing those with something generic. **"A block already
+ * lifted" is NOT one of these examples**, despite an earlier draft of this
+ * comment naming it here (Task 9 review, Important 3): lift_member_block
+ * raises that case as P0002 ("block not found, or already lifted",
+ * 0034:652), which mapMemberError maps to NotFoundError, not
+ * ConflictError/BusinessRuleError — it is rewritten to the generic "That
+ * could not be found" two lines below, not passed through. BusinessRuleError
+ * (23503) has no live example to cite at all yet: mapMemberError's own
+ * comment on that code says none of 0033/0034's RAISE statements currently
+ * use it — it is mapped defensively, for a foreign key that does not yet
+ * exist.
  */
 export function describeMembersWriteError(cause: unknown, action: string): string {
   if (cause instanceof ConflictError) return cause.message;
