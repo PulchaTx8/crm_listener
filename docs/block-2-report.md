@@ -356,7 +356,7 @@ form sat on the same page as `BalanceStats` without referencing it at all.
 ## 3. Deployment steps
 
 Everything in `docs/block-1a-report.md` §1, `docs/block-1b-report.md` §3 and
-`docs/block-1c-report.md` §3 still applies. Migrations `0025`–`0029` apply with
+`docs/block-1c-report.md` §3 still applies. Migrations `0025`–`0030` apply with
 `npx supabase db push --linked`:
 
 - `0025_inventory_catalogue.sql` — `prize_categories`, `prizes`, the six
@@ -371,6 +371,25 @@ Everything in `docs/block-1a-report.md` §1, `docs/block-1b-report.md` §3 and
 - `0028_reconcile_inventory.sql` — the read-only reconciliation function.
 - `0029_rls_inventory.sql` — RLS enabled on all four tables, `select`-only grants,
   and the ledger sealed against every write from every role.
+
+- `0030_inventory_adjustment_semantics.sql` — **the one migration here that changes
+  the meaning of an existing operation, and the one to tell operators about.**
+  `adjust_stock` previously reconciled only the `available` bucket while the form
+  asked for the physical shelf count; with anything reserved, the two disagreed and
+  the difference was recorded as invented stock that reconciliation could not
+  detect. It now takes the physical count, subtracts the committed portion
+  (`reserved + linked + awaiting_pickup + pending_return`) read under the same lock,
+  and refuses outright when the count is below what is already committed. Also adds
+  `ensure_inventory_balance_row`, the shared bootstrap that restores the
+  single-writer property to something literally true.
+
+  **Anyone trained on the old behaviour must be retold what the field means**: it is
+  everything physically present, including units already reserved. The screen now
+  says so and shows the figures being reconciled against, but a person who learned
+  the old form will not read the new label.
+
+Still additive: `0030` replaces two function bodies and adds one; it drops no
+column, deletes no row and rewrites no ledger entry.
 
 **Unlike Block 1c, nothing in this migration set is destructive.** Every one of
 `0025`–`0029` was checked directly for `DROP TABLE`, `DROP COLUMN`, `DROP FUNCTION`,
@@ -586,6 +605,18 @@ shape as the customers page fix.
 
 ---
 
+10. **Three residuals the final re-review left standing, none blocking.** Recorded
+    so they are found rather than rediscovered: `src/app/(app)/inventory/page.tsx`
+    and `errors.ts` still name `listViewableCompanies` after its rename; with the
+    Station scan capped, a legitimate `?companyId=` beyond the cap falls back to the
+    first visible Station and renders it without saying which — reachable only above
+    fifty visible Companies, and disclosed by the cap notice but not by name; and
+    `0029`'s comment still calls `apply_inventory_movement` the single writer of
+    `inventory_balances`, which is now one function short since the bootstrap moved
+    into `ensure_inventory_balance_row`. The live catalogue comments are accurate;
+    only that one migration comment is stale.
+
+
 ## 6. Open items
 
 1. **A zero-delta `adjust_stock` call is not idempotent, and this is accepted, not
@@ -600,16 +631,17 @@ shape as the customers page fix.
    comment (`supabase/migrations/0027_inventory_rpcs.sql`) rather than fixed, per
    Task 3's controller decision.
 
-2. **`service_role` retains default-ACL `TRUNCATE` on all four inventory tables,**
-   in direct tension with this block's own claim that "immutability is a grant, not
-   a comment." `TRUNCATE` is neither `INSERT`, `UPDATE` nor `DELETE`, so nothing
-   this block wrote closes it — a single `TRUNCATE inventory_movements` statement
-   from `service_role` could still wipe the ledger. This is the same `Dxtm`
-   default-ACL leftover Block 1c's pre-flight scan already named for every new
-   table in `public` (grants that exist only until an explicit `GRANT`/`REVOKE`
-   overrides them), not something `0029` introduced — and closing it properly is a
-   project-wide default-ACL audit, not a one-migration patch. Recorded in Task 5's
-   report rather than fixed there, per the coordinator's explicit instruction.
+2. **`service_role`'s default-ACL `TRUNCATE` on the four inventory tables — closed
+   during the final review, recorded here because the reasoning changed.** The
+   original judgement was that closing it meant a project-wide default-ACL audit
+   rather than a one-migration patch. The whole-branch review disagreed for these
+   four tables specifically: `0029` already writes eight explicit grant and revoke
+   statements against exactly them, so one more line closed the gap without touching
+   any other table. `0029` now revokes `TRUNCATE` from `service_role` on all four,
+   and `02_permissions.test.sql` pins eight cells so a future migration cannot
+   reopen it silently. **The general default-ACL audit across the rest of the schema
+   remains open** — this closed the four tables where "immutability is a grant, not
+   a comment" is a claim the block actually makes.
 
 3. **The isolation suite's teardown still leaks accounts.** Every isolation file in
    this verification run printed a `cleanupUsers: could not delete N user(s)...`
