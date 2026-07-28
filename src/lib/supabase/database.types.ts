@@ -469,6 +469,299 @@ export type Database = {
           },
         ]
       }
+      member_blocks: {
+        Row: {
+          company_id: string | null
+          created_by: string | null
+          ends_at: string | null
+          id: string
+          kind: Database["public"]["Enums"]["member_block_kind"]
+          lift_reason: string | null
+          lifted_at: string | null
+          lifted_by: string | null
+          member_id: string
+          organization_id: string
+          reason: string | null
+          starts_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_by?: string | null
+          ends_at?: string | null
+          id?: string
+          kind: Database["public"]["Enums"]["member_block_kind"]
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          member_id: string
+          organization_id: string
+          reason?: string | null
+          starts_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_by?: string | null
+          ends_at?: string | null
+          id?: string
+          kind?: Database["public"]["Enums"]["member_block_kind"]
+          lift_reason?: string | null
+          lifted_at?: string | null
+          lifted_by?: string | null
+          member_id?: string
+          organization_id?: string
+          reason?: string | null
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_blocks_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "member_blocks_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      member_company_links: {
+        Row: {
+          company_id: string
+          linked_at: string
+          linked_by: string | null
+          member_id: string
+          organization_id: string
+        }
+        Insert: {
+          company_id: string
+          linked_at?: string
+          linked_by?: string | null
+          member_id: string
+          organization_id: string
+        }
+        Update: {
+          company_id?: string
+          linked_at?: string
+          linked_by?: string | null
+          member_id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_links_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "member_links_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      member_consents: {
+        Row: {
+          company_id: string
+          consent_type: Database["public"]["Enums"]["member_consent_type"]
+          granted: boolean
+          granted_at: string
+          id: string
+          member_id: string
+          organization_id: string
+          origin: string | null
+          promotion_id: string | null
+          recorded_by: string | null
+        }
+        Insert: {
+          company_id: string
+          consent_type: Database["public"]["Enums"]["member_consent_type"]
+          granted: boolean
+          granted_at?: string
+          id?: string
+          member_id: string
+          organization_id: string
+          origin?: string | null
+          promotion_id?: string | null
+          recorded_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          consent_type?: Database["public"]["Enums"]["member_consent_type"]
+          granted?: boolean
+          granted_at?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          origin?: string | null
+          promotion_id?: string | null
+          recorded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_consents_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "member_consents_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      member_notes: {
+        Row: {
+          body: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          member_id: string
+          organization_id: string
+        }
+        Insert: {
+          body?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          member_id: string
+          organization_id: string
+        }
+        Update: {
+          body?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          member_id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_notes_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "member_notes_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+        ]
+      }
+      members: {
+        Row: {
+          address_complement: string | null
+          address_line: string | null
+          address_number: string | null
+          anonymized_at: string | null
+          birth_date: string | null
+          city: string | null
+          cpf_hash: string | null
+          cpf_last_digits: string | null
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          discovery_source: string | null
+          email: string | null
+          email_normalized: string | null
+          first_contact_at: string | null
+          first_contact_origin: string | null
+          full_name: string | null
+          id: string
+          neighbourhood: string | null
+          organization_id: string
+          passport: string | null
+          phone: string | null
+          phone_normalized: string | null
+          postal_code: string | null
+          state: string | null
+          updated_at: string
+        }
+        Insert: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          anonymized_at?: string | null
+          birth_date?: string | null
+          city?: string | null
+          cpf_hash?: string | null
+          cpf_last_digits?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          discovery_source?: string | null
+          email?: string | null
+          email_normalized?: string | null
+          first_contact_at?: string | null
+          first_contact_origin?: string | null
+          full_name?: string | null
+          id?: string
+          neighbourhood?: string | null
+          organization_id: string
+          passport?: string | null
+          phone?: string | null
+          phone_normalized?: string | null
+          postal_code?: string | null
+          state?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          anonymized_at?: string | null
+          birth_date?: string | null
+          city?: string | null
+          cpf_hash?: string | null
+          cpf_last_digits?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          discovery_source?: string | null
+          email?: string | null
+          email_normalized?: string | null
+          first_contact_at?: string | null
+          first_contact_origin?: string | null
+          full_name?: string | null
+          id?: string
+          neighbourhood?: string | null
+          organization_id?: string
+          passport?: string | null
+          phone?: string | null
+          phone_normalized?: string | null
+          postal_code?: string | null
+          state?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_memberships: {
         Row: {
           created_at: string
@@ -826,6 +1119,10 @@ export type Database = {
         Args: { p_name: string; p_organization_id: string; p_timezone?: string }
         Returns: string
       }
+      add_member_note: {
+        Args: { p_body: string; p_company_id: string; p_member_id: string }
+        Returns: string
+      }
       adjust_stock: {
         Args: {
           p_company_id: string
@@ -835,6 +1132,13 @@ export type Database = {
           p_prize_id: string
         }
         Returns: string
+      }
+      anonymize_member: {
+        Args: {
+          p_member_id: string
+          p_reason: Database["public"]["Enums"]["member_erasure_reason"]
+        }
+        Returns: undefined
       }
       apply_inventory_movement: {
         Args: {
@@ -849,9 +1153,20 @@ export type Database = {
         }
         Returns: string
       }
+      archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       assign_company_role: {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
+        Returns: string
+      }
+      block_member: {
+        Args: {
+          p_company_id?: string
+          p_ends_at?: string
+          p_kind: Database["public"]["Enums"]["member_block_kind"]
+          p_member_id: string
+          p_reason: string
+        }
         Returns: string
       }
       change_org_role: {
@@ -871,6 +1186,29 @@ export type Database = {
           p_role_id: string
           p_token_hash: string
           p_ttl_days?: number
+        }
+        Returns: string
+      }
+      create_member: {
+        Args: {
+          p_address_complement?: string
+          p_address_line?: string
+          p_address_number?: string
+          p_birth_date?: string
+          p_city?: string
+          p_company_id: string
+          p_cpf_hash?: string
+          p_cpf_last_digits?: string
+          p_discovery_source?: string
+          p_email?: string
+          p_first_contact_at?: string
+          p_first_contact_origin?: string
+          p_full_name: string
+          p_neighbourhood?: string
+          p_passport?: string
+          p_phone?: string
+          p_postal_code?: string
+          p_state?: string
         }
         Returns: string
       }
@@ -903,6 +1241,16 @@ export type Database = {
         Args: { p_company_id: string; p_org: string; p_prize_id: string }
         Returns: undefined
       }
+      find_member_by_identifier: {
+        Args: {
+          p_cpf_hash?: string
+          p_email?: string
+          p_organization_id: string
+          p_passport?: string
+          p_phone?: string
+        }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_org_permission: {
         Args: { p_organization_id: string; p_permission: string }
@@ -913,9 +1261,21 @@ export type Database = {
         Returns: boolean
       }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
+      is_member_blocked: {
+        Args: { p_company_id: string; p_member_id: string }
+        Returns: boolean
+      }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      lift_member_block: {
+        Args: { p_block_id: string; p_reason: string }
+        Returns: undefined
+      }
+      link_member_to_company: {
+        Args: { p_company_id: string; p_member_id: string }
+        Returns: undefined
+      }
       list_manageable_companies: {
         Args: { p_organization_id: string; p_permission: string }
         Returns: {
@@ -924,6 +1284,20 @@ export type Database = {
           status: Database["public"]["Enums"]["company_status"]
         }[]
       }
+      member_linked_to_company: {
+        Args: { p_company_id: string; p_member_id: string }
+        Returns: boolean
+      }
+      member_reachable: {
+        Args: {
+          p_member_id: string
+          p_organization_id: string
+          p_permission: string
+        }
+        Returns: boolean
+      }
+      normalize_email: { Args: { p_email: string }; Returns: string }
+      normalize_phone: { Args: { p_phone: string }; Returns: string }
       provision_customer: {
         Args: {
           p_company_name: string
@@ -951,6 +1325,17 @@ export type Database = {
           prize_name: string
           stored: number
         }[]
+      }
+      record_member_consent: {
+        Args: {
+          p_company_id: string
+          p_consent_type: Database["public"]["Enums"]["member_consent_type"]
+          p_granted: boolean
+          p_member_id: string
+          p_origin?: string
+          p_promotion_id?: string
+        }
+        Returns: string
       }
       record_stock_entry: {
         Args: {
@@ -1014,6 +1399,27 @@ export type Database = {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined
       }
+      update_member: {
+        Args: {
+          p_address_complement?: string
+          p_address_line?: string
+          p_address_number?: string
+          p_birth_date?: string
+          p_city?: string
+          p_cpf_hash?: string
+          p_cpf_last_digits?: string
+          p_discovery_source?: string
+          p_email?: string
+          p_full_name: string
+          p_member_id: string
+          p_neighbourhood?: string
+          p_passport?: string
+          p_phone?: string
+          p_postal_code?: string
+          p_state?: string
+        }
+        Returns: undefined
+      }
       update_prize: {
         Args: {
           p_allows_return_to_stock?: boolean
@@ -1065,6 +1471,12 @@ export type Database = {
         | "RETURN_TO_STOCK"
         | "WRITE_OFF"
       invitation_status: "pending" | "accepted" | "revoked"
+      member_block_kind: "draw_ban" | "suspension"
+      member_consent_type: "rules" | "image_use" | "sponsor_communication"
+      member_erasure_reason:
+        | "subject_request"
+        | "court_order"
+        | "internal_policy"
       org_role: "owner" | "member"
       permission_scope: "organization" | "company"
     }
@@ -1227,6 +1639,13 @@ export const Constants = {
         "WRITE_OFF",
       ],
       invitation_status: ["pending", "accepted", "revoked"],
+      member_block_kind: ["draw_ban", "suspension"],
+      member_consent_type: ["rules", "image_use", "sponsor_communication"],
+      member_erasure_reason: [
+        "subject_request",
+        "court_order",
+        "internal_policy",
+      ],
       org_role: ["owner", "member"],
       permission_scope: ["organization", "company"],
     },
