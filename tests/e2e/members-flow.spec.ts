@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
-import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import {
+  LOCAL_SUPABASE_ANON_KEY,
+  LOCAL_SUPABASE_URL,
+  LOCAL_SUPABASE_SERVICE_ROLE_KEY,
+} from '../local-supabase';
 
 /**
  * The whole audience journey through the real UI (Block 3, Task 10).
@@ -85,10 +89,12 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
 }) => {
   // Two delegates, a role composed from scratch, a full registration +
   // consent + block round trip, and a duplicate check that must leak
-  // nothing — measured well past inventory-flow.spec.ts, the previous
-  // longest journey in this suite, which itself needed no override under the
-  // dev server. Set explicitly rather than left to the 30s default.
-  test.setTimeout(90_000);
+  // nothing — measured at 25.5-32.5s in isolation, past the 30s default.
+  // Sized to the work (~2x measured), not left at a round number: per-
+  // assertion waits stay at Playwright's 5s default, and the two
+  // network-bound steps that need longer already carry their own explicit
+  // 15s overrides below.
+  test.setTimeout(60_000);
 
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
@@ -96,6 +102,13 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await page.getByPlaceholder('Password').fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
+
+  // Identity #1: the "Platform admin" role label and the Customers console
+  // link only render for this identity (lib/auth/shell.ts) — asserting both
+  // here, not just that /admin/customers happened to be reachable, is the
+  // same pair inventory-flow.spec.ts checks for its own platform admin.
+  await expect(page.getByText(platformAdminEmail)).toBeVisible();
+  await expect(page.getByText('Platform admin')).toBeVisible();
 
   await page.getByRole('link', { name: 'Customers' }).click();
   await page.getByPlaceholder('Organization name').fill(orgName);
@@ -116,19 +129,48 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   if (!ownerProfile) throw new Error(`no profile row for ${ownerEmail}`);
   createdUserIds.push(ownerProfile.id);
 
-  // --- the platform admin adds a second Station, from the console only -----
-  // (the owner has no UI for this — add_company is platform-admin only, the
-  // same fact roles-flow.spec.ts's own journey relies on). Done now, while
-  // this row is already on screen, so the owner's Team screen sees both
-  // Stations from its very first render below — no second invite needs a
-  // reload to pick up a Station created after the fact.
-  const stationARow = page.locator('[data-testid="company-row"]', { hasText: stationAName });
-  await expect(stationARow).toBeVisible();
-  await stationARow.getByPlaceholder('New Station name').fill(stationBName);
-  await stationARow.getByRole('button', { name: 'Add Station' }).click();
-  await expect(
-    page.locator('[data-testid="company-row"]', { hasText: stationBName }),
-  ).toBeVisible({ timeout: 15_000 });
+  // --- a second Station, via a signed-in RPC call, not the console UI ------
+  // add_company (0017) is platform-admin only — everyone reaching
+  // /admin/customers already is one, the same fact roles-flow.spec.ts's own
+  // "Add Station" step relies on — but driving that specific form through
+  // the browser is not itself part of the members journey this spec exists
+  // to prove, and it was the exact step this spec's own full-suite run
+  // failed at under contention (Task 10 review, Important 3/minor 2).
+  //
+  // Not a raw service-role table insert: `companies` carries no INSERT grant
+  // for service_role (this schema's default ACL, same as rate_limit_counters'
+  // own comment describes — DML only where explicitly granted), and
+  // add_company's own `is_platform_admin()` check reads auth.uid(), which is
+  // null under the service-role JWT's own claims (no `sub`), so even calling
+  // the RPC with the `admin` client would be refused. Signing in as the
+  // already-provisioned platform admin and calling the RPC on THAT client
+  // mirrors tests/isolation/harness.ts's own `addCompany` helper exactly
+  // (`customer.adminClient.rpc('add_company', ...)`) — a real platform-admin
+  // session, just not one driven through a browser page. `status` defaults
+  // to 'active' (0003_identity_tenant.sql), so this Station is immediately
+  // usable for the invite below.
+  const { data: stationA, error: stationALookupError } = await admin
+    .from('companies')
+    .select('organization_id')
+    .eq('name', stationAName)
+    .single();
+  expect(stationALookupError).toBeNull();
+  if (!stationA) throw new Error(`no company row for ${stationAName}`);
+
+  const platformAdminClient = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: platformAdminSignInError } = await platformAdminClient.auth.signInWithPassword({
+    email: platformAdminEmail,
+    password: platformAdminPassword,
+  });
+  expect(platformAdminSignInError).toBeNull();
+
+  const { error: stationBInsertError } = await platformAdminClient.rpc('add_company', {
+    p_organization_id: stationA.organization_id,
+    p_name: stationBName,
+  });
+  expect(stationBInsertError).toBeNull();
 
   // --- the owner signs in and clears the provisional-password gate ---------
   const ownerContext = await browser.newContext();
@@ -312,6 +354,14 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   });
   await expect(blockRow).toBeVisible();
   await expect(blockRow.getByText(blockReason)).toBeVisible();
+  // "blocks them until a date," not merely "a block exists": the row renders
+  // either "until <date>" or ", no end date set" (BLOCK_KIND_LABELS' sibling
+  // text, [memberId]/page.tsx:353-356), distinguishing a dated block from an
+  // indefinite one. Without this, endsAt being dropped between the action
+  // and block_member's p_ends_at — or the RPC ignoring it — would still
+  // produce a block matching every assertion above (Task 10 review,
+  // Important 2).
+  await expect(blockRow).toContainText('until');
 
   // --- finds no way to erase --------------------------------------------------
   // The Audience Manager role never held members.erase. The "Erase personal
@@ -423,8 +473,31 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   // No digit at all: the panel's copy is static prose with no dynamic value
   // in it today, so a stray digit of any kind — a count, a fragment of an
   // id, a fragment of the very phone number delegate B just typed — is
-  // exactly the class of regression this line exists to catch.
+  // exactly the class of regression this line exists to catch. NOTE (Task 10
+  // review, Important 1): the two stationName checks above are currently
+  // DOMINATED by this one, since both names end in `${stamp}` — they cannot
+  // fail without this line failing first. They stay for documentation of
+  // intent (and would matter if the fixture's naming ever changed), but this
+  // line, not those two, is what actually guards a Station-name leak today.
   expect(elsewhereText).not.toMatch(/[0-9]/);
+  // "Who" — a name — is exactly what 0033 says must never leak, and a name
+  // is neither a UUID, a Station name, nor (in general) a digit. Named
+  // explicitly rather than left to ride on the digit rule above, which would
+  // only catch listenerName by the accident of it ending in `${stamp}`.
+  expect(elsewhereText).not.toContain(listenerName);
+  expect(elsewhereText).not.toContain(listenerPhone);
+
+  // innerText() cannot see an id sitting in an attribute — href, title,
+  // data-*, aria-label — only in rendered text. The single most likely real
+  // regression is someone copying the adjacent 'visible' branch's
+  // `<Link href={\`/members/${checkState.memberId}\`}>View this listener
+  // </Link>` (register-member-form.tsx:199-204) into this panel: its
+  // rendered text ("View this listener") contains no UUID, no digit, no
+  // Station name, and every assertion above would still pass while the
+  // member id sits one hover away in the href. Checked against the raw HTML
+  // specifically to close that gap (Task 10 review, Important 1).
+  const elsewhereHtml = await elsewherePanel.innerHTML();
+  expect(elsewhereHtml).not.toMatch(UUID_PATTERN);
 
   await delegateBContext.close();
   await delegateAContext.close();
