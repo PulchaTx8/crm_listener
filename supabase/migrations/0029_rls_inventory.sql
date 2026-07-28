@@ -22,12 +22,18 @@ revoke all on public.inventory_balances  from anon, authenticated;
 -- list.
 --
 -- Read gate only, on all four: `select` for authenticated, gated on
--- inventory.view, resolved from the row's own company_id. No deleted_at
--- filter on prize_categories/prizes here — unlike the identity-block tables,
--- inventory.view is meant to see the full catalogue including archived
--- entries (reconciliation and history need them too), and inventory_movements
--- / inventory_balances carry no deleted_at at all, so a uniform condition
--- across all four keeps the four policies readable as siblings.
+-- inventory.view, resolved from the row's own company_id. prize_categories
+-- and prizes ALSO filter deleted_at is null, the same convention every other
+-- soft-deleted table in this project uses at the policy (0006's companies,
+-- 0019's roles) — an ordinary select through PostgREST must not list archived
+-- rows just because whoever writes the next screen forgot to filter them out
+-- client-side. reconcile_inventory (0028) is not a reason to omit the filter:
+-- it is SECURITY DEFINER and runs as the table owner, so it never consults
+-- this policy at all — the same RLS-bypass 0024's own comment documents for
+-- why an inline EXISTS had to move into a SECURITY DEFINER helper. Filtering
+-- here costs that function nothing and closes a real gap in the ordinary
+-- read path. inventory_movements and inventory_balances carry no deleted_at
+-- at all, so no equivalent filter applies to them.
 --
 -- No table takes an insert, update or delete grant from any role, including
 -- service_role. On inventory_movements this is what makes the ledger's
@@ -43,11 +49,11 @@ grant select on public.inventory_balances  to authenticated;
 
 create policy prize_categories_select_inventory_view on public.prize_categories
   for select to authenticated
-  using (public.has_permission('inventory.view', company_id));
+  using (deleted_at is null and public.has_permission('inventory.view', company_id));
 
 create policy prizes_select_inventory_view on public.prizes
   for select to authenticated
-  using (public.has_permission('inventory.view', company_id));
+  using (deleted_at is null and public.has_permission('inventory.view', company_id));
 
 create policy inventory_movements_select_inventory_view on public.inventory_movements
   for select to authenticated

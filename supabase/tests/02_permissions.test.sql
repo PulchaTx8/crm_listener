@@ -1,5 +1,5 @@
 begin;
-select plan(51);
+select plan(65);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -173,6 +173,39 @@ select ok(not has_table_privilege('service_role', 'public.inventory_movements', 
 select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'UPDATE'),
           'service_role may not write the projection directly');
 
+-- Same guarantee, extended to the catalogue (post-review correction: the
+-- constraint is "no insert, update or delete grant to any role on any of the
+-- four tables", but until now only inventory_movements/inventory_balances
+-- were actually asserted — prizes and prize_categories had zero coverage, so
+-- a future migration granting so much as INSERT on prizes to authenticated
+-- would have passed this suite). Every write to either table goes through
+-- create_prize/update_prize/archive_prize/create_prize_category (0027), all
+-- SECURITY DEFINER.
+select ok(not has_table_privilege('authenticated', 'public.prizes', 'INSERT'),
+          'authenticated may not insert prizes directly');
+select ok(not has_table_privilege('authenticated', 'public.prizes', 'UPDATE'),
+          'authenticated may not update prizes directly');
+select ok(not has_table_privilege('authenticated', 'public.prizes', 'DELETE'),
+          'authenticated may not delete prizes directly');
+select ok(not has_table_privilege('service_role', 'public.prizes', 'INSERT'),
+          'service_role may not insert prizes directly either');
+select ok(not has_table_privilege('service_role', 'public.prizes', 'UPDATE'),
+          'service_role may not update prizes directly either');
+select ok(not has_table_privilege('service_role', 'public.prizes', 'DELETE'),
+          'service_role may not delete prizes directly either');
+select ok(not has_table_privilege('authenticated', 'public.prize_categories', 'INSERT'),
+          'authenticated may not insert prize categories directly');
+select ok(not has_table_privilege('authenticated', 'public.prize_categories', 'UPDATE'),
+          'authenticated may not update prize categories directly');
+select ok(not has_table_privilege('authenticated', 'public.prize_categories', 'DELETE'),
+          'authenticated may not delete prize categories directly');
+select ok(not has_table_privilege('service_role', 'public.prize_categories', 'INSERT'),
+          'service_role may not insert prize categories directly either');
+select ok(not has_table_privilege('service_role', 'public.prize_categories', 'UPDATE'),
+          'service_role may not update prize categories directly either');
+select ok(not has_table_privilege('service_role', 'public.prize_categories', 'DELETE'),
+          'service_role may not delete prize categories directly either');
+
 -- Block 2, Task 5 (post-review correction): reconcile_inventory (0028) is
 -- pure SQL — a recomputation from the ledger, joined against the stored
 -- projection — with no automated regression guard before this. A Station, a
@@ -248,6 +281,53 @@ select is(
   (select computed from reconcile_probe),
   3,
   'the computed figure is the true sum from the ledger (0 + 3 from the reservation, none of it withdrawn)'
+);
+
+-- Block 2, Task 5 fix round 1: the catalogue policies must filter deleted_at
+-- is null (review correction — reconcile_inventory does NOT exercise this
+-- policy, since it is SECURITY DEFINER and bypasses RLS entirely; the ordinary
+-- PostgREST read path is what needed the filter). This is an ORDINARY
+-- inventory.view holder — a real role, role_permissions grant and
+-- company_membership, not a platform_admin bypass — so the policy's own
+-- has_permission predicate is exercised the same way a real user would reach
+-- it, not just the deleted_at half of it.
+insert into public.organizations (id, name) values
+  ('99999999-0000-0000-0000-000000000020', 'Archived Prize Test Org');
+insert into public.companies (id, organization_id, name) values
+  ('99999999-0000-0000-0000-000000000021', '99999999-0000-0000-0000-000000000020', 'Archived Prize Test Station');
+insert into public.roles (id, organization_id, name) values
+  ('99999999-0000-0000-0000-000000000022', '99999999-0000-0000-0000-000000000020', 'Inventory Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('99999999-0000-0000-0000-000000000022', 'inventory.view');
+insert into auth.users (id, email) values
+  ('99999999-0000-0000-0000-000000000023', 'archived-prize-probe@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('99999999-0000-0000-0000-000000000023', '99999999-0000-0000-0000-000000000021',
+   '99999999-0000-0000-0000-000000000020', '99999999-0000-0000-0000-000000000022');
+
+insert into public.prizes (id, organization_id, company_id, name, deleted_at) values
+  ('99999999-0000-0000-0000-000000000024', '99999999-0000-0000-0000-000000000020',
+   '99999999-0000-0000-0000-000000000021', 'Live Catalogue Prize', null),
+  ('99999999-0000-0000-0000-000000000025', '99999999-0000-0000-0000-000000000020',
+   '99999999-0000-0000-0000-000000000021', 'Archived Catalogue Prize', now());
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "99999999-0000-0000-0000-000000000023", "role": "authenticated"}';
+
+create temporary table archived_prize_probe as
+select * from public.prizes where company_id = '99999999-0000-0000-0000-000000000021';
+
+reset role;
+
+select is(
+  (select count(*)::int from archived_prize_probe),
+  1,
+  'an ordinary inventory.view holder sees exactly one prize in this station'
+);
+select is(
+  (select id from archived_prize_probe),
+  '99999999-0000-0000-0000-000000000024'::uuid,
+  'the visible prize is the live one, not the archived one'
 );
 
 select * from finish();
