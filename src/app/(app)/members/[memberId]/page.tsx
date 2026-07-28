@@ -428,7 +428,24 @@ export default async function MemberDetailPage({
           </Card>
         )}
 
-        {canBlock && !erased && (
+        {/* stations.length > 0, same guard as Consent immediately above and
+            for the same reason (Task 9 re-review, Important): canBlock is
+            memberReachable(..., 'members.block', ...), true for an ordinary
+            delegate holding members.block at ANY Station this listener is
+            linked to (member_reachable's per-link exists(), 0033:58-66) —
+            but `stations` comes from listMemberStations, filtered by
+            member_company_links_select_reachable, which is gated on
+            members.view (0035:106-112), a DIFFERENT permission code
+            (0031:141-144). A delegate holding members.block without
+            members.view at the listener's only linked Station has exactly
+            canBlock === true and stations === [] — a real, reachable state,
+            not the "owner/platform-admin only" case an earlier draft of
+            this comment (and of block-form.tsx's own) claimed. Without this
+            guard such a caller saw a Scope picker offering only "Whole
+            Organization", which block_member's own has_org_permission gate
+            would then refuse for anyone who holds members.block only at
+            that one Station — a silent dead end, not a working form. */}
+        {canBlock && !erased && stations.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Block this listener</CardTitle>

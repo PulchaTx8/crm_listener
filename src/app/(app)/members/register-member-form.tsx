@@ -238,7 +238,13 @@ export function RegisterMemberForm({
           Station" as a knowable, colleague-populated place (Task 9 review,
           minor 3 — an earlier draft did, and promised reaching it would
           resolve things, which is false for cases 2 and 3), and softens
-          "will find" to "may find" for the same reason. */}
+          "will find" to "may find" for the same reason. A second-round fix
+          (Task 9 re-review, residual) went further: the first sentence used
+          to say "at a Station you can't currently reach", which still names
+          a Station as existing — true for case (1), but there is no Station
+          in play at all for case (2). It now says only that the listener
+          "is not visible to you right now", true under all three causes
+          without picking one. */}
       {checkState.status === 'checked' && checkState.outcome === 'elsewhere' && !manualEditing && (
         <div
           data-testid="member-check-elsewhere"
@@ -246,9 +252,9 @@ export function RegisterMemberForm({
         >
           <p>
             A listener matching one of these details is already registered in your Organization,
-            at a Station you can&apos;t currently reach. This screen can&apos;t show you who it is
-            or which Station — that is by design, the same as it would be for anyone else&apos;s
-            audience you cannot reach.
+            and is not visible to you right now. This screen can&apos;t show you who it is or
+            where — that is by design, the same as it would be for anyone else&apos;s audience
+            you cannot reach.
           </p>
           <p className="mt-2">
             Ask a colleague with broader access to look them up for you, or ask whoever manages

@@ -21,6 +21,18 @@ const INITIAL: BlockFormState = { status: 'idle' };
  * each un-lifted row in Block history, not this form — this form only ever
  * creates a new block row (block_member is append-only, like every table in
  * this block).
+ *
+ * `stations` is non-empty on every real render: [memberId]/page.tsx only
+ * mounts this component behind `stations.length > 0` (Task 9 re-review,
+ * Important — an earlier draft of both that gate and this file's own Scope
+ * comment claimed an empty list "can only happen for an owner/platform-admin
+ * caller", which was false: canBlock is true for an ORDINARY delegate
+ * holding members.block at any Station this listener is linked to, while
+ * `stations` itself is filtered by a DIFFERENT permission, members.view —
+ * see the gate's own comment in [memberId]/page.tsx for the full reasoning
+ * and the citations). `stations[0]?.companyId ?? ''` below is a type-level
+ * fallback for the empty array TypeScript still allows, not a real path this
+ * component expects to take.
  */
 export function BlockForm({
   memberId,
@@ -53,20 +65,15 @@ export function BlockForm({
             blast radius is backwards, even though block_member's own
             has_org_permission gate refuses most delegates who would try it
             by accident and a mistaken block is recoverable via Lift.
-            "Whole Organization" is still one click away — a deliberate
-            choice, not the untouched default. Falls back to "" only when
-            this listener has no reachable Station at all (stations is
-            empty), which can only happen for an owner/platform-admin caller
-            (member_reachable's own bypass), since anyone else without a
-            reachable link would not see this card at all. */}
+            "Whole Organization" is still one click away, listed last — a
+            deliberate choice, not the untouched default. */}
         <Select name="companyId" defaultValue={stations[0]?.companyId ?? ''}>
-          {stations.length === 0 && <option value="">Whole Organization</option>}
           {stations.map((s) => (
             <option key={s.companyId} value={s.companyId}>
               {s.companyName}
             </option>
           ))}
-          {stations.length > 0 && <option value="">Whole Organization</option>}
+          <option value="">Whole Organization</option>
         </Select>
       </label>
 
