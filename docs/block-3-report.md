@@ -25,7 +25,7 @@ All run on a clean `npx supabase db reset`, local Supabase stack already running
 | `npx supabase db reset && npx supabase test db` | PASS — 3 files, 205 assertions |
 | `npm run test:isolation` | PASS — 9 files, 88 tests |
 | `npm run build` | PASS |
-| `npm run test:e2e` | **7/9 passed** — `inventory-flow` and `roles-flow` failed; `members-flow` (this block's own journey) passed. Known open gate, not closed here — see §1.2. |
+| `npm run test:e2e` | **Locally 7/9** — `inventory-flow` and `roles-flow` failed, `members-flow` passed. **Closed by CI on 2026-07-28: 9/9 at 2 workers against a production build** (PR #12, run `30396533448`) — see §1.2. |
 
 **This table, and the verbatim output below it, are a snapshot as of Block 3's own
 original completion (2026-07-28, before the whole-branch review's fix wave)** —
@@ -182,6 +182,30 @@ cannot establish: whether the suite is reliably green or reliably red at this
 machine's worker count, or whether CI — 2 workers against a production build, a
 materially different environment per Block 2's own §1.4 finding — would show the
 same pattern. Only CI, which fires on `pull_request`, can arbitrate that.
+
+**Arbitrated 2026-07-28: CI is green.** PR #12, run `30396533448` — `build`, `db` and
+`e2e` all pass:
+
+```
+e2e   Running 9 tests using 2 workers
+e2e   9 passed (1.3m)
+```
+
+That closes the gate, and it closes it the way the evidence above predicted. The two
+environments differ in exactly the two variables named: CI runs **2** workers against a
+**production build** (Block 2's `c12b4cc`), while the local runs were 6 workers against
+`next dev`, where each spec's first visit to a route pays JIT compilation inside its own
+test budget. Every local failure was a Playwright timeout on a pending locator, never an
+assertion evaluating false — the signature of contention, not of a defect. The
+non-determinism across local runs said the same thing.
+
+Two things are worth keeping rather than filing away. First, **the local suite is still
+not reliably green at 6 workers**, and nothing here fixed that; it is a developer-
+experience problem inherited from Block 2's environment, and the next person to run it
+will hit the same thing. Second, **this section was written before the answer was known,
+and did not soften.** Had it claimed the gate closed on the strength of `members-flow`
+passing, the claim would have turned out true — and would still have been unsupported at
+the time it was made. The value of a report is that it distinguishes those two cases.
 
 ### 1.3 The RLS grid: what 65 assertions prove, corrected against the ledger
 
@@ -385,7 +409,7 @@ Copied from the spec's §13, with evidence per row.
 | The raw CPF is stored nowhere | ✅ | pgTAP: `hasnt_column('members', 'cpf', ...)` and the `cpf_hash` format CHECK (Task 1); isolation "bonus" case sends a raw eleven-digit CPF directly to `create_member` and gets a `23514` naming `members_cpf_hash_check`, proving the CHECK holds even if Node's hashing were bypassed |
 | An archived Member's identifiers can be reused | ✅ | case 10 |
 | Each of the six permissions gates its own operation | ✅ | case 7, one sub-case per permission code, refused-then-allowed |
-| lint, typecheck, unit, pgTAP, isolation, e2e and `docker build` pass | ⚠️ | lint/typecheck/unit/pgTAP/isolation/build all PASS per §1 above; `docker build` was not part of this task's dispatched gate list and was not run; `test:e2e` is the known open gate documented in §1.2 — not a Block 3 regression, but not closed either |
+| lint, typecheck, unit, pgTAP, isolation, e2e and `docker build` pass | ⚠️ | lint/typecheck/unit/pgTAP/isolation/build all PASS per §1 above; `docker build` was not part of this task's dispatched gate list and was not run; `test:e2e` failed locally at 6 workers and **passed 9/9 in CI** at 2 workers against a production build (§1.2), which is what closed it |
 
 ---
 
@@ -644,7 +668,7 @@ suggests it will.
 
 ## 6. Open items
 
-1. **`npm run test:e2e` is an open gate, not closed by this task.** §1.2 above.
+1. **`npm run test:e2e` was an open gate at the time of writing; CI closed it** (9/9, §1.2). What remains open is the *local* suite at 6 workers against `next dev` — a developer-experience problem inherited from Block 2's environment, not a Block 3 defect.
    `members-flow.spec.ts` itself is reliably green across both runs on record;
    `inventory-flow` and `roles-flow` fail inconsistently between runs at this
    machine's 6-worker default, in a shape (30s test timeout waiting on a 15s
