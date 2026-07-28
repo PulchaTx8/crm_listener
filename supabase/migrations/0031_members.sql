@@ -20,7 +20,11 @@ create table public.members (
   -- The raw CPF is hashed in Node before it ever reaches here, the same way Block 1b
   -- handles an invitation token: an argument passed to an RPC lands in query logs and
   -- in backups. cpf_last_digits is what a person confirms against out loud.
-  cpf_hash            text,
+  -- A raw CPF is eleven digits; a SHA-256 hex digest is sixty-four hex characters.
+  -- The two shapes cannot be confused, so the format check refuses a raw CPF
+  -- outright — the guarantee that this column never holds one does not rest
+  -- solely on the Node code (Task 6) remembering to hash it first.
+  cpf_hash            text check (cpf_hash is null or cpf_hash ~ '^[0-9a-f]{64}$'),
   cpf_last_digits     text check (cpf_last_digits is null or cpf_last_digits ~ '^[0-9]{3}$'),
   passport            text,
 
@@ -53,9 +57,15 @@ comment on table public.members is 'The audience. Organization-scoped identity; 
 comment on column public.members.cpf_hash is 'SHA-256 of the normalised CPF, hashed in Node. The raw number is stored nowhere and appears in no query log.';
 comment on column public.members.anonymized_at is 'Set by anonymize_member. The row survives so participations and deliveries still reference something; the person does not.';
 
--- Identity, per Organization. Each carries `and <column> is not null` so two Members
--- without an e-mail do not collide with each other — the trap a bare partial index
--- on a nullable column walks into.
+-- Identity, per Organization. Each carries `and <column> is not null` — but that
+-- term is NOT what stops two Members with no e-mail from colliding: Postgres
+-- unique indexes are NULLS DISTINCT by default, so two nulls are never equal to
+-- each other regardless of this predicate. What the term actually does is keep
+-- every row that asserts no identity (no e-mail, no phone, ...) out of the index
+-- entirely — a null row has no identity to defend, so it has no business
+-- occupying space in an index built to catch collisions. A future reader who
+-- drops the term for being "redundant" is trading index size, not correctness;
+-- NULLS DISTINCT holds either way.
 create unique index members_phone_unique
   on public.members (organization_id, phone_normalized)
   where deleted_at is null and phone_normalized is not null;
