@@ -164,6 +164,57 @@ Full transcripts, including the failing-then-passing run for the three new
 isolation cases, are in
 `.superpowers/sdd/2026-07-27-block-2-inventory-prizes/final-fix-report.md`.
 
+### 1.4 The recurrence §1.1 left the door open for, and what it turned out to be
+
+§1.1 settled the flakiness question *for that environment* and said plainly that a
+recurrence "under CI's own resource constraints" would be new evidence rather than a
+contradiction. CI produced exactly that, twice, on this branch:
+
+| Run | Head | e2e |
+| --- | --- | --- |
+| 30332248484 | `bfc8ee2` | FAIL — `inventory-flow.spec.ts`, 7 passed |
+| 30335219919 | `9383d29` | PASS — 8 passed (55.4s) |
+| 30335772315 | `951f704` | FAIL — `inventory-flow.spec.ts`, 7 passed |
+
+`951f704` changes one markdown file and no code, which is what rules out the diff as
+the cause. Both failures are the same test with the same signature — `Test timeout of
+30000ms exceeded`, and a call log ending in `Test ended.`, which is Playwright killing
+a still-pending `expect` rather than an assertion evaluating false. Had the reservation
+actually failed, `reservation-forms.tsx:45` would have rendered its error paragraph and
+the `expect` would have burned its own full 5s first.
+
+**Root cause: route compilation was inside the measured window.** `next dev` compiles
+each route on its first request, and `reuseExistingServer: !process.env.CI` means CI
+never reuses a warm server. That compilation landed inside the first test to reach a
+route, counted against Playwright's default 30s test budget.
+`inventory-flow.spec.ts` is the only spec that visits `/inventory` and
+`/inventory/[prizeId]`, and it is also the longest journey in the suite —
+provisioning, a forced password change, role composition, an invitation and an accept,
+before the stock journey begins — so it paid for both and had the least room left. The
+five local runs in §1.1 never saw this because a developer's dev server is already warm.
+
+The fix (`c12b4cc`) runs the suite against a production build in CI. The measurement,
+from the e2e job's own timestamps:
+
+```
+09:26:55.6  playwright test starts (webServer begins `npm run build`)
+09:27:39.7  build finished, server starting          → ~44s of build
+09:27:40.4  Running 8 tests using 2 workers
+09:28:04.1  8 passed                                  → ~24s of tests
+```
+
+The whole suite now runs in about the time a *single* test used to fail to fit into.
+Retries stay at 0 — a journey that passes on the second attempt is a journey that
+failed — so the trace is `retain-on-failure` rather than `on-first-retry`, which with
+no retries configured would never have fired.
+
+**A gap this exposed in the gate itself:** no `reporter` was configured, so Playwright
+used the dot reporter, wrote no `playwright-report/`, and the workflow's
+"upload the report on failure" step had been uploading nothing for the whole block. The
+artifact for the failed run does not exist — this had to be diagnosed from the diff and
+the log rather than from a trace. The html reporter is now configured, so the next
+failure arrives with one.
+
 ---
 
 ## 2. Proof that the invariant tests still bite
@@ -661,6 +712,23 @@ shape as the customers page fix.
    into `auth.users`, added by this block on top of the ones already named above —
    any user who has ever registered a prize or recorded a movement now joins the
    set `cleanupUsers` cannot remove.
+
+4. **CI's e2e server is `next start`, while `next.config.mjs` sets
+   `output: 'standalone'`.** The fix in §1.4 made the e2e job build for production, and
+   Next now prints one warning per run: `"next start" does not work with
+   "output: standalone" configuration. Use "node .next/standalone/server.js" instead.`
+   The suite passes — `next start` serves the same build output — but two things are
+   true and neither is closed. The gate's output is no longer pristine, which is a
+   standard this project holds elsewhere. And if the deployment target is the
+   standalone server, the e2e suite is exercising a different entry point from the one
+   production runs. Closing it means copying `.next/static` and `public/` into
+   `.next/standalone/` before launching `node .next/standalone/server.js` — shell
+   fragile enough inside `playwright.config.ts` that the owner's decision on
+   2026-07-28 was to leave it and record it here rather than risk the gate for parity
+   that may not apply. **The prior question is whether `output: 'standalone'` is still
+   wanted at all:** on Vercel it is ignored and removing it would end the warning
+   outright; for a container deployment it should stay, and then the e2e server is the
+   thing that should change.
 
 4. **Idempotency keys are not wired into any of the six movement forms.** Every
    movement RPC accepts an `idempotency_key` parameter and the ledger's partial
