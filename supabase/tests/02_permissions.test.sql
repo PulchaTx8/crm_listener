@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(32);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -88,6 +88,32 @@ select ok(not has_table_privilege('authenticated', 'public.role_permissions', 'I
           'authenticated may not write role_permissions directly');
 select ok(not has_table_privilege('authenticated', 'public.invitation_companies', 'INSERT'),
           'authenticated may not write invitation Stations directly');
+
+-- Block 3: the raw CPF has nowhere to live.
+select hasnt_column('public', 'members', 'cpf', 'there is no raw CPF column');
+
+-- Normalisation IS identity. If these stop being generated, dedup stops working and
+-- the duplicates look legitimate.
+select is(
+  (select is_generated from information_schema.columns
+    where table_name = 'members' and column_name = 'phone_normalized'),
+  'ALWAYS',
+  'phone_normalized is generated, not hand-maintained'
+);
+
+-- Two Members with no e-mail must not collide. A partial unique index that omits the
+-- not-null term makes the second one impossible to register.
+insert into public.organizations (id, name) values ('eeeeeeee-0000-0000-0000-000000000001', 'Org M');
+insert into public.members (organization_id, full_name) values
+  ('eeeeeeee-0000-0000-0000-000000000001', 'No Contact One'),
+  ('eeeeeeee-0000-0000-0000-000000000001', 'No Contact Two');
+select pass('two Members without an e-mail can both exist');
+
+select is(
+  (select count(*)::int from public.permissions where module = 'members' and scope = 'company'),
+  6,
+  'six Member permissions, all Company-scoped'
+);
 
 select * from finish();
 rollback;
