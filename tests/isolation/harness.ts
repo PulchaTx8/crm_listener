@@ -1,10 +1,19 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../src/lib/supabase/database.types';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// Resolved from this file's own location, not process.cwd() — vitest happens
+// to run from the repo root today, but a helper that only works from one
+// particular working directory is a trap for whoever runs it differently
+// tomorrow (a workspace script, an IDE test runner, a future CI step).
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export const admin = createClient<Database>(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -239,4 +248,127 @@ export async function addCompany(customer: ProvisionedCustomer, name: string): P
   });
   if (error) throw new Error(`add_company failed: ${error.message}`);
   return data as string;
+}
+
+/**
+ * Registers a prize through the real create_prize RPC, as the owner. Pure
+ * fixture setup for inventory.test.ts: catalogue creation is not itself under
+ * test in most of that suite's cases, so the owner's bypass is fine here —
+ * every case still performs the operation it actually names through its own
+ * delegate client.
+ */
+export async function createPrizeAs(
+  customer: ProvisionedCustomer,
+  name: string,
+  companyId: string = customer.companyId,
+): Promise<string> {
+  const ownerClient = await signInAs(customer.email, customer.password);
+  const { data, error } = await ownerClient.rpc('create_prize', {
+    p_company_id: companyId,
+    p_name: name,
+  });
+  if (error) throw new Error(`create_prize failed: ${error.message}`);
+  return data as string;
+}
+
+/**
+ * Composes a role holding exactly `permissionCodes` and attaches a member to
+ * it in the given Companies (the customer's one Station by default) — the
+ * create_role + addMemberByInvitation pair that inventory.test.ts's non-owner
+ * delegates need everywhere. `label` must be unique per call within a test
+ * (it names both the role and the invited email), the same way every other
+ * harness helper is used.
+ */
+export async function grantRoleWith(
+  customer: ProvisionedCustomer,
+  label: string,
+  permissionCodes: string[],
+  companyIds: string[] = [customer.companyId],
+): Promise<{ userId: string; email: string; password: string; roleId: string }> {
+  const roleId = await createRoleAs(customer, `Role-${label}`, permissionCodes);
+  const member = await addMemberByInvitation(customer, label, roleId, companyIds);
+  return { ...member, roleId };
+}
+
+const BALANCE_COLUMNS = [
+  'available',
+  'reserved',
+  'linked',
+  'awaiting_pickup',
+  'pending_return',
+  'delivered',
+  'written_off',
+] as const;
+type BalanceColumn = (typeof BALANCE_COLUMNS)[number];
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Adds `delta` directly to one bucket of one inventory_balances row, entirely
+ * outside apply_inventory_movement — which is the one write no client can
+ * make through the API, by design. 0029 revokes insert/update/delete from
+ * every role on this table, including service_role (its own comment: "No
+ * table takes an insert, update or delete grant from any role, including
+ * service_role"), and Task 5's pgTAP suite pins
+ * `has_table_privilege('service_role', 'public.inventory_balances',
+ * 'UPDATE')` as false. Confirmed live against this stack too: a PATCH through
+ * PostgREST with the service-role key returns 42501, "permission denied for
+ * table inventory_balances" — there is no supabase-js client, service-role or
+ * otherwise, that can write this table.
+ *
+ * Reconciliation (0028) exists precisely to catch this failure mode — its own
+ * comment names it: "a balance row with no movements behind it (for instance
+ * one written to directly, bypassing the ledger)". Proving that requires
+ * actually producing that state, and the only route left is the one a human
+ * operator would have to use too: a direct connection to Postgres, as its
+ * superuser, outside the API entirely. `supabase db query --local` is that
+ * connection.
+ *
+ * Invoked via the CLI's own JS entrypoint through node.exe, rather than the
+ * `.bin/supabase.cmd` shim: on Windows, `.cmd` files can only be exec'd with
+ * `shell: true`, and `shell: true` re-tokenizes a repository path that
+ * contains a space (this one) into garbage before the CLI ever sees it.
+ * company_id/prize_id are validated as UUIDs before they are interpolated,
+ * since this builds a raw SQL string rather than a parameterised query.
+ *
+ * The CLI's own stdout is captured and checked for the `UPDATE 1` command tag
+ * rather than discarded: a WHERE clause that matches nothing still exits 0
+ * with `UPDATE 0`, and a caller who passed the wrong company_id/prize_id
+ * would otherwise see reconcile_inventory report nothing changed and read
+ * that as "reconciliation missed the divergence" — exactly the wrong
+ * diagnosis under this suite's own rule that a failure here names a real
+ * defect in the migrations. Failing loudly here, in the harness, keeps that
+ * misdiagnosis from ever reaching a test assertion.
+ */
+export function corruptBalanceDirectly(
+  companyId: string,
+  prizeId: string,
+  column: BalanceColumn,
+  delta: number,
+): void {
+  if (!UUID_RE.test(companyId) || !UUID_RE.test(prizeId)) {
+    throw new Error('corruptBalanceDirectly: company_id and prize_id must be UUIDs');
+  }
+  if (!BALANCE_COLUMNS.includes(column)) {
+    throw new Error(`corruptBalanceDirectly: unknown balance column ${column}`);
+  }
+  if (!Number.isInteger(delta)) {
+    throw new Error('corruptBalanceDirectly: delta must be an integer');
+  }
+
+  const script = path.join(REPO_ROOT, 'node_modules', 'supabase', 'dist', 'supabase.js');
+  const sql =
+    `update inventory_balances set ${column} = ${column} + (${delta}) ` +
+    `where company_id = '${companyId}' and prize_id = '${prizeId}';`;
+
+  const output = execFileSync(process.execPath, [script, 'db', 'query', '--local', sql], {
+    encoding: 'utf8',
+  });
+
+  if (!/\bUPDATE 1\b/.test(output)) {
+    throw new Error(
+      `corruptBalanceDirectly: expected to update exactly one inventory_balances row ` +
+        `(company_id=${companyId}, prize_id=${prizeId}, column=${column}); the CLI reported: ${output.trim()}`,
+    );
+  }
 }

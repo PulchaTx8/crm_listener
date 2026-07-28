@@ -55,12 +55,28 @@ export default async function TeamPage() {
   // Two queries joined in JS, not a PostgREST embed: organization_memberships
   // and profiles both reference auth.users, so there is no foreign key for an
   // embed to travel along and it would fail with PGRST200 (Block 1a review).
+  //
+  // Batched, not one `.in(...)` across every member of this Organization: the
+  // same unbounded-IN-list defect Block 2 Task 10 found and fixed on
+  // admin/customers/page.tsx (a real 414 there, at 268 owners platform-wide).
+  // Scoped to one Organization here, so the count is far lower — but it is the
+  // same defect class at its other occurrence, and chunking costs nothing
+  // when the list is short.
   const userIds = [...new Set((memberships ?? []).map((m) => m.user_id))];
-  const { data: profiles, error: profilesError } = userIds.length
-    ? await supabase.from('profiles').select('id, email, full_name').in('id', userIds)
-    : { data: [], error: null };
-
-  if (profilesError) logger.error({ err: profilesError }, 'could not load member profiles');
+  const MEMBER_PROFILE_BATCH_SIZE = 100;
+  const profiles: { id: string; email: string; full_name: string | null }[] = [];
+  for (let i = 0; i < userIds.length; i += MEMBER_PROFILE_BATCH_SIZE) {
+    const batch = userIds.slice(i, i + MEMBER_PROFILE_BATCH_SIZE);
+    const { data: batchProfiles, error: batchError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name')
+      .in('id', batch);
+    if (batchError) {
+      logger.error({ err: batchError }, 'could not load a batch of member profiles');
+      continue;
+    }
+    profiles.push(...(batchProfiles ?? []));
+  }
 
   const profileByUser = new Map((profiles ?? []).map((p) => [p.id, p]));
 
@@ -78,15 +94,25 @@ export default async function TeamPage() {
   // deleted_at is null, so a role archived after the invitation was sent comes
   // back missing here — which is also exactly the case validate_invitation
   // refuses on acceptance, so the fallback below must not say "Member".
+  //
+  // Batched for the same reason as the profiles read above: same defect
+  // class, same fix, scoped to one Organization's pending invitations.
   const roleIds = [
     ...new Set((invitations ?? []).map((i) => i.role_id).filter((id): id is string => id !== null)),
   ];
-  const { data: invitationRoles, error: invitationRolesError } = roleIds.length
-    ? await supabase.from('roles').select('id, name').in('id', roleIds)
-    : { data: [], error: null };
-
-  if (invitationRolesError) {
-    logger.error({ err: invitationRolesError }, 'could not load invitation roles');
+  const INVITATION_ROLE_BATCH_SIZE = 100;
+  const invitationRoles: { id: string; name: string }[] = [];
+  for (let i = 0; i < roleIds.length; i += INVITATION_ROLE_BATCH_SIZE) {
+    const batch = roleIds.slice(i, i + INVITATION_ROLE_BATCH_SIZE);
+    const { data: batchRoles, error: batchError } = await supabase
+      .from('roles')
+      .select('id, name')
+      .in('id', batch);
+    if (batchError) {
+      logger.error({ err: batchError }, 'could not load a batch of invitation roles');
+      continue;
+    }
+    invitationRoles.push(...(batchRoles ?? []));
   }
 
   const roleNameById = new Map((invitationRoles ?? []).map((r) => [r.id, r.name]));

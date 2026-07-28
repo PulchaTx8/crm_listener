@@ -57,13 +57,33 @@ export default async function CustomersPage({
 
   const ownerUserIds = [...new Set((owners ?? []).map((o) => o.user_id))];
 
-  const { data: ownerProfiles, error: profilesError } = ownerUserIds.length
-    ? await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
-    : { data: [], error: null };
+  // Batched, not one `.in(...)` across every owner this platform has ever
+  // provisioned: PostgREST folds an `.in()` filter into the request's query
+  // string, and enough owners push that string past the server's URI-length
+  // limit — a real 414 this project's own local stack started returning once
+  // it had accumulated 268 owners across its development history. That error
+  // was being logged and swallowed exactly like every other read on this
+  // page, so the console never showed it — it silently rendered every
+  // "Owner: " line with a blank e-mail instead, for every Company, not just
+  // one. Chunking keeps each request's IN-list short regardless of how many
+  // Organizations exist, rather than merely postponing the same failure to a
+  // higher count.
+  const OWNER_PROFILE_BATCH_SIZE = 100;
+  const ownerProfiles: { id: string; email: string }[] = [];
+  for (let i = 0; i < ownerUserIds.length; i += OWNER_PROFILE_BATCH_SIZE) {
+    const batch = ownerUserIds.slice(i, i + OWNER_PROFILE_BATCH_SIZE);
+    const { data: batchProfiles, error: batchError } = await supabase
+      .from('profiles')
+      .select('id, email')
+      .in('id', batch);
+    if (batchError) {
+      logger.error({ err: batchError }, 'could not load a batch of owner profiles');
+      continue;
+    }
+    ownerProfiles.push(...(batchProfiles ?? []));
+  }
 
-  if (profilesError) logger.error({ err: profilesError }, 'could not load owner profiles');
-
-  const emailByUser = new Map((ownerProfiles ?? []).map((p) => [p.id, p.email]));
+  const emailByUser = new Map(ownerProfiles.map((p) => [p.id, p.email]));
 
   const ownerByOrganization = new Map<string, { userId: string; email: string }>();
   for (const row of owners ?? []) {
