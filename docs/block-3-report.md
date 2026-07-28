@@ -27,6 +27,16 @@ All run on a clean `npx supabase db reset`, local Supabase stack already running
 | `npm run build` | PASS |
 | `npm run test:e2e` | **7/9 passed** — `inventory-flow` and `roles-flow` failed; `members-flow` (this block's own journey) passed. Known open gate, not closed here — see §1.2. |
 
+**This table, and the verbatim output below it, are a snapshot as of Block 3's own
+original completion (2026-07-28, before the whole-branch review's fix wave)** —
+frozen at the specific commit that snapshot was taken against, not updated in place,
+the same way a historical log is not rewritten after the fact. The whole-branch
+review's fix wave changed these counts: as of that fix wave, `npm test` passes
+164 tests (was 161), `npx supabase test db` passes 220 assertions (was 205), and
+`npm run test:isolation` passes 90 tests (was 88, then 89, then 90 across two rounds
+of that review). See `.superpowers/sdd/2026-07-28-block-3-members/final-fix-report.md`
+for the current verbatim output and what changed the counts.
+
 Verbatim output:
 
 ```
@@ -510,10 +520,13 @@ review finding, not by the plan or the controller:**
 
 ### 5.5 The comment-defect class, and why it kept recurring in exactly this shape
 
-Eight instances of the same defect — a comment describing a mechanism the code
-does not actually have — have now shipped across this project; six of the eight
-are in this block (Task 1, 3, 4, 5, 6, 9). The mechanism behind it is nameable, and
-it is not carelessness about writing comments. The worst instances in this block
+**Tally as of Block 3's own completion, 2026-07-28, before the whole-branch review's
+fix wave** (stated as of that date deliberately, rather than updated in place —
+see the note below): eight instances of the same defect — a comment describing a
+mechanism the code does not actually have — had shipped across this project at that
+point; six of the eight were in this block (Task 1, 3, 4, 5, 6, 9). The mechanism
+behind it is nameable, and it is not carelessness about writing comments. The worst
+instances in this block
 were comments **justifying a decision** — Task 5's false claim that calling
 `member_reachable` from the `members` policy would cause RLS recursion (when the
 inline alternative it defended did exactly the same re-entry, and the project's
@@ -536,6 +549,23 @@ from a comment: claims that several test assertions were mutually independent,
 which were really unexamined claims about the fixture data (every value in that
 suite ends in the same timestamp, so a "the id never appears" check and a "the
 name never appears" check were never actually independent of each other).
+
+**This tally moved during the whole-branch review's own fix wave, which is itself
+further evidence of the pattern this section names.** The review found and fixed
+at least two more instances in the block's own code (I3 in `format.ts`, I4 in the
+isolation suite's own needle-independence claim), one instance independently
+restated verbatim in this report at §5.4 point 3 (the same `is_member_blocked`
+justification, corrected in both places together once the function it described
+changed), and — in the fix wave's own re-review — four more instances the fix
+wave's own first pass had freshly introduced, caught and corrected before merge
+(a guard's own comment describing the wrong RLS-policy arm it mirrored; a stale
+"no permission gate" claim about the same guard; a "the only columns" claim a
+different fix in the same pass made false one file below it; and a revoke
+statement's comment overclaiming what a `REVOKE` can protect against a later
+migration). The exact current count is left unstated here, as of this date,
+rather than restated as a new fixed number that would only go stale again the
+next time this exact class of defect recurs — which this paragraph's own history
+suggests it will.
 
 ### 5.6 Smaller findings worth naming plainly
 

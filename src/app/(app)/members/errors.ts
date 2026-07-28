@@ -15,15 +15,23 @@ import {
  * Every read the two Task 8 screens perform — listOrganizationMembers,
  * getMember, listMemberConsents, listMemberNotes, listMemberBlocks,
  * listMemberStations, canViewAudience — reads a table or calls
- * is_member_blocked/has_org_permission, neither of which raises anything
- * beyond InternalError today: is_member_blocked and has_org_permission are
- * plain boolean predicates with no permission gate of their own to refuse,
- * and a `.from(...)` select either returns rows (possibly zero, which is not
- * an error) or a genuine database fault. The full taxonomy is mapped anyway,
- * the same reasoning describeInventoryReadError (inventory/errors.ts) gives
- * for its own read-only callers: collapsing it to one generic message would
- * work today and silently stop being true the moment a read on this surface
- * starts going through a gated RPC, which Task 9's forms will add nearby.
+ * is_member_blocked/has_org_permission. has_org_permission is a plain boolean
+ * predicate with no permission gate of its own to refuse. is_member_blocked is
+ * NOT one any more (whole-branch review, I1 — an earlier version of this
+ * comment described it as one, which the same review's own fix falsified):
+ * it now re-checks the caller is the platform admin, the Organization owner,
+ * or holds members.view at the Station asked about, and raises 42501
+ * otherwise, mapped by mapMemberError (services/members.ts) to
+ * UnauthorizedError exactly like every gated RPC's own refusal. This function
+ * still maps that case correctly (the `UnauthorizedError` branch below), so
+ * no behaviour changed here — only what this comment claimed about why that
+ * branch is reachable. A `.from(...)` select either returns rows (possibly
+ * zero, which is not an error) or a genuine database fault; the full taxonomy
+ * is mapped anyway, the same reasoning describeInventoryReadError
+ * (inventory/errors.ts) gives for its own read-only callers: collapsing it to
+ * one generic message would work today and silently stop being true the
+ * moment another read on this surface starts going through a gated call, the
+ * same way is_member_blocked already has.
  */
 export function describeMembersReadError(cause: unknown): string {
   if (cause instanceof ConflictError) return cause.message;

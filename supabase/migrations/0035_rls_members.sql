@@ -196,10 +196,16 @@ grant select on public.member_blocks        to service_role;
 -- fresh `public` table grants (0029's own finding: none of the three to begin with)
 -- and asserted only in 02_permissions.test.sql's prose, not written down as a decision
 -- anywhere in this migration (whole-branch review, minor). Made structural here
--- instead, so the block's headline "every write goes through one of the nine RPCs"
--- invariant does not rest entirely on nobody ever adding one of these three grants by
--- mistake in some later migration going unnoticed against a default ACL that already
--- (coincidentally) agreed with it.
+-- instead: this migration now DECLARES the invariant explicitly rather than relying on
+-- it holding only because nothing had granted these privileges yet. This revoke cannot
+-- undo or even detect a GRANT a later migration might add — a `grant insert ...` at
+-- some future 0040 would simply override it, the same as any other ACL change applied
+-- after this one runs; a corrected version of an earlier draft of this comment claimed
+-- otherwise. What actually catches that, at whatever point 0040 is applied and the
+-- suite is next run, is 02_permissions.test.sql's own `has_table_privilege` grid
+-- (whole-branch review, re-review) — this revoke is a legitimate declaration of intent
+-- for the state as of this migration, not a standing guard against every migration
+-- that follows it.
 revoke insert, update, delete on public.members              from anon, authenticated, service_role;
 revoke insert, update, delete on public.member_company_links from anon, authenticated, service_role;
 revoke insert, update, delete on public.member_consents      from anon, authenticated, service_role;

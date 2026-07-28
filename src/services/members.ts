@@ -274,11 +274,14 @@ export const MEMBER_SEARCH_MAX_LENGTH = 100;
  * separators; wrapping the whole value in double quotes suspends that
  * parsing for everything between them, and a literal double quote or
  * backslash inside the value is itself backslash-escaped first so a search
- * term matching one of the four fields below (full_name, phone, email,
- * cpf_last_digits — the only columns any `.or()` clause in this file ever
- * targets) cannot break out of the quoting it is sitting inside. Exported
- * for its own unit test (tests/unit/member-search-filter.test.ts) — a small,
- * pure, security-relevant function taking untrusted input is worth testing
+ * term matching one of the columns below (full_name, phone, email,
+ * cpf_last_digits, and — since whole-branch review I2 — phone_normalized;
+ * an earlier version of this comment said four and called them "the only
+ * columns any `.or()` clause in this file ever targets", which I2 made
+ * false the moment it added a fifth) cannot break out of the quoting it is
+ * sitting inside. Exported for its own unit test
+ * (tests/unit/member-search-filter.test.ts) — a small, pure,
+ * security-relevant function taking untrusted input is worth testing
  * directly rather than only through a query nothing but a live database can
  * execute.
  */

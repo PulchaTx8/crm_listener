@@ -158,15 +158,29 @@ create index member_blocks_member_idx on public.member_blocks (member_id);
 -- dictated this body verbatim, so the version below (before this fix) was a defect in
 -- the plan, faithfully implemented, and violated this project's own Global Constraint
 -- that every SECURITY DEFINER function re-checks the caller in its own body. Owner's
--- ruling (2026-07-28): close it. Every current call site already passes a Station the
--- caller holds members.view at — services/members.ts's checkMemberBlocked is only
--- ever called with a company_id read back from an RLS-filtered member_company_links
--- query (member_company_links_select_reachable, 0035, itself gated on members.view)
--- — so this costs no real capability to any of them; verified against the isolation
--- suite (tests/isolation/members.test.ts, case 6) rather than merely assumed, and
--- that suite's own fixture was widened to actually hold members.view where this now
--- requires it. RAISE LOG then RAISE EXCEPTION on denial, the same shape every other
--- SECURITY DEFINER body in this project uses (0017_role_rpcs.sql).
+-- ruling (2026-07-28): close it.
+--
+-- The guard mirrors member_company_links_select_reachable's own three arms
+-- (0035_rls_members.sql:106-112) exactly — is_platform_admin() OR is_owner(...) OR
+-- has_permission('members.view', p_company_id) — NOT has_permission alone (whole-
+-- branch re-review, Regression 1: an earlier version of this fix used has_permission
+-- alone, on the wrong belief that every caller reaching this function already came
+-- through that policy's has_permission arm specifically. has_permission is gated by
+-- has_company_access (0016_memberships.sql), which requires an ACTIVE Station for
+-- EVERY caller, bypasses included — so has_permission alone refused the owner and the
+-- platform admin too, for exactly the suspended/archived-Station Members
+-- member_company_links_select_reachable's first two arms exist to keep reachable.
+-- services/members.ts's listOrganizationMembers/listMemberStations both read
+-- member_company_links first — under that three-armed policy, which admits an
+-- owner's link at a suspended Station — and then call this function once per link
+-- returned; a narrower guard here than the policy that produced those links broke
+-- the read for exactly the caller the policy meant to keep it working for. Mirroring
+-- all three arms costs no capability against the original cross-tenant-oracle
+-- finding: an ordinary caller with none of the three still gets 42501, same as
+-- before.
+--
+-- RAISE LOG then RAISE EXCEPTION on denial, the same shape every other SECURITY
+-- DEFINER body in this project uses (0017_role_rpcs.sql).
 create or replace function public.is_member_blocked(p_member_id uuid, p_company_id uuid)
 returns boolean
 language plpgsql
@@ -175,7 +189,14 @@ security definer
 set search_path = pg_catalog, public
 as $$
 begin
-  if not public.has_permission('members.view', p_company_id) then
+  if not (
+    public.is_platform_admin()
+    or exists (
+      select 1 from public.companies c
+      where c.id = p_company_id and public.is_owner(c.organization_id)
+    )
+    or public.has_permission('members.view', p_company_id)
+  ) then
     raise log 'is_member_blocked denied: actor=% member=% company=%', auth.uid(), p_member_id, p_company_id;
     raise exception 'permission denied: members.view required' using errcode = '42501';
   end if;
@@ -193,7 +214,7 @@ end;
 $$;
 
 comment on function public.is_member_blocked(uuid, uuid) is
-  'Whether an active block bars this Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at rather than a maintained status column. Re-checks the caller holds members.view at p_company_id before answering (whole-branch review, I1) — without this it was a cross-tenant boolean oracle for anyone holding two UUIDs, despite being SECURITY DEFINER.';
+  'Whether an active block bars this Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at rather than a maintained status column. Re-checks the caller is the platform admin, the owner of p_company_id''s Organization, or holds members.view at p_company_id (whole-branch review, I1, fixed again at Regression 1 in re-review) — mirroring member_company_links_select_reachable''s own three arms (0035) exactly, not has_permission alone, since has_permission''s has_company_access gate refuses the admin/owner bypass too for a suspended or archived Station. Without any caller check at all, this was a cross-tenant boolean oracle for anyone holding two UUIDs, despite being SECURITY DEFINER.';
 
 revoke execute on function public.is_member_blocked(uuid, uuid) from public;
 grant execute on function public.is_member_blocked(uuid, uuid) to authenticated;

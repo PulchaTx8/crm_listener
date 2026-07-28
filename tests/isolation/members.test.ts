@@ -936,6 +936,55 @@ describe('members', () => {
   );
 
   it(
+    "gap 2b: is_member_blocked admits the Organization owner outside the has_permission check too, even when the Member's only Station is suspended",
+    async () => {
+      const label = `mem-block-owner-bypass-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const stationB = await addCompany(customer, 'Station Two');
+      const memberId = await createMemberAs(customer, stationB, {
+        fullName: `Block Owner Bypass Probe ${label}`,
+      });
+
+      const { error: suspendError } = await customer.adminClient.rpc('suspend_company', {
+        p_company_id: stationB,
+        p_reason: 'non-payment',
+      });
+      expect(suspendError).toBeNull();
+
+      // Same precondition, same reasoning as gap 2 immediately above.
+      const { data: stationBRow, error: stationBReadError } = await admin
+        .from('companies')
+        .select('status')
+        .eq('id', stationB)
+        .single();
+      expect(stationBReadError).toBeNull();
+      expect(stationBRow?.status).toBe('suspended');
+
+      // Whole-branch re-review, Regression 1: is_member_blocked's own guard
+      // (0032) was first fixed with has_permission('members.view', ...)
+      // alone — which refuses the OWNER here too, since has_permission is
+      // gated by has_company_access (0016), requiring an active Station for
+      // every caller including the owner. That broke listMemberStations and
+      // listOrganizationMembers (services/members.ts) for exactly this case:
+      // both read member_company_links first — under
+      // member_company_links_select_reachable (0035), whose is_owner() arm
+      // has no Station-status test at all — then call is_member_blocked once
+      // per link returned, including a suspended one the owner can still
+      // see. The fix mirrors that policy's own three arms in is_member_blocked
+      // too. This case would fail with 42501 if either bypass arm were
+      // removed and only has_permission were checked, the same way it did
+      // before this second fix.
+      const owner = await signInAs(customer.email, customer.password);
+      const { data: blocked, error } = await owner.rpc('is_member_blocked', {
+        p_member_id: memberId,
+        p_company_id: stationB,
+      });
+      expect(error).toBeNull();
+      expect(blocked).toBe(false);
+    },
+  );
+
+  it(
     'gap 5a: member_consents is visible only at the Station that recorded it, not from a sibling Station the caller can otherwise reach',
     async () => {
       const label = `mem-consents-rls-${Date.now()}`;
