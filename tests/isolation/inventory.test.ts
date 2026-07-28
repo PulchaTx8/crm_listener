@@ -51,6 +51,19 @@ describe('inventory', () => {
     // with a bare constraint-name error — apply_inventory_movement's own
     // sufficiency check must be what actually fires here.
     expect(over.error!.message).not.toMatch(/violates check constraint/i);
+
+    // apply_inventory_movement appends the movement row BEFORE it checks
+    // sufficiency (the sufficiency check reads the balance the insert has
+    // already happened relative to), so only the statement's own rollback on
+    // the raised exception stands between this and a phantom RESERVATION row
+    // in the ledger. Only the earlier, successful MANUAL_ENTRY should survive.
+    const { data: rows, error } = await admin
+      .from('inventory_movements')
+      .select('id, movement_type')
+      .eq('prize_id', prizeId);
+    expect(error).toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.movement_type).toBe('MANUAL_ENTRY');
   });
 
   describe('each operation is refused without its permission and allowed with it', () => {
@@ -396,27 +409,40 @@ describe('inventory', () => {
     expect(clean.error).toBeNull();
     expect(clean.data).toEqual([]);
 
-    // Corrupt "available" directly, entirely outside apply_inventory_movement
+    // Corrupt "delivered" directly, entirely outside apply_inventory_movement
     // — see corruptBalanceDirectly's comment for why this is the only route
     // left, given 0029 revokes every write grant on this table from every
     // role, service_role included.
-    corruptBalanceDirectly(customer.companyId, prizeId, 'available', 4);
+    //
+    // "delivered" specifically, not "available": no movement in this test ever
+    // names delivered as a from/to bucket, so the computed CTE in 0028 has NO
+    // row at all for (prize, 'delivered') — it exists only on the stored side.
+    // Corrupting "available" instead (which has rows on BOTH sides already,
+    // stored 11 vs computed 7) would still pass even if the FULL OUTER JOIN
+    // were degraded to an INNER JOIN, because an inner join keeps any key
+    // present on both sides. Only a key present on one side alone — this one —
+    // actually depends on the join being FULL OUTER rather than INNER.
+    corruptBalanceDirectly(customer.companyId, prizeId, 'delivered', 4);
 
     const dirty = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
     expect(dirty.error).toBeNull();
     expect(dirty.data).toHaveLength(1);
     expect(dirty.data![0]).toMatchObject({
       prize_id: prizeId,
-      bucket: 'available',
-      stored: 11,
-      computed: 7,
+      bucket: 'delivered',
+      stored: 4,
+      computed: 0,
     });
   });
 
   it('archiving a prize with stock is refused, naming the count; archiving one without stock succeeds', async () => {
     const label = `inv-archive-${Date.now()}`;
     const customer = await provisionCustomer(label);
-    const delegate = await grantRoleWith(customer, label, ['inventory.catalogue', 'inventory.entry']);
+    const delegate = await grantRoleWith(customer, label, [
+      'inventory.catalogue',
+      'inventory.entry',
+      'inventory.reserve',
+    ]);
     const client = await signInAs(delegate.email, delegate.password);
 
     const stocked = await client.rpc('create_prize', {
@@ -434,6 +460,23 @@ describe('inventory', () => {
     });
     expect(entry.error).toBeNull();
 
+    // Reserve the full quantity before archiving, so available = 0 and
+    // reserved = 5: the refusal below can then only be explained by
+    // archive_prize's physical-stock sum including the `reserved` bucket. If
+    // the sum omitted `reserved` (or `linked`/`awaiting_pickup`/
+    // `pending_return`), archiving would wrongly succeed here even though 5
+    // units are still outstanding — the earlier version of this test, which
+    // left the 5 units in `available`, could not have told that apart, since
+    // `available` is the one bucket every plausible (correct or broken) sum
+    // would still include.
+    const reserve = await client.rpc('reserve_stock', {
+      p_company_id: customer.companyId,
+      p_prize_id: stockedId,
+      p_quantity: 5,
+      p_note: 'holding for a promo',
+    });
+    expect(reserve.error).toBeNull();
+
     const refused = await client.rpc('archive_prize', { p_prize_id: stockedId });
     expect(refused.error).not.toBeNull();
     expect(refused.error!.message).toMatch(/this prize still has 5 unit\(s\) in stock/);
@@ -448,12 +491,16 @@ describe('inventory', () => {
     const succeeded = await client.rpc('archive_prize', { p_prize_id: emptyId });
     expect(succeeded.error).toBeNull();
 
-    const { data: row } = await admin
+    // .single() with a bad/missing id would come back with row === undefined
+    // AND an error — asserting the error is null first is what stops
+    // `row?.deleted_at` (undefined) from vacuously satisfying `not.toBeNull()`.
+    const { data: row, error: rowError } = await admin
       .from('prizes')
       .select('deleted_at')
       .eq('id', emptyId)
       .single();
-    expect(row?.deleted_at).not.toBeNull();
+    expect(rowError).toBeNull();
+    expect(row?.deleted_at).toBeTruthy();
   });
 
   it('adjust_stock with a count equal to the current figure records no movement', async () => {
@@ -471,10 +518,11 @@ describe('inventory', () => {
     });
     expect(entry.error).toBeNull();
 
-    const { data: before } = await admin
+    const { data: before, error: beforeError } = await admin
       .from('inventory_movements')
       .select('id')
       .eq('prize_id', prizeId);
+    expect(beforeError).toBeNull();
     const countBefore = before?.length ?? 0;
 
     const noop = await client.rpc('adjust_stock', {
@@ -486,10 +534,14 @@ describe('inventory', () => {
     expect(noop.error).toBeNull();
     expect(noop.data).toBeNull();
 
-    const { data: after } = await admin
+    // Asserting both reads' errors are null (not just comparing counts) is
+    // what stops a failed second read (both sides silently 0) from passing
+    // this assertion vacuously.
+    const { data: after, error: afterError } = await admin
       .from('inventory_movements')
       .select('id')
       .eq('prize_id', prizeId);
+    expect(afterError).toBeNull();
     expect(after?.length ?? 0).toBe(countBefore);
 
     const { data: balance } = await admin
@@ -516,23 +568,28 @@ describe('inventory', () => {
     expect(entry.error).toBeNull();
     const movementId = entry.data as string;
 
+    // 42501 pinned on all four, not just "an error occurred": 0029 makes
+    // permission-denied the only correct reason any of these can fail. A bare
+    // not-null would pass identically for, say, a schema-cache miss on
+    // `quantity` (a column a later block renamed) — a real failure, but not
+    // this one, and not the one this case exists to prove.
     const jwtUpdate = await client
       .from('inventory_movements')
       .update({ quantity: 999 })
       .eq('id', movementId);
-    expect(jwtUpdate.error).not.toBeNull();
+    expect(jwtUpdate.error?.code).toBe('42501');
 
     const jwtDelete = await client.from('inventory_movements').delete().eq('id', movementId);
-    expect(jwtDelete.error).not.toBeNull();
+    expect(jwtDelete.error?.code).toBe('42501');
 
     const serviceUpdate = await admin
       .from('inventory_movements')
       .update({ quantity: 999 })
       .eq('id', movementId);
-    expect(serviceUpdate.error).not.toBeNull();
+    expect(serviceUpdate.error?.code).toBe('42501');
 
     const serviceDelete = await admin.from('inventory_movements').delete().eq('id', movementId);
-    expect(serviceDelete.error).not.toBeNull();
+    expect(serviceDelete.error?.code).toBe('42501');
 
     // Confirm nothing actually moved despite all four attempts.
     const { data: row } = await admin
