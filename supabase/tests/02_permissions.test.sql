@@ -1,5 +1,5 @@
 begin;
-select plan(169);
+select plan(184);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -594,6 +594,27 @@ select ok(not has_table_privilege('authenticated', 'public.member_blocks', 'DELE
 select ok(not has_table_privilege('service_role', 'public.member_blocks', 'INSERT'), 'service_role may not insert member_blocks directly either');
 select ok(not has_table_privilege('service_role', 'public.member_blocks', 'UPDATE'), 'service_role may not update member_blocks directly either');
 select ok(not has_table_privilege('service_role', 'public.member_blocks', 'DELETE'), 'service_role may not delete member_blocks directly either');
+
+-- anon held no SELECT either (asserted above) and never held INSERT/UPDATE/DELETE by
+-- default, but the explicit `revoke insert, update, delete ... from anon,
+-- authenticated, service_role` this migration now carries (whole-branch review,
+-- minor) covers all three roles for all five tables — asserted for anon here to match,
+-- closing the one role this grid left unchecked for these three privileges.
+select ok(not has_table_privilege('anon', 'public.members', 'INSERT'), 'anon may not insert members directly');
+select ok(not has_table_privilege('anon', 'public.members', 'UPDATE'), 'anon may not update members directly');
+select ok(not has_table_privilege('anon', 'public.members', 'DELETE'), 'anon may not delete members directly');
+select ok(not has_table_privilege('anon', 'public.member_company_links', 'INSERT'), 'anon may not insert member_company_links directly');
+select ok(not has_table_privilege('anon', 'public.member_company_links', 'UPDATE'), 'anon may not update member_company_links directly');
+select ok(not has_table_privilege('anon', 'public.member_company_links', 'DELETE'), 'anon may not delete member_company_links directly');
+select ok(not has_table_privilege('anon', 'public.member_consents', 'INSERT'), 'anon may not insert member_consents directly');
+select ok(not has_table_privilege('anon', 'public.member_consents', 'UPDATE'), 'anon may not update member_consents directly');
+select ok(not has_table_privilege('anon', 'public.member_consents', 'DELETE'), 'anon may not delete member_consents directly');
+select ok(not has_table_privilege('anon', 'public.member_notes', 'INSERT'), 'anon may not insert member_notes directly');
+select ok(not has_table_privilege('anon', 'public.member_notes', 'UPDATE'), 'anon may not update member_notes directly');
+select ok(not has_table_privilege('anon', 'public.member_notes', 'DELETE'), 'anon may not delete member_notes directly');
+select ok(not has_table_privilege('anon', 'public.member_blocks', 'INSERT'), 'anon may not insert member_blocks directly');
+select ok(not has_table_privilege('anon', 'public.member_blocks', 'UPDATE'), 'anon may not update member_blocks directly');
+select ok(not has_table_privilege('anon', 'public.member_blocks', 'DELETE'), 'anon may not delete member_blocks directly');
 
 select ok(not has_table_privilege('authenticated', 'public.members', 'TRUNCATE'), 'authenticated may not truncate members');
 select ok(not has_table_privilege('service_role', 'public.members', 'TRUNCATE'), 'service_role may not truncate members');

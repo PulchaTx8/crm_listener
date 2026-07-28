@@ -68,6 +68,15 @@ export function RegisterMemberForm({
   const [cpf, setCpf] = useState('');
   const [passport, setPassport] = useState('');
   const [manualEditing, setManualEditing] = useState(false);
+  // The identical defect block-form.tsx's own endsAt carried, at lower stakes
+  // (whole-branch review, C1): a datetime-local input's raw value is a naive
+  // wall-clock string with no offset, which z.coerce.date() server-side would
+  // parse in the Node PROCESS's own zone, not the operator's. Converted to an
+  // ISO instant HERE, in the browser, the same way block-form.tsx's endsAt
+  // now is — see that file's own doc comment for the full reasoning and the
+  // verified TZ=UTC vs TZ=America/Sao_Paulo divergence.
+  const [firstContactAtLocal, setFirstContactAtLocal] = useState('');
+  const firstContactAtIso = firstContactAtLocal ? new Date(firstContactAtLocal).toISOString() : '';
 
   const [checkState, checkAction, checkPending] = useActionState(
     checkMemberIdentifierAction,
@@ -339,7 +348,17 @@ export function RegisterMemberForm({
               </p>
               <label className="flex flex-col gap-1 text-sm">
                 When
-                <Input name="firstContactAt" type="datetime-local" />
+                {/* No `name` here — see this component's own doc comment
+                    (C1) and block-form.tsx's identical fix for why the
+                    conversion to an ISO instant has to happen in the
+                    browser, not on the server. */}
+                <Input
+                  type="datetime-local"
+                  data-testid="first-contact-at-input"
+                  value={firstContactAtLocal}
+                  onChange={(e) => setFirstContactAtLocal(e.target.value)}
+                />
+                <input type="hidden" name="firstContactAt" value={firstContactAtIso} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 Where (WhatsApp, phone call, in person…)

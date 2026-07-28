@@ -45,12 +45,6 @@ describe('CPF hashing', () => {
     expect(hashCpf('123.456.789-09')).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('does not contain the raw CPF', () => {
-    const raw = '123.456.789-09';
-    expect(hashCpf(raw)).not.toContain(raw);
-    expect(hashCpf(raw)).not.toContain('12345678909');
-  });
-
   it('normalises to digits only', () => {
     expect(normalizeCpf('123.456.789-09')).toBe('12345678909');
     expect(normalizeCpf('12345678909')).toBe('12345678909');
@@ -58,8 +52,12 @@ describe('CPF hashing', () => {
 
   it('takes the last three digits — cpf_last_digits\' own format', () => {
     // 0031_members.sql's own CHECK constraint: cpf_last_digits ~ '^[0-9]{3}$'.
+    // Both toBe() assertions below already pin the exact three-digit value
+    // '909', which trivially satisfies that format — a separate
+    // toMatch(/^[0-9]{3}$/) check added nothing a mutation could still slip
+    // past (whole-branch review, I5: removed, not left as a fourth vacuous
+    // assertion in this file).
     expect(cpfLastDigits('123.456.789-09')).toBe('909');
     expect(cpfLastDigits('12345678909')).toBe('909');
-    expect(cpfLastDigits('123.456.789-09')).toMatch(/^[0-9]{3}$/);
   });
 });

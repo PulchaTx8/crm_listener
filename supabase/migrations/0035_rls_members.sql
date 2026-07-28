@@ -147,9 +147,19 @@ create policy member_notes_select_reachable on public.member_notes
 -- mirroring that write asymmetry onto this policy would have been a different,
 -- wrong decision (owner's ruling, Task 5 review). Fixed by conjoining
 -- has_org_permission with the same per-link reachability member_reachable (0033)
--- would compute for this Member — narrowing costs no operational capability, because
--- is_member_blocked (0032) already answers "is this person barred" as a SECURITY
--- DEFINER function regardless of what this policy allows.
+-- would compute for this Member.
+--
+-- This narrowing used to be justified here on the grounds that "is_member_blocked
+-- (0032) already answers 'is this person barred' as a SECURITY DEFINER function
+-- regardless of what this policy allows" — true when written, false the moment
+-- is_member_blocked itself stopped being an ungated oracle (whole-branch review, I1:
+-- it now re-checks the caller holds members.view at the Station it is asked about,
+-- the same RAISE LOG-then-RAISE EXCEPTION shape this project uses everywhere else).
+-- That sentence is removed rather than left to go stale a second time. This policy's
+-- own narrowing stands on the disclosure risk stated above — an Organization-wide
+-- block's member_id, dates, created_by and mandatory free-text reason should not be
+-- readable by a members.view holder who cannot otherwise reach this Member — and does
+-- not need a claim about what a DIFFERENT function happens to allow to justify it.
 create policy member_blocks_select_reachable on public.member_blocks
   for select to authenticated
   using (
@@ -174,15 +184,27 @@ create policy member_blocks_select_reachable on public.member_blocks
 -- BYPASSRLS does not substitute for a GRANT (Block 1a §3.9; 0029's own comment).
 -- Read-only, same as every table in this block: every write goes through one of the
 -- nine SECURITY DEFINER RPCs in 0034, which run as the table owner and so need no
--- grant of their own. No role — not even service_role — ever holds INSERT, UPDATE or
--- DELETE on any of the five tables; the default ACL a fresh `public` table grants
--- (0029's own finding) contains none of the three to begin with, so nothing above had
--- to revoke them explicitly.
+-- grant of their own.
 grant select on public.members              to service_role;
 grant select on public.member_company_links to service_role;
 grant select on public.member_consents      to service_role;
 grant select on public.member_notes         to service_role;
 grant select on public.member_blocks        to service_role;
+
+-- No role — not even service_role — ever holds INSERT, UPDATE or DELETE on any of the
+-- five tables. Until this line, that guarantee was inherited from the default ACL a
+-- fresh `public` table grants (0029's own finding: none of the three to begin with)
+-- and asserted only in 02_permissions.test.sql's prose, not written down as a decision
+-- anywhere in this migration (whole-branch review, minor). Made structural here
+-- instead, so the block's headline "every write goes through one of the nine RPCs"
+-- invariant does not rest entirely on nobody ever adding one of these three grants by
+-- mistake in some later migration going unnoticed against a default ACL that already
+-- (coincidentally) agreed with it.
+revoke insert, update, delete on public.members              from anon, authenticated, service_role;
+revoke insert, update, delete on public.member_company_links from anon, authenticated, service_role;
+revoke insert, update, delete on public.member_consents      from anon, authenticated, service_role;
+revoke insert, update, delete on public.member_notes         from anon, authenticated, service_role;
+revoke insert, update, delete on public.member_blocks        from anon, authenticated, service_role;
 
 -- `revoke all` above only ever ran against anon/authenticated, so service_role kept
 -- the default ACL's TRUNCATE grant on all five tables — the same gap 0029's final

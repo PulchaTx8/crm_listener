@@ -13,7 +13,21 @@ export const BLOCK_KIND_LABELS: Record<MemberBlockKind, string> = {
   suspension: 'Suspended',
 };
 
-/** For a timestamptz field (createdAt, anonymizedAt, linkedAt) — an instant, rendered in the runtime's own zone. */
+/**
+ * For a timestamptz field (createdAt, anonymizedAt, linkedAt) — an instant,
+ * rendered with no explicit `timeZone`, so `toLocaleDateString` uses the
+ * RUNTIME's own zone. Both current callers (members/page.tsx and
+ * members/[memberId]/page.tsx) are Server Components — `export const dynamic
+ * = 'force-dynamic'`, no `'use client'` — so that runtime is the SERVER, not
+ * the browser reading the page: this renders in whatever zone the Node
+ * process happens to be running in, never the viewer's own (whole-branch
+ * review, I3 — an earlier version of this comment claimed the opposite,
+ * "meant to render in the viewer's own zone," which described a mechanism
+ * this function does not have; docs/block-3-report.md §5.6 already stated
+ * the correct fact, so the code and the report disagreed). `companies.timezone`
+ * (0003) exists if a future change wants the Station's own zone instead of
+ * the server's; nothing here reads it today.
+ */
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' });
 }
@@ -35,9 +49,14 @@ export function formatDateTime(iso: string): string {
  * the Node process happened to be running — see the fix report for the
  * before/after under both zones). formatDate itself is intentionally left
  * timezone-naive for its own three timestamptz callers (createdAt,
- * anonymizedAt, linkedAt), which are real instants and are meant to render
- * in the viewer's own zone — this function exists because birth_date is not
- * one.
+ * anonymizedAt, linkedAt) — birth_date needs the UTC pin THIS function
+ * applies because it is a date-only column with no zone of its own to begin
+ * with; formatDate's own callers do not have that specific problem, but they
+ * carry a different, disclosed one of their own (see formatDate's own
+ * comment: it currently renders in the SERVER's zone, not the viewer's,
+ * since both pages that call it are Server Components) — this function
+ * exists because birth_date is not a timestamptz and needs a different fix
+ * than that one.
  */
 export function formatCalendarDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });

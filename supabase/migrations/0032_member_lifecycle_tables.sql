@@ -150,14 +150,37 @@ create index member_blocks_member_idx on public.member_blocks (member_id);
 -- fixed this principle in Block 2 for the uncollected prize and it applies unchanged:
 -- no cron marks a block expired, so no cron can fail to. Nothing maintains a status
 -- column, because a status column nobody maintains lies.
+--
+-- SECURITY DEFINER with no caller check inside it was a defect, not a design choice
+-- (whole-branch review, I1): any authenticated caller holding two UUIDs — any
+-- member_id, any company_id, no tenant relationship required between them — could
+-- ask "is this person barred" cross-tenant, with nothing gating the answer. The plan
+-- dictated this body verbatim, so the version below (before this fix) was a defect in
+-- the plan, faithfully implemented, and violated this project's own Global Constraint
+-- that every SECURITY DEFINER function re-checks the caller in its own body. Owner's
+-- ruling (2026-07-28): close it. Every current call site already passes a Station the
+-- caller holds members.view at — services/members.ts's checkMemberBlocked is only
+-- ever called with a company_id read back from an RLS-filtered member_company_links
+-- query (member_company_links_select_reachable, 0035, itself gated on members.view)
+-- — so this costs no real capability to any of them; verified against the isolation
+-- suite (tests/isolation/members.test.ts, case 6) rather than merely assumed, and
+-- that suite's own fixture was widened to actually hold members.view where this now
+-- requires it. RAISE LOG then RAISE EXCEPTION on denial, the same shape every other
+-- SECURITY DEFINER body in this project uses (0017_role_rpcs.sql).
 create or replace function public.is_member_blocked(p_member_id uuid, p_company_id uuid)
 returns boolean
-language sql
+language plpgsql
 stable
 security definer
 set search_path = pg_catalog, public
 as $$
-  select exists (
+begin
+  if not public.has_permission('members.view', p_company_id) then
+    raise log 'is_member_blocked denied: actor=% member=% company=%', auth.uid(), p_member_id, p_company_id;
+    raise exception 'permission denied: members.view required' using errcode = '42501';
+  end if;
+
+  return exists (
     select 1
     from public.member_blocks b
     where b.member_id = p_member_id
@@ -166,7 +189,11 @@ as $$
       and b.starts_at <= now()
       and (b.ends_at is null or b.ends_at > now())
   );
+end;
 $$;
+
+comment on function public.is_member_blocked(uuid, uuid) is
+  'Whether an active block bars this Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at rather than a maintained status column. Re-checks the caller holds members.view at p_company_id before answering (whole-branch review, I1) — without this it was a cross-tenant boolean oracle for anyone holding two UUIDs, despite being SECURITY DEFINER.';
 
 revoke execute on function public.is_member_blocked(uuid, uuid) from public;
 grant execute on function public.is_member_blocked(uuid, uuid) to authenticated;

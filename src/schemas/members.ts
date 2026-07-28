@@ -105,6 +105,17 @@ const birthDate = z.preprocess(
     }),
 );
 
+// endsAt/firstContactAt: both callers (block-form.tsx, register-member-form.tsx)
+// convert their own datetime-local input to an offset-bearing ISO string
+// (`new Date(...).toISOString()`) in the BROWSER before it ever reaches this
+// schema (whole-branch review, C1) — z.coerce.date() here only has to parse a
+// string that already carries an explicit "Z", which ECMA-262 interprets the
+// same way regardless of what zone this server process happens to run in. If
+// a future caller ever fed this a naive, offset-less string instead (a raw
+// datetime-local value), z.coerce.date() would still "succeed" — just at the
+// wrong instant, parsed in the SERVER's zone rather than the operator's; nothing
+// at this layer can catch that, which is exactly why the conversion has to
+// happen client-side and not here.
 const optionalTimestamp = z.preprocess(blankToUndefined, z.coerce.date().optional());
 
 const addressFields = {
@@ -140,13 +151,25 @@ const memberIdentityFields = {
 
 // Mirrors create_member (0034): the identity fields above, the Station being
 // registered at, and the first-contact evidence behind the owner's
-// WhatsApp-consent ruling (spec §7).
-export const createMemberSchema = z.object({
-  companyId: z.string().uuid(),
-  ...memberIdentityFields,
-  firstContactAt: optionalTimestamp,
-  firstContactOrigin: optionalText(200),
-});
+// WhatsApp-consent ruling (spec §7). The .refine() below is NOT mirrored from
+// create_member — the RPC itself accepts p_first_contact_origin with no
+// p_first_contact_at at all (0034:140) and enforces no pairing between the
+// two — it is enforced here because register-member-form.tsx's own copy
+// ("Fill in both together") promised a pairing nothing actually checked
+// (whole-branch review, minor): half of this evidence recorded alone is not
+// the evidence the owner's ruling rests on, and there was no error for
+// submitting half of it before this.
+export const createMemberSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    ...memberIdentityFields,
+    firstContactAt: optionalTimestamp,
+    firstContactOrigin: optionalText(200),
+  })
+  .refine((v) => Boolean(v.firstContactAt) === Boolean(v.firstContactOrigin), {
+    message: 'Enter both when the listener first made contact and where, or leave both blank.',
+    path: ['firstContactAt'],
+  });
 
 // Mirrors update_member (0034): a wholesale replacement of the same
 // identity fields, keyed on the Member rather than the Station.

@@ -227,7 +227,13 @@ describe('createMemberSchema', () => {
     }
   });
 
-  it('accepts every address field supplied', () => {
+  it('accepts every address field supplied, and carries each value through unchanged', () => {
+    // parsed.success alone would still be true if every one of these seven
+    // fields were deleted from the schema — the input would simply parse as
+    // "every address field absent" instead (whole-branch review, I5). Only
+    // asserting the actual parsed values proves each field name is still
+    // wired to the input by that same name, not merely that parsing did not
+    // fail.
     const parsed = createMemberSchema.safeParse({
       companyId,
       fullName: 'Maria Silva',
@@ -240,6 +246,55 @@ describe('createMemberSchema', () => {
       postalCode: '01000-000',
     });
     expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.addressLine).toBe('Rua das Flores');
+      expect(parsed.data.addressNumber).toBe('100');
+      expect(parsed.data.addressComplement).toBe('Apto 4');
+      expect(parsed.data.neighbourhood).toBe('Centro');
+      expect(parsed.data.city).toBe('Sao Paulo');
+      expect(parsed.data.state).toBe('SP');
+      expect(parsed.data.postalCode).toBe('01000-000');
+    }
+  });
+
+  // --- first contact: both fields travel together, or neither does ---
+
+  it('accepts a fully paired first-contact date and origin', () => {
+    const parsed = createMemberSchema.safeParse({
+      companyId,
+      fullName: 'Maria Silva',
+      firstContactAt: '2026-01-01T12:00:00Z',
+      firstContactOrigin: 'WhatsApp',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('accepts both first-contact fields absent', () => {
+    const parsed = createMemberSchema.safeParse({ companyId, fullName: 'Maria Silva' });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects a first-contact date with no origin', () => {
+    // create_member (0034) itself accepts p_first_contact_origin with no
+    // p_first_contact_at at all — this refine is enforced here, not there,
+    // because register-member-form.tsx's own copy ("Fill in both together")
+    // promises a pairing nothing checked before this (whole-branch review,
+    // minor).
+    const parsed = createMemberSchema.safeParse({
+      companyId,
+      fullName: 'Maria Silva',
+      firstContactAt: '2026-01-01T12:00:00Z',
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('rejects a first-contact origin with no date', () => {
+    const parsed = createMemberSchema.safeParse({
+      companyId,
+      fullName: 'Maria Silva',
+      firstContactOrigin: 'WhatsApp',
+    });
+    expect(parsed.success).toBe(false);
   });
 });
 
@@ -263,12 +318,29 @@ describe('updateMemberSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
-  it('carries no companyId or first-contact fields', () => {
+  it('carries no companyId or first-contact fields, even when a caller supplies them', () => {
     // update_member (0034) takes no company_id and cannot touch
     // first_contact_at/first_contact_origin — write-once evidence through
-    // create_member only. Asserting the parsed shape has no such keys is
-    // what would catch a copy-paste of createMemberSchema's fields.
-    const parsed = updateMemberSchema.safeParse({ memberId, fullName: 'Maria Silva' });
+    // create_member only. Supplying real values for all three here, not
+    // omitting them (whole-branch review, I5): an omitted OPTIONAL field and
+    // a field the schema does not define at all both parse to "absent from
+    // parsed.data" the same way under zod's default (non-strict) stripping
+    // behaviour, so the previous version of this test — which never supplied
+    // these keys — could not tell a correct schema apart from one that
+    // accidentally gained these three fields as OPTIONAL (a copy-paste of
+    // createMemberSchema's shape), which is exactly the regression this
+    // test's own comment claimed to catch. A schema that actually defines a
+    // field echoes a supplied value back in parsed.data; only a schema with
+    // no such field strips it silently, the same way zod treats any
+    // unrecognised key by default — supplying real values is what makes the
+    // 'in' checks below distinguish the two cases.
+    const parsed = updateMemberSchema.safeParse({
+      memberId,
+      fullName: 'Maria Silva',
+      companyId,
+      firstContactAt: '2026-01-01T12:00:00Z',
+      firstContactOrigin: 'WhatsApp',
+    });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect('companyId' in parsed.data).toBe(false);
@@ -323,7 +395,11 @@ describe('recordMemberConsentSchema — consent_type is one of the three', () =>
     expect(parsed.success).toBe(false);
   });
 
-  it('accepts an optional origin and promotionId', () => {
+  it('accepts an optional origin and promotionId, and carries both through unchanged', () => {
+    // parsed.success alone would still be true if origin/promotionId were
+    // deleted from the schema entirely — zod would simply strip both as
+    // unrecognised keys (whole-branch review, I5). Asserting the actual
+    // parsed values is what proves the two are still wired to the schema.
     const parsed = recordMemberConsentSchema.safeParse({
       memberId,
       companyId,
@@ -333,6 +409,10 @@ describe('recordMemberConsentSchema — consent_type is one of the three', () =>
       promotionId,
     });
     expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.origin).toBe('Registration form');
+      expect(parsed.data.promotionId).toBe(promotionId);
+    }
   });
 
   it('treats an absent origin and promotionId as optional', () => {
@@ -406,7 +486,19 @@ describe('blockMemberSchema', () => {
     if (parsed.success) expect(parsed.data.companyId).toBeUndefined();
   });
 
-  it('accepts a Station-scoped block with an end date', () => {
+  it('accepts a Station-scoped block with an end date, and produces the exact instant supplied', () => {
+    // endsAt must always be an offset-bearing ISO string by the time it
+    // reaches this schema — block-form.tsx converts the browser's
+    // datetime-local value (naive, no offset) into one client-side, in the
+    // operator's own zone, specifically so this parse step never has to
+    // guess what zone a bare wall-clock string was written in (whole-branch
+    // review, C1, Critical: server-side, "local" would have meant the Node
+    // PROCESS's own zone, not the operator's — a UTC-hosted server with a
+    // Brazilian operator would then persist every dated block three hours
+    // early). Asserting the produced instant — not just parsed.success,
+    // which would also be true for a naive string parsed in the wrong zone —
+    // is what this test needed to actually guard the contract this schema
+    // depends on.
     const parsed = blockMemberSchema.safeParse({
       memberId,
       companyId,
@@ -415,6 +507,9 @@ describe('blockMemberSchema', () => {
       endsAt: '2026-12-31T23:59:59Z',
     });
     expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.endsAt?.toISOString()).toBe('2026-12-31T23:59:59.000Z');
+    }
   });
 });
 

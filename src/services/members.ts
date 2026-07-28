@@ -310,13 +310,21 @@ export function escapeLikePattern(value: string): string {
 /**
  * The audience list (spec: "search by name, phone, e-mail or the CPF's last
  * digits, filtered server-side"). `search`, when given, becomes an `.or(...)`
- * clause evaluated by Postgres itself — full_name/phone/e-mail matched by
- * substring, cpf_last_digits matched only against the digits the term
- * contains (typing "123" should not also try to match a three-character
- * field against the letter "a" in "ana 123", but the digit-only substring
- * still narrows correctly). Every row is capped at MEMBER_LIST_LIMIT (see its
- * own comment); `capped` tells the caller whether more rows existed than were
- * returned, the same shape listCompanyAccess's own `capped` flag uses.
+ * clause evaluated by Postgres itself — full_name/e-mail matched by substring
+ * against the raw column; phone matched against BOTH the raw column and
+ * phone_normalized (0031's own generated, digits-only column — the identity
+ * this block's dedup and RLS both rest on); cpf_last_digits matched only
+ * against the digits the term contains (typing "123" should not also try to
+ * match a three-character field against the letter "a" in "ana 123", but the
+ * digit-only substring still narrows correctly). The phone_normalized clause
+ * is what lets an operator find a listener by the digits off caller ID
+ * ("+55 (11) 98765-4321" registered, "5511987654321" typed) — without it, a
+ * search that promises "phone" (member-search-form.tsx's own placeholder)
+ * silently failed for exactly that shape of query, the one an operator is
+ * most likely to actually type (whole-branch review, I2). Every row is capped
+ * at MEMBER_LIST_LIMIT (see its own comment); `capped` tells the caller
+ * whether more rows existed than were returned, the same shape
+ * listCompanyAccess's own `capped` flag uses.
  *
  * Block state is resolved per row via is_member_blocked (0032) against every
  * Station in member_company_links this row is linked to AND the caller can
@@ -361,8 +369,16 @@ export async function listOrganizationMembers(
     // a term carrying no digit at all (a name search) has nothing meaningful
     // to compare it against. A digit-only string can never contain % or _,
     // so escapeLikePattern would be a no-op here — skipped, not forgotten.
+    // phone_normalized (0031's generated column) gets the identical
+    // treatment and the identical reasoning: a caller typing digits off
+    // caller ID, punctuation-free, should match the same row's punctuated
+    // phone regardless of how it was originally entered — the whole reason
+    // this column exists (whole-branch review, I2).
     const digits = term.replace(/[^0-9]/g, '');
-    if (digits) clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+    if (digits) {
+      clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+      clauses.push(`phone_normalized.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+    }
     query = query.or(clauses.join(','));
     // Alphabetical while narrowing — easier to scan a short, named result set
     // than one ordered by an unrelated registration date.

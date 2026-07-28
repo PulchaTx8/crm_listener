@@ -325,8 +325,20 @@ Fifteen functions ship across these five migrations: the twelve forming the
 product-facing API surface (the nine write RPCs, `find_member_by_identifier`,
 `is_member_blocked`, and `member_reachable` — the last directly callable and
 covered by its own isolation case, gap 2), plus three pure internal helpers
-(`normalize_phone`, `normalize_email`, `member_linked_to_company`) with no
-independent grant of their own.
+(`normalize_phone`, `normalize_email`, `member_linked_to_company`). Only
+`member_linked_to_company` actually carries no independent grant of its own
+(`revoke execute ... from public`, 0034, with no corresponding `grant` to
+`authenticated` — reachable only from inside a SECURITY DEFINER body, same
+convention as `apply_inventory_movement`, 0027). `normalize_phone` and
+`normalize_email` do each carry an independent grant to `authenticated`
+(`0031_members.sql:33-34`) — required because the generated columns that call
+them are not the only thing that needs them; nothing in this block's actual
+attack surface changes as a result (both are pure, deterministic string
+functions with no table access), but the claim that all three "have no
+independent grant of their own" was wrong for two of the three, corrected here
+(whole-branch review, I6 — this section is the merge-decision artefact
+describing the block's own attack surface, and it stated a grant fact that was
+false).
 
 **Nothing here is destructive.** All five migrations were checked directly for
 `DROP TABLE`, `DROP COLUMN`, `DROP FUNCTION`, `DROP POLICY` and `DELETE FROM` —
@@ -359,7 +371,7 @@ Copied from the spec's §13, with evidence per row.
 | "Stations they took part in" shows only reachable Stations | ✅ | case 5 |
 | A dated suspension expires with no job running | ✅ | case 6 — three calls to `is_member_blocked` (past/future/indefinite org-wide), no job in between |
 | Anonymisation leaves no personal data in the source table | ✅ | case 9 (generated columns clear, phone reusable); `anonymize_member`'s own comment records this was verified against a live database, not merely reasoned about (Task 4) |
-| **Anonymisation leaves no personal data in the audit trail** | ✅ | case 8; §2.2 above proves this by mutation, and case 8's own fixture seeds the four categories (passport, address, birth date, discovery source) that had zero coverage before Task 7's fix round |
+| **Anonymisation leaves no personal data in the audit trail** | ✅ | case 8; §2.2 above proves this by mutation; case 8's own fixture seeds all five categories anonymize_member scrubs beyond name/phone/e-mail/CPF (the full seven-column address block, passport, birth date, discovery source and first_contact_origin) — the whole-branch fix wave widened this from the four (passport, address_line/postal_code only, birth date, discovery source) Task 7's fix round had covered, since six of the eleven identifying columns anonymize_member actually nulls (address_number, address_complement, neighbourhood, city, state, first_contact_origin) still had zero coverage after that round |
 | The raw CPF is stored nowhere | ✅ | pgTAP: `hasnt_column('members', 'cpf', ...)` and the `cpf_hash` format CHECK (Task 1); isolation "bonus" case sends a raw eleven-digit CPF directly to `create_member` and gets a `23514` naming `members_cpf_hash_check`, proving the CHECK holds even if Node's hashing were bypassed |
 | An archived Member's identifiers can be reused | ✅ | case 10 |
 | Each of the six permissions gates its own operation | ✅ | case 7, one sub-case per permission code, refused-then-allowed |
@@ -486,9 +498,15 @@ review finding, not by the plan or the controller:**
    `has_org_permission` alone) — but the owner's ruling was that mirroring a write
    asymmetry onto a read is a different decision, because writing an org-wide
    block discloses nobody's data while reading one discloses the Member's own
-   history. The fact that made narrowing free: `is_member_blocked` is `SECURITY
-   DEFINER` and already answers "is this person barred" regardless of what this
-   policy allows, so narrowing the read cost no operational capability.
+   history. At the time, the narrowing was framed as free because `is_member_blocked`
+   was `SECURITY DEFINER` and answered "is this person barred" regardless of what
+   this policy allowed — that framing is corrected in the whole-branch review (I1):
+   `is_member_blocked` had no caller check at all until that review, which made it
+   a cross-tenant boolean oracle rather than a safe fallback to lean the read
+   policy's justification on. Both the function (now re-checks `members.view` at
+   the Station it is asked about) and this policy's own comment (which no longer
+   cites the now-corrected function as its justification) were fixed together —
+   see the whole-branch fix report for detail.
 
 ### 5.5 The comment-defect class, and why it kept recurring in exactly this shape
 
@@ -537,14 +555,26 @@ name never appears" check were never actually independent of each other).
   `has_function_privilege('authenticated', ..., 'EXECUTE')` → `t`) — standard
   Postgres ACL behaviour: revoking from `PUBLIC` removes only the implicit
   blanket grant, never a role's own separately granted privilege.
-- **Task 8** (deferred, disclosed): `formatDate`/`formatDateTime`
-  (`src/app/(app)/members/format.ts`) carry no explicit `timeZone` for the
-  `timestamptz` fields they render — consent granted-at, block created-at, note
-  and link timestamps. Same shape as `inventory/format.ts`, so a project-wide
-  convention rather than a regression, but these are the product's first
-  person-facing **legal** timestamps rather than an internal operational log —
-  worth a deliberate decision at the next touch of this screen rather than a
-  silent carry-forward.
+- **Task 8** (deferred, disclosed) / **whole-branch review, fixed (C1, Critical)**:
+  this item originally named only the RENDERING side — `formatDate`/
+  `formatDateTime` (`src/app/(app)/members/format.ts`) carry no explicit
+  `timeZone` for the `timestamptz` fields they render (consent granted-at,
+  block created-at, note and link timestamps), so both currently render in the
+  SERVER's own zone rather than the viewer's, since both consuming pages are
+  Server Components (`format.ts`'s own comment now states this plainly instead
+  of the reverse). That framing missed the INPUT side entirely: `block-form.tsx`'s
+  `endsAt` and `register-member-form.tsx`'s `firstContactAt` were both plain
+  `<input type="datetime-local">` fields submitted as-is — a naive wall-clock
+  string with no offset, which `z.coerce.date()` then parsed server-side in the
+  Node PROCESS's own zone, not the operator's. A UTC-hosted server with a
+  Brazilian operator persisted every dated block **three hours early**,
+  invisibly, because the rendering side's own zone-naive display then read the
+  wrong instant back in the same zone that had mis-parsed it — verified under
+  both `TZ=UTC` and `TZ=America/Sao_Paulo`. This is now fixed: both fields
+  convert to an offset-bearing ISO instant client-side, in the browser, before
+  submission, which is where "local" genuinely means the operator's own zone.
+  The rendering-side item remains open and disclosed exactly as before — only
+  the input side was Critical enough to fix in this pass.
 - **Task 8** (fixed in review): `birth_date`, a Postgres `date` column with no
   time component, was rendered with `toLocaleDateString`, which parses the
   date-only ISO string as UTC midnight and then renders in the runtime's own
@@ -558,6 +588,27 @@ name never appears" check were never actually independent of each other).
   `member_consents.origin` — an operator was told evidence survives when it does
   not, on the one screen built specifically to state the erasure promise
   accurately. Fixed to name `origin` among what is destroyed.
+- **Task 5** (deviation from spec, unrecorded until the whole-branch review):
+  the design spec's own §11 says `member_company_links`, `member_consents`,
+  `member_notes` and `member_blocks` are readable "under the same reachability
+  test" as `members` itself — `member_reachable`'s any-link rule — with
+  `member_notes` **additionally** scoped to the Station that wrote it. The
+  implementation instead makes all four per-row on their OWN `company_id`
+  from the start, not `member_reachable` narrowed by one extra term for
+  `member_notes` alone. `0035_rls_members.sql`'s own comment (the block
+  above `members_select_reachable`) argues this at length: `member_reachable`'s
+  any-link rule would silently widen visibility of a consent, note, link or
+  Organization-wide-block detail recorded at Station A to a caller who can
+  only reach this Member via Station B — the opposite of "scoped to the
+  Station that wrote it," which the spec itself demands for `member_notes`
+  specifically. The whole-branch review judged the per-row rule the correct
+  one for all four tables, not `member_notes` alone — the spec's own
+  reasoning for narrowing `member_notes` applies just as much to a consent,
+  a link, or a Station-scoped block, and applying it selectively would have
+  left three tables looser than the fourth for no principled reason. This
+  was a well-argued, reviewed decision in the migration's own comments — but
+  nowhere did any artefact say a deviation from spec §11 had happened at
+  all, until now.
 
 ---
 
@@ -579,10 +630,17 @@ name never appears" check were never actually independent of each other).
 
 3. **The two disclosed, deferred asymmetries in §5.6**: `first_contact_at`
    surviving erasure while `first_contact_origin` does not, and the members
-   screens' `timestamptz` fields carrying no explicit rendering zone on the
-   product's first legal timestamps. Neither is a defect against this block's own
-   brief; both are worth a deliberate decision at the next relevant touch rather
-   than silent carry-forward.
+   screens' `timestamptz` fields carrying no explicit **rendering** zone on the
+   product's first legal timestamps (both pages render in the server's own zone,
+   not the viewer's, since both are Server Components). Neither is a defect
+   against this block's own brief; both are worth a deliberate decision at the
+   next relevant touch rather than silent carry-forward. The **input** side of
+   this same class of problem — `endsAt`/`firstContactAt` submitted as naive,
+   offset-less `datetime-local` values and parsed server-side in the wrong
+   zone, silently persisting every dated block up to three hours off true —
+   was NOT a deferred item: it was a live Critical defect, found and fixed in
+   the whole-branch review (C1). §5.6's original framing named only the
+   rendering half of this problem; the input half is what actually mattered.
 
 4. **`docker build` was not run as part of this task.** It was not in this task's
    dispatched gate list (unlike Block 2's report, which included it); lint,

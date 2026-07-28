@@ -335,13 +335,20 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   const blockForm = delegateAPage.locator('[data-testid="block-form"]');
   await expect(blockForm).toBeVisible();
   await blockForm.getByLabel('Reason').fill(blockReason);
-  // A direct name-attribute locator, not getByLabel('Ends'): that label also
+  // A direct data-testid locator, not getByLabel('Ends'): that label also
   // wraps a long sibling help paragraph ("Leave blank for an indefinite
   // block…"), which the accessible-name computation folds into the same
   // label text — a substring match would likely still resolve correctly, but
-  // there is no reason to depend on that when the input's own name is right
-  // there and unambiguous within this form.
-  await blockForm.locator('input[name="endsAt"]').fill(futureDateTimeLocal());
+  // there is no reason to depend on that when the input carries its own
+  // unambiguous test id. Not `input[name="endsAt"]` any more (whole-branch
+  // review, C1): the visible datetime-local input carries no `name` at all
+  // now — block-form.tsx converts its naive, offset-less value to an ISO
+  // instant in the browser and carries THAT in a hidden `endsAt` field, so a
+  // naive wall-clock string is never sent to the server to be parsed in the
+  // wrong zone. `.fill()` on the visible input still drives this correctly:
+  // it dispatches a real `input` event, which React's `onChange` picks up
+  // and mirrors into the hidden field before this form ever submits.
+  await blockForm.locator('[data-testid="block-ends-at-input"]').fill(futureDateTimeLocal());
   await blockForm.getByRole('button', { name: 'Block this listener' }).click();
   await expect(blockForm.getByText('Block recorded.')).toBeVisible();
 

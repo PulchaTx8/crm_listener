@@ -201,7 +201,20 @@ describe('members', () => {
       // p_company_id` can never match a NULL column against this Station's
       // real id.
       const stationC = await addCompany(customer, 'Station Three');
-      const delegate = await grantRoleWith(customer, label, ['members.create', 'members.block']);
+      // members.view granted at BOTH Stations, and at stationC specifically
+      // (not only customer.companyId): is_member_blocked (0032) now re-checks
+      // the caller holds members.view at the p_company_id it is asked about
+      // (whole-branch review, I1 — it was previously an ungated cross-tenant
+      // oracle). Every probe below calls is_member_blocked directly, so
+      // without members.view at stationC too, probe 3 would fail on a
+      // permission refusal rather than actually exercising the org-wide
+      // bypass this case exists to prove.
+      const delegate = await grantRoleWith(
+        customer,
+        label,
+        ['members.create', 'members.block', 'members.view'],
+        [customer.companyId, stationC],
+      );
       const client = await signInAs(delegate.email, delegate.password);
 
       const created = await client.rpc('create_member', {
@@ -261,6 +274,37 @@ describe('members', () => {
       });
       expect(blockedElsewhere.error).toBeNull();
       expect(blockedElsewhere.data).toBe(true);
+    },
+  );
+
+  it(
+    'case 6b: is_member_blocked refuses a caller who lacks members.view at the Station asked about',
+    async () => {
+      const label = `mem-block-check-perm-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      // members.create and members.block do not imply members.view —
+      // is_member_blocked (0032) is gated on members.view specifically
+      // (whole-branch review, I1: this function had no caller check at all
+      // before this fix). Every production call site happens to already
+      // pass a Station the caller reached, so this refusal path would
+      // otherwise be exercised by no test at all — verified directly here
+      // rather than assumed, per the review's own instruction.
+      const delegate = await grantRoleWith(customer, label, ['members.create', 'members.block']);
+      const client = await signInAs(delegate.email, delegate.password);
+
+      const created = await client.rpc('create_member', {
+        p_company_id: customer.companyId,
+        p_full_name: `Block Check Perm Probe ${label}`,
+      });
+      expect(created.error).toBeNull();
+      const memberId = created.data as string;
+
+      const denied = await client.rpc('is_member_blocked', {
+        p_member_id: memberId,
+        p_company_id: customer.companyId,
+      });
+      expect(denied.error).not.toBeNull();
+      expect(denied.error!.message).toContain('permission denied: members.view required');
     },
   );
 
@@ -411,7 +455,7 @@ describe('members', () => {
   });
 
   it(
-    'case 8 (+ gaps 3 and 6, rule 1): after anonymisation, no audit_logs row for the Member contains any erased value, and the three write RPCs guarded against an anonymised Member actually refuse',
+    'case 8 (+ gaps 3 and 6, rule 1): after anonymisation, no audit_logs row for the Member contains any erased value, and the four write RPCs guarded against an anonymised Member actually refuse',
     async () => {
       const label = `mem-audit-${Date.now()}`;
       const customer = await provisionCustomer(label);
@@ -446,24 +490,56 @@ describe('members', () => {
       const distinctiveEmail = `zzq-${label}@example.test`;
       const distinctiveCpf = String(Date.now()).slice(-11);
       const cpfHash = hashCpf(distinctiveCpf);
+      // cpfLast3 is seeded (create_member/update_member below) and erased
+      // (anonymize_member, 0034:736) the same as every other identifying
+      // column here, but deliberately excluded from the needles searched
+      // below, for a different reason than distinctiveCpf's exclusion: at
+      // three bare digits, cpfLast3 is short enough to turn up inside some
+      // OTHER row's gen_random_uuid() value (member_id, block_id, note_id,
+      // consent_id are all hex strings, ten of whose sixteen symbols are
+      // digits) by pure chance, so a hit would not reliably indicate a leak
+      // of THIS value and a miss would not reliably rule one out either — an
+      // unreliable needle is worse than no needle (whole-branch review, I4).
+      // Its erasure is still proved: cpf_hash and cpf_last_digits are
+      // nulled by the exact same UPDATE statement in anonymize_member
+      // (0034:736), so a leak of one column and not the other in that one
+      // statement is not a realistic failure mode this suite needs a second,
+      // noisier needle to guard against.
       const cpfLast3 = cpfLastDigits(distinctiveCpf);
       const distinctiveOrigin = `consent captured by Zzq at the front desk, ${label}`;
       const distinctiveNoteBody = `Note about ${distinctiveName}, phone ${distinctivePhone}`;
       const distinctiveBlockReason = `Blocked: ${distinctiveName} used e-mail ${distinctiveEmail}`;
       const distinctiveLiftReason = `Unblocked after ${distinctiveName} called and apologised`;
-      // The four categories anonymize_member also scrubs (0034:734-741)
-      // beyond name/phone/e-mail/CPF: the address block, the passport, the
-      // birth date and the discovery source. Seeded here so a leak of any
-      // of them would be visible to the search below — with only the four
-      // fields already covered, all four were null in this fixture and a
-      // jsonb_build_object leaking one would have been invisible.
+      // The categories anonymize_member also scrubs (0034:734-741) beyond
+      // name/phone/e-mail/CPF: the full address block (all seven columns —
+      // address_line, address_number, address_complement, neighbourhood,
+      // city, state, postal_code), the passport, the birth date, the
+      // discovery source and first_contact_origin — five categories, not
+      // the four this fixture covered before this task (whole-branch
+      // review, I4): address_line and postal_code were seeded and needled,
+      // but address_number, address_complement, neighbourhood, city, state
+      // and first_contact_origin were not — all null in the original
+      // fixture, so a jsonb_build_object leaking any one of them would have
+      // been invisible to the search below. Seeded and needled now so a
+      // leak of any of them would be visible.
       const distinctivePassport = `ZZQ${String(Date.now()).slice(-8)}`;
       const distinctiveAddressLine = `Rua Zzq Probe ${label}`;
+      // 'Z' prefix, matching distinctivePostalCode's own reasoning: a bare
+      // run of decimal digits is exactly the shape most likely to turn up by
+      // chance inside some other row's hex-encoded uuid, the same risk
+      // cpfLast3's own exclusion comment (above) names for a three-digit
+      // needle — prefixing keeps this one meaningfully distinctive instead.
+      const distinctiveAddressNumber = `Z${String(Date.now()).slice(-6)}`;
+      const distinctiveAddressComplement = `Apto Zzq ${label}`;
+      const distinctiveNeighbourhood = `Bairro Zzq ${label}`;
+      const distinctiveCity = `Cidade Zzq ${label}`;
+      const distinctiveState = `Estado Zzq ${label}`;
       const distinctivePostalCode = `Z9${String(Date.now()).slice(-6)}`;
       const distinctiveBirthDate = new Date(Date.now() - 40 * 365 * 24 * 60 * 60 * 1000)
         .toISOString()
         .slice(0, 10);
       const distinctiveDiscoverySource = `Heard about it on Radio Zzq, ${label}`;
+      const distinctiveFirstContactOrigin = `First contact via Zzq WhatsApp, ${label}`;
 
       // 1. create_member
       const created = await client.rpc('create_member', {
@@ -476,8 +552,14 @@ describe('members', () => {
         p_passport: distinctivePassport,
         p_birth_date: distinctiveBirthDate,
         p_address_line: distinctiveAddressLine,
+        p_address_number: distinctiveAddressNumber,
+        p_address_complement: distinctiveAddressComplement,
+        p_neighbourhood: distinctiveNeighbourhood,
+        p_city: distinctiveCity,
+        p_state: distinctiveState,
         p_postal_code: distinctivePostalCode,
         p_discovery_source: distinctiveDiscoverySource,
+        p_first_contact_origin: distinctiveFirstContactOrigin,
       });
       expect(created.error).toBeNull();
       const memberId = created.data as string;
@@ -493,6 +575,11 @@ describe('members', () => {
         p_passport: distinctivePassport,
         p_birth_date: distinctiveBirthDate,
         p_address_line: distinctiveAddressLine,
+        p_address_number: distinctiveAddressNumber,
+        p_address_complement: distinctiveAddressComplement,
+        p_neighbourhood: distinctiveNeighbourhood,
+        p_city: distinctiveCity,
+        p_state: distinctiveState,
         p_postal_code: distinctivePostalCode,
         p_discovery_source: distinctiveDiscoverySource,
       });
@@ -562,11 +649,11 @@ describe('members', () => {
       });
       expect(anonymized.error).toBeNull();
 
-      // gap 6: record_member_consent, add_member_note and block_member all
-      // refuse outright on an already-anonymised Member (guard added during
-      // Task 4's review) — proved directly here, and isolated to
-      // anonymized_at specifically by the ordering above (deleted_at is
-      // still null at this point). Each of these three functions raises
+      // gap 6: record_member_consent, add_member_note, block_member and
+      // update_member all refuse outright on an already-anonymised Member
+      // (guards added during Task 4's review) — proved directly here, and
+      // isolated to anonymized_at specifically by the ordering above
+      // (deleted_at is still null at this point). The first three raise
       // P0002 from two different guards — this one and "not linked to that
       // Station" (0034:437/441, 509/513, 580/590) — so the message is
       // pinned alongside the code: the delegate above IS linked to
@@ -602,9 +689,29 @@ describe('members', () => {
       expect(blockAfter.error!.code).toBe('P0002');
       expect(blockAfter.error!.message).toContain('has been anonymised');
 
+      // update_member's guard is shaped differently from the three above,
+      // and exercised by no test before this task (whole-branch review,
+      // I4): it does not raise from an upfront SELECT check but re-checks
+      // anonymized_at is null INSIDE the UPDATE's own WHERE clause
+      // (0034:254), atomically with the write, then re-reads to report
+      // which of anonymized_at/deleted_at actually stopped it — the
+      // distinct message at 0034:266-267. errcode is 22023 here, not
+      // P0002: update_member classifies this as a state conflict
+      // (the same code its own blank-name guard uses), not a not-found.
+      const updateAfter = await client.rpc('update_member', {
+        p_member_id: memberId,
+        p_full_name: 'Should Be Refused',
+      });
+      expect(updateAfter.error).not.toBeNull();
+      expect(updateAfter.error!.code).toBe('22023');
+      expect(updateAfter.error!.message).toContain('has been anonymised');
+
       // 9. archive_member — last, so every one of the nine write RPCs has
-      // now run against this Member exactly once, and the audit search
-      // below covers all nine rows.
+      // now run successfully against this Member exactly once (update_member
+      // ran twice in total — once successfully at step 2, once refused just
+      // above — but only the successful run writes an audit row, so the
+      // count below is unaffected), and the audit search below covers all
+      // nine successful writes.
       const archived = await client.rpc('archive_member', { p_member_id: memberId });
       expect(archived.error).toBeNull();
 
@@ -669,12 +776,28 @@ describe('members', () => {
       // mistake. The brief's own named values are name, phone, e-mail and
       // CPF — represented here by cpfHash, since the raw CPF (distinctiveCpf)
       // never reaches an RPC argument and so could never appear regardless
-      // of what the code does. The rest extend the same check to every
-      // other identifying value create_member/update_member accept and
+      // of what the code does (cpfLast3 is excluded for the different reason
+      // given above, where it is seeded). The rest extend the same check to
+      // every other identifying value create_member/update_member accept and
       // anonymize_member scrubs (0034:734-741): the free text 0034's own
       // comment says must never reach detail (a note's body, a block's
-      // reason, a lift's reason, a consent's origin), the address block, the
-      // passport, the birth date and the discovery source.
+      // reason, a lift's reason, a consent's origin), the full address block,
+      // the passport, the birth date, the discovery source and
+      // first_contact_origin.
+      //
+      // Not every needle below is independent, and this is stated plainly
+      // rather than left implied (whole-branch review, I4 — the same honesty
+      // members-flow.spec.ts's own comment applies to its five checks, at
+      // the "innerText()" block near the end of that file): distinctiveNoteBody,
+      // distinctiveBlockReason and distinctiveLiftReason each CONTAIN
+      // distinctiveName by construction (`Note about ${distinctiveName},
+      // ...`, `Blocked: ${distinctiveName} ...`, `Unblocked after
+      // ${distinctiveName} ...`), so under a whole-value leak of any one of
+      // those three free-text fields, the distinctiveName needle already
+      // fires first. Those three needles still add real, narrower coverage —
+      // a leak that preserves the surrounding free text but strips out the
+      // name specifically — just not the fully independent coverage a flat
+      // list like this one implies at a glance.
       const { data: orgRows, error: orgRowsError } = await admin
         .from('audit_logs')
         .select('detail')
@@ -692,9 +815,15 @@ describe('members', () => {
         distinctiveLiftReason,
         distinctivePassport,
         distinctiveAddressLine,
+        distinctiveAddressNumber,
+        distinctiveAddressComplement,
+        distinctiveNeighbourhood,
+        distinctiveCity,
+        distinctiveState,
         distinctivePostalCode,
         distinctiveBirthDate,
         distinctiveDiscoverySource,
+        distinctiveFirstContactOrigin,
       ];
       for (const needle of needles) {
         expect(haystack).not.toContain(needle);
@@ -772,6 +901,22 @@ describe('members', () => {
         p_reason: 'non-payment',
       });
       expect(suspendError).toBeNull();
+
+      // The precondition this whole case rests on, applying case 4's own
+      // lesson (that test's comment on the identical risk) to this one:
+      // without this, a suspend_company that stopped setting status would
+      // leave has_permission still seeing Station B as active, the per-link
+      // exists() branch in member_reachable would carry this case on its
+      // own, and the platform-admin bypass this case names would never
+      // actually be exercised — reading with the service client, which
+      // bypasses RLS but not the stored value itself.
+      const { data: stationBRow, error: stationBReadError } = await admin
+        .from('companies')
+        .select('status')
+        .eq('id', stationB)
+        .single();
+      expect(stationBReadError).toBeNull();
+      expect(stationBRow?.status).toBe('suspended');
 
       // has_permission requires an ACTIVE Station for every caller (0016),
       // so an ordinary role holder — even one who WAS linked to Station B —

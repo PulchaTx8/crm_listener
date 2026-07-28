@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { blockMemberAction, type BlockFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
@@ -33,6 +33,23 @@ const INITIAL: BlockFormState = { status: 'idle' };
  * and the citations). `stations[0]?.companyId ?? ''` below is a type-level
  * fallback for the empty array TypeScript still allows, not a real path this
  * component expects to take.
+ *
+ * `endsAt` is carried as a hidden ISO field, computed from the visible
+ * `datetime-local` input HERE, in the browser — not submitted as-is (whole-
+ * branch review, C1, Critical). A `datetime-local` input's own value is a
+ * naive wall-clock string with no offset ("2026-08-15T14:30"); per ECMA-262,
+ * `new Date(...)` on a string like that parses it as local time IN WHATEVER
+ * PROCESS RUNS IT. Read server-side by `z.coerce.date()` (schemas/members.ts)
+ * instead, "local" would have meant the Node PROCESS's own zone, not the
+ * operator's — a UTC-hosted server with a Brazilian operator would then
+ * persist every dated block three hours early, invisibly, because
+ * formatDateTime renders the same wrong instant back in the same zone that
+ * mis-parsed it. Verified on this machine: `TZ=UTC` and
+ * `TZ=America/Sao_Paulo` parse the identical naive string to instants three
+ * hours apart. Converting here, in the browser, is what makes "local"
+ * genuinely mean the operator's own zone — the correct semantics for this
+ * field — with no need to know or interpolate the Station's own
+ * `companies.timezone` at all.
  */
 export function BlockForm({
   memberId,
@@ -42,6 +59,10 @@ export function BlockForm({
   stations: Pick<MemberStationRow, 'companyId' | 'companyName'>[];
 }) {
   const [state, action, pending] = useActionState(blockMemberAction, INITIAL);
+  const [endsAtLocal, setEndsAtLocal] = useState('');
+  // '' (nothing chosen) stays '' — blockMemberSchema's own optionalTimestamp
+  // already treats a blank endsAt as "indefinite", not as an invalid date.
+  const endsAtIso = endsAtLocal ? new Date(endsAtLocal).toISOString() : '';
 
   return (
     <form action={action} data-testid="block-form" className="flex flex-col gap-3">
@@ -84,7 +105,19 @@ export function BlockForm({
 
       <label className="flex flex-col gap-1 text-sm">
         Ends
-        <Input name="endsAt" type="datetime-local" />
+        {/* No `name` here — this input is never submitted directly. Its value
+            is a naive wall-clock string with no offset; converting it to an
+            instant belongs in the browser (see this file's own doc comment,
+            C1), not on the server, so `onChange` is what feeds the hidden
+            `endsAt` field below rather than a server action reading this
+            input's raw value. */}
+        <Input
+          type="datetime-local"
+          data-testid="block-ends-at-input"
+          value={endsAtLocal}
+          onChange={(e) => setEndsAtLocal(e.target.value)}
+        />
+        <input type="hidden" name="endsAt" value={endsAtIso} />
         <span className="text-xs text-muted-foreground">
           Leave blank for an indefinite block. A date here means the block stops applying once
           that moment passes — nothing needs to run for that to happen, so it will not un-block
