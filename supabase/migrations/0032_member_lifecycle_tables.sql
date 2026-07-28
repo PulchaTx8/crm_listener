@@ -9,10 +9,14 @@
 -- anonymize_member (0034_member_rpcs.sql) is the one path that rewrites an existing
 -- row in these three tables rather than appending one, and it only ever removes: for
 -- an erased Member it nulls member_consents.origin, member_notes.body and
--- member_blocks.reason — the free text that could re-identify them — while the row,
--- its dates, its type/kind and its author all survive. Owner's ruling (Task 4
--- review, Ruling B): a note reading "this is the person we erased, phone ..." would
--- otherwise outlive the erasure it describes.
+-- member_blocks.reason AND lift_reason — every free-text column that could
+-- re-identify them — while the row, its dates, its type/kind and its author all
+-- survive. Owner's ruling (Task 4 review, Ruling B; extended after the fix round to
+-- cover lift_reason as well as reason — "unblocked after <name> called and
+-- apologised" is exactly the kind of free text about a person the ruling exists to
+-- keep out, and the original "three columns" reflected the review's list, not a
+-- judgement that a fourth should survive): a note reading "this is the person we
+-- erased, phone ..." would otherwise outlive the erasure it describes.
 --
 -- None of the three carries an updated_at — an append-only write needs no edit
 -- timestamp, and the one edit that does happen (anonymize_member's erasure) is dated
@@ -112,6 +116,12 @@ create table public.member_blocks (
   created_by      uuid references auth.users (id),
   lifted_at       timestamptz,
   lifted_by       uuid references auth.users (id),
+  -- Already nullable (a block that has never been lifted has no lift_reason yet).
+  -- lift_member_block (0034) enforces a non-blank value at the moment of lifting;
+  -- anonymize_member (0034) is, in addition to that normal empty state, the one
+  -- path that clears an EXISTING lift_reason for an erased Member (Ruling B,
+  -- extended after the fix round) — free text describing a person is exactly what
+  -- the ruling removes, whether it is the block's own reason or its lift's.
   lift_reason     text,
 
   -- FOREIGN KEY match is MATCH SIMPLE by default: when company_id is null, this half
@@ -124,9 +134,10 @@ create table public.member_blocks (
     foreign key (company_id, organization_id) references public.companies (id, organization_id)
 );
 
-comment on table public.member_blocks is 'Draw bans and suspensions, Organization-wide or per Station. Append-only, except the lift itself (recorded on the row it ends) and anonymize_member (0034), which nulls reason for an erased Member, keeping the row, its kind, its dates and its author.';
+comment on table public.member_blocks is 'Draw bans and suspensions, Organization-wide or per Station. Append-only, except the lift itself (recorded on the row it ends) and anonymize_member (0034), which nulls reason and lift_reason for an erased Member, keeping the row, its kind, its dates and its author.';
 comment on column public.member_blocks.company_id is 'Null means the block applies across the whole Organization, not one Station.';
 comment on column public.member_blocks.reason is 'Not null in practice (block_member, 0034, enforces it); nullable here only so anonymize_member (0034) can clear it for an erased Member.';
+comment on column public.member_blocks.lift_reason is 'Null until the block is lifted (lift_member_block, 0034, then enforces a non-blank value). anonymize_member (0034) also nulls an already-set lift_reason for an erased Member — the same free-text erasure as reason, extended to this column after the Task 4 fix round.';
 
 create index member_blocks_member_idx on public.member_blocks (member_id);
 

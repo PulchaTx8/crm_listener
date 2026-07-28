@@ -746,13 +746,18 @@ begin
       using errcode = 'P0002';
   end if;
 
-  -- Owner's ruling B (Task 4 review): a note reading "this is the person we erased,
-  -- phone ..." or a block/consent reason typed the same way would outlive the
-  -- erasure it describes. These three tables' rows survive — their dates,
-  -- types/kinds and authors keep the history intact — only the free text a Station
-  -- wrote about this listener goes. member_notes.body and member_blocks.reason were
-  -- NOT NULL until this ruling (0032, amended); both are nullable now for exactly
-  -- this write. member_consents.origin was already nullable.
+  -- Owner's ruling B (Task 4 review, extended by the controller after the fix round:
+  -- "unblocked after <name> called and apologised" is exactly the free text
+  -- describing a person that the ruling exists to keep out, so it covers
+  -- lift_reason too, not only the block's own reason — the "three columns" in the
+  -- original ruling reflected the review's list, not a judgement that a fourth
+  -- should survive). A note reading "this is the person we erased, phone ..." or a
+  -- block/consent/lift reason typed the same way would outlive the erasure it
+  -- describes. These three tables' rows survive — their dates, types/kinds and
+  -- authors keep the history intact — only the free text a Station wrote about this
+  -- listener goes. member_notes.body and member_blocks.reason were NOT NULL until
+  -- this ruling (0032, amended); both are nullable now for exactly this write.
+  -- member_consents.origin and member_blocks.lift_reason were already nullable.
   update public.member_notes
      set body = null
    where member_id = p_member_id and body is not null;
@@ -762,8 +767,8 @@ begin
    where member_id = p_member_id and origin is not null;
 
   update public.member_blocks
-     set reason = null
-   where member_id = p_member_id and reason is not null;
+     set reason = null, lift_reason = null
+   where member_id = p_member_id and (reason is not null or lift_reason is not null);
 
   -- The audit entry names the event, the actor and the reason. p_reason is a bounded
   -- enum (owner's ruling A), never free text, so there is no operator prose here
@@ -777,7 +782,7 @@ end;
 $$;
 
 comment on function public.anonymize_member(uuid, public.member_erasure_reason) is
-  'LGPD erasure. Nulls every identifying column on members (name, phone, e-mail, CPF hash and last digits, passport, birth date, full address, discovery source, first_contact_origin) and sets anonymized_at; the row and its id survive so participations and deliveries still reference something. phone_normalized/email_normalized are GENERATED ALWAYS from phone/email (0031) and clear automatically when the sources are nulled — verified against a live database, see the Task 4 report. Owner''s ruling B (Task 4 review): also nulls member_notes.body, member_consents.origin and member_blocks.reason for this listener, keeping those rows and their dates/types/authors. p_reason is a bounded enum (member_erasure_reason, owner''s ruling A) — no free-text escape hatch, so the trail cannot be re-seeded with the very narrative it is erasing. Gated on members.erase, checked via member_reachable. The UPDATE''s own WHERE clause (anonymized_at is null) makes a double-erase a clean, atomic refusal (P0002) rather than a second no-op success. Audit detail carries member_id and the selected reason: this function writes no value it read from a Member''s own row or its lifecycle tables, which is the guarantee it can actually make — not an absolute about every field''s contents forever, which no function can promise on behalf of an operator''s future free-text input elsewhere.';
+  'LGPD erasure. Nulls every identifying column on members (name, phone, e-mail, CPF hash and last digits, passport, birth date, full address, discovery source, first_contact_origin) and sets anonymized_at; the row and its id survive so participations and deliveries still reference something. phone_normalized/email_normalized are GENERATED ALWAYS from phone/email (0031) and clear automatically when the sources are nulled — verified against a live database, see the Task 4 report. Owner''s ruling B (Task 4 review, extended after the fix round to cover lift_reason as well as reason): also nulls member_notes.body, member_consents.origin and member_blocks.reason/lift_reason for this listener, keeping those rows and their dates/types/authors. p_reason is a bounded enum (member_erasure_reason, owner''s ruling A) — no free-text escape hatch, so the trail cannot be re-seeded with the very narrative it is erasing. Gated on members.erase, checked via member_reachable. The UPDATE''s own WHERE clause (anonymized_at is null) makes a double-erase a clean, atomic refusal (P0002) rather than a second no-op success. Audit detail carries member_id and the selected reason: this function writes no value it read from a Member''s own row or its lifecycle tables, which is the guarantee it can actually make — not an absolute about every field''s contents forever, which no function can promise on behalf of an operator''s future free-text input elsewhere.';
 
 revoke execute on function public.create_member(uuid, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text, timestamptz, text) from public;
 revoke execute on function public.update_member(uuid, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text) from public;
