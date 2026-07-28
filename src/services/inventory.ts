@@ -227,31 +227,13 @@ export async function createPrize(input: PrizeFormInput, accessToken: string): P
   return data;
 }
 
-/**
- * Replaces the prize's catalogue fields wholesale (update_prize's own
- * convention, 0027). The Organization and Company are resolved from the
- * prize row itself, never from a parameter — so no companyId is taken here.
- */
-export async function updatePrize(
-  prizeId: string,
-  input: PrizeFormInput,
-  accessToken: string,
-): Promise<void> {
-  const { error } = await asCaller(accessToken).rpc('update_prize', {
-    p_prize_id: prizeId,
-    p_name: input.name,
-    p_category_id: input.categoryId,
-    p_internal_code: input.internalCode,
-    p_description: input.description,
-    p_allows_return_to_stock: input.allowsReturnToStock,
-  });
-  if (error) throw mapInventoryError(error.code, error.message);
-}
-
-export async function archivePrize(prizeId: string, accessToken: string): Promise<void> {
-  const { error } = await asCaller(accessToken).rpc('archive_prize', { p_prize_id: prizeId });
-  if (error) throw mapInventoryError(error.code, error.message);
-}
+// update_prize and archive_prize (0027) are RPC-only for now: no screen
+// calls either one yet (branch review, Minor). Deleted rather than kept as
+// unwired wrappers — shipped surface with no caller is debt either way, and
+// building the edit/archive screens they would front is out of this fix's
+// scope. Both RPCs remain fully callable directly (psql, a future screen, or
+// a script) without a TypeScript wrapper; nothing here removes them from the
+// database.
 
 // Derived from movementFormSchema's discriminated union rather than
 // hand-written, so a field renamed on one side breaks the build on the

@@ -6,8 +6,8 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listPrizeCategories, listPrizes } from '@/services/inventory';
 import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
-import { getInventoryPermissions, listViewableCompanies } from './station-access';
-import type { InventoryPermissions, ViewableCompany } from './station-access';
+import { getInventoryPermissions, listCompanyAccess } from './station-access';
+import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './station-access';
 import { describeInventoryReadError } from './errors';
 import { InventoryBrowser } from './inventory-browser';
 import { CategoryForm } from './category-form';
@@ -31,8 +31,10 @@ export default async function InventoryPage({
   if (!user) redirect('/login');
 
   let viewable: ViewableCompany[];
+  let suspended: SuspendedCompany[];
+  let capped: boolean;
   try {
-    viewable = await listViewableCompanies(supabase);
+    ({ viewable, suspended, capped } = await listCompanyAccess(supabase));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
     return <LoadError message={describeInventoryReadError(cause)} />;
@@ -79,7 +81,14 @@ export default async function InventoryPage({
         description="Every prize in the Station, with its balance broken out by bucket."
       />
 
-      {viewable.length > 1 && (
+      {capped && (
+        <p className="mb-4 text-xs text-muted-foreground">
+          Showing the first {viewable.length + suspended.length} stations you can reach. Contact
+          us if a Station you expect is missing.
+        </p>
+      )}
+
+      {viewable.length + suspended.length > 1 && (
         <div className="mb-6 flex flex-wrap gap-2">
           {viewable.map((company) => (
             <Link
@@ -94,6 +103,22 @@ export default async function InventoryPage({
             >
               {company.name}
             </Link>
+          ))}
+          {/* A suspended Station passes the Company visibility policy — which
+              deliberately keeps suspended Companies visible so the UI can
+              explain why access stopped (the same reasoning /app's own
+              Station cards carry) — then fails has_permission unconditionally
+              (has_company_access requires status = 'active'). Rendered here,
+              disabled, with the reason, instead of silently vanishing from the
+              switcher with no explanation. */}
+          {suspended.map((company) => (
+            <span
+              key={company.id}
+              title="Suspended — no data is available while the subscription is inactive."
+              className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {company.name} (suspended)
+            </span>
           ))}
         </div>
       )}

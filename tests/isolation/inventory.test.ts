@@ -552,6 +552,195 @@ describe('inventory', () => {
     expect(balance?.available).toBe(6);
   });
 
+  // adjust_stock (0030 fix): p_counted is the PHYSICAL count — everything on
+  // the shelf, reserved units included (design spec §4 puts reserved inside
+  // the physical total; a reservation commits units, it does not remove them
+  // from the Station). Before this fix, adjust_stock reconciled ONLY
+  // `available` against `p_counted`, so an operator who correctly counted
+  // the whole shelf while some of it was reserved would have their honest
+  // count read as an increase to `available` alone — inventing units that
+  // were never missing. These three cases pin the corrected contract.
+  describe('adjust_stock reconciles the physical count, not available alone', () => {
+    it('a physical count equal to available + reserved (+ every other committed bucket) records no movement and changes nothing', async () => {
+      const label = `inv-physical-noop-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+      const delegate = await grantRoleWith(customer, label, [
+        'inventory.entry',
+        'inventory.reserve',
+        'inventory.adjust',
+      ]);
+      const client = await signInAs(delegate.email, delegate.password);
+
+      const entry = await client.rpc('record_stock_entry', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_type: 'MANUAL_ENTRY',
+        p_quantity: 40,
+      });
+      expect(entry.error).toBeNull();
+
+      const reserve = await client.rpc('reserve_stock', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_quantity: 10,
+        p_note: 'holding for a promo',
+      });
+      expect(reserve.error).toBeNull();
+
+      // available 30, reserved 10 — physical total 40. Pre-fix, adjust_stock
+      // would compute 40 - available(30) = +10 and invent an
+      // ADJUSTMENT_POSITIVE of 10 units that were never missing (they were
+      // sitting in `reserved` the whole time).
+      const { data: before, error: beforeError } = await admin
+        .from('inventory_movements')
+        .select('id')
+        .eq('prize_id', prizeId);
+      expect(beforeError).toBeNull();
+      const countBefore = before?.length ?? 0;
+
+      const adjust = await client.rpc('adjust_stock', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_counted: 40,
+        p_note: 'shelf count matches the physical total',
+      });
+      expect(adjust.error).toBeNull();
+      expect(adjust.data).toBeNull();
+
+      const { data: after, error: afterError } = await admin
+        .from('inventory_movements')
+        .select('id')
+        .eq('prize_id', prizeId);
+      expect(afterError).toBeNull();
+      expect(after?.length ?? 0).toBe(countBefore);
+
+      const { data: balance, error: balanceError } = await admin
+        .from('inventory_balances')
+        .select('available, reserved')
+        .eq('prize_id', prizeId)
+        .single();
+      expect(balanceError).toBeNull();
+      expect(balance?.available).toBe(30);
+      expect(balance?.reserved).toBe(10);
+    });
+
+    it('a genuinely different physical count moves only available, leaving reserved untouched', async () => {
+      const label = `inv-physical-delta-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+      const delegate = await grantRoleWith(customer, label, [
+        'inventory.entry',
+        'inventory.reserve',
+        'inventory.adjust',
+      ]);
+      const client = await signInAs(delegate.email, delegate.password);
+
+      const entry = await client.rpc('record_stock_entry', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_type: 'MANUAL_ENTRY',
+        p_quantity: 40,
+      });
+      expect(entry.error).toBeNull();
+
+      const reserve = await client.rpc('reserve_stock', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_quantity: 10,
+        p_note: 'holding for a promo',
+      });
+      expect(reserve.error).toBeNull();
+
+      // available 30, reserved 10, physical total 40. A genuine count of 45
+      // means five more units physically exist than the ledger shows, none
+      // of them reserved — the whole difference belongs to `available`.
+      const adjust = await client.rpc('adjust_stock', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_counted: 45,
+        p_note: 'found five more on a top shelf',
+      });
+      expect(adjust.error).toBeNull();
+      expect(adjust.data).toBeTruthy();
+
+      const { data: movement, error: movementError } = await admin
+        .from('inventory_movements')
+        .select('movement_type, quantity, from_bucket, to_bucket')
+        .eq('id', adjust.data as string)
+        .single();
+      expect(movementError).toBeNull();
+      expect(movement).toMatchObject({
+        movement_type: 'ADJUSTMENT_POSITIVE',
+        quantity: 5,
+        from_bucket: null,
+        to_bucket: 'available',
+      });
+
+      const { data: balance, error: balanceError } = await admin
+        .from('inventory_balances')
+        .select('available, reserved')
+        .eq('prize_id', prizeId)
+        .single();
+      expect(balanceError).toBeNull();
+      expect(balance?.available).toBe(35);
+      expect(balance?.reserved).toBe(10);
+    });
+
+    it('a physical count below what is already committed is refused, naming both figures', async () => {
+      const label = `inv-physical-refuse-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+      const delegate = await grantRoleWith(customer, label, [
+        'inventory.entry',
+        'inventory.reserve',
+        'inventory.adjust',
+      ]);
+      const client = await signInAs(delegate.email, delegate.password);
+
+      const entry = await client.rpc('record_stock_entry', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_type: 'MANUAL_ENTRY',
+        p_quantity: 40,
+      });
+      expect(entry.error).toBeNull();
+
+      const reserve = await client.rpc('reserve_stock', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_quantity: 10,
+        p_note: 'holding for a promo',
+      });
+      expect(reserve.error).toBeNull();
+
+      // committed = reserved(10) + linked(0) + awaiting_pickup(0) +
+      // pending_return(0) = 10. A count of 5 claims fewer physical units
+      // exist than are already promised to the reservation alone — a state
+      // an adjustment cannot express.
+      const refused = await client.rpc('adjust_stock', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_counted: 5,
+        p_note: 'shelf recount',
+      });
+      expect(refused.error).not.toBeNull();
+      expect(refused.error!.message).toMatch(
+        /counted total 5 is less than the 10 unit\(s\) already committed/,
+      );
+
+      // Nothing moved: the refusal happens before any movement is appended.
+      const { data: balance, error: balanceError } = await admin
+        .from('inventory_balances')
+        .select('available, reserved')
+        .eq('prize_id', prizeId)
+        .single();
+      expect(balanceError).toBeNull();
+      expect(balance?.available).toBe(30);
+      expect(balance?.reserved).toBe(10);
+    });
+  });
+
   it('the ledger cannot be updated or deleted, with a real JWT nor with the service client', async () => {
     const label = `inv-immutable-${Date.now()}`;
     const customer = await provisionCustomer(label);

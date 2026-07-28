@@ -298,12 +298,17 @@ export async function releaseReservationAction(
 // Reconciliation — inventory.view (already the gate for the whole page)
 // ---------------------------------------------------------------------------
 
-export interface ReconciliationState {
-  status: 'idle' | 'checked' | 'error';
-  message?: string;
-  rows?: ReconciliationRow[];
-  checkedAt?: string;
-}
+// A discriminated union rather than one interface with every field optional:
+// the state machine already guarantees `rows`/`checkedAt` are present
+// together on 'checked' and absent otherwise, and `message` only on 'error' —
+// but a single interface cannot express that, which is what pushed
+// reconciliation-panel.tsx into an `as string` cast on `checkedAt` instead of
+// a real narrowing. Modelled here, `state.status === 'checked'` alone is
+// enough for the compiler to know `rows` and `checkedAt` exist, with no cast.
+export type ReconciliationState =
+  | { status: 'idle' }
+  | { status: 'error'; message: string }
+  | { status: 'checked'; rows: ReconciliationRow[]; checkedAt: string };
 
 export async function runReconciliationAction(
   _prev: ReconciliationState,

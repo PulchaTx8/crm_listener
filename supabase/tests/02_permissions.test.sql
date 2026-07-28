@@ -1,5 +1,5 @@
 begin;
-select plan(65);
+select plan(88);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -329,6 +329,100 @@ select is(
   '99999999-0000-0000-0000-000000000024'::uuid,
   'the visible prize is the live one, not the archived one'
 );
+
+-- Branch-level review, Important #2: the two ledger tables had the weakest
+-- write-grant coverage of the four — inventory_movements had no INSERT
+-- assertion for either role, and inventory_balances had only a single
+-- service_role UPDATE assertion. prizes/prize_categories already covered all
+-- six cells (three verbs x two roles) each; this completes the same grid for
+-- the two tables the block exists to protect, so a future migration granting
+-- so much as INSERT on inventory_movements to authenticated — the most
+-- dangerous grant available, since it bypasses every permission check, every
+-- transition and every lock — cannot pass this suite green.
+select ok(not has_table_privilege('authenticated', 'public.inventory_movements', 'INSERT'),
+          'authenticated may not insert into the ledger directly');
+select ok(not has_table_privilege('service_role', 'public.inventory_movements', 'INSERT'),
+          'service_role may not insert into the ledger directly either');
+select ok(not has_table_privilege('authenticated', 'public.inventory_balances', 'INSERT'),
+          'authenticated may not insert the projection directly');
+select ok(not has_table_privilege('authenticated', 'public.inventory_balances', 'UPDATE'),
+          'authenticated may not update the projection directly');
+select ok(not has_table_privilege('authenticated', 'public.inventory_balances', 'DELETE'),
+          'authenticated may not delete the projection directly');
+select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'INSERT'),
+          'service_role may not insert the projection directly either');
+select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'DELETE'),
+          'service_role may not delete the projection directly either');
+
+-- Important #3: apply_inventory_movement's protective properties — SECURITY
+-- INVOKER and EXECUTE granted to nobody — are what make a stray future GRANT
+-- or a stray future SECURITY DEFINER harmless, respectively. Neither was
+-- asserted anywhere before this; flipping either in a future migration would
+-- have left this suite green while an unchecked write path opened.
+select is(
+  (select prosecdef from pg_proc
+     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)'::regprocedure),
+  false,
+  'apply_inventory_movement is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  'anon may not call apply_inventory_movement'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  'authenticated may not call apply_inventory_movement'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  'service_role may not call apply_inventory_movement'
+);
+
+-- The shared bootstrap helper (0030) carries the identical shape and the
+-- identical reasoning: SECURITY INVOKER, EXECUTE granted to nobody, reachable
+-- only from inside a SECURITY DEFINER body.
+select is(
+  (select prosecdef from pg_proc
+     where oid = 'public.ensure_inventory_balance_row(uuid, uuid, uuid)'::regprocedure),
+  false,
+  'ensure_inventory_balance_row is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
+  'anon may not call ensure_inventory_balance_row'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
+  'authenticated may not call ensure_inventory_balance_row'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
+  'service_role may not call ensure_inventory_balance_row'
+);
+
+-- Important #6: service_role retained the default ACL's TRUNCATE grant on
+-- all four tables until 0029's fix round 2 — TRUNCATE is neither INSERT,
+-- UPDATE nor DELETE, so none of the assertions above would ever have caught
+-- it, and a single TRUNCATE inventory_movements from service_role could
+-- otherwise have wiped the ledger in one statement. Checked for authenticated
+-- too, alongside service_role, so the grid is complete rather than pinned
+-- only on the role the finding named.
+select ok(not has_table_privilege('authenticated', 'public.prize_categories', 'TRUNCATE'),
+          'authenticated may not truncate prize_categories');
+select ok(not has_table_privilege('authenticated', 'public.prizes', 'TRUNCATE'),
+          'authenticated may not truncate prizes');
+select ok(not has_table_privilege('authenticated', 'public.inventory_movements', 'TRUNCATE'),
+          'authenticated may not truncate the ledger');
+select ok(not has_table_privilege('authenticated', 'public.inventory_balances', 'TRUNCATE'),
+          'authenticated may not truncate the projection');
+select ok(not has_table_privilege('service_role', 'public.prize_categories', 'TRUNCATE'),
+          'service_role may not truncate prize_categories');
+select ok(not has_table_privilege('service_role', 'public.prizes', 'TRUNCATE'),
+          'service_role may not truncate prizes');
+select ok(not has_table_privilege('service_role', 'public.inventory_movements', 'TRUNCATE'),
+          'service_role may not truncate the ledger');
+select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'TRUNCATE'),
+          'service_role may not truncate the projection');
 
 select * from finish();
 rollback;

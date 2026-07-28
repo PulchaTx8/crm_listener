@@ -143,6 +143,27 @@ distinction is not decorative: mutating the RPC's own check and mutating the tab
 CHECK constraint are different failures, and only the isolation suite's specific
 message assertion tells them apart.
 
+### 1.3 Branch-level fix round (2026-07-28) — counts updated
+
+A whole-branch review of this block (§2.3 below) found one Critical defect and
+several Important/Minor gaps that no single task's review could see, because each
+saw only its own slice. Fixed on this same branch in `0030_inventory_adjustment_semantics.sql`
+and an edit to `0029_rls_inventory.sql`, plus TypeScript/React changes. The gate was
+re-run in full afterward; the counts in §1's table above are now stale and are
+superseded by:
+
+| Command | Result |
+|---|---|
+| `npx supabase db reset && npx supabase test db` | PASS — 3 files, **124** assertions (was 101; +23 new pgTAP cases) |
+| `npm run test:isolation` | PASS — 8 files, **69** tests (was 66; +3 new cases for the Critical) |
+| `npm run test:e2e` | PASS — 8 tests, default worker count (5 workers on this machine) |
+| `npm run lint` / `npm run typecheck` / `npm run build` | PASS |
+| `npm test` (unit) | PASS — 12 files, 90 tests, unchanged |
+
+Full transcripts, including the failing-then-passing run for the three new
+isolation cases, are in
+`.superpowers/sdd/2026-07-27-block-2-inventory-prizes/final-fix-report.md`.
+
 ---
 
 ## 2. Proof that the invariant tests still bite
@@ -243,6 +264,93 @@ The change was reverted; `git diff` on the file was empty before the database wa
 reset again, `npx supabase test db` (101/101) and `npm run test:isolation` (66/66)
 re-run clean.
 
+### 2.3 The Critical the branch-level review found: `adjust_stock` reconciled the wrong quantity
+
+**Found by a whole-branch review, not by any task review** — each task review saw
+only its own slice; only reading `adjustment-form.tsx` (Task 9) against `adjust_stock`
+(Task 3) and the spec's own equation (§4) side by side surfaced the mismatch between
+what the form told the operator to do and what the RPC actually computed.
+
+`adjustment-form.tsx` instructs the operator: *"What is actually on the shelf right
+now — not the difference from what is booked."* But `adjust_stock` reconciled **only
+the `available` bucket** against `p_counted`. The design spec (§4) puts `reserved`
+**inside** the physical total — a reservation commits units, it does not remove them
+from the Station — so an operator who correctly counted the whole shelf while some
+of it was reserved had their honest count read as an increase to `available` alone,
+inventing units that were never missing. With `available = 30, reserved = 10`
+(physical total 40), a count of 40 produced `available = 40 - 30 = +10`, leaving the
+balance at `available 40, reserved 10` — physical total 50, ten units invented. This
+was reachable the moment `reserve_stock` had been used even once (shipped in this
+same block) and invisible to `reconcile_inventory`, because the ledger row and the
+projection agreed with each other; only the physical count outside the system
+disagreed, and the system had no way to hear that.
+
+**Reproduced first, before any fix.** Three isolation cases were added to
+`tests/isolation/inventory.test.ts` (the `describe('adjust_stock reconciles the
+physical count, not available alone', ...)` block) and run against the pre-fix
+schema (`npx supabase db reset` on the migrations as they stood, `0001`–`0029`):
+
+```
+ ❯ tests/isolation/inventory.test.ts (17 tests | 3 failed)
+   × inventory > adjust_stock reconciles the physical count, not available alone >
+     a physical count equal to available + reserved (+ every other committed
+     bucket) records no movement and changes nothing
+     → expected '7490ef6b-b318-44ac-be0c-79b8e4866360' to be null
+   × inventory > adjust_stock reconciles the physical count, not available alone >
+     a genuinely different physical count moves only available, leaving reserved
+     untouched
+     → expected { movement_type: 'ADJUSTMENT_POSITIVE', quantity: 15, ... } to
+       match object { movement_type: 'ADJUSTMENT_POSITIVE', quantity: 5, ... }
+   × inventory > adjust_stock reconciles the physical count, not available alone >
+     a physical count below what is already committed is refused, naming both
+     figures
+     → expected null not to be null
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 14 passed (17)
+```
+
+Exactly the three failure shapes the defect predicts: a physically-correct count
+recorded a spurious movement instead of a no-op; a genuine 5-unit difference was
+recorded as 15 (the pre-existing 10 reserved units folded into the delta); and a
+count below what was already committed was silently accepted (an `ADJUSTMENT_NEGATIVE`
+succeeded) instead of refused. All 14 pre-existing cases still passed, confirming the
+new cases were the only ones probing this contract.
+
+**Fixed in `supabase/migrations/0030_inventory_adjustment_semantics.sql`** by
+re-declaring `adjust_stock` (not editing `0027` in place, per the coordinator's
+instruction) so that `p_counted` means the physical count: `committed` (reserved +
+linked + awaiting_pickup + pending_return) is read under the same balance-row lock as
+`available`; the new `available` is `p_counted - committed`; the recorded movement is
+the difference between that and the current `available`; and a count below `committed`
+is refused with `23514`, naming both figures. The mandatory note, the post-lock
+pre-delta idempotency check, the null-return no-op and the permission check are all
+unchanged from `0027`. The fix deliberately does **not** ask the operator for "free to
+promise" (available alone) instead — that would make them subtract the committed
+units in their head before typing a number, reintroducing exactly the sign-inversion
+risk the design already rejected once for the available/delta question.
+
+After the fix, `npx supabase db reset` and the same three cases:
+
+```
+ ✓ tests/isolation/inventory.test.ts (17 tests) 16586ms
+   ✓ inventory > adjust_stock reconciles the physical count, not available alone >
+     a physical count equal to available + reserved (+ every other committed
+     bucket) records no movement and changes nothing
+   ✓ inventory > adjust_stock reconciles the physical count, not available alone >
+     a genuinely different physical count moves only available, leaving reserved
+     untouched
+   ✓ inventory > adjust_stock reconciles the physical count, not available alone >
+     a physical count below what is already committed is refused, naming both
+     figures
+```
+
+`adjustment-form.tsx` was also updated: the helper text now says the operator is
+counting everything physically present, **including units already reserved**, and the
+form renders `BalanceStats` above it (physical total and the committed portion) so the
+person can see what the system believes before they overwrite it — previously the
+form sat on the same page as `BalanceStats` without referencing it at all.
+
 ---
 
 ## 3. Deployment steps
@@ -268,9 +376,10 @@ Everything in `docs/block-1a-report.md` §1, `docs/block-1b-report.md` §3 and
 `0025`–`0029` was checked directly for `DROP TABLE`, `DROP COLUMN`, `DROP FUNCTION`,
 `DROP POLICY` and `DELETE FROM` — none appears in any of the five files. No table is
 dropped, no column is dropped, no existing row anywhere in the schema is deleted or
-rewritten by these migrations. They add two new tables, two enum types, sixteen new
-RPCs and their RLS — nothing here touches a table Block 1a/1b/1c already shipped
-except to grant `SELECT` on the four it creates. A deployer does not need a
+rewritten by these migrations. They add **four** new tables, two enum types and
+**eleven** new functions (sixteen is the count of `inventory_movement_type` values,
+not of RPCs), plus their RLS — nothing here touches a table Block 1a/1b/1c already
+shipped except to grant `SELECT` on the four it creates. A deployer does not need a
 pre-migration snapshot for the reason Block 1c's report gave (§3 there names three
 irreversible changes on live tables); this block has none. The one property worth
 protecting going forward is the *absence* of write grants (spec §16, risk 1): no
@@ -515,6 +624,11 @@ shape as the customers page fix.
    `.in()` filter. The leak is honestly reported, not hidden, but it is not closed,
    and every local run of this suite makes the next accidental unbounded `.in()`
    elsewhere in the codebase more likely to trip the same limit sooner.
+   **This block itself deepens the same hole**: `prizes.created_by` (`0025`) and
+   `inventory_movements.actor_id` (`0026`) are two more non-cascading foreign keys
+   into `auth.users`, added by this block on top of the ones already named above —
+   any user who has ever registered a prize or recorded a movement now joins the
+   set `cleanupUsers` cannot remove.
 
 4. **Idempotency keys are not wired into any of the six movement forms.** Every
    movement RPC accepts an `idempotency_key` parameter and the ledger's partial

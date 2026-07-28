@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getPrizeMovements, listPrizeCategories, listPrizes } from '@/services/inventory';
 import type { MovementEntry, PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
-import { getInventoryPermissions, listViewableCompanies } from '../station-access';
+import { getInventoryPermissions, listCompanyAccess } from '../station-access';
 import type { InventoryPermissions, ViewableCompany } from '../station-access';
 import { describeInventoryReadError } from '../errors';
 import { BalanceStats } from '../balance-stats';
@@ -33,8 +33,9 @@ export default async function PrizeDetailPage({
   if (!user) redirect('/login');
 
   let viewable: ViewableCompany[];
+  let capped: boolean;
   try {
-    viewable = await listViewableCompanies(supabase);
+    ({ viewable, capped } = await listCompanyAccess(supabase));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
     return <LoadError message={describeInventoryReadError(cause)} />;
@@ -49,8 +50,10 @@ export default async function PrizeDetailPage({
   // reading `prizes` by id directly) reuses listPrizes wholesale, the same
   // service the list screen calls — this screen calls the service, it does
   // not reimplement the balance/zero-fallback logic living inside it. A
-  // Station count above one or two is not expected in practice, so a
-  // sequential search with an early exit costs nothing worth optimising yet.
+  // sequential search with an early exit is bounded now by
+  // listCompanyAccess's own COMPANY_SCAN_CAP (branch review, Important #5) —
+  // `viewable` can no longer grow with the platform's total Company count,
+  // which is what made this loop unbounded for a platform admin before.
   let found: { companyId: string; prize: PrizeSummary } | null = null;
   try {
     for (const company of viewable) {
@@ -69,8 +72,11 @@ export default async function PrizeDetailPage({
   // Collapses two different facts — the prize was deleted, or it exists in a
   // Station this caller does not hold inventory.view in — into one honest
   // message. That is the safer default: it does not confirm to someone who
-  // cannot see the prize that the id is real.
-  if (!found) return <NotFound />;
+  // cannot see the prize that the id is real. A third fact — the prize exists
+  // in a Station beyond listCompanyAccess's cap — is called out explicitly
+  // rather than folded into the same silence, since it is not the caller's
+  // access that is missing here, it is the list's completeness.
+  if (!found) return <NotFound capped={capped} />;
 
   const { companyId, prize } = found;
 
@@ -213,7 +219,7 @@ export default async function PrizeDetailPage({
               <CardTitle>Adjust to a counted figure</CardTitle>
             </CardHeader>
             <CardContent>
-              <AdjustmentForm companyId={companyId} prizeId={prizeId} />
+              <AdjustmentForm companyId={companyId} prizeId={prizeId} balance={prize.balance} />
             </CardContent>
           </Card>
         )}
@@ -264,7 +270,7 @@ function LoadError({ message }: { message: string }) {
   );
 }
 
-function NotFound() {
+function NotFound({ capped }: { capped: boolean }) {
   return (
     <>
       <PageHeader title="Prize not found" />
@@ -273,6 +279,12 @@ function NotFound() {
           <p className="text-sm text-muted-foreground">
             This prize does not exist, or you do not have permission to view it in this Station.
           </p>
+          {capped && (
+            <p className="text-sm text-muted-foreground">
+              Only the first stations you can reach were checked. If this prize belongs to one
+              beyond that, it will not appear here yet.
+            </p>
+          )}
           <Link href="/inventory" className="text-sm text-primary underline underline-offset-2">
             Back to inventory
           </Link>

@@ -73,3 +73,17 @@ grant select on public.prize_categories    to service_role;
 grant select on public.prizes              to service_role;
 grant select on public.inventory_movements to service_role;
 grant select on public.inventory_balances  to service_role;
+
+-- `revoke all` above only ever ran against anon/authenticated (the two roles
+-- this migration explicitly seals), so service_role kept the default ACL's
+-- TRUNCATE grant on all four tables (the same "Dxtm" default this migration's
+-- own comment names for anon/authenticated before the explicit revoke) — in
+-- direct tension with "immutability is a grant, not a comment": TRUNCATE is
+-- neither INSERT, UPDATE nor DELETE, so nothing above closes it, and a single
+-- `TRUNCATE inventory_movements` from service_role could still wipe the
+-- ledger in one statement. Closed with the one grant class this migration had
+-- not yet touched for this role.
+revoke truncate on public.prize_categories    from service_role;
+revoke truncate on public.prizes              from service_role;
+revoke truncate on public.inventory_movements from service_role;
+revoke truncate on public.inventory_balances  from service_role;

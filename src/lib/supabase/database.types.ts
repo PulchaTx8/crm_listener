@@ -899,6 +899,10 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      ensure_inventory_balance_row: {
+        Args: { p_company_id: string; p_org: string; p_prize_id: string }
+        Returns: undefined
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_org_permission: {
         Args: { p_organization_id: string; p_permission: string }

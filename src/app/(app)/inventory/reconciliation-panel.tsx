@@ -31,16 +31,16 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
 
-      {state.status === 'checked' && state.rows && state.rows.length === 0 && (
+      {state.status === 'checked' && state.rows.length === 0 && (
         <p className="text-sm text-emerald-700">
-          No divergence found, checked {formatDateTime(state.checkedAt as string)}.
+          No divergence found, checked {formatDateTime(state.checkedAt)}.
         </p>
       )}
 
-      {state.status === 'checked' && state.rows && state.rows.length > 0 && (
+      {state.status === 'checked' && state.rows.length > 0 && (
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium text-destructive">
-            {state.rows.length} row(s) disagree, checked {formatDateTime(state.checkedAt as string)}.
+            {state.rows.length} row(s) disagree, checked {formatDateTime(state.checkedAt)}.
           </p>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
