@@ -1,5 +1,5 @@
 begin;
-select plan(166);
+select plan(169);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -609,12 +609,17 @@ select ok(not has_table_privilege('service_role', 'public.member_blocks', 'TRUNC
 -- Behavioural proof the policies actually decide something, not just that they exist.
 -- Station A and B stay active; Station C starts active (a delegate is given
 -- members.view there) and is archived (deleted_at set) partway through — proving the
--- is_platform_admin()/is_owner() bypass this migration adds on top of the brief's own
--- has_permission-only example actually does something: an ordinary members.view
--- holder loses access the moment their Station archives (has_company_access,
--- 0016/0024, applies the active-Station gate to everyone), while the Organization
--- owner still sees the same Member through the is_owner bypass — the same fix Task
--- 3's review made to member_reachable for the write path (0033).
+-- is_platform_admin()/is_owner() bypass member_reachable (0033) carries actually does
+-- something: an ordinary members.view holder loses access the moment their Station
+-- archives (has_company_access, 0016/0024, applies the active-Station gate to
+-- everyone), while the Organization owner still sees the same Member through the
+-- is_owner bypass — the same fix Task 3's review made to member_reachable for the
+-- write path. A fifth Member is archived outright (deleted_at set), to prove that
+-- term of members_select_reachable actually filters for BOTH the delegate and the
+-- owner, not only the has_permission/member_reachable half. A second Organization-wide
+-- block, on a Member the delegate cannot otherwise reach, proves member_blocks'
+-- has_org_permission branch is actually conjoined with reachability (Task 5 review,
+-- Important 2) rather than standing alone.
 insert into public.organizations (id, name) values
   ('dddddddd-0000-0000-0000-000000000001', 'Members RLS Test Org');
 insert into public.companies (id, organization_id, name) values
@@ -641,18 +646,27 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
 insert into public.organization_memberships (user_id, organization_id, role) values
   ('dddddddd-0000-0000-0000-000000000008', 'dddddddd-0000-0000-0000-000000000001', 'owner');
 
-insert into public.members (id, organization_id, full_name) values
-  ('dddddddd-0000-0000-0000-000000000009', 'dddddddd-0000-0000-0000-000000000001', 'Only Station A'),
-  ('dddddddd-0000-0000-0000-00000000000a', 'dddddddd-0000-0000-0000-000000000001', 'Only Station B'),
-  ('dddddddd-0000-0000-0000-00000000000b', 'dddddddd-0000-0000-0000-000000000001', 'Only Station C (soon archived)'),
-  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000001', 'Both A and B');
+-- The fifth Member is archived (deleted_at set) but linked to Station A, the one
+-- Station the delegate CAN otherwise reach — proof that "deleted_at is null" in
+-- members_select_reachable actually does something (Task 5 review: this term had
+-- zero coverage before, since no archived Member was seeded). Archived deliberately
+-- via the INSERT rather than a later UPDATE (unlike Station C below): the point is
+-- the Member was never visible in the first place, not that visibility was
+-- withdrawn mid-script.
+insert into public.members (id, organization_id, full_name, deleted_at) values
+  ('dddddddd-0000-0000-0000-000000000009', 'dddddddd-0000-0000-0000-000000000001', 'Only Station A', null),
+  ('dddddddd-0000-0000-0000-00000000000a', 'dddddddd-0000-0000-0000-000000000001', 'Only Station B', null),
+  ('dddddddd-0000-0000-0000-00000000000b', 'dddddddd-0000-0000-0000-000000000001', 'Only Station C (soon archived)', null),
+  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000001', 'Both A and B', null),
+  ('dddddddd-0000-0000-0000-000000000010', 'dddddddd-0000-0000-0000-000000000001', 'Archived, linked to Station A', now());
 
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('dddddddd-0000-0000-0000-000000000009', 'dddddddd-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-000000000001'),
   ('dddddddd-0000-0000-0000-00000000000a', 'dddddddd-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-000000000001'),
   ('dddddddd-0000-0000-0000-00000000000b', 'dddddddd-0000-0000-0000-000000000004', 'dddddddd-0000-0000-0000-000000000001'),
   ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-000000000001'),
-  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-000000000001');
+  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-000000000001'),
+  ('dddddddd-0000-0000-0000-000000000010', 'dddddddd-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-000000000001');
 
 -- The critical proof for member_notes: the SAME Member (the "Both A and B" row) has a
 -- note written at Station A and a note written at Station B. A caller with
@@ -671,6 +685,17 @@ insert into public.member_blocks (id, organization_id, member_id, company_id, ki
   ('dddddddd-0000-0000-0000-00000000000f', 'dddddddd-0000-0000-0000-000000000001',
    'dddddddd-0000-0000-0000-000000000009', null, 'draw_ban', 'org-wide test block');
 
+-- The negative case Task 5 review's Important 2 asked for: an Organization-wide
+-- block on the Station-B-only Member, who the delegate cannot reach at all. Before
+-- the fix, has_org_permission('members.view', org) alone was enough to see this row
+-- — true for the delegate via their role at Station A — even though member_id names
+-- a Member members_select_reachable itself hides from them. The seeded block above
+-- (on the Station-A Member) cannot catch this: the delegate already sees that Member
+-- through Station A, so it passes whether the leak exists or not.
+insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason) values
+  ('dddddddd-0000-0000-0000-000000000012', 'dddddddd-0000-0000-0000-000000000001',
+   'dddddddd-0000-0000-0000-00000000000a', null, 'suspension', 'org-wide block on an unreachable Member');
+
 -- Archive Station C now that the fixtures above are in place. The "Only Station C"
 -- Member's one link is here.
 update public.companies set deleted_at = now()
@@ -687,6 +712,9 @@ select body from public.member_notes where member_id = 'dddddddd-0000-0000-0000-
 
 create temporary table delegate_blocks_probe as
 select id from public.member_blocks where member_id = 'dddddddd-0000-0000-0000-000000000009';
+
+create temporary table delegate_blocks_probe_negative as
+select id from public.member_blocks where member_id = 'dddddddd-0000-0000-0000-00000000000a';
 
 reset role;
 
@@ -714,6 +742,11 @@ select is(
   'the delegate does not see the Member reachable only at Station C, now archived, even though they held members.view there before the archival'
 );
 select is(
+  (select count(*)::int from delegate_members_probe where id = 'dddddddd-0000-0000-0000-000000000010'),
+  0,
+  'the delegate does not see the archived Member, even though it is linked to Station A where the delegate holds members.view — deleted_at is null actually filters'
+);
+select is(
   (select array_agg(body order by body) from delegate_notes_probe),
   array['VISIBLE-NOTE-STATION-A'],
   'the delegate sees only the note written at Station A, not the note written at Station B about the same Member'
@@ -724,10 +757,20 @@ select is(
   'the delegate sees the Organization-wide block through has_org_permission, granted by their role at Station A'
 );
 select is(
+  (select count(*)::int from delegate_blocks_probe_negative),
+  0,
+  'the delegate does NOT see the Organization-wide block on the Station-B-only Member: has_org_permission alone is not enough, Task 5 review Important 2'
+);
+select is(
   (select array_agg(id order by id) from owner_members_probe),
   array['dddddddd-0000-0000-0000-000000000009'::uuid, 'dddddddd-0000-0000-0000-00000000000a'::uuid,
         'dddddddd-0000-0000-0000-00000000000b'::uuid, 'dddddddd-0000-0000-0000-00000000000c'::uuid],
-  'the Organization owner sees all four Members, including the one reachable only through the now-archived Station C'
+  'the Organization owner sees all four live Members, including the one reachable only through the now-archived Station C'
+);
+select is(
+  (select count(*)::int from owner_members_probe where id = 'dddddddd-0000-0000-0000-000000000010'),
+  0,
+  'the Organization owner does not see the archived Member either — deleted_at is null sits outside member_reachable''s own bypass, by design'
 );
 
 select * from finish();

@@ -32,9 +32,19 @@
 -- Task 4 review, Important 5: 0031's own comment on normalize_phone/normalize_email
 -- is a standing warning about exactly that kind of drift, and it applies here too.
 --
--- SECURITY INVOKER, EXECUTE granted to nobody — reachable only from inside a
--- SECURITY DEFINER body, where it runs with that body's already-elevated privileges.
--- Same convention as apply_inventory_movement (0027_inventory_rpcs.sql).
+-- SECURITY INVOKER. Reachable from inside a SECURITY DEFINER body, where it runs
+-- with that body's already-elevated privileges (apply_inventory_movement's
+-- convention, 0027_inventory_rpcs.sql) — update_member, archive_member and
+-- anonymize_member (0034) all call it that way, and so does find_member_by_identifier,
+-- below. Also, since Task 5's review, called directly from members_select_reachable's
+-- USING clause (0035_rls_members.sql) — which is why EXECUTE is granted to
+-- authenticated below rather than withheld entirely. That grant widens no real
+-- capability: is_platform_admin(), is_owner() and has_permission() were already
+-- granted to authenticated, and member_company_links, the one table this function
+-- reads, is itself RLS-protected (0035). Called this second way, the exists() below
+-- runs under member_company_links' own SELECT policy rather than bypassing it — the
+-- two must be kept in agreement, or members visibility silently drifts from what this
+-- function computes.
 create or replace function public.member_reachable(
   p_member_id       uuid,
   p_organization_id uuid,
@@ -57,9 +67,12 @@ as $$
 $$;
 
 comment on function public.member_reachable(uuid, uuid, text) is
-  'Whether the caller holds p_permission at any Station p_member_id is linked to, admitting the platform admin and the Organization owner outside the per-link has_permission check (Task 3 review, Important 2) so a Member whose only Station is suspended or archived is not a permanent dead end. SECURITY INVOKER; reachable only from inside a SECURITY DEFINER body (apply_inventory_movement''s convention, 0027). Shared by find_member_by_identifier, below, and update_member/archive_member/anonymize_member (0034_member_rpcs.sql).';
+  'Whether the caller holds p_permission at any Station p_member_id is linked to, admitting the platform admin and the Organization owner outside the per-link has_permission check (Task 3 review, Important 2) so a Member whose only Station is suspended or archived is not a permanent dead end. SECURITY INVOKER. Called from inside a SECURITY DEFINER body by find_member_by_identifier, below, and update_member/archive_member/anonymize_member (0034_member_rpcs.sql), and — since Task 5''s review — directly from members_select_reachable''s USING clause (0035_rls_members.sql), which is why EXECUTE is granted to authenticated rather than withheld entirely. Called that second way, the exists() sub-query in this function''s body runs under member_company_links'' own RLS policy (0035) instead of bypassing it; the two must be kept in agreement.';
 
 revoke execute on function public.member_reachable(uuid, uuid, text) from public;
+-- Granted to authenticated, not withheld: 0035's members_select_reachable calls this
+-- directly from an RLS policy (see the block comment above the function).
+grant execute on function public.member_reachable(uuid, uuid, text) to authenticated;
 
 create or replace function public.find_member_by_identifier(
   p_organization_id uuid,
