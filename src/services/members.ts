@@ -260,6 +260,15 @@ const MEMBER_LIST_LIMIT = 50;
 const BLOCK_CHECK_CONCURRENCY = 8;
 
 /**
+ * The one bound on a search term's length, exported so page.tsx enforces the
+ * SAME number rather than a hand-copied literal that could silently drift
+ * from this one (Task 8 re-review) — a caller-controlled URL query parameter
+ * is otherwise unbounded, and a query string this long has no legitimate use
+ * before it ever reaches listOrganizationMembers below.
+ */
+export const MEMBER_SEARCH_MAX_LENGTH = 100;
+
+/**
  * Escapes a value for interpolation into a PostgREST `.or()` filter list.
  * PostgREST's own filter-list grammar reserves comma and parenthesis as
  * separators; wrapping the whole value in double quotes suspends that
@@ -287,8 +296,14 @@ export function quoteForOrFilter(value: string): string {
  * like a match but means something the search box never promised. Applied
  * BEFORE the `%term%` wildcard markers this file adds itself, so those two
  * markers stay real wildcards while anything the caller typed does not.
+ * Exported for its own unit test (tests/unit/member-search-filter.test.ts),
+ * which exercises it composed with quoteForOrFilter exactly as
+ * listOrganizationMembers does below (`quoteForOrFilter(\`%${escapeLikePattern(term)}%\`)`) —
+ * a re-review found the original test covered only quoteForOrFilter alone,
+ * with no case containing `%`, `_` or `\`, so nothing in it would have
+ * caught this function being deleted entirely.
  */
-function escapeLikePattern(value: string): string {
+export function escapeLikePattern(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
@@ -326,10 +341,12 @@ export async function listOrganizationMembers(
     .eq('organization_id', organizationId)
     .is('deleted_at', null);
 
-  // Bounded again here (page.tsx already trims to 100 characters before this
-  // is ever called) — a service function's own arguments should not depend
-  // on a caller upstream having remembered to enforce a bound for it.
-  const term = search?.trim().slice(0, 100);
+  // Bounded again here (page.tsx already trims to MEMBER_SEARCH_MAX_LENGTH
+  // before this is ever called) — a service function's own arguments should
+  // not depend on a caller upstream having remembered to enforce a bound for
+  // it. The same exported constant, not a second hand-copied number, so the
+  // two bounds cannot silently drift apart (Task 8 re-review).
+  const term = search?.trim().slice(0, MEMBER_SEARCH_MAX_LENGTH);
   if (term) {
     // escapeLikePattern runs BEFORE the %...% wildcard markers are added, so
     // it only ever escapes what the caller typed, never the markers this

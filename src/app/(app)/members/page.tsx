@@ -4,7 +4,7 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { listOrganizationMembers } from '@/services/members';
+import { listOrganizationMembers, MEMBER_SEARCH_MAX_LENGTH } from '@/services/members';
 import type { MemberListRow } from '@/services/members';
 import { canViewAudience } from './access';
 import { describeMembersReadError } from './errors';
@@ -15,20 +15,17 @@ import { MemberSearchForm } from './member-search-form';
 // permission check, so it can never be static.
 export const dynamic = 'force-dynamic';
 
-// A URL query parameter is caller-controlled and otherwise unbounded (Task 8
-// review) — listOrganizationMembers (services/members.ts) enforces the same
-// bound on its own `search` argument, but a query string this long has no
-// legitimate use before it ever reaches that function, so it is trimmed here
-// too rather than relying solely on the service to catch it.
-const MAX_QUERY_LENGTH = 100;
-
 export default async function MembersPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
   const params = await searchParams;
-  const search = params.q?.trim().slice(0, MAX_QUERY_LENGTH) || undefined;
+  // The same bound listOrganizationMembers (services/members.ts) enforces on
+  // its own `search` argument — imported, not a second hand-copied literal,
+  // so a caller-controlled URL query parameter cannot silently drift the two
+  // bounds apart (Task 8 re-review).
+  const search = params.q?.trim().slice(0, MEMBER_SEARCH_MAX_LENGTH) || undefined;
 
   const supabase = await createUserClient();
   const {
