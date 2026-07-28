@@ -29,10 +29,13 @@
 -- members.first_contact_at / first_contact_origin, not by a row in this table.
 create type public.member_consent_type as enum ('rules', 'image_use', 'sponsor_communication');
 
--- What a Member agreed to, or withdrew, at a Station. Append-only: a withdrawal is a
--- new row with granted = false, never an edit of the row that granted it — "did they
--- consent on the day they entered" must be answerable years later, and a mutable row
--- cannot answer that.
+-- What a Member agreed to, or withdrew, at a Station. Append-only for the Station's
+-- own writes: a withdrawal is a new row with granted = false, never an edit of the
+-- row that granted it — "did they consent on the day they entered" must be
+-- answerable years later, and a mutable row cannot answer that. The one exception is
+-- anonymize_member (0034, Ruling B), which edits an existing consent row to null
+-- origin for an erased Member rather than leaving it standing — the property this
+-- comment describes holds for every Station-driven write, not for that one.
 create table public.member_consents (
   id              uuid primary key default gen_random_uuid(),
   organization_id uuid not null,
@@ -95,10 +98,12 @@ create index member_notes_member_idx on public.member_notes (member_id);
 -- kinds of block.
 create type public.member_block_kind as enum ('draw_ban', 'suspension');
 
--- Who is barred, and until when. Append-only, with one deliberate exception: lifting
--- a block is recorded on the row it lifts (lifted_at / lifted_by / lift_reason), not
--- as a separate row beside it — is_member_blocked below reads lifted_at directly, so
--- the lift has to land on the block it ends.
+-- Who is barred, and until when. Append-only for the Station's own writes, with two
+-- exceptions now, not one: lifting a block is recorded on the row it lifts
+-- (lifted_at / lifted_by / lift_reason), not as a separate row beside it —
+-- is_member_blocked below reads lifted_at directly, so the lift has to land on the
+-- block it ends — and anonymize_member (0034, Ruling B) edits an existing block row
+-- to null reason and lift_reason for an erased Member.
 create table public.member_blocks (
   id              uuid primary key default gen_random_uuid(),
   organization_id uuid not null,

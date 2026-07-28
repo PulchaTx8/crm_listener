@@ -48,7 +48,7 @@ as $$
 $$;
 
 comment on function public.member_linked_to_company(uuid, uuid) is
-  'Whether a member_company_links row exists for this pair. Shared by record_member_consent, add_member_note and block_member (0034) so the same check cannot drift across three copies. SECURITY INVOKER; reachable only from inside a SECURITY DEFINER body, same convention as member_reachable (0033) and apply_inventory_movement (0027).';
+  'Whether a member_company_links row exists for this pair. Shared by record_member_consent, add_member_note and block_member (0034) so the same check cannot drift across three copies. A true result also proves p_company_id and p_member_id share an Organization, with no separate companies lookup needed: the link row''s own composite foreign keys (member_links_member_org_fk, member_links_company_org_fk, 0031) guarantee that if it exists, the Station and the listener are in the same Organization. SECURITY INVOKER; reachable only from inside a SECURITY DEFINER body, same convention as member_reachable (0033) and apply_inventory_movement (0027).';
 
 revoke execute on function public.member_linked_to_company(uuid, uuid) from public;
 
@@ -279,7 +279,7 @@ end;
 $$;
 
 comment on function public.update_member(uuid, text, text, text, text, text, text, date, text, text, text, text, text, text, text, text) is
-  'Replaces a listener''s own editable fields wholesale. Does NOT touch first_contact_at/first_contact_origin — write-once through create_member, immutable here by design because they are the evidence behind the owner''s first-contact-consent position (spec §7). Gated on members.edit, checked via member_reachable (any Station the listener is linked to) since this function takes no company_id. The UPDATE''s own WHERE clause re-checks anonymized_at is null (and deleted_at is null) atomically with the write; on a miss it re-reads anonymized_at to report which of the two actually happened (22023, distinct messages) rather than guessing, since a concurrent archive_member or anonymize_member could equally be the cause. cpf_hash/cpf_last_digits are normalised the same way create_member normalises them. Audit detail carries member_id only — no before/after diff, unlike update_role/update_prize, because a Member''s diff IS the personal data.';
+  'Replaces a listener''s own editable fields wholesale. Does NOT touch first_contact_at/first_contact_origin — write-once through create_member, immutable here by design because they are the evidence behind the owner''s first-contact-consent position (spec §7): a later edit could rewrite evidence for a position already taken. (anonymize_member still erases first_contact_origin regardless — whether a column may be EDITED and whether it is IDENTIFYING enough to ERASE are different questions, and first_contact_origin answers them differently.) Gated on members.edit, checked via member_reachable (any Station the listener is linked to) since this function takes no company_id. The UPDATE''s own WHERE clause re-checks anonymized_at is null (and deleted_at is null) atomically with the write; on a miss it re-reads anonymized_at to report which of the two actually happened (22023, distinct messages) rather than guessing, since a concurrent archive_member or anonymize_member could equally be the cause. cpf_hash/cpf_last_digits are normalised the same way create_member normalises them. Audit detail carries member_id only — no before/after diff, unlike update_role/update_prize, because a Member''s diff IS the personal data.';
 
 -- The one place a Station is added to a listener's reach beyond registration.
 create or replace function public.link_member_to_company(
@@ -396,10 +396,12 @@ $$;
 comment on function public.archive_member(uuid) is
   'Soft-deletes a listener (deleted_at), not erasure — every field survives. Gated on members.archive, checked via member_reachable since this function takes no company_id. Audit detail carries member_id only.';
 
--- Append-only (0032): a withdrawal is a new row, never an edit of the one that
--- granted it. Requires the listener already be linked to the Station recording the
--- consent — the same member_company_links fact RLS (Task 5, 0035) will use to
--- decide whether this listener appears on that Station's screen at all.
+-- Append-only for the Station's own writes (0032): a withdrawal is a new row, never
+-- an edit of the one that granted it. anonymize_member (0034, Ruling B) is the one
+-- exception — it edits an existing consent row to null origin for an erased Member.
+-- Requires the listener already be linked to the Station recording the consent —
+-- the same member_company_links fact RLS (Task 5, 0035) will use to decide whether
+-- this listener appears on that Station's screen at all.
 create or replace function public.record_member_consent(
   p_member_id    uuid,
   p_company_id   uuid,
@@ -470,7 +472,7 @@ end;
 $$;
 
 comment on function public.record_member_consent(uuid, uuid, public.member_consent_type, boolean, text, uuid) is
-  'Appends a consent row (0032) — a withdrawal is granted = false as a NEW row, never an edit. FOR SHARE plus deleted_at/anonymized_at is null on the listener read (Task 4 review, Important 2/3) refuses both an archived and an already-anonymised listener, and closes the race where anonymize_member could commit between the read and this insert. Requires the listener already be linked to the Station (member_linked_to_company, shared with add_member_note/block_member); gated on members.edit at that Station. Audit detail carries member_id and the new consent''s own id only — consent_type and origin are deliberately left out, not because either is personal, but to keep every one of the nine audit shapes in this file to the same narrow member_id-plus-own-id pattern rather than inventing a wider one with no product need behind it yet.';
+  'Appends a consent row (0032) — a withdrawal is granted = false as a NEW row, never an edit by THIS function. (anonymize_member, 0034, is the one function that edits an existing consent row, nulling origin for an erased Member — Ruling B.) FOR SHARE plus deleted_at/anonymized_at is null on the listener read (Task 4 review, Important 2/3) refuses both an archived and an already-anonymised listener, and closes the race where anonymize_member could commit between the read and this insert. Requires the listener already be linked to the Station (member_linked_to_company, shared with add_member_note/block_member); gated on members.edit at that Station. Audit detail carries member_id and the new consent''s own id only — consent_type and origin are deliberately left out, not because either is personal, but to keep every one of the nine audit shapes in this file to the same narrow member_id-plus-own-id pattern rather than inventing a wider one with no product need behind it yet.';
 
 -- Free text, personal by nature (0032's own comment: "an operator adds about a
 -- Member"). The audit trail records that a note was added, and its id — never its
