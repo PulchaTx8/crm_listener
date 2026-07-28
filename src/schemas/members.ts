@@ -202,6 +202,29 @@ export const liftMemberBlockSchema = z.object({
   reason: trimmedRequired('A reason', 2000),
 });
 
+// The registration form's own pre-submission dedup check (Task 9) — the same
+// four identifying fields find_member_by_identifier (0033) accepts, validated
+// the same way createMemberSchema's identity fields are before any of them
+// reach a network call. find_member_by_identifier's own guard ("give at least
+// one identifier to search by", 22023) is the backstop this refine mirrors —
+// mirrors, not replaces: a caller that reaches the RPC with all four blank
+// (this schema bypassed some other way) is still refused there.
+export const findMemberByIdentifierSchema = z
+  .object({ phone, email, cpf, passport: optionalText(40) })
+  .refine((v) => Boolean(v.phone || v.email || v.cpf || v.passport), {
+    message: 'Enter at least one of phone, e-mail, CPF or passport to check.',
+  });
+
+// public.member_erasure_reason (0034) — subject_request | court_order |
+// internal_policy, deliberately no `other` (owner's ruling: an escape hatch
+// would invite back exactly the free text about a person this ruling exists
+// to keep out of an immutable audit trail). No fourth value this schema can
+// express, matching the enum it mirrors.
+export const anonymizeMemberSchema = z.object({
+  memberId: z.string().uuid(),
+  reason: z.enum(['subject_request', 'court_order', 'internal_policy']),
+});
+
 export type CreateMemberInput = z.infer<typeof createMemberSchema>;
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
 export type LinkMemberToCompanyInput = z.infer<typeof linkMemberToCompanySchema>;
@@ -209,3 +232,5 @@ export type RecordMemberConsentInput = z.infer<typeof recordMemberConsentSchema>
 export type AddMemberNoteInput = z.infer<typeof addMemberNoteSchema>;
 export type BlockMemberInput = z.infer<typeof blockMemberSchema>;
 export type LiftMemberBlockInput = z.infer<typeof liftMemberBlockSchema>;
+export type FindMemberByIdentifierFormInput = z.infer<typeof findMemberByIdentifierSchema>;
+export type AnonymizeMemberInput = z.infer<typeof anonymizeMemberSchema>;

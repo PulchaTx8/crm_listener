@@ -3,13 +3,15 @@ import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listOrganizationMembers, MEMBER_SEARCH_MAX_LENGTH } from '@/services/members';
 import type { MemberListRow } from '@/services/members';
 import { canViewAudience } from './access';
 import { describeMembersReadError } from './errors';
 import { formatDate } from './format';
 import { MemberSearchForm } from './member-search-form';
+import { RegisterMemberForm } from './register-member-form';
+import { listStationsWithPermission } from './station-access';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
@@ -89,12 +91,39 @@ export default async function MembersPage({
     return <LoadError message={describeMembersReadError(cause)} />;
   }
 
+  // Rendered only as a courtesy, the same reasoning inventory/page.tsx gives
+  // for its own catalogue forms: create_member (0034) re-checks members.create
+  // itself before writing anything, so hiding this card from someone who
+  // holds it nowhere is convenience, not the refusal itself. A failed check
+  // throws rather than folding into "no stations" — see
+  // listStationsWithPermission's own comment.
+  let registrableStations: { id: string; name: string }[] = [];
+  try {
+    ({ stations: registrableStations } = await listStationsWithPermission(
+      supabase,
+      'members.create',
+    ));
+  } catch (cause) {
+    logger.error({ err: cause, organizationId }, 'could not resolve registration access');
+  }
+
   return (
     <>
       <PageHeader
         title="Members"
         description="The audience across every Station you can reach."
       />
+
+      {registrableStations.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Register a listener</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RegisterMemberForm stations={registrableStations} />
+          </CardContent>
+        </Card>
+      )}
 
       <MemberSearchForm initialQuery={search ?? ''} />
 

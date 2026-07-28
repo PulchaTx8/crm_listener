@@ -39,3 +39,39 @@ export function describeMembersReadError(cause: unknown): string {
   // and its message may carry a raw database error — not something to show.
   return 'Could not load the audience. Refresh the page and try again.';
 }
+
+/**
+ * Same taxonomy as describeMembersReadError, worded for a write instead of a
+ * page load (Task 9's forms) — the same shape describeInventoryWriteError
+ * (inventory/errors.ts) gives its own six mutating actions. Each caller in
+ * actions.ts passes its own `action` phrase — "register a listener", "record
+ * this consent", "block this listener", "lift this block", "erase this
+ * listener's personal data", "link this listener to this Station" — so a 403
+ * reads as "you cannot do THIS, here" rather than a generic refusal.
+ * mapMemberError (services/members.ts) itself only ever throws
+ * UnauthorizedError with the raw Postgres text ("permission denied:
+ * members.X required") — it names the permission code, not the action in the
+ * person's own words, so that message is rewritten here rather than passed
+ * through.
+ *
+ * ConflictError and BusinessRuleError already carry a complete, specific
+ * sentence from mapMemberError's own mapping — a duplicate phone/e-mail/CPF/
+ * passport, a listener already linked to a Station, a block already lifted —
+ * and pass through verbatim, the same reasoning
+ * describeInventoryWriteError's own doc comment gives for not replacing those
+ * with something generic.
+ */
+export function describeMembersWriteError(cause: unknown, action: string): string {
+  if (cause instanceof ConflictError) return cause.message;
+  if (cause instanceof BusinessRuleError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return 'That could not be found. Refresh the page and try again.';
+  }
+  if (cause instanceof UnauthorizedError) {
+    return `You do not have permission to ${action}.`;
+  }
+  if (cause instanceof ValidationError) return cause.message;
+  // Generic on purpose: InternalError means the fault is ours, not theirs,
+  // and its message may carry a raw database error — not something to show.
+  return 'Could not save. Refresh the page and try again.';
+}

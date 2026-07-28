@@ -10,6 +10,7 @@ import {
   listMemberConsents,
   listMemberNotes,
   listMemberStations,
+  memberReachable,
 } from '@/services/members';
 import type {
   MemberBlockRow,
@@ -26,6 +27,10 @@ import {
   formatDate,
   formatDateTime,
 } from '../format';
+import { BlockForm } from '../block-form';
+import { ConsentForm } from '../consent-form';
+import { EraseMemberForm } from '../erase-member-form';
+import { LiftBlockButton } from '../lift-block-button';
 
 // Renders from the caller's session cookies and a live per-listener
 // reachability check, so it can never be static.
@@ -78,6 +83,45 @@ export default async function MemberDetailPage({
   // inventory/[prizeId]/page.tsx's own NotFound gives for a prize: RLS is the
   // boundary, and it does not leak which of the three actually happened.
   if (!member) return <NotFound />;
+
+  // member_reachable (0033) takes an organizationId, not a companyId — the
+  // same "caller's first live organization_membership" resolution
+  // page.tsx uses for the list screen, needed here only for these three
+  // courtesy gates below (Task 9's forms). The RPCs themselves
+  // (record_member_consent/block_member/anonymize_member, 0034) re-check
+  // their own permission from the row regardless of what this resolves to.
+  // `user` is the same one resolved (and confirmed non-null) at the top of
+  // this function.
+  const { data: memberships } = await supabase
+    .from('organization_memberships')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1);
+  const organizationId = memberships?.[0]?.organization_id;
+
+  // Rendered only as a courtesy — see this file's own precedent
+  // (inventory/[prizeId]/page.tsx's permissions block) for why these three
+  // RPCs are still the boundary regardless of what this resolves to. A member
+  // whose organizationId could not be resolved (should not happen once
+  // `member` itself came back non-null, since RLS already proved the caller
+  // reaches this Organization) sees none of the three forms rather than a
+  // thrown error — failing to a hidden form, not a broken page.
+  let canEdit = false;
+  let canBlock = false;
+  let canErase = false;
+  if (organizationId) {
+    try {
+      [canEdit, canBlock, canErase] = await Promise.all([
+        memberReachable(memberId, organizationId, 'members.edit', accessToken),
+        memberReachable(memberId, organizationId, 'members.block', accessToken),
+        memberReachable(memberId, organizationId, 'members.erase', accessToken),
+      ]);
+    } catch (cause) {
+      logger.error({ err: cause, memberId }, 'could not resolve member action permissions');
+    }
+  }
 
   const companyNameById = new Map(stations.map((s) => [s.companyId, s.companyName]));
   // True only when at least one Station the caller can reach currently
@@ -339,12 +383,72 @@ export default async function MemberDetailPage({
                           }`
                         : 'No lift recorded'}
                     </p>
+                    {/* Rendered only as a courtesy — lift_member_block (0034)
+                        re-checks members.block itself before writing
+                        anything. canBlock is the same flag that gates the
+                        "Block this listener" card below, so a caller sees
+                        both or neither. */}
+                    {canBlock && !b.liftedAt && (
+                      <div className="mt-2">
+                        <LiftBlockButton memberId={member.id} blockId={b.id} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
+
+        {/* Each rendered only as a courtesy — record_member_consent,
+            block_member and anonymize_member (0034) each re-check their own
+            permission themselves before writing anything, so hiding a form
+            from someone who lacks it is convenience, not the refusal itself
+            (the same reasoning inventory/[prizeId]/page.tsx's own permission
+            gates carry). Consent and Block are restricted to `erased ===
+            false` implicitly by their own RPCs (both refuse an anonymised
+            listener, 0034), so no separate check is needed here beyond
+            member_reachable itself. Erase is hidden outright once already
+            erased — there is nothing left for it to do. */}
+        {/* stations.length > 0 as well as canEdit: record_member_consent has
+            no Organization-wide shape (unlike block_member), so a caller who
+            holds members.edit somewhere without holding members.view at any
+            Station this listener is linked to (member_company_links'
+            own select policy is gated on members.view, not edit — an unusual
+            role composition, but not one the permission catalogue forbids)
+            would otherwise see a form with no valid Station to choose. */}
+        {canEdit && !erased && stations.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Record consent</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ConsentForm memberId={member.id} stations={stations} />
+            </CardContent>
+          </Card>
+        )}
+
+        {canBlock && !erased && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Block this listener</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <BlockForm memberId={member.id} stations={stations} />
+            </CardContent>
+          </Card>
+        )}
+
+        {canErase && !erased && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Erase personal data</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EraseMemberForm memberId={member.id} />
+            </CardContent>
+          </Card>
+        )}
       </div>
     </>
   );
