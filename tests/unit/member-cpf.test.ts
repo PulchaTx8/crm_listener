@@ -13,10 +13,19 @@ describe('CPF hashing', () => {
   // normalisation (normalize_phone/normalize_email's sibling reasoning,
   // 0031), where the two disagreeing is the silent-dedup-death mode this
   // block has already named twice (0031's own comment on hand-copied
-  // normalisation, and 0033's extraction of normalize_phone/normalize_email
-  // for exactly this reason).
+  // normalisation, and 0031's own extraction of normalize_phone/
+  // normalize_email into shared, immutable functions for exactly this
+  // reason — 0033's find_member_by_identifier only calls them, at
+  // 0033_member_dedup.sql:97-98).
+  //
+  // Every row here compares a written CPF against the canonical bare-digit
+  // form, never against itself — 'bare digits' would otherwise assert
+  // hashCpf('12345678909') === hashCpf('12345678909'), a value equal to
+  // itself regardless of whether normalizeCpf does anything at all. Kept out
+  // for that reason: this project has shipped a test that cannot fail
+  // whichever way the code is written three times already, and a fourth was
+  // not worth the extra row.
   it.each([
-    ['12345678909', 'bare digits'],
     ['123.456.789-09', 'dotted and dashed'],
     ['123 456 789 09', 'space separated'],
     ['123 456.789-09', 'mixed spaces and punctuation'],
