@@ -8,11 +8,19 @@ import { listOrganizationMembers } from '@/services/members';
 import type { MemberListRow } from '@/services/members';
 import { canViewAudience } from './access';
 import { describeMembersReadError } from './errors';
+import { formatDate } from './format';
 import { MemberSearchForm } from './member-search-form';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
 export const dynamic = 'force-dynamic';
+
+// A URL query parameter is caller-controlled and otherwise unbounded (Task 8
+// review) — listOrganizationMembers (services/members.ts) enforces the same
+// bound on its own `search` argument, but a query string this long has no
+// legitimate use before it ever reaches that function, so it is trimmed here
+// too rather than relying solely on the service to catch it.
+const MAX_QUERY_LENGTH = 100;
 
 export default async function MembersPage({
   searchParams,
@@ -20,7 +28,7 @@ export default async function MembersPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const params = await searchParams;
-  const search = params.q?.trim() || undefined;
+  const search = params.q?.trim().slice(0, MAX_QUERY_LENGTH) || undefined;
 
   const supabase = await createUserClient();
   const {
@@ -95,7 +103,9 @@ export default async function MembersPage({
 
       {capped && (
         <p className="mb-2 mt-4 text-xs text-muted-foreground">
-          Showing the first {members.length}. Search to narrow this down further.
+          {search
+            ? `Showing the first ${members.length} matches. Narrow your search further to see more.`
+            : `Showing the first ${members.length}. Search to narrow this down.`}
         </p>
       )}
 
@@ -133,7 +143,16 @@ export default async function MembersPage({
                       : (member.fullName ?? 'Unnamed listener')}
                   </span>
                   <span className="text-sm text-muted-foreground">
-                    {contact || 'No contact details on file'}
+                    {/* An anonymised row's contact fields are all null
+                        (anonymize_member, 0034), which is what would
+                        otherwise fall through to "No contact details on
+                        file" here — false: something WAS recorded and was
+                        deliberately erased, not never provided (Task 8
+                        review). Mirrors the detail page's own
+                        `Erased ${formatDate(...)}` description. */}
+                    {member.anonymizedAt
+                      ? `Erased ${formatDate(member.anonymizedAt)}`
+                      : contact || 'No contact details on file'}
                   </span>
                 </div>
                 {member.blocked && (

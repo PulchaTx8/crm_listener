@@ -19,7 +19,13 @@ import type {
   MemberStationRow,
 } from '@/services/members';
 import { describeMembersReadError } from '../errors';
-import { BLOCK_KIND_LABELS, CONSENT_TYPE_LABELS, formatDate, formatDateTime } from '../format';
+import {
+  BLOCK_KIND_LABELS,
+  CONSENT_TYPE_LABELS,
+  formatCalendarDate,
+  formatDate,
+  formatDateTime,
+} from '../format';
 
 // Renders from the caller's session cookies and a live per-listener
 // reachability check, so it can never be static.
@@ -80,6 +86,18 @@ export default async function MemberDetailPage({
   // against any one reachable Station, so this does not miss one merely
   // because it was checked through a Station other than where it was raised.
   const currentlyBlocked = stations.some((s) => s.blocked);
+  // A consent's origin, a note's body and a block's reason/lift_reason are
+  // each nulled by exactly one write path (anonymize_member, 0034, Ruling B)
+  // — for notes and block reasons that write is the ONLY way any of them can
+  // ever be null (add_member_note/block_member both enforce a non-blank
+  // value at creation), so a null there always means "erased", never "never
+  // recorded". A consent's origin is the one exception: record_member_consent
+  // leaves it optional from the start, so a null origin on a listener who was
+  // never anonymised genuinely means "no origin was given" — this flag is
+  // what tells the three sections below which of those two null states they
+  // are looking at (Task 8 review: rendering the same scrubbed-vs-never-set
+  // null three different ways across those sections was the defect).
+  const erased = Boolean(member.anonymizedAt);
 
   return (
     <>
@@ -119,7 +137,10 @@ export default async function MemberDetailPage({
                 <Field label="E-mail" value={member.email} />
                 <Field label="CPF" value={member.cpfLastDigits ? `···${member.cpfLastDigits}` : null} />
                 <Field label="Passport" value={member.passport} />
-                <Field label="Birth date" value={member.birthDate ? formatDate(member.birthDate) : null} />
+                <Field
+                  label="Birth date"
+                  value={member.birthDate ? formatCalendarDate(member.birthDate) : null}
+                />
                 <Field label="How they found the station" value={member.discoverySource} />
                 <Field
                   label="Address"
@@ -216,9 +237,13 @@ export default async function MemberDetailPage({
                       </span>
                     </div>
                     <p className="text-muted-foreground">
-                      {companyNameById.get(c.companyId) ?? 'A station'} ·{' '}
+                      {companyNameById.get(c.companyId) ?? 'A Station'} ·{' '}
                       {formatDateTime(c.grantedAt)}
-                      {c.origin ? ` — ${c.origin}` : ''}
+                      {c.origin
+                        ? ` — ${c.origin}`
+                        : erased
+                          ? ' — (personal data erased)'
+                          : ''}
                     </p>
                   </div>
                 ))}
@@ -244,9 +269,12 @@ export default async function MemberDetailPage({
                     data-testid="member-note-row"
                     className="border-b pb-3 text-sm last:border-0 last:pb-0"
                   >
-                    <p>{n.body ?? '(removed)'}</p>
+                    {/* body is null only when anonymize_member scrubbed it
+                        (add_member_note enforces a non-blank body at
+                        creation, 0034) — never "was left blank". */}
+                    <p>{n.body ?? '(personal data erased)'}</p>
                     <p className="text-muted-foreground">
-                      {companyNameById.get(n.companyId) ?? 'A station'} · {formatDateTime(n.createdAt)}
+                      {companyNameById.get(n.companyId) ?? 'A Station'} · {formatDateTime(n.createdAt)}
                     </p>
                   </div>
                 ))}
@@ -275,14 +303,17 @@ export default async function MemberDetailPage({
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-medium">{BLOCK_KIND_LABELS[b.kind]}</span>
                       <span className="text-xs font-medium text-muted-foreground">
-                        {b.companyId ? (companyNameById.get(b.companyId) ?? 'A station') : 'Organization-wide'}
+                        {b.companyId ? (companyNameById.get(b.companyId) ?? 'A Station') : 'Organization-wide'}
                       </span>
                     </div>
                     <p className="text-muted-foreground">
                       From {formatDateTime(b.startsAt)}
                       {b.endsAt ? ` until ${formatDateTime(b.endsAt)}` : ', no end date set'}
                     </p>
-                    {b.reason && <p>{b.reason}</p>}
+                    {/* reason is null only when anonymize_member scrubbed it
+                        (block_member enforces a non-blank reason at
+                        creation, 0034) — never "no reason was given". */}
+                    <p>{b.reason ?? '(personal data erased)'}</p>
                     {/* Whether THIS row is still in effect right now is
                         deliberately not stated here — see listMemberBlocks'
                         own comment (services/members.ts) for why that
@@ -290,11 +321,23 @@ export default async function MemberDetailPage({
                         above as the Stations section's per-row badge and the
                         banner) rather than re-derived from these dates. What
                         is shown below is only the directly observed fact:
-                        whether a lift was ever recorded. */}
+                        whether a lift was ever recorded — "No lift recorded"
+                        states that fact alone and does not claim the block is
+                        therefore still in effect (an expired, never-lifted
+                        block would render identically here, which is
+                        correct: this line answers "was it lifted", not "is
+                        it active"). liftReason null while liftedAt is set can
+                        only mean anonymize_member scrubbed it — lift_member_
+                        block (0034) enforces a non-blank lift_reason at the
+                        moment of lifting, so there is no "lifted without
+                        giving a reason" state for the fallback below to
+                        confuse this one with. */}
                     <p className="text-muted-foreground">
                       {b.liftedAt
-                        ? `Lifted ${formatDateTime(b.liftedAt)}${b.liftReason ? ` — ${b.liftReason}` : ''}`
-                        : 'Not lifted'}
+                        ? `Lifted ${formatDateTime(b.liftedAt)}${
+                            b.liftReason ? ` — ${b.liftReason}` : ' — (personal data erased)'
+                          }`
+                        : 'No lift recorded'}
                     </p>
                   </div>
                 ))}

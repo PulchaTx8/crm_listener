@@ -25,6 +25,19 @@ export function MemberSearchForm({ initialQuery }: { initialQuery: string }) {
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  // useState's initial value only runs on mount — without this, a browser
+  // back/forward that changes the URL's `q` (MembersPage re-rendering with a
+  // new `initialQuery` prop) left this input showing whatever the caller had
+  // typed most recently, beside a server-rendered list that had already
+  // moved on to match the URL (Task 8 review). Re-syncing on every
+  // `initialQuery` change also fires after this component's OWN edits (the
+  // router.replace below causes exactly that prop to change to the same
+  // value setValue already applied) — a harmless no-op `setValue` in that
+  // case, not a second source of truth fighting the first.
+  useEffect(() => {
+    setValue(initialQuery);
+  }, [initialQuery]);
+
   function handleChange(next: string) {
     setValue(next);
     clearTimeout(timer.current);

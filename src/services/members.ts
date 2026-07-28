@@ -139,6 +139,27 @@ export async function findMemberByIdentifier(
 }
 
 /**
+ * The actual is_member_blocked call, taking an already-built client rather
+ * than an accessToken — split out (Task 8 review, Important 2) so a caller
+ * that already holds a client for a batch of checks (listOrganizationMembers,
+ * listMemberStations) can reuse it instead of paying asCaller's own
+ * createClient cost on every single row. isMemberBlocked, below, is the
+ * public one-off entry point and is unchanged for every existing caller.
+ */
+async function checkMemberBlocked(
+  supabase: ReturnType<typeof asCaller>,
+  memberId: string,
+  companyId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_member_blocked', {
+    p_member_id: memberId,
+    p_company_id: companyId,
+  });
+  if (error) throw mapMemberError(error.code, error.message);
+  return data;
+}
+
+/**
  * Whether an active block bars this Member at this Station right now
  * (is_member_blocked, 0032) — a block with a past ends_at no longer counts,
  * one with no ends_at always does, derived at read time rather than from a
@@ -150,12 +171,33 @@ export async function isMemberBlocked(
   companyId: string,
   accessToken: string,
 ): Promise<boolean> {
-  const { data, error } = await asCaller(accessToken).rpc('is_member_blocked', {
-    p_member_id: memberId,
-    p_company_id: companyId,
-  });
-  if (error) throw mapMemberError(error.code, error.message);
-  return data;
+  return checkMemberBlocked(asCaller(accessToken), memberId, companyId);
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` calls in flight at once (Task 8
+ * review, Important 2) — without a bound, listOrganizationMembers' own block
+ * check below would open up to MEMBER_LIST_LIMIT concurrent database round
+ * trips on every unsearched visit to /members. A plain worker pool: each of
+ * `limit` workers pulls the next unclaimed index and keeps going until the
+ * array is exhausted, so the in-flight count never exceeds `limit` regardless
+ * of how long an individual call takes.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i] as T, i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 /**
@@ -214,17 +256,40 @@ export interface MemberListRow {
 // recently registered first) is the one path this actually limits.
 const MEMBER_LIST_LIMIT = 50;
 
+/** How many is_member_blocked round trips listOrganizationMembers runs at once — see mapWithConcurrency's own comment. */
+const BLOCK_CHECK_CONCURRENCY = 8;
+
 /**
  * Escapes a value for interpolation into a PostgREST `.or()` filter list.
  * PostgREST's own filter-list grammar reserves comma and parenthesis as
  * separators; wrapping the whole value in double quotes suspends that
  * parsing for everything between them, and a literal double quote or
- * backslash inside the value is itself backslash-escaped first so a name,
- * address or note fragment that happens to contain one cannot break out of
- * the quoting it is sitting inside.
+ * backslash inside the value is itself backslash-escaped first so a search
+ * term matching one of the four fields below (full_name, phone, email,
+ * cpf_last_digits — the only columns any `.or()` clause in this file ever
+ * targets) cannot break out of the quoting it is sitting inside. Exported
+ * for its own unit test (tests/unit/member-search-filter.test.ts) — a small,
+ * pure, security-relevant function taking untrusted input is worth testing
+ * directly rather than only through a query nothing but a live database can
+ * execute.
  */
-function quoteForOrFilter(value: string): string {
+export function quoteForOrFilter(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Escapes ILIKE's own two pattern metacharacters (`%`, `_`) — and the
+ * backslash that would otherwise become their escape character — so a
+ * literal `%` or `_` typed into the search box (a plausible fragment of an
+ * e-mail address, for instance) is matched as that literal character rather
+ * than treated as a wildcard. Without this, searching for a literal "%"
+ * silently matched every row the caller could already reach, which looks
+ * like a match but means something the search box never promised. Applied
+ * BEFORE the `%term%` wildcard markers this file adds itself, so those two
+ * markers stay real wildcards while anything the caller typed does not.
+ */
+function escapeLikePattern(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
 /**
@@ -261,9 +326,15 @@ export async function listOrganizationMembers(
     .eq('organization_id', organizationId)
     .is('deleted_at', null);
 
-  const term = search?.trim();
+  // Bounded again here (page.tsx already trims to 100 characters before this
+  // is ever called) — a service function's own arguments should not depend
+  // on a caller upstream having remembered to enforce a bound for it.
+  const term = search?.trim().slice(0, 100);
   if (term) {
-    const wildcard = quoteForOrFilter(`%${term}%`);
+    // escapeLikePattern runs BEFORE the %...% wildcard markers are added, so
+    // it only ever escapes what the caller typed, never the markers this
+    // function adds itself.
+    const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
     const clauses = [
       `full_name.ilike.${wildcard}`,
       `phone.ilike.${wildcard}`,
@@ -271,7 +342,8 @@ export async function listOrganizationMembers(
     ];
     // Digits only: cpf_last_digits (0031) is always exactly three digits, so
     // a term carrying no digit at all (a name search) has nothing meaningful
-    // to compare it against.
+    // to compare it against. A digit-only string can never contain % or _,
+    // so escapeLikePattern would be a no-op here — skipped, not forgotten.
     const digits = term.replace(/[^0-9]/g, '');
     if (digits) clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
     query = query.or(clauses.join(','));
@@ -306,15 +378,19 @@ export async function listOrganizationMembers(
     companiesByMember.set(link.member_id, list);
   }
 
-  const blocked = await Promise.all(
-    scanned.map(async (m) => {
-      const companyIds = companiesByMember.get(m.id) ?? [];
-      for (const companyId of companyIds) {
-        if (await isMemberBlocked(m.id, companyId, accessToken)) return true;
-      }
-      return false;
-    }),
-  );
+  // mapWithConcurrency, not Promise.all: an unsearched visit can carry up to
+  // MEMBER_LIST_LIMIT rows, and Promise.all over all of them at once opened a
+  // 50-wide concurrent fan-out on the single most common page load this
+  // screen has (Task 8 review, Important 2). checkMemberBlocked(supabase, …)
+  // reuses the ONE client already built above instead of asCaller building a
+  // fresh one per row, the same review's other half of that finding.
+  const blocked = await mapWithConcurrency(scanned, BLOCK_CHECK_CONCURRENCY, async (m) => {
+    const companyIds = companiesByMember.get(m.id) ?? [];
+    for (const companyId of companyIds) {
+      if (await checkMemberBlocked(supabase, m.id, companyId)) return true;
+    }
+    return false;
+  });
 
   return {
     members: scanned.map((m, i) => ({
@@ -360,7 +436,12 @@ export interface MemberDetail {
  * "no row" from PostgREST, and a Member the caller cannot reach (linked to no
  * Station they hold members.view in) is indistinguishable from either at this
  * layer, by design: the RLS policy is the boundary, and it does not leak
- * which of the three actually happened.
+ * which of the three actually happened. A `memberId` that is not even a
+ * well-formed UUID (a hand-edited URL, a stale bookmark) is folded into the
+ * same null (Task 8 review) rather than left to throw InternalError —
+ * verified live against the local stack: `.eq('id', 'not-a-uuid')` returns
+ * `{ code: '22P02', message: 'invalid input syntax for type uuid: ...' }`,
+ * Postgres's own "this was never going to match", not a database fault.
  */
 export async function getMember(memberId: string, accessToken: string): Promise<MemberDetail | null> {
   // A single string literal, not built by concatenation: supabase-js infers
@@ -375,7 +456,10 @@ export async function getMember(memberId: string, accessToken: string): Promise<
     .eq('id', memberId)
     .is('deleted_at', null)
     .maybeSingle();
-  if (error) throw new InternalError(`Could not read this listener: ${error.message}`);
+  if (error) {
+    if (error.code === '22P02') return null;
+    throw new InternalError(`Could not read this listener: ${error.message}`);
+  }
   if (!data) return null;
   return {
     id: data.id,
@@ -549,13 +633,19 @@ export async function listMemberStations(
   }
   const nameById = new Map((companies ?? []).map((c) => [c.id, c.name]));
 
+  // checkMemberBlocked(supabase, …), not isMemberBlocked(…, accessToken) —
+  // reuses the client already built above instead of asCaller building a
+  // fresh one per Station (Task 8 review, Important 2). No concurrency bound
+  // here: this fan-out is one listener's own Station count, not up to
+  // MEMBER_LIST_LIMIT rows — the shape mapWithConcurrency (above) exists to
+  // bound.
   const blocked = await Promise.all(
-    (links ?? []).map((l) => isMemberBlocked(memberId, l.company_id, accessToken)),
+    (links ?? []).map((l) => checkMemberBlocked(supabase, memberId, l.company_id)),
   );
 
   return (links ?? []).map((l, i) => ({
     companyId: l.company_id,
-    companyName: nameById.get(l.company_id) ?? 'Unknown station',
+    companyName: nameById.get(l.company_id) ?? 'Unknown Station',
     linkedAt: l.linked_at,
     blocked: blocked[i] ?? false,
   }));
