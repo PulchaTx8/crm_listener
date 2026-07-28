@@ -40,6 +40,18 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/inventory', label: 'Inventory', icon: ICONS.box }],
     },
     {
+      // Visible to every member, including those holding members.view
+      // nowhere in the Organization — the same courtesy Inventory just above
+      // extends for inventory.view. /members redirects at the top of its own
+      // page for anyone holding members.view nowhere (access.ts's
+      // canViewAudience), and members_select_reachable plus its four sibling
+      // policies (0035_rls_members.sql) filter every read underneath
+      // regardless of that redirect. Hiding a link is a courtesy; the
+      // boundary is in the database.
+      label: 'Audience',
+      items: [{ href: '/members', label: 'Members', icon: ICONS.headphones }],
+    },
+    {
       // Visible to every member, including those holding no organization-scoped
       // permission at all. Deliberate, and not a hole: Team renders the member
       // roster (widened per-permission by RLS, 0024), the role list, the

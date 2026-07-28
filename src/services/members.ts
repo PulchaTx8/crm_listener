@@ -180,6 +180,388 @@ export async function memberReachable(
 }
 
 // ---------------------------------------------------------------------------
+// The two read screens (Task 8): the audience list and one listener's detail.
+//
+// Every function below reads through asCaller(accessToken), same as every
+// other function in this file — members_select_reachable and its four
+// sibling policies (0035_rls_members.sql) are what actually decide which
+// rows come back, not anything in this file. A search term narrows the SQL
+// `where` clause itself (listOrganizationMembers' own `.or(...)` below), so
+// the audience a caller cannot reach is never fetched in order to be
+// filtered away — it is never fetched at all.
+// ---------------------------------------------------------------------------
+
+export interface MemberListRow {
+  id: string;
+  fullName: string | null;
+  phone: string | null;
+  email: string | null;
+  cpfLastDigits: string | null;
+  anonymizedAt: string | null;
+  createdAt: string;
+  /** True if is_member_blocked (0032) holds for at least one Station this row is linked to that the caller can reach — see listOrganizationMembers' own comment. */
+  blocked: boolean;
+}
+
+// A bound on how many rows one page load will ever return, the same
+// reasoning listCompanyAccess's COMPANY_SCAN_CAP (inventory/station-access.ts)
+// gives for its own cap: without one, an Organization with a large audience
+// would have every row read into this process on every visit to /members,
+// the exact "ship the audience to the client" failure Task 8's brief warns
+// against, just moved from the browser to this server instead of avoided.
+// Search narrows the `where` clause itself, so typing a name/phone/e-mail/CPF
+// stays effective even past this cap; the unfiltered default view (most
+// recently registered first) is the one path this actually limits.
+const MEMBER_LIST_LIMIT = 50;
+
+/**
+ * Escapes a value for interpolation into a PostgREST `.or()` filter list.
+ * PostgREST's own filter-list grammar reserves comma and parenthesis as
+ * separators; wrapping the whole value in double quotes suspends that
+ * parsing for everything between them, and a literal double quote or
+ * backslash inside the value is itself backslash-escaped first so a name,
+ * address or note fragment that happens to contain one cannot break out of
+ * the quoting it is sitting inside.
+ */
+function quoteForOrFilter(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * The audience list (spec: "search by name, phone, e-mail or the CPF's last
+ * digits, filtered server-side"). `search`, when given, becomes an `.or(...)`
+ * clause evaluated by Postgres itself — full_name/phone/e-mail matched by
+ * substring, cpf_last_digits matched only against the digits the term
+ * contains (typing "123" should not also try to match a three-character
+ * field against the letter "a" in "ana 123", but the digit-only substring
+ * still narrows correctly). Every row is capped at MEMBER_LIST_LIMIT (see its
+ * own comment); `capped` tells the caller whether more rows existed than were
+ * returned, the same shape listCompanyAccess's own `capped` flag uses.
+ *
+ * Block state is resolved per row via is_member_blocked (0032) against every
+ * Station in member_company_links this row is linked to AND the caller can
+ * reach (member_company_links' own RLS policy, 0035, already narrows the
+ * second read below to exactly that set) — an org-wide block answers true
+ * for any one of them, so a single reachable Station is already enough to
+ * catch it; a Station-scoped block only answers true for its own Station, so
+ * every reachable link still has to be checked. Cost is bounded by
+ * MEMBER_LIST_LIMIT × how many reachable Stations each returned listener is
+ * linked to, not by the Organization's total audience size.
+ */
+export async function listOrganizationMembers(
+  organizationId: string,
+  search: string | undefined,
+  accessToken: string,
+): Promise<{ members: MemberListRow[]; capped: boolean }> {
+  const supabase = asCaller(accessToken);
+
+  let query = supabase
+    .from('members')
+    .select('id, full_name, phone, email, cpf_last_digits, anonymized_at, created_at')
+    .eq('organization_id', organizationId)
+    .is('deleted_at', null);
+
+  const term = search?.trim();
+  if (term) {
+    const wildcard = quoteForOrFilter(`%${term}%`);
+    const clauses = [
+      `full_name.ilike.${wildcard}`,
+      `phone.ilike.${wildcard}`,
+      `email.ilike.${wildcard}`,
+    ];
+    // Digits only: cpf_last_digits (0031) is always exactly three digits, so
+    // a term carrying no digit at all (a name search) has nothing meaningful
+    // to compare it against.
+    const digits = term.replace(/[^0-9]/g, '');
+    if (digits) clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+    query = query.or(clauses.join(','));
+    // Alphabetical while narrowing — easier to scan a short, named result set
+    // than one ordered by an unrelated registration date.
+    query = query.order('full_name', { ascending: true, nullsFirst: false });
+  } else {
+    // No search: most recently registered first, the same default a support
+    // desk reaches for ("who just signed up") absent a reason to look further back.
+    query = query.order('created_at', { ascending: false });
+  }
+
+  const { data, error } = await query.limit(MEMBER_LIST_LIMIT + 1);
+  if (error) throw new InternalError(`Could not read the audience: ${error.message}`);
+
+  const rows = data ?? [];
+  const capped = rows.length > MEMBER_LIST_LIMIT;
+  const scanned = capped ? rows.slice(0, MEMBER_LIST_LIMIT) : rows;
+
+  const ids = scanned.map((m) => m.id);
+  const { data: links, error: linksError } = ids.length
+    ? await supabase.from('member_company_links').select('member_id, company_id').in('member_id', ids)
+    : { data: [], error: null };
+  if (linksError) {
+    throw new InternalError(`Could not read station links for the audience: ${linksError.message}`);
+  }
+
+  const companiesByMember = new Map<string, string[]>();
+  for (const link of links ?? []) {
+    const list = companiesByMember.get(link.member_id) ?? [];
+    list.push(link.company_id);
+    companiesByMember.set(link.member_id, list);
+  }
+
+  const blocked = await Promise.all(
+    scanned.map(async (m) => {
+      const companyIds = companiesByMember.get(m.id) ?? [];
+      for (const companyId of companyIds) {
+        if (await isMemberBlocked(m.id, companyId, accessToken)) return true;
+      }
+      return false;
+    }),
+  );
+
+  return {
+    members: scanned.map((m, i) => ({
+      id: m.id,
+      fullName: m.full_name,
+      phone: m.phone,
+      email: m.email,
+      cpfLastDigits: m.cpf_last_digits,
+      anonymizedAt: m.anonymized_at,
+      createdAt: m.created_at,
+      blocked: blocked[i] ?? false,
+    })),
+    capped,
+  };
+}
+
+export interface MemberDetail {
+  id: string;
+  fullName: string | null;
+  phone: string | null;
+  email: string | null;
+  cpfLastDigits: string | null;
+  passport: string | null;
+  birthDate: string | null;
+  addressLine: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighbourhood: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  discoverySource: string | null;
+  firstContactAt: string | null;
+  firstContactOrigin: string | null;
+  anonymizedAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * One listener's identity. Returns null rather than throwing NotFoundError
+ * when the row is absent — archived (members_select_reachable's own
+ * `deleted_at is null`, 0035) and genuinely-never-existed both come back as
+ * "no row" from PostgREST, and a Member the caller cannot reach (linked to no
+ * Station they hold members.view in) is indistinguishable from either at this
+ * layer, by design: the RLS policy is the boundary, and it does not leak
+ * which of the three actually happened.
+ */
+export async function getMember(memberId: string, accessToken: string): Promise<MemberDetail | null> {
+  // A single string literal, not built by concatenation: supabase-js infers
+  // the returned row's shape by parsing this argument's literal TYPE at
+  // compile time, so a runtime-assembled string collapses every field below
+  // to GenericStringError instead of its real column type.
+  const { data, error } = await asCaller(accessToken)
+    .from('members')
+    .select(
+      'id, full_name, phone, email, cpf_last_digits, passport, birth_date, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, discovery_source, first_contact_at, first_contact_origin, anonymized_at, created_at',
+    )
+    .eq('id', memberId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new InternalError(`Could not read this listener: ${error.message}`);
+  if (!data) return null;
+  return {
+    id: data.id,
+    fullName: data.full_name,
+    phone: data.phone,
+    email: data.email,
+    cpfLastDigits: data.cpf_last_digits,
+    passport: data.passport,
+    birthDate: data.birth_date,
+    addressLine: data.address_line,
+    addressNumber: data.address_number,
+    addressComplement: data.address_complement,
+    neighbourhood: data.neighbourhood,
+    city: data.city,
+    state: data.state,
+    postalCode: data.postal_code,
+    discoverySource: data.discovery_source,
+    firstContactAt: data.first_contact_at,
+    firstContactOrigin: data.first_contact_origin,
+    anonymizedAt: data.anonymized_at,
+    createdAt: data.created_at,
+  };
+}
+
+export interface MemberConsentRow {
+  id: string;
+  companyId: string;
+  consentType: MemberConsentType;
+  granted: boolean;
+  grantedAt: string;
+  origin: string | null;
+  promotionId: string | null;
+}
+
+/** Every consent recorded at a Station the caller can reach (member_consents_select_reachable, 0035), newest first. */
+export async function listMemberConsents(
+  memberId: string,
+  accessToken: string,
+): Promise<MemberConsentRow[]> {
+  const { data, error } = await asCaller(accessToken)
+    .from('member_consents')
+    .select('id, company_id, consent_type, granted, granted_at, origin, promotion_id')
+    .eq('member_id', memberId)
+    .order('granted_at', { ascending: false });
+  if (error) throw new InternalError(`Could not read this listener's consents: ${error.message}`);
+  return (data ?? []).map((c) => ({
+    id: c.id,
+    companyId: c.company_id,
+    consentType: c.consent_type,
+    granted: c.granted,
+    grantedAt: c.granted_at,
+    origin: c.origin,
+    promotionId: c.promotion_id,
+  }));
+}
+
+export interface MemberNoteRow {
+  id: string;
+  companyId: string;
+  body: string | null;
+  createdAt: string;
+}
+
+/**
+ * Every note recorded at a Station the caller can reach
+ * (member_notes_select_reachable, 0035), newest first. `body` is null only
+ * for a note anonymize_member has scrubbed (0034, Ruling B) — the row, its
+ * Station, its date and its author survive; the free text does not.
+ */
+export async function listMemberNotes(memberId: string, accessToken: string): Promise<MemberNoteRow[]> {
+  const { data, error } = await asCaller(accessToken)
+    .from('member_notes')
+    .select('id, company_id, body, created_at')
+    .eq('member_id', memberId)
+    .order('created_at', { ascending: false });
+  if (error) throw new InternalError(`Could not read this listener's notes: ${error.message}`);
+  return (data ?? []).map((n) => ({
+    id: n.id,
+    companyId: n.company_id,
+    body: n.body,
+    createdAt: n.created_at,
+  }));
+}
+
+export interface MemberBlockRow {
+  id: string;
+  companyId: string | null;
+  kind: MemberBlockKind;
+  reason: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  liftedAt: string | null;
+  liftedBy: string | null;
+  liftReason: string | null;
+}
+
+/**
+ * Every block ever recorded against this listener that the caller can reach
+ * (member_blocks_select_reachable, 0035 — a Station-scoped row at a Station
+ * the caller holds members.view in, or an Organization-wide row the caller
+ * both holds members.view somewhere for AND can reach this listener through),
+ * newest first. A plain history read: whether a given row is CURRENTLY in
+ * effect is deliberately not computed here by re-deriving is_member_blocked's
+ * own date-window logic (lifted_at is null and starts_at <= now() and
+ * (ends_at is null or ends_at > now()), 0032) — a hand-copy of that window
+ * risks disagreeing with the real predicate, which is exactly the failure
+ * mode this comment's own file already warns against for
+ * normalize_phone/normalize_email (0031). Screens that need "is this listener
+ * blocked right now" call isMemberBlocked instead, which is this same file's
+ * existing wrapper around the real function.
+ */
+export async function listMemberBlocks(memberId: string, accessToken: string): Promise<MemberBlockRow[]> {
+  const { data, error } = await asCaller(accessToken)
+    .from('member_blocks')
+    .select('id, company_id, kind, reason, starts_at, ends_at, lifted_at, lifted_by, lift_reason')
+    .eq('member_id', memberId)
+    .order('starts_at', { ascending: false });
+  if (error) throw new InternalError(`Could not read this listener's block history: ${error.message}`);
+  return (data ?? []).map((b) => ({
+    id: b.id,
+    companyId: b.company_id,
+    kind: b.kind,
+    reason: b.reason,
+    startsAt: b.starts_at,
+    endsAt: b.ends_at,
+    liftedAt: b.lifted_at,
+    liftedBy: b.lifted_by,
+    liftReason: b.lift_reason,
+  }));
+}
+
+export interface MemberStationRow {
+  companyId: string;
+  companyName: string;
+  linkedAt: string;
+  /** is_member_blocked(memberId, companyId) — true regardless of whether the active block is scoped to this Station specifically or applies Organization-wide. */
+  blocked: boolean;
+}
+
+/**
+ * The Stations this listener took part in THAT THE CALLER CAN REACH — spec's
+ * own load-bearing clause. member_company_links_select_reachable (0035)
+ * already does the narrowing: a link at a Station the caller holds
+ * members.view in comes back, any other link on the same listener simply
+ * does not exist as far as this query is concerned. Nothing here works
+ * around that to "complete" a short list — a short list IS the correct
+ * answer when the caller cannot reach every Station this listener has ever
+ * been linked to.
+ */
+export async function listMemberStations(
+  memberId: string,
+  accessToken: string,
+): Promise<MemberStationRow[]> {
+  const supabase = asCaller(accessToken);
+
+  const { data: links, error } = await supabase
+    .from('member_company_links')
+    .select('company_id, linked_at')
+    .eq('member_id', memberId)
+    .order('linked_at', { ascending: true });
+  if (error) {
+    throw new InternalError(`Could not read the Stations this listener has taken part in: ${error.message}`);
+  }
+
+  const companyIds = (links ?? []).map((l) => l.company_id);
+  const { data: companies, error: companiesError } = companyIds.length
+    ? await supabase.from('companies').select('id, name').in('id', companyIds)
+    : { data: [], error: null };
+  if (companiesError) {
+    throw new InternalError(`Could not read station names: ${companiesError.message}`);
+  }
+  const nameById = new Map((companies ?? []).map((c) => [c.id, c.name]));
+
+  const blocked = await Promise.all(
+    (links ?? []).map((l) => isMemberBlocked(memberId, l.company_id, accessToken)),
+  );
+
+  return (links ?? []).map((l, i) => ({
+    companyId: l.company_id,
+    companyName: nameById.get(l.company_id) ?? 'Unknown station',
+    linkedAt: l.linked_at,
+    blocked: blocked[i] ?? false,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // create_member / update_member — named arguments only, never positional.
 //
 // Both RPCs (0034_member_rpcs.sql) take eight consecutive `text` parameters
