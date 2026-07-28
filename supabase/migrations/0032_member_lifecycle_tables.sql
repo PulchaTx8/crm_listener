@@ -1,11 +1,22 @@
 -- supabase/migrations/0032_member_lifecycle_tables.sql
 
 -- Consent, notes and blocks: what happened to a Member after they were registered.
--- The three tables are append-only in spirit — a withdrawn consent is a new row, a
--- correction to a note is a new note, and a lifted block is recorded on the row it
--- lifts rather than as a new row beside it (see member_blocks below, the one
--- deliberate exception). None of the three carries an updated_at: a table nobody
--- edits does not need a column that says when it was edited.
+-- The three tables are append-only for the Station's OWN writes — a withdrawn
+-- consent is a new row, a correction to a note is a new note, and a lifted block is
+-- recorded on the row it lifts rather than as a new row beside it (see member_blocks
+-- below, the one deliberate exception to "new row").
+--
+-- anonymize_member (0034_member_rpcs.sql) is the one path that rewrites an existing
+-- row in these three tables rather than appending one, and it only ever removes: for
+-- an erased Member it nulls member_consents.origin, member_notes.body and
+-- member_blocks.reason — the free text that could re-identify them — while the row,
+-- its dates, its type/kind and its author all survive. Owner's ruling (Task 4
+-- review, Ruling B): a note reading "this is the person we erased, phone ..." would
+-- otherwise outlive the erasure it describes.
+--
+-- None of the three carries an updated_at — an append-only write needs no edit
+-- timestamp, and the one edit that does happen (anonymize_member's erasure) is dated
+-- by members.anonymized_at, not by a per-row timestamp of its own.
 
 -- The three consents decision 2 fixed: the promotion's rules, the use of the
 -- Member's image and name, and communication from a sponsor. WhatsApp consent is
@@ -40,7 +51,7 @@ create table public.member_consents (
     foreign key (company_id, organization_id) references public.companies (id, organization_id)
 );
 
-comment on table public.member_consents is 'What a Member agreed to, or withdrew, at a Station. Append-only: a withdrawal is a new row, not an edit.';
+comment on table public.member_consents is 'What a Member agreed to, or withdrew, at a Station. Append-only for the Station''s own writes: a withdrawal is a new row, not an edit. anonymize_member (0034) is the one exception — it nulls origin for an erased Member''s consents, keeping the row, its type, its granted flag and its date.';
 comment on column public.member_consents.promotion_id is 'No foreign key yet: public.promotions does not exist. Expected to be set only when consent_type = ''rules''.';
 
 create index member_consents_member_idx on public.member_consents (member_id);
@@ -48,13 +59,18 @@ create index member_consents_member_idx on public.member_consents (member_id);
 -- Free text an operator adds about a Member, scoped to the Station that wrote it —
 -- per Station, not per Organization: a note written at one Station is not
 -- automatically visible at another (spec §5). Append-only in spirit: a correction is
--- a new note, not an edit of an old one.
+-- a new note, not an edit of an old one — except anonymize_member (0034), the one
+-- path that nulls an existing note's body for an erased Member (Ruling B).
 create table public.member_notes (
   id              uuid primary key default gen_random_uuid(),
   organization_id uuid not null,
   member_id       uuid not null,
   company_id      uuid not null,
-  body            text not null,
+  -- Not null in practice — add_member_note (0034) enforces a non-blank body and no
+  -- other write path exists (no INSERT grant to any role). Nullable here, rather
+  -- than NOT NULL, only so anonymize_member (0034) can clear it for an erased
+  -- Member; the row, its Station, its date and its author survive.
+  body            text,
   created_by      uuid references auth.users (id),
   created_at      timestamptz not null default now(),
 
@@ -64,7 +80,8 @@ create table public.member_notes (
     foreign key (company_id, organization_id) references public.companies (id, organization_id)
 );
 
-comment on table public.member_notes is 'Free text an operator adds about a Member, scoped to the Station that wrote it. Append-only: a correction is a new note.';
+comment on table public.member_notes is 'Free text an operator adds about a Member, scoped to the Station that wrote it. Append-only: a correction is a new note — except anonymize_member (0034), which nulls body for an erased Member, keeping the row, its Station, its date and its author.';
+comment on column public.member_notes.body is 'Not null in practice (add_member_note, 0034, enforces it); nullable here only so anonymize_member (0034) can clear it for an erased Member.';
 
 create index member_notes_member_idx on public.member_notes (member_id);
 
@@ -85,7 +102,11 @@ create table public.member_blocks (
   -- Null means the whole Organization: every Station this Member can reach, not one.
   company_id      uuid,
   kind            public.member_block_kind not null,
-  reason          text not null,
+  -- Not null in practice — block_member (0034) enforces a non-blank reason and no
+  -- other write path exists. Nullable here, rather than NOT NULL, only so
+  -- anonymize_member (0034) can clear it for an erased Member; the row, its kind,
+  -- its dates and its author survive.
+  reason          text,
   starts_at       timestamptz not null default now(),
   ends_at         timestamptz,
   created_by      uuid references auth.users (id),
@@ -103,8 +124,9 @@ create table public.member_blocks (
     foreign key (company_id, organization_id) references public.companies (id, organization_id)
 );
 
-comment on table public.member_blocks is 'Draw bans and suspensions, Organization-wide or per Station. Append-only, except the lift itself, which is recorded on the row it ends.';
+comment on table public.member_blocks is 'Draw bans and suspensions, Organization-wide or per Station. Append-only, except the lift itself (recorded on the row it ends) and anonymize_member (0034), which nulls reason for an erased Member, keeping the row, its kind, its dates and its author.';
 comment on column public.member_blocks.company_id is 'Null means the block applies across the whole Organization, not one Station.';
+comment on column public.member_blocks.reason is 'Not null in practice (block_member, 0034, enforces it); nullable here only so anonymize_member (0034) can clear it for an erased Member.';
 
 create index member_blocks_member_idx on public.member_blocks (member_id);
 

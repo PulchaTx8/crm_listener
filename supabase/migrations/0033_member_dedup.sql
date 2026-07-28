@@ -20,6 +20,47 @@
 -- the answer "says what to do next," as if it carried a message field — it does
 -- not, in any branch. That copy belongs to the client that turns this outcome into
 -- a workflow, Task 6's Node layer, not to this function.)
+
+-- Whether the caller holds p_permission at ANY Station p_member_id is linked to.
+-- has_permission requires an ACTIVE Station (has_company_access, 0005_rls_helpers.sql,
+-- redefined 0016_memberships.sql), so a Member linked only to a suspended or archived
+-- Station would be unreachable to literally everyone — including the owner and the
+-- platform admin — unless their bypass sits OUTSIDE that gate. Fixed here for
+-- find_member_by_identifier, below, by Task 3's review (Important 2). Defined once,
+-- in this one place, rather than left as a hand-copy inside each of 0034's write RPCs
+-- that need the identical check (update_member, archive_member, anonymize_member) —
+-- Task 4 review, Important 5: 0031's own comment on normalize_phone/normalize_email
+-- is a standing warning about exactly that kind of drift, and it applies here too.
+--
+-- SECURITY INVOKER, EXECUTE granted to nobody — reachable only from inside a
+-- SECURITY DEFINER body, where it runs with that body's already-elevated privileges.
+-- Same convention as apply_inventory_movement (0027_inventory_rpcs.sql).
+create or replace function public.member_reachable(
+  p_member_id       uuid,
+  p_organization_id uuid,
+  p_permission      text
+)
+returns boolean
+language sql
+stable
+set search_path = pg_catalog, public
+as $$
+  select
+    public.is_platform_admin()
+    or public.is_owner(p_organization_id)
+    or exists (
+      select 1
+      from public.member_company_links l
+      where l.member_id = p_member_id
+        and public.has_permission(p_permission, l.company_id)
+    );
+$$;
+
+comment on function public.member_reachable(uuid, uuid, text) is
+  'Whether the caller holds p_permission at any Station p_member_id is linked to, admitting the platform admin and the Organization owner outside the per-link has_permission check (Task 3 review, Important 2) so a Member whose only Station is suspended or archived is not a permanent dead end. SECURITY INVOKER; reachable only from inside a SECURITY DEFINER body (apply_inventory_movement''s convention, 0027). Shared by find_member_by_identifier, below, and update_member/archive_member/anonymize_member (0034_member_rpcs.sql).';
+
+revoke execute on function public.member_reachable(uuid, uuid, text) from public;
+
 create or replace function public.find_member_by_identifier(
   p_organization_id uuid,
   p_phone           text default null,
@@ -89,37 +130,22 @@ begin
   with candidates as (
     select
       m.id,
-      -- Task-3 review, Important 2: has_permission is gated by has_company_access,
-      -- which requires the STATION itself to be active and undeleted for EVERY
-      -- caller (0005_rls_helpers.sql, redefined 0016_memberships.sql) — the
-      -- platform-admin and owner bypasses live INSIDE that gate, not around it.
-      -- Computed purely from the link, a Member linked only to an archived or
-      -- suspended Station would be unreachable forever, to literally nobody —
-      -- not even the owner who archived the Station, and the identifiers would
-      -- still occupy members_phone_unique etc. (keyed on the MEMBER's
-      -- deleted_at, not the Station's status), so the collision could never be
-      -- resolved by anyone. Admitting the platform admin and the owner here,
-      -- outside the link check, closes that dead end without widening what an
-      -- ordinary delegate can see: a delegate still needs an actual reachable
-      -- link, checked below exactly as before.
+      -- Reachability is computed by member_reachable, defined above in this same
+      -- file (Task 3 review, Important 2 — the platform admin and owner are
+      -- admitted outside the per-link has_permission check, so a Member linked
+      -- only to an archived or suspended Station is not a dead end to literally
+      -- nobody). Task 4 review, Important 5: shared with 0034's write RPCs rather
+      -- than a second hand-copy, so the fix above does not have to be re-applied
+      -- twice.
       --
       -- Consequence, decided deliberately rather than left implicit: a Member
       -- with zero rows in member_company_links has no link for has_permission to
       -- ever approve, so an ordinary role holder can never reach one — that is a
       -- data-hygiene state (every registration flow, Task 6, creates a link on
       -- write), not a permission state. The owner and platform admin can still
-      -- resolve it, because their bypass here does not require a link to exist
-      -- at all; an ordinary delegate cannot, and should not be able to.
-      (
-        public.is_platform_admin()
-        or public.is_owner(p_organization_id)
-        or exists (
-          select 1
-          from public.member_company_links l
-          where l.member_id = m.id
-            and public.has_permission('members.view', l.company_id)
-        )
-      ) as reachable
+      -- resolve it, because member_reachable's bypass does not require a link to
+      -- exist at all; an ordinary delegate cannot, and should not be able to.
+      public.member_reachable(m.id, p_organization_id, 'members.view') as reachable
     from public.members m
     where m.organization_id = p_organization_id
       and m.deleted_at is null
