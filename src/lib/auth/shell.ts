@@ -29,6 +29,17 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
     },
     {
+      // Visible to every member, including those holding no inventory
+      // permission in any Station at all — the same courtesy Team and Roles
+      // below already extend. /inventory redirects at the top of its own
+      // page for anyone holding inventory.view nowhere, and every RPC in
+      // 0027/0028 (and the select policies in 0029) re-check has_permission
+      // themselves regardless of that redirect. Hiding a link is a courtesy;
+      // the boundary is in the database.
+      label: 'Inventory',
+      items: [{ href: '/inventory', label: 'Inventory', icon: ICONS.box }],
+    },
+    {
       // Visible to every member, including those holding no organization-scoped
       // permission at all. Deliberate, and not a hole: Team renders the member
       // roster (widened per-permission by RLS, 0024), the role list, the

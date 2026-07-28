@@ -11,7 +11,7 @@ import {
   ValidationError,
 } from '@/lib/errors';
 import type { Database } from '@/lib/supabase/database.types';
-import type { PrizeFormInput } from '@/schemas/inventory';
+import type { MovementFormInput, PrizeFormInput } from '@/schemas/inventory';
 
 export type InventoryBucket = Database['public']['Enums']['inventory_bucket'];
 export type InventoryMovementType = Database['public']['Enums']['inventory_movement_type'];
@@ -253,14 +253,15 @@ export async function archivePrize(prizeId: string, accessToken: string): Promis
   if (error) throw mapInventoryError(error.code, error.message);
 }
 
-export interface StockEntryInput {
-  companyId: string;
-  prizeId: string;
-  type: 'INITIAL_ENTRY' | 'PURCHASE_ENTRY' | 'MANUAL_ENTRY';
-  quantity: number;
-  note?: string;
-  idempotencyKey?: string;
-}
+// Derived from movementFormSchema's discriminated union rather than
+// hand-written, so a field renamed on one side breaks the build on the
+// other instead of only surfacing at runtime — the seam Task 7's review
+// flagged: this field used to be named `type` here while the schema (and
+// record_stock_entry's own `p_type` parameter) called it `entryType`, and
+// nothing but a form author's care kept a hand-mapping between the two
+// honest. `kind` rides along unused by the RPC call below, the same as it
+// does on every other Stock*Input type in this file.
+export type StockEntryInput = Extract<MovementFormInput, { kind: 'entry' }>;
 
 export async function recordStockEntry(
   input: StockEntryInput,
@@ -269,7 +270,7 @@ export async function recordStockEntry(
   const { data, error } = await asCaller(accessToken).rpc('record_stock_entry', {
     p_company_id: input.companyId,
     p_prize_id: input.prizeId,
-    p_type: input.type,
+    p_type: input.entryType,
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
@@ -279,13 +280,7 @@ export async function recordStockEntry(
   return data;
 }
 
-export interface StockExitInput {
-  companyId: string;
-  prizeId: string;
-  quantity: number;
-  note: string;
-  idempotencyKey?: string;
-}
+export type StockExitInput = Extract<MovementFormInput, { kind: 'exit' }>;
 
 export async function recordStockExit(input: StockExitInput, accessToken: string): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('record_stock_exit', {
@@ -300,13 +295,7 @@ export async function recordStockExit(input: StockExitInput, accessToken: string
   return data;
 }
 
-export interface StockAdjustmentInput {
-  companyId: string;
-  prizeId: string;
-  counted: number;
-  note: string;
-  idempotencyKey?: string;
-}
+export type StockAdjustmentInput = Extract<MovementFormInput, { kind: 'adjustment' }>;
 
 /**
  * Returns the new movement's id, or null when the counted figure matched
@@ -338,13 +327,8 @@ export async function adjustStock(
   return movementId;
 }
 
-export interface StockReservationInput {
-  companyId: string;
-  prizeId: string;
-  quantity: number;
-  note: string;
-  idempotencyKey?: string;
-}
+export type StockReservationInput = Extract<MovementFormInput, { kind: 'reserve' }>;
+export type StockReservationReleaseInput = Extract<MovementFormInput, { kind: 'release' }>;
 
 export async function reserveStock(
   input: StockReservationInput,
@@ -363,7 +347,7 @@ export async function reserveStock(
 }
 
 export async function releaseReservation(
-  input: StockReservationInput,
+  input: StockReservationReleaseInput,
   accessToken: string,
 ): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('release_reservation', {
