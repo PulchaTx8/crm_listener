@@ -6,11 +6,15 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getPrizeMovements, listPrizeCategories, listPrizes } from '@/services/inventory';
 import type { MovementEntry, PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
-import { listViewableCompanies } from '../station-access';
-import type { ViewableCompany } from '../station-access';
-import { describeInventoryReadError } from '../actions';
+import { getInventoryPermissions, listViewableCompanies } from '../station-access';
+import type { InventoryPermissions, ViewableCompany } from '../station-access';
+import { describeInventoryReadError } from '../errors';
 import { BalanceStats } from '../balance-stats';
 import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABELS } from '../format';
+import { StockEntryForm } from '../stock-entry-form';
+import { StockExitForm } from '../stock-exit-form';
+import { AdjustmentForm } from '../adjustment-form';
+import { ReleaseForm, ReserveForm } from '../reservation-forms';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -72,10 +76,12 @@ export default async function PrizeDetailPage({
 
   let categories: PrizeCategorySummary[];
   let movements: MovementEntry[];
+  let permissions: InventoryPermissions;
   try {
-    [categories, movements] = await Promise.all([
+    [categories, movements, permissions] = await Promise.all([
       listPrizeCategories(companyId),
       getPrizeMovements(companyId, prizeId),
+      getInventoryPermissions(supabase, companyId),
     ]);
   } catch (cause) {
     logger.error({ err: cause, prizeId }, 'could not load the movement history');
@@ -172,6 +178,67 @@ export default async function PrizeDetailPage({
             )}
           </CardContent>
         </Card>
+
+        {/* Each rendered only as a courtesy — record_stock_entry,
+            record_stock_exit, adjust_stock, reserve_stock and
+            release_reservation (0027) each re-check their own permission
+            themselves before writing anything, so hiding a form from someone
+            who lacks it is convenience, not the refusal itself. See
+            getInventoryPermissions' (station-access.ts) own comment. */}
+        {permissions.entry && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Add stock</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StockEntryForm companyId={companyId} prizeId={prizeId} />
+            </CardContent>
+          </Card>
+        )}
+
+        {permissions.exit && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Record a manual exit</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StockExitForm companyId={companyId} prizeId={prizeId} />
+            </CardContent>
+          </Card>
+        )}
+
+        {permissions.adjust && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Adjust to a counted figure</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AdjustmentForm companyId={companyId} prizeId={prizeId} />
+            </CardContent>
+          </Card>
+        )}
+
+        {permissions.reserve && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Reserve stock</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ReserveForm companyId={companyId} prizeId={prizeId} />
+            </CardContent>
+          </Card>
+        )}
+
+        {permissions.reserve && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Release a reservation</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ReleaseForm companyId={companyId} prizeId={prizeId} />
+            </CardContent>
+          </Card>
+        )}
       </div>
     </>
   );

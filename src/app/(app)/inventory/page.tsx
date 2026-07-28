@@ -3,13 +3,16 @@ import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { listPrizeCategories, listPrizes } from '@/services/inventory';
 import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
-import { listViewableCompanies } from './station-access';
-import type { ViewableCompany } from './station-access';
-import { describeInventoryReadError } from './actions';
+import { getInventoryPermissions, listViewableCompanies } from './station-access';
+import type { InventoryPermissions, ViewableCompany } from './station-access';
+import { describeInventoryReadError } from './errors';
 import { InventoryBrowser } from './inventory-browser';
+import { CategoryForm } from './category-form';
+import { PrizeForm } from './prize-form';
+import { ReconciliationPanel } from './reconciliation-panel';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -57,10 +60,12 @@ export default async function InventoryPage({
 
   let categories: PrizeCategorySummary[];
   let prizes: PrizeSummary[];
+  let permissions: InventoryPermissions;
   try {
-    [categories, prizes] = await Promise.all([
+    [categories, prizes, permissions] = await Promise.all([
       listPrizeCategories(selected.id),
       listPrizes(selected.id),
+      getInventoryPermissions(supabase, selected.id),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the inventory list');
@@ -92,6 +97,43 @@ export default async function InventoryPage({
           ))}
         </div>
       )}
+
+      {/* Rendered only as a courtesy — see getInventoryPermissions'
+          (station-access.ts) own comment for why this is not the boundary.
+          create_prize_category and create_prize both re-check
+          inventory.catalogue themselves before writing anything, so hiding
+          these forms from someone who lacks it is convenience, not the
+          refusal itself. */}
+      {permissions.catalogue && (
+        <div className="mb-6 grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Register a category</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CategoryForm companyId={selected.id} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Register a prize</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PrizeForm companyId={selected.id} categories={categories} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Reconciliation</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ReconciliationPanel companyId={selected.id} />
+        </CardContent>
+      </Card>
 
       <InventoryBrowser prizes={prizes} categories={categories} />
     </>

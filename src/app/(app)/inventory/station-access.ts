@@ -56,3 +56,69 @@ export async function listViewableCompanies(supabase: UserClient): Promise<Viewa
 
   return checked.filter((c): c is ViewableCompany => c !== null);
 }
+
+export interface InventoryPermissions {
+  catalogue: boolean;
+  entry: boolean;
+  exit: boolean;
+  adjust: boolean;
+  reserve: boolean;
+}
+
+const MOVEMENT_PERMISSION_CODES = [
+  'inventory.catalogue',
+  'inventory.entry',
+  'inventory.exit',
+  'inventory.adjust',
+  'inventory.reserve',
+] as const;
+
+/**
+ * Which of the five write permissions the caller holds in this one Station —
+ * a courtesy gate for which of Task 9's forms get rendered at all, the exact
+ * same shape listViewableCompanies uses for inventory.view: has_permission
+ * asked once per code, never the boundary itself. Every RPC these forms call
+ * (record_stock_entry, record_stock_exit, adjust_stock, reserve_stock,
+ * release_reservation, create_prize_category, create_prize) re-checks its own
+ * permission with the same function before writing anything (0027), so a
+ * stale render — a permission revoked after this page loaded but before a
+ * form still sitting in an open tab is submitted — is still refused where it
+ * actually matters, not merely hidden here.
+ *
+ * A failed has_permission call throws rather than being folded into "not
+ * granted", the same reasoning listViewableCompanies gives for its own check:
+ * collapsing a transient RPC failure into "no access" would silently hide
+ * every form from someone who does hold the permission.
+ */
+export async function getInventoryPermissions(
+  supabase: UserClient,
+  companyId: string,
+): Promise<InventoryPermissions> {
+  const results = await Promise.all(
+    MOVEMENT_PERMISSION_CODES.map((code) =>
+      supabase.rpc('has_permission', { p_permission: code, p_company_id: companyId }),
+    ),
+  );
+
+  results.forEach((result, i) => {
+    if (result.error) {
+      throw new InternalError(
+        `Could not check ${MOVEMENT_PERMISSION_CODES[i]} access for this station: ${result.error.message}`,
+      );
+    }
+  });
+
+  // Index access under noUncheckedIndexedAccess types each element as
+  // `boolean | undefined` even though results.length is always exactly 5
+  // (one per MOVEMENT_PERMISSION_CODES entry, mapped 1:1 above) — the `??
+  // false` is satisfying the compiler about a case that cannot actually
+  // occur, not a real fallback.
+  const flags = results.map((r) => r.data === true);
+  return {
+    catalogue: flags[0] ?? false,
+    entry: flags[1] ?? false,
+    exit: flags[2] ?? false,
+    adjust: flags[3] ?? false,
+    reserve: flags[4] ?? false,
+  };
+}

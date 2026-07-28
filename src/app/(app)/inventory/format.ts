@@ -62,3 +62,15 @@ export function physicalTotal(balance: PrizeBalance): number {
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 }
+
+/**
+ * reconcile_inventory (0028) returns `bucket` as plain `text`, cast from the
+ * enum at the very end of its own query — never NULL, unlike
+ * inventory_movements.from_bucket/to_bucket, since reconciliation compares
+ * real buckets only. BUCKET_LABELS is keyed by the enum itself, so this casts
+ * to look a row's bucket text up in that same table, falling back to the raw
+ * string rather than throwing if a future bucket is ever added here first.
+ */
+export function formatBucketName(bucket: string): string {
+  return (BUCKET_LABELS as Record<string, string>)[bucket] ?? bucket;
+}
