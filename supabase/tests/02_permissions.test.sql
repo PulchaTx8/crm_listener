@@ -1,5 +1,5 @@
 begin;
-select plan(38);
+select plan(51);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -142,6 +142,112 @@ select throws_ok(
   '23514',
   'new row for relation "inventory_balances" violates check constraint "inventory_balances_available_check"',
   'a negative bucket is rejected by the check constraint'
+);
+
+-- Block 2, Task 5: the four inventory tables, built in Tasks 1 and 2, are
+-- secured only now. A table this migration misses looks exactly like one
+-- that never needed securing (this project has shipped that mistake once
+-- already — rate_limit_counters, Block 0) — so the state is asserted here
+-- rather than left to whoever reads the migration list.
+select is(relrowsecurity, true, 'RLS enabled on inventory_movements')
+  from pg_class where oid = 'public.inventory_movements'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on inventory_balances')
+  from pg_class where oid = 'public.inventory_balances'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on prizes')
+  from pg_class where oid = 'public.prizes'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on prize_categories')
+  from pg_class where oid = 'public.prize_categories'::regclass;
+
+-- The ledger's immutability, and the projection's single-writer property, are
+-- grants, not comments. No role — not even service_role — holds UPDATE or
+-- DELETE on either table; every write goes through a SECURITY DEFINER RPC
+-- that runs as the table owner.
+select ok(not has_table_privilege('authenticated', 'public.inventory_movements', 'UPDATE'),
+          'authenticated may not update the ledger');
+select ok(not has_table_privilege('authenticated', 'public.inventory_movements', 'DELETE'),
+          'authenticated may not delete from the ledger');
+select ok(not has_table_privilege('service_role', 'public.inventory_movements', 'UPDATE'),
+          'service_role may not update the ledger either');
+select ok(not has_table_privilege('service_role', 'public.inventory_movements', 'DELETE'),
+          'service_role may not delete from the ledger either');
+select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'UPDATE'),
+          'service_role may not write the projection directly');
+
+-- Block 2, Task 5 (post-review correction): reconcile_inventory (0028) is
+-- pure SQL — a recomputation from the ledger, joined against the stored
+-- projection — with no automated regression guard before this. A Station, a
+-- prize, two movements and a deliberately WRONG balance row are seeded as the
+-- table owner (bypassing RLS, same as the ledger fixtures above), then the
+-- gated RPC is exercised under a real session, following the same
+-- organizations/companies/prize seeding shape 01_identity.test.sql and the
+-- ledger probe above already use. The session is a platform_admin rather
+-- than a role/role_permissions grant: has_permission ORs in
+-- is_platform_admin() for every code, so this needs no company_memberships
+-- plumbing to exercise the arithmetic.
+insert into public.organizations (id, name) values
+  ('99999999-0000-0000-0000-000000000010', 'Reconcile Test Org');
+insert into public.companies (id, organization_id, name) values
+  ('99999999-0000-0000-0000-000000000011', '99999999-0000-0000-0000-000000000010', 'Reconcile Test Station');
+insert into public.prizes (id, organization_id, company_id, name) values
+  ('99999999-0000-0000-0000-000000000012', '99999999-0000-0000-0000-000000000010',
+   '99999999-0000-0000-0000-000000000011', 'Reconcile Test Prize');
+
+-- INITIAL_ENTRY(10) to available, then RESERVATION(3) available -> reserved.
+-- The true figures are available = 10 - 3 = 7, reserved = 0 + 3 = 3.
+insert into public.inventory_movements
+  (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket)
+values
+  ('99999999-0000-0000-0000-000000000010', '99999999-0000-0000-0000-000000000011',
+   '99999999-0000-0000-0000-000000000012', 'INITIAL_ENTRY', 10, null, 'available'),
+  ('99999999-0000-0000-0000-000000000010', '99999999-0000-0000-0000-000000000011',
+   '99999999-0000-0000-0000-000000000012', 'RESERVATION', 3, 'available', 'reserved');
+
+-- available booked correctly (7); reserved deliberately booked wrong (5, not 3).
+insert into public.inventory_balances
+  (company_id, prize_id, organization_id, available, reserved)
+values
+  ('99999999-0000-0000-0000-000000000011', '99999999-0000-0000-0000-000000000012',
+   '99999999-0000-0000-0000-000000000010', 7, 5);
+
+insert into auth.users (id, email) values
+  ('99999999-0000-0000-0000-000000000013', 'reconcile-probe@example.test');
+insert into public.platform_admins (user_id) values
+  ('99999999-0000-0000-0000-000000000013');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "99999999-0000-0000-0000-000000000013", "role": "authenticated"}';
+
+create temporary table reconcile_probe as
+select * from public.reconcile_inventory('99999999-0000-0000-0000-000000000011');
+
+reset role;
+
+-- Exactly the one deliberately wrong bucket, with both figures: a function
+-- that silently returned nothing every time would pass a test that never
+-- forced a real divergence, so this scenario is built to always disagree
+-- somewhere. A dropped term in the recomputation (say, the from_bucket
+-- subtraction) would make `available` diverge too, turning this into two
+-- rows instead of one — the count assertion catches that as surely as the
+-- value assertions catch a wrong sum.
+select is(
+  (select count(*)::int from reconcile_probe),
+  1,
+  'reconcile_inventory surfaces exactly the one deliberately wrong bucket'
+);
+select is(
+  (select bucket from reconcile_probe),
+  'reserved',
+  'the divergence is reported on the reserved bucket'
+);
+select is(
+  (select stored from reconcile_probe),
+  5,
+  'the stored figure is the deliberately wrong booked value'
+);
+select is(
+  (select computed from reconcile_probe),
+  3,
+  'the computed figure is the true sum from the ledger (0 + 3 from the reservation, none of it withdrawn)'
 );
 
 select * from finish();
