@@ -1,5 +1,38 @@
 -- supabase/migrations/0031_members.sql
 
+-- Task-3 review (Important 5): this normalisation is needed in two places — the
+-- generated columns below, and 0033_member_dedup.sql's cross-boundary search,
+-- which must collapse a caller's raw input to exactly the same value the columns
+-- below would, or deduplication silently stops working. Defined once, here, as
+-- IMMUTABLE (the only volatility a generated column expression is allowed to
+-- call), so both places call the same code instead of two hand-copies that can
+-- drift apart the moment one side is edited and the other is not.
+create or replace function public.normalize_phone(p_phone text)
+returns text
+language sql
+immutable
+as $$
+  select nullif(regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g'), '');
+$$;
+
+create or replace function public.normalize_email(p_email text)
+returns text
+language sql
+immutable
+as $$
+  select nullif(lower(trim(coalesce(p_email, ''))), '');
+$$;
+
+comment on function public.normalize_phone(text) is
+  'Digits only, or null if none. Shared by members.phone_normalized (generated) and find_member_by_identifier (0033) so the two can never disagree.';
+comment on function public.normalize_email(text) is
+  'Trimmed and lower-cased, or null if blank. Shared by members.email_normalized (generated) and find_member_by_identifier (0033) so the two can never disagree.';
+
+revoke execute on function public.normalize_phone(text) from public;
+revoke execute on function public.normalize_email(text) from public;
+grant execute on function public.normalize_phone(text) to authenticated;
+grant execute on function public.normalize_email(text) to authenticated;
+
 -- The audience. Organization-scoped: the same person entering a promotion at two of
 -- the group's Stations is one row, deduplicated once. Which Stations may see them is
 -- member_company_links' business, not this table's.
@@ -10,12 +43,15 @@ create table public.members (
   full_name           text,
   phone               text,
   email               text,
-  -- Generated, never hand-maintained. A normalisation applied by whoever remembers
-  -- is a normalisation that drifts, and these columns ARE identity — if two
-  -- spellings of one number normalise differently, deduplication silently stops
-  -- working and the duplicates look legitimate.
-  phone_normalized    text generated always as (nullif(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), '')) stored,
-  email_normalized    text generated always as (nullif(lower(trim(coalesce(email, ''))), '')) stored,
+  -- Generated, never hand-maintained, and delegated to public.normalize_phone /
+  -- public.normalize_email (above) rather than repeating their expressions here.
+  -- A normalisation applied by whoever remembers is a normalisation that drifts,
+  -- and these columns ARE identity — if two spellings of one number normalise
+  -- differently, deduplication silently stops working and the duplicates look
+  -- legitimate. 0033_member_dedup.sql calls the same two functions for exactly
+  -- this reason.
+  phone_normalized    text generated always as (public.normalize_phone(phone)) stored,
+  email_normalized    text generated always as (public.normalize_email(email)) stored,
 
   -- The raw CPF is hashed in Node before it ever reaches here, the same way Block 1b
   -- handles an invitation token: an argument passed to an RPC lands in query logs and
