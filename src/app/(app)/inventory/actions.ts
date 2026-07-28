@@ -44,6 +44,13 @@ export async function createCategoryAction(
 
   if (!companyId) return { status: 'error', message: 'Choose a Station first.' };
   if (!name) return { status: 'error', message: 'Name the category.' };
+  // create_prize_category stores this as unbounded `text`, same as
+  // prizes.name — bounded here to the same 120 characters prizeFormSchema
+  // gives prizes.name, so a caller bypassing the form (which already carries
+  // maxLength={120}) cannot store an arbitrarily long category name.
+  if (name.length > 120) {
+    return { status: 'error', message: 'Keep the category name to 120 characters or fewer.' };
+  }
 
   const token = await requireAccessToken();
 
