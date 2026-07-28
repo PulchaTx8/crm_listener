@@ -182,17 +182,17 @@ export async function memberReachable(
 // ---------------------------------------------------------------------------
 // create_member / update_member — named arguments only, never positional.
 //
-// Both RPCs (0034_member_rpcs.sql) take eight consecutive `text` parameters.
-// Supabase's JS client already forces every .rpc() call through an object
-// keyed by parameter name rather than a positional array, so the shift-by-one
-// hazard the migration's own comment warns about ("a single omitted
-// positional argument shifts every later value one column left with no type
-// error possible") cannot occur through this client the way it could through
-// a raw positional `select create_member($1, $2, ...)`. The object literals
-// below keep that guarantee visible rather than incidental: every field is
-// spelled out by its `p_` name, in the RPC's own declared names, not
-// assembled from an array or spread from a tuple that could silently drop or
-// reorder one.
+// Both RPCs (0034_member_rpcs.sql) take eight consecutive `text` parameters
+// — this task's own analysis, not a warning 0034 states itself: a single
+// omitted positional argument would shift every later value one column left
+// with no type error possible. Supabase's JS client already forces every
+// .rpc() call through an object keyed by parameter name rather than a
+// positional array, so that shift-by-one hazard cannot occur through this
+// client the way it could through a raw positional
+// `select create_member($1, $2, ...)`. The object literals below keep that
+// guarantee visible rather than incidental: every field is spelled out by
+// its `p_` name, in the RPC's own declared names, not assembled from an
+// array or spread from a tuple that could silently drop or reorder one.
 // ---------------------------------------------------------------------------
 
 export async function createMember(input: CreateMemberInput, accessToken: string): Promise<string> {
@@ -342,9 +342,10 @@ export async function anonymizeMember(
  *   unique_violation and rewrite it to name the field categories that could
  *   have collided (phone, e-mail, CPF or passport) — deliberately not which
  *   one, the owner's ruling against per-identifier resolution (0033's own
- *   comment: telling a caller which field collided was "considered and
- *   rejected"). link_member_to_company's own message is precise, because it
- *   has only one possible cause: this exact pair is already linked.
+ *   comment: resolving per-identifier "was deliberately rejected, because it
+ *   would ripple into Tasks 6 and 9"). link_member_to_company's own message
+ *   is precise, because it has only one possible cause: this exact pair is
+ *   already linked.
  * - `P0002` is every "not found" raise across 0033/0034 — a stale
  *   Station/member/block id, or a listener already archived or anonymised.
  *   Not a permission refusal: the row is simply gone, and telling someone

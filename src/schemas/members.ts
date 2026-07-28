@@ -119,13 +119,14 @@ const addressFields = {
 
 // Shared by createMemberSchema and updateMemberSchema: every field
 // create_member and update_member (0034_member_rpcs.sql) both accept, in the
-// shape each RPC actually declares — see 0034's own comment, "eight
-// consecutive text parameters... a single omitted positional argument
-// shifts every later value one column left with no type error possible."
-// This schema is what keeps the field-to-name mapping honest on the way in:
-// every value below is read by its property name, never by position, and
-// services/members.ts carries the same rule forward into the two RPC calls
-// themselves (named arguments only, never positional).
+// shape each RPC actually declares. Both RPCs take eight consecutive `text`
+// parameters — this task's own analysis, not a warning 0034 states itself:
+// a single omitted positional argument would shift every later value one
+// column left with no type error possible. This schema is what keeps the
+// field-to-name mapping honest on the way in: every value below is read by
+// its property name, never by position, and services/members.ts carries the
+// same rule forward into the two RPC calls themselves (named arguments
+// only, never positional).
 const memberIdentityFields = {
   fullName: z.string().trim().min(1, 'Name the listener.').max(200),
   phone,

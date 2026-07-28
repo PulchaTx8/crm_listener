@@ -6,9 +6,22 @@ describe('CPF hashing', () => {
   // index only catches a repeat CPF if two spellings of the same number hash
   // identically. If they did not, the same person could register twice under
   // two different punctuation styles and the partial unique index would
-  // never see the collision.
-  it('hashes the same CPF written with punctuation and written bare to the same value', () => {
-    expect(hashCpf('123.456.789-09')).toBe(hashCpf('12345678909'));
+  // never see the collision. Covers more than the two formats the brief
+  // named (dotted-and-dashed, bare) because the property has to hold against
+  // whatever a real operator types, not only the two canonical shapes — and
+  // it has to agree with find_member_by_identifier's own SQL-side
+  // normalisation (normalize_phone/normalize_email's sibling reasoning,
+  // 0031), where the two disagreeing is the silent-dedup-death mode this
+  // block has already named twice (0031's own comment on hand-copied
+  // normalisation, and 0033's extraction of normalize_phone/normalize_email
+  // for exactly this reason).
+  it.each([
+    ['12345678909', 'bare digits'],
+    ['123.456.789-09', 'dotted and dashed'],
+    ['123 456 789 09', 'space separated'],
+    ['123 456.789-09', 'mixed spaces and punctuation'],
+  ])('hashes %s (%s) the same as the canonical bare-digit form', (written) => {
+    expect(hashCpf(written)).toBe(hashCpf('12345678909'));
   });
 
   it('hashes a different CPF to a different value', () => {
