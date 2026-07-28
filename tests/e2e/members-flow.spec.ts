@@ -470,22 +470,32 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   expect(elsewhereText).not.toMatch(UUID_PATTERN);
   expect(elsewhereText).not.toContain(stationAName);
   expect(elsewhereText).not.toContain(stationBName);
+  // "Who" — a name — is exactly what 0033 says must never leak. Checked
+  // BEFORE the digit catch-all below, not after: listenerName ends in the
+  // same `${stamp}` run that dominates the two stationName checks above, and
+  // listenerPhone is entirely digits, so both are equally dominated by
+  // `/[0-9]/` — neither is "independent, non-overlapping" coverage (an
+  // earlier version of both this comment and the task report claimed
+  // otherwise; Task 10 re-review). Ordering these two ahead of the digit
+  // check has no effect on what this test can catch, only on which
+  // assertion reports first: a real name/phone leak now fails here, with a
+  // message that names the defect ("the listener's name leaked into the
+  // elsewhere panel"), instead of failing one line down with a message that
+  // only names the symptom ("a digit appeared").
+  expect(elsewhereText).not.toContain(listenerName);
+  expect(elsewhereText).not.toContain(listenerPhone);
   // No digit at all: the panel's copy is static prose with no dynamic value
   // in it today, so a stray digit of any kind — a count, a fragment of an
   // id, a fragment of the very phone number delegate B just typed — is
-  // exactly the class of regression this line exists to catch. NOTE (Task 10
-  // review, Important 1): the two stationName checks above are currently
-  // DOMINATED by this one, since both names end in `${stamp}` — they cannot
-  // fail without this line failing first. They stay for documentation of
-  // intent (and would matter if the fixture's naming ever changed), but this
-  // line, not those two, is what actually guards a Station-name leak today.
+  // exactly the class of regression this line exists to catch. Both
+  // stationName checks above AND both listenerName/listenerPhone checks
+  // above are currently dominated by this one, since every one of those four
+  // values ends in or consists of `${stamp}` — none of the five checks in
+  // this block are independent of this line today. They stay for
+  // documentation of intent, and for the ordering benefit noted above, but
+  // this line is what actually guards against an undominated leak (e.g. a
+  // Station name that happened not to embed a digit).
   expect(elsewhereText).not.toMatch(/[0-9]/);
-  // "Who" — a name — is exactly what 0033 says must never leak, and a name
-  // is neither a UUID, a Station name, nor (in general) a digit. Named
-  // explicitly rather than left to ride on the digit rule above, which would
-  // only catch listenerName by the accident of it ending in `${stamp}`.
-  expect(elsewhereText).not.toContain(listenerName);
-  expect(elsewhereText).not.toContain(listenerPhone);
 
   // innerText() cannot see an id sitting in an attribute — href, title,
   // data-*, aria-label — only in rendered text. The single most likely real
