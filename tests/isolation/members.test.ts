@@ -22,9 +22,11 @@ afterAll(cleanupUsers);
 // own header comment states the same thing for Block 2, and Block 1c shipped
 // two defects that thirteen reviews missed because every scenario had the
 // owner driving and the owner's bypass hid the delegate's failure. Every case
-// below is driven by a non-owner delegate, except the two gap cases that name
-// the owner/platform-admin bypass itself as the thing under test — there, the
-// owner or platform admin is deliberately the subject, not a substitute actor.
+// below is driven by a non-owner delegate, except gap 2, which names the
+// platform-admin bypass itself as the thing under test — there, the platform
+// admin is deliberately the subject, not a substitute actor. Every other use
+// of the owner client elsewhere in this file is incidental fixture setup
+// (registering or linking a Member), never the operation an assertion names.
 describe('members', () => {
   // ---------------------------------------------------------------------
   // Cases 1-3: find_member_by_identifier (0033) — the one place this block
@@ -130,6 +132,16 @@ describe('members', () => {
       const memberId = await createMemberAs(customer, stationB, { fullName: `Hidden Probe ${label}` });
 
       const client = await signInAs(delegate.email, delegate.password);
+
+      // Verifies the precondition the whole case rests on, the same way
+      // inventory.test.ts's own scope test does before its denial
+      // (inventory.test.ts:357-358): without this, a membership that
+      // stopped producing active access would silently revert this case to
+      // passing at the access gate instead of the permission-resolution
+      // layer it names, and nothing here would notice.
+      const { data: reachesB } = await client.rpc('has_company_access', { p_company_id: stationB });
+      expect(reachesB).toBe(true);
+
       const { data, error } = await client.from('members').select('id').eq('id', memberId);
       expect(error).toBeNull();
       expect(data).toEqual([]);
@@ -421,17 +433,37 @@ describe('members', () => {
 
       // Distinctive values, unique to this run and appearing nowhere else in
       // the database — Date.now() plus the label already makes every
-      // fixture in this suite unique.
+      // fixture in this suite unique. distinctiveCpf itself is deliberately
+      // NOT one of the needles below: the raw CPF never reaches any RPC
+      // argument (services/members.ts hashes it in Node, and this case
+      // calls hashCpf/cpfLastDigits directly, the same way), so a search
+      // for it in audit_logs could never fail regardless of what the code
+      // does — cpfHash, below, is the falsifiable stand-in. No padStart:
+      // Date.now() is already thirteen digits as of any date this project
+      // runs on, so slice(-11) already returns exactly eleven.
       const distinctiveName = `Zzq Probe ${label}`;
       const distinctivePhone = `55119${Date.now()}`;
       const distinctiveEmail = `zzq-${label}@example.test`;
-      const distinctiveCpf = String(Date.now()).slice(-11).padStart(11, '7');
+      const distinctiveCpf = String(Date.now()).slice(-11);
       const cpfHash = hashCpf(distinctiveCpf);
       const cpfLast3 = cpfLastDigits(distinctiveCpf);
       const distinctiveOrigin = `consent captured by Zzq at the front desk, ${label}`;
       const distinctiveNoteBody = `Note about ${distinctiveName}, phone ${distinctivePhone}`;
       const distinctiveBlockReason = `Blocked: ${distinctiveName} used e-mail ${distinctiveEmail}`;
       const distinctiveLiftReason = `Unblocked after ${distinctiveName} called and apologised`;
+      // The four categories anonymize_member also scrubs (0034:734-741)
+      // beyond name/phone/e-mail/CPF: the address block, the passport, the
+      // birth date and the discovery source. Seeded here so a leak of any
+      // of them would be visible to the search below — with only the four
+      // fields already covered, all four were null in this fixture and a
+      // jsonb_build_object leaking one would have been invisible.
+      const distinctivePassport = `ZZQ${String(Date.now()).slice(-8)}`;
+      const distinctiveAddressLine = `Rua Zzq Probe ${label}`;
+      const distinctivePostalCode = `Z9${String(Date.now()).slice(-6)}`;
+      const distinctiveBirthDate = new Date(Date.now() - 40 * 365 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const distinctiveDiscoverySource = `Heard about it on Radio Zzq, ${label}`;
 
       // 1. create_member
       const created = await client.rpc('create_member', {
@@ -441,6 +473,11 @@ describe('members', () => {
         p_email: distinctiveEmail,
         p_cpf_hash: cpfHash,
         p_cpf_last_digits: cpfLast3,
+        p_passport: distinctivePassport,
+        p_birth_date: distinctiveBirthDate,
+        p_address_line: distinctiveAddressLine,
+        p_postal_code: distinctivePostalCode,
+        p_discovery_source: distinctiveDiscoverySource,
       });
       expect(created.error).toBeNull();
       const memberId = created.data as string;
@@ -453,6 +490,11 @@ describe('members', () => {
         p_email: distinctiveEmail,
         p_cpf_hash: cpfHash,
         p_cpf_last_digits: cpfLast3,
+        p_passport: distinctivePassport,
+        p_birth_date: distinctiveBirthDate,
+        p_address_line: distinctiveAddressLine,
+        p_postal_code: distinctivePostalCode,
+        p_discovery_source: distinctiveDiscoverySource,
       });
       expect(updated.error).toBeNull();
 
@@ -524,7 +566,13 @@ describe('members', () => {
       // refuse outright on an already-anonymised Member (guard added during
       // Task 4's review) — proved directly here, and isolated to
       // anonymized_at specifically by the ordering above (deleted_at is
-      // still null at this point).
+      // still null at this point). Each of these three functions raises
+      // P0002 from two different guards — this one and "not linked to that
+      // Station" (0034:437/441, 509/513, 580/590) — so the message is
+      // pinned alongside the code: the delegate above IS linked to
+      // customer.companyId, so the not-linked guard cannot be what fires
+      // here, but the code alone would not distinguish the two if that ever
+      // changed.
       const consentAfter = await client.rpc('record_member_consent', {
         p_member_id: memberId,
         p_company_id: customer.companyId,
@@ -533,6 +581,7 @@ describe('members', () => {
       });
       expect(consentAfter.error).not.toBeNull();
       expect(consentAfter.error!.code).toBe('P0002');
+      expect(consentAfter.error!.message).toContain('has been anonymised');
 
       const noteAfter = await client.rpc('add_member_note', {
         p_member_id: memberId,
@@ -541,6 +590,7 @@ describe('members', () => {
       });
       expect(noteAfter.error).not.toBeNull();
       expect(noteAfter.error!.code).toBe('P0002');
+      expect(noteAfter.error!.message).toContain('has been anonymised');
 
       const blockAfter = await client.rpc('block_member', {
         p_member_id: memberId,
@@ -550,6 +600,7 @@ describe('members', () => {
       });
       expect(blockAfter.error).not.toBeNull();
       expect(blockAfter.error!.code).toBe('P0002');
+      expect(blockAfter.error!.message).toContain('has been anonymised');
 
       // 9. archive_member — last, so every one of the nine write RPCs has
       // now run against this Member exactly once, and the audit search
@@ -593,8 +644,10 @@ describe('members', () => {
       // one per write RPC exercised above — proves the insert happened for
       // every one of them, not just the five with direct probe evidence
       // before this task. Scoped via detail->>member_id rather than
-      // target_id: target_id is the note/consent/block's OWN id for three
-      // of the nine rows, not the Member's.
+      // target_id: target_id is the note/consent/block/lift's OWN id for
+      // four of the nine rows (record_member_consent, add_member_note,
+      // block_member, lift_member_block — 0034:467, 532, 616, 678), not the
+      // Member's.
       const { data: memberRows, error: memberRowsError } = await admin
         .from('audit_logs')
         .select('action, detail')
@@ -602,17 +655,26 @@ describe('members', () => {
         .eq('detail->>member_id', memberId);
       expect(memberRowsError).toBeNull();
       expect(memberRows).toHaveLength(9);
+      // gap 3's own second half: nine ROWS is not the same claim as nine
+      // DISTINCT RPCs — a compensating double-insert (two create_member
+      // rows, zero update_member rows) would still satisfy the count above.
+      // Asserting nine distinct `action` values is what actually pins "one
+      // row per write RPC", not merely "nine rows total".
+      expect(new Set((memberRows ?? []).map((r) => r.action)).size).toBe(9);
 
       // Rule 1's headline, and case 8's own reason to exist: every one of
       // those nine rows' detail, searched for each distinctive value.
       // Scoped to the whole Organization (not just the nine rows above) so
       // this also catches a value written under the wrong member_id by
-      // mistake. The first four are the brief's own named values (name,
-      // phone, e-mail, CPF); the rest extend the same check to the free
-      // text 0034's own comment says must never reach detail either (a
-      // note's body, a block's reason, a lift's reason, a consent's
-      // origin) and to the CPF's hash, which is exactly as identifying as
-      // the raw number once paired with member_id.
+      // mistake. The brief's own named values are name, phone, e-mail and
+      // CPF — represented here by cpfHash, since the raw CPF (distinctiveCpf)
+      // never reaches an RPC argument and so could never appear regardless
+      // of what the code does. The rest extend the same check to every
+      // other identifying value create_member/update_member accept and
+      // anonymize_member scrubs (0034:734-741): the free text 0034's own
+      // comment says must never reach detail (a note's body, a block's
+      // reason, a lift's reason, a consent's origin), the address block, the
+      // passport, the birth date and the discovery source.
       const { data: orgRows, error: orgRowsError } = await admin
         .from('audit_logs')
         .select('detail')
@@ -623,12 +685,16 @@ describe('members', () => {
         distinctiveName,
         distinctivePhone,
         distinctiveEmail,
-        distinctiveCpf,
         cpfHash,
         distinctiveOrigin,
         distinctiveNoteBody,
         distinctiveBlockReason,
         distinctiveLiftReason,
+        distinctivePassport,
+        distinctiveAddressLine,
+        distinctivePostalCode,
+        distinctiveBirthDate,
+        distinctiveDiscoverySource,
       ];
       for (const needle of needles) {
         expect(haystack).not.toContain(needle);
