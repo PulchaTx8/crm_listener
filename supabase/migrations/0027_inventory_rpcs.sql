@@ -35,9 +35,18 @@ begin
   -- The prize must be live and belong to this Station. The composite foreign key
   -- proves the Station; it cannot see deleted_at, because it references a
   -- non-partial constraint — a foreign key cannot reference a partial index.
+  -- FOR SHARE holds this row against archive_prize's FOR UPDATE on the same
+  -- prize. archive_prize's own guard reads inventory_balances, which does not
+  -- exist yet for a prize's first-ever movement — locking a row that is not
+  -- there locks nothing — so without a lock on the prize itself, a movement
+  -- could read the prize as live here, archive_prize could see zero stock and
+  -- archive it, and this call could still go on to write stock onto a prize
+  -- that is now archived. This lock, plus archive_prize's, closes that
+  -- regardless of whether a balance row exists.
   select organization_id into v_org
   from public.prizes
-  where id = p_prize_id and company_id = p_company_id and deleted_at is null;
+  where id = p_prize_id and company_id = p_company_id and deleted_at is null
+    for share;
 
   if not found then
     raise exception 'prize not found in this station: %', p_prize_id using errcode = 'P0002';
@@ -85,6 +94,13 @@ begin
     execute format('select %I from public.inventory_balances where company_id = $1 and prize_id = $2', p_from)
       into v_current using p_company_id, p_prize_id;
 
+    -- The bootstrap insert above guarantees the row exists, so this is never
+    -- actually NULL today — but that guarantee is implicit, and NULL < integer
+    -- is NULL, not true, which would let the sufficiency check below fall
+    -- through silently and the subsequent UPDATE touch zero rows: a movement
+    -- recorded in the ledger that never reached the projection.
+    v_current := coalesce(v_current, 0);
+
     if v_current < p_quantity then
       raise exception 'only % unit(s) are in %, and % were requested', v_current, p_from, p_quantity
         using errcode = '23514';
@@ -116,10 +132,16 @@ $$;
 
 revoke execute on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text) from public;
 
+comment on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text) is
+  'Private ledger mechanics shared by every movement RPC: locks the balance row, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement with the balance untouched), moves the buckets, and writes the audit row. SECURITY INVOKER, EXECUTE granted to nobody — only reachable from inside a SECURITY DEFINER body, where it runs with that body''s privileges. Idempotency keys are scoped to the Station (company_id), not to a prize: a client that reuses a key such as "retry-1" across two different prizes in the same Station will silently get the first prize''s movement back on the second call. Takes FOR SHARE on the prize row; archive_prize takes FOR UPDATE on that same row before it counts physical stock — this is what stops a movement and an archival interleaving into stranded stock when the prize has no balance row yet.';
+
 -- ---------------------------------------------------------------------------
--- Movement RPCs. Each resolves the Organization from the Company it was given
--- (never a caller-supplied Organization id), checks its own permission with
--- has_permission, then delegates every mechanic to apply_inventory_movement.
+-- Movement RPCs. Each confirms the Company exists (never trusting a
+-- caller-supplied Organization id), checks its own permission with
+-- has_permission, then delegates every mechanic to apply_inventory_movement —
+-- which is what actually resolves the Organization, from the prize, which is
+-- the stricter proof. See apply_inventory_movement's comment for how an
+-- idempotency_key is scoped (to the Station, not to a prize).
 -- ---------------------------------------------------------------------------
 
 -- Restricted to the three entry kinds; DRAW, DELIVERY and the rest move through
@@ -142,11 +164,12 @@ set search_path = pg_catalog, public
 as $$
 declare
   v_actor uuid := auth.uid();
-  v_org   uuid;
 begin
-  select organization_id into v_org
-  from public.companies
-  where id = p_company_id and deleted_at is null;
+  -- Existence only: apply_inventory_movement re-resolves the Organization from
+  -- the prize itself, which also proves the prize belongs to THIS Station —
+  -- the stricter fact. Resolving it again here would just be a second, weaker
+  -- copy of that same proof.
+  perform 1 from public.companies where id = p_company_id and deleted_at is null;
 
   if not found then
     raise exception 'station not found: %', p_company_id using errcode = 'P0002';
@@ -168,6 +191,9 @@ begin
 end;
 $$;
 
+comment on function public.record_stock_entry(uuid, uuid, public.inventory_movement_type, integer, text, text) is
+  'Adds available stock. Gated on inventory.entry. Restricted to INITIAL_ENTRY, PURCHASE_ENTRY and MANUAL_ENTRY — any other type is refused with 22023. The only one of the five movement RPCs with an optional note.';
+
 create or replace function public.record_stock_exit(
   p_company_id      uuid,
   p_prize_id        uuid,
@@ -182,12 +208,11 @@ set search_path = pg_catalog, public
 as $$
 declare
   v_actor uuid := auth.uid();
-  v_org   uuid;
   v_note  text := nullif(trim(coalesce(p_note, '')), '');
 begin
-  select organization_id into v_org
-  from public.companies
-  where id = p_company_id and deleted_at is null;
+  -- Existence only — see record_stock_entry's comment for why apply_inventory_movement's
+  -- own resolution from the prize is the fact that matters.
+  perform 1 from public.companies where id = p_company_id and deleted_at is null;
 
   if not found then
     raise exception 'station not found: %', p_company_id using errcode = 'P0002';
@@ -207,6 +232,9 @@ begin
   );
 end;
 $$;
+
+comment on function public.record_stock_exit(uuid, uuid, integer, text, text) is
+  'Removes available stock (MANUAL_EXIT). Gated on inventory.exit. Note is mandatory.';
 
 -- The one with real logic. It takes the counted figure, not a delta — someone
 -- reconciling with a shelf counts what is there, and making them compute a
@@ -317,6 +345,9 @@ begin
 end;
 $$;
 
+comment on function public.adjust_stock(uuid, uuid, integer, text, text) is
+  'Reconciles available stock to a physical count. Gated on inventory.adjust. Takes the counted figure, not a delta: it reads current available under the balance row''s lock and derives ADJUSTMENT_POSITIVE or ADJUSTMENT_NEGATIVE of the difference. A NULL return is a well-defined success meaning the count matched and nothing was recorded — every failure path raises, so NULL never means an error. Because a zero-delta count records nothing, its idempotency_key is never persisted, so that one call is not a guaranteed replay: if the balance changes between an original zero-delta call and a retry with the same key, the retry recomputes against the new figure instead of reproducing the original (non-)result. Accepted as an open item — quantity > 0 makes a zero-quantity ledger row unrepresentable, the window is narrow, and the operator''s mandatory note keeps the outcome auditable either way. A genuine non-zero replay IS handled correctly: see the idempotency check immediately after the balance lock above.';
+
 create or replace function public.reserve_stock(
   p_company_id      uuid,
   p_prize_id        uuid,
@@ -331,12 +362,11 @@ set search_path = pg_catalog, public
 as $$
 declare
   v_actor uuid := auth.uid();
-  v_org   uuid;
   v_note  text := nullif(trim(coalesce(p_note, '')), '');
 begin
-  select organization_id into v_org
-  from public.companies
-  where id = p_company_id and deleted_at is null;
+  -- Existence only — see record_stock_entry's comment for why apply_inventory_movement's
+  -- own resolution from the prize is the fact that matters.
+  perform 1 from public.companies where id = p_company_id and deleted_at is null;
 
   if not found then
     raise exception 'station not found: %', p_company_id using errcode = 'P0002';
@@ -357,6 +387,9 @@ begin
 end;
 $$;
 
+comment on function public.reserve_stock(uuid, uuid, integer, text, text) is
+  'Moves available stock into reserved (RESERVATION). Gated on inventory.reserve. Note is mandatory.';
+
 create or replace function public.release_reservation(
   p_company_id      uuid,
   p_prize_id        uuid,
@@ -371,12 +404,11 @@ set search_path = pg_catalog, public
 as $$
 declare
   v_actor uuid := auth.uid();
-  v_org   uuid;
   v_note  text := nullif(trim(coalesce(p_note, '')), '');
 begin
-  select organization_id into v_org
-  from public.companies
-  where id = p_company_id and deleted_at is null;
+  -- Existence only — see record_stock_entry's comment for why apply_inventory_movement's
+  -- own resolution from the prize is the fact that matters.
+  perform 1 from public.companies where id = p_company_id and deleted_at is null;
 
   if not found then
     raise exception 'station not found: %', p_company_id using errcode = 'P0002';
@@ -396,6 +428,9 @@ begin
   );
 end;
 $$;
+
+comment on function public.release_reservation(uuid, uuid, integer, text, text) is
+  'Moves reserved stock back to available (RESERVATION_RELEASE). Gated on inventory.reserve — the same code reserve_stock uses. Note is mandatory.';
 
 -- ---------------------------------------------------------------------------
 -- Catalogue RPCs. Gated on inventory.catalogue. create_prize_category and
@@ -438,9 +473,15 @@ begin
     raise exception 'category name is required' using errcode = '22023';
   end if;
 
-  insert into public.prize_categories (organization_id, company_id, name)
-  values (v_org, p_company_id, v_name)
-  returning id into v_id;
+  begin
+    insert into public.prize_categories (organization_id, company_id, name)
+    values (v_org, p_company_id, v_name)
+    returning id into v_id;
+  exception
+    when unique_violation then
+      raise exception 'a category named "%" already exists in this station', v_name
+        using errcode = '23505';
+  end;
 
   insert into public.audit_logs
     (actor_id, action, target_table, target_id, organization_id, company_id, detail)
@@ -451,6 +492,9 @@ begin
   return v_id;
 end;
 $$;
+
+comment on function public.create_prize_category(uuid, text) is
+  'Registers a category. Gated on inventory.catalogue. Category names are unique per Station while live; a duplicate is refused with 23505 and the name in the message, not a bare constraint-name error.';
 
 create or replace function public.create_prize(
   p_company_id             uuid,
@@ -466,10 +510,12 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_actor uuid := auth.uid();
-  v_org   uuid;
-  v_name  text := nullif(trim(p_name), '');
-  v_id    uuid;
+  v_actor         uuid := auth.uid();
+  v_org           uuid;
+  v_name          text := nullif(trim(p_name), '');
+  v_internal_code text := nullif(trim(coalesce(p_internal_code, '')), '');
+  v_description   text := nullif(trim(coalesce(p_description, '')), '');
+  v_id            uuid;
 begin
   select organization_id into v_org
   from public.companies
@@ -498,13 +544,19 @@ begin
     raise exception 'category not found in this station: %', p_category_id using errcode = 'P0002';
   end if;
 
-  insert into public.prizes
-    (organization_id, company_id, category_id, name, internal_code, description,
-     allows_return_to_stock, created_by)
-  values
-    (v_org, p_company_id, p_category_id, v_name, nullif(trim(coalesce(p_internal_code, '')), ''),
-     nullif(trim(coalesce(p_description, '')), ''), coalesce(p_allows_return_to_stock, true), v_actor)
-  returning id into v_id;
+  begin
+    insert into public.prizes
+      (organization_id, company_id, category_id, name, internal_code, description,
+       allows_return_to_stock, created_by)
+    values
+      (v_org, p_company_id, p_category_id, v_name, v_internal_code,
+       v_description, coalesce(p_allows_return_to_stock, true), v_actor)
+    returning id into v_id;
+  exception
+    when unique_violation then
+      raise exception 'a prize with internal code "%" already exists in this station', v_internal_code
+        using errcode = '23505';
+  end;
 
   insert into public.audit_logs
     (actor_id, action, target_table, target_id, organization_id, company_id, detail)
@@ -515,6 +567,9 @@ begin
   return v_id;
 end;
 $$;
+
+comment on function public.create_prize(uuid, text, uuid, text, text, boolean) is
+  'Registers a prize with zero stock — quantity lives only in inventory_balances, written by the movement RPCs. Gated on inventory.catalogue. A category_id must belong to the same Station (prize_categories carries no composite foreign key to companies). internal_code is optional but unique per Station while live; a duplicate is refused with 23505 and the code in the message, not a bare constraint-name error.';
 
 create or replace function public.update_prize(
   p_prize_id               uuid,
@@ -530,11 +585,13 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_actor   uuid := auth.uid();
-  v_org     uuid;
-  v_company uuid;
-  v_name    text := nullif(trim(p_name), '');
-  v_before  jsonb;
+  v_actor         uuid := auth.uid();
+  v_org           uuid;
+  v_company       uuid;
+  v_name          text := nullif(trim(p_name), '');
+  v_internal_code text := nullif(trim(coalesce(p_internal_code, '')), '');
+  v_description   text := nullif(trim(coalesce(p_description, '')), '');
+  v_before        jsonb;
 begin
   -- The Company — and so the permission to check — comes from the prize
   -- itself, never from a parameter the caller could point anywhere.
@@ -568,14 +625,20 @@ begin
     into v_before
   from public.prizes where id = p_prize_id;
 
-  update public.prizes
-     set name                   = v_name,
-         category_id            = p_category_id,
-         internal_code          = nullif(trim(coalesce(p_internal_code, '')), ''),
-         description            = nullif(trim(coalesce(p_description, '')), ''),
-         allows_return_to_stock = coalesce(p_allows_return_to_stock, true),
-         updated_at             = now()
-   where id = p_prize_id;
+  begin
+    update public.prizes
+       set name                   = v_name,
+           category_id            = p_category_id,
+           internal_code          = v_internal_code,
+           description            = v_description,
+           allows_return_to_stock = coalesce(p_allows_return_to_stock, true),
+           updated_at             = now()
+     where id = p_prize_id;
+  exception
+    when unique_violation then
+      raise exception 'a prize with internal code "%" already exists in this station', v_internal_code
+        using errcode = '23505';
+  end;
 
   insert into public.audit_logs
     (actor_id, action, target_table, target_id, organization_id, company_id, detail)
@@ -585,11 +648,14 @@ begin
        'before', v_before,
        'after', jsonb_build_object(
          'name', v_name, 'category_id', p_category_id,
-         'internal_code', nullif(trim(coalesce(p_internal_code, '')), ''),
-         'description', nullif(trim(coalesce(p_description, '')), ''),
+         'internal_code', v_internal_code,
+         'description', v_description,
          'allows_return_to_stock', coalesce(p_allows_return_to_stock, true))));
 end;
 $$;
+
+comment on function public.update_prize(uuid, text, uuid, text, text, boolean) is
+  'Replaces a prize''s catalogue fields wholesale (same convention as update_role in 0017): every field is set on every call, not merged with what was there. The Organization and Company are resolved from the prize row, never from a parameter, so a caller cannot redirect the permission check to a Station they do not hold inventory.catalogue in. Gated on inventory.catalogue. A duplicate internal_code is refused with 23505 and the code in the message.';
 
 create or replace function public.archive_prize(p_prize_id uuid)
 returns void
@@ -603,9 +669,20 @@ declare
   v_company  uuid;
   v_physical integer;
 begin
+  -- FOR UPDATE on the prize itself, not the balance: a prize that has never
+  -- moved has no balance row, and locking a row that does not exist locks
+  -- nothing. apply_inventory_movement takes FOR SHARE on this same prize row
+  -- before it ever touches the balance, so the two block on each other
+  -- whether or not a balance row exists: a concurrent movement either
+  -- committed before this lock was granted (in which case the count below
+  -- already includes it) or blocks here until this transaction ends (in which
+  -- case it will re-read deleted_at afterward and find the prize archived).
+  -- Either way, no movement can land after this transaction commits without
+  -- first re-proving the prize is still live.
   select organization_id, company_id into v_org, v_company
   from public.prizes
-  where id = p_prize_id and deleted_at is null;
+  where id = p_prize_id and deleted_at is null
+    for update;
 
   if not found then
     raise exception 'prize not found: %', p_prize_id using errcode = 'P0002';
@@ -616,14 +693,11 @@ begin
     raise exception 'permission denied: inventory.catalogue required' using errcode = '42501';
   end if;
 
-  -- Lock the balance row before counting. A movement racing this archival
-  -- takes the same lock inside apply_inventory_movement, so the two serialize
-  -- instead of the count below reading a stale zero while an entry is
-  -- mid-flight.
-  perform 1 from public.inventory_balances
-   where company_id = v_company and prize_id = p_prize_id
-     for update;
-
+  -- No separate lock on inventory_balances is needed here: holding the prize
+  -- row's lock above already means no apply_inventory_movement call can be
+  -- concurrently writing this balance (it would first have to acquire FOR
+  -- SHARE on the prize, which blocks until this transaction ends), so this
+  -- plain read is stable for the rest of the transaction.
   -- Refused while stock exists. Archiving it would strand the units: the balance
   -- row survives, no screen shows it, and reconciliation still counts it. Same
   -- shape as delete_role refusing a role in use.
@@ -645,6 +719,9 @@ begin
     (v_actor, 'archive_prize', 'prizes', p_prize_id, v_org, v_company);
 end;
 $$;
+
+comment on function public.archive_prize(uuid) is
+  'Soft-deletes a prize. Gated on inventory.catalogue. Refused while any physical bucket (available, reserved, linked, awaiting_pickup, pending_return) is non-zero, naming the count. Takes FOR UPDATE on the prize row itself, not the balance: apply_inventory_movement takes FOR SHARE on that same row before it ever touches the balance, so the two serialise whether or not a balance row exists yet — locking the balance row here would lock nothing for a prize that has never moved.';
 
 revoke execute on function public.record_stock_entry(uuid, uuid, public.inventory_movement_type, integer, text, text) from public;
 revoke execute on function public.record_stock_exit(uuid, uuid, integer, text, text)                                  from public;
