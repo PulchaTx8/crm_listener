@@ -1,5 +1,5 @@
 begin;
-select plan(95);
+select plan(166);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -489,6 +489,245 @@ select is(
   (select count(*)::int from public.permissions where module = 'members' and scope = 'company'),
   6,
   'six Member permissions, all Company-scoped'
+);
+
+-- Block 3, Task 5: the five Member tables, built in Tasks 1 and 2, are secured only
+-- now. A table this migration misses looks exactly like one that never needed
+-- securing (this project has shipped that mistake once already — rate_limit_counters,
+-- Block 0) — so the grid is asserted here rather than left to whoever reads the
+-- migration list. RLS enabled, select granted to authenticated and service_role, anon
+-- holding none of it, exactly one policy, and no write grant to any role (including
+-- TRUNCATE, which is neither INSERT, UPDATE nor DELETE and so nothing else below
+-- closes it) — the same shape 0029's final review established for the four inventory
+-- tables, required here with more force: these five hold personal data.
+select is(relrowsecurity, true, 'RLS enabled on members')
+  from pg_class where oid = 'public.members'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on member_company_links')
+  from pg_class where oid = 'public.member_company_links'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on member_consents')
+  from pg_class where oid = 'public.member_consents'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on member_notes')
+  from pg_class where oid = 'public.member_notes'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on member_blocks')
+  from pg_class where oid = 'public.member_blocks'::regclass;
+
+select ok(has_table_privilege('authenticated', 'public.members', 'SELECT'),
+          'authenticated may read members');
+select ok(has_table_privilege('authenticated', 'public.member_company_links', 'SELECT'),
+          'authenticated may read member_company_links');
+select ok(has_table_privilege('authenticated', 'public.member_consents', 'SELECT'),
+          'authenticated may read member_consents');
+select ok(has_table_privilege('authenticated', 'public.member_notes', 'SELECT'),
+          'authenticated may read member_notes');
+select ok(has_table_privilege('authenticated', 'public.member_blocks', 'SELECT'),
+          'authenticated may read member_blocks');
+
+select ok(has_table_privilege('service_role', 'public.members', 'SELECT'),
+          'service_role may read members');
+select ok(has_table_privilege('service_role', 'public.member_company_links', 'SELECT'),
+          'service_role may read member_company_links');
+select ok(has_table_privilege('service_role', 'public.member_consents', 'SELECT'),
+          'service_role may read member_consents');
+select ok(has_table_privilege('service_role', 'public.member_notes', 'SELECT'),
+          'service_role may read member_notes');
+select ok(has_table_privilege('service_role', 'public.member_blocks', 'SELECT'),
+          'service_role may read member_blocks');
+
+select ok(not has_table_privilege('anon', 'public.members', 'SELECT'),
+          'anon may not read members');
+select ok(not has_table_privilege('anon', 'public.member_company_links', 'SELECT'),
+          'anon may not read member_company_links');
+select ok(not has_table_privilege('anon', 'public.member_consents', 'SELECT'),
+          'anon may not read member_consents');
+select ok(not has_table_privilege('anon', 'public.member_notes', 'SELECT'),
+          'anon may not read member_notes');
+select ok(not has_table_privilege('anon', 'public.member_blocks', 'SELECT'),
+          'anon may not read member_blocks');
+
+select is(
+  (select count(*)::int from pg_policies where schemaname = 'public' and tablename = 'members'),
+  1, 'members carries exactly one policy');
+select is(
+  (select count(*)::int from pg_policies where schemaname = 'public' and tablename = 'member_company_links'),
+  1, 'member_company_links carries exactly one policy');
+select is(
+  (select count(*)::int from pg_policies where schemaname = 'public' and tablename = 'member_consents'),
+  1, 'member_consents carries exactly one policy');
+select is(
+  (select count(*)::int from pg_policies where schemaname = 'public' and tablename = 'member_notes'),
+  1, 'member_notes carries exactly one policy');
+select is(
+  (select count(*)::int from pg_policies where schemaname = 'public' and tablename = 'member_blocks'),
+  1, 'member_blocks carries exactly one policy');
+
+select ok(not has_table_privilege('authenticated', 'public.members', 'INSERT'), 'authenticated may not insert members directly');
+select ok(not has_table_privilege('authenticated', 'public.members', 'UPDATE'), 'authenticated may not update members directly');
+select ok(not has_table_privilege('authenticated', 'public.members', 'DELETE'), 'authenticated may not delete members directly');
+select ok(not has_table_privilege('service_role', 'public.members', 'INSERT'), 'service_role may not insert members directly either');
+select ok(not has_table_privilege('service_role', 'public.members', 'UPDATE'), 'service_role may not update members directly either');
+select ok(not has_table_privilege('service_role', 'public.members', 'DELETE'), 'service_role may not delete members directly either');
+
+select ok(not has_table_privilege('authenticated', 'public.member_company_links', 'INSERT'), 'authenticated may not insert member_company_links directly');
+select ok(not has_table_privilege('authenticated', 'public.member_company_links', 'UPDATE'), 'authenticated may not update member_company_links directly');
+select ok(not has_table_privilege('authenticated', 'public.member_company_links', 'DELETE'), 'authenticated may not delete member_company_links directly');
+select ok(not has_table_privilege('service_role', 'public.member_company_links', 'INSERT'), 'service_role may not insert member_company_links directly either');
+select ok(not has_table_privilege('service_role', 'public.member_company_links', 'UPDATE'), 'service_role may not update member_company_links directly either');
+select ok(not has_table_privilege('service_role', 'public.member_company_links', 'DELETE'), 'service_role may not delete member_company_links directly either');
+
+select ok(not has_table_privilege('authenticated', 'public.member_consents', 'INSERT'), 'authenticated may not insert member_consents directly');
+select ok(not has_table_privilege('authenticated', 'public.member_consents', 'UPDATE'), 'authenticated may not update member_consents directly');
+select ok(not has_table_privilege('authenticated', 'public.member_consents', 'DELETE'), 'authenticated may not delete member_consents directly');
+select ok(not has_table_privilege('service_role', 'public.member_consents', 'INSERT'), 'service_role may not insert member_consents directly either');
+select ok(not has_table_privilege('service_role', 'public.member_consents', 'UPDATE'), 'service_role may not update member_consents directly either');
+select ok(not has_table_privilege('service_role', 'public.member_consents', 'DELETE'), 'service_role may not delete member_consents directly either');
+
+select ok(not has_table_privilege('authenticated', 'public.member_notes', 'INSERT'), 'authenticated may not insert member_notes directly');
+select ok(not has_table_privilege('authenticated', 'public.member_notes', 'UPDATE'), 'authenticated may not update member_notes directly');
+select ok(not has_table_privilege('authenticated', 'public.member_notes', 'DELETE'), 'authenticated may not delete member_notes directly');
+select ok(not has_table_privilege('service_role', 'public.member_notes', 'INSERT'), 'service_role may not insert member_notes directly either');
+select ok(not has_table_privilege('service_role', 'public.member_notes', 'UPDATE'), 'service_role may not update member_notes directly either');
+select ok(not has_table_privilege('service_role', 'public.member_notes', 'DELETE'), 'service_role may not delete member_notes directly either');
+
+select ok(not has_table_privilege('authenticated', 'public.member_blocks', 'INSERT'), 'authenticated may not insert member_blocks directly');
+select ok(not has_table_privilege('authenticated', 'public.member_blocks', 'UPDATE'), 'authenticated may not update member_blocks directly');
+select ok(not has_table_privilege('authenticated', 'public.member_blocks', 'DELETE'), 'authenticated may not delete member_blocks directly');
+select ok(not has_table_privilege('service_role', 'public.member_blocks', 'INSERT'), 'service_role may not insert member_blocks directly either');
+select ok(not has_table_privilege('service_role', 'public.member_blocks', 'UPDATE'), 'service_role may not update member_blocks directly either');
+select ok(not has_table_privilege('service_role', 'public.member_blocks', 'DELETE'), 'service_role may not delete member_blocks directly either');
+
+select ok(not has_table_privilege('authenticated', 'public.members', 'TRUNCATE'), 'authenticated may not truncate members');
+select ok(not has_table_privilege('service_role', 'public.members', 'TRUNCATE'), 'service_role may not truncate members');
+select ok(not has_table_privilege('authenticated', 'public.member_company_links', 'TRUNCATE'), 'authenticated may not truncate member_company_links');
+select ok(not has_table_privilege('service_role', 'public.member_company_links', 'TRUNCATE'), 'service_role may not truncate member_company_links');
+select ok(not has_table_privilege('authenticated', 'public.member_consents', 'TRUNCATE'), 'authenticated may not truncate member_consents');
+select ok(not has_table_privilege('service_role', 'public.member_consents', 'TRUNCATE'), 'service_role may not truncate member_consents');
+select ok(not has_table_privilege('authenticated', 'public.member_notes', 'TRUNCATE'), 'authenticated may not truncate member_notes');
+select ok(not has_table_privilege('service_role', 'public.member_notes', 'TRUNCATE'), 'service_role may not truncate member_notes');
+select ok(not has_table_privilege('authenticated', 'public.member_blocks', 'TRUNCATE'), 'authenticated may not truncate member_blocks');
+select ok(not has_table_privilege('service_role', 'public.member_blocks', 'TRUNCATE'), 'service_role may not truncate member_blocks');
+
+-- Behavioural proof the policies actually decide something, not just that they exist.
+-- Station A and B stay active; Station C starts active (a delegate is given
+-- members.view there) and is archived (deleted_at set) partway through — proving the
+-- is_platform_admin()/is_owner() bypass this migration adds on top of the brief's own
+-- has_permission-only example actually does something: an ordinary members.view
+-- holder loses access the moment their Station archives (has_company_access,
+-- 0016/0024, applies the active-Station gate to everyone), while the Organization
+-- owner still sees the same Member through the is_owner bypass — the same fix Task
+-- 3's review made to member_reachable for the write path (0033).
+insert into public.organizations (id, name) values
+  ('dddddddd-0000-0000-0000-000000000001', 'Members RLS Test Org');
+insert into public.companies (id, organization_id, name) values
+  ('dddddddd-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-000000000001', 'Station A'),
+  ('dddddddd-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-000000000001', 'Station B'),
+  ('dddddddd-0000-0000-0000-000000000004', 'dddddddd-0000-0000-0000-000000000001', 'Station C');
+
+insert into public.roles (id, organization_id, name) values
+  ('dddddddd-0000-0000-0000-000000000005', 'dddddddd-0000-0000-0000-000000000001', 'Station A Viewer'),
+  ('dddddddd-0000-0000-0000-000000000006', 'dddddddd-0000-0000-0000-000000000001', 'Station C Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('dddddddd-0000-0000-0000-000000000005', 'members.view'),
+  ('dddddddd-0000-0000-0000-000000000006', 'members.view');
+
+insert into auth.users (id, email) values
+  ('dddddddd-0000-0000-0000-000000000007', 'members-rls-delegate@example.test'),
+  ('dddddddd-0000-0000-0000-000000000008', 'members-rls-owner@example.test');
+
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('dddddddd-0000-0000-0000-000000000007', 'dddddddd-0000-0000-0000-000000000002',
+   'dddddddd-0000-0000-0000-000000000001', 'dddddddd-0000-0000-0000-000000000005'),
+  ('dddddddd-0000-0000-0000-000000000007', 'dddddddd-0000-0000-0000-000000000004',
+   'dddddddd-0000-0000-0000-000000000001', 'dddddddd-0000-0000-0000-000000000006');
+insert into public.organization_memberships (user_id, organization_id, role) values
+  ('dddddddd-0000-0000-0000-000000000008', 'dddddddd-0000-0000-0000-000000000001', 'owner');
+
+insert into public.members (id, organization_id, full_name) values
+  ('dddddddd-0000-0000-0000-000000000009', 'dddddddd-0000-0000-0000-000000000001', 'Only Station A'),
+  ('dddddddd-0000-0000-0000-00000000000a', 'dddddddd-0000-0000-0000-000000000001', 'Only Station B'),
+  ('dddddddd-0000-0000-0000-00000000000b', 'dddddddd-0000-0000-0000-000000000001', 'Only Station C (soon archived)'),
+  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000001', 'Both A and B');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('dddddddd-0000-0000-0000-000000000009', 'dddddddd-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-000000000001'),
+  ('dddddddd-0000-0000-0000-00000000000a', 'dddddddd-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-000000000001'),
+  ('dddddddd-0000-0000-0000-00000000000b', 'dddddddd-0000-0000-0000-000000000004', 'dddddddd-0000-0000-0000-000000000001'),
+  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000002', 'dddddddd-0000-0000-0000-000000000001'),
+  ('dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000003', 'dddddddd-0000-0000-0000-000000000001');
+
+-- The critical proof for member_notes: the SAME Member (the "Both A and B" row) has a
+-- note written at Station A and a note written at Station B. A caller with
+-- members.view at A only must see the first and NOT the second, even though the
+-- Member itself is visible (reachable via the Station A link) — proving the notes
+-- policy tests the NOTE's own company_id, not "any Station the Member is linked to".
+insert into public.member_notes (id, organization_id, member_id, company_id, body) values
+  ('dddddddd-0000-0000-0000-00000000000d', 'dddddddd-0000-0000-0000-000000000001',
+   'dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000002', 'VISIBLE-NOTE-STATION-A'),
+  ('dddddddd-0000-0000-0000-00000000000e', 'dddddddd-0000-0000-0000-000000000001',
+   'dddddddd-0000-0000-0000-00000000000c', 'dddddddd-0000-0000-0000-000000000003', 'HIDDEN-NOTE-STATION-B');
+
+-- An Organization-wide block (company_id null) on the Station-A Member, to prove the
+-- has_org_permission branch of the member_blocks policy.
+insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason) values
+  ('dddddddd-0000-0000-0000-00000000000f', 'dddddddd-0000-0000-0000-000000000001',
+   'dddddddd-0000-0000-0000-000000000009', null, 'draw_ban', 'org-wide test block');
+
+-- Archive Station C now that the fixtures above are in place. The "Only Station C"
+-- Member's one link is here.
+update public.companies set deleted_at = now()
+ where id = 'dddddddd-0000-0000-0000-000000000004';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "dddddddd-0000-0000-0000-000000000007", "role": "authenticated"}';
+
+create temporary table delegate_members_probe as
+select id from public.members where organization_id = 'dddddddd-0000-0000-0000-000000000001' order by id;
+
+create temporary table delegate_notes_probe as
+select body from public.member_notes where member_id = 'dddddddd-0000-0000-0000-00000000000c' order by body;
+
+create temporary table delegate_blocks_probe as
+select id from public.member_blocks where member_id = 'dddddddd-0000-0000-0000-000000000009';
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "dddddddd-0000-0000-0000-000000000008", "role": "authenticated"}';
+
+create temporary table owner_members_probe as
+select id from public.members where organization_id = 'dddddddd-0000-0000-0000-000000000001' order by id;
+
+reset role;
+
+select is(
+  (select array_agg(id order by id) from delegate_members_probe),
+  array['dddddddd-0000-0000-0000-000000000009'::uuid, 'dddddddd-0000-0000-0000-00000000000c'::uuid],
+  'a delegate with members.view at Station A only sees the Member linked there and the Member linked to A and B, and nothing else'
+);
+select is(
+  (select count(*)::int from delegate_members_probe where id = 'dddddddd-0000-0000-0000-00000000000a'),
+  0,
+  'the delegate does not see the Member reachable only at Station B, where they hold no permission'
+);
+select is(
+  (select count(*)::int from delegate_members_probe where id = 'dddddddd-0000-0000-0000-00000000000b'),
+  0,
+  'the delegate does not see the Member reachable only at Station C, now archived, even though they held members.view there before the archival'
+);
+select is(
+  (select array_agg(body order by body) from delegate_notes_probe),
+  array['VISIBLE-NOTE-STATION-A'],
+  'the delegate sees only the note written at Station A, not the note written at Station B about the same Member'
+);
+select is(
+  (select count(*)::int from delegate_blocks_probe),
+  1,
+  'the delegate sees the Organization-wide block through has_org_permission, granted by their role at Station A'
+);
+select is(
+  (select array_agg(id order by id) from owner_members_probe),
+  array['dddddddd-0000-0000-0000-000000000009'::uuid, 'dddddddd-0000-0000-0000-00000000000a'::uuid,
+        'dddddddd-0000-0000-0000-00000000000b'::uuid, 'dddddddd-0000-0000-0000-00000000000c'::uuid],
+  'the Organization owner sees all four Members, including the one reachable only through the now-archived Station C'
 );
 
 select * from finish();
