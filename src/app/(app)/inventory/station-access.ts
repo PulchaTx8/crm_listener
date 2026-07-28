@@ -21,15 +21,15 @@ export interface SuspendedCompany {
 }
 
 export interface CompanyAccess {
-  /** Every Company the caller currently holds inventory.view in. */
+  /** Every Company the caller currently holds the requested permission in. */
   viewable: ViewableCompany[];
   /** Visible but suspended — rendered with the reason, never selectable. */
   suspended: SuspendedCompany[];
   /**
    * True when the Company read below was capped rather than exhaustive (see
-   * COMPANY_SCAN_CAP). The caller may hold inventory.view in a Company that
-   * did not make the cut — the UI must say so, not act as if the list were
-   * complete.
+   * COMPANY_SCAN_CAP). The caller may hold the requested permission in a
+   * Company that did not make the cut — the UI must say so, not act as if
+   * the list were complete.
    */
   capped: boolean;
 }
@@ -45,19 +45,31 @@ export interface CompanyAccess {
 const COMPANY_SCAN_CAP = 50;
 
 /**
- * Resolves which Companies (Stations) the signed-in caller can reach for
- * inventory purposes, bounded rather than O(N) in the platform's total
- * Company count.
+ * Resolves which Companies (Stations) the signed-in caller holds `permission`
+ * in, bounded rather than O(N) in the platform's total Company count.
  *
- * Two things kept this unbounded before: every visible Company got its own
- * `has_permission` round trip regardless of status, and the read itself had
- * no limit — for a platform admin, "visible" is every Company on the
- * platform. Both are addressed here: a suspended Company is never asked
- * about (has_company_access always refuses it, so the answer is already
- * known from the status column alone), and a platform admin's active
- * Companies are resolved without any per-Company RPC at all — has_permission's
- * own body is `has_company_access(...) AND (is_platform_admin() OR owner OR a
- * role grant)`, so for an active Company `is_platform_admin()` alone already
+ * Generalised over `permission` (Task 9 review, Important 3) rather than
+ * hard-coding `inventory.view`: `members/station-access.ts` used to carry a
+ * near-identical scan-plus-fan-out with a different permission string
+ * hard-coded in, which is precisely the "whoever remembers" drift this
+ * project's own recurring warning (0031's comment on
+ * normalize_phone/normalize_email) is about — two copies of the same shape
+ * that can silently disagree the next time either one is fixed. Every caller
+ * still names its own permission explicitly (inventory/page.tsx and
+ * inventory/[prizeId]/page.tsx pass `'inventory.view'`; members/page.tsx
+ * passes `'members.create'`), so this function widens no capability and
+ * narrows no existing caller's behaviour — it only removes the duplication.
+ *
+ * Two things kept this unbounded before generalisation even entered the
+ * picture: every visible Company got its own `has_permission` round trip
+ * regardless of status, and the read itself had no limit — for a platform
+ * admin, "visible" is every Company on the platform. Both are addressed
+ * here: a suspended Company is never asked about (has_company_access always
+ * refuses it, so the answer is already known from the status column alone),
+ * and a platform admin's active Companies are resolved without any
+ * per-Company RPC at all — has_permission's own body is
+ * `has_company_access(...) AND (is_platform_admin() OR owner OR a role
+ * grant)`, so for an active Company `is_platform_admin()` alone already
  * satisfies the second half. An owner or an ordinary delegate's own visible
  * Company list is bounded by their own memberships already, so the
  * per-Company check below costs them nothing extra — it only skips for the
@@ -67,9 +79,14 @@ const COMPANY_SCAN_CAP = 50;
  * access" — see the reasoning this file's functions have always carried:
  * collapsing a transient RPC failure into "not granted" would make it
  * indistinguishable from the genuinely-empty case this whole block exists to
- * avoid.
+ * avoid. A caller that wants to degrade gracefully instead (members/page.tsx
+ * does, for its own courtesy registration card) catches this at its own call
+ * site rather than this function silently doing it for everyone.
  */
-export async function listCompanyAccess(supabase: UserClient): Promise<CompanyAccess> {
+export async function listCompanyAccess(
+  supabase: UserClient,
+  permission: string,
+): Promise<CompanyAccess> {
   const { data: companies, error } = await supabase
     .from('companies')
     .select('id, name, status')
@@ -105,12 +122,12 @@ export async function listCompanyAccess(supabase: UserClient): Promise<CompanyAc
   const checked = await Promise.all(
     active.map(async (company) => {
       const { data: allowed, error: permError } = await supabase.rpc('has_permission', {
-        p_permission: 'inventory.view',
+        p_permission: permission,
         p_company_id: company.id,
       });
       if (permError) {
         throw new InternalError(
-          `Could not check inventory access for a station: ${permError.message}`,
+          `Could not check ${permission} access for a station: ${permError.message}`,
         );
       }
       return allowed === true ? { id: company.id, name: company.name } : null;
@@ -143,8 +160,9 @@ const MOVEMENT_PERMISSION_CODES = [
 /**
  * Which of the five write permissions the caller holds in this one Station —
  * a courtesy gate for which of Task 9's forms get rendered at all, the exact
- * same shape listCompanyAccess uses for inventory.view: has_permission asked
- * once per code, never the boundary itself. Every RPC these forms call
+ * same shape listCompanyAccess uses (now over an explicit `permission`
+ * parameter rather than a hard-coded one): has_permission asked once per
+ * code, never the boundary itself. Every RPC these forms call
  * (record_stock_entry, record_stock_exit, adjust_stock, reserve_stock,
  * release_reservation, create_prize_category, create_prize) re-checks its own
  * permission with the same function before writing anything (0027), so a

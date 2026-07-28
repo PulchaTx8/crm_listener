@@ -272,6 +272,43 @@ export async function createPrizeAs(
 }
 
 /**
+ * Registers a listener through the real create_member RPC, as the owner —
+ * the createPrizeAs precedent immediately above, applied to members.test.ts:
+ * pure fixture setup for cases where registering the Member is not itself the
+ * operation under test. Every case that names create_member, update_member,
+ * link_member_to_company, record_member_consent, add_member_note,
+ * block_member, lift_member_block, archive_member or anonymize_member as the
+ * RPC it is actually proving still performs THAT call through its own
+ * non-owner delegate client, the same way createPrizeAs's own comment
+ * describes for inventory.test.ts.
+ */
+export async function createMemberAs(
+  customer: ProvisionedCustomer,
+  companyId: string,
+  fields: {
+    fullName: string;
+    phone?: string;
+    email?: string;
+    cpfHash?: string;
+    cpfLastDigits?: string;
+    passport?: string;
+  },
+): Promise<string> {
+  const ownerClient = await signInAs(customer.email, customer.password);
+  const { data, error } = await ownerClient.rpc('create_member', {
+    p_company_id: companyId,
+    p_full_name: fields.fullName,
+    p_phone: fields.phone,
+    p_email: fields.email,
+    p_cpf_hash: fields.cpfHash,
+    p_cpf_last_digits: fields.cpfLastDigits,
+    p_passport: fields.passport,
+  });
+  if (error) throw new Error(`create_member failed: ${error.message}`);
+  return data as string;
+}
+
+/**
  * Composes a role holding exactly `permissionCodes` and attaches a member to
  * it in the given Companies (the customer's one Station by default) — the
  * create_role + addMemberByInvitation pair that inventory.test.ts's non-owner

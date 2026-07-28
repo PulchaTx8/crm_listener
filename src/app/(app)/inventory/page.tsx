@@ -34,7 +34,7 @@ export default async function InventoryPage({
   let suspended: SuspendedCompany[];
   let capped: boolean;
   try {
-    ({ viewable, suspended, capped } = await listCompanyAccess(supabase));
+    ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'inventory.view'));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
     return <LoadError message={describeInventoryReadError(cause)} />;
