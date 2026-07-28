@@ -235,6 +235,137 @@ export type Database = {
         }
         Relationships: []
       }
+      inventory_balances: {
+        Row: {
+          available: number
+          awaiting_pickup: number
+          company_id: string
+          delivered: number
+          linked: number
+          organization_id: string
+          pending_return: number
+          prize_id: string
+          reserved: number
+          updated_at: string
+          written_off: number
+        }
+        Insert: {
+          available?: number
+          awaiting_pickup?: number
+          company_id: string
+          delivered?: number
+          linked?: number
+          organization_id: string
+          pending_return?: number
+          prize_id: string
+          reserved?: number
+          updated_at?: string
+          written_off?: number
+        }
+        Update: {
+          available?: number
+          awaiting_pickup?: number
+          company_id?: string
+          delivered?: number
+          linked?: number
+          organization_id?: string
+          pending_return?: number
+          prize_id?: string
+          reserved?: number
+          updated_at?: string
+          written_off?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_balances_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_balances_prize_company_fk"
+            columns: ["prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      inventory_movements: {
+        Row: {
+          actor_id: string | null
+          company_id: string
+          created_at: string
+          from_bucket: Database["public"]["Enums"]["inventory_bucket"] | null
+          id: string
+          idempotency_key: string | null
+          movement_type: Database["public"]["Enums"]["inventory_movement_type"]
+          note: string | null
+          organization_id: string
+          prize_id: string
+          quantity: number
+          to_bucket: Database["public"]["Enums"]["inventory_bucket"] | null
+        }
+        Insert: {
+          actor_id?: string | null
+          company_id: string
+          created_at?: string
+          from_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
+          id?: string
+          idempotency_key?: string | null
+          movement_type: Database["public"]["Enums"]["inventory_movement_type"]
+          note?: string | null
+          organization_id: string
+          prize_id: string
+          quantity: number
+          to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
+        }
+        Update: {
+          actor_id?: string | null
+          company_id?: string
+          created_at?: string
+          from_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
+          id?: string
+          idempotency_key?: string | null
+          movement_type?: Database["public"]["Enums"]["inventory_movement_type"]
+          note?: string | null
+          organization_id?: string
+          prize_id?: string
+          quantity?: number
+          to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_movements_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_prize_company_fk"
+            columns: ["prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       invitation_companies: {
         Row: {
           company_id: string
@@ -448,6 +579,118 @@ export type Database = {
         }
         Relationships: []
       }
+      prize_categories: {
+        Row: {
+          company_id: string
+          created_at: string
+          deleted_at: string | null
+          id: string
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prize_categories_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "prize_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      prizes: {
+        Row: {
+          allows_return_to_stock: boolean
+          category_id: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          description: string | null
+          id: string
+          internal_code: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          allows_return_to_stock?: boolean
+          category_id?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          internal_code?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          allows_return_to_stock?: boolean
+          category_id?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          internal_code?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prizes_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "prize_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prizes_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "prizes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -583,6 +826,30 @@ export type Database = {
         Args: { p_name: string; p_organization_id: string; p_timezone?: string }
         Returns: string
       }
+      adjust_stock: {
+        Args: {
+          p_company_id: string
+          p_counted: number
+          p_idempotency_key?: string
+          p_note: string
+          p_prize_id: string
+        }
+        Returns: string
+      }
+      apply_inventory_movement: {
+        Args: {
+          p_company_id: string
+          p_from: Database["public"]["Enums"]["inventory_bucket"]
+          p_idempotency_key: string
+          p_note: string
+          p_prize_id: string
+          p_quantity: number
+          p_to: Database["public"]["Enums"]["inventory_bucket"]
+          p_type: Database["public"]["Enums"]["inventory_movement_type"]
+        }
+        Returns: string
+      }
+      archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       assign_company_role: {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
@@ -607,6 +874,21 @@ export type Database = {
         }
         Returns: string
       }
+      create_prize: {
+        Args: {
+          p_allows_return_to_stock?: boolean
+          p_category_id?: string
+          p_company_id: string
+          p_description?: string
+          p_internal_code?: string
+          p_name: string
+        }
+        Returns: string
+      }
+      create_prize_category: {
+        Args: { p_company_id: string; p_name: string }
+        Returns: string
+      }
       create_role: {
         Args: {
           p_description?: string
@@ -617,6 +899,10 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      ensure_inventory_balance_row: {
+        Args: { p_company_id: string; p_org: string; p_prize_id: string }
+        Returns: undefined
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_org_permission: {
         Args: { p_organization_id: string; p_permission: string }
@@ -656,11 +942,62 @@ export type Database = {
         }[]
       }
       reactivate_company: { Args: { p_company_id: string }; Returns: undefined }
+      reconcile_inventory: {
+        Args: { p_company_id: string }
+        Returns: {
+          bucket: string
+          computed: number
+          prize_id: string
+          prize_name: string
+          stored: number
+        }[]
+      }
+      record_stock_entry: {
+        Args: {
+          p_company_id: string
+          p_idempotency_key?: string
+          p_note?: string
+          p_prize_id: string
+          p_quantity: number
+          p_type: Database["public"]["Enums"]["inventory_movement_type"]
+        }
+        Returns: string
+      }
+      record_stock_exit: {
+        Args: {
+          p_company_id: string
+          p_idempotency_key?: string
+          p_note: string
+          p_prize_id: string
+          p_quantity: number
+        }
+        Returns: string
+      }
+      release_reservation: {
+        Args: {
+          p_company_id: string
+          p_idempotency_key?: string
+          p_note: string
+          p_prize_id: string
+          p_quantity: number
+        }
+        Returns: string
+      }
       remove_company_access: {
         Args: { p_company_id: string; p_user_id: string }
         Returns: undefined
       }
       remove_member: { Args: { p_membership_id: string }; Returns: undefined }
+      reserve_stock: {
+        Args: {
+          p_company_id: string
+          p_idempotency_key?: string
+          p_note: string
+          p_prize_id: string
+          p_quantity: number
+        }
+        Returns: string
+      }
       reset_provisional_password: {
         Args: { p_user_id: string }
         Returns: undefined
@@ -677,6 +1014,17 @@ export type Database = {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined
       }
+      update_prize: {
+        Args: {
+          p_allows_return_to_stock?: boolean
+          p_category_id?: string
+          p_description?: string
+          p_internal_code?: string
+          p_name: string
+          p_prize_id: string
+        }
+        Returns: undefined
+      }
       update_role: {
         Args: {
           p_description?: string
@@ -691,6 +1039,31 @@ export type Database = {
     Enums: {
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      inventory_bucket:
+        | "available"
+        | "reserved"
+        | "linked"
+        | "awaiting_pickup"
+        | "pending_return"
+        | "delivered"
+        | "written_off"
+      inventory_movement_type:
+        | "INITIAL_ENTRY"
+        | "PURCHASE_ENTRY"
+        | "MANUAL_ENTRY"
+        | "MANUAL_EXIT"
+        | "ADJUSTMENT_POSITIVE"
+        | "ADJUSTMENT_NEGATIVE"
+        | "RESERVATION"
+        | "RESERVATION_RELEASE"
+        | "PROMOTION_LINK"
+        | "PROMOTION_UNLINK"
+        | "DRAW"
+        | "DRAW_CANCEL"
+        | "DELIVERY"
+        | "RETURN_PENDING"
+        | "RETURN_TO_STOCK"
+        | "WRITE_OFF"
       invitation_status: "pending" | "accepted" | "revoked"
       org_role: "owner" | "member"
       permission_scope: "organization" | "company"
@@ -826,6 +1199,33 @@ export const Constants = {
     Enums: {
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      inventory_bucket: [
+        "available",
+        "reserved",
+        "linked",
+        "awaiting_pickup",
+        "pending_return",
+        "delivered",
+        "written_off",
+      ],
+      inventory_movement_type: [
+        "INITIAL_ENTRY",
+        "PURCHASE_ENTRY",
+        "MANUAL_ENTRY",
+        "MANUAL_EXIT",
+        "ADJUSTMENT_POSITIVE",
+        "ADJUSTMENT_NEGATIVE",
+        "RESERVATION",
+        "RESERVATION_RELEASE",
+        "PROMOTION_LINK",
+        "PROMOTION_UNLINK",
+        "DRAW",
+        "DRAW_CANCEL",
+        "DELIVERY",
+        "RETURN_PENDING",
+        "RETURN_TO_STOCK",
+        "WRITE_OFF",
+      ],
       invitation_status: ["pending", "accepted", "revoked"],
       org_role: ["owner", "member"],
       permission_scope: ["organization", "company"],

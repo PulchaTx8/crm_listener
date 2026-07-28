@@ -1,0 +1,79 @@
+'use client';
+
+import { useActionState } from 'react';
+import {
+  releaseReservationAction,
+  reserveStockAction,
+  type MovementFormState,
+} from './actions';
+import { Button } from '@/components/ui/button';
+import { Input, Textarea } from '@/components/ui/input';
+
+const INITIAL: MovementFormState = { status: 'idle' };
+
+/**
+ * Moves available stock into reserved. Both this and ReleaseForm below are
+ * gated on the same permission (inventory.reserve — reserve_stock and
+ * release_reservation both check it, 0027), so a caller who holds it sees
+ * both forms or neither.
+ */
+export function ReserveForm({ companyId, prizeId }: { companyId: string; prizeId: string }) {
+  const [state, action, pending] = useActionState(reserveStockAction, INITIAL);
+
+  return (
+    <form action={action} data-testid="reserve-form" className="flex flex-col gap-3">
+      <input type="hidden" name="companyId" value={companyId} />
+      <input type="hidden" name="prizeId" value={prizeId} />
+
+      <label className="flex flex-col gap-1 text-sm">
+        Quantity
+        <Input name="quantity" type="number" min={1} step={1} required />
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm">
+        Note
+        <Textarea name="note" required maxLength={2000} placeholder="What is this held for?" />
+      </label>
+
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending}>
+          {pending ? 'Saving…' : 'Reserve stock'}
+        </Button>
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">Reserved.</p>}
+      </div>
+
+      {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
+    </form>
+  );
+}
+
+/** Moves reserved stock back to available. */
+export function ReleaseForm({ companyId, prizeId }: { companyId: string; prizeId: string }) {
+  const [state, action, pending] = useActionState(releaseReservationAction, INITIAL);
+
+  return (
+    <form action={action} data-testid="release-form" className="flex flex-col gap-3">
+      <input type="hidden" name="companyId" value={companyId} />
+      <input type="hidden" name="prizeId" value={prizeId} />
+
+      <label className="flex flex-col gap-1 text-sm">
+        Quantity
+        <Input name="quantity" type="number" min={1} step={1} required />
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm">
+        Note
+        <Textarea name="note" required maxLength={2000} placeholder="Why is this being released?" />
+      </label>
+
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending}>
+          {pending ? 'Saving…' : 'Release reservation'}
+        </Button>
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">Released.</p>}
+      </div>
+
+      {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
+    </form>
+  );
+}
