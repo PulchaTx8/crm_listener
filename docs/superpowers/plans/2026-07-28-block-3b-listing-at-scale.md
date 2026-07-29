@@ -282,6 +282,16 @@ git commit -m "feat(lib): add the keyset cursor helper"
 
 **Match the existing convention exactly**: named `export const`, `React.forwardRef`, `cn(...)` from `@/lib/utils`, a `.displayName` on every component, no default export, no `'use client'`.
 
+> **Superseded — read the shipped file, not the listing below.** Task 2's review found two
+> accessibility defects in this plan's own code: `SortLink` conveyed sort state only through
+> an `aria-hidden` glyph, so screen readers got nothing; and the disabled Previous/Next
+> rendered as unfocusable `<span>`s styled to look exactly like the enabled controls. Both
+> were fixed in `52f01e4` — a visually-hidden state label, `<button type="button" disabled>`
+> for the disabled state, the app's own focus-ring token throughout, and a documented
+> warning that `TableFooter` is a `div` and must not be nested inside `Table`.
+> **Tasks 4–6 import from `@/components/ui/table` and must set `aria-sort` on the
+> `TableHead` of any sortable column — the component forwards it but does not set it.**
+
 - [ ] **Step 1: Write the primitive**
 
 ```tsx
