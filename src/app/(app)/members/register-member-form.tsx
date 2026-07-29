@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useActionState } from 'react';
-import Link from 'next/link';
 import {
   checkMemberIdentifierAction,
   linkMemberToStationAction,
@@ -48,7 +47,13 @@ const LINK_INITIAL: LinkMemberState = { status: 'idle' };
 export function RegisterMemberForm({
   stations,
   suspended = [],
+  onRegistered,
+  onOpenExisting,
 }: {
+  /** Called with the new listener's id so the grid can add its row without re-listing. */
+  onRegistered: (memberId: string) => void;
+  /** Called when the duplicate check found somebody the caller can already see. */
+  onOpenExisting: (memberId: string) => void;
   stations: ViewableCompany[];
   /**
    * Visible but suspended (has_company_access refuses every permission for
@@ -205,12 +210,13 @@ export function RegisterMemberForm({
             their record.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Link
-              href={`/members/${checkState.memberId}`}
-              className="text-primary underline underline-offset-2"
+            <button
+              type="button"
+              onClick={() => onOpenExisting(checkState.memberId)}
+              className="underline underline-offset-2"
             >
               View this listener
-            </Link>
+            </button>
             <form action={linkAction} className="flex items-center gap-2">
               <input type="hidden" name="memberId" value={checkState.memberId} />
               <input type="hidden" name="companyId" value={companyId} />
@@ -373,12 +379,13 @@ export function RegisterMemberForm({
               {registerState.status === 'saved' && (
                 <p className="text-sm text-emerald-700">
                   Registered.{' '}
-                  <Link
-                    href={`/members/${registerState.memberId}`}
+                  <button
+                    type="button"
+                    onClick={() => registerState.memberId && onRegistered(registerState.memberId)}
                     className="underline underline-offset-2"
                   >
                     View listener
-                  </Link>
+                  </button>
                 </p>
               )}
             </div>
