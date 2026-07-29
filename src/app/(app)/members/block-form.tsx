@@ -22,14 +22,14 @@ const INITIAL: BlockFormState = { status: 'idle' };
  * creates a new block row (block_member is append-only, like every table in
  * this block).
  *
- * `stations` is non-empty on every real render: [memberId]/page.tsx only
+ * `stations` is non-empty on every real render: the record dialog only
  * mounts this component behind `stations.length > 0` (Task 9 re-review,
  * Important — an earlier draft of both that gate and this file's own Scope
  * comment claimed an empty list "can only happen for an owner/platform-admin
  * caller", which was false: canBlock is true for an ORDINARY delegate
  * holding members.block at any Station this listener is linked to, while
  * `stations` itself is filtered by a DIFFERENT permission, members.view —
- * see the gate's own comment in [memberId]/page.tsx for the full reasoning
+ * see the record dialog's own gating for the full reasoning
  * and the citations). `stations[0]?.companyId ?? ''` below is a type-level
  * fallback for the empty array TypeScript still allows, not a real path this
  * component expects to take.
