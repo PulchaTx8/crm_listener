@@ -614,7 +614,7 @@ export interface MemberListRow {
 export interface MemberListPage {
   rows: MemberListRow[];
   nextCursor: string | null;
-  total: number | null; // null when the search made counting too expensive
+  total: number; // always exact — see Step 3
 }
 ```
 
@@ -624,7 +624,6 @@ Keep `asCaller(accessToken)` (`:35`) — the audience service uses an access tok
 
 ```ts
 const PAGE_SIZE = 50;
-const COUNT_CEILING = 10_000;
 
 export async function listOrganizationMembers(
   params: MemberListParams,
@@ -690,18 +689,22 @@ export async function listOrganizationMembers(
 - [ ] **Step 3: The total**
 
 ```ts
-  // A free-text search counts through ILIKE, which no index here serves, so it
-  // is capped: above the ceiling the footer says "more than 10,000" rather than
-  // paying for an exact number nobody reads. Every other filter counts through
-  // an index and is cheap at this scale.
-  let total: number | null = null;
+  // Always exact. An earlier draft used PostgREST's 'estimated' count for
+  // free-text searches and hid it above a ceiling — but below that ceiling it
+  // would have rendered a planner estimate in a footer that reads as a fact,
+  // on a screen whose whole purpose is answering "how many". A wrong number
+  // presented as a right one is worse than a slower query.
+  //
+  // At this product's real scale — 30-60k members per Organization, and every
+  // query cut to one Organization by RLS before it touches disk — an exact
+  // count costs tens of milliseconds even through ILIKE. Revisit only with a
+  // measurement, never with an estimate wearing a total's clothes.
   const { count, error: countError } = await base().select('id', {
-    count: params.search ? 'estimated' : 'exact',
+    count: 'exact',
     head: true,
   });
   if (countError) throw mapMemberError(countError.code, countError.message);
-  total = count ?? null;
-  if (params.search && total !== null && total > COUNT_CEILING) total = null;
+  const total: number = count ?? 0;
 ```
 
 - [ ] **Step 4: The block state, in one call**

@@ -43,14 +43,23 @@ Every one of these is the owner's, taken during the design conversation on
 1. **Keyset pagination — Previous/Next, no page numbers.** Constant cost at any
    depth. Jumping to page 37 is given up deliberately; nobody browses 60,000
    listeners by page number.
-2. **Exact total on the filtered result, on the two tenant-scoped screens.** Keyset
-   paging and a count are independent, and at 30–60k rows per Organization a count
-   over an indexed filter is cheap. The owner's stated need is counting ("how many
-   listeners are from São Paulo"), which Previous/Next alone cannot answer. Free-text
-   search is the one expensive count: it shows an exact total below a threshold and
-   "more than 10,000" above it. **The two admin screens get no total** — they are
-   platform-wide, so §3's comfortable per-tenant arithmetic does not apply to them,
-   and they are operator tools rather than screens that answer "how many".
+2. **Exact total on the filtered result, on the two tenant-scoped screens — always
+   exact, never estimated.** Keyset paging and a count are independent, and at
+   30–60k rows per Organization a count is cheap even through a free-text ILIKE,
+   because every query is cut to one Organization by RLS before it touches disk. The
+   owner's stated need is counting ("how many listeners are from São Paulo"), which
+   Previous/Next alone cannot answer.
+
+   An earlier draft of this section proposed a planner estimate above a threshold.
+   That was calibrated for hundreds of thousands of rows, which is not this
+   product's per-tenant scale, and below the threshold it would have rendered an
+   estimate in a footer that reads as fact — on the one screen whose purpose is
+   answering "how many". Revisit only with a measurement, never with an estimate
+   wearing a total's clothes.
+
+   **The two admin screens get no total** — they are platform-wide, so §3's
+   comfortable per-tenant arithmetic does not apply to them, and they are operator
+   tools rather than screens that answer "how many".
 3. **CSV export is cut from this block entirely.** See §8.
 4. **Station is not a column on the audience list.** A listener belongs to the
    Organization and interacts with any of its Stations; the Station link is an
