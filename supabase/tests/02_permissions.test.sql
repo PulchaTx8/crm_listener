@@ -1,5 +1,5 @@
 begin;
-select plan(200);
+select plan(202);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -805,6 +805,12 @@ select is(
 -- arbitrary member_id in ANY Organization holds an active Organization-wide
 -- block. 0036 closes it by also requiring the candidate block's own
 -- organization_id to match p_company_id's Organization.
+--
+-- Fix round (owner's ruling, 2026-07-29): the identical gap was live in
+-- is_member_blocked (0032) itself — 0036 supersedes that function's body too
+-- (see 0036's "is_member_blocked (0032) superseded" section). single_block_probe,
+-- below, mirrors bulk_block_probe's two Organization-boundary assertions for
+-- the single-row function.
 select is(
   (select count(*)::int from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
@@ -901,6 +907,16 @@ select * from public.members_blocked_bulk(
   'ffffffff-0000-0000-0000-000000000002'
 );
 
+-- Fix round (owner's ruling, 2026-07-29): is_member_blocked (0032) carried
+-- the identical cross-Organization gap, now closed in 0036 alongside its
+-- bulk twin. Same two fixtures as bulk_block_probe above -- an Organization-
+-- wide block inside the caller's own Organization, and one entirely inside
+-- a DIFFERENT Organization -- reused rather than re-inserted.
+create temporary table single_block_probe as
+select
+  public.is_member_blocked('ffffffff-0000-0000-0000-000000000007', 'ffffffff-0000-0000-0000-000000000002') as own_org_block,
+  public.is_member_blocked('beefbeef-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000002') as cross_org_block;
+
 reset role;
 
 select is(
@@ -949,6 +965,17 @@ select is(
   (select count(*)::int from bulk_block_null_probe),
   0,
   'a null array yields zero rows the same as an empty array, rather than an error'
+);
+
+select is(
+  (select own_org_block from single_block_probe),
+  true,
+  'is_member_blocked: an Organization-wide block on a Member of the caller''s own Organization reads true (0036 supersedes 0032)'
+);
+select is(
+  (select cross_org_block from single_block_probe),
+  false,
+  'is_member_blocked: an Organization-wide block belonging to a DIFFERENT Organization does not leak as true -- the same fix as members_blocked_bulk, now applied to the single-row function (0036 supersedes 0032)'
 );
 
 set local role authenticated;
