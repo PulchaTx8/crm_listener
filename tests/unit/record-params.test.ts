@@ -19,13 +19,17 @@ describe('parseRecordParam', () => {
   });
 
   // Every value here arrives from a URL, so every value is hostile. None of
-  // these may throw, and none may open a record.
-  it.each([
+  // these may throw, and none may open a record. Annotated as a tuple array
+  // rather than inferred: heterogeneous object literals infer as a union that
+  // `it.each` cannot spread, and the error only surfaces under tsc.
+  const hostile: [Record<string, string | undefined>, string][] = [
     [{}, 'absent'],
     [{ record: '' }, 'empty'],
     [{ record: '   ' }, 'whitespace'],
     [{ tab: 'consents' }, 'a tab with no record'],
-  ])('returns no record for a %s parameter (%s)', (raw) => {
+  ];
+
+  it.each(hostile)('returns no record for a %s parameter (%s)', (raw) => {
     expect(parseRecordParam(raw, TABS).recordId).toBeNull();
   });
 });
