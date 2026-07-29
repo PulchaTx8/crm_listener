@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeCursor, encodeCursor, keysetFilter } from '@/lib/keyset';
+import { decodeCursor, encodeCursor, keysetFilter, keysetPage } from '@/lib/keyset';
 
 describe('cursor encoding', () => {
   it('round-trips a value and its tiebreak id', () => {
@@ -93,5 +93,98 @@ describe('keysetFilter', () => {
         'and(full_name.is.null,id.lt."cccccccc-0000-0000-0000-000000000001"),full_name.not.is.null',
       );
     });
+  });
+});
+
+describe('keysetPage', () => {
+  const rows = (...ids: string[]) => ids.map((id) => ({ id, value: id }));
+  const cursorFor = (row: { id: string; value: string }) => ({ value: row.value, id: row.id });
+  const decode = (raw: string | null) => (raw === null ? null : decodeCursor(raw));
+
+  it('first page, more to come: Next only', () => {
+    const page = keysetPage(rows('a', 'b', 'c'), {
+      pageSize: 2,
+      walkingBack: false,
+      hadCursor: false,
+      cursorFor,
+    });
+    expect(page.rows.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(decode(page.nextCursor)).toEqual({ value: 'b', id: 'b' });
+    expect(page.previousCursor).toBeNull();
+  });
+
+  it('first page, nothing beyond it: neither control', () => {
+    const page = keysetPage(rows('a', 'b'), {
+      pageSize: 2,
+      walkingBack: false,
+      hadCursor: false,
+      cursorFor,
+    });
+    expect(page.nextCursor).toBeNull();
+    expect(page.previousCursor).toBeNull();
+  });
+
+  // The over-fetched row is the answer to "is there more", never a row anyone
+  // sees. Rendering it would show pageSize + 1 rows and then repeat the last
+  // one at the top of the next page.
+  it('never renders the row it over-fetched', () => {
+    const page = keysetPage(rows('a', 'b', 'c'), {
+      pageSize: 2,
+      walkingBack: false,
+      hadCursor: false,
+      cursorFor,
+    });
+    expect(page.rows).toHaveLength(2);
+    expect(page.rows.map((r) => r.id)).not.toContain('c');
+  });
+
+  it('a later page offers Previous even when nothing follows it', () => {
+    const page = keysetPage(rows('c', 'd'), {
+      pageSize: 2,
+      walkingBack: false,
+      hadCursor: true,
+      cursorFor,
+    });
+    expect(page.nextCursor).toBeNull();
+    expect(decode(page.previousCursor)).toEqual({ value: 'c', id: 'c' });
+  });
+
+  // Walking back reads the ordering in reverse, so the rows arrive backwards
+  // and have to be turned around before anyone sees them.
+  it('walking back: rows come out in display order, and Next always exists', () => {
+    const page = keysetPage(rows('d', 'c', 'b'), {
+      pageSize: 2,
+      walkingBack: true,
+      hadCursor: true,
+      cursorFor,
+    });
+    expect(page.rows.map((r) => r.id)).toEqual(['c', 'd']);
+    expect(decode(page.nextCursor)).toEqual({ value: 'd', id: 'd' });
+    // The over-fetched 'b' proves a page still exists behind this one.
+    expect(decode(page.previousCursor)).toEqual({ value: 'c', id: 'c' });
+  });
+
+  it('walking back onto the first page: Previous disappears', () => {
+    const page = keysetPage(rows('b', 'a'), {
+      pageSize: 2,
+      walkingBack: true,
+      hadCursor: true,
+      cursorFor,
+    });
+    expect(page.rows.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(page.previousCursor).toBeNull();
+    expect(decode(page.nextCursor)).toEqual({ value: 'b', id: 'b' });
+  });
+
+  it('no rows at all: no controls, and nothing thrown', () => {
+    const page = keysetPage([], {
+      pageSize: 2,
+      walkingBack: false,
+      hadCursor: true,
+      cursorFor,
+    });
+    expect(page.rows).toEqual([]);
+    expect(page.nextCursor).toBeNull();
+    expect(page.previousCursor).toBeNull();
   });
 });

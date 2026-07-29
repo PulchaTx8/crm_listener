@@ -10,9 +10,9 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
-import { encodeCursor, keysetFilter } from '@/lib/keyset';
+import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
-import { quoteForOrFilter } from '@/lib/postgrest';
+import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type {
   AddMemberNoteInput,
@@ -266,28 +266,8 @@ export const MEMBER_SEARCH_MAX_LENGTH = 100;
  * function taking untrusted input is worth testing directly rather than
  * only through a query nothing but a live database can execute.
  */
-export { quoteForOrFilter };
+export { escapeLikePattern, quoteForOrFilter };
 
-/**
- * Escapes ILIKE's own two pattern metacharacters (`%`, `_`) — and the
- * backslash that would otherwise become their escape character — so a
- * literal `%` or `_` typed into the search box (a plausible fragment of an
- * e-mail address, for instance) is matched as that literal character rather
- * than treated as a wildcard. Without this, searching for a literal "%"
- * silently matched every row the caller could already reach, which looks
- * like a match but means something the search box never promised. Applied
- * BEFORE the `%term%` wildcard markers this file adds itself, so those two
- * markers stay real wildcards while anything the caller typed does not.
- * Exported for its own unit test (tests/unit/member-search-filter.test.ts),
- * which exercises it composed with quoteForOrFilter exactly as
- * listOrganizationMembers does below (`quoteForOrFilter(\`%${escapeLikePattern(term)}%\`)`) —
- * a re-review found the original test covered only quoteForOrFilter alone,
- * with no case containing `%`, `_` or `\`, so nothing in it would have
- * caught this function being deleted entirely.
- */
-export function escapeLikePattern(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
 
 export type MemberSortKey = 'name' | 'created';
 
@@ -591,32 +571,20 @@ export async function listOrganizationMembers(
   // PostgREST cannot type a runtime choice. Both constants list the same
   // columns; the blocked-only one adds an embedded array this never reads.
   const fetched = (data ?? []) as unknown as MemberListRecord[];
-  const more = fetched.length > PAGE_SIZE;
-  const windowed = more ? fetched.slice(0, PAGE_SIZE) : fetched;
-  const page = walkingBack ? [...windowed].reverse() : windowed;
 
   // Cursors come from the page as FETCHED, before the consent filter below
   // drops anything: a cursor is a position in the ordering, and taking it
-  // from a filtered row would skip everything between it and the row that was
-  // actually last.
-  const first = page[0];
-  const last = page[page.length - 1];
-  const keyOf = (row: MemberListRecord) =>
-    encodeCursor({ value: column === 'full_name' ? row.full_name : row.created_at, id: row.id });
-
-  let nextCursor: string | null = null;
-  let previousCursor: string | null = null;
-  if (first && last) {
-    if (walkingBack) {
-      // We got here from a later page, so Next always exists; Previous exists
-      // only if the read that walked back found more than one page of rows.
-      nextCursor = keyOf(last);
-      previousCursor = more ? keyOf(first) : null;
-    } else {
-      nextCursor = more ? keyOf(last) : null;
-      previousCursor = params.cursor ? keyOf(first) : null;
-    }
-  }
+  // from a filtered row would skip everything between it and the row that
+  // was actually last.
+  const { rows: page, nextCursor, previousCursor } = keysetPage(fetched, {
+    pageSize: PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({
+      value: column === 'full_name' ? row.full_name : row.created_at,
+      id: row.id,
+    }),
+  });
 
   // Skipped entirely under the consent filter: a count of what the query
   // returned would not describe what the screen shows, and this saves the

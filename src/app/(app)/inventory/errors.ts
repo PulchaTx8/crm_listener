@@ -13,8 +13,9 @@ import {
 } from '@/lib/errors';
 
 /**
- * Every read the two Task 8 screens perform — listViewableCompanies,
- * listPrizeCategories, listPrizes, getPrizeMovements — only ever throws
+ * Every read the two inventory screens perform — listCompanyAccess,
+ * listPrizeCategories, listPrizesPage, getPrizeById, getPrizeMovements (the
+ * last two replaced Block 2's listPrizes-per-Station scan in 3b) — only throws
  * InternalError: none of them call an RPC, so none of the write-side codes
  * mapInventoryError (services/inventory.ts) maps can surface here today. The
  * full taxonomy is handled anyway, the same reasoning roles/actions.ts's

@@ -24,3 +24,32 @@
 export function quoteForOrFilter(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
+
+/**
+ * Escapes ILIKE's own two pattern metacharacters (`%`, `_`) — and the
+ * backslash that would otherwise become their escape character — so a
+ * literal `%` or `_` typed into the search box (a plausible fragment of an
+ * e-mail address, for instance) is matched as that literal character rather
+ * than treated as a wildcard. Without this, searching for a literal "%"
+ * silently matched every row the caller could already reach, which looks
+ * like a match but means something the search box never promised.
+ *
+ * Every caller applies it BEFORE adding the `%term%` wildcard markers, so
+ * those two markers stay real wildcards while anything the caller typed does
+ * not: `quoteForOrFilter(\`%${escapeLikePattern(term)}%\`)`. Both search
+ * builders in this codebase do exactly that — listOrganizationMembers
+ * (services/members.ts) and listPrizesPage (services/inventory.ts).
+ *
+ * It lived in services/members.ts until Block 3b gave the inventory list a
+ * server-side search of its own; it moved here rather than being imported
+ * across services, beside quoteForOrFilter, whose comment above explains why
+ * this codebase keeps exactly one copy of a rule like this.
+ * tests/unit/member-search-filter.test.ts exercises it composed with
+ * quoteForOrFilter, which is how it is always used — a re-review found the
+ * original test covered only quoteForOrFilter alone, with no case containing
+ * `%`, `_` or `\`, so nothing in it would have caught this function being
+ * deleted entirely.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}

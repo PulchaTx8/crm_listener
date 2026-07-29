@@ -84,3 +84,65 @@ export function keysetFilter(
 
   return arms.join(',');
 }
+
+export interface KeysetPage<T> {
+  /** The rows to render, already in display order. */
+  rows: T[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+}
+
+/**
+ * Turns one over-fetched read into a page plus its two cursors.
+ *
+ * Every list in this block reads `pageSize + 1` rows: the extra one is not
+ * rendered, it only answers "is there more in the direction I was reading".
+ * Walking back reads the same query in the opposite direction, so its rows
+ * arrive reversed and the two cursors swap roles — which is exactly the
+ * fiddly part, and the reason this is one function rather than the same
+ * twenty lines pasted into every service that pages.
+ *
+ * Pure: no I/O, no knowledge of any table. `cursorFor` is what ties it to a
+ * particular sort column, and the caller owns that.
+ */
+export function keysetPage<T>(
+  fetched: readonly T[],
+  options: {
+    pageSize: number;
+    /** True when the read ran in the reverse of the display direction. */
+    walkingBack: boolean;
+    /** True when this read resumed from a cursor — i.e. it is not the first page. */
+    hadCursor: boolean;
+    cursorFor: (row: T) => Cursor;
+  },
+): KeysetPage<T> {
+  const { pageSize, walkingBack, hadCursor, cursorFor } = options;
+
+  const more = fetched.length > pageSize;
+  const windowed: T[] = more ? fetched.slice(0, pageSize) : [...fetched];
+  const rows = walkingBack ? windowed.reverse() : windowed;
+
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  if (first === undefined || last === undefined) {
+    return { rows: [], nextCursor: null, previousCursor: null };
+  }
+
+  if (walkingBack) {
+    // We arrived here from a later page, so Next always exists. Previous
+    // exists only if the backward read found more than one page of rows.
+    return {
+      rows,
+      nextCursor: encodeCursor(cursorFor(last)),
+      previousCursor: more ? encodeCursor(cursorFor(first)) : null,
+    };
+  }
+
+  return {
+    rows,
+    nextCursor: more ? encodeCursor(cursorFor(last)) : null,
+    // Nothing precedes the first page. Anywhere else, the row this page
+    // starts on is what the page before it has to stop short of.
+    previousCursor: hadCursor ? encodeCursor(cursorFor(first)) : null,
+  };
+}

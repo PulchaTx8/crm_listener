@@ -21,6 +21,7 @@ import { canViewAudience } from './access';
 import { describeMembersReadError } from './errors';
 import { ageFromBirthDate, formatDate } from './format';
 import {
+  hasActiveFilters,
   membersHref,
   parseMemberListCursor,
   parseMemberListState,
@@ -232,8 +233,14 @@ export default async function MembersPage({
           <TableBody>
             {page.rows.length === 0 ? (
               <TableRow>
+                {/* Two different facts, kept apart: nobody is registered yet,
+                    and nobody matches what was asked for. Collapsing them
+                    would tell an operator whose filter is simply too narrow
+                    that their Station has no audience at all. */}
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
-                  No listener matches these filters.
+                  {hasActiveFilters(state)
+                    ? 'No listener matches these filters.'
+                    : 'No listener registered yet at a Station you can reach.'}
                 </TableCell>
               </TableRow>
             ) : (
