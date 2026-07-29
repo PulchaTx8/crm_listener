@@ -10,9 +10,16 @@
  * string from untrusted input — src/services/members.ts (search terms;
  * re-exported there as `quoteForOrFilter` so existing imports, including
  * tests/unit/member-search-filter.test.ts, need no change) and
- * src/lib/keyset.ts (cursor values). This project already shipped this exact
- * escaping rule hand-copied twice in Block 3 and fixed in only one of the two
- * copies; keeping a single implementation is how that stops being possible.
+ * src/lib/keyset.ts (cursor values). This particular escaping rule has only
+ * ever had one implementation; the reason to keep it that way is Block 3's
+ * own history with other rules, not this one: `member_reachable`'s
+ * reachability rule (0035 calls it directly rather than duplicating it),
+ * phone/e-mail normalisation (extracted into `normalize_phone`/
+ * `normalize_email`, 0031), and `listCompanyAccess`'s rule (hand-copied once
+ * into `station-access.ts`, silently dropping a `suspended` filter in the
+ * process) were each hand-copied or nearly so, and each time the fix was to
+ * extract one implementation. A second copy of escaping is not a
+ * hypothetical risk in this codebase.
  */
 export function quoteForOrFilter(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
