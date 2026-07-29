@@ -1,7 +1,9 @@
 # Block 3c — The record dialog — Verification Report
 
-Branch `block-3c`, taken from `block-3b` and **not yet rebased onto `main`**
-(PR #13 is still open). Seventeen commits of this block's own — the spec, the
+Branch `block-3c`, taken from `block-3b` and **rebased onto `main` at `a407efe`**
+once PR #13 merged. The rebase was clean and left the tree byte for byte what it
+had been — `main` carried no content of its own beyond the merge commit.
+Seventeen commits of this block's own — the spec, the
 plan, and fifteen of work: two UI primitives, two pure modules with their tests,
 one hook, and five list screens turned into grid + record dialog, with the two
 detail routes they replaced deleted.
@@ -253,9 +255,12 @@ beyond `requireAccessToken()`.
 
 ## 7. Open, and deliberately not done
 
-- **The branch is not rebased onto `main`.** It sits on `block-3b`, whose PR #13
-  is still open. It must be rebased when that merges.
 - **`add_member_note` still has no interface.** The Notes tab reads; writing one
   is a screen this block did not take on.
 - **No screen reader was run** (§4).
-- **Nothing was pushed and no PR was opened** — the owner's call.
+
+The rebase onto `main` that this section used to list as open was done before the
+branch was pushed. Lint, types and the 206 unit tests were re-run on the rebased
+tree and are green; the database, isolation, build and end-to-end gates were not
+re-run locally against it, because the tree is identical to the one they passed
+above — CI runs them on the pull request.
