@@ -101,6 +101,19 @@ const movementBase = {
 // entry rarely needs explaining, unlike an exit, an adjustment or a
 // reservation"); every other movement's note is mandatory. adjust_stock is
 // the only variant with a `counted` figure instead of a `quantity` delta.
+/**
+ * Updating a prize names the prize, never its Company: update_prize (0027)
+ * resolves the Organization and the Company from the prize row itself, so a
+ * companyId here would be a value the RPC ignores — and a parameter that looks
+ * like it decides something while deciding nothing is how a caller ends up
+ * believing it can move a prize between Stations.
+ */
+export const prizeUpdateSchema = prizeFormSchema.omit({ companyId: true }).extend({
+  prizeId: z.string().uuid(),
+});
+
+export type PrizeUpdateInput = z.infer<typeof prizeUpdateSchema>;
+
 export const movementFormSchema = z.discriminatedUnion('kind', [
   z.object({
     ...movementBase,

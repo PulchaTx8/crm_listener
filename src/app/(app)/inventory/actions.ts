@@ -1,22 +1,35 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { prizeFormSchema, movementFormSchema } from '@/schemas/inventory';
+import { prizeFormSchema, prizeUpdateSchema, movementFormSchema } from '@/schemas/inventory';
 import {
   adjustStock,
+  archivePrize,
   createPrize,
   createPrizeCategory,
+  getPrizeById,
   reconcileInventory,
   recordStockEntry,
   recordStockExit,
   releaseReservation,
   reserveStock,
+  updatePrize,
 } from '@/services/inventory';
-import type { ReconciliationRow } from '@/services/inventory';
+import type { PrizeSummary, ReconciliationRow } from '@/services/inventory';
 import { logger } from '@/lib/logger';
 import { describeInventoryWriteError } from './errors';
+
+// ---------------------------------------------------------------------------
+// Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
+// members/actions.ts carries, for the same reason.
+//
+// Every write below is invoked from the prize record dialog, and revalidatePath
+// returns a fresh render of the current route alongside the action's result,
+// re-running the inventory list's keyset query and losing the operator's place
+// in it. The grid patches its own row instead (src/lib/row-patch.ts), which is
+// why the actions that change a prize return what was stored.
+// ---------------------------------------------------------------------------
 
 async function requireAccessToken(): Promise<string> {
   const supabase = await createUserClient();
@@ -56,7 +69,6 @@ export async function createCategoryAction(
 
   try {
     await createPrizeCategory(companyId, name, token);
-    revalidatePath('/inventory');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'create prize category failed');
@@ -90,7 +102,6 @@ export async function createPrizeAction(
 
   try {
     await createPrize(parsed.data, token);
-    revalidatePath('/inventory');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create prize failed');
@@ -139,8 +150,6 @@ export async function recordStockEntryAction(
 
   try {
     await recordStockEntry(data, token);
-    revalidatePath(`/inventory/${data.prizeId}`);
-    revalidatePath('/inventory');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'record stock entry failed');
@@ -170,8 +179,6 @@ export async function recordStockExitAction(
 
   try {
     await recordStockExit(data, token);
-    revalidatePath(`/inventory/${data.prizeId}`);
-    revalidatePath('/inventory');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'record stock exit failed');
@@ -208,8 +215,6 @@ export async function adjustStockAction(
 
   try {
     const movementId = await adjustStock(data, token);
-    revalidatePath(`/inventory/${data.prizeId}`);
-    revalidatePath('/inventory');
     // adjustStock (services/inventory.ts) returns null specifically when the
     // counted figure already matched what was booked — a well-defined
     // success, not a failure (adjust_stock's own comment: "every failure path
@@ -251,8 +256,6 @@ export async function reserveStockAction(
 
   try {
     await reserveStock(data, token);
-    revalidatePath(`/inventory/${data.prizeId}`);
-    revalidatePath('/inventory');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'reserve stock failed');
@@ -282,8 +285,6 @@ export async function releaseReservationAction(
 
   try {
     await releaseReservation(data, token);
-    revalidatePath(`/inventory/${data.prizeId}`);
-    revalidatePath('/inventory');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'release reservation failed');
@@ -328,5 +329,72 @@ export async function runReconciliationAction(
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'reconcile inventory failed');
     return { status: 'error', message: describeInventoryWriteError(cause, 'view inventory') };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// update_prize and archive_prize (0027) reach an interface for the first time
+// here. Both have existed in the database since Block 2 with nothing calling
+// either of them, exactly as update_member and archive_member had.
+// ---------------------------------------------------------------------------
+
+export interface PrizeSaveState {
+  status: 'idle' | 'saved' | 'error';
+  message?: string;
+  /** What the database actually stored, for the grid to patch its row with. */
+  prize?: PrizeSummary;
+}
+
+export async function updatePrizeAction(
+  _prev: PrizeSaveState,
+  formData: FormData,
+): Promise<PrizeSaveState> {
+  const parsed = prizeUpdateSchema.safeParse({
+    prizeId: formData.get('prizeId'),
+    name: formData.get('name'),
+    categoryId: formData.get('categoryId') || null,
+    internalCode: formData.get('internalCode') || null,
+    description: formData.get('description') || null,
+    allowsReturnToStock: formData.get('allowsReturnToStock') === 'on',
+  });
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await updatePrize(parsed.data, token);
+    // Re-read rather than echo the form: the balance buckets the grid shows
+    // come from the ledger, not from anything this write touched, and the row
+    // has to keep showing them.
+    const found = await getPrizeById(parsed.data.prizeId);
+    return found ? { status: 'saved', prize: found.prize } : { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, prizeId: parsed.data.prizeId }, 'update prize failed');
+    return { status: 'error', message: describeInventoryWriteError(cause, 'save this prize') };
+  }
+}
+
+export interface ArchivePrizeState {
+  status: 'idle' | 'archived' | 'error';
+  message?: string;
+}
+
+export async function archivePrizeAction(
+  _prev: ArchivePrizeState,
+  formData: FormData,
+): Promise<ArchivePrizeState> {
+  const prizeId = String(formData.get('prizeId') ?? '');
+  if (!prizeId) return { status: 'error', message: 'Missing prize.' };
+
+  const token = await requireAccessToken();
+
+  try {
+    await archivePrize(prizeId, token);
+    return { status: 'archived' };
+  } catch (cause) {
+    logger.error({ err: cause, prizeId }, 'archive prize failed');
+    return { status: 'error', message: describeInventoryWriteError(cause, 'archive this prize') };
   }
 }

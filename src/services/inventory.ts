@@ -15,7 +15,7 @@ import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import { UNCATEGORISED_FILTER } from '@/schemas/inventory';
-import type { MovementFormInput, PrizeFormInput } from '@/schemas/inventory';
+import type { MovementFormInput, PrizeFormInput, PrizeUpdateInput } from '@/schemas/inventory';
 
 export type InventoryBucket = Database['public']['Enums']['inventory_bucket'];
 export type InventoryMovementType = Database['public']['Enums']['inventory_movement_type'];
@@ -324,6 +324,37 @@ export async function getPrizeById(
 }
 
 /** The movement history for a prize's detail screen, newest first. */
+/**
+ * Replaces a prize's catalogue fields wholesale — update_prize (0027) sets
+ * every column it takes on every call, so a partial input blanks what it omits.
+ * Gated in the database on inventory.catalogue at the prize's own Company,
+ * which this never passes: the RPC reads it off the prize row.
+ */
+export async function updatePrize(input: PrizeUpdateInput, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('update_prize', {
+    p_prize_id: input.prizeId,
+    p_name: input.name,
+    p_category_id: input.categoryId,
+    p_internal_code: input.internalCode,
+    p_description: input.description,
+    p_allows_return_to_stock: input.allowsReturnToStock,
+  });
+  if (error) throw mapInventoryError(error.code, error.message);
+}
+
+/**
+ * Archives a prize. Irreversible from this app, and not by oversight:
+ * prizes_select_inventory_view (0029) is `deleted_at is null and
+ * has_permission(...)`, so an archived prize is unreadable through RLS for
+ * every caller, including the owner and the platform admin. Nothing here can
+ * list it, show it or restore it afterwards — which is why the screen that
+ * calls this says so before asking for confirmation.
+ */
+export async function archivePrize(prizeId: string, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('archive_prize', { p_prize_id: prizeId });
+  if (error) throw mapInventoryError(error.code, error.message);
+}
+
 export async function getPrizeMovements(
   companyId: string,
   prizeId: string,
