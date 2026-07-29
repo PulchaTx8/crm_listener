@@ -108,19 +108,50 @@ describe('keysetFilter', () => {
     );
   });
 
-  // The bug this exists to prevent: ascending with nulls last, `col.gt.V` is false
-  // for every null row, so without this arm the null region is never reached and
-  // every listener without a name silently disappears from the last page.
-  it('ascending with nulls last reaches the null region', () => {
+  // The bug this exists to prevent: a comparison against NULL is never true, so
+  // whichever region the cursor is in, the arm crossing into the other region
+  // must be added by hand or everything on the far side is unreachable — and
+  // silently, because the pages still load and the count still looks right.
+  //
+  // Cover all four combinations. An earlier draft of this plan gated the
+  // crossing arm on `direction === 'asc'` and treated the null region as always
+  // terminal; both were wrong, and neither was caught because only the two
+  // ascending-nulls-last cases were tested.
+  it('non-null region, nulls last, ascending: adds the null arm', () => {
     expect(keysetFilter('full_name', 'asc', cur, true)).toBe(
       'full_name.gt."M",and(full_name.eq."M",id.gt."bbbbbbbb-0000-0000-0000-000000000001"),full_name.is.null',
     );
   });
 
-  it('inside the null region, pages by id alone', () => {
-    const nullCur = { value: null, id: 'cccccccc-0000-0000-0000-000000000001' };
+  it('non-null region, nulls last, descending: adds the null arm too', () => {
+    expect(keysetFilter('full_name', 'desc', cur, true)).toBe(
+      'full_name.lt."M",and(full_name.eq."M",id.lt."bbbbbbbb-0000-0000-0000-000000000001"),full_name.is.null',
+    );
+  });
+
+  it('non-null region, nulls first: the nulls are already behind us', () => {
+    expect(keysetFilter('full_name', 'asc', cur, false)).toBe(
+      'full_name.gt."M",and(full_name.eq."M",id.gt."bbbbbbbb-0000-0000-0000-000000000001")',
+    );
+  });
+
+  const nullCur = { value: null, id: 'cccccccc-0000-0000-0000-000000000001' };
+
+  it('null region, nulls last: terminal, so the id alone orders what remains', () => {
     expect(keysetFilter('full_name', 'asc', nullCur, true)).toBe(
       'and(full_name.is.null,id.gt."cccccccc-0000-0000-0000-000000000001")',
+    );
+  });
+
+  it('null region, nulls first: non-null rows still follow and must be reachable', () => {
+    expect(keysetFilter('full_name', 'asc', nullCur, false)).toBe(
+      'and(full_name.is.null,id.gt."cccccccc-0000-0000-0000-000000000001"),full_name.not.is.null',
+    );
+  });
+
+  it('null region, nulls first, descending: same crossing arm', () => {
+    expect(keysetFilter('full_name', 'desc', nullCur, false)).toBe(
+      'and(full_name.is.null,id.lt."cccccccc-0000-0000-0000-000000000001"),full_name.not.is.null',
     );
   });
 });
@@ -181,10 +212,18 @@ function quote(value: string): string {
 /**
  * Builds the `.or(...)` argument that resumes after `cursor`.
  *
- * `nullsLast` must match the ordering actually applied to the query. When it is
- * true and the direction is ascending, a third arm is required: `col.gt.V` is
- * false for every NULL row, so without it the null region is unreachable and
- * every row with no value silently vanishes from the end of the result.
+ * `nullsLast` must match the ordering actually applied to the query, and it is
+ * independent of direction: Postgres defaults ASC to NULLS LAST and DESC to
+ * NULLS FIRST, so a caller who wants nulls last on a descending sort has to ask
+ * for it explicitly.
+ *
+ * Comparisons against NULL are never true, so whichever region the cursor is
+ * in, the arm that crosses into the other region has to be added by hand or
+ * everything on the far side is unreachable — silently, since the pages still
+ * load and the count still looks right. The rule is symmetric:
+ *
+ *   - in the non-null region, add `col.is.null` when nulls sort last;
+ *   - in the null region, add `col.not.is.null` when nulls sort first.
  */
 export function keysetFilter(
   column: string,
@@ -192,20 +231,22 @@ export function keysetFilter(
   cursor: Cursor,
   nullsLast: boolean,
 ): string {
+  const op = direction === 'asc' ? 'gt' : 'lt';
   const id = quote(cursor.id);
 
   if (cursor.value === null) {
-    // Already inside the null region: every remaining row has a null value, so
-    // the id alone orders them.
-    const op = direction === 'asc' ? 'gt' : 'lt';
-    return `and(${column}.is.null,id.${op}.${id})`;
+    const arms = [`and(${column}.is.null,id.${op}.${id})`];
+    // Nulls first means the null region is NOT terminal: non-null rows follow
+    // it, and without this arm paging stops dead once the nulls run out.
+    if (!nullsLast) arms.push(`${column}.not.is.null`);
+    return arms.join(',');
   }
 
   const value = quote(cursor.value);
-  const op = direction === 'asc' ? 'gt' : 'lt';
   const arms = [`${column}.${op}.${value}`, `and(${column}.eq.${value},id.${op}.${id})`];
-
-  if (nullsLast && direction === 'asc') arms.push(`${column}.is.null`);
+  // Nulls last means the null region follows every non-null row, in either
+  // direction — `col.gt.V` and `col.lt.V` are both false for a NULL.
+  if (nullsLast) arms.push(`${column}.is.null`);
 
   return arms.join(',');
 }
