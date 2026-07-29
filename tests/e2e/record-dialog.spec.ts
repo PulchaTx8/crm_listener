@@ -1,0 +1,321 @@
+import { test, expect, type Page } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
+import {
+  LOCAL_SUPABASE_URL,
+  LOCAL_SUPABASE_ANON_KEY,
+  LOCAL_SUPABASE_SERVICE_ROLE_KEY,
+} from '../local-supabase';
+
+/**
+ * Block 3c's proof.
+ *
+ * The promise this block makes is a negative one — opening a record, moving
+ * between its tabs, saving it and closing it does NOT re-run the list query
+ * behind it — and a negative is verified by counting, not by looking. Every
+ * request the browser makes for the /members route is recorded; at the end of a
+ * journey that touches every one of those operations, the count must still be
+ * zero.
+ *
+ * The rest of the file is what the count cannot see: focus returning to the
+ * control that opened the record, ESC, Back, a saved row keeping its position,
+ * and the address of a listener the caller cannot reach saying nothing about
+ * whether it exists.
+ */
+const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
+const stamp = Date.now();
+const platformAdminEmail = `e2e-dialog-admin-${stamp}@example.test`;
+const platformAdminPassword = `E2e-dialog-admin-${stamp}-pw`;
+const ownerEmail = `e2e-dialog-owner-${stamp}@example.test`;
+const ownerPassword = `Owner-${stamp}-chosen`;
+const orgName = `Dialog Org ${stamp}`;
+const stationName = `Dialog Station ${stamp}`;
+const strangerOwnerEmail = `e2e-dialog-stranger-${stamp}@example.test`;
+const strangerStationName = `Dialog Station B ${stamp}`;
+const strangerName = `Stranger ${stamp}`;
+// Three listeners, named so that sorting by name is a known order: the save
+// below renames the first one to something that would sort last if the list
+// were ever re-queried.
+const listenerNames = [`Ana Dialog ${stamp}`, `Bruno Dialog ${stamp}`, `Carla Dialog ${stamp}`];
+const renamed = `Zoe Dialog ${stamp}`;
+
+const createdUserIds: string[] = [];
+let unreachableMemberId = '';
+
+test.beforeAll(async () => {
+  const { data, error } = await admin.auth.admin.createUser({
+    email: platformAdminEmail,
+    password: platformAdminPassword,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`could not create admin: ${error?.message}`);
+  createdUserIds.push(data.user.id);
+  await admin.from('profiles').insert({ id: data.user.id, email: platformAdminEmail });
+  await admin.from('platform_admins').insert({ user_id: data.user.id });
+});
+
+test.afterAll(async () => {
+  for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
+});
+
+/**
+ * Counts the requests that would re-render the audience list: a document
+ * navigation to /members, or an RSC payload fetch for it. Next marks the latter
+ * with an `RSC` header and an `_rsc` query parameter, and either one is enough
+ * to identify it.
+ *
+ * The record read and every save are POSTs to the server-action endpoint on the
+ * same path, and those are expected — the block forbids re-running the LIST,
+ * not talking to the server at all. They are excluded by resource type rather
+ * than by URL: a server action POST is a `fetch`, never a document, and carries
+ * no `_rsc`.
+ *
+ * WHAT THIS CANNOT SEE, stated plainly because the gap is the whole reason the
+ * assertion beside the save exists: a revalidatePath() inside a server action
+ * does NOT produce a request of its own. Next returns the freshly rendered tree
+ * in the action's own POST response, which this counter deliberately ignores —
+ * so the exact regression this block most fears would slip past it. What
+ * catches that one is the row-position assertion made at the moment of the
+ * save: a re-rendered list re-sorts, and the row moves. This counter guards the
+ * other shape of the same mistake — reaching for the Next router where the
+ * history API is what the hook is written to use — which does put a request on
+ * the wire. Verified by mutation, both ways round; see docs/block-3c-report.md.
+ */
+function countListRenders(page: Page): string[] {
+  const renders: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (!url.pathname.startsWith('/members')) return;
+    const isRsc = url.searchParams.has('_rsc') || request.headers()['rsc'] === '1';
+    if (request.resourceType() === 'document' || isRsc) renders.push(request.url());
+  });
+  return renders;
+}
+
+test('the record opens over a list that is never re-queried', async ({ page, browser }) => {
+  // --- seed a customer, an owner and three listeners ------------------------
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
+  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByTestId('customer-create').click();
+  await page.getByPlaceholder('Organization name').fill(orgName);
+  await page.getByPlaceholder('Company (Station) name').fill(stationName);
+  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
+
+  const revealed = page.locator('code').first();
+  await expect(revealed).toBeVisible({ timeout: 15_000 });
+  const provisionalPassword = (await revealed.innerText()).trim();
+
+  const { data: ownerProfile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', ownerEmail)
+    .single();
+  if (!ownerProfile) throw new Error(`no profile row for ${ownerEmail}`);
+  createdUserIds.push(ownerProfile.id);
+
+  // A second customer, for the security case at the end of this journey: its
+  // listener is the one the first owner must not be able to address. Reloaded
+  // between the two provisionings rather than refilling the open dialog, so
+  // the password read below cannot be the previous customer's still on screen.
+  await page.reload();
+  await page.getByTestId('customer-create').click();
+  await page.getByPlaceholder('Organization name').fill(`${orgName} B`);
+  await page.getByPlaceholder('Company (Station) name').fill(strangerStationName);
+  await page.getByPlaceholder('Owner e-mail').fill(strangerOwnerEmail);
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
+
+  const strangerRevealed = page.locator('code').first();
+  await expect(strangerRevealed).toBeVisible({ timeout: 15_000 });
+  const strangerPassword = (await strangerRevealed.innerText()).trim();
+
+  const { data: strangerProfile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', strangerOwnerEmail)
+    .single();
+  if (!strangerProfile) throw new Error(`no profile row for ${strangerOwnerEmail}`);
+  createdUserIds.push(strangerProfile.id);
+
+  const ownerContext = await browser.newContext();
+  const ownerPage = await ownerContext.newPage();
+  await ownerPage.goto('/login');
+  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
+  await ownerPage.getByPlaceholder('Password').fill(provisionalPassword);
+  await ownerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(ownerPage).toHaveURL(/\/change-password$/);
+  await ownerPage.getByPlaceholder('New password').fill(ownerPassword);
+  await ownerPage.getByPlaceholder('Repeat the password').fill(ownerPassword);
+  await ownerPage.getByRole('button', { name: 'Save' }).click();
+  await expect(ownerPage).toHaveURL(/\/app$/);
+
+  // The listeners are seeded through create_member on the owner's own session
+  // rather than through the registration dialog three times over: this spec is
+  // about what happens to a list once it is on screen, and driving the desk's
+  // two-step duplicate check is members-flow.spec.ts's job.
+  const asOwner = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: ownerSignInError } = await asOwner.auth.signInWithPassword({
+    email: ownerEmail,
+    password: ownerPassword,
+  });
+  expect(ownerSignInError).toBeNull();
+
+  const { data: station } = await admin
+    .from('companies')
+    .select('id')
+    .eq('name', stationName)
+    .single();
+  if (!station) throw new Error(`no company row for ${stationName}`);
+
+  for (const name of listenerNames) {
+    const { error } = await asOwner.rpc('create_member', {
+      p_company_id: station.id,
+      p_full_name: name,
+    });
+    expect(error).toBeNull();
+  }
+
+  // The listener the first owner must never reach, created on the second
+  // customer's own session — RLS is what hides it, so it has to be a real row
+  // in a real other Organization rather than an id nobody owns.
+  const asStranger = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: strangerSignInError } = await asStranger.auth.signInWithPassword({
+    email: strangerOwnerEmail,
+    password: strangerPassword,
+  });
+  expect(strangerSignInError).toBeNull();
+
+  const { data: strangerStation } = await admin
+    .from('companies')
+    .select('id')
+    .eq('name', strangerStationName)
+    .single();
+  if (!strangerStation) throw new Error(`no company row for ${strangerStationName}`);
+
+  const { data: strangerMemberId, error: strangerMemberError } = await asStranger.rpc(
+    'create_member',
+    { p_company_id: strangerStation.id, p_full_name: strangerName },
+  );
+  expect(strangerMemberError).toBeNull();
+  unreachableMemberId = String(strangerMemberId);
+
+  // --- the count starts here ------------------------------------------------
+  const listRenders = countListRenders(ownerPage);
+
+  await ownerPage.getByRole('link', { name: 'Members' }).click();
+  await expect(ownerPage).toHaveURL(/\/members$/);
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  // Sorted by name, deliberately: the default is newest-first, under which a
+  // rename could not move a row even if the list WERE re-queried, and the
+  // "position never moves" assertion below would prove nothing. Under a name
+  // sort, renaming the first row to "Zoe" is exactly the case that would
+  // reorder the list if anything re-ran the query.
+  await ownerPage.getByRole('link', { name: /^Name/ }).click();
+  await expect(ownerPage).toHaveURL(/sort=name/);
+  await expect(ownerPage.locator('[data-testid="member-row"]').first()).toContainText(
+    listenerNames[0] as string,
+  );
+
+  // The two navigations that put this list on screen are renders of the list,
+  // and they are the last ones this journey is allowed. Cleared rather than
+  // tolerated in the final assertion, so that the number checked at the end is
+  // zero and not a magic constant somebody would later "fix" by incrementing.
+  listRenders.length = 0;
+
+  const firstRow = ownerPage.locator('[data-testid="member-row"]').first();
+
+  // --- open, switch two tabs, save, close -----------------------------------
+  // Matched on the action rather than the name: the save below renames this
+  // listener, and a locator carrying the old name would stop resolving to the
+  // very control whose focus this test is about to check.
+  const pencil = firstRow.getByRole('button', { name: /^Edit / });
+  await pencil.click();
+  await expect(ownerPage.getByRole('heading', { name: listenerNames[0], level: 2 })).toBeVisible();
+  await expect(ownerPage).toHaveURL(/record=[0-9a-f-]+/);
+
+  await ownerPage.getByRole('tab', { name: 'Stations' }).click();
+  await expect(ownerPage.getByText(stationName)).toBeVisible();
+  await ownerPage.getByRole('tab', { name: 'Consents' }).click();
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toBeVisible();
+  await expect(ownerPage).toHaveURL(/tab=consents/);
+
+  await ownerPage.getByRole('tab', { name: 'Data' }).click();
+  const dataForm = ownerPage.locator('[data-testid="member-data-form"]');
+  await dataForm.getByLabel('Name').fill(renamed);
+  await dataForm.getByRole('button', { name: 'Save' }).click();
+
+  // The first assertion after the write, deliberately. This list is sorted by
+  // name, so a list rebuilt from the server would put "Zoe" last; the row
+  // staying first is the rule row-patch.ts exists to keep AND the only thing
+  // that catches a revalidatePath reintroduced into updateMemberAction, whose
+  // re-render arrives inside the action's own response where the request
+  // counter cannot see it. Asserted here rather than five steps later so the
+  // failure names its cause.
+  await expect(ownerPage.locator('[data-testid="member-row"]').first()).toContainText(renamed);
+  await expect(dataForm.getByText('Saved.')).toBeVisible();
+
+  // --- ESC closes, and focus goes back to the control that opened it --------
+  // Closing takes the record out of the address and leaves the list's own state
+  // — the name sort chosen above — exactly as it was. That is withRecord's job:
+  // it removes `record` and `tab` and touches nothing else in the query.
+  await ownerPage.keyboard.press('Escape');
+  await expect(ownerPage.getByRole('heading', { name: renamed, level: 2 })).toHaveCount(0);
+  await expect(ownerPage).toHaveURL(/\/members\?sort=name$/);
+  await expect(pencil).toBeFocused();
+
+  // --- the saved row shows the new value IN ITS ORIGINAL POSITION -----------
+  // The list is sorted by name, so a re-query would move "Zoe" to the end. It
+  // is still first, which is the rule row-patch.ts exists to keep: an operator
+  // halfway through editing a page of listeners does not have the page
+  // rearranged under them.
+  await expect(ownerPage.locator('[data-testid="member-row"]').first()).toContainText(renamed);
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  // --- Back closes the record and leaves the list on screen -----------------
+  const secondRow = ownerPage.locator('[data-testid="member-row"]').nth(1);
+  await secondRow.getByRole('button', { name: `Edit ${listenerNames[1]}` }).click();
+  await expect(ownerPage.getByRole('heading', { name: listenerNames[1], level: 2 })).toBeVisible();
+  await ownerPage.goBack();
+  await expect(ownerPage.getByRole('heading', { name: listenerNames[1], level: 2 })).toHaveCount(0);
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  // --- the count ------------------------------------------------------------
+  // Everything above — two records opened, three tabs, a save, ESC, Back —
+  // without one re-render of the list route. This is the assertion the whole
+  // block exists to make; if a revalidatePath ever finds its way back into
+  // members/actions.ts, this is where it says so.
+  expect(listRenders).toEqual([]);
+
+  // --- a record the caller cannot reach -------------------------------------
+  // A real listener, at a Station in another Organization: RLS is what hides
+  // it, so an id nobody owns would be testing something easier than the real
+  // case. The dialog must say the same sentence for both — "no such listener"
+  // and "not yours" collapse on purpose (record.ts), or ?record= becomes an
+  // oracle telling somebody pasting ids which ones exist.
+  await ownerPage.goto(`/members?record=${unreachableMemberId}`);
+
+  await expect(
+    ownerPage.getByText('No such listener, or you do not have permission to see this one.'),
+  ).toBeVisible();
+  // Nothing about that listener reaches this page, in text or in markup —
+  // checked against the whole document, because a name sitting in a title or a
+  // data attribute is a leak that innerText cannot see.
+  await expect(ownerPage.getByText(strangerName)).toHaveCount(0);
+  expect(await ownerPage.content()).not.toContain(strangerName);
+  // The list behind it rendered as usual and is still usable.
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  await ownerContext.close();
+});

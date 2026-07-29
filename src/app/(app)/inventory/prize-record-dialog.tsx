@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useId, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -43,6 +43,7 @@ export function PrizeRecordDialog({
   onTab,
   onClose,
   onSaved,
+  onLoaded,
 }: {
   recordId: string | null;
   tab: PrizeTab;
@@ -51,6 +52,12 @@ export function PrizeRecordDialog({
   onTab: (tab: PrizeTab) => void;
   onClose: () => void;
   onSaved: (prize: PrizeSummary) => void;
+  /**
+   * Every successful read of a record, which is how a prize registered a
+   * moment ago gets its row: the grid opens the new record and takes the row
+   * from this read rather than from a second one of its own.
+   */
+  onLoaded?: (prize: PrizeSummary) => void;
 }) {
   const titleId = useId();
   const [record, setRecord] = useState<PrizeRecord | null>(null);
@@ -58,12 +65,19 @@ export function PrizeRecordDialog({
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  // Set when a movement was recorded, so that the balance the re-read brings
+  // back is carried out to the grid's row as well as into this dialog. A ref
+  // rather than state: it is a note to the next read, and making it state
+  // would put it in that read's own dependency list, where changing it would
+  // trigger the very read it is describing.
+  const movementPending = useRef(false);
 
   useEffect(() => {
     if (!recordId) {
       setRecord(null);
       setFailure(null);
       setDirty(false);
+      movementPending.current = false;
       return;
     }
     let current = true;
@@ -74,6 +88,15 @@ export function PrizeRecordDialog({
       setLoading(false);
       if (result.status === 'ok') {
         setRecord(result.record);
+        onLoaded?.(result.record.prize);
+        if (movementPending.current) {
+          movementPending.current = false;
+          // A movement changes the balance, and the balance is on the grid's
+          // row. Patched from what the record just read rather than computed
+          // here: reconciling buckets is the database's arithmetic, not this
+          // component's.
+          onSaved(result.record.prize);
+        }
         return;
       }
       setRecord(null);
@@ -86,7 +109,25 @@ export function PrizeRecordDialog({
     return () => {
       current = false;
     };
+    // onSaved is stable for this dialog's lifetime, and adding it would make
+    // the record re-read whenever the grid re-renders its callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId, reloadToken]);
+
+  /**
+   * Re-reads this one prize after a movement recorded inside the dialog, so the
+   * ledger and the balance above it show what was just written.
+   *
+   * The detail page these forms used to live on got that from
+   * revalidatePath('/inventory/[prizeId]'); that route is gone (Task 10) and
+   * the list route must never be revalidated (the rule this block rests on), so
+   * the record refreshes itself — one server action for one id, with nothing
+   * about the list behind the dialog re-rendered or re-queried.
+   */
+  function refreshAfterMovement() {
+    movementPending.current = true;
+    setReloadToken((token) => token + 1);
+  }
 
   function requestClose() {
     if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
@@ -101,7 +142,7 @@ export function PrizeRecordDialog({
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close"
+          aria-label="Close record"
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -169,31 +210,58 @@ export function PrizeRecordDialog({
             {tab === 'movements' && (
               <div className="flex flex-col gap-6">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {powers.entry && <StockEntryForm companyId={record.companyId} prizeId={record.prize.id} />}
-                  {powers.exit && <StockExitForm companyId={record.companyId} prizeId={record.prize.id} />}
+                  {powers.entry && (
+                    <StockEntryForm
+                      companyId={record.companyId}
+                      prizeId={record.prize.id}
+                      onRecorded={refreshAfterMovement}
+                    />
+                  )}
+                  {powers.exit && (
+                    <StockExitForm
+                      companyId={record.companyId}
+                      prizeId={record.prize.id}
+                      onRecorded={refreshAfterMovement}
+                    />
+                  )}
                   {powers.adjust && (
                     <AdjustmentForm
                       companyId={record.companyId}
                       prizeId={record.prize.id}
                       balance={record.prize.balance}
+                      onRecorded={refreshAfterMovement}
                     />
                   )}
                   {powers.reserve && (
                     <>
-                      <ReserveForm companyId={record.companyId} prizeId={record.prize.id} />
-                      <ReleaseForm companyId={record.companyId} prizeId={record.prize.id} />
+                      <ReserveForm
+                        companyId={record.companyId}
+                        prizeId={record.prize.id}
+                        onRecorded={refreshAfterMovement}
+                      />
+                      <ReleaseForm
+                        companyId={record.companyId}
+                        prizeId={record.prize.id}
+                        onRecorded={refreshAfterMovement}
+                      />
                     </>
                   )}
                 </div>
 
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.movements.map((movement) => (
-                    <li key={movement.id} className="rounded-md border p-3">
+                    <li key={movement.id} data-testid="movement-row" className="rounded-md border p-3">
                       <span className="font-medium">{MOVEMENT_TYPE_LABELS[movement.movementType]}</span>
                       {' · '}
-                      {movement.quantity}
-                      {movement.fromBucket ? ` · from ${formatBucket(movement.fromBucket)}` : ''}
-                      {movement.toBucket ? ` · to ${formatBucket(movement.toBucket)}` : ''}
+                      {/* Both ends of the transition, always — formatBucket
+                          renders a null bucket as "outside the Station" (0026's
+                          own column comment), which is the whole reason it
+                          takes null at all. Skipping the null end, as this did
+                          when the ledger moved into the dialog, left a stock
+                          entry reading "50 · to Available" with nowhere named
+                          for the stock to have come from. */}
+                      {movement.quantity} unit(s), {formatBucket(movement.fromBucket)} →{' '}
+                      {formatBucket(movement.toBucket)}
                       <span className="block text-xs text-muted-foreground">
                         {formatDateTime(movement.createdAt)}
                         {movement.note ? ` — ${movement.note}` : ''}

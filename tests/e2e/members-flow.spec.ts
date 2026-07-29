@@ -115,7 +115,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await page.getByPlaceholder('Organization name').fill(orgName);
   await page.getByPlaceholder('Company (Station) name').fill(stationAName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });
@@ -311,9 +311,12 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await delegateAPage.getByRole('link', { name: 'Members' }).click();
   await expect(delegateAPage).toHaveURL(/\/members$/);
 
-  // Rendered only because delegate A holds members.create — a courtesy gate,
-  // not the boundary (create_member re-checks its own permission), but its
-  // presence is what lets the rest of this step use the real form.
+  // The button is rendered only because delegate A holds members.create — a
+  // courtesy gate, not the boundary (create_member re-checks its own
+  // permission), but its presence is what lets the rest of this step use the
+  // real form. Registration is a dialog over the list since Block 3c; the
+  // two-step duplicate check inside it is unchanged.
+  await delegateAPage.getByTestId('member-create').click();
   const checkForm = delegateAPage.locator('[data-testid="member-check-form"]');
   await expect(checkForm).toBeVisible();
   await checkForm.getByLabel('Phone').fill(listenerPhone);
@@ -325,22 +328,37 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await registerForm.getByRole('button', { name: 'Register listener' }).click();
   await expect(registerForm.getByText('Registered.')).toBeVisible();
 
-  await registerForm.getByRole('link', { name: 'View listener' }).click();
-  await expect(delegateAPage).toHaveURL(/\/members\/[0-9a-f-]+$/);
-  const memberId = delegateAPage.url().split('/members/')[1];
+  // "View listener" opens the record that was just created, over the same
+  // list, and writes its address into the URL without a navigation — the
+  // retired /members/[memberId] route is what this replaces.
+  await registerForm.getByRole('button', { name: 'View listener' }).click();
+  await expect(delegateAPage).toHaveURL(/\/members\?.*record=[0-9a-f-]+/);
+  const memberId = new URL(delegateAPage.url()).searchParams.get('record');
   if (!memberId) throw new Error('could not read the listener id off the URL');
 
-  await expect(delegateAPage.getByRole('heading', { name: listenerName })).toBeVisible();
+  await expect(
+    delegateAPage.getByRole('heading', { name: listenerName, level: 2 }),
+  ).toBeVisible();
 
   // --- records the rules consent --------------------------------------------
   // Every default on this form already matches the brief: the one Station
   // delegate A can reach, consent type "rules", granted. Nothing to change.
+  await delegateAPage.getByRole('tab', { name: 'Consents' }).click();
   const consentForm = delegateAPage.locator('[data-testid="consent-form"]');
   await expect(consentForm).toBeVisible();
   await consentForm.getByRole('button', { name: 'Record consent' }).click();
   await expect(consentForm.getByText('Consent recorded.')).toBeVisible();
 
+  // The record re-reads itself after a write made inside it, so the history
+  // above gains the row without the list behind the dialog being touched.
+  // "Promotion rules" is CONSENT_TYPE_LABELS.rules, read out of format.ts
+  // rather than paraphrased, and "Granted" is the append-only row's own state.
+  const consentRow = delegateAPage.locator('li', { hasText: 'Promotion rules' }).first();
+  await expect(consentRow).toBeVisible();
+  await expect(consentRow).toContainText('Granted');
+
   // --- blocks them until a date ---------------------------------------------
+  await delegateAPage.getByRole('tab', { name: 'Blocks' }).click();
   const blockForm = delegateAPage.locator('[data-testid="block-form"]');
   await expect(blockForm).toBeVisible();
   await blockForm.getByLabel('Reason').fill(blockReason);
@@ -361,18 +379,18 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await blockForm.getByRole('button', { name: 'Block this listener' }).click();
   await expect(blockForm.getByText('Block recorded.')).toBeVisible();
 
-  // The block is reflected on this same page without a reload — the same
-  // revalidatePath('/members/[id]') mechanism inventory-flow.spec.ts relies
-  // on for its own movement rows.
-  await expect(delegateAPage.locator('[data-testid="member-blocked-banner"]')).toBeVisible();
+  // The block is reflected in this same record without a reload. Not by
+  // revalidatePath any more — that would re-render the list route underneath,
+  // which this block forbids — but by the record re-reading itself through the
+  // one server action that opened it.
   const blockRow = delegateAPage.locator('[data-testid="member-block-row"]', {
     hasText: 'Barred from draws',
   });
   await expect(blockRow).toBeVisible();
   await expect(blockRow.getByText(blockReason)).toBeVisible();
   // "blocks them until a date," not merely "a block exists": the row renders
-  // either "until <date>" or ", no end date set" (BLOCK_KIND_LABELS' sibling
-  // text, [memberId]/page.tsx:353-356), distinguishing a dated block from an
+  // either "until <date>" or ", no end date" (the block row's own sibling text
+  // in member-record-dialog.tsx), distinguishing a dated block from an
   // indefinite one. Without this, endsAt being dropped between the action
   // and block_member's p_ends_at — or the RPC ignoring it — would still
   // produce a block matching every assertion above (Task 10 review,
@@ -380,18 +398,23 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await expect(blockRow).toContainText('until');
 
   // --- finds no way to erase --------------------------------------------------
-  // The Audience Manager role never held members.erase. The "Erase personal
-  // data" card — its heading AND its underlying form — both live behind
-  // canErase in [memberId]/page.tsx (memberReachable(..., 'members.erase',
-  // ...)). Either assertion below fails the instant that card renders for
-  // this delegate: a courtesy gate that quietly stopped gating.
-  await expect(
-    delegateAPage.getByRole('heading', { name: 'Erase personal data' }),
-  ).toHaveCount(0);
+  // The Audience Manager role never held members.erase. The erase form lives
+  // behind `canErase` on the record's Data tab, which page.tsx resolves from
+  // members.erase and passes down. This assertion fails the instant that form
+  // renders for this delegate: a courtesy gate that quietly stopped gating.
+  await delegateAPage.getByRole('tab', { name: 'Data' }).click();
   await expect(delegateAPage.locator('[data-testid="erase-member-form"]')).toHaveCount(0);
+  // The row menu is the other place erasure could be offered from, and it is
+  // gated on the same power.
+  await expect(
+    delegateAPage.getByRole('menuitem', { name: 'Erase personal data…' }),
+  ).toHaveCount(0);
 
-  // --- the block is visible on the list, not only the detail page ----------
-  await delegateAPage.getByRole('link', { name: 'Back to members' }).click();
+  // --- the block is visible on the list, not only in the record -------------
+  // Closing the record must leave the list exactly as it was — no navigation,
+  // no re-query — so the badge below is the grid patching its own row from
+  // what the write reported, not a fresh read of the audience.
+  await delegateAPage.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(delegateAPage).toHaveURL(/\/members$/);
   const listenerRow = delegateAPage.locator('[data-testid="member-row"]', {
     hasText: listenerName,
@@ -450,16 +473,32 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   ).toBeVisible();
   await expect(delegateBPage.locator('[data-testid="member-row"]')).toHaveCount(0);
 
-  // Direct URL, not only the list: the same RLS policy makes getMember
-  // return null for this id under delegate B's session, which
-  // [memberId]/page.tsx renders as "not found" rather than leaking that the
-  // row exists but is out of reach.
-  await delegateBPage.goto(`/members/${memberId}`);
-  await expect(delegateBPage.getByRole('heading', { name: 'Listener not found' })).toBeVisible();
-  await delegateBPage.getByRole('link', { name: 'Back to members' }).click();
+  // Direct URL, not only the list: the same RLS policy makes getMember return
+  // null for this id under delegate B's session. The address is now a query
+  // parameter on the list itself, so the list renders as usual and the dialog
+  // over it says one sentence covering both "no such listener" and "not
+  // yours" — record.ts collapses them deliberately, or ?record= would confirm
+  // to somebody pasting ids which ones are real. The sentence is asserted in
+  // full, and the name and phone are asserted absent, because the leak this
+  // guards against would look exactly like the record opening normally.
+  await delegateBPage.goto(`/members?record=${memberId}`);
+  const missing = delegateBPage.getByText(
+    'No such listener, or you do not have permission to see this one.',
+  );
+  await expect(missing).toBeVisible();
+  await expect(delegateBPage.getByText(listenerName)).toHaveCount(0);
+  await expect(delegateBPage.getByText(listenerPhone)).toHaveCount(0);
+  // The list behind the failed record is untouched and still usable — the
+  // whole advantage of the record being a dialog rather than a page of its own.
+  await expect(
+    delegateBPage.getByText('No listener registered yet at a Station you can reach.'),
+  ).toBeVisible();
+
+  await delegateBPage.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(delegateBPage).toHaveURL(/\/members$/);
 
   // --- the sharpest case: the registration desk's own duplicate check ------
+  await delegateBPage.getByTestId('member-create').click();
   // Delegate B registers a DIFFERENT listener, entering the SAME phone
   // number delegate A's listener already carries. find_member_by_identifier
   // (0033) must answer 'elsewhere': someone in this Organization holds this

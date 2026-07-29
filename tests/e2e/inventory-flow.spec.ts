@@ -77,7 +77,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await page.getByPlaceholder('Organization name').fill(orgName);
   await page.getByPlaceholder('Company (Station) name').fill(stationName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });
@@ -215,25 +215,30 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await delegatePage.getByRole('link', { name: 'Inventory' }).click();
   await expect(delegatePage).toHaveURL(/\/inventory$/);
 
-  // Rendered only because the delegate holds inventory.catalogue — a
-  // courtesy gate, not the boundary (station-access.ts's own comment), but
+  // The button is rendered only because the delegate holds inventory.catalogue
+  // — a courtesy gate, not the boundary (station-access.ts's own comment), but
   // its presence here is what lets the rest of this step use the real form
   // rather than asserting against a screen that doesn't exist for them.
+  await delegatePage.getByTestId('prize-create').click();
   const prizeForm = delegatePage.locator('[data-testid="prize-form"]');
   await expect(prizeForm).toBeVisible();
   await prizeForm.getByLabel('Name').fill(prizeName);
   await prizeForm.getByRole('button', { name: 'Register prize' }).click();
   await expect(prizeForm.getByText('Prize registered.')).toBeVisible();
 
+  // "View prize" closes the registration dialog and opens the new prize's
+  // record over the list, which is also what puts its row on that list — the
+  // record's own read is where the row comes from, so there is no second
+  // query and no re-render of the screen behind it.
+  await prizeForm.getByRole('button', { name: 'View prize' }).click();
+  await expect(delegatePage).toHaveURL(/\/inventory\?.*record=[0-9a-f-]+/);
+  await expect(delegatePage.getByRole('heading', { name: prizeName, level: 2 })).toBeVisible();
+
   const prizeRow = delegatePage.locator('[data-testid="prize-row"]', { hasText: prizeName });
   await expect(prizeRow).toBeVisible();
-  // The row is a table row since Block 3b, and the link is its name cell —
-  // clicking the row itself would land on a balance figure and go nowhere.
-  await prizeRow.getByRole('link', { name: prizeName }).click();
-  await expect(delegatePage).toHaveURL(/\/inventory\/[0-9a-f-]+$/);
-  await expect(delegatePage.getByRole('heading', { name: prizeName })).toBeVisible();
 
   // --- adds 50 units -----------------------------------------------------
+  await delegatePage.getByRole('tab', { name: 'Stock movements' }).click();
   const entryForm = delegatePage.locator('[data-testid="stock-entry-form"]');
   await expect(entryForm).toBeVisible();
   await entryForm.getByLabel('Quantity').fill('50');
@@ -245,6 +250,11 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // throws a strict-mode violation if it matched more than one) — proof this
   // exact figure and bucket transition are on the ledger, not just that a
   // "success" toast appeared.
+  //
+  // The ledger reaches this state without a page render: the record re-reads
+  // itself after a movement written inside it, where the retired detail page
+  // used revalidatePath. Everything the count in record-dialog.spec.ts
+  // forbids is therefore also being exercised here.
   const entryMovement = delegatePage.locator('[data-testid="movement-row"]', {
     hasText: '50 unit(s), outside the Station → Available',
   });
@@ -273,19 +283,16 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await expect(reserveMovement.getByText(reserveNote)).toBeVisible();
 
   // --- finds no way to adjust ------------------------------------------------
-  // The Stock Keeper role never held inventory.adjust. The "Adjust to a
-  // counted figure" card — its heading AND its underlying form — both live
-  // behind `permissions.adjust` in [prizeId]/page.tsx (station-access.ts's
-  // getInventoryPermissions). Either assertion below fails the instant that
-  // card renders for this delegate, which is exactly the regression this
-  // pair exists to catch: a courtesy gate that quietly stopped gating.
-  await expect(
-    delegatePage.getByRole('heading', { name: 'Adjust to a counted figure' }),
-  ).toHaveCount(0);
+  // The Stock Keeper role never held inventory.adjust. The adjustment form
+  // lives behind `powers.adjust` on the record's Stock movements tab, which
+  // page.tsx resolves through station-access.ts's getInventoryPermissions —
+  // the same permission, the same resolver, one screen further in. This
+  // assertion fails the instant that form renders for this delegate, which is
+  // exactly the regression it exists to catch: a courtesy gate that quietly
+  // stopped gating.
   await expect(delegatePage.locator('[data-testid="adjustment-form"]')).toHaveCount(0);
 
   // Same reasoning, same mechanism, for inventory.exit — also never granted.
-  await expect(delegatePage.getByRole('heading', { name: 'Record a manual exit' })).toHaveCount(0);
   await expect(delegatePage.locator('[data-testid="stock-exit-form"]')).toHaveCount(0);
 
   await delegateContext.close();

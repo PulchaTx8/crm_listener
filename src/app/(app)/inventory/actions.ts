@@ -79,6 +79,13 @@ export async function createCategoryAction(
 export interface PrizeFormState {
   status: 'idle' | 'saved' | 'error';
   message?: string;
+  /**
+   * The prize that was just created. The grid opens its record on this id and
+   * takes the row from that read, rather than this action assembling a summary
+   * — a PrizeSummary carries a balance, and a balance is the ledger's
+   * arithmetic, not something a create call should be inventing.
+   */
+  prizeId?: string;
 }
 
 export async function createPrizeAction(
@@ -101,8 +108,8 @@ export async function createPrizeAction(
   const token = await requireAccessToken();
 
   try {
-    await createPrize(parsed.data, token);
-    return { status: 'saved' };
+    const prizeId = await createPrize(parsed.data, token);
+    return { status: 'saved', prizeId };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create prize failed');
     return { status: 'error', message: describeInventoryWriteError(cause, 'register prizes') };

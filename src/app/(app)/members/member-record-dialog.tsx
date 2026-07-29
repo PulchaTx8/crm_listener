@@ -47,6 +47,8 @@ export function MemberRecordDialog({
   onTab,
   onClose,
   onSaved,
+  onLoaded,
+  onBlocked,
 }: {
   recordId: string | null;
   tab: MemberTab;
@@ -54,6 +56,14 @@ export function MemberRecordDialog({
   onTab: (tab: MemberTab) => void;
   onClose: () => void;
   onSaved: (detail: MemberDetail) => void;
+  /**
+   * Every successful read of a record, which is how a listener registered a
+   * moment ago gets their row: the grid opens the new record and takes the row
+   * from this read rather than from a second one of its own.
+   */
+  onLoaded?: (detail: MemberDetail) => void;
+  /** A block that applies from now, so the grid can mark the row. */
+  onBlocked: (memberId: string) => void;
 }) {
   const titleId = useId();
   const [record, setRecord] = useState<MemberRecord | null>(null);
@@ -77,6 +87,7 @@ export function MemberRecordDialog({
       setLoading(false);
       if (result.status === 'ok') {
         setRecord(result.record);
+        onLoaded?.(result.record.detail);
         return;
       }
       setRecord(null);
@@ -91,7 +102,26 @@ export function MemberRecordDialog({
     return () => {
       current = false;
     };
+    // onLoaded is stable for this dialog's lifetime, and adding it would make
+    // the record re-read whenever the grid re-renders its callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId, reloadToken]);
+
+  /**
+   * Re-reads this one record after a write made inside it, so the consent,
+   * note and block histories show what was just appended.
+   *
+   * The detail page these forms used to live on got that from
+   * revalidatePath('/members/[memberId]'). That route is gone (Task 9) and the
+   * list route must never be revalidated (the rule this whole block rests on),
+   * so the record refreshes ITSELF: one server action, the same one that
+   * opened it, re-running for one id. Nothing about the list behind the dialog
+   * is re-rendered or re-queried, which is exactly the distinction — the
+   * prohibition is on re-running the LIST, not on reading the record again.
+   */
+  function refresh() {
+    setReloadToken((token) => token + 1);
+  }
 
   function requestClose() {
     // ESC and a backdrop click both land here. Silently discarding a half-typed
@@ -119,10 +149,14 @@ export function MemberRecordDialog({
             </p>
           )}
         </div>
+        {/* "Close record", not "Close": the footer carries a Close button too,
+            and two controls with one accessible name in a single dialog cannot
+            be told apart by anything that reads names — a screen reader, or a
+            test. */}
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close"
+          aria-label="Close record"
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -217,7 +251,11 @@ export function MemberRecordDialog({
                   )}
                 </ul>
                 {powers.edit && !erased && (
-                  <ConsentForm memberId={detail.id} stations={record.stations} />
+                  <ConsentForm
+                    memberId={detail.id}
+                    stations={record.stations}
+                    onRecorded={refresh}
+                  />
                 )}
               </div>
             )}
@@ -244,7 +282,7 @@ export function MemberRecordDialog({
               <div className="flex flex-col gap-4">
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.blocks.map((block) => (
-                    <li key={block.id} className="rounded-md border p-3">
+                    <li key={block.id} data-testid="member-block-row" className="rounded-md border p-3">
                       <span className="font-medium">{BLOCK_KIND_LABELS[block.kind]}</span>
                       {' · '}
                       {block.companyId ? 'One Station' : 'Whole Organization'}
@@ -262,7 +300,7 @@ export function MemberRecordDialog({
                       )}
                       {powers.block && !block.liftedAt && (
                         <div className="mt-2">
-                          <LiftBlockButton blockId={block.id} />
+                          <LiftBlockButton blockId={block.id} onLifted={refresh} />
                         </div>
                       )}
                     </li>
@@ -272,7 +310,18 @@ export function MemberRecordDialog({
                   )}
                 </ul>
                 {powers.block && !erased && (
-                  <BlockForm memberId={detail.id} stations={record.stations} />
+                  <BlockForm
+                    memberId={detail.id}
+                    stations={record.stations}
+                    onRecorded={(appliesNow) => {
+                      refresh();
+                      // The grid's badge is only marked for a block that is
+                      // blocking now; a back-dated one leaves the row alone
+                      // rather than claiming something is_member_blocked would
+                      // disagree with.
+                      if (appliesNow) onBlocked(detail.id);
+                    }}
+                  />
                 )}
               </div>
             )}

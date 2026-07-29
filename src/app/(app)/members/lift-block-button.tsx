@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { liftMemberBlockAction, type LiftBlockFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,9 +18,21 @@ const INITIAL: LiftBlockFormState = { status: 'idle' };
  * reads it as not-blocking either way, and recording who lifted it and why is
  * a real fact worth having regardless of whether it changed anything live.
  */
-export function LiftBlockButton({ blockId }: { blockId: string }) {
+export function LiftBlockButton({
+  blockId,
+  onLifted,
+}: {
+  blockId: string;
+  /** Asks the record to re-read, so the row above gains its "Lifted" line. */
+  onLifted?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(liftMemberBlockAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onLifted?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   if (state.status === 'saved') {
     return <p className="text-xs text-emerald-700">Lifted.</p>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useId, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -72,6 +72,8 @@ export function InventoryGrid({
   const { recordId, tab, open, setTab, close } = useRecordDialog(PRIZE_TABS, initialRecord);
   const [archiving, setArchiving] = useState<PrizeSummary | null>(null);
   const [creating, setCreating] = useState<'prize' | 'category' | null>(null);
+  /** The prize whose record was opened because it had just been registered. */
+  const pendingCreate = useRef<string | null>(null);
 
   const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
   const nameSorted = state.sort === 'name';
@@ -207,6 +209,15 @@ export function InventoryGrid({
         onTab={setTab}
         onClose={close}
         onSaved={(prize) => setGrid((current) => applyRowPatch(current, { kind: 'save', row: prize }))}
+        onLoaded={(prize) => {
+          // A prize registered a moment ago: its record was opened on the id
+          // the create returned, and the row comes from that read. One read
+          // rather than two, and the balance on the row is the one the ledger
+          // reports rather than a zero assumed here.
+          if (pendingCreate.current !== prize.id) return;
+          pendingCreate.current = null;
+          setGrid((current) => applyRowPatch(current, { kind: 'create', row: prize }));
+        }}
       />
 
       {archiving && (
@@ -225,6 +236,11 @@ export function InventoryGrid({
         companyId={state.companyId}
         categories={categories}
         onClose={() => setCreating(null)}
+        onPrizeCreated={(prizeId) => {
+          setCreating(null);
+          pendingCreate.current = prizeId;
+          open(prizeId);
+        }}
       />
     </>
   );
@@ -289,11 +305,13 @@ function CreateDialog({
   companyId,
   categories,
   onClose,
+  onPrizeCreated,
 }: {
   creating: 'prize' | 'category' | null;
   companyId: string;
   categories: PrizeCategorySummary[];
   onClose: () => void;
+  onPrizeCreated: (prizeId: string) => void;
 }) {
   const titleId = useId();
   return (
@@ -307,7 +325,7 @@ function CreateDialog({
         {creating === 'category' ? (
           <CategoryForm companyId={companyId} />
         ) : (
-          <PrizeForm companyId={companyId} categories={categories} />
+          <PrizeForm companyId={companyId} categories={categories} onCreated={onPrizeCreated} />
         )}
       </DialogBody>
       <DialogFooter>

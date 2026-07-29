@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useId, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -28,7 +28,6 @@ import { hasActiveFilters, membersHref } from './list-params';
 import type { MemberListState } from './list-params';
 import { MEMBER_TABS, MemberRecordDialog, type MemberTab } from './member-record-dialog';
 import { RegisterMemberForm } from './register-member-form';
-import { getMemberRecordAction } from './record';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 /** How many columns the empty-state row has to span, actions included. */
@@ -96,6 +95,8 @@ export function MembersGrid({
   const { recordId, tab, open, setTab, close } = useRecordDialog(MEMBER_TABS, initialRecord);
   const [archiving, setArchiving] = useState<MemberListRow | null>(null);
   const [registering, setRegistering] = useState(false);
+  /** The listener whose record was opened because they had just been registered. */
+  const pendingCreate = useRef<string | null>(null);
 
   function patchFromDetail(detail: MemberDetail) {
     setGrid((current) => {
@@ -118,10 +119,16 @@ export function MembersGrid({
     });
   }
 
-  async function prependNewlyRegistered(memberId: string) {
-    const result = await getMemberRecordAction(memberId);
-    if (result.status !== 'ok') return;
-    const detail = result.record.detail;
+  /**
+   * A listener registered a moment ago. Their record is opened on the id the
+   * registration returned, and the row is taken from THAT read rather than
+   * from a second one made here — two reads of the same record, fired in the
+   * same tick, is one more round trip than the screen needs and leaves the
+   * dialog waiting behind its own duplicate.
+   */
+  function prependFromRecord(detail: MemberDetail) {
+    if (pendingCreate.current !== detail.id) return;
+    pendingCreate.current = null;
     setGrid((current) =>
       applyRowPatch(current, {
         kind: 'create',
@@ -301,6 +308,14 @@ export function MembersGrid({
         onTab={setTab}
         onClose={close}
         onSaved={patchFromDetail}
+        onLoaded={prependFromRecord}
+        onBlocked={(memberId) =>
+          setGrid((current) => {
+            const row = current.rows.find((candidate) => candidate.id === memberId);
+            if (!row) return current;
+            return applyRowPatch(current, { kind: 'save', row: { ...row, blocked: true } });
+          })
+        }
       />
 
       {archiving && (
@@ -321,7 +336,13 @@ export function MembersGrid({
         onClose={() => setRegistering(false)}
         onRegistered={(memberId) => {
           setRegistering(false);
-          void prependNewlyRegistered(memberId);
+          // The control that reports this is labelled "View listener", so it
+          // opens the listener. Registering somebody is almost always followed
+          // by recording their consent, which is a tab of the record that just
+          // came into existence — and the record's own read is what puts the
+          // new row on the list (prependFromRecord).
+          pendingCreate.current = memberId;
+          open(memberId);
         }}
         onOpenExisting={(memberId) => {
           setRegistering(false);

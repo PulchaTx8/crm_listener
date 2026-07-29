@@ -48,7 +48,7 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await page.getByPlaceholder('Organization name').fill(`Invite Org ${stamp}`);
   await page.getByPlaceholder('Company (Station) name').fill(`Invite Station ${stamp}`);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });

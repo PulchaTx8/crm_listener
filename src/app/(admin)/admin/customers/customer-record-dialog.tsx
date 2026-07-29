@@ -100,7 +100,7 @@ export function CustomerRecordDialog({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Close record"
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />

@@ -65,7 +65,7 @@ test('provision a customer, sign in, change the password, then suspend', async (
   await page.getByPlaceholder('Organization name').fill(`E2E Org ${stamp}`);
   await page.getByPlaceholder('Company (Station) name').fill(companyName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });
@@ -100,7 +100,9 @@ test('provision a customer, sign in, change the password, then suspend', async (
   // --- and can reissue a provisional password -----------------------------
   // Reissuing lives on the record's Owner tab now, so the record is opened by
   // name and the tab chosen. Same operation, same RPC, one screen further in.
-  await provisionedRow.getByRole('button', { name: companyName }).click();
+  // exact: the row also carries "Open <name>" and "Actions for <name>" buttons,
+  // and a substring match would resolve to all three.
+  await provisionedRow.getByRole('button', { name: companyName, exact: true }).click();
   await page.getByRole('tab', { name: 'Owner' }).click();
   await page.getByRole('button', { name: 'New password' }).click();
   const reissued = page.locator('code').first();

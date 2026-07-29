@@ -59,7 +59,7 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await page.getByPlaceholder('Organization name').fill(orgName);
   await page.getByPlaceholder('Company (Station) name').fill(stationAName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });
@@ -116,6 +116,11 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   // (the owner has no UI for this — add_company is platform-admin only). The
   // form is on the customer record's Stations tab now, so the record is opened
   // from the row that names Station A.
+  //
+  // ESC first: the provisioning dialog is still open from the step above,
+  // deliberately — it holds the owner's password, which is shown once — and it
+  // is modal, so the list behind it is inert until it closes.
+  await page.keyboard.press('Escape');
   const stationARow = page.locator('[data-testid="company-row"]', { hasText: stationAName });
   await expect(stationARow).toBeVisible();
   await stationARow.getByRole('button', { name: `Actions for ${stationAName}` }).click();
