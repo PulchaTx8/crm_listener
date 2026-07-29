@@ -390,7 +390,7 @@ export default async function MemberDetailPage({
                         both or neither. */}
                     {canBlock && !b.liftedAt && (
                       <div className="mt-2">
-                        <LiftBlockButton memberId={member.id} blockId={b.id} />
+                        <LiftBlockButton blockId={b.id} />
                       </div>
                     )}
                   </div>

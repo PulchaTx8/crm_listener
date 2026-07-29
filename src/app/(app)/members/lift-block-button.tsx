@@ -18,7 +18,7 @@ const INITIAL: LiftBlockFormState = { status: 'idle' };
  * reads it as not-blocking either way, and recording who lifted it and why is
  * a real fact worth having regardless of whether it changed anything live.
  */
-export function LiftBlockButton({ memberId, blockId }: { memberId: string; blockId: string }) {
+export function LiftBlockButton({ blockId }: { blockId: string }) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(liftMemberBlockAction, INITIAL);
 
@@ -36,7 +36,6 @@ export function LiftBlockButton({ memberId, blockId }: { memberId: string; block
 
   return (
     <form action={action} data-testid="lift-block-form" className="flex flex-col gap-2">
-      <input type="hidden" name="memberId" value={memberId} />
       <input type="hidden" name="blockId" value={blockId} />
       <label className="flex flex-col gap-1 text-xs">
         Reason for lifting it now

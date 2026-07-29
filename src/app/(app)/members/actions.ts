@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import {
@@ -11,18 +10,40 @@ import {
   linkMemberToCompanySchema,
   liftMemberBlockSchema,
   recordMemberConsentSchema,
+  updateMemberSchema,
 } from '@/schemas/members';
 import {
   anonymizeMember,
+  archiveMember,
   blockMember,
   createMember,
   findMemberByIdentifier,
+  getMember,
   linkMemberToCompany,
   liftMemberBlock,
   recordMemberConsent,
+  updateMember,
 } from '@/services/members';
+import type { MemberDetail } from '@/services/members';
 import { logger } from '@/lib/logger';
 import { describeMembersWriteError } from './errors';
+
+// ---------------------------------------------------------------------------
+// Not one revalidatePath in this file, deliberately (Block 3c).
+//
+// Every write below is invoked from the record dialog, and revalidatePath
+// returns a freshly rendered payload for the current route alongside the
+// action's result — which re-runs the audience list's keyset query, rebuilds
+// the grid and throws away the operator's place in it. That is precisely what
+// the dialog exists to avoid, and it would happen silently: the screen would
+// still look right.
+//
+// The grid is updated instead by patching the row on the client
+// (src/lib/row-patch.ts), which is why the actions that change a listener
+// return what was stored rather than just a status. tests/e2e/record-dialog.spec.ts
+// counts list renders and asserts zero, so putting one of these back turns a
+// test red rather than quietly costing a round trip.
+// ---------------------------------------------------------------------------
 
 async function requireAccessToken(): Promise<string> {
   const supabase = await createUserClient();
@@ -150,7 +171,6 @@ export async function registerMemberAction(
 
   try {
     const memberId = await createMember(parsed.data, token);
-    revalidatePath('/members');
     return { status: 'saved', memberId };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'register member failed');
@@ -189,8 +209,6 @@ export async function linkMemberToStationAction(
 
   try {
     await linkMemberToCompany(parsed.data, token);
-    revalidatePath('/members');
-    revalidatePath(`/members/${parsed.data.memberId}`);
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'link member to station failed');
@@ -232,7 +250,6 @@ export async function recordConsentAction(
 
   try {
     await recordMemberConsent(parsed.data, token);
-    revalidatePath(`/members/${parsed.data.memberId}`);
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'record member consent failed');
@@ -280,8 +297,6 @@ export async function blockMemberAction(
 
   try {
     await blockMember(parsed.data, token);
-    revalidatePath(`/members/${parsed.data.memberId}`);
-    revalidatePath('/members');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'block member failed');
@@ -306,17 +321,10 @@ export async function liftMemberBlockAction(
     return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
   }
 
-  // memberId is not a lift_member_block argument (the block row already names
-  // its own member_id, 0034) — carried only so this action knows which
-  // detail page to revalidate.
-  const memberId = String(formData.get('memberId') ?? '');
-
   const token = await requireAccessToken();
 
   try {
     await liftMemberBlock(parsed.data, token);
-    if (memberId) revalidatePath(`/members/${memberId}`);
-    revalidatePath('/members');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, blockId: parsed.data.blockId }, 'lift member block failed');
@@ -351,8 +359,6 @@ export async function anonymizeMemberAction(
 
   try {
     await anonymizeMember(parsed.data.memberId, parsed.data.reason, token);
-    revalidatePath(`/members/${parsed.data.memberId}`);
-    revalidatePath('/members');
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'anonymize member failed');
@@ -360,5 +366,82 @@ export async function anonymizeMemberAction(
       status: 'error',
       message: describeMembersWriteError(cause, "erase this listener's personal data"),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// update_member and archive_member (0034) reach an interface for the first time
+// here. Both existed in the database and in services/members.ts since Block 3,
+// and nothing on any screen called either of them.
+// ---------------------------------------------------------------------------
+
+export interface MemberSaveState {
+  status: 'idle' | 'saved' | 'error';
+  message?: string;
+  /** What the database actually stored, for the grid to patch its row with. */
+  detail?: MemberDetail;
+}
+
+export async function updateMemberAction(
+  _prev: MemberSaveState,
+  formData: FormData,
+): Promise<MemberSaveState> {
+  const parsed = updateMemberSchema.safeParse({
+    memberId: formData.get('memberId'),
+    fullName: formData.get('fullName'),
+    phone: formData.get('phone') || undefined,
+    email: formData.get('email') || undefined,
+    cpf: formData.get('cpf') || undefined,
+    passport: formData.get('passport') || undefined,
+    birthDate: formData.get('birthDate') || undefined,
+    addressLine: formData.get('addressLine') || undefined,
+    addressNumber: formData.get('addressNumber') || undefined,
+    addressComplement: formData.get('addressComplement') || undefined,
+    neighbourhood: formData.get('neighbourhood') || undefined,
+    city: formData.get('city') || undefined,
+    state: formData.get('state') || undefined,
+    postalCode: formData.get('postalCode') || undefined,
+    discoverySource: formData.get('discoverySource') || undefined,
+  });
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await updateMember(parsed.data, token);
+    // Re-read rather than echo what was submitted: phone_normalized and
+    // email_normalized are generated columns and cpf_last_digits is derived
+    // from the hash, so what the row shows after a save has to come from the
+    // database, not from the form.
+    const detail = await getMember(parsed.data.memberId, token);
+    return detail ? { status: 'saved', detail } : { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, memberId: parsed.data.memberId }, 'update member failed');
+    return { status: 'error', message: describeMembersWriteError(cause, 'save this listener') };
+  }
+}
+
+export interface ArchiveMemberState {
+  status: 'idle' | 'archived' | 'error';
+  message?: string;
+}
+
+export async function archiveMemberAction(
+  _prev: ArchiveMemberState,
+  formData: FormData,
+): Promise<ArchiveMemberState> {
+  const memberId = String(formData.get('memberId') ?? '');
+  if (!memberId) return { status: 'error', message: 'Missing listener.' };
+
+  const token = await requireAccessToken();
+
+  try {
+    await archiveMember(memberId, token);
+    return { status: 'archived' };
+  } catch (cause) {
+    logger.error({ err: cause, memberId }, 'archive member failed');
+    return { status: 'error', message: describeMembersWriteError(cause, 'archive this listener') };
   }
 }
