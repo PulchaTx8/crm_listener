@@ -1,5 +1,6 @@
 import 'server-only';
 import { InternalError } from '@/lib/errors';
+import { escapeLikePattern } from '@/lib/postgrest';
 import type { UserClient } from '@/lib/supabase/user-client';
 
 export interface ViewableCompany {
@@ -28,8 +29,9 @@ export interface CompanyAccess {
   /**
    * True when the Company read below was capped rather than exhaustive (see
    * COMPANY_SCAN_CAP). The caller may hold the requested permission in a
-   * Company that did not make the cut — the UI must say so, not act as if
-   * the list were complete.
+   * Company that did not make the cut — the UI must say so, not act as if the
+   * list were complete, and since Block 3b it must also offer the `search`
+   * parameter that reaches the ones it cut.
    */
   capped: boolean;
 }
@@ -43,6 +45,9 @@ export interface CompanyAccess {
 // happened. Ordered by name, so which Companies get cut is at least stable
 // and alphabetical rather than arbitrary.
 const COMPANY_SCAN_CAP = 50;
+
+/** The one bound on a Station search term, exported so callers enforce this number rather than a copy of it. */
+export const STATION_SEARCH_MAX_LENGTH = 100;
 
 /**
  * Resolves which Companies (Stations) the signed-in caller holds `permission`
@@ -86,13 +91,24 @@ const COMPANY_SCAN_CAP = 50;
 export async function listCompanyAccess(
   supabase: UserClient,
   permission: string,
+  search?: string,
 ): Promise<CompanyAccess> {
-  const { data: companies, error } = await supabase
+  let query = supabase
     .from('companies')
     .select('id, name, status')
     .is('deleted_at', null)
-    .order('name')
-    .limit(COMPANY_SCAN_CAP + 1);
+    .order('name');
+
+  // The route to the fifty-first Station (Block 3b). Before this, the cap was
+  // the whole story: a platform admin got the alphabetically-first fifty and
+  // no way at all to reach the rest, and the screens said so in copy that
+  // described a dead end. The cap stays — it still bounds ONE page's cost —
+  // but it is no longer the only thing standing between the caller and a
+  // Station they hold the permission in.
+  const term = search?.trim().slice(0, STATION_SEARCH_MAX_LENGTH);
+  if (term) query = query.ilike('name', `%${escapeLikePattern(term)}%`);
+
+  const { data: companies, error } = await query.limit(COMPANY_SCAN_CAP + 1);
 
   if (error) throw new InternalError(`Could not read stations: ${error.message}`);
 

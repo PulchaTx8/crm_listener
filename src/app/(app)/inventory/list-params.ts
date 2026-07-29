@@ -14,6 +14,7 @@ import type { SortDirection } from '@/lib/keyset';
 
 export interface InventorySearchParams {
   companyId?: string;
+  station?: string;
   q?: string;
   cat?: string;
   sort?: string;
@@ -24,6 +25,14 @@ export interface InventorySearchParams {
 
 export interface InventoryListState {
   companyId: string;
+  /**
+   * A Station-name search, when the caller's Station list was capped and they
+   * narrowed it. Carried by every link on the screen: dropping it would put
+   * the Station list back to its capped first page, and a Station only
+   * reachable THROUGH the search would fall out of it — silently moving the
+   * caller to somebody else's inventory on the next sort click.
+   */
+  stationSearch?: string;
   search?: string;
   /** A category id, or the "uncategorised" sentinel; undefined means every category. */
   categoryId?: string;
@@ -58,6 +67,7 @@ export function parseInventoryListState(
 
   return {
     companyId,
+    stationSearch: raw.station?.trim() || undefined,
     search: raw.q?.trim() || undefined,
     categoryId: raw.cat?.trim() || undefined,
     sort,
@@ -82,6 +92,7 @@ export function hasActiveInventoryFilters(state: InventoryListState): boolean {
 export function inventoryHref(state: InventoryListState, cursor?: InventoryCursor | null): string {
   const query = new URLSearchParams();
   query.set('companyId', state.companyId);
+  if (state.stationSearch) query.set('station', state.stationSearch);
   if (state.search) query.set('q', state.search);
   if (state.categoryId) query.set('cat', state.categoryId);
   if (state.sort !== DEFAULT_PRIZE_SORT) query.set('sort', state.sort);

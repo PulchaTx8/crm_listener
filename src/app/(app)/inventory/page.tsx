@@ -16,6 +16,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { listPrizeCategories, listPrizesPage, PRIZE_SEARCH_MAX_LENGTH } from '@/services/inventory';
+import { STATION_SEARCH_MAX_LENGTH } from './station-access';
+import { StationSearchForm } from './station-search-form';
 import type { PrizeCategorySummary, PrizeListPage } from '@/services/inventory';
 import { getInventoryPermissions, listCompanyAccess } from './station-access';
 import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './station-access';
@@ -47,6 +49,10 @@ export default async function InventoryPage({
   searchParams: Promise<InventorySearchParams>;
 }) {
   const params = await searchParams;
+  // The same bound listCompanyAccess enforces on its own argument, imported
+  // rather than copied.
+  const stationSearch = params.station?.trim().slice(0, STATION_SEARCH_MAX_LENGTH) || undefined;
+
   const supabase = await createUserClient();
   const {
     data: { user },
@@ -57,7 +63,11 @@ export default async function InventoryPage({
   let suspended: SuspendedCompany[];
   let capped: boolean;
   try {
-    ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'inventory.view'));
+    ({ viewable, suspended, capped } = await listCompanyAccess(
+      supabase,
+      'inventory.view',
+      stationSearch,
+    ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
     return <LoadError message={describeInventoryReadError(cause)} />;
@@ -74,6 +84,11 @@ export default async function InventoryPage({
   // holding inventory.view nowhere a trip to a screen that would otherwise
   // have nothing to show — indistinguishable, if rendered instead of
   // redirected, from a Station with no prizes in it.
+  // A Station search that matches nothing leaves this caller with no Station
+  // to show, which is not the same as holding inventory.view nowhere: the
+  // redirect above would throw them off the screen with no way to clear the
+  // search. Handled before it, so the search can always be undone.
+  if (!first && stationSearch) return <NoStationMatch search={stationSearch} />;
   if (!first) redirect('/app');
 
   // Next's searchParams arrives already percent-decoded (same as every other
@@ -125,11 +140,21 @@ export default async function InventoryPage({
         description="Every prize in the Station, with its balance broken out by bucket."
       />
 
-      {capped && (
-        <p className="mb-4 text-xs text-muted-foreground">
-          Showing the first {viewable.length + suspended.length} stations you can reach. Contact
-          us if a Station you expect is missing.
-        </p>
+      {(capped || stationSearch) && (
+        <div className="mb-4 flex flex-col gap-2">
+          {capped && (
+            <p className="text-xs text-muted-foreground">
+              Showing {viewable.length + suspended.length} of the Stations you can reach. Search
+              by name to reach one that is not listed.
+            </p>
+          )}
+          <StationSearchForm
+            action="/inventory"
+            value={stationSearch ?? ''}
+            preserve={{}}
+            label="Find a Station"
+          />
+        </div>
       )}
 
       {viewable.length + suspended.length > 1 && (
@@ -301,6 +326,24 @@ export default async function InventoryPage({
           }
         />
       </div>
+    </>
+  );
+}
+
+function NoStationMatch({ search }: { search: string }) {
+  return (
+    <>
+      <PageHeader title="Inventory" />
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-6">
+          <p className="text-sm text-muted-foreground">
+            No Station you can reach matches “{search}”.
+          </p>
+          <Link href="/inventory" className="text-sm text-primary underline underline-offset-2">
+            Clear the Station search
+          </Link>
+        </CardContent>
+      </Card>
     </>
   );
 }

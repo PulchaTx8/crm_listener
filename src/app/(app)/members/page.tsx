@@ -30,8 +30,9 @@ import {
 import type { MemberListSearchParams } from './list-params';
 import { MembersFilters } from './members-filters';
 import { RegisterMemberForm } from './register-member-form';
-import { listCompanyAccess } from '../inventory/station-access';
+import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
+import { StationSearchForm } from '../inventory/station-search-form';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
@@ -51,6 +52,9 @@ export default async function MembersPage({
   // An unreadable cursor means "start from the beginning", never an error
   // page — decodeCursor's own contract (src/lib/keyset.ts).
   const cursor = decodeCursor(cursorParam?.value);
+  // The same bound listCompanyAccess enforces on its own argument, imported
+  // rather than copied.
+  const stationSearch = state.stationSearch?.slice(0, STATION_SEARCH_MAX_LENGTH);
 
   const supabase = await createUserClient();
   const {
@@ -150,7 +154,7 @@ export default async function MembersPage({
   let registrationCapped = false;
   try {
     ({ viewable: registrableStations, suspended: suspendedStations, capped: registrationCapped } =
-      await listCompanyAccess(supabase, 'members.create'));
+      await listCompanyAccess(supabase, 'members.create', stationSearch));
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not resolve registration access');
   }
@@ -173,12 +177,28 @@ export default async function MembersPage({
             <CardTitle>Register a listener</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {registrationCapped && (
-              <p className="text-xs text-muted-foreground">
-                Only the first {registrableStations.length + suspendedStations.length} Stations
-                you can reach were checked. If the Station you want is not listed below, contact
-                us.
-              </p>
+            {(registrationCapped || stationSearch) && (
+              <>
+                {registrationCapped && (
+                  <p className="text-xs text-muted-foreground">
+                    Showing {registrableStations.length + suspendedStations.length} of the
+                    Stations you can register a listener at. Search by name to reach one that is
+                    not listed.
+                  </p>
+                )}
+                {/* A GET form submits only its own fields, so the filters
+                    already in the URL are repeated as hidden inputs — built
+                    from membersHref, the same helper every link on this screen
+                    uses, so the two cannot drift apart. */}
+                <StationSearchForm
+                  action="/members"
+                  value={stationSearch ?? ''}
+                  preserve={Object.fromEntries(
+                    new URLSearchParams(membersHref(state).split('?')[1] ?? ''),
+                  )}
+                  label="Find a Station to register at"
+                />
+              </>
             )}
             <RegisterMemberForm stations={registrableStations} suspended={suspendedStations} />
           </CardContent>

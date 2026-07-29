@@ -1,9 +1,12 @@
 import { createUserClient } from '@/lib/supabase/user-client';
+import { decodeCursor, keysetFilter, keysetPage } from '@/lib/keyset';
+import { escapeLikePattern } from '@/lib/postgrest';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { PageControls } from '@/components/ui/table';
 import { addCompanyAction, suspendAction, reactivateAction } from './actions';
 import { ProvisionForm, RegenerateForm } from './credential-forms';
 
@@ -13,24 +16,87 @@ import { ProvisionForm, RegenerateForm } from './credential-forms';
 // would fail as a prerender error instead of being skipped as dynamic.
 export const dynamic = 'force-dynamic';
 
+/** One page of customers. Newest first: an admin comes here about somebody they just provisioned. */
+const CUSTOMER_PAGE_SIZE = 25;
+
+/** The one bound on this screen's name search — nothing downstream applies one for it. */
+const CUSTOMER_SEARCH_MAX_LENGTH = 100;
+
+/**
+ * This screen deliberately shows NO total, unlike the audience and inventory
+ * lists. Those are cut to one Organization by RLS before they touch disk, so
+ * an exact count is cheap; this one is platform-wide by design, and it is an
+ * operator's tool rather than a screen that answers "how many" (spec §2).
+ */
+function customersHref(
+  search: string | undefined,
+  cursor?: { side: 'after' | 'before'; value: string },
+): string {
+  const query = new URLSearchParams();
+  if (search) query.set('q', search);
+  if (cursor) query.set(cursor.side, cursor.value);
+  const rest = query.toString();
+  return rest ? `/admin/customers?${rest}` : '/admin/customers';
+}
+
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stationError?: string }>;
+  searchParams: Promise<{ stationError?: string; q?: string; after?: string; before?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await createUserClient();
 
-  const { data: companies, error: companiesError } = await supabase
+  const search = params.q?.trim().slice(0, CUSTOMER_SEARCH_MAX_LENGTH) || undefined;
+  // An unreadable cursor means "start from the beginning", never an error page.
+  const cursor = decodeCursor(params.before ?? params.after);
+  const walkingBack = Boolean(params.before) && cursor !== null;
+  // Newest first, so walking back reads oldest-first and the rows are turned
+  // around afterwards (keysetPage).
+  const ascending = walkingBack;
+
+  let companiesQuery = supabase
     .from('companies')
     .select('id, name, status, suspension_reason, created_at, organization_id')
-    .order('created_at', { ascending: false });
+    // Archived Companies were listed beside live ones, unlike every other list
+    // in the project — and an archived Station cannot be suspended or
+    // reactivated, so the controls rendered next to it did nothing.
+    .is('deleted_at', null);
+
+  if (search) {
+    companiesQuery = companiesQuery.ilike('name', `%${escapeLikePattern(search)}%`);
+  }
+
+  companiesQuery = companiesQuery.order('created_at', { ascending });
+  if (cursor) {
+    // created_at is not null, so there is no null region for a cursor to cross
+    // here: nullsLast is false for that reason, not by accident.
+    companiesQuery = companiesQuery.or(
+      keysetFilter('created_at', ascending ? 'asc' : 'desc', cursor, false),
+    );
+  }
+  companiesQuery = companiesQuery.order('id', { ascending });
+
+  const { data: fetched, error: companiesError } = await companiesQuery.limit(
+    CUSTOMER_PAGE_SIZE + 1,
+  );
 
   // Previously dropped entirely, unlike the owners/profiles reads below — a
   // failed read rendered as "No company provisioned yet." to a platform
   // admin, indistinguishable from the genuinely-empty case (block-1c final
   // review, Minor 3).
   if (companiesError) logger.error({ err: companiesError }, 'could not load companies');
+
+  const {
+    rows: companies,
+    nextCursor,
+    previousCursor,
+  } = keysetPage(fetched ?? [], {
+    pageSize: CUSTOMER_PAGE_SIZE,
+    walkingBack,
+    hadCursor: cursor !== null,
+    cursorFor: (row) => ({ value: row.created_at, id: row.id }),
+  });
 
   // The owner of each Company's Organization, so a provisional password can be
   // reissued without hunting for the user by hand. Block 1c stopped giving the
@@ -47,11 +113,18 @@ export default async function CustomersPage({
   // created_at so which one is "the" displayed owner — and which account the
   // password-reset form below targets — is stable across renders rather than
   // depending on whatever order Postgres happens to return rows in.
-  const { data: owners, error: ownersError } = await supabase
-    .from('organization_memberships')
-    .select('organization_id, user_id')
-    .eq('role', 'owner')
-    .order('created_at', { ascending: true });
+  //
+  // Scoped to the Organizations ON THIS PAGE since Block 3b: this read every
+  // owner the platform had ever had in order to name twenty-five of them.
+  const organizationIds = [...new Set(companies.map((c) => c.organization_id))];
+  const { data: owners, error: ownersError } = organizationIds.length
+    ? await supabase
+        .from('organization_memberships')
+        .select('organization_id, user_id')
+        .eq('role', 'owner')
+        .in('organization_id', organizationIds)
+        .order('created_at', { ascending: true })
+    : { data: [], error: null };
 
   if (ownersError) logger.error({ err: ownersError }, 'could not load company owners');
 
@@ -121,14 +194,34 @@ export default async function CustomersPage({
         </Card>
 
         <div className="flex flex-col gap-3">
-          {(companies ?? []).length === 0 ? (
+          {/* A plain GET form: submitting it is a navigation, which is all this
+              needs, and it carries no cursor — a search is a new list, so it
+              starts at the beginning of one. */}
+          <form method="get" action="/admin/customers" className="flex flex-wrap items-end gap-2">
+            <Input
+              type="search"
+              name="q"
+              defaultValue={search ?? ''}
+              placeholder="Search by Station name"
+              aria-label="Search customers by Station name"
+              className="h-9 w-64 text-sm"
+              data-testid="customer-search-input"
+            />
+            <Button type="submit" variant="outline" className="h-9">
+              Search
+            </Button>
+          </form>
+
+          {companies.length === 0 ? (
             <Card>
               <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">No company provisioned yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  {search ? 'No customer matches this search.' : 'No company provisioned yet.'}
+                </p>
               </CardContent>
             </Card>
           ) : (
-            (companies ?? []).map((c) => {
+            companies.map((c) => {
               const owner = ownerByOrganization.get(c.organization_id);
               return (
                 <Card key={c.id} data-testid="company-row">
@@ -199,6 +292,17 @@ export default async function CustomersPage({
               );
             })
           )}
+
+          {/* No total, on purpose — see customersHref's own comment. */}
+          <PageControls
+            label="Newest customers first"
+            previousHref={
+              previousCursor
+                ? customersHref(search, { side: 'before', value: previousCursor })
+                : null
+            }
+            nextHref={nextCursor ? customersHref(search, { side: 'after', value: nextCursor }) : null}
+          />
         </div>
       </div>
     </>

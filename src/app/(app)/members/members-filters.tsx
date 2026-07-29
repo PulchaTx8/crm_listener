@@ -193,6 +193,9 @@ export function MembersFilters({ state }: { state: MemberListState }) {
           <Link
             href={
               membersHref({
+                // Clearing the audience filters leaves the Station search
+                // alone: it is a different question, asked of a different list.
+                stationSearch: state.stationSearch,
                 sort: state.sort,
                 direction: state.direction,
                 blockedOnly: false,

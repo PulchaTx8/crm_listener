@@ -15,6 +15,8 @@ import type { SortDirection } from '@/lib/keyset';
 /** Raw `searchParams`, before any of it is trusted. Every value here is caller-controlled. */
 export interface MemberListSearchParams {
   q?: string;
+  /** A Station-name search, used only by the registration card's Station list — never by the audience query. */
+  station?: string;
   sort?: string;
   dir?: string;
   after?: string;
@@ -30,6 +32,14 @@ export interface MemberListSearchParams {
 /** Everything except the cursor: what the filter form edits and what sort links preserve. */
 export interface MemberListState {
   search?: string;
+  /**
+   * A Station-name search. It narrows the REGISTRATION card's Station list,
+   * never the audience query, and it is carried by every link on the screen
+   * for the same reason the inventory screen carries its own: a selection the
+   * caller made should not evaporate on the next sort click. Deliberately not
+   * counted by hasActiveFilters — it filters Stations, not listeners.
+   */
+  stationSearch?: string;
   sort: MemberSortKey;
   direction: SortDirection;
   ageMin?: number;
@@ -85,6 +95,7 @@ export function parseMemberListState(raw: MemberListSearchParams): MemberListSta
 
   return {
     search: raw.q?.trim() || undefined,
+    stationSearch: raw.station?.trim() || undefined,
     sort,
     direction,
     ageMin: parseAge(raw.ageMin),
@@ -130,6 +141,7 @@ export function membersHref(state: MemberListState, cursor?: MemberListCursor | 
   const query = new URLSearchParams();
 
   if (state.search) query.set('q', state.search);
+  if (state.stationSearch) query.set('station', state.stationSearch);
   if (state.sort !== DEFAULT_SORT) query.set('sort', state.sort);
   if (state.direction !== defaultDirectionFor(state.sort)) query.set('dir', state.direction);
   if (state.ageMin !== undefined) query.set('ageMin', String(state.ageMin));

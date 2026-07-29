@@ -85,6 +85,7 @@ export function InventoryFilters({
           href={
             inventoryHref({
               companyId: state.companyId,
+              stationSearch: state.stationSearch,
               sort: state.sort,
               direction: state.direction,
             }) as Route
