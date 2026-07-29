@@ -824,6 +824,18 @@ select is(
 -- Station-scoped block at a DIFFERENT Station in the same Organization, so
 -- dropping the (b.company_id is null or b.company_id = p_company_id) term
 -- entirely would have passed every assertion that existed before this round.
+--
+-- Third fix round (review round 3): adding member_reachable in the second
+-- round silently broke the cross-Organization regression test above without
+-- any assertion going red -- beefbeef-...0002 had no member_company_links
+-- row anywhere, so member_reachable was false for it regardless of
+-- Organization, and the "reads false" assertions started passing on
+-- unreachability alone. The reviewer confirmed by deleting
+-- b.organization_id = v_organization_id from both functions and finding all
+-- 208 assertions still green. Fixed by giving Org G its own Station (G1)
+-- and making the delegate a genuine members.view holder there too, so
+-- member_reachable is now true for beefbeef-...0002 and only the
+-- Organization term can produce false — mutation-proved in the fix report.
 select is(
   (select count(*)::int from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
@@ -891,6 +903,31 @@ insert into public.members (id, organization_id, full_name) values
   ('ffffffff-0000-0000-0000-000000000008', 'ffffffff-0000-0000-0000-000000000001', 'Never Blocked In F');
 insert into public.members (id, organization_id, full_name) values
   ('beefbeef-0000-0000-0000-000000000002', 'beefbeef-0000-0000-0000-000000000001', 'Org-Wide Blocked In G');
+
+-- Fixed (review round 3, New Important 1): without this, beefbeef-...0002
+-- had no member_company_links row at all, and the delegate held no
+-- platform_admins or organization_memberships row for Org G either -- ALL
+-- THREE arms of member_reachable were false for this pair regardless of
+-- Organization, so the "reads false" assertions below were passing on
+-- unreachability alone and had stopped exercising b.organization_id =
+-- v_organization_id entirely (confirmed by the reviewer: deleting that term
+-- from both functions left every one of the 208 assertions passing).
+-- Station G1 and this company_membership make the delegate a genuine
+-- members.view holder in Org G too, so member_reachable is now TRUE for
+-- beefbeef-...0002 — only the Organization term below can still produce
+-- false. Mutation-tested below (see the fix report) by removing that term
+-- and confirming exactly these two assertions go red.
+insert into public.companies (id, organization_id, name) values
+  ('beefbeef-0000-0000-0000-000000000004', 'beefbeef-0000-0000-0000-000000000001', 'Station G1');
+insert into public.roles (id, organization_id, name) values
+  ('beefbeef-0000-0000-0000-000000000005', 'beefbeef-0000-0000-0000-000000000001', 'G Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('beefbeef-0000-0000-0000-000000000005', 'members.view');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('ffffffff-0000-0000-0000-000000000004', 'beefbeef-0000-0000-0000-000000000004',
+   'beefbeef-0000-0000-0000-000000000001', 'beefbeef-0000-0000-0000-000000000005');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('beefbeef-0000-0000-0000-000000000002', 'beefbeef-0000-0000-0000-000000000004', 'beefbeef-0000-0000-0000-000000000001');
 
 -- Linked to Station F1, so member_reachable (Important 2) actually admits
 -- them for the delegate below -- without this, every "reads true" assertion
@@ -1012,7 +1049,7 @@ select is(
 select is(
   (select blocked from bulk_block_probe where member_id = 'beefbeef-0000-0000-0000-000000000002'),
   false,
-  'an Organization-wide block belonging to a DIFFERENT Organization does not leak as blocked = true — Task 3 review, the defect closed by 0036''s organization_id filter'
+  'an Organization-wide block belonging to a DIFFERENT Organization does not leak as blocked = true, for a Member the caller CAN otherwise reach via Station G1 — Task 3 review, the defect closed by 0036''s organization_id filter, isolated from the reachability term by the Station G1 fixture (review round 3)'
 );
 select is(
   (select blocked from bulk_block_probe where member_id = 'ffffffff-0000-0000-0000-00000000000c'),
@@ -1060,7 +1097,7 @@ select is(
 select is(
   (select cross_org_block from single_block_probe),
   false,
-  'is_member_blocked: an Organization-wide block belonging to a DIFFERENT Organization does not leak as true -- the same fix as members_blocked_bulk, now applied to the single-row function (0036 supersedes 0032)'
+  'is_member_blocked: an Organization-wide block belonging to a DIFFERENT Organization does not leak as true, for a Member the caller CAN otherwise reach via Station G1 -- the same fix as members_blocked_bulk, isolated from the reachability term the same way (review round 3)'
 );
 select is(
   (select wrong_station_block from single_block_probe),

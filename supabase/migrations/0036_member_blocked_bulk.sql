@@ -69,27 +69,46 @@
 -- their own Organization could still pass any member_id from that SAME
 -- Organization and learn whether it carries an active block — including a
 -- Member linked only to a Station the caller cannot reach, whom
--- members_select_reachable (0035:95-100) hides from them entirely, and whom
--- member_blocks_select_reachable was deliberately narrowed to also hide
--- (0035:163-175, reasoning written out at 0035:141-144: "a delegate at
--- Station A only could read every Organization-wide block in the whole
--- Organization ... including for Members members_select_reachable itself
--- hides from them entirely"). Both SECURITY DEFINER functions here were
--- looser than the RLS policy sitting right beside them. Closed by requiring
+-- members_select_reachable (0035:95-100) hides from them entirely. This
+-- SECURITY DEFINER function was looser than that RLS policy sitting right
+-- beside it. Closed by requiring
 -- public.member_reachable(member_id, v_organization_id, 'members.view')
--- (0033) — the SAME predicate 0035's own policies call, not a hand-rolled
--- equivalent: this project has already paid for two hand-copies of this
--- exact reachability rule drifting apart, which is precisely why 0033 was
--- built to be the one implementation.
+-- (0033) — the SAME predicate members_select_reachable (0035:95-100) calls,
+-- not a hand-rolled equivalent: this project has already paid for two
+-- hand-copies of this exact reachability rule drifting apart, which is
+-- precisely why 0033 was built to be the one implementation.
+--
+-- member_blocks_select_reachable (0035:163-181) does NOT call
+-- member_reachable — reviewed and corrected here after an earlier draft of
+-- this comment wrongly claimed it did. It hand-rolls its own exists()
+-- instead, deliberately: 0035:66-74 states plainly that member_reachable
+-- "cannot express 'just this row's own Station'... Calling member_reachable
+-- for those four [member_company_links, member_consents, member_notes,
+-- member_blocks] would silently widen visibility to every Station the
+-- Member is linked to, the opposite of what 'scoped to the Station that
+-- wrote it' requires." member_blocks_select_reachable's own Organization-wide
+-- branch (0035:172-180) separately narrows for a closely related reason —
+-- has_org_permission alone says nothing about member_id (0035:141-144) — but
+-- by conjoining an inline exists() against member_company_links, not by
+-- calling member_reachable. The term added here asks member_reachable's
+-- actual question — can the caller reach this Member's identity at all,
+-- the same thing members_select_reachable decides — which is the right
+-- predicate for THIS function precisely because it is not scoped to one
+-- row's own company_id the way member_blocks_select_reachable's question is.
 --
 -- This puts per-row work back inside the bulk function — the thing this
--- task exists to remove. The resulting shape: one round trip containing N
--- reachability checks (one member_reachable call per id in the batch, each
--- itself a permission lookup plus a member_company_links scan), rather than
--- N round trips each redoing a full permission subtree. Still one round
--- trip instead of up to fifty, so the trade holds — but it is not free, and
--- is named here rather than left to be discovered later as an unexplained
--- cost.
+-- task exists to remove. The resulting shape: one round trip, but each of
+-- the N ids in the batch now costs a member_reachable call, and that call is
+-- not cheap — is_platform_admin(), is_owner(), and then, for every
+-- member_company_links row the Member has, a full has_permission() call
+-- (itself a permissions-table lookup, has_company_access, and a
+-- company_memberships-roles-role_permissions join — the exact subtree this
+-- file's opening paragraph names as the cost a single is_member_blocked call
+-- already pays once). Reachability puts much of that subtree back, once per
+-- id; what the batch still saves is the round trip, not the computation
+-- inside it. Still one round trip instead of up to fifty, so the trade
+-- holds — but it is not free, and is named here rather than left to be
+-- discovered later as an unexplained cost.
 --
 -- For every call this codebase's application code actually makes today,
 -- this term is redundant: listOrganizationMembers only ever asks about a
@@ -150,7 +169,7 @@ end;
 $$;
 
 comment on function public.members_blocked_bulk(uuid[], uuid) is
-  'Whether an active block bars each listed Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at. The set-at-a-time form of is_member_blocked (0032): same three-arm caller guard, checked once for the one Station the whole batch concerns. Also requires each candidate block row to belong to p_company_id''s own Organization, AND that the caller can reach the Member at all (public.member_reachable, 0033, the same predicate members_select_reachable and member_blocks_select_reachable use, 0035) — closing two cross-tenant oracles a company_id-only match would leave open: one across Organizations, one within the caller''s own Organization against a Member they hold no link to (Task 3 review, both rounds; see the function''s header comment for the full argument).';
+  'Whether an active block bars each listed Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at. The set-at-a-time form of is_member_blocked (0032): same three-arm caller guard, checked once for the one Station the whole batch concerns. Also requires each candidate block row to belong to p_company_id''s own Organization, AND that the caller can reach the Member at all (public.member_reachable, 0033, the same predicate members_select_reachable uses, 0035:95-100 — member_blocks_select_reachable deliberately hand-rolls a narrower, row-scoped check instead rather than calling member_reachable, 0035:66-74) — closing two cross-tenant oracles a company_id-only match would leave open: one across Organizations, one within the caller''s own Organization against a Member they hold no link to (Task 3 review, both rounds; see the function''s header comment for the full argument).';
 
 revoke execute on function public.members_blocked_bulk(uuid[], uuid) from public;
 grant execute on function public.members_blocked_bulk(uuid[], uuid) to authenticated;
@@ -197,13 +216,14 @@ grant execute on function public.members_blocked_bulk(uuid[], uuid) to authentic
 -- Member linked only to a Station they cannot reach — the same residual
 -- oracle closed in members_blocked_bulk above by requiring
 -- public.member_reachable(member_id, v_organization_id, 'members.view')
--- (0033), the same predicate members_select_reachable and
--- member_blocks_select_reachable use (0035; full reasoning in
--- members_blocked_bulk's own header comment above, not repeated here). Same
--- redundancy note applies: every real call to checkMemberBlocked (from
--- listOrganizationMembers or listMemberStations) only ever names a Member
--- already confirmed reachable by RLS before this function is called: this
--- term matters only against a direct RPC call.
+-- (0033), the same predicate members_select_reachable calls (0035:95-100).
+-- member_blocks_select_reachable does NOT call member_reachable — it
+-- deliberately hand-rolls a narrower, row-scoped check instead (0035:66-74;
+-- full reasoning in members_blocked_bulk's own header comment above, not
+-- repeated here). Same redundancy note applies: every real call to
+-- checkMemberBlocked (from listOrganizationMembers or listMemberStations)
+-- only ever names a Member already confirmed reachable by RLS before this
+-- function is called: this term matters only against a direct RPC call.
 --
 -- Call-site check (Task 3 fix round, before this shipped): is_member_blocked
 -- is called by checkMemberBlocked, in turn called from
@@ -270,7 +290,7 @@ $$;
 -- of this section is that 0032's file is no longer an accurate description
 -- of what runs.
 comment on function public.is_member_blocked(uuid, uuid) is
-  'Whether an active block bars this Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at rather than a maintained status column. Re-checks the caller is the platform admin, the owner of p_company_id''s Organization, or holds members.view at p_company_id — mirroring member_company_links_select_reachable''s own three arms (0035) exactly. Also requires the matching block row to belong to p_company_id''s own Organization, AND that the caller can reach the Member at all (public.member_reachable, 0033, the same predicate members_select_reachable and member_blocks_select_reachable use, 0035) — closing two cross-tenant oracles a company_id-only match left open: one across Organizations, one within the caller''s own Organization against a Member they hold no link to. THIS BODY SUPERSEDES the one 0032 shipped, which lacked both terms — see the "is_member_blocked (0032) superseded" comment in 0036_member_blocked_bulk.sql for the full story. 0032''s own file and its comment on this function describe a body that no longer runs.';
+  'Whether an active block bars this Member at p_company_id right now, derived at read time from starts_at/ends_at/lifted_at rather than a maintained status column. Re-checks the caller is the platform admin, the owner of p_company_id''s Organization, or holds members.view at p_company_id — mirroring member_company_links_select_reachable''s own three arms (0035) exactly. Also requires the matching block row to belong to p_company_id''s own Organization, AND that the caller can reach the Member at all (public.member_reachable, 0033, the same predicate members_select_reachable uses, 0035:95-100 — member_blocks_select_reachable deliberately hand-rolls a narrower, row-scoped check instead rather than calling member_reachable, 0035:66-74) — closing two cross-tenant oracles a company_id-only match left open: one across Organizations, one within the caller''s own Organization against a Member they hold no link to. THIS BODY SUPERSEDES the one 0032 shipped, which lacked both terms — see the "is_member_blocked (0032) superseded" comment in 0036_member_blocked_bulk.sql for the full story. 0032''s own file and its comment on this function describe a body that no longer runs.';
 
 revoke execute on function public.is_member_blocked(uuid, uuid) from public;
 grant execute on function public.is_member_blocked(uuid, uuid) to authenticated;
