@@ -1296,6 +1296,13 @@ export type Database = {
         }
         Returns: boolean
       }
+      members_blocked_bulk: {
+        Args: { p_company_id: string; p_member_ids: string[] }
+        Returns: {
+          blocked: boolean
+          member_id: string
+        }[]
+      }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
       provision_customer: {
