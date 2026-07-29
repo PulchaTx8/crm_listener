@@ -1,5 +1,5 @@
 begin;
-select plan(184);
+select plan(200);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -793,6 +793,176 @@ select is(
   0,
   'the Organization owner does not see the archived Member either — deleted_at is null sits outside member_reachable''s own bypass, by design'
 );
+
+-- Block 3b, Task 3: members_blocked_bulk (0036), the set-at-a-time form of
+-- is_member_blocked (0032). Grant grid first, then behavioural proof: batch
+-- semantics (duplicates, an empty batch, a null batch) and the guard,
+-- including the cross-Organization case Task 3's review found was NOT safe
+-- in the brief's first draft (see 0036's own header comment) — an
+-- Organization-wide block (member_blocks.company_id is null) carries
+-- nothing tying it to p_company_id, so matching on member_id and company_id
+-- alone let a caller entitled to their own Station learn whether an
+-- arbitrary member_id in ANY Organization holds an active Organization-wide
+-- block. 0036 closes it by also requiring the candidate block's own
+-- organization_id to match p_company_id's Organization.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'members_blocked_bulk'),
+  1,
+  'members_blocked_bulk exists'
+);
+select is(
+  (select p.prosecdef from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'members_blocked_bulk'),
+  true,
+  'members_blocked_bulk is security definer, so its own caller guard is what protects it'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.members_blocked_bulk(uuid[], uuid)', 'execute'),
+  'authenticated may execute members_blocked_bulk'
+);
+select ok(
+  not has_function_privilege('anon', 'public.members_blocked_bulk(uuid[], uuid)', 'execute'),
+  'anon may not execute members_blocked_bulk'
+);
+
+select has_index('public', 'members', 'members_created_at_idx',
+  'the audience list can sort by registration date without a full scan');
+select has_index('public', 'members', 'members_birth_date_idx',
+  'the age filter can use a birth_date range without a full scan');
+
+-- Fixtures. Org F is the caller's own Organization; Org G exists only to hold
+-- a Member the caller has no relationship to at all, for the cross-Organization
+-- probe below.
+insert into public.organizations (id, name) values
+  ('ffffffff-0000-0000-0000-000000000001', 'Bulk Block Test Org F'),
+  ('beefbeef-0000-0000-0000-000000000001', 'Bulk Block Test Org G');
+insert into public.companies (id, organization_id, name) values
+  ('ffffffff-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000001', 'Station F1');
+insert into public.roles (id, organization_id, name) values
+  ('ffffffff-0000-0000-0000-000000000003', 'ffffffff-0000-0000-0000-000000000001', 'F Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('ffffffff-0000-0000-0000-000000000003', 'members.view');
+insert into auth.users (id, email) values
+  ('ffffffff-0000-0000-0000-000000000004', 'bulk-block-delegate@example.test'),
+  ('ffffffff-0000-0000-0000-000000000005', 'bulk-block-no-access@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('ffffffff-0000-0000-0000-000000000004', 'ffffffff-0000-0000-0000-000000000002',
+   'ffffffff-0000-0000-0000-000000000001', 'ffffffff-0000-0000-0000-000000000003');
+
+insert into public.members (id, organization_id, full_name) values
+  ('ffffffff-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000001', 'Blocked At Station F1'),
+  ('ffffffff-0000-0000-0000-000000000007', 'ffffffff-0000-0000-0000-000000000001', 'Org-Wide Blocked In F'),
+  ('ffffffff-0000-0000-0000-000000000008', 'ffffffff-0000-0000-0000-000000000001', 'Never Blocked In F');
+insert into public.members (id, organization_id, full_name) values
+  ('beefbeef-0000-0000-0000-000000000002', 'beefbeef-0000-0000-0000-000000000001', 'Org-Wide Blocked In G');
+
+insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason) values
+  ('ffffffff-0000-0000-0000-000000000009', 'ffffffff-0000-0000-0000-000000000001',
+   'ffffffff-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000002', 'draw_ban', 'blocked at F1 specifically'),
+  ('ffffffff-0000-0000-0000-00000000000a', 'ffffffff-0000-0000-0000-000000000001',
+   'ffffffff-0000-0000-0000-000000000007', null, 'suspension', 'org-wide block, Org F');
+-- The cross-Organization probe: an Organization-wide block that is real,
+-- active, and entirely inside Org G — nothing about it names Org F or
+-- Station F1.
+insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason) values
+  ('beefbeef-0000-0000-0000-000000000003', 'beefbeef-0000-0000-0000-000000000001',
+   'beefbeef-0000-0000-0000-000000000002', null, 'suspension', 'org-wide block, Org G');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "ffffffff-0000-0000-0000-000000000004", "role": "authenticated"}';
+
+create temporary table bulk_block_probe as
+select * from public.members_blocked_bulk(
+  array['ffffffff-0000-0000-0000-000000000006'::uuid,  -- Station-scoped block, real
+        'ffffffff-0000-0000-0000-000000000007'::uuid,  -- Org-wide block, real (same Org)
+        'ffffffff-0000-0000-0000-000000000008'::uuid,  -- never blocked
+        'beefbeef-0000-0000-0000-000000000002'::uuid], -- Org-wide block, but a DIFFERENT Organization
+  'ffffffff-0000-0000-0000-000000000002'
+);
+
+create temporary table bulk_block_duplicate_probe as
+select * from public.members_blocked_bulk(
+  array['ffffffff-0000-0000-0000-000000000006'::uuid, 'ffffffff-0000-0000-0000-000000000006'::uuid],
+  'ffffffff-0000-0000-0000-000000000002'
+);
+
+create temporary table bulk_block_empty_probe as
+select * from public.members_blocked_bulk(
+  '{}'::uuid[],
+  'ffffffff-0000-0000-0000-000000000002'
+);
+
+create temporary table bulk_block_null_probe as
+select * from public.members_blocked_bulk(
+  null::uuid[],
+  'ffffffff-0000-0000-0000-000000000002'
+);
+
+reset role;
+
+select is(
+  (select blocked from bulk_block_probe where member_id = 'ffffffff-0000-0000-0000-000000000006'),
+  true,
+  'a Station-scoped block at the queried Station reports blocked = true'
+);
+select is(
+  (select blocked from bulk_block_probe where member_id = 'ffffffff-0000-0000-0000-000000000007'),
+  true,
+  'an Organization-wide block on a Member of the CALLER''s own Organization still reports blocked = true'
+);
+select is(
+  (select blocked from bulk_block_probe where member_id = 'ffffffff-0000-0000-0000-000000000008'),
+  false,
+  'a Member with no block at all reports blocked = false'
+);
+select is(
+  (select blocked from bulk_block_probe where member_id = 'beefbeef-0000-0000-0000-000000000002'),
+  false,
+  'an Organization-wide block belonging to a DIFFERENT Organization does not leak as blocked = true — Task 3 review, the defect closed by 0036''s organization_id filter'
+);
+select is(
+  (select count(*)::int from bulk_block_probe),
+  4,
+  'one row per input id, four ids in, four rows out'
+);
+
+select is(
+  (select count(*)::int from bulk_block_duplicate_probe),
+  2,
+  'unnest preserves duplicates: the same id passed twice yields two rows, not one'
+);
+select is(
+  (select count(*)::int from bulk_block_duplicate_probe where blocked = true),
+  2,
+  'both duplicate rows agree on the same, correct blocked value'
+);
+
+select is(
+  (select count(*)::int from bulk_block_empty_probe),
+  0,
+  'an empty array yields zero rows rather than an error, for a caller who does hold members.view at the Station'
+);
+select is(
+  (select count(*)::int from bulk_block_null_probe),
+  0,
+  'a null array yields zero rows the same as an empty array, rather than an error'
+);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "ffffffff-0000-0000-0000-000000000005", "role": "authenticated"}';
+
+select throws_ok(
+  $$select * from public.members_blocked_bulk(
+      array['ffffffff-0000-0000-0000-000000000006'::uuid], 'ffffffff-0000-0000-0000-000000000002')$$,
+  '42501',
+  'permission denied: members.view required',
+  'a caller holding no permission at all at the queried Station is refused, even for a batch of one'
+);
+
+reset role;
 
 select * from finish();
 rollback;
