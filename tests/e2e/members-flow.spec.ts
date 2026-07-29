@@ -111,6 +111,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await expect(page.getByText('Platform admin')).toBeVisible();
 
   await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByTestId('customer-create').click();
   await page.getByPlaceholder('Organization name').fill(orgName);
   await page.getByPlaceholder('Company (Station) name').fill(stationAName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
@@ -197,9 +198,12 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
 
   // The test of whether the permission catalogue was built to be extended:
   // migration 0031 (Task 1 of this block) inserted these six rows into
-  // `permissions`, and role-form.tsx was never touched to know about
-  // "members" as a module. Each label is read straight out of that
-  // migration's `label` column, not paraphrased.
+  // `permissions`, and the role editor was never touched to know about
+  // "members" as a module — not when it was role-form.tsx, and not when Block
+  // 3c moved it into role-record-dialog.tsx. Each label is read straight out
+  // of that migration's `label` column, not paraphrased.
+  await ownerPage.getByTestId('role-create').click();
+  await ownerPage.getByRole('tab', { name: 'Powers' }).click();
   const catalogueLabels = [
     'See the audience and their history', // members.view
     'Register a listener and link them to this Station', // members.create
@@ -212,7 +216,6 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
     await expect(ownerPage.getByLabel(label)).toBeVisible();
   }
 
-  await ownerPage.getByLabel('Name').fill(roleName);
   await ownerPage.getByLabel('See the audience and their history').check();
   await ownerPage.getByLabel('Register a listener and link them to this Station').check();
   await ownerPage.getByLabel('Edit a listener, record consent and add notes').check();
@@ -221,7 +224,9 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   // "Erase a listener's personal data permanently" (members.erase). The
   // whole point of this role, and of the absence assertions later in this
   // test, is that its holders cannot erase.
-  await ownerPage.getByRole('button', { name: 'Create role' }).click();
+  await ownerPage.getByRole('tab', { name: 'Role data' }).click();
+  await ownerPage.getByLabel('Name').fill(roleName);
+  await ownerPage.getByTestId('role-save').click();
 
   const roleRow = ownerPage.locator('[data-testid="role-row"]', { hasText: roleName });
   await expect(roleRow).toBeVisible();
@@ -231,6 +236,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
+  await ownerPage.getByTestId('team-invite').click();
   const inviteForm = ownerPage.locator('form', {
     has: ownerPage.getByPlaceholder("Colleague's e-mail"),
   });
@@ -247,10 +253,13 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   // --- the owner assigns the SAME role to delegate B, in Station B only ----
   // Reloaded first: the invite form above is an uncontrolled checkbox list,
   // and Station A's box was just checked and submitted — a stale DOM would
-  // carry that checked state into this second invitation.
+  // carry that checked state into this second invitation. The reload also
+  // closes the invite dialog, which is deliberately left open on success so
+  // that the accept link above cannot be lost.
   await ownerPage.reload();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
+  await ownerPage.getByTestId('team-invite').click();
   const inviteFormAgain = ownerPage.locator('form', {
     has: ownerPage.getByPlaceholder("Colleague's e-mail"),
   });

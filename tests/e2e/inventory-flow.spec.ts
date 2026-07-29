@@ -73,6 +73,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await expect(page.getByText('Platform admin')).toBeVisible();
 
   await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByTestId('customer-create').click();
   await page.getByPlaceholder('Organization name').fill(orgName);
   await page.getByPlaceholder('Company (Station) name').fill(stationName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
@@ -120,10 +121,13 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
 
   // This is the test of whether Block 1c's permission catalogue was built to
   // be extended: migration 0025 (Task 1 of this block) inserted these six
-  // rows into `permissions`, and role-form.tsx was never touched to know
-  // about "inventory" as a module. Each label below is read straight out of
-  // that migration's `label` column, not paraphrased — a rename there would
-  // turn this into a real (not flaky) failure.
+  // rows into `permissions`, and the role editor was never touched to know
+  // about "inventory" as a module — not when it was role-form.tsx, and not
+  // when Block 3c moved it into role-record-dialog.tsx. Each label below is
+  // read straight out of that migration's `label` column, not paraphrased — a
+  // rename there would turn this into a real (not flaky) failure.
+  await ownerPage.getByTestId('role-create').click();
+  await ownerPage.getByRole('tab', { name: 'Powers' }).click();
   const catalogueLabels = [
     'See prizes and stock', // inventory.view
     'Register, edit and archive prizes and categories', // inventory.catalogue
@@ -136,7 +140,6 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
     await expect(ownerPage.getByLabel(label)).toBeVisible();
   }
 
-  await ownerPage.getByLabel('Name').fill(roleName);
   await ownerPage.getByLabel('See prizes and stock').check();
   await ownerPage.getByLabel('Register, edit and archive prizes and categories').check();
   await ownerPage.getByLabel('Add stock').check();
@@ -145,7 +148,9 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // "Adjust stock to match a count" (inventory.adjust). The whole point of
   // this role, and of the absence assertion at the end of this test, is that
   // its holder cannot adjust.
-  await ownerPage.getByRole('button', { name: 'Create role' }).click();
+  await ownerPage.getByRole('tab', { name: 'Role data' }).click();
+  await ownerPage.getByLabel('Name').fill(roleName);
+  await ownerPage.getByTestId('role-save').click();
 
   const roleRow = ownerPage.locator('[data-testid="role-row"]', { hasText: roleName });
   await expect(roleRow).toBeVisible();
@@ -155,6 +160,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
+  await ownerPage.getByTestId('team-invite').click();
   const inviteForm = ownerPage.locator('form', {
     has: ownerPage.getByPlaceholder("Colleague's e-mail"),
   });

@@ -2,13 +2,11 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { decodeCursor, keysetFilter, keysetPage } from '@/lib/keyset';
 import { escapeLikePattern } from '@/lib/postgrest';
 import { logger } from '@/lib/logger';
+import { parseRecordParam } from '@/lib/record-params';
 import { PageHeader } from '@/components/layout/app-shell';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { PageControls } from '@/components/ui/table';
-import { addCompanyAction, suspendAction, reactivateAction } from './actions';
-import { ProvisionForm, RegenerateForm } from './credential-forms';
+import type { CustomerRow } from './actions';
+import { CUSTOMER_TABS, type StationBrief } from './customer-record-dialog';
+import { CustomersGrid } from './customers-grid';
 
 // Renders from the caller's session cookies, so it can never be static. Stated
 // explicitly rather than inferred from cookies(): the Supabase client is built
@@ -42,7 +40,13 @@ function customersHref(
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stationError?: string; q?: string; after?: string; before?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    after?: string;
+    before?: string;
+    record?: string;
+    tab?: string;
+  }>;
 }) {
   const params = await searchParams;
   const supabase = await createUserClient();
@@ -167,6 +171,49 @@ export default async function CustomersPage({
     });
   }
 
+  // Every Station under the Organizations on this page, for the record's
+  // Stations tab. One read rather than one per opened record, and scoped to the
+  // page's Organizations rather than the platform — the same discipline the
+  // owners read above got in Block 3b. Batched for the same reason as well:
+  // PostgREST folds `.in()` into the query string, and this project has already
+  // met a real 414 on this screen from an IN-list that grew with the platform.
+  const STATION_BATCH_SIZE = 100;
+  const organizationStations: { id: string; name: string; status: string; organization_id: string }[] =
+    [];
+  for (let i = 0; i < organizationIds.length; i += STATION_BATCH_SIZE) {
+    const batch = organizationIds.slice(i, i + STATION_BATCH_SIZE);
+    const { data: batchStations, error: batchError } = await supabase
+      .from('companies')
+      .select('id, name, status, organization_id')
+      .in('organization_id', batch)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true });
+    if (batchError) {
+      logger.error({ err: batchError }, 'could not load a batch of sibling stations');
+      continue;
+    }
+    organizationStations.push(...(batchStations ?? []));
+  }
+
+  const stationsByOrganization: Record<string, StationBrief[]> = {};
+  for (const station of organizationStations) {
+    (stationsByOrganization[station.organization_id] ??= []).push({
+      id: station.id,
+      name: station.name,
+      status: station.status,
+    });
+  }
+
+  const rows: CustomerRow[] = companies.map((c) => ({
+    id: c.id,
+    name: c.name,
+    status: c.status,
+    suspensionReason: c.suspension_reason,
+    createdAt: c.created_at,
+    organizationId: c.organization_id,
+    owner: ownerByOrganization.get(c.organization_id) ?? null,
+  }));
+
   return (
     <>
       <PageHeader
@@ -174,137 +221,16 @@ export default async function CustomersPage({
         description="Provision a new customer, or manage an existing subscription."
       />
 
-      {params.stationError ? (
-        <p className="text-sm text-destructive">
-          Could not add the Station. Check the name and try again.
-        </p>
-      ) : null}
-
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-start">
-        <Card>
-          <CardHeader>
-            <CardTitle>Provision a customer</CardTitle>
-            <CardDescription>
-              Creates the organization, the station and the owner account.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ProvisionForm />
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-col gap-3">
-          {/* A plain GET form: submitting it is a navigation, which is all this
-              needs, and it carries no cursor — a search is a new list, so it
-              starts at the beginning of one. */}
-          <form method="get" action="/admin/customers" className="flex flex-wrap items-end gap-2">
-            <Input
-              type="search"
-              name="q"
-              defaultValue={search ?? ''}
-              placeholder="Search by Station name"
-              aria-label="Search customers by Station name"
-              className="h-9 w-64 text-sm"
-              data-testid="customer-search-input"
-            />
-            <Button type="submit" variant="outline" className="h-9">
-              Search
-            </Button>
-          </form>
-
-          {companies.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-muted-foreground">
-                  {search ? 'No customer matches this search.' : 'No company provisioned yet.'}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            companies.map((c) => {
-              const owner = ownerByOrganization.get(c.organization_id);
-              return (
-                <Card key={c.id} data-testid="company-row">
-                  <CardContent className="flex flex-col gap-4 pt-6">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="font-medium">{c.name}</span>
-                        <span
-                          className={
-                            c.status === 'active'
-                              ? 'w-fit rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary'
-                              : 'w-fit rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive'
-                          }
-                        >
-                          {c.status}
-                          {c.suspension_reason ? ` — ${c.suspension_reason}` : ''}
-                        </span>
-                      </div>
-                      {c.status === 'active' ? (
-                        <form action={suspendAction} className="flex items-center gap-2">
-                          <input type="hidden" name="companyId" value={c.id} />
-                          <Input name="reason" placeholder="Reason" className="h-9 w-40 text-sm" />
-                          <Button type="submit" variant="outline">
-                            Suspend
-                          </Button>
-                        </form>
-                      ) : (
-                        <form action={reactivateAction}>
-                          <input type="hidden" name="companyId" value={c.id} />
-                          <Button type="submit" variant="outline">
-                            Reactivate
-                          </Button>
-                        </form>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-3 border-t pt-4">
-                      {owner ? (
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <span className="text-sm text-muted-foreground">
-                            Owner: {owner.email}
-                          </span>
-                          <RegenerateForm userId={owner.userId} email={owner.email} />
-                        </div>
-                      ) : null}
-                      {/* This Organization can hold more than one Station (Block
-                          1c) — add_company is platform-admin only, which is why
-                          the form lives here rather than on the customer's own
-                          screens. organizationId comes from this row, not from
-                          a select, since every row already belongs to one. */}
-                      <form
-                        action={addCompanyAction}
-                        className="flex flex-wrap items-center gap-2"
-                      >
-                        <input type="hidden" name="organizationId" value={c.organization_id} />
-                        <Input
-                          name="name"
-                          placeholder="New Station name"
-                          required
-                          className="h-9 w-48 text-sm"
-                        />
-                        <Button type="submit" variant="outline">
-                          Add Station
-                        </Button>
-                      </form>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })
-          )}
-
-          {/* No total, on purpose — see customersHref's own comment. */}
-          <PageControls
-            label="Newest customers first"
-            previousHref={
-              previousCursor
-                ? customersHref(search, { side: 'before', value: previousCursor })
-                : null
-            }
-            nextHref={nextCursor ? customersHref(search, { side: 'after', value: nextCursor }) : null}
-          />
-        </div>
-      </div>
+      <CustomersGrid
+        initialRows={rows}
+        initialStationsByOrganization={stationsByOrganization}
+        search={search}
+        previousHref={
+          previousCursor ? customersHref(search, { side: 'before', value: previousCursor }) : null
+        }
+        nextHref={nextCursor ? customersHref(search, { side: 'after', value: nextCursor }) : null}
+        initialRecord={parseRecordParam(params, CUSTOMER_TABS)}
+      />
     </>
   );
 }

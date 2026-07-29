@@ -44,6 +44,7 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await expect(page).toHaveURL(/\/app$/);
 
   await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByTestId('customer-create').click();
   await page.getByPlaceholder('Organization name').fill(`Invite Org ${stamp}`);
   await page.getByPlaceholder('Company (Station) name').fill(`Invite Station ${stamp}`);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
@@ -81,6 +82,11 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   // Sidebar entry added in Task 11 Step 4.
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
+
+  // The invite form lives in a dialog over the roster since Block 3c. It stays
+  // open on success: the accept link below is shown once and cannot be shown
+  // again.
+  await ownerPage.getByTestId('team-invite').click();
 
   // Task 10 replaced the fixed-role dropdown with an owner checkbox, a role
   // select and a Station checklist (schemas/invitations.ts:
