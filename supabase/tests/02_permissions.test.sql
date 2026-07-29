@@ -1,5 +1,5 @@
 begin;
-select plan(202);
+select plan(208);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -810,7 +810,20 @@ select is(
 -- is_member_blocked (0032) itself — 0036 supersedes that function's body too
 -- (see 0036's "is_member_blocked (0032) superseded" section). single_block_probe,
 -- below, mirrors bulk_block_probe's two Organization-boundary assertions for
--- the single-row function.
+-- the single-row function. Its own grant grid (two lines) sits beside
+-- members_blocked_bulk's below, restated in 0036 per 0030's precedent rather
+-- than left to CREATE OR REPLACE's silent ACL preservation.
+--
+-- Second fix round (owner's ruling, 2026-07-29): even Organization-scoped, a
+-- caller holding members.view at one Station could still learn the block
+-- status of any Member in their OWN Organization, including one linked only
+-- to a Station they cannot reach — closed in both functions by requiring
+-- public.member_reachable (0033). "Blocked At Station F2 Only" and
+-- "Org-Wide Blocked But Unreachable" (Station F2, below) exercise this and
+-- the review's separate coverage-gap finding: no existing fixture had a
+-- Station-scoped block at a DIFFERENT Station in the same Organization, so
+-- dropping the (b.company_id is null or b.company_id = p_company_id) term
+-- entirely would have passed every assertion that existed before this round.
 select is(
   (select count(*)::int from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
@@ -832,6 +845,20 @@ select ok(
 select ok(
   not has_function_privilege('anon', 'public.members_blocked_bulk(uuid[], uuid)', 'execute'),
   'anon may not execute members_blocked_bulk'
+);
+
+-- is_member_blocked's own grant grid, mirroring the two lines above: 0036
+-- restates 0032's revoke/grant (Important 1, review round 2) rather than
+-- relying on CREATE OR REPLACE's silent ACL preservation with nothing behind
+-- it in the suite -- before this, no grant assertion for is_member_blocked
+-- existed anywhere, before or after 0036.
+select ok(
+  has_function_privilege('authenticated', 'public.is_member_blocked(uuid, uuid)', 'execute'),
+  'authenticated may execute is_member_blocked'
+);
+select ok(
+  not has_function_privilege('anon', 'public.is_member_blocked(uuid, uuid)', 'execute'),
+  'anon may not execute is_member_blocked'
 );
 
 select has_index('public', 'members', 'members_created_at_idx',
@@ -865,6 +892,18 @@ insert into public.members (id, organization_id, full_name) values
 insert into public.members (id, organization_id, full_name) values
   ('beefbeef-0000-0000-0000-000000000002', 'beefbeef-0000-0000-0000-000000000001', 'Org-Wide Blocked In G');
 
+-- Linked to Station F1, so member_reachable (Important 2) actually admits
+-- them for the delegate below -- without this, every "reads true" assertion
+-- for these three would read false regardless of the block logic being
+-- tested, for a reason that has nothing to do with what the assertion names
+-- (review round 2's own fix surfaced this: these three had never been
+-- linked to any Station at all before member_reachable started being
+-- checked).
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('ffffffff-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000001'),
+  ('ffffffff-0000-0000-0000-000000000007', 'ffffffff-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000001'),
+  ('ffffffff-0000-0000-0000-000000000008', 'ffffffff-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000001');
+
 insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason) values
   ('ffffffff-0000-0000-0000-000000000009', 'ffffffff-0000-0000-0000-000000000001',
    'ffffffff-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000002', 'draw_ban', 'blocked at F1 specifically'),
@@ -877,15 +916,49 @@ insert into public.member_blocks (id, organization_id, member_id, company_id, ki
   ('beefbeef-0000-0000-0000-000000000003', 'beefbeef-0000-0000-0000-000000000001',
    'beefbeef-0000-0000-0000-000000000002', null, 'suspension', 'org-wide block, Org G');
 
+-- Station F2: a second Station in Org F the delegate (ffffffff-...0004) has
+-- NO membership or role at -- unreachable to them, unlike Station F1.
+insert into public.companies (id, organization_id, name) values
+  ('ffffffff-0000-0000-0000-00000000000b', 'ffffffff-0000-0000-0000-000000000001', 'Station F2 (delegate cannot reach)');
+
+-- Coverage-gap probe (review round 2): linked to F1, so reachable, but
+-- blocked at F2 specifically -- a Station-scoped block at a DIFFERENT
+-- Station in the SAME Organization. Isolates the (b.company_id is null or
+-- b.company_id = p_company_id) term from the reachability term below: this
+-- Member IS reachable, so a false result here can only come from the
+-- company match, not from member_reachable.
+--
+-- Residual-oracle probe (review round 2, Important 2): linked ONLY to F2,
+-- with an Organization-wide block -- before member_reachable was added, this
+-- would have read true (same Organization, company_id is null bypasses the
+-- Station check entirely). Linked to F2 rather than to nothing at all,
+-- deliberately: the fix must refuse a Member reachable through NO permitted
+-- link, not merely a Member with zero links.
+insert into public.members (id, organization_id, full_name) values
+  ('ffffffff-0000-0000-0000-00000000000c', 'ffffffff-0000-0000-0000-000000000001', 'Blocked At Station F2 Only'),
+  ('ffffffff-0000-0000-0000-00000000000d', 'ffffffff-0000-0000-0000-000000000001', 'Org-Wide Blocked But Unreachable');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('ffffffff-0000-0000-0000-00000000000c', 'ffffffff-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000001'),
+  ('ffffffff-0000-0000-0000-00000000000d', 'ffffffff-0000-0000-0000-00000000000b', 'ffffffff-0000-0000-0000-000000000001');
+
+insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason) values
+  ('ffffffff-0000-0000-0000-00000000000e', 'ffffffff-0000-0000-0000-000000000001',
+   'ffffffff-0000-0000-0000-00000000000c', 'ffffffff-0000-0000-0000-00000000000b', 'draw_ban', 'blocked at F2, a different Station in the same Organization'),
+  ('ffffffff-0000-0000-0000-00000000000f', 'ffffffff-0000-0000-0000-000000000001',
+   'ffffffff-0000-0000-0000-00000000000d', null, 'suspension', 'org-wide block on a Member linked only to a Station the caller cannot reach');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "ffffffff-0000-0000-0000-000000000004", "role": "authenticated"}';
 
 create temporary table bulk_block_probe as
 select * from public.members_blocked_bulk(
-  array['ffffffff-0000-0000-0000-000000000006'::uuid,  -- Station-scoped block, real
-        'ffffffff-0000-0000-0000-000000000007'::uuid,  -- Org-wide block, real (same Org)
+  array['ffffffff-0000-0000-0000-000000000006'::uuid,  -- Station-scoped block, real, at the queried Station
+        'ffffffff-0000-0000-0000-000000000007'::uuid,  -- Org-wide block, real (same Org), reachable
         'ffffffff-0000-0000-0000-000000000008'::uuid,  -- never blocked
-        'beefbeef-0000-0000-0000-000000000002'::uuid], -- Org-wide block, but a DIFFERENT Organization
+        'beefbeef-0000-0000-0000-000000000002'::uuid,  -- Org-wide block, but a DIFFERENT Organization
+        'ffffffff-0000-0000-0000-00000000000c'::uuid,  -- Station-scoped block at a DIFFERENT Station, same Organization
+        'ffffffff-0000-0000-0000-00000000000d'::uuid], -- Org-wide block, same Organization, but unreachable
   'ffffffff-0000-0000-0000-000000000002'
 );
 
@@ -915,7 +988,9 @@ select * from public.members_blocked_bulk(
 create temporary table single_block_probe as
 select
   public.is_member_blocked('ffffffff-0000-0000-0000-000000000007', 'ffffffff-0000-0000-0000-000000000002') as own_org_block,
-  public.is_member_blocked('beefbeef-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000002') as cross_org_block;
+  public.is_member_blocked('beefbeef-0000-0000-0000-000000000002', 'ffffffff-0000-0000-0000-000000000002') as cross_org_block,
+  public.is_member_blocked('ffffffff-0000-0000-0000-00000000000c', 'ffffffff-0000-0000-0000-000000000002') as wrong_station_block,
+  public.is_member_blocked('ffffffff-0000-0000-0000-00000000000d', 'ffffffff-0000-0000-0000-000000000002') as unreachable_block;
 
 reset role;
 
@@ -940,9 +1015,19 @@ select is(
   'an Organization-wide block belonging to a DIFFERENT Organization does not leak as blocked = true — Task 3 review, the defect closed by 0036''s organization_id filter'
 );
 select is(
+  (select blocked from bulk_block_probe where member_id = 'ffffffff-0000-0000-0000-00000000000c'),
+  false,
+  'a Station-scoped block at a DIFFERENT Station in the same Organization does not leak as blocked = true at the queried Station -- review round 2''s coverage-gap finding: no prior fixture exercised this, so dropping the company_id match term entirely would have passed every earlier assertion'
+);
+select is(
+  (select blocked from bulk_block_probe where member_id = 'ffffffff-0000-0000-0000-00000000000d'),
+  false,
+  'an Organization-wide block on a Member the caller cannot reach (linked only to a Station they hold no permission at) reads false -- Important 2, the residual intra-Organization oracle closed by member_reachable'
+);
+select is(
   (select count(*)::int from bulk_block_probe),
-  4,
-  'one row per input id, four ids in, four rows out'
+  6,
+  'one row per input id, six ids in, six rows out'
 );
 
 select is(
@@ -976,6 +1061,16 @@ select is(
   (select cross_org_block from single_block_probe),
   false,
   'is_member_blocked: an Organization-wide block belonging to a DIFFERENT Organization does not leak as true -- the same fix as members_blocked_bulk, now applied to the single-row function (0036 supersedes 0032)'
+);
+select is(
+  (select wrong_station_block from single_block_probe),
+  false,
+  'is_member_blocked: a Station-scoped block at a DIFFERENT Station in the same Organization does not leak as true -- same coverage-gap fix as members_blocked_bulk'
+);
+select is(
+  (select unreachable_block from single_block_probe),
+  false,
+  'is_member_blocked: an Organization-wide block on a Member the caller cannot reach reads false -- Important 2, applied to the single-row function too'
 );
 
 set local role authenticated;
