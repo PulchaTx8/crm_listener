@@ -42,6 +42,13 @@ export const TableRow = React.forwardRef<
 ));
 TableRow.displayName = 'TableRow';
 
+/**
+ * A header cell. Forwards `aria-sort` (`'ascending' | 'descending' | 'none'`)
+ * through `...props` — nothing here sets it. Screens that render a sortable
+ * column with `SortLink` should set `aria-sort` on the `TableHead` that
+ * wraps it, so assistive technology gets the sort state at the cell level
+ * too, not only from the visually-hidden text `SortLink` itself renders.
+ */
 export const TableHead = React.forwardRef<
   HTMLTableCellElement,
   React.ThHTMLAttributes<HTMLTableCellElement>
@@ -65,6 +72,14 @@ export const TableCell = React.forwardRef<
 ));
 TableCell.displayName = 'TableCell';
 
+/**
+ * Renders a `div`, not a `<tfoot>` — unlike `TableHeader`/`TableBody`, whose
+ * names match a real table section, this one doesn't. Only place it (directly,
+ * or via `PageControls`) outside `Table`/below its `overflow-x-auto` wrapper,
+ * never as a child of `Table` itself: a `div` inside a `table` is invalid
+ * HTML, gets foster-parented out of the table by the browser, and risks a
+ * hydration mismatch.
+ */
 export const TableFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
@@ -91,15 +106,22 @@ export function SortLink({
   direction: 'asc' | 'desc';
   children: React.ReactNode;
 }) {
+  const stateLabel = active
+    ? `, sorted ${direction === 'desc' ? 'descending' : 'ascending'}`
+    : ', not sorted';
+
   return (
     <Link
       // typedRoutes cannot express a URL assembled at runtime (sort/cursor
       // query params) as a route literal, so this casts to Route — the same
       // pattern member-search-form.tsx uses for the same reason.
       href={href as Route}
-      className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+      className="inline-flex items-center gap-1 ring-offset-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       {children}
+      {/* Visually hidden so the sort state reaches a screen reader even if the
+          caller never sets `aria-sort` on the enclosing TableHead. */}
+      <span className="sr-only">{stateLabel}</span>
       <span aria-hidden="true" className={cn('text-[0.65rem]', active ? '' : 'opacity-30')}>
         {active && direction === 'desc' ? '▼' : '▲'}
       </span>
@@ -135,23 +157,40 @@ export function PageControls({
           <Link
             href={previousHref as Route}
             data-testid="page-previous"
-            className="rounded-md border px-3 py-1.5 hover:bg-accent/40"
+            className="rounded-md border px-3 py-1.5 ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             Previous
           </Link>
         ) : (
-          <span className="rounded-md border px-3 py-1.5 opacity-40">Previous</span>
+          // A disabled button, not inert text dressed as a control: it is
+          // announced as a control that exists but cannot be used right now,
+          // where a plain span with no role would read as ordinary text.
+          <button
+            type="button"
+            disabled
+            data-testid="page-previous"
+            className="rounded-md border px-3 py-1.5 opacity-40 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Previous
+          </button>
         )}
         {nextHref ? (
           <Link
             href={nextHref as Route}
             data-testid="page-next"
-            className="rounded-md border px-3 py-1.5 hover:bg-accent/40"
+            className="rounded-md border px-3 py-1.5 ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             Next
           </Link>
         ) : (
-          <span className="rounded-md border px-3 py-1.5 opacity-40">Next</span>
+          <button
+            type="button"
+            disabled
+            data-testid="page-next"
+            className="rounded-md border px-3 py-1.5 opacity-40 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Next
+          </button>
         )}
       </span>
     </TableFooter>
