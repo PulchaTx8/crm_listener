@@ -17,13 +17,32 @@ import { InviteForm } from './invite-form';
 // Renders from the caller's session cookies, so it can never be static.
 export const dynamic = 'force-dynamic';
 
+/**
+ * A safety net, NOT paging — this screen deliberately has none (spec §6).
+ * At the owner's real scale, 30 users and 3 Stations per Organization, it
+ * renders 30 rows and roughly 90 nested per-Station-per-role controls: a
+ * screen that fits, where Previous/Next would cost more in navigation than
+ * it saved in rows. The bound exists so that an Organization far outside
+ * that shape degrades into a truncated list rather than an unbounded read,
+ * and it is set high enough that reaching it means the assumption above has
+ * stopped holding and this screen needs paging for real.
+ */
+const TEAM_SAFETY_BOUND = 500;
+
 export default async function TeamPage() {
   const supabase = await createUserClient();
 
   const { data: memberships, error: membershipsError } = await supabase
     .from('organization_memberships')
     .select('id, user_id, role, organization_id')
-    .order('created_at', { ascending: true });
+    // Archived memberships were listed as current ones, unlike members/page.tsx
+    // and roles/page.tsx, which have always filtered this. The column exists on
+    // this table (0003) — verified before filtering on it, per the plan's own
+    // instruction — so a removed teammate reappeared here with live controls
+    // beside their name.
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(TEAM_SAFETY_BOUND);
 
   if (membershipsError) logger.error({ err: membershipsError }, 'could not load memberships');
 

@@ -64,6 +64,16 @@ export function formatDateTime(iso: string): string {
 }
 
 /**
+ * The day alone, for the inventory table's "Added" column. Like formatDateTime
+ * above it renders in the RUNTIME's zone, and both callers are Server
+ * Components, so that runtime is the server rather than the viewer's browser —
+ * the same disclosed gap members/format.ts carries for its own formatDate.
+ */
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' });
+}
+
+/**
  * reconcile_inventory (0028) returns `bucket` as plain `text`, cast from the
  * enum at the very end of its own query — never NULL, unlike
  * inventory_movements.from_bucket/to_bucket, since reconciliation compares

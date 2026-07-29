@@ -1,34 +1,60 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
+import { decodeCursor } from '@/lib/keyset';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  PageControls,
+  SortLink,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { listOrganizationMembers, MEMBER_SEARCH_MAX_LENGTH } from '@/services/members';
-import type { MemberListRow } from '@/services/members';
+import type { MemberListPage } from '@/services/members';
 import { canViewAudience } from './access';
 import { describeMembersReadError } from './errors';
-import { formatDate } from './format';
-import { MemberSearchForm } from './member-search-form';
+import { ageFromBirthDate, formatDate } from './format';
+import {
+  hasActiveFilters,
+  membersHref,
+  parseMemberListCursor,
+  parseMemberListState,
+  sortHref,
+} from './list-params';
+import type { MemberListSearchParams } from './list-params';
+import { MembersFilters } from './members-filters';
 import { RegisterMemberForm } from './register-member-form';
-import { listCompanyAccess } from '../inventory/station-access';
+import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
+import { StationSearchForm } from '../inventory/station-search-form';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
 export const dynamic = 'force-dynamic';
 
+/** How many columns the empty-state row has to span. */
+const COLUMN_COUNT = 8;
+
 export default async function MembersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<MemberListSearchParams>;
 }) {
-  const params = await searchParams;
-  // The same bound listOrganizationMembers (services/members.ts) enforces on
-  // its own `search` argument — imported, not a second hand-copied literal,
-  // so a caller-controlled URL query parameter cannot silently drift the two
-  // bounds apart (Task 8 re-review).
-  const search = params.q?.trim().slice(0, MEMBER_SEARCH_MAX_LENGTH) || undefined;
+  const raw = await searchParams;
+  const state = parseMemberListState(raw);
+  const cursorParam = parseMemberListCursor(raw);
+  // An unreadable cursor means "start from the beginning", never an error
+  // page — decodeCursor's own contract (src/lib/keyset.ts).
+  const cursor = decodeCursor(cursorParam?.value);
+  // The same bound listCompanyAccess enforces on its own argument, imported
+  // rather than copied.
+  const stationSearch = state.stationSearch?.slice(0, STATION_SEARCH_MAX_LENGTH);
 
   const supabase = await createUserClient();
   const {
@@ -83,10 +109,28 @@ export default async function MembersPage({
   if (sessionError || !sessionData.session) redirect('/login');
   const accessToken = sessionData.session.access_token;
 
-  let members: MemberListRow[];
-  let capped: boolean;
+  let page: MemberListPage;
   try {
-    ({ members, capped } = await listOrganizationMembers(organizationId, search, accessToken));
+    page = await listOrganizationMembers(
+      {
+        organizationId,
+        // The same bound the service enforces on its own argument, imported
+        // rather than hand-copied so a caller-controlled URL parameter cannot
+        // drift the two apart (Block 3, Task 8 re-review).
+        search: state.search?.slice(0, MEMBER_SEARCH_MAX_LENGTH),
+        sort: state.sort,
+        direction: state.direction,
+        cursor,
+        cursorSide: cursorParam?.side ?? 'after',
+        ageMin: state.ageMin,
+        ageMax: state.ageMax,
+        blockedOnly: state.blockedOnly || undefined,
+        hasRulesConsent: state.consent === undefined ? undefined : state.consent === 'yes',
+        registeredFrom: state.registeredFrom,
+        registeredTo: state.registeredTo,
+      },
+      accessToken,
+    );
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not load the audience');
     return <LoadError message={describeMembersReadError(cause)} />;
@@ -97,9 +141,7 @@ export default async function MembersPage({
   // itself before writing anything, so hiding this card from someone who
   // holds it nowhere is convenience, not the refusal itself.
   //
-  // listCompanyAccess (inventory/station-access.ts, generalised over an
-  // explicit `permission` parameter by the Task 9 review rather than staying
-  // a second hand-copy of the same scan-plus-fan-out) genuinely throws on a
+  // listCompanyAccess (inventory/station-access.ts) genuinely throws on a
   // failed read or permission check, per its own doc comment — caught here
   // and folded into an empty list anyway, a DELIBERATE, NARROWER choice made
   // only at this call site: this screen's primary purpose is the audience
@@ -112,10 +154,15 @@ export default async function MembersPage({
   let registrationCapped = false;
   try {
     ({ viewable: registrableStations, suspended: suspendedStations, capped: registrationCapped } =
-      await listCompanyAccess(supabase, 'members.create'));
+      await listCompanyAccess(supabase, 'members.create', stationSearch));
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not resolve registration access');
   }
+
+  const nameSorted = state.sort === 'name';
+  const registeredSorted = state.sort === 'created';
+  const ariaSort = (sorted: boolean) =>
+    sorted ? (state.direction === 'asc' ? 'ascending' : 'descending') : 'none';
 
   return (
     <>
@@ -130,87 +177,160 @@ export default async function MembersPage({
             <CardTitle>Register a listener</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {registrationCapped && (
-              <p className="text-xs text-muted-foreground">
-                Only the first {registrableStations.length + suspendedStations.length} Stations
-                you can reach were checked. If the Station you want is not listed below, contact
-                us.
-              </p>
+            {(registrationCapped || stationSearch) && (
+              <>
+                {registrationCapped && (
+                  <p className="text-xs text-muted-foreground">
+                    Showing {registrableStations.length + suspendedStations.length} of the
+                    Stations you can register a listener at. Search by name to reach one that is
+                    not listed.
+                  </p>
+                )}
+                {/* A GET form submits only its own fields, so the filters
+                    already in the URL are repeated as hidden inputs — built
+                    from membersHref, the same helper every link on this screen
+                    uses, so the two cannot drift apart. */}
+                <StationSearchForm
+                  action="/members"
+                  value={stationSearch ?? ''}
+                  preserve={Object.fromEntries(
+                    new URLSearchParams(membersHref(state).split('?')[1] ?? ''),
+                  )}
+                  label="Find a Station to register at"
+                />
+              </>
             )}
             <RegisterMemberForm stations={registrableStations} suspended={suspendedStations} />
           </CardContent>
         </Card>
       )}
 
-      <MemberSearchForm initialQuery={search ?? ''} />
+      <MembersFilters state={state} />
 
-      {capped && (
-        <p className="mb-2 mt-4 text-xs text-muted-foreground">
-          {search
-            ? `Showing the first ${members.length} matches. Narrow your search further to see more.`
-            : `Showing the first ${members.length}. Search to narrow this down.`}
+      {/* The one filter that cannot be a query condition, said plainly rather
+          than left for somebody to infer from a short page. member_consents
+          is append-only, so "consented to the rules" means the LATEST rules
+          row is a grant — a question about rows this page has already
+          fetched, not one Postgres can answer while paging. */}
+      {state.consent && (
+        <p className="mt-4 text-xs text-muted-foreground" data-testid="member-consent-note">
+          Rules consent is checked after each page is read, so a page can show fewer than 50
+          listeners and no total is available while this filter is on. Previous and Next still
+          walk the whole audience.
         </p>
       )}
 
-      {members.length === 0 ? (
-        <Card className="mt-4">
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              {search
-                ? 'No listener matches this search.'
-                : 'No listener registered yet at a Station you can reach.'}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="mt-4 flex flex-col gap-3">
-          {members.map((member) => {
-            const contact = [
-              member.phone,
-              member.email,
-              member.cpfLastDigits ? `CPF ···${member.cpfLastDigits}` : null,
-            ]
-              .filter((v): v is string => Boolean(v))
-              .join(' · ');
-            return (
-              <Link
-                key={member.id}
-                href={`/members/${member.id}`}
-                data-testid="member-row"
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/40"
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="font-medium">
-                    {member.anonymizedAt
-                      ? 'Personal data erased'
-                      : (member.fullName ?? 'Unnamed listener')}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
+      <div className="mt-4 rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead aria-sort={ariaSort(nameSorted)}>
+                <SortLink
+                  href={sortHref(state, 'name')}
+                  active={nameSorted}
+                  direction={nameSorted ? state.direction : 'asc'}
+                >
+                  Name
+                </SortLink>
+              </TableHead>
+              <TableHead>Phone</TableHead>
+              <TableHead>E-mail</TableHead>
+              <TableHead>CPF</TableHead>
+              <TableHead>Age</TableHead>
+              <TableHead>City</TableHead>
+              <TableHead aria-sort={ariaSort(registeredSorted)}>
+                <SortLink
+                  href={sortHref(state, 'created')}
+                  active={registeredSorted}
+                  direction={registeredSorted ? state.direction : 'desc'}
+                >
+                  Registered
+                </SortLink>
+              </TableHead>
+              <TableHead>Block state</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {page.rows.length === 0 ? (
+              <TableRow>
+                {/* Two different facts, kept apart: nobody is registered yet,
+                    and nobody matches what was asked for. Collapsing them
+                    would tell an operator whose filter is simply too narrow
+                    that their Station has no audience at all. */}
+                <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
+                  {hasActiveFilters(state)
+                    ? 'No listener matches these filters.'
+                    : 'No listener registered yet at a Station you can reach.'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              page.rows.map((member) => {
+                const age = ageFromBirthDate(member.birthDate);
+                return (
+                  <TableRow key={member.id} data-testid="member-row">
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/members/${member.id}`}
+                        className="ring-offset-background hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        {member.anonymizedAt
+                          ? 'Personal data erased'
+                          : (member.fullName ?? 'Unnamed listener')}
+                      </Link>
+                    </TableCell>
                     {/* An anonymised row's contact fields are all null
-                        (anonymize_member, 0034), which is what would
-                        otherwise fall through to "No contact details on
-                        file" here — false: something WAS recorded and was
-                        deliberately erased, not never provided (Task 8
-                        review). Mirrors the detail page's own
-                        `Erased ${formatDate(...)}` description. */}
-                    {member.anonymizedAt
-                      ? `Erased ${formatDate(member.anonymizedAt)}`
-                      : contact || 'No contact details on file'}
-                  </span>
-                </div>
-                {member.blocked && (
-                  <span
-                    data-testid="member-blocked-badge"
-                    className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive"
-                  >
-                    Blocked
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </div>
-      )}
+                        (anonymize_member, 0034) and read as an em dash here,
+                        the same as a listener who never gave one — the Name
+                        cell above is what says which of the two happened. */}
+                    <TableCell>{member.phone ?? '—'}</TableCell>
+                    <TableCell>{member.email ?? '—'}</TableCell>
+                    <TableCell>
+                      {member.cpfLastDigits ? `···${member.cpfLastDigits}` : '—'}
+                    </TableCell>
+                    <TableCell>{age === null ? '—' : age}</TableCell>
+                    <TableCell>{member.city ?? '—'}</TableCell>
+                    <TableCell>{formatDate(member.createdAt)}</TableCell>
+                    <TableCell>
+                      {member.blocked ? (
+                        <span
+                          data-testid="member-blocked-badge"
+                          className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive"
+                        >
+                          Blocked
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+
+        {/* Outside Table, never inside it: PageControls renders a div, and a
+            div inside a table is invalid HTML the browser foster-parents out
+            (the component's own warning). */}
+        <PageControls
+          total={page.total}
+          label={
+            page.total === null
+              ? 'Not counted while the rules-consent filter is on'
+              : page.total === 1
+                ? 'listener'
+                : 'listeners'
+          }
+          previousHref={
+            page.previousCursor
+              ? membersHref(state, { side: 'before', value: page.previousCursor })
+              : null
+          }
+          nextHref={
+            page.nextCursor ? membersHref(state, { side: 'after', value: page.nextCursor }) : null
+          }
+        />
+      </div>
     </>
   );
 }

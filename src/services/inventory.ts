@@ -10,7 +10,11 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
+import { keysetFilter, keysetPage } from '@/lib/keyset';
+import type { Cursor, SortDirection } from '@/lib/keyset';
+import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
+import { UNCATEGORISED_FILTER } from '@/schemas/inventory';
 import type { MovementFormInput, PrizeFormInput } from '@/schemas/inventory';
 
 export type InventoryBucket = Database['public']['Enums']['inventory_bucket'];
@@ -67,6 +71,8 @@ export interface PrizeSummary {
   internalCode: string | null;
   description: string | null;
   allowsReturnToStock: boolean;
+  /** When the prize was registered — the inventory table's "Added" column and its second sort. */
+  createdAt: string;
   balance: PrizeBalance;
 }
 
@@ -103,30 +109,149 @@ export async function listPrizeCategories(companyId: string): Promise<PrizeCateg
   return data ?? [];
 }
 
+/** One page of prizes. The audience list's PAGE_SIZE, for the same reason: it is what a person can scan. */
+const PRIZE_PAGE_SIZE = 50;
+
+/** The columns the inventory table renders. One constant, because the row read and the count read must agree. */
+const PRIZE_COLUMNS =
+  'id, name, category_id, internal_code, description, allows_return_to_stock, created_at';
+
+/** The one bound on a search term, exported so the page enforces the same number rather than a copy of it. */
+export const PRIZE_SEARCH_MAX_LENGTH = 100;
+
+export type PrizeSortKey = 'name' | 'created';
+
+export interface PrizeListParams {
+  companyId: string;
+  search?: string;
+  /** A category id, or UNCATEGORISED_FILTER. Anything else is ignored rather than refused. */
+  categoryId?: string;
+  sort: PrizeSortKey;
+  direction: SortDirection;
+  cursor: Cursor | null;
+  cursorSide: 'after' | 'before';
+}
+
+export interface PrizeListPage {
+  rows: PrizeSummary[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  /** Always exact: one Station's catalogue, cut by RLS before it touches disk. */
+  total: number;
+}
+
 /**
- * The inventory list: every live prize in the Station with its balance
- * broken out by bucket.
+ * The inventory list, one keyset page at a time (Block 3b).
+ *
+ * What it replaces read EVERY prize in the Station and shipped the lot to the
+ * browser, which filtered them in a `useMemo`; at ten thousand prizes the
+ * screen did not open. Search and the category filter are now conditions
+ * Postgres evaluates, and the balances read below covers the page rather than
+ * the catalogue.
+ *
+ * There is deliberately no archived-prizes filter, though the plan's Task 5
+ * and spec §6 both list one. It cannot be built from here: prizes' own select
+ * policy (0029) is `deleted_at is null and has_permission('inventory.view',
+ * company_id)`, so an archived prize is not hidden by this query — it is
+ * unreadable through RLS entirely, for every caller. Offering the filter
+ * would mean widening that policy, which is a visibility decision rather than
+ * a listing one. Recorded in the block report instead of quietly dropped.
  */
-export async function listPrizes(companyId: string): Promise<PrizeSummary[]> {
+export async function listPrizesPage(params: PrizeListParams): Promise<PrizeListPage> {
   const supabase = await createUserClient();
 
-  const { data: prizes, error: prizesError } = await supabase
-    .from('prizes')
-    .select('id, name, category_id, internal_code, description, allows_return_to_stock')
-    .eq('company_id', companyId)
-    .is('deleted_at', null)
-    .order('name');
+  const column = params.sort === 'name' ? 'name' : 'created_at';
+  // Neither sort column is nullable (0025), so no null region exists on
+  // either — unlike the audience list, where full_name is.
+  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const ascending = walkingBack ? params.direction === 'desc' : params.direction === 'asc';
+  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
 
-  if (prizesError) throw new InternalError(`Could not read prizes: ${prizesError.message}`);
+  const build = (options?: { count: 'exact'; head: true }) => {
+    let q = supabase
+      .from('prizes')
+      .select(PRIZE_COLUMNS, options)
+      .eq('company_id', params.companyId)
+      .is('deleted_at', null);
 
-  const prizeIds = (prizes ?? []).map((p) => p.id);
+    if (params.categoryId === UNCATEGORISED_FILTER) {
+      q = q.is('category_id', null);
+    } else if (params.categoryId) {
+      q = q.eq('category_id', params.categoryId);
+    }
+
+    const term = params.search?.trim().slice(0, PRIZE_SEARCH_MAX_LENGTH);
+    if (term) {
+      // escapeLikePattern before the wildcard markers, so only what the
+      // caller typed is escaped — never the markers this adds itself.
+      const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
+      q = q.or(`name.ilike.${wildcard},internal_code.ilike.${wildcard}`);
+    }
+
+    return q;
+  };
+
+  let query = build().order(column, { ascending });
+  if (params.cursor) {
+    // nullsLast is false because neither sort column is nullable: there is no
+    // null region for a cursor to cross into.
+    query = query.or(keysetFilter(column, readDirection, params.cursor, false));
+  }
+  query = query.order('id', { ascending });
+
+  const { data, error } = await query.limit(PRIZE_PAGE_SIZE + 1);
+  if (error) throw new InternalError(`Could not read prizes: ${error.message}`);
+
+  const { rows: page, nextCursor, previousCursor } = keysetPage(data ?? [], {
+    pageSize: PRIZE_PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({
+      value: params.sort === 'name' ? row.name : row.created_at,
+      id: row.id,
+    }),
+  });
+
+  const { count, error: countError } = await build({ count: 'exact', head: true });
+  if (countError) throw new InternalError(`Could not count prizes: ${countError.message}`);
+
+  return {
+    rows: await withBalances(supabase, params.companyId, page),
+    nextCursor,
+    previousCursor,
+    total: count ?? 0,
+  };
+}
+
+/** One prize, read by id. RLS decides whether it exists for this caller — see getPrizeById. */
+type PrizeRecord = {
+  id: string;
+  name: string;
+  category_id: string | null;
+  internal_code: string | null;
+  description: string | null;
+  allows_return_to_stock: boolean;
+  created_at: string;
+};
+
+/**
+ * Attaches each prize's balance. Two reads rather than an embed — the same
+ * reasoning listRoles (services/roles.ts) gives for
+ * role_permissions/company_memberships: a prize that has never moved has no
+ * inventory_balances row at all, and folding the balance into the prize read
+ * would need an outer join PostgREST's embed syntax does not offer here.
+ *
+ * Scoped to the prizes handed to it, which since Block 3b is one page rather
+ * than the whole catalogue.
+ */
+async function withBalances(
+  supabase: Awaited<ReturnType<typeof createUserClient>>,
+  companyId: string,
+  prizes: readonly PrizeRecord[],
+): Promise<PrizeSummary[]> {
+  const prizeIds = prizes.map((p) => p.id);
   if (prizeIds.length === 0) return [];
 
-  // Two reads rather than an embed — the same reasoning listRoles
-  // (services/roles.ts) gives for role_permissions/company_memberships: a
-  // prize that has never moved has no inventory_balances row at all, and
-  // folding the balance into the prize read would need an outer join
-  // PostgREST's embed syntax does not offer here.
   const { data: balances, error: balancesError } = await supabase
     .from('inventory_balances')
     .select(
@@ -157,15 +282,45 @@ export async function listPrizes(companyId: string): Promise<PrizeSummary[]> {
     });
   }
 
-  return (prizes ?? []).map((prize) => ({
+  return prizes.map((prize) => ({
     id: prize.id,
     name: prize.name,
     categoryId: prize.category_id,
     internalCode: prize.internal_code,
     description: prize.description,
     allowsReturnToStock: prize.allows_return_to_stock,
+    createdAt: prize.created_at,
     balance: balanceByPrize.get(prize.id) ?? ZERO_BALANCE,
   }));
+}
+
+/**
+ * One prize, and the Station it belongs to, by id.
+ *
+ * What this replaces looped the whole list service over every Station the
+ * caller could view, comparing ids — at 2,000 prizes per Station and fifty
+ * Stations, a 100,000-row scan to open one card. RLS already scopes `prizes`
+ * to the Stations the caller holds inventory.view in (0029), so a prize at an
+ * unreachable Station comes back as null here: the same outcome the loop
+ * produced, without the scan and without a cap that could hide a real prize
+ * behind "we only checked the first fifty Stations".
+ */
+export async function getPrizeById(
+  prizeId: string,
+): Promise<{ companyId: string; prize: PrizeSummary } | null> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('prizes')
+    .select(`${PRIZE_COLUMNS}, company_id`)
+    .eq('id', prizeId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the prize: ${error.message}`);
+  if (!data) return null;
+
+  const [prize] = await withBalances(supabase, data.company_id, [data]);
+  return prize ? { companyId: data.company_id, prize } : null;
 }
 
 /** The movement history for a prize's detail screen, newest first. */

@@ -221,7 +221,9 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
 
   const prizeRow = delegatePage.locator('[data-testid="prize-row"]', { hasText: prizeName });
   await expect(prizeRow).toBeVisible();
-  await prizeRow.click();
+  // The row is a table row since Block 3b, and the link is its name cell —
+  // clicking the row itself would land on a balance figure and go nowhere.
+  await prizeRow.getByRole('link', { name: prizeName }).click();
   await expect(delegatePage).toHaveURL(/\/inventory\/[0-9a-f-]+$/);
   await expect(delegatePage.getByRole('heading', { name: prizeName })).toBeVisible();
 

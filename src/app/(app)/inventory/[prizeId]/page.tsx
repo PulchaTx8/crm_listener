@@ -4,10 +4,10 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getPrizeMovements, listPrizeCategories, listPrizes } from '@/services/inventory';
+import { getPrizeById, getPrizeMovements, listPrizeCategories } from '@/services/inventory';
 import type { MovementEntry, PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
-import { getInventoryPermissions, listCompanyAccess } from '../station-access';
-import type { InventoryPermissions, ViewableCompany } from '../station-access';
+import { getInventoryPermissions } from '../station-access';
+import type { InventoryPermissions } from '../station-access';
 import { describeInventoryReadError } from '../errors';
 import { BalanceStats } from '../balance-stats';
 import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABELS } from '../format';
@@ -32,51 +32,31 @@ export default async function PrizeDetailPage({
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  let viewable: ViewableCompany[];
-  let capped: boolean;
-  try {
-    ({ viewable, capped } = await listCompanyAccess(supabase, 'inventory.view'));
-  } catch (cause) {
-    logger.error({ err: cause }, 'could not resolve inventory access');
-    return <LoadError message={describeInventoryReadError(cause)} />;
-  }
-
   // Unlike /inventory, there is no separate has_permission check + redirect
   // gate here. A prize belongs to exactly one Company, and
   // prizes_select_inventory_view (0029) already filters ANY select on
   // `prizes` to a caller who holds inventory.view in that prize's Company —
   // so reading it at all already is the gate, not a courtesy in front of one.
-  // Searching every Station this caller can view inventory in (rather than
-  // reading `prizes` by id directly) reuses listPrizes wholesale, the same
-  // service the list screen calls — this screen calls the service, it does
-  // not reimplement the balance/zero-fallback logic living inside it. A
-  // sequential search with an early exit is bounded now by
-  // listCompanyAccess's own COMPANY_SCAN_CAP (branch review, Important #5) —
-  // `viewable` can no longer grow with the platform's total Company count,
-  // which is what made this loop unbounded for a platform admin before.
-  let found: { companyId: string; prize: PrizeSummary } | null = null;
+  //
+  // Until Block 3b this searched every Station the caller could view, calling
+  // the list service once per Station and comparing ids: a 100,000-row scan to
+  // open one card, and bounded only by a Station cap that could itself hide a
+  // real prize. The read below asks the database for the one row instead.
+  let found: { companyId: string; prize: PrizeSummary } | null;
   try {
-    for (const company of viewable) {
-      const prizes = await listPrizes(company.id);
-      const match = prizes.find((p) => p.id === prizeId);
-      if (match) {
-        found = { companyId: company.id, prize: match };
-        break;
-      }
-    }
+    found = await getPrizeById(prizeId);
   } catch (cause) {
-    logger.error({ err: cause, prizeId }, 'could not resolve which station this prize belongs to');
+    logger.error({ err: cause, prizeId }, 'could not read the prize');
     return <LoadError message={describeInventoryReadError(cause)} />;
   }
 
   // Collapses two different facts — the prize was deleted, or it exists in a
   // Station this caller does not hold inventory.view in — into one honest
   // message. That is the safer default: it does not confirm to someone who
-  // cannot see the prize that the id is real. A third fact — the prize exists
-  // in a Station beyond listCompanyAccess's cap — is called out explicitly
-  // rather than folded into the same silence, since it is not the caller's
-  // access that is missing here, it is the list's completeness.
-  if (!found) return <NotFound capped={capped} />;
+  // cannot see the prize that the id is real. There is no longer a third
+  // fact to disclose: nothing here is capped, so "we did not look everywhere"
+  // has stopped being a possible reason for landing on this page.
+  if (!found) return <NotFound />;
 
   const { companyId, prize } = found;
 
@@ -270,7 +250,7 @@ function LoadError({ message }: { message: string }) {
   );
 }
 
-function NotFound({ capped }: { capped: boolean }) {
+function NotFound() {
   return (
     <>
       <PageHeader title="Prize not found" />
@@ -279,12 +259,6 @@ function NotFound({ capped }: { capped: boolean }) {
           <p className="text-sm text-muted-foreground">
             This prize does not exist, or you do not have permission to view it in this Station.
           </p>
-          {capped && (
-            <p className="text-sm text-muted-foreground">
-              Only the first stations you can reach were checked. If this prize belongs to one
-              beyond that, it will not appear here yet.
-            </p>
-          )}
           <Link href="/inventory" className="text-sm text-primary underline underline-offset-2">
             Back to inventory
           </Link>

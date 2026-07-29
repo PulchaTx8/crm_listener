@@ -4,12 +4,34 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { listPrizeCategories, listPrizes } from '@/services/inventory';
-import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
+import { decodeCursor } from '@/lib/keyset';
+import {
+  PageControls,
+  SortLink,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { listPrizeCategories, listPrizesPage, PRIZE_SEARCH_MAX_LENGTH } from '@/services/inventory';
+import { STATION_SEARCH_MAX_LENGTH } from './station-access';
+import { StationSearchForm } from './station-search-form';
+import type { PrizeCategorySummary, PrizeListPage } from '@/services/inventory';
 import { getInventoryPermissions, listCompanyAccess } from './station-access';
 import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './station-access';
 import { describeInventoryReadError } from './errors';
-import { InventoryBrowser } from './inventory-browser';
+import { formatDate, physicalTotal } from './format';
+import { InventoryFilters } from './inventory-filters';
+import {
+  hasActiveInventoryFilters,
+  inventoryHref,
+  inventorySortHref,
+  parseInventoryCursor,
+  parseInventoryListState,
+} from './list-params';
+import type { InventorySearchParams } from './list-params';
 import { CategoryForm } from './category-form';
 import { PrizeForm } from './prize-form';
 import { ReconciliationPanel } from './reconciliation-panel';
@@ -18,12 +40,19 @@ import { ReconciliationPanel } from './reconciliation-panel';
 // check, so it can never be static.
 export const dynamic = 'force-dynamic';
 
+/** How many columns the empty-state row has to span. */
+const COLUMN_COUNT = 11;
+
 export default async function InventoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ companyId?: string }>;
+  searchParams: Promise<InventorySearchParams>;
 }) {
   const params = await searchParams;
+  // The same bound listCompanyAccess enforces on its own argument, imported
+  // rather than copied.
+  const stationSearch = params.station?.trim().slice(0, STATION_SEARCH_MAX_LENGTH) || undefined;
+
   const supabase = await createUserClient();
   const {
     data: { user },
@@ -34,7 +63,11 @@ export default async function InventoryPage({
   let suspended: SuspendedCompany[];
   let capped: boolean;
   try {
-    ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'inventory.view'));
+    ({ viewable, suspended, capped } = await listCompanyAccess(
+      supabase,
+      'inventory.view',
+      stationSearch,
+    ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
     return <LoadError message={describeInventoryReadError(cause)} />;
@@ -51,6 +84,11 @@ export default async function InventoryPage({
   // holding inventory.view nowhere a trip to a screen that would otherwise
   // have nothing to show — indistinguishable, if rendered instead of
   // redirected, from a Station with no prizes in it.
+  // A Station search that matches nothing leaves this caller with no Station
+  // to show, which is not the same as holding inventory.view nowhere: the
+  // redirect above would throw them off the screen with no way to clear the
+  // search. Handled before it, so the search can always be undone.
+  if (!first && stationSearch) return <NoStationMatch search={stationSearch} />;
   if (!first) redirect('/app');
 
   // Next's searchParams arrives already percent-decoded (same as every other
@@ -60,19 +98,40 @@ export default async function InventoryPage({
   // actually view rather than erroring.
   const selected = viewable.find((c) => c.id === params.companyId) ?? first;
 
+  const state = parseInventoryListState(params, selected.id);
+  const cursorParam = parseInventoryCursor(params);
+  // An unreadable cursor means "start from the beginning", never an error page.
+  const cursor = decodeCursor(cursorParam?.value);
+
   let categories: PrizeCategorySummary[];
-  let prizes: PrizeSummary[];
+  let page: PrizeListPage;
   let permissions: InventoryPermissions;
   try {
-    [categories, prizes, permissions] = await Promise.all([
+    [categories, page, permissions] = await Promise.all([
       listPrizeCategories(selected.id),
-      listPrizes(selected.id),
+      listPrizesPage({
+        companyId: selected.id,
+        // The same bound the service enforces on its own argument, imported
+        // rather than copied so a URL parameter cannot drift the two apart.
+        search: state.search?.slice(0, PRIZE_SEARCH_MAX_LENGTH),
+        categoryId: state.categoryId,
+        sort: state.sort,
+        direction: state.direction,
+        cursor,
+        cursorSide: cursorParam?.side ?? 'after',
+      }),
       getInventoryPermissions(supabase, selected.id),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the inventory list');
     return <LoadError message={describeInventoryReadError(cause)} />;
   }
+
+  const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+  const nameSorted = state.sort === 'name';
+  const addedSorted = state.sort === 'created';
+  const ariaSort = (sorted: boolean) =>
+    sorted ? (state.direction === 'asc' ? 'ascending' : 'descending') : 'none';
 
   return (
     <>
@@ -81,11 +140,21 @@ export default async function InventoryPage({
         description="Every prize in the Station, with its balance broken out by bucket."
       />
 
-      {capped && (
-        <p className="mb-4 text-xs text-muted-foreground">
-          Showing the first {viewable.length + suspended.length} stations you can reach. Contact
-          us if a Station you expect is missing.
-        </p>
+      {(capped || stationSearch) && (
+        <div className="mb-4 flex flex-col gap-2">
+          {capped && (
+            <p className="text-xs text-muted-foreground">
+              Showing {viewable.length + suspended.length} of the Stations you can reach. Search
+              by name to reach one that is not listed.
+            </p>
+          )}
+          <StationSearchForm
+            action="/inventory"
+            value={stationSearch ?? ''}
+            preserve={{}}
+            label="Find a Station"
+          />
+        </div>
       )}
 
       {viewable.length + suspended.length > 1 && (
@@ -160,7 +229,121 @@ export default async function InventoryPage({
         </CardContent>
       </Card>
 
-      <InventoryBrowser prizes={prizes} categories={categories} />
+      <InventoryFilters state={state} categories={categories} />
+
+      <div className="mt-4 rounded-lg border">
+        <Table>
+          {/* Said once, where the numbers are read: BalanceStats carries the
+              same sentence inline on the detail screen, and a column header
+              has no room for it. */}
+          <caption className="px-3 py-2 text-left text-xs text-muted-foreground">
+            Delivered is a cumulative counter and sits outside physical stock, as does written
+            off, which this table leaves to each prize&apos;s own screen.
+          </caption>
+          <TableHeader>
+            <TableRow>
+              <TableHead aria-sort={ariaSort(nameSorted)}>
+                <SortLink
+                  href={inventorySortHref(state, 'name')}
+                  active={nameSorted}
+                  direction={nameSorted ? state.direction : 'asc'}
+                >
+                  Prize
+                </SortLink>
+              </TableHead>
+              <TableHead>Code</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead aria-sort={ariaSort(addedSorted)}>
+                <SortLink
+                  href={inventorySortHref(state, 'created')}
+                  active={addedSorted}
+                  direction={addedSorted ? state.direction : 'desc'}
+                >
+                  Added
+                </SortLink>
+              </TableHead>
+              <TableHead className="text-right">In stock</TableHead>
+              <TableHead className="text-right">Available</TableHead>
+              <TableHead className="text-right">Reserved</TableHead>
+              <TableHead className="text-right">Linked</TableHead>
+              <TableHead className="text-right">Awaiting pickup</TableHead>
+              <TableHead className="text-right">Pending return</TableHead>
+              <TableHead className="text-right">Delivered</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {page.rows.length === 0 ? (
+              <TableRow>
+                {/* Two different facts, kept apart: the Station has no
+                    catalogue yet, and nothing matches what was asked for. */}
+                <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
+                  {hasActiveInventoryFilters(state)
+                    ? 'No prize matches these filters.'
+                    : 'No prizes are registered in this Station yet.'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              page.rows.map((prize) => (
+                <TableRow key={prize.id} data-testid="prize-row">
+                  <TableCell className="font-medium">
+                    <Link
+                      href={`/inventory/${prize.id}`}
+                      className="ring-offset-background hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      {prize.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{prize.internalCode ?? '—'}</TableCell>
+                  <TableCell>
+                    {categoryNameById.get(prize.categoryId ?? '') ?? 'Uncategorised'}
+                  </TableCell>
+                  <TableCell>{formatDate(prize.createdAt)}</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {physicalTotal(prize.balance)}
+                  </TableCell>
+                  <TableCell className="text-right">{prize.balance.available}</TableCell>
+                  <TableCell className="text-right">{prize.balance.reserved}</TableCell>
+                  <TableCell className="text-right">{prize.balance.linked}</TableCell>
+                  <TableCell className="text-right">{prize.balance.awaitingPickup}</TableCell>
+                  <TableCell className="text-right">{prize.balance.pendingReturn}</TableCell>
+                  <TableCell className="text-right">{prize.balance.delivered}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+
+        <PageControls
+          total={page.total}
+          label={page.total === 1 ? 'prize' : 'prizes'}
+          previousHref={
+            page.previousCursor
+              ? inventoryHref(state, { side: 'before', value: page.previousCursor })
+              : null
+          }
+          nextHref={
+            page.nextCursor ? inventoryHref(state, { side: 'after', value: page.nextCursor }) : null
+          }
+        />
+      </div>
+    </>
+  );
+}
+
+function NoStationMatch({ search }: { search: string }) {
+  return (
+    <>
+      <PageHeader title="Inventory" />
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-6">
+          <p className="text-sm text-muted-foreground">
+            No Station you can reach matches “{search}”.
+          </p>
+          <Link href="/inventory" className="text-sm text-primary underline underline-offset-2">
+            Clear the Station search
+          </Link>
+        </CardContent>
+      </Card>
     </>
   );
 }

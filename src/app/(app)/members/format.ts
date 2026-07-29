@@ -61,3 +61,29 @@ export function formatDateTime(iso: string): string {
 export function formatCalendarDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });
 }
+
+/**
+ * Whole years, or null when there is no birth date on file — the audience
+ * table's Age column (Block 3b). Computed entirely in UTC, the same anchor
+ * formatCalendarDate uses to pin the rendered birthday and the same one the
+ * age FILTER uses to turn a band into a birth_date range (isoDateYearsAgo,
+ * services/members.ts): column and filter have to agree about which day it
+ * is, or a listener could be filtered in as 30 and displayed as 29.
+ *
+ * Both therefore read the SERVER's calendar day, which can differ from the
+ * operator's for a few hours a day — disclosed in isoDateYearsAgo's own
+ * comment and in the block report, not silently absorbed here.
+ */
+export function ageFromBirthDate(iso: string | null): number | null {
+  if (!iso) return null;
+  const birth = new Date(iso);
+  if (Number.isNaN(birth.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getUTCFullYear() - birth.getUTCFullYear();
+  const monthsApart = today.getUTCMonth() - birth.getUTCMonth();
+  if (monthsApart < 0 || (monthsApart === 0 && today.getUTCDate() < birth.getUTCDate())) {
+    age -= 1;
+  }
+  return age < 0 ? null : age;
+}

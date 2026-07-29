@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+/**
+ * The inventory list's category filter value meaning "belongs to no category
+ * at all". Not a uuid, so it can never collide with a real category id.
+ *
+ * It lives here rather than in services/inventory.ts because both sides need
+ * it and one of them is a client component: the service compares against it
+ * when building the query, and inventory-filters.tsx renders it as an option
+ * value. A `server-only` module cannot be imported from a client component,
+ * and two copies of a sentinel is exactly how one of them drifts.
+ */
+export const UNCATEGORISED_FILTER = 'uncategorised';
+
 // Mirrors 0027_inventory_rpcs.sql's create_prize/update_prize: both take the
 // same catalogue fields. update_prize resolves the Organization AND the
 // Company from the prize row itself (never a parameter), so companyId here

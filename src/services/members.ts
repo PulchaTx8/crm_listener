@@ -10,6 +10,9 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
+import { keysetFilter, keysetPage } from '@/lib/keyset';
+import type { Cursor, SortDirection } from '@/lib/keyset';
+import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type {
   AddMemberNoteInput,
@@ -175,32 +178,6 @@ export async function isMemberBlocked(
 }
 
 /**
- * Runs `fn` over `items` with at most `limit` calls in flight at once (Task 8
- * review, Important 2) — without a bound, listOrganizationMembers' own block
- * check below would open up to MEMBER_LIST_LIMIT concurrent database round
- * trips on every unsearched visit to /members. A plain worker pool: each of
- * `limit` workers pulls the next unclaimed index and keeps going until the
- * array is exhausted, so the in-flight count never exceeds `limit` regardless
- * of how long an individual call takes.
- */
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i] as T, i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
-/**
  * Whether the caller holds p_permission at any Station this Member is linked
  * to (member_reachable, 0033) — admits the owner and the platform admin
  * outside the per-link check, so a Member whose only Station is archived is
@@ -239,25 +216,33 @@ export interface MemberListRow {
   phone: string | null;
   email: string | null;
   cpfLastDigits: string | null;
+  birthDate: string | null;
+  /**
+   * Free text, and Block 3b's spec §7 is explicit that it will not stay: the
+   * geography block replaces it with a link to a real place, or with nothing.
+   * Shown as a column, never counted or filtered — `Campinas`, `campinas` and
+   * `Campinas/SP` are three values today.
+   */
+  city: string | null;
   anonymizedAt: string | null;
   createdAt: string;
-  /** True if is_member_blocked (0032) holds for at least one Station this row is linked to that the caller can reach — see listOrganizationMembers' own comment. */
+  /** True if an active block bars this row at any Station it is linked to that the caller can reach — see listOrganizationMembers' own comment. */
   blocked: boolean;
 }
 
-// A bound on how many rows one page load will ever return, the same
-// reasoning listCompanyAccess's COMPANY_SCAN_CAP (inventory/station-access.ts)
-// gives for its own cap: without one, an Organization with a large audience
-// would have every row read into this process on every visit to /members,
-// the exact "ship the audience to the client" failure Task 8's brief warns
-// against, just moved from the browser to this server instead of avoided.
-// Search narrows the `where` clause itself, so typing a name/phone/e-mail/CPF
-// stays effective even past this cap; the unfiltered default view (most
-// recently registered first) is the one path this actually limits.
-const MEMBER_LIST_LIMIT = 50;
+/** One page. Fifty is the plan's number; nothing else in this file depends on it. */
+const PAGE_SIZE = 50;
 
-/** How many is_member_blocked round trips listOrganizationMembers runs at once — see mapWithConcurrency's own comment. */
-const BLOCK_CHECK_CONCURRENCY = 8;
+/** The columns the audience table renders. Kept in one place: the row read and the count read must agree. */
+const MEMBER_LIST_COLUMNS =
+  'id, full_name, phone, email, cpf_last_digits, birth_date, city, anonymized_at, created_at';
+
+/**
+ * The same columns plus the join that makes "blocked only" a query condition.
+ * The count read has to carry it too — a count taken without the join would
+ * count every listener while the page showed only the blocked ones.
+ */
+const MEMBER_LIST_COLUMNS_WITH_BLOCKS = `${MEMBER_LIST_COLUMNS}, member_blocks!inner(id)` as const;
 
 /**
  * The one bound on a search term's length, exported so page.tsx enforces the
@@ -269,177 +254,380 @@ const BLOCK_CHECK_CONCURRENCY = 8;
 export const MEMBER_SEARCH_MAX_LENGTH = 100;
 
 /**
- * Escapes a value for interpolation into a PostgREST `.or()` filter list.
- * PostgREST's own filter-list grammar reserves comma and parenthesis as
- * separators; wrapping the whole value in double quotes suspends that
- * parsing for everything between them, and a literal double quote or
- * backslash inside the value is itself backslash-escaped first so a search
- * term matching one of the columns below (full_name, phone, email,
- * cpf_last_digits, and — since whole-branch review I2 — phone_normalized;
- * an earlier version of this comment said four and called them "the only
- * columns any `.or()` clause in this file ever targets", which I2 made
- * false the moment it added a fifth) cannot break out of the quoting it is
- * sitting inside. Exported for its own unit test
- * (tests/unit/member-search-filter.test.ts) — a small, pure,
- * security-relevant function taking untrusted input is worth testing
- * directly rather than only through a query nothing but a live database can
- * execute.
+ * Re-exported from src/lib/postgrest.ts, the one shared implementation of
+ * this escaping rule (also used by src/lib/keyset.ts for cursor values) —
+ * so tests/unit/member-search-filter.test.ts and every other existing
+ * import of `quoteForOrFilter` from this module keep working unchanged. The
+ * search clauses built below (full_name, phone, email, cpf_last_digits, and
+ * — since whole-branch review I2 — phone_normalized) are exactly why a
+ * search term matching one of them must not be able to break out of the
+ * quoting it is wrapped in; see src/lib/postgrest.ts for the escaping
+ * itself. Exported for its own unit test — a small, pure, security-relevant
+ * function taking untrusted input is worth testing directly rather than
+ * only through a query nothing but a live database can execute.
  */
-export function quoteForOrFilter(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+export { escapeLikePattern, quoteForOrFilter };
+
+
+export type MemberSortKey = 'name' | 'created';
+
+export interface MemberListParams {
+  organizationId: string;
+  search?: string;
+  sort: MemberSortKey;
+  direction: SortDirection;
+  cursor: Cursor | null;
+  /**
+   * Which side of `cursor` to read. 'before' walks one page back — the same
+   * query read in the opposite direction with the rows turned around
+   * afterwards, so Previous costs exactly what Next costs. Ignored when
+   * `cursor` is null, where "the page before the first page" means nothing.
+   */
+  cursorSide: 'after' | 'before';
+  /** Inclusive, in years, converted to a birth_date range — never an age computed per row. */
+  ageMin?: number;
+  ageMax?: number;
+  /** Blocked only. There is no "not blocked" option — see the note in the body. */
+  blockedOnly?: boolean;
+  /** Filters on the LATEST rules consent, which costs the total — see the note in the body. */
+  hasRulesConsent?: boolean;
+  /** Instants, not calendar days: members-filters.tsx converts the operator's chosen dates in the browser. */
+  registeredFrom?: string;
+  registeredTo?: string;
+}
+
+export interface MemberListPage {
+  rows: MemberListRow[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  /**
+   * Exact, or null. Null means "not counted", which happens only under the
+   * rules-consent filter: that one is applied after the page is fetched, so
+   * no count taken here could describe what the screen actually shows. The
+   * screen renders no number at all in that case rather than a number that
+   * would be wrong — spec §2's own rule.
+   */
+  total: number | null;
+}
+
+/** The row shape the two reads below share. The embedded-join variant carries extra keys this ignores. */
+interface MemberListRecord {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  email: string | null;
+  cpf_last_digits: string | null;
+  birth_date: string | null;
+  city: string | null;
+  anonymized_at: string | null;
+  created_at: string;
 }
 
 /**
- * Escapes ILIKE's own two pattern metacharacters (`%`, `_`) — and the
- * backslash that would otherwise become their escape character — so a
- * literal `%` or `_` typed into the search box (a plausible fragment of an
- * e-mail address, for instance) is matched as that literal character rather
- * than treated as a wildcard. Without this, searching for a literal "%"
- * silently matched every row the caller could already reach, which looks
- * like a match but means something the search box never promised. Applied
- * BEFORE the `%term%` wildcard markers this file adds itself, so those two
- * markers stay real wildcards while anything the caller typed does not.
- * Exported for its own unit test (tests/unit/member-search-filter.test.ts),
- * which exercises it composed with quoteForOrFilter exactly as
- * listOrganizationMembers does below (`quoteForOrFilter(\`%${escapeLikePattern(term)}%\`)`) —
- * a re-review found the original test covered only quoteForOrFilter alone,
- * with no case containing `%`, `_` or `\`, so nothing in it would have
- * caught this function being deleted entirely.
- */
-export function escapeLikePattern(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
-
-/**
- * The audience list (spec: "search by name, phone, e-mail or the CPF's last
- * digits, filtered server-side"). `search`, when given, becomes an `.or(...)`
- * clause evaluated by Postgres itself — full_name/e-mail matched by substring
- * against the raw column; phone matched against BOTH the raw column and
- * phone_normalized (0031's own generated, digits-only column — the identity
- * this block's dedup and RLS both rest on); cpf_last_digits matched only
- * against the digits the term contains (typing "123" should not also try to
- * match a three-character field against the letter "a" in "ana 123", but the
- * digit-only substring still narrows correctly). The phone_normalized clause
- * is what lets an operator find a listener by the digits off caller ID
- * ("+55 (11) 98765-4321" registered, "5511987654321" typed) — without it, a
- * search that promises "phone" (member-search-form.tsx's own placeholder)
- * silently failed for exactly that shape of query, the one an operator is
- * most likely to actually type (whole-branch review, I2). Every row is capped
- * at MEMBER_LIST_LIMIT (see its own comment); `capped` tells the caller
- * whether more rows existed than were returned, the same shape
- * listCompanyAccess's own `capped` flag uses.
+ * Today, minus `years`, as a date-only string — the birth_date of somebody
+ * turning exactly `years` today. Computed in UTC off the SERVER's clock, so
+ * an age boundary can sit a calendar day out for a few hours a day for an
+ * operator east or west of UTC. That is the same class of gap Block 3
+ * disclosed for formatDate, and unlike the block-expiry instant (whole-branch
+ * review C1, where three hours changed whether a listener was barred) a day's
+ * slack on an age band changes who appears in a demographic count, not
+ * whether anyone is barred from anything.
  *
- * Block state is resolved per row via is_member_blocked (0032) against every
- * Station in member_company_links this row is linked to AND the caller can
- * reach (member_company_links' own RLS policy, 0035, already narrows the
- * second read below to exactly that set) — an org-wide block answers true
- * for any one of them, so a single reachable Station is already enough to
- * catch it; a Station-scoped block only answers true for its own Station, so
- * every reachable link still has to be checked. Cost is bounded by
- * MEMBER_LIST_LIMIT × how many reachable Stations each returned listener is
- * linked to, not by the Organization's total audience size.
+ * 29 February is carried to 1 March in a non-leap year, which is what
+ * Date.UTC does with an out-of-range day and the convention most of this
+ * product's neighbours use.
+ */
+function isoDateYearsAgo(years: number): string {
+  const today = new Date();
+  return new Date(
+    Date.UTC(today.getUTCFullYear() - years, today.getUTCMonth(), today.getUTCDate()),
+  )
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * The block state for one page, in one call per distinct Station rather than
+ * one call per listener per Station.
+ *
+ * The semantics are the ones the screen already had and the badge already
+ * means: blocked at ANY Station this listener is linked to that the caller can
+ * reach. member_company_links' own RLS policy (0035) narrows the link read to
+ * exactly that set, so the grouping below never asks about a Station the
+ * caller cannot reach — which is also what keeps members_blocked_bulk's caller
+ * guard (0036) from refusing the whole page.
+ *
+ * This deliberately does NOT collapse the question to a single Station. The
+ * plan's Task 4 sketched one `companyId` per page, but this screen lists the
+ * audience across every Station the caller reaches and shows no Station
+ * column: a badge that answered for one Station while the rows came from
+ * several would read as "not blocked" for somebody who is. The bulk predicate
+ * is per-Station by design (its guard is checked once for the one Station a
+ * batch concerns), so the fan-out is over Stations — one to three in this
+ * product's real shape, and at most the number the caller can reach — instead
+ * of over the fifty rows.
+ */
+async function blockStateForPage(
+  supabase: ReturnType<typeof asCaller>,
+  memberIds: readonly string[],
+): Promise<Map<string, boolean>> {
+  const blocked = new Map<string, boolean>(memberIds.map((id) => [id, false]));
+  if (memberIds.length === 0) return blocked;
+
+  const { data: links, error } = await supabase
+    .from('member_company_links')
+    .select('member_id, company_id')
+    .in('member_id', [...memberIds]);
+  if (error) throw mapMemberError(error.code, error.message);
+
+  const membersByCompany = new Map<string, string[]>();
+  for (const link of links ?? []) {
+    const batch = membersByCompany.get(link.company_id) ?? [];
+    batch.push(link.member_id);
+    membersByCompany.set(link.company_id, batch);
+  }
+
+  const answers = await Promise.all(
+    [...membersByCompany].map(async ([companyId, batch]) => {
+      const { data, error: bulkError } = await supabase.rpc('members_blocked_bulk', {
+        p_member_ids: batch,
+        p_company_id: companyId,
+      });
+      if (bulkError) throw mapMemberError(bulkError.code, bulkError.message);
+      return data ?? [];
+    }),
+  );
+
+  for (const rows of answers) {
+    for (const row of rows) if (row.blocked) blocked.set(row.member_id, true);
+  }
+  return blocked;
+}
+
+/**
+ * Whether the LATEST rules consent on record for each listed Member is a
+ * grant. member_consents is append-only (0032): a withdrawal is a new row, so
+ * a listener who consented and then withdrew has both, and "a granted row
+ * exists" is a different — wrong — question.
+ *
+ * Two honest limits. The rows this reads are the ones RLS shows the caller,
+ * and member_consents is visible only at the Station that recorded it
+ * (0035), so this answers "the latest rules consent YOU can see", exactly as
+ * the listener's own detail screen does. And two rows sharing a granted_at
+ * are ordered by id, which is arbitrary though stable — granted_at is the
+ * only ordering this table records.
+ */
+async function latestRulesConsent(
+  supabase: ReturnType<typeof asCaller>,
+  memberIds: readonly string[],
+): Promise<Map<string, boolean>> {
+  const latest = new Map<string, boolean>();
+  if (memberIds.length === 0) return latest;
+
+  const { data, error } = await supabase
+    .from('member_consents')
+    .select('member_id, granted, granted_at, id')
+    .in('member_id', [...memberIds])
+    .eq('consent_type', 'rules')
+    .order('granted_at', { ascending: false })
+    .order('id', { ascending: false });
+  if (error) throw mapMemberError(error.code, error.message);
+
+  for (const row of data ?? []) {
+    if (!latest.has(row.member_id)) latest.set(row.member_id, row.granted);
+  }
+  return latest;
+}
+
+/**
+ * The audience list, one keyset page at a time (Block 3b).
+ *
+ * Filters, sort and cursor are all conditions Postgres evaluates: nothing is
+ * fetched here in order to be thrown away, with one disclosed exception (the
+ * rules-consent filter). RLS — members_select_reachable and its siblings,
+ * 0035 — is what decides which rows exist for this caller at all; nothing
+ * here narrows that, and nothing here widens it.
+ *
+ * `search` becomes an `.or(...)` Postgres evaluates itself: full_name, phone
+ * and email by substring, plus — when the term carries digits —
+ * cpf_last_digits and phone_normalized (0031's generated, digits-only column,
+ * the identity this block's dedup and RLS both rest on, and what lets an
+ * operator find "+55 (11) 98765-4321" by typing the digits off caller ID;
+ * whole-branch review I2). Verified against the running PostgREST rather than
+ * assumed: two `or=` parameters on one request are ANDed, so the search
+ * clause and the keyset clause narrow together instead of one replacing the
+ * other.
+ *
+ * "Blocked only" is a condition on the query — an inner join to member_blocks
+ * restricted to the active window — so a filtered page still fills and the
+ * total still counts. There is deliberately no "not blocked" option: its
+ * negation cannot be expressed the same way, and spec §6 asks for exactly the
+ * positive one.
+ *
+ * The block state each row displays costs one members_blocked_bulk call
+ * (0036) per distinct Station on the page, not one is_member_blocked call per
+ * listener per Station.
  */
 export async function listOrganizationMembers(
-  organizationId: string,
-  search: string | undefined,
+  params: MemberListParams,
   accessToken: string,
-): Promise<{ members: MemberListRow[]; capped: boolean }> {
+): Promise<MemberListPage> {
   const supabase = asCaller(accessToken);
 
-  let query = supabase
-    .from('members')
-    .select('id, full_name, phone, email, cpf_last_digits, anonymized_at, created_at')
-    .eq('organization_id', organizationId)
-    .is('deleted_at', null);
+  const column = params.sort === 'name' ? 'full_name' : 'created_at';
+  // full_name is nullable; created_at is not. The null region only exists for one of them.
+  const nullable = column === 'full_name';
 
-  // Bounded again here (page.tsx already trims to MEMBER_SEARCH_MAX_LENGTH
-  // before this is ever called) — a service function's own arguments should
-  // not depend on a caller upstream having remembered to enforce a bound for
-  // it. The same exported constant, not a second hand-copied number, so the
-  // two bounds cannot silently drift apart (Task 8 re-review).
-  const term = search?.trim().slice(0, MEMBER_SEARCH_MAX_LENGTH);
-  if (term) {
-    // escapeLikePattern runs BEFORE the %...% wildcard markers are added, so
-    // it only ever escapes what the caller typed, never the markers this
-    // function adds itself.
-    const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
-    const clauses = [
-      `full_name.ilike.${wildcard}`,
-      `phone.ilike.${wildcard}`,
-      `email.ilike.${wildcard}`,
-    ];
-    // Digits only: cpf_last_digits (0031) is always exactly three digits, so
-    // a term carrying no digit at all (a name search) has nothing meaningful
-    // to compare it against. A digit-only string can never contain % or _,
-    // so escapeLikePattern would be a no-op here — skipped, not forgotten.
-    // phone_normalized (0031's generated column) gets the identical
-    // treatment and the identical reasoning: a caller typing digits off
-    // caller ID, punctuation-free, should match the same row's punctuated
-    // phone regardless of how it was originally entered — the whole reason
-    // this column exists (whole-branch review, I2).
-    const digits = term.replace(/[^0-9]/g, '');
-    if (digits) {
-      clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
-      clauses.push(`phone_normalized.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const ascending = walkingBack ? params.direction === 'desc' : params.direction === 'asc';
+  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
+  // No `nullsFirst` is sent below, so Postgres' own default applies: ASC puts
+  // NULLs last, DESC puts them first. keysetFilter is told the same thing —
+  // a cursor whose null handling disagrees with the ordering it resumes
+  // strands every row on the far side of the null boundary, silently, because
+  // the pages still load and the total still looks right.
+  const nullsLast = nullable && ascending;
+
+  const now = new Date().toISOString();
+  const select = params.blockedOnly ? MEMBER_LIST_COLUMNS_WITH_BLOCKS : MEMBER_LIST_COLUMNS;
+
+  const build = (options?: { count: 'exact'; head: true }) => {
+    let q = supabase
+      .from('members')
+      .select(select, options)
+      .eq('organization_id', params.organizationId)
+      .is('deleted_at', null);
+
+    if (params.blockedOnly) {
+      // `!inner` in the select turns the embed into a join, so these three
+      // conditions on the child rows narrow the PARENT set: a listener with
+      // no block row inside the active window does not come back at all.
+      // Same active-window test members_blocked_bulk applies (0036) and the
+      // same one is_member_blocked has always applied (0032) — lifted_at
+      // null, started, not yet ended — evaluated here through RLS, which
+      // shows the caller only the blocks they may read (0035).
+      q = q
+        .is('member_blocks.lifted_at', null)
+        .lte('member_blocks.starts_at', now)
+        .or(`ends_at.is.null,ends_at.gt.${now}`, { referencedTable: 'member_blocks' });
     }
-    query = query.or(clauses.join(','));
-    // Alphabetical while narrowing — easier to scan a short, named result set
-    // than one ordered by an unrelated registration date.
-    query = query.order('full_name', { ascending: true, nullsFirst: false });
-  } else {
-    // No search: most recently registered first, the same default a support
-    // desk reaches for ("who just signed up") absent a reason to look further back.
-    query = query.order('created_at', { ascending: false });
-  }
 
-  const { data, error } = await query.limit(MEMBER_LIST_LIMIT + 1);
-  if (error) throw new InternalError(`Could not read the audience: ${error.message}`);
+    // An age band is a birth_date range. Computing an age per row in the
+    // WHERE clause would defeat members_birth_date_idx (0036) and scan the
+    // whole Organization. `gt`, not `gte`, on the upper bound: somebody born
+    // exactly ageMax + 1 years ago today has had that birthday, so they are
+    // outside the band.
+    if (params.ageMax !== undefined) q = q.gt('birth_date', isoDateYearsAgo(params.ageMax + 1));
+    if (params.ageMin !== undefined) q = q.lte('birth_date', isoDateYearsAgo(params.ageMin));
 
-  const rows = data ?? [];
-  const capped = rows.length > MEMBER_LIST_LIMIT;
-  const scanned = capped ? rows.slice(0, MEMBER_LIST_LIMIT) : rows;
+    if (params.registeredFrom) q = q.gte('created_at', params.registeredFrom);
+    if (params.registeredTo) q = q.lte('created_at', params.registeredTo);
 
-  const ids = scanned.map((m) => m.id);
-  const { data: links, error: linksError } = ids.length
-    ? await supabase.from('member_company_links').select('member_id, company_id').in('member_id', ids)
-    : { data: [], error: null };
-  if (linksError) {
-    throw new InternalError(`Could not read station links for the audience: ${linksError.message}`);
-  }
-
-  const companiesByMember = new Map<string, string[]>();
-  for (const link of links ?? []) {
-    const list = companiesByMember.get(link.member_id) ?? [];
-    list.push(link.company_id);
-    companiesByMember.set(link.member_id, list);
-  }
-
-  // mapWithConcurrency, not Promise.all: an unsearched visit can carry up to
-  // MEMBER_LIST_LIMIT rows, and Promise.all over all of them at once opened a
-  // 50-wide concurrent fan-out on the single most common page load this
-  // screen has (Task 8 review, Important 2). checkMemberBlocked(supabase, …)
-  // reuses the ONE client already built above instead of asCaller building a
-  // fresh one per row, the same review's other half of that finding.
-  const blocked = await mapWithConcurrency(scanned, BLOCK_CHECK_CONCURRENCY, async (m) => {
-    const companyIds = companiesByMember.get(m.id) ?? [];
-    for (const companyId of companyIds) {
-      if (await checkMemberBlocked(supabase, m.id, companyId)) return true;
+    // Bounded again here (the page trims to MEMBER_SEARCH_MAX_LENGTH before
+    // this is ever called) — a service function's own arguments should not
+    // depend on a caller upstream having remembered a bound for it. The same
+    // exported constant, not a second hand-copied number, so the two cannot
+    // drift apart (Block 3, Task 8 re-review).
+    const term = params.search?.trim().slice(0, MEMBER_SEARCH_MAX_LENGTH);
+    if (term) {
+      // escapeLikePattern runs BEFORE the %...% wildcard markers are added,
+      // so it only ever escapes what the caller typed, never the markers this
+      // function adds itself.
+      const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
+      const clauses = [
+        `full_name.ilike.${wildcard}`,
+        `phone.ilike.${wildcard}`,
+        `email.ilike.${wildcard}`,
+      ];
+      // Digits only: cpf_last_digits (0031) is always exactly three digits,
+      // so a term carrying no digit at all (a name search) has nothing
+      // meaningful to compare against it. A digit-only string can never
+      // contain % or _, so escapeLikePattern would be a no-op here — skipped,
+      // not forgotten.
+      const digits = term.replace(/[^0-9]/g, '');
+      if (digits) {
+        clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+        clauses.push(`phone_normalized.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+      }
+      q = q.or(clauses.join(','));
     }
-    return false;
+
+    return q;
+  };
+
+  let query = build().order(column, { ascending });
+  if (params.cursor) {
+    query = query.or(keysetFilter(column, readDirection, params.cursor, nullsLast));
+  }
+  // The tiebreak, on every ordering without exception: two listeners sharing
+  // a name (or a registration instant) make an ordering without it skip or
+  // repeat rows between pages.
+  query = query.order('id', { ascending });
+
+  const { data, error } = await query.limit(PAGE_SIZE + 1);
+  if (error) throw mapMemberError(error.code, error.message);
+
+  // One cast, because `select` is chosen between two constants above and
+  // PostgREST cannot type a runtime choice. Both constants list the same
+  // columns; the blocked-only one adds an embedded array this never reads.
+  const fetched = (data ?? []) as unknown as MemberListRecord[];
+
+  // Cursors come from the page as FETCHED, before the consent filter below
+  // drops anything: a cursor is a position in the ordering, and taking it
+  // from a filtered row would skip everything between it and the row that
+  // was actually last.
+  const { rows: page, nextCursor, previousCursor } = keysetPage(fetched, {
+    pageSize: PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({
+      value: column === 'full_name' ? row.full_name : row.created_at,
+      id: row.id,
+    }),
   });
 
+  // Skipped entirely under the consent filter: a count of what the query
+  // returned would not describe what the screen shows, and this saves the
+  // round trip rather than spending it on a number nobody may see.
+  let total: number | null = null;
+  if (params.hasRulesConsent === undefined) {
+    const { count, error: countError } = await build({ count: 'exact', head: true });
+    if (countError) throw mapMemberError(countError.code, countError.message);
+    total = count ?? 0;
+  }
+
+  let rows = page;
+  if (params.hasRulesConsent !== undefined) {
+    const consent = await latestRulesConsent(
+      supabase,
+      page.map((r) => r.id),
+    );
+    // A listener with no rules consent at all counts as not consented, which
+    // is what makes "lacking rules consent" a usable chase list.
+    rows = page.filter((r) => (consent.get(r.id) ?? false) === params.hasRulesConsent);
+  }
+
+  const blocked = await blockStateForPage(
+    supabase,
+    rows.map((r) => r.id),
+  );
+
   return {
-    members: scanned.map((m, i) => ({
+    rows: rows.map((m) => ({
       id: m.id,
       fullName: m.full_name,
       phone: m.phone,
       email: m.email,
       cpfLastDigits: m.cpf_last_digits,
+      birthDate: m.birth_date,
+      city: m.city,
       anonymizedAt: m.anonymized_at,
       createdAt: m.created_at,
-      blocked: blocked[i] ?? false,
+      blocked: blocked.get(m.id) ?? false,
     })),
-    capped,
+    nextCursor,
+    previousCursor,
+    total,
   };
 }
 
