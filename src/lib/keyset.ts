@@ -1,3 +1,5 @@
+import { quoteForOrFilter } from '@/lib/postgrest';
+
 /**
  * Keyset (cursor) pagination. Unlike OFFSET, the cost does not grow with depth:
  * the database seeks straight to the cursor's position in the index instead of
@@ -35,18 +37,24 @@ export function decodeCursor(raw: string | undefined | null): Cursor | null {
   }
 }
 
-/** PostgREST needs values quoted so a comma or parenthesis inside one cannot end the clause. */
-function quote(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
 /**
  * Builds the `.or(...)` argument that resumes after `cursor`.
  *
- * `nullsLast` must match the ordering actually applied to the query. When it is
- * true and the direction is ascending, a third arm is required: `col.gt.V` is
- * false for every NULL row, so without it the null region is unreachable and
- * every row with no value silently vanishes from the end of the result.
+ * `nullsLast` must match the ordering actually applied to the query, and it
+ * decides which region is terminal — independent of `direction`. With nulls
+ * last, the null region follows the non-null region under both `asc` and
+ * `desc`; with nulls first, it precedes it, under both directions too.
+ *
+ * Whichever region lies ahead of the cursor but isn't the one it is currently
+ * in needs its own arm, because Postgres's three-valued logic makes the plain
+ * comparison blind to it:
+ * - From the non-null region, reaching a trailing null region needs
+ *   `col.is.null` — `col.gt.V`/`col.lt.V` is false for every NULL row, so
+ *   without that arm the null region is unreachable and every row with no
+ *   value silently vanishes from the result.
+ * - From the null region, reaching a trailing non-null region needs
+ *   `col.not.is.null` — omitting it stops paging the moment the null region
+ *   is exhausted and makes every row that does have a value unreachable.
  */
 export function keysetFilter(
   column: string,
@@ -54,20 +62,25 @@ export function keysetFilter(
   cursor: Cursor,
   nullsLast: boolean,
 ): string {
-  const id = quote(cursor.id);
+  const id = quoteForOrFilter(cursor.id);
+  const op = direction === 'asc' ? 'gt' : 'lt';
 
   if (cursor.value === null) {
-    // Already inside the null region: every remaining row has a null value, so
-    // the id alone orders them.
-    const op = direction === 'asc' ? 'gt' : 'lt';
-    return `and(${column}.is.null,id.${op}.${id})`;
+    // Inside the null region: every row here has a null value, so id alone
+    // orders them. This region is terminal only when nulls sort last — when
+    // they sort first, the non-null region follows and must stay reachable.
+    const arms = [`and(${column}.is.null,id.${op}.${id})`];
+    if (!nullsLast) arms.push(`${column}.not.is.null`);
+    return arms.join(',');
   }
 
-  const value = quote(cursor.value);
-  const op = direction === 'asc' ? 'gt' : 'lt';
+  const value = quoteForOrFilter(cursor.value);
   const arms = [`${column}.${op}.${value}`, `and(${column}.eq.${value},id.${op}.${id})`];
 
-  if (nullsLast && direction === 'asc') arms.push(`${column}.is.null`);
+  // The null region trails the non-null region only when nulls sort last —
+  // true for both asc and desc, since NULLS LAST/FIRST is independent of the
+  // sort direction.
+  if (nullsLast) arms.push(`${column}.is.null`);
 
   return arms.join(',');
 }

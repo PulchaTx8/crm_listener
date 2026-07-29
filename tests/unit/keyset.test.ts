@@ -29,32 +29,69 @@ describe('cursor encoding', () => {
 
 describe('keysetFilter', () => {
   const cur = { value: 'M', id: 'bbbbbbbb-0000-0000-0000-000000000001' };
+  const nullCur = { value: null, id: 'cccccccc-0000-0000-0000-000000000001' };
 
-  it('ascending: strictly greater, or equal with a greater id', () => {
-    expect(keysetFilter('full_name', 'asc', cur, false)).toBe(
-      'full_name.gt."M",and(full_name.eq."M",id.gt."bbbbbbbb-0000-0000-0000-000000000001")',
-    );
+  // nullsLast decides which region is terminal, independent of direction: with
+  // nulls last the null region trails the non-null region under BOTH asc and
+  // desc, so the extra `col.is.null` arm is needed in both, not only ascending.
+  describe('non-null region', () => {
+    it('ascending, nulls first: strictly greater, or equal with a greater id, no null arm', () => {
+      expect(keysetFilter('full_name', 'asc', cur, false)).toBe(
+        'full_name.gt."M",and(full_name.eq."M",id.gt."bbbbbbbb-0000-0000-0000-000000000001")',
+      );
+    });
+
+    it('descending, nulls first: strictly less, or equal with a lesser id, no null arm', () => {
+      expect(keysetFilter('created_at', 'desc', cur, false)).toBe(
+        'created_at.lt."M",and(created_at.eq."M",id.lt."bbbbbbbb-0000-0000-0000-000000000001")',
+      );
+    });
+
+    // The bug this exists to prevent: ascending with nulls last, `col.gt.V` is false
+    // for every null row, so without this arm the null region is never reached and
+    // every listener without a name silently disappears from the last page.
+    it('ascending, nulls last: reaches the trailing null region', () => {
+      expect(keysetFilter('full_name', 'asc', cur, true)).toBe(
+        'full_name.gt."M",and(full_name.eq."M",id.gt."bbbbbbbb-0000-0000-0000-000000000001"),full_name.is.null',
+      );
+    });
+
+    // The same bug, descending: `col.lt.V` is equally false for every null row,
+    // so nulls-last needs this arm regardless of which direction is sorted.
+    it('descending, nulls last: reaches the trailing null region', () => {
+      expect(keysetFilter('created_at', 'desc', cur, true)).toBe(
+        'created_at.lt."M",and(created_at.eq."M",id.lt."bbbbbbbb-0000-0000-0000-000000000001"),created_at.is.null',
+      );
+    });
   });
 
-  it('descending: strictly less, or equal with a lesser id', () => {
-    expect(keysetFilter('created_at', 'desc', cur, false)).toBe(
-      'created_at.lt."M",and(created_at.eq."M",id.lt."bbbbbbbb-0000-0000-0000-000000000001")',
-    );
-  });
+  describe('null region', () => {
+    it('ascending, nulls last: pages by id alone, the null region is terminal', () => {
+      expect(keysetFilter('full_name', 'asc', nullCur, true)).toBe(
+        'and(full_name.is.null,id.gt."cccccccc-0000-0000-0000-000000000001")',
+      );
+    });
 
-  // The bug this exists to prevent: ascending with nulls last, `col.gt.V` is false
-  // for every null row, so without this arm the null region is never reached and
-  // every listener without a name silently disappears from the last page.
-  it('ascending with nulls last reaches the null region', () => {
-    expect(keysetFilter('full_name', 'asc', cur, true)).toBe(
-      'full_name.gt."M",and(full_name.eq."M",id.gt."bbbbbbbb-0000-0000-0000-000000000001"),full_name.is.null',
-    );
-  });
+    it('descending, nulls last: pages by id alone, the null region is terminal', () => {
+      expect(keysetFilter('full_name', 'desc', nullCur, true)).toBe(
+        'and(full_name.is.null,id.lt."cccccccc-0000-0000-0000-000000000001")',
+      );
+    });
 
-  it('inside the null region, pages by id alone', () => {
-    const nullCur = { value: null, id: 'cccccccc-0000-0000-0000-000000000001' };
-    expect(keysetFilter('full_name', 'asc', nullCur, true)).toBe(
-      'and(full_name.is.null,id.gt."cccccccc-0000-0000-0000-000000000001")',
-    );
+    // The bug this exists to prevent: nulls first means the null region is NOT
+    // terminal — the non-null region follows it. Without this arm, paging stops
+    // the moment the null region is exhausted and every row with a value becomes
+    // unreachable.
+    it('ascending, nulls first: also reaches the non-null region that follows', () => {
+      expect(keysetFilter('full_name', 'asc', nullCur, false)).toBe(
+        'and(full_name.is.null,id.gt."cccccccc-0000-0000-0000-000000000001"),full_name.not.is.null',
+      );
+    });
+
+    it('descending, nulls first: also reaches the non-null region that follows', () => {
+      expect(keysetFilter('full_name', 'desc', nullCur, false)).toBe(
+        'and(full_name.is.null,id.lt."cccccccc-0000-0000-0000-000000000001"),full_name.not.is.null',
+      );
+    });
   });
 });
