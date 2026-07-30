@@ -16,32 +16,50 @@
  *     Test Files  12 passed (13)
  *          Tests  144 passed (151)
  *
- * and EXITED 0. It has since been seen dropping three DIFFERENT files across ten
- * runs, at roughly one run in five, with no cause yet found. A gate whose only
- * signal is an exit code cannot see any of that, and a gate whose other signal is
- * a human remembering to read a summary line is not a gate.
+ * and EXITED 0. It has since been measured at **six crashes in fifteen full
+ * runs — about two runs in five — on SIX DIFFERENT FILES with no repeats**
+ * (`inventory`, `invitations`, `roles`, `tenant`, `listing`, `promotion-prizes`),
+ * with no cause yet found. Four of those six call none of the machinery anybody
+ * suspected. A gate whose only signal is an exit code cannot see any of that, and
+ * a gate whose other signal is a human remembering to read a summary line is not
+ * a gate.
  *
- * So the exit code is not trusted here, and it is not the only thing read. TWO
- * independent questions are asked of every full run, because neither can see what
- * the other sees:
+ * So the exit code is not trusted here, and it is not the only thing read. THREE
+ * independent questions are asked of every full run, because none of them can see
+ * what the others do:
  *
- *   1. the JSON reporter's file list, against the files on disk that the config's
- *      `include` would collect — the only thing that knows what SHOULD have run;
- *   2. vitest's own summary line — the only thing that saw a worker die after its
+ *   1. the manifest below, against disk — the only thing that knows a required
+ *      file has been DELETED rather than merely not run, and the only check whose
+ *      expectation a deletion cannot quietly lower;
+ *   2. the JSON reporter's file list and counts, against the files on disk that
+ *      the config's `include` would collect — including that nothing was pending
+ *      or todo, because a skipped test balances every total while checking
+ *      nothing;
+ *   3. vitest's own summary line — the only thing that saw a worker die after its
  *      file's tests had all passed, a state in which the JSON report is entirely
- *      clean. An `Errors N error` line fails the run on its own.
+ *      clean. Its `Errors N error` line fails the run on its own, on a full run
+ *      and a narrowed one alike.
  *
- * A shortfall on either fails the build, loudly, naming what is missing.
+ * A shortfall on any of them fails the build, loudly, NAMING what is missing —
+ * never only that a number was short.
+ *
+ * Every gap listed above was once open here, and each is now held by a fixture in
+ * FIXTURES that `--self-test` re-runs. Two of them were found by a reviewer
+ * exercising this script adversarially after a previous version of it had been
+ * called finished; the fixtures exist so the next such gap has to be found the
+ * same expensive way only once.
  *
  * THIS IS NOT A FIX FOR THE CRASH, and nothing here should be read as one. The
  * crash's suspected trigger — two harness helpers spawning the Supabase CLI from
- * inside a vitest worker — was removed, and the crash carried on, once on a file
- * that had never called either helper. What this script does is make the next
- * one, from whatever cause, impossible to mistake for a green run.
+ * inside a vitest worker — was removed, and the crash carried on unchanged, four
+ * of its six occurrences on files that had never called either helper. What this
+ * script does is make the next one, from whatever cause, impossible to mistake
+ * for a green run.
  *
  * Usage:
  *   node scripts/verify-isolation-suite.mjs              # full suite, guarded
- *   node scripts/verify-isolation-suite.mjs <file…>      # scoped, guard skipped
+ *   node scripts/verify-isolation-suite.mjs <file…>      # scoped, counts unchecked
+ *   node scripts/verify-isolation-suite.mjs --self-test  # prove the guard still bites
  *   node scripts/verify-isolation-suite.mjs --verify-report <path.json>
  *                                                       # validate a report only
  *   node scripts/verify-isolation-suite.mjs --verify-summary <run.log>
@@ -56,15 +74,81 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
 
+/**
+ * THE FLOOR. Every check below this line derives its expectation from what is on
+ * disk, and that is one edit away from expecting nothing: delete
+ * promotion-prizes.test.ts, or rename it past the `*.test.ts` glob, or move it
+ * out of tests/isolation, and a run of the remaining twelve is "complete". The
+ * file it would be easiest to lose that way is the one carrying this block's only
+ * live proof of the promotion_prize_balances denial, of the archived-promotion
+ * rule inside a SECURITY DEFINER read, and of every 42501 on the promotion write
+ * RPCs.
+ *
+ * So the expectation has a floor that a deletion cannot move. A file listed here
+ * must exist AND must report; the guard names it by path when it does neither,
+ * because "12 is fewer than 13" tells whoever reads the build nothing about what
+ * they have lost.
+ *
+ * A manifest rather than a bare count, deliberately: a count says a number was
+ * short, a manifest says which boundary went unchecked. Adding a test file means
+ * adding a line here — that friction is the point, and the disk walk below still
+ * catches a NEW file that failed to report even before anybody remembers to.
+ */
+const REQUIRED_TEST_FILES = [
+  'tests/isolation/contact-requests.test.ts',
+  'tests/isolation/inventory.test.ts',
+  'tests/isolation/invitations.test.ts',
+  'tests/isolation/listing.test.ts',
+  'tests/isolation/members.test.ts',
+  'tests/isolation/permissions.test.ts',
+  'tests/isolation/promotion-prizes.test.ts',
+  'tests/isolation/promotions.test.ts',
+  'tests/isolation/provisional-password.test.ts',
+  'tests/isolation/record.test.ts',
+  'tests/isolation/roles.test.ts',
+  'tests/isolation/signup-disabled.test.ts',
+  'tests/isolation/tenant.test.ts',
+];
+
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */
-function expectedTestFiles(dir = SUITE_DIR) {
+function filesOnDisk(dir = SUITE_DIR) {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...expectedTestFiles(full));
+    if (entry.isDirectory()) found.push(...filesOnDisk(full));
     else if (entry.name.endsWith('.test.ts')) found.push(full);
   }
-  return found.sort();
+  return found;
+}
+
+/**
+ * What must have reported: everything on disk, UNION the manifest. The union is
+ * what makes a deleted required file still count as missing from the run rather
+ * than quietly stop being expected.
+ */
+function expectedTestFiles(required = REQUIRED_TEST_FILES) {
+  const union = new Set([
+    ...filesOnDisk(),
+    ...required.map((rel) => path.resolve(REPO_ROOT, rel)),
+  ]);
+  return [...union].sort();
+}
+
+/**
+ * The disk half of the floor, asked separately from the report half so that a
+ * file which has been deleted is named as deleted rather than as "did not
+ * report" — two different mistakes with two different fixes.
+ */
+function complaintsAboutManifest(required = REQUIRED_TEST_FILES) {
+  const gone = required.filter((rel) => !existsSync(path.resolve(REPO_ROOT, rel)));
+  if (gone.length === 0) return [];
+  return [
+    `${gone.length} test file(s) this suite is REQUIRED to run are not on disk at all — ` +
+      'deleted, renamed past the *.test.ts glob, or moved out of tests/isolation. If that ' +
+      'was deliberate, the deletion belongs in the same commit as an edit to ' +
+      'REQUIRED_TEST_FILES in this script, so somebody has to say so out loud:\n' +
+      gone.map((rel) => `      - ${rel}`).join('\n'),
+  ];
 }
 
 /**
@@ -106,6 +190,24 @@ function complaintsAbout(report, expected) {
     complaints.push(`${report.numFailedTests} test(s) failed.`);
   }
 
+  // A skipped test is not a run test, and the arithmetic below cannot tell the
+  // difference: 152 collected against 145 passed + 7 pending balances exactly,
+  // and every other check here is satisfied by it. This suite has no .skip and
+  // no .todo, so nothing is hidden today — which is precisely why an edit that
+  // introduced one, or a crash that ended with vitest marking a dead worker's
+  // tests skipped, would slide through the one direction left open. Named
+  // separately from "failed" because the fix is different: a skipped security
+  // case is not a broken one, it is an unasked one.
+  const pending = report.numPendingTests ?? 0;
+  const todo = report.numTodoTests ?? 0;
+  if (pending > 0 || todo > 0) {
+    complaints.push(
+      `${pending + todo} test(s) did not run — ${pending} skipped, ${todo} todo. Every case in ` +
+        'this suite is a boundary somebody decided had to be checked on every run; a skipped ' +
+        'one is a boundary nobody checked, and it counts toward the total either way.',
+    );
+  }
+
   // The summary's own two halves disagreeing is the exact shape of the crash
   // this guard exists for, and it is worth naming separately from the file list.
   const counted = report.numTotalTests ?? 0;
@@ -143,7 +245,7 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
  * So the summary line is read too. It is the one place the shortfall shows, and
  * reading it is what the block report had been asking a human to remember to do.
  */
-function complaintsAboutSummary(output) {
+function complaintsAboutSummary(output, { countsMatter = true } = {}) {
   const complaints = [];
   // The escape CHARACTER and the whole sequence, not just the bracket: leaving a
   // stray \x1b in the line breaks the end-of-line anchor on the file total
@@ -151,30 +253,70 @@ function complaintsAboutSummary(output) {
   // right there.
   const plain = output.replace(ANSI, '').replace(/\r/g, '');
 
-  const files = plain.match(/Test Files\s+(.+)/);
-  if (!files) {
-    complaints.push('vitest printed no "Test Files" summary line at all.');
-  } else {
-    // "12 passed (13)", "1 failed | 12 passed (13)", "13 passed (13)".
-    const line = files[1].trim();
-    const total = line.match(/\((\d+)\)\s*$/);
-    const reported = [...line.matchAll(/(\d+)\s+(passed|failed|skipped|todo)/g)].reduce(
+  // "13 passed (13)", "12 passed (13)", "1 failed | 12 passed (13)",
+  // "12 passed | 1 skipped (13)". The last of those balances to 13 and used to
+  // pass every check here, which is the gap the `skipped` scan below closes.
+  const readCounts = (line) => ({
+    total: line.match(/\((\d+)\)\s*$/),
+    reported: [...line.matchAll(/(\d+)\s+(passed|failed|skipped|todo)/g)].reduce(
       (sum, m) => sum + Number(m[1]),
       0,
-    );
-    if (!total) {
-      complaints.push(`could not read the file total out of "Test Files ${line}".`);
-    } else if (reported !== Number(total[1])) {
-      complaints.push(
-        `vitest collected ${total[1]} test file(s) and reported on only ${reported}: ` +
-          `"Test Files ${line}". A file's worker died without the file being reported.`,
-      );
+    ),
+    idle: [...line.matchAll(/(\d+)\s+(skipped|todo)/g)].reduce((sum, m) => sum + Number(m[1]), 0),
+  });
+
+  if (countsMatter) {
+    const files = plain.match(/Test Files\s+(.+)/);
+    if (!files) {
+      complaints.push('vitest printed no "Test Files" summary line at all.');
+    } else {
+      const line = files[1].trim();
+      const { total, reported, idle } = readCounts(line);
+      if (!total) {
+        complaints.push(`could not read the file total out of "Test Files ${line}".`);
+      } else if (reported !== Number(total[1])) {
+        complaints.push(
+          `vitest collected ${total[1]} test file(s) and reported on only ${reported}: ` +
+            `"Test Files ${line}". A file's worker died without the file being reported.`,
+        );
+      }
+      if (idle > 0) {
+        complaints.push(
+          `${idle} test file(s) were skipped rather than run: "Test Files ${line}". A file that ` +
+            'balances the total by being skipped is a file that did not run.',
+        );
+      }
+    }
+
+    // The Tests line, for the same reason and the same blind spot:
+    // "145 passed | 7 skipped (152)" balances, and until this scan existed it
+    // satisfied every count in this script.
+    const tests = plain.match(/^\s*Tests\s+(.+)/m);
+    if (!tests) {
+      complaints.push('vitest printed no "Tests" summary line at all.');
+    } else {
+      const line = tests[1].trim();
+      const { total, reported, idle } = readCounts(line);
+      if (!total) {
+        complaints.push(`could not read the test total out of "Tests ${line}".`);
+      } else if (reported !== Number(total[1])) {
+        complaints.push(
+          `vitest collected ${total[1]} test(s) and reported on only ${reported}: ` +
+            `"Tests ${line}".`,
+        );
+      }
+      if (idle > 0) {
+        complaints.push(
+          `${idle} test(s) were skipped rather than run: "Tests ${line}". Every case in this ` +
+            'suite is a boundary somebody decided had to be checked on every run.',
+        );
+      }
     }
   }
 
-  // An unhandled error is never acceptable here, whatever the counts say: it is
-  // how this crash announces itself, and vitest's own message for it is "This
-  // might cause false positive tests."
+  // An unhandled error is never acceptable here, whatever the counts say — not
+  // even on a narrowed run. It is how this crash announces itself, and vitest's
+  // own message for it is "This might cause false positive tests."
   const errors = plain.match(/^\s*Errors\s+(\d+) error/m);
   if (errors) complaints.push(`vitest reported ${errors[1]} unhandled error(s) during the run.`);
 
@@ -194,7 +336,125 @@ function fail(complaints) {
   process.exit(1);
 }
 
+/**
+ * The fixtures. Each one is a state this guard was ONCE BLIND TO, kept here so
+ * that closing the gap is a thing that can be re-run rather than a thing that was
+ * claimed. `--self-test` asserts every one of them still produces a complaint;
+ * it fails loudly if any stops doing so, which is what a silently loosened check
+ * would look like.
+ *
+ * Two of the three were found by a reviewer exercising this script adversarially
+ * rather than reading it, after the version above had already been called
+ * finished. That is the argument for having them here.
+ */
+const FIXTURES = [
+  {
+    name: 'report: a crash that ended with the dead worker\'s tests marked skipped',
+    // 145 + 7 balances to 152, every file reports `passed`, nothing failed.
+    // Before the skipped scan this satisfied every check in complaintsAbout().
+    run: () =>
+      complaintsAbout(
+        {
+          numTotalTests: 152,
+          numPassedTests: 145,
+          numFailedTests: 0,
+          numPendingTests: 7,
+          numTodoTests: 0,
+          testResults: REQUIRED_TEST_FILES.map((name) => ({ name, status: 'passed' })),
+        },
+        expectedTestFiles(),
+      ),
+    expect: /did not run — 7 skipped/,
+  },
+  {
+    name: 'summary: "12 passed | 1 skipped (13)" and "145 passed | 7 skipped (152)"',
+    // Balances on both lines. Before the skipped scan this was a clean summary.
+    run: () =>
+      complaintsAboutSummary(
+        ' Test Files  12 passed | 1 skipped (13)\n      Tests  145 passed | 7 skipped (152)\n',
+      ),
+    expect: /test file\(s\) were skipped rather than run/,
+  },
+  {
+    name: 'manifest: a required file deleted, renamed, or moved out of the glob',
+    run: () => complaintsAboutManifest(['tests/isolation/deleted-by-somebody.test.ts']),
+    expect: /are not on disk at all/,
+  },
+  {
+    name: 'report: a short file list — promotion-prizes never reported',
+    run: () =>
+      complaintsAbout(
+        {
+          numTotalTests: 123,
+          numPassedTests: 123,
+          numFailedTests: 0,
+          numPendingTests: 0,
+          numTodoTests: 0,
+          testResults: REQUIRED_TEST_FILES.filter(
+            (name) => !name.endsWith('promotion-prizes.test.ts'),
+          ).map((name) => ({ name, status: 'passed' })),
+        },
+        expectedTestFiles(),
+      ),
+    expect: /promotion-prizes\.test\.ts/,
+  },
+  {
+    name: 'sanity: a genuinely clean report and summary produce NO complaint',
+    // The other half of every fixture above, and the more important half: a
+    // guard that fails closed on a healthy run is worse than the gap it closes.
+    run: () => [
+      ...complaintsAbout(
+        {
+          numTotalTests: 152,
+          numPassedTests: 152,
+          numFailedTests: 0,
+          numPendingTests: 0,
+          numTodoTests: 0,
+          testResults: REQUIRED_TEST_FILES.map((name) => ({ name, status: 'passed' })),
+        },
+        expectedTestFiles(),
+      ),
+      ...complaintsAboutSummary(
+        ' Test Files  13 passed (13)\n      Tests  152 passed (152)\n',
+      ),
+      ...complaintsAboutManifest(),
+    ],
+    expect: null,
+  },
+];
+
 const argv = process.argv.slice(2);
+
+// --self-test: run every fixture and check it still catches what it was written
+// for. Runs nothing against the database and needs no stack.
+if (argv.includes('--self-test')) {
+  let bad = 0;
+  for (const fixture of FIXTURES) {
+    const complaints = fixture.run();
+    const caught = fixture.expect
+      ? complaints.some((c) => fixture.expect.test(c))
+      : complaints.length === 0;
+    console.log(`${caught ? 'ok  ' : 'FAIL'}  ${fixture.name}`);
+    if (!caught) {
+      bad += 1;
+      console.log(
+        fixture.expect
+          ? `        expected a complaint matching ${fixture.expect}, got: ` +
+              (complaints.length ? JSON.stringify(complaints, null, 2) : '(none)')
+          : `        expected no complaint, got: ${JSON.stringify(complaints, null, 2)}`,
+      );
+    }
+  }
+  if (bad > 0) {
+    console.error(
+      `\n${bad} of ${FIXTURES.length} guard fixtures did not behave as written. A check that ` +
+        'stopped catching what it was added for is a check that is no longer there.',
+    );
+    process.exit(1);
+  }
+  console.log(`\nAll ${FIXTURES.length} guard fixtures behave as written.`);
+  process.exit(0);
+}
 
 // --verify-summary: check a saved run log, and run nothing. This is how the
 // summary check was proved against the real crash rather than against a
@@ -208,7 +468,7 @@ if (summaryOnlyAt !== -1) {
   }
   const complaints = complaintsAboutSummary(readFileSync(logPath, 'utf8'));
   if (complaints.length > 0) fail(complaints);
-  console.log('Run summary accounts for every test file, with no unhandled errors.');
+  console.log('Run summary accounts for every test file, with nothing skipped and no errors.');
   process.exit(0);
 }
 
@@ -220,12 +480,12 @@ if (reportOnlyAt !== -1) {
     console.error('--verify-report needs the path of an existing JSON report.');
     process.exit(2);
   }
-  const complaints = complaintsAbout(
-    JSON.parse(readFileSync(reportPath, 'utf8')),
-    expectedTestFiles(),
-  );
+  const complaints = [
+    ...complaintsAboutManifest(),
+    ...complaintsAbout(JSON.parse(readFileSync(reportPath, 'utf8')), expectedTestFiles()),
+  ];
   if (complaints.length > 0) fail(complaints);
-  console.log('Isolation report accounts for every test file.');
+  console.log('Isolation report accounts for every required test file, with nothing skipped.');
   process.exit(0);
 }
 
@@ -276,20 +536,26 @@ let complaints = [];
 
 if (scoped) {
   console.log(
-    '\nNOTE: this run was narrowed to particular files, so the file-count guard is\n' +
-      '      skipped. A full `npm run test:isolation` is what proves the suite ran.',
+    '\nNOTE: this run was narrowed to particular files, so no count here means anything\n' +
+      '      and none is checked — a `-t` filter legitimately skips, and a file list\n' +
+      '      legitimately leaves files out. An unhandled error still fails. A full\n' +
+      '      `npm run test:isolation` is what proves the suite ran.',
   );
-  complaints = complaintsAboutSummary(output).filter((c) => !c.startsWith('vitest collected'));
+  complaints = complaintsAboutSummary(output, { countsMatter: false });
 } else if (!existsSync(outputFile)) {
-  complaints.push(
+  complaints = [
+    ...complaintsAboutManifest(),
     'the JSON reporter wrote no report at all, so nothing can be said about which ' +
       'files ran. Treat this as a failed run.',
-  );
+  ];
 } else {
-  // Both, because neither sees everything: the JSON report is the only thing
-  // that knows which FILES exist on disk, and the summary is the only thing that
-  // saw a worker die after its file's tests had all passed.
+  // All three, because none of them sees what the others do: the manifest is the
+  // only thing that knows a required file has been deleted rather than merely not
+  // run; the JSON report is the only thing that knows which files exist on disk;
+  // and the summary is the only thing that saw a worker die after its file's
+  // tests had all passed.
   complaints = [
+    ...complaintsAboutManifest(),
     ...complaintsAbout(JSON.parse(readFileSync(outputFile, 'utf8')), expectedTestFiles()),
     ...complaintsAboutSummary(output),
   ];
@@ -305,7 +571,7 @@ if (complaints.length > 0) fail(complaints);
 
 if (!scoped) {
   console.log(
-    `\nIsolation suite complete: ${expectedTestFiles().length} file(s), ` +
-      'every one accounted for.',
+    `\nIsolation suite complete: ${expectedTestFiles().length} file(s), every one accounted ` +
+      `for, ${REQUIRED_TEST_FILES.length} of them required by name, nothing skipped.`,
   );
 }
