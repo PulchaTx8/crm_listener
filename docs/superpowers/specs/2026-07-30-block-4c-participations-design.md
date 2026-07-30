@@ -96,6 +96,14 @@ once per opening.
 Import registers listeners. Without this, `participations.import` is a side door
 that registers six hundred people for somebody who may not register one.
 
+It requires `members.view` too, and that one is inherited rather than chosen:
+resolution goes through `find_member_by_identifier` (`0033`), which is gated on
+`members.view` across the Organization. Reimplementing the lookup to avoid the
+dependency would mean re-deriving the phone and e-mail normalisation that
+`0031`'s own comment warns must never be hand-copied. Requiring it is also the
+right answer on its face — registering listeners in bulk without being allowed
+to see one is not a coherent power.
+
 ---
 
 ## 3. Data model
@@ -230,6 +238,16 @@ meaningful.
 | RPC | Does |
 | --- | --- |
 | `resolve_or_create_member(p_company_id, p_full_name, p_phone, p_cpf_hash, …)` | Returns the listener's id, finding them through Block 3's deduplication or registering them. Thin: `find_member_by_identifier` (`0033`) then `create_member` (`0034`) |
+
+`find_member_by_identifier` answers one of three things, and all three need a
+destination here. `visible` gives the id and the participation proceeds.
+`none` means register the listener and proceed. **`elsewhere` means an
+identifier in the row matches somebody this caller is not allowed to reach** —
+the function returns no id on purpose, and registering anyway is impossible
+because `0031`'s per-Organization unique indexes on phone, e-mail, CPF and
+passport would refuse the duplicate. That row is skipped and reported, alongside
+the unreadable ones. It is the one skip reason that is not a defect in the file.
+
 | `record_participation(p_promotion_id, p_member_id, p_participated_at, p_answers)` | Takes the lock, applies the rules, writes the participation and its answers with the resulting status |
 | `import_participations(p_promotion_id, p_rows)` | One call per file; per row, `resolve_or_create_member` then what `record_participation` does |
 | `remove_promotion_question` (recreated) | 4a's function, now refusing while the promotion has any participation |
@@ -338,10 +356,14 @@ thing they guard was gone.
 - **Whether `participations.*` should be its own module** (§5), or three more
   `promotions.*` codes — the owner's call at review, exactly as with 4a's five
   and 4b's one.
-- **What the import does about a row whose listener matches two existing
-  people.** Block 3's deduplication decides identity by phone and CPF
-  independently; a row carrying both, matching different people on each, has no
-  obviously right answer. Proposed: skip it as unreadable and report it, which is
-  the only outcome that does not silently pick one.
+- ~~What the import does about a row matching two different people.~~
+  **Not open — Block 3 settled it, and 4c follows rather than re-decides.**
+  `find_member_by_identifier` (`0033`) already handles the split-identifier case:
+  it collects every candidate any supplied identifier matches and picks
+  deterministically — the reachable one first, then the lowest id — and the
+  function's own comment records that resolving per-identifier, so the caller
+  learns which field collided, was **deliberately rejected by the owner**. This
+  spec proposed skipping such a row as unreadable, which would have been a second
+  answer to a settled question. Withdrawn.
 - **The audience screen still cannot answer "which promotions has this listener
   entered"** (§6).
