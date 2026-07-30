@@ -354,6 +354,12 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'DELETE'),
           'service_role may not delete the projection directly either');
 
+-- The signature is spelled out rather than matched by name because pinning
+-- SECURITY INVOKER and the empty grant grid on "whichever overload exists" is
+-- exactly the assertion that would survive 0047 leaving the old eight-argument
+-- function behind alongside the new one. Block 4b widened it to nine; if a
+-- later block widens it again, this lookup fails loudly rather than silently
+-- checking the wrong function.
 -- Important #3: apply_inventory_movement's protective properties — SECURITY
 -- INVOKER and EXECUTE granted to nobody — are what make a stray future GRANT
 -- or a stray future SECURITY DEFINER harmless, respectively. Neither was
@@ -361,20 +367,20 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 -- have left this suite green while an unchecked write path opened.
 select is(
   (select prosecdef from pg_proc
-     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)'::regprocedure),
+     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)'::regprocedure),
   false,
   'apply_inventory_movement is SECURITY INVOKER, not DEFINER'
 );
 select ok(
-  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
   'anon may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
   'authenticated may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
   'service_role may not call apply_inventory_movement'
 );
 

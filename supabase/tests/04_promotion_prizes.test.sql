@@ -1,5 +1,5 @@
 begin;
-select plan(27);
+select plan(34);
 
 -- Structure -------------------------------------------------------------------
 
@@ -185,6 +185,85 @@ prepare plain_entry as
   values ('00000000-0000-0000-0000-0000000004b1','00000000-0000-0000-0000-0000000004c1',
           '00000000-0000-0000-0000-0000000004a1', 'MANUAL_ENTRY', 10, null, 'available');
 select lives_ok('plain_entry', 'a movement that names no promotion is still legal');
+
+-- The ledger's single writer feeds both projections ---------------------------
+-- Called directly, which nothing outside a SECURITY DEFINER body can do: the
+-- function holds EXECUTE for nobody and this file runs as the owner. That is
+-- the point — these assertions are about the mechanics, not about who may
+-- reach them, and 02_permissions.test.sql pins the grant grid separately.
+
+select has_function('public', 'ensure_promotion_prize_balance_row',
+                    'the projection has exactly one INSERT statement, in its own function');
+
+insert into public.inventory_movements
+  (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket)
+values ('00000000-0000-0000-0000-0000000004b1','00000000-0000-0000-0000-0000000004c1',
+        '00000000-0000-0000-0000-0000000004a2', 'MANUAL_ENTRY', 20, null, 'available');
+insert into public.inventory_balances
+  (company_id, prize_id, organization_id, available)
+values ('00000000-0000-0000-0000-0000000004c1', '00000000-0000-0000-0000-0000000004a2',
+        '00000000-0000-0000-0000-0000000004b1', 20);
+
+insert into public.promotion_prizes
+  (id, promotion_id, prize_id, organization_id, company_id) values
+  ('00000000-0000-0000-0000-0000000004e2', '00000000-0000-0000-0000-0000000004d1',
+   '00000000-0000-0000-0000-0000000004a2', '00000000-0000-0000-0000-0000000004b1',
+   '00000000-0000-0000-0000-0000000004c1');
+
+select lives_ok(
+  $$select public.apply_inventory_movement(
+      '00000000-0000-0000-0000-0000000004c1'::uuid,
+      '00000000-0000-0000-0000-0000000004a2'::uuid,
+      'PROMOTION_LINK'::public.inventory_movement_type, 4,
+      'available'::public.inventory_bucket, 'linked'::public.inventory_bucket,
+      null, null,
+      '00000000-0000-0000-0000-0000000004e2'::uuid)$$,
+  'a link movement goes through the one writer');
+
+select is(
+  (select linked from public.promotion_prize_balances
+    where promotion_prize_id = '00000000-0000-0000-0000-0000000004e2'),
+  4, 'the per-promotion projection was written inside the same transaction');
+
+select is(
+  (select available from public.inventory_balances
+    where company_id = '00000000-0000-0000-0000-0000000004c1'
+      and prize_id = '00000000-0000-0000-0000-0000000004a2'),
+  16, 'and the Station-wide projection moved too');
+
+select lives_ok(
+  $$select public.apply_inventory_movement(
+      '00000000-0000-0000-0000-0000000004c1'::uuid,
+      '00000000-0000-0000-0000-0000000004a2'::uuid,
+      'PROMOTION_UNLINK'::public.inventory_movement_type, 1,
+      'linked'::public.inventory_bucket, 'available'::public.inventory_bucket,
+      null, null,
+      '00000000-0000-0000-0000-0000000004e2'::uuid)$$,
+  'an unlink movement goes through the one writer');
+
+select is(
+  (select linked from public.promotion_prize_balances
+    where promotion_prize_id = '00000000-0000-0000-0000-0000000004e2'),
+  3, 'and takes the per-promotion figure back down');
+
+-- The Block 6 tripwire. The branch below is unreachable while
+-- inventory_movements_promotion_reference (0045) admits promotion_prize_id on
+-- exactly two movement types — so the check is dropped here, inside a
+-- transaction that rolls back, which is the only way to reach it. Its whole
+-- purpose is that Block 6, which widens that constraint to DRAW and DELIVERY,
+-- finds this function refusing rather than silently not projecting.
+alter table public.inventory_movements drop constraint inventory_movements_promotion_reference;
+
+select throws_ok(
+  $$select public.apply_inventory_movement(
+      '00000000-0000-0000-0000-0000000004c1'::uuid,
+      '00000000-0000-0000-0000-0000000004a2'::uuid,
+      'DRAW'::public.inventory_movement_type, 1,
+      'linked'::public.inventory_bucket, 'awaiting_pickup'::public.inventory_bucket,
+      null, null,
+      '00000000-0000-0000-0000-0000000004e2'::uuid)$$,
+  'XX000', null,
+  'a movement type this function cannot project onto a promotion is refused, not ignored');
 
 -- The read gate --------------------------------------------------------------
 
