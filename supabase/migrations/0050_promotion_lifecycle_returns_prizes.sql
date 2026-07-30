@@ -231,3 +231,48 @@ $$;
 
 comment on function public.archive_promotion(uuid) is
   'Soft-deletes a promotion, recording who did it, and hands its undrawn prizes back first. Gated on promotions.archive. Refused while the promotion is inside its window and not cancelled: archiving frees the hashtag for another promotion, and doing that while listeners are still texting it would hand their entries to the wrong promotion. Archiving MOVES STOCK, which it did not before Block 4b — an ended, never-cancelled promotion cannot be cancelled (cancel_promotion refuses one whose window has closed) and so had no other way to give its prizes back; the alternative was a new refusal that would have left the operator unlinking by hand first. A promotion already cancelled has nothing left to return.';
+
+-- ---------------------------------------------------------------------------
+-- The reachability of 0042's four RPCs, stated as a grant.
+--
+-- All four have held the default PUBLIC EXECUTE since 4a shipped: 0042 carries
+-- exactly one revoke, on the private promotion_write_error helper, and none on
+-- create_promotion, update_promotion, cancel_promotion or archive_promotion.
+-- Postgres grants EXECUTE to PUBLIC on every newly created function, so anon
+-- has been able to call all four all along. Nothing was reachable through them:
+-- each resolves has_permission against auth.uid(), which is null for anon, so
+-- the call raises 42501 before it touches a row. The hole is that the safety
+-- rests entirely on the first `if` of each body — one refactor away from not
+-- being safe — where every other write RPC in this project (0027, 0028, 0049,
+-- and promotion_write_error one line away in 0042 itself) states its
+-- reachability as a grant instead.
+--
+-- Closed now rather than later because this migration is what changes the
+-- stakes: archive_promotion has just become an operation that MOVES STOCK. And
+-- it had to be said here explicitly in any case — create or replace preserves
+-- an existing ACL, so recreating those two functions above inherited the
+-- PUBLIC grant rather than resetting it.
+--
+-- All four, not only the two recreated above. Leaving the identical gap open on
+-- create_promotion and update_promotion because this migration happens not to
+-- redefine them would read to the next person as a deliberate distinction, and
+-- there is none. The precedent is 0029, which found the same class of hole late
+-- — service_role keeping the default ACL's TRUNCATE on four tables nobody had
+-- revoked it from — and closed it after somebody noticed. This is that lesson
+-- applied on time.
+--
+-- authenticated only, and deliberately not service_role: services/promotions.ts
+-- calls all four through a client carrying the caller's own access token, for
+-- the reason its own comment gives — these functions resolve has_permission
+-- against auth.uid(), so calling one with the service key would defeat the
+-- check it exists to make. Same grid 0049 gave the two linking RPCs.
+-- ---------------------------------------------------------------------------
+revoke execute on function public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) from public;
+revoke execute on function public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) from public;
+revoke execute on function public.cancel_promotion(uuid, text)  from public;
+revoke execute on function public.archive_promotion(uuid)       from public;
+
+grant execute on function public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) to authenticated;
+grant execute on function public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) to authenticated;
+grant execute on function public.cancel_promotion(uuid, text)   to authenticated;
+grant execute on function public.archive_promotion(uuid)        to authenticated;

@@ -1,5 +1,5 @@
 begin;
-select plan(37);
+select plan(45);
 
 -- Structure ------------------------------------------------------------------
 
@@ -296,6 +296,43 @@ select is(relrowsecurity, true, 'RLS enabled on promotion_questions')
 -- time — calling it at all is what proves it still resolves.
 select is(public.is_owner_of_company(gen_random_uuid()), false,
           'is_owner_of_company fails closed with no session');
+
+-- The four RPCs' reachability, pinned as a grant rather than left to the guard
+-- inside each body. All four held the default PUBLIC EXECUTE from 4a until 0050
+-- revoked it; they always refused anon on has_permission, so nothing was ever
+-- reachable, but a refusal that lives only in the first `if` of a body is one
+-- refactor away from not being there. These eight are what make that regression
+-- fail here instead of in production. Same shape 02_permissions.test.sql uses
+-- for ensure_inventory_balance_row and apply_inventory_movement.
+select ok(
+  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'anon may not call create_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'authenticated may call create_promotion');
+
+select ok(
+  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'anon may not call update_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'authenticated may call update_promotion');
+
+select ok(
+  not has_function_privilege('anon', 'public.cancel_promotion(uuid, text)', 'EXECUTE'),
+  'anon may not call cancel_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.cancel_promotion(uuid, text)', 'EXECUTE'),
+  'authenticated may call cancel_promotion');
+
+-- The one of the four that moves stock as of 0050, which is why the grant was
+-- closed in that migration rather than left for a later block.
+select ok(
+  not has_function_privilege('anon', 'public.archive_promotion(uuid)', 'EXECUTE'),
+  'anon may not call archive_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.archive_promotion(uuid)', 'EXECUTE'),
+  'authenticated may call archive_promotion');
 
 select * from finish();
 rollback;
