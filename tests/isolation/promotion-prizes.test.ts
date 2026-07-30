@@ -870,3 +870,348 @@ describe('a promotion that ends its life hands its prizes back', () => {
     expect(check.data).toEqual([]);
   });
 });
+
+describe('reading the Prizes tab', () => {
+  it('names the prize for a delegate who holds no inventory permission at all', async () => {
+    const label = `read-names-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Turntable ${label}`);
+    await stockAsOwner(customer, prizeId, 5);
+    const promotionId = await promotionAsOwner(customer);
+
+    const linker = await grantRoleWith(customer, `${label}-w`, [
+      'promotions.view',
+      'promotions.prizes',
+    ]);
+    const linkerClient = await clientFor(linker);
+    const link = await linkerClient.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+    });
+    // Checked, because every assertion below rests on this link: without it the
+    // tab is legitimately empty and the case would fail naming
+    // list_promotion_prizes for a link that never happened.
+    expect(link.error).toBeNull();
+
+    // promotions.view alone. This delegate cannot read public.prizes at all —
+    // which is exactly why the tab goes through a SECURITY DEFINER read.
+    const reader = await grantRoleWith(customer, `${label}-r`, ['promotions.view']);
+    const client = await clientFor(reader);
+
+    const direct = await client.from('prizes').select('name').eq('id', prizeId);
+    expect(direct.data).toEqual([]);
+
+    const tab = await client.rpc('list_promotion_prizes', { p_promotion_id: promotionId });
+    expect(tab.error).toBeNull();
+    expect(tab.data).toEqual([
+      {
+        // The link's own id rather than any string: the tab's row has to be the
+        // row link_prize_to_promotion created, and a screen that opens a link by
+        // this id would be broken by an id that merely has the right shape.
+        promotion_prize_id: link.data,
+        prize_id: prizeId,
+        prize_name: `Turntable ${label}`,
+        linked: 3,
+        drawn: 0,
+      },
+    ]);
+  });
+
+  it('refuses a delegate holding nothing in this Station', async () => {
+    const label = `read-denied-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const promotionId = await promotionAsOwner(customer);
+
+    const stranger = await grantRoleWith(customer, label, ['members.view']);
+    const client = await clientFor(stranger);
+
+    const denied = await client.rpc('list_promotion_prizes', { p_promotion_id: promotionId });
+    expect(denied.error?.code).toBe('42501');
+  });
+
+  it('reads an id that is not there as empty rather than raising not-found', async () => {
+    const label = `read-oracle-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const client = await clientFor(await grantRoleWith(customer, label, ['promotions.view']));
+
+    // An id that matches no row at all reads exactly like a live promotion with
+    // nothing linked and like an archived one seen by a delegate: empty. An
+    // empty tab is therefore never by itself evidence about an id.
+    //
+    // What this deliberately does NOT claim, because the case above makes it
+    // false: a promotion that DOES exist, in a Station where the caller holds
+    // nothing, is refused with 42501 — which does tell that caller the id is
+    // real. Folding that refusal into an empty list was the alternative and was
+    // rejected: the screen could then not tell "you may not see this" from "this
+    // promotion has no prizes", and 0049's write RPCs already give the same
+    // signal for the same ids to whoever already holds one.
+    const missing = await client.rpc('list_promotion_prizes', {
+      p_promotion_id: '00000000-0000-0000-0000-0000000000ff',
+    });
+    expect(missing.error).toBeNull();
+    expect(missing.data).toEqual([]);
+  });
+
+  it('hides an archived promotion’s prizes from a delegate and shows them to the owner', async () => {
+    const label = `read-archived-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Filed ${label}`);
+    await stockAsOwner(customer, prizeId, 4);
+    const promotionId = await promotionAsOwner(customer, {
+      startsAt: new Date(Date.now() + DAY).toISOString(),
+      endsAt: new Date(Date.now() + 30 * DAY).toISOString(),
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'promotions.archive',
+    ]);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+    });
+    expect(link.error).toBeNull();
+
+    // Archiving now returns every undrawn unit and closes every link that has
+    // nothing drawn (0050), so a link survives an archival only if something has
+    // been drawn on it. Without this the archived promotion would have no live
+    // link at all and BOTH halves below would read [] — the delegate's for the
+    // rule this case exists to prove, and the owner's vacuously. Linking twice
+    // instead does not help: 0049 adds to the live row rather than creating a
+    // second one, which the second case of the first describe already pins.
+    setPromotionPrizeDrawnDirectly(link.data as string, 2);
+
+    // The positive control for the [] the delegate gets after the archival.
+    // Through the same client and the same function, so that empty list means
+    // "hidden" rather than "there was never a row here" — and it also fixes that
+    // the fixture above landed on the row this case is about.
+    const before = await client.rpc('list_promotion_prizes', { p_promotion_id: promotionId });
+    expect(before.data).toHaveLength(1);
+    expect(before.data?.[0]).toMatchObject({ linked: 4, drawn: 2 });
+
+    const archived = await client.rpc('archive_promotion', { p_promotion_id: promotionId });
+    expect(archived.error).toBeNull();
+
+    // 0044 admits an archived promotion to the owner and the platform admin
+    // only. A DEFINER body never consults that policy, so the rule has to be
+    // restated inside the function — and this is the case that proves it was.
+    const hidden = await client.rpc('list_promotion_prizes', { p_promotion_id: promotionId });
+    expect(hidden.error).toBeNull();
+    expect(hidden.data).toEqual([]);
+
+    const ownerClient = await clientFor(customer);
+    const visible = await ownerClient.rpc('list_promotion_prizes', {
+      p_promotion_id: promotionId,
+    });
+    expect(visible.data).toHaveLength(1);
+    // Two of the four went back to available as the promotion was archived; the
+    // two that are drawn belong to a winner and stay on the tab.
+    expect(visible.data?.[0]).toMatchObject({ linked: 2, drawn: 2 });
+  });
+
+  it('leaves a link that was unwound to nothing off the tab', async () => {
+    const label = `read-unwound-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Returned ${label}`);
+    await stockAsOwner(customer, prizeId, 3);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, ['promotions.view', 'promotions.prizes']);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+    });
+    expect(link.error).toBeNull();
+
+    // The positive control: the row is on the tab before the unlink, so the []
+    // below is a row being filtered rather than a link that never happened.
+    const before = await client.rpc('list_promotion_prizes', { p_promotion_id: promotionId });
+    expect(before.data).toHaveLength(1);
+
+    const undo = await client.rpc('unlink_prize_from_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+    });
+    expect(undo.error).toBeNull();
+
+    // 0046's policy bakes `deleted_at is null` in and a DEFINER body never
+    // consults it, so the filter is restated in the query: a link unwound to
+    // nothing leaves the tab rather than sitting there as a row of zeros, and
+    // its history is in the ledger. The neighbouring case in the unlinking
+    // describe proves the POLICY does this; nothing proved the restatement did,
+    // and an untested restatement is one edit away from being gone.
+    const after = await client.rpc('list_promotion_prizes', { p_promotion_id: promotionId });
+    expect(after.error).toBeNull();
+    expect(after.data).toEqual([]);
+  });
+
+  it('offers linkable prizes with their available stock', async () => {
+    const label = `read-picker-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Zither ${label}`);
+    await stockAsOwner(customer, prizeId, 7);
+    // A second prize, so the search below has something to leave out. With one
+    // prize in the Station a search that was ignored outright would return that
+    // same single row and `toHaveLength(1)` would pass over it.
+    const otherId = await createPrizeAs(customer, `Kalimba ${label}`);
+
+    const delegate = await grantRoleWith(customer, label, ['promotions.view', 'promotions.prizes']);
+    const client = await clientFor(delegate);
+
+    // The premise the picker's DEFINER status rests on: this delegate holds
+    // nothing from the inventory module, so neither the name nor the available
+    // figure below can have come from a read it could have made itself.
+    const direct = await client
+      .from('inventory_balances')
+      .select('available')
+      .eq('prize_id', prizeId);
+    expect(direct.data).toEqual([]);
+
+    const all = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(all.error).toBeNull();
+    expect(all.data).toHaveLength(2);
+    expect(all.data).toContainEqual({
+      prize_id: prizeId,
+      name: `Zither ${label}`,
+      available: 7,
+    });
+    // A prize with nothing in stock is offered too, at zero — hiding it would
+    // leave an operator hunting for a prize the inventory screen shows them, and
+    // link_prize_to_promotion refuses the quantity anyway, naming the figure.
+    expect(all.data).toContainEqual({
+      prize_id: otherId,
+      name: `Kalimba ${label}`,
+      available: 0,
+    });
+
+    // The search is a plain substring, not a LIKE pattern: a term with a % in
+    // it is a term, not a wildcard.
+    const found = await client.rpc('list_linkable_prizes', {
+      p_company_id: customer.companyId,
+      p_search: 'zither',
+    });
+    expect(found.data).toEqual([{ prize_id: prizeId, name: `Zither ${label}`, available: 7 }]);
+
+    const none = await client.rpc('list_linkable_prizes', {
+      p_company_id: customer.companyId,
+      p_search: '%',
+    });
+    expect(none.data).toEqual([]);
+  });
+
+  it('caps the picker at fifty, and the search is how you reach the fifty-first', async () => {
+    const label = `read-cap-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    // Fifty-one prizes, so the cap has something to cut. Registered through the
+    // real RPC on one owner client rather than through createPrizeAs, which
+    // signs in again on every call.
+    const bulk = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        owner.rpc('create_prize', {
+          p_company_id: customer.companyId,
+          p_name: `Capped ${label} ${String(index).padStart(2, '0')}`,
+        }),
+      ),
+    );
+    for (const one of bulk) {
+      if (one.error) throw new Error(`create_prize failed: ${one.error.message}`);
+    }
+    // Named so it sorts last, which is what puts it outside the fifty.
+    const beyond = await owner.rpc('create_prize', {
+      p_company_id: customer.companyId,
+      p_name: `Zzz beyond ${label}`,
+    });
+    expect(beyond.error).toBeNull();
+
+    const delegate = await grantRoleWith(customer, label, ['promotions.view', 'promotions.prizes']);
+    const client = await clientFor(delegate);
+
+    const capped = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(capped.error).toBeNull();
+    expect(capped.data).toHaveLength(50);
+    // Which fifty, not merely how many: the list is ordered by name and cut at
+    // the end of that order, so the fifty-first is the one missing.
+    expect(capped.data?.map((row) => row.prize_id)).not.toContain(beyond.data);
+
+    // And the search is how somebody reaches it — the whole of what the cap
+    // costs, and why the screen has to say the list is capped rather than
+    // present it as the Station's whole catalogue.
+    const searched = await client.rpc('list_linkable_prizes', {
+      p_company_id: customer.companyId,
+      p_search: 'zzz beyond',
+    });
+    expect(searched.data).toHaveLength(1);
+    expect(searched.data?.[0]?.prize_id).toBe(beyond.data);
+  });
+
+  it('refuses the picker to a delegate who may see promotions but not commit stock to them', async () => {
+    const label = `read-picker-denied-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const client = await clientFor(await grantRoleWith(customer, label, ['promotions.view']));
+
+    const denied = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(denied.error?.code).toBe('42501');
+  });
+
+  it('keeps promotion_prize_balances itself from a delegate who cannot see the promotion', async () => {
+    const label = `read-balance-rls-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Ledgered ${label}`);
+    await stockAsOwner(customer, prizeId, 5);
+    const promotionId = await promotionAsOwner(customer);
+
+    const linker = await grantRoleWith(customer, `${label}-w`, [
+      'promotions.view',
+      'promotions.prizes',
+    ]);
+    const linkerClient = await clientFor(linker);
+    const link = await linkerClient.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 2,
+    });
+    expect(link.error).toBeNull();
+
+    // 0046's read policy on the projection had never been exercised under a role
+    // holding nothing: the pgTAP suite checks only that the select grant exists
+    // and that there is exactly one policy on the table, both of which a policy
+    // written `using (true)` would satisfy. This is that case, and it belongs
+    // here because these are the only tests with a real Station, a real delegate
+    // and a real balance row to withhold.
+    //
+    // The read through the linker comes first because [] is also what PostgREST
+    // answers for a table with nothing in it: this is what fixes the [] below as
+    // a row that exists being withheld rather than a row never written.
+    const readable = await linkerClient
+      .from('promotion_prize_balances')
+      .select('linked, drawn')
+      .eq('promotion_prize_id', link.data as string);
+    expect(readable.data).toEqual([{ linked: 2, drawn: 0 }]);
+
+    // A member of this same Station, so the Station is not what excludes them:
+    // the only thing this delegate is missing is promotions.view.
+    const stranger = await grantRoleWith(customer, `${label}-s`, ['members.view']);
+    const strangerClient = await clientFor(stranger);
+
+    const refused = await strangerClient
+      .from('promotion_prize_balances')
+      .select('linked, drawn')
+      .eq('promotion_prize_id', link.data as string);
+    // Filtered by the policy rather than refused by a grant — the select grant
+    // is there for every authenticated role, so an error here would mean the
+    // grant had been taken away rather than the policy having done its work.
+    expect(refused.error).toBeNull();
+    expect(refused.data).toEqual([]);
+  });
+});

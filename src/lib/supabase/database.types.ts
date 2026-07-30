@@ -1670,12 +1670,30 @@ export type Database = {
         }
         Returns: string
       }
+      list_linkable_prizes: {
+        Args: { p_company_id: string; p_search?: string }
+        Returns: {
+          available: number
+          name: string
+          prize_id: string
+        }[]
+      }
       list_manageable_companies: {
         Args: { p_organization_id: string; p_permission: string }
         Returns: {
           id: string
           name: string
           status: Database["public"]["Enums"]["company_status"]
+        }[]
+      }
+      list_promotion_prizes: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          drawn: number
+          linked: number
+          prize_id: string
+          prize_name: string
+          promotion_prize_id: string
         }[]
       }
       member_linked_to_company: {
