@@ -41,9 +41,40 @@ comment on function public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, 
 -- so the drop succeeds and those five re-resolve to this function, through the
 -- default on the new parameter, at their next call.
 --
--- Nothing else about this function changes. The lock order is now prize ->
--- inventory_balances -> promotion_prize_balances, taken in that order by every
--- caller, so two concurrent movements cannot deadlock against each other.
+-- Nothing else about this function changes. It takes prize (FOR SHARE), then
+-- inventory_balances, then promotion_prize_balances — but that is this
+-- function's order, NOT an invariant every caller honours, and it must not be
+-- written down as if it were. adjust_stock already runs the inverse: its own
+-- prize check (0030:260-265) is a plain `not exists` holding no lock, it takes
+-- inventory_balances FOR UPDATE on its own (0030:274-278), and it reaches the
+-- prize only afterwards, in here, when it delegates (0030:325, 0030:329). One
+-- of the five callers therefore locks inventory_balances before the prize.
+--
+-- No cycle is reachable today, but not because the order is uniform. Three
+-- properties are what actually hold it, and each one is a thing a future change
+-- could take away:
+--
+--   * promotion_prize_balances is locked nowhere but inside this function, and
+--     there only after inventory_balances. No caller can take the third lock
+--     first, because no caller can reach the table at all.
+--   * A link determines its prize. promotion_prize_balances' foreign key to
+--     promotion_prizes is the three-column (promotion_prize_id, prize_id,
+--     company_id) (0045), so two transactions contending for one
+--     promotion_prize_balances row are contending for one (company, prize) too
+--     — they already met on that inventory_balances row a step earlier and
+--     serialised there. The third lock sits behind a queue that has already
+--     formed; it cannot close a cycle of its own.
+--   * The prize lock is FOR SHARE and does not conflict with itself, so
+--     adjust_stock's inverted order cannot complete a cycle either. The only
+--     FOR UPDATE taker of a prize row is archive_prize (0027:672-685), and it
+--     deliberately never waits on inventory_balances (0027:696-700).
+--
+-- What would break this, and what the next reviewer should refuse: an RPC that
+-- follows adjust_stock's precedent — lock inventory_balances itself, then
+-- delegate — while also touching promotion_prize_balances outside this
+-- function; or a promotion_prize_balances row made reachable for more than one
+-- prize, which would sever the implication in the second bullet. Nothing in the
+-- schema refuses either one. Only this comment does.
 -- ---------------------------------------------------------------------------
 drop function public.apply_inventory_movement(
   uuid, uuid, public.inventory_movement_type, integer,
@@ -238,4 +269,4 @@ $$;
 revoke execute on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid) from public;
 
 comment on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid) is
-  'Private ledger mechanics shared by every movement RPC: locks the balance row (bootstrap shared with adjust_stock via ensure_inventory_balance_row, 0030), locks the per-promotion balance row when the movement names one, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement with both projections untouched), moves the buckets, moves the per-promotion figure, and writes the audit row. Dropped and recreated in 0047 rather than replaced, because create or replace cannot change an argument list and the eight-argument overload left behind would have gone on being the one every existing caller resolved to. SECURITY INVOKER, EXECUTE granted to nobody. Lock order is prize (FOR SHARE), inventory_balances, promotion_prize_balances — the same order for every caller. Idempotency keys are scoped to the Station, not to a prize: a client reusing "retry-1" across two prizes in one Station silently gets the first movement back. p_promotion_prize_id is projected by movement_type, not by the bucket pair, because linked on that projection counts units committed to the promotion and is not decremented by a draw; a type it does not know is refused with XX000 rather than appended silently.';
+  'Private ledger mechanics shared by every movement RPC: locks the balance row (bootstrap shared with adjust_stock via ensure_inventory_balance_row, 0030), locks the per-promotion balance row when the movement names one, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement without moving a figure in either projection — it may have bootstrapped an all-zero promotion_prize_balances row on the way in, exactly as ensure_inventory_balance_row already does for inventory_balances on that same path, so "untouched" would overstate it), moves the buckets, moves the per-promotion figure, and writes the audit row. Dropped and recreated in 0047 rather than replaced, because create or replace cannot change an argument list and the eight-argument overload left behind would have gone on being the one every existing caller resolved to. SECURITY INVOKER, EXECUTE granted to nobody. This function locks prize (FOR SHARE), then inventory_balances, then promotion_prize_balances, but that order is NOT universal and must not be relied on as if it were: adjust_stock (0030) locks inventory_balances itself and reaches the prize only afterwards, when it delegates here. What holds instead is that promotion_prize_balances is locked nowhere but inside this function and only after inventory_balances; that a link determines its prize through the three-column foreign key in 0045, so two transactions contending for one promotion_prize_balances row have already serialised on one inventory_balances row; and that the prize lock is FOR SHARE and does not conflict with itself, archive_prize (0027) being its only FOR UPDATE taker and never waiting on inventory_balances. An RPC that locks inventory_balances itself and then touches promotion_prize_balances outside this function is where a real cycle first becomes possible. Idempotency keys are scoped to the Station, not to a prize: a client reusing "retry-1" across two prizes in one Station silently gets the first movement back. p_promotion_prize_id is projected by movement_type, not by the bucket pair, because linked on that projection counts units committed to the promotion and is not decremented by a draw; a type it does not know is refused with XX000 rather than appended silently.';
