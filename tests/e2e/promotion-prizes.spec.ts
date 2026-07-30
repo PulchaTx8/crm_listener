@@ -94,16 +94,36 @@ function countListRenders(page: Page): string[] {
   return renders;
 }
 
+/** The index of the Available column on /inventory: Prize, Code, Category, Added, In stock, Available. */
+const AVAILABLE_COLUMN = 5;
+
 /**
  * The Available cell of a prize's row on /inventory.
  *
  * Addressed by position rather than by a test id, because the inventory list
- * has none on that cell — checked before writing this, not assumed. The header
- * order (inventory-grid.tsx) fixes the index: Prize, Code, Category, Added, In
- * stock, Available.
+ * has none on that cell — checked before writing this, not assumed.
+ *
+ * Which makes the index the whole risk, and it is not a theoretical one: the
+ * column immediately before Available is In stock, and at every point in this
+ * journey the two hold the SAME NUMBER, because nothing here reserves, delivers
+ * or writes off. Insert one column anywhere to the left and this locator slides
+ * onto In stock — a figure that never moves — and the assertion at the end of
+ * the test goes on passing while measuring nothing at all. assertAvailableHeader
+ * below is what stops that: it reads the header at this same index and fails if
+ * it is not the column this function claims to be reading.
  */
 function availableCell(page: Page, name: string) {
-  return page.locator('[data-testid="prize-row"]', { hasText: name }).locator('td').nth(5);
+  return page
+    .locator('[data-testid="prize-row"]', { hasText: name })
+    .locator('td')
+    .nth(AVAILABLE_COLUMN);
+}
+
+async function assertAvailableHeader(page: Page) {
+  await expect(
+    page.locator('thead th').nth(AVAILABLE_COLUMN),
+    'the column availableCell reads by index must still be Available',
+  ).toHaveText('Available');
 }
 
 test('linking a prize moves stock without the list behind the dialog being re-queried', async ({
@@ -306,8 +326,12 @@ test('linking a prize moves stock without the list behind the dialog being re-qu
   await expect(ownerPage.getByText(unseenPromotionName)).toHaveCount(0);
 
   // --- return all four ------------------------------------------------------
-  await ownerPage.getByTestId('prize-unlink-quantity').fill('4');
-  await ownerPage.getByTestId('prize-unlink').click();
+  // Addressed by the prize's id rather than by a bare `prize-unlink`: the
+  // controls used to share one test id across every row and worked only while
+  // exactly one prize was linked. A second row would have made these strict-mode
+  // violations.
+  await ownerPage.getByTestId(`prize-unlink-quantity-${prize.id}`).fill('4');
+  await ownerPage.getByTestId(`prize-unlink-${prize.id}`).click();
 
   // A link unwound to nothing is soft-deleted by the RPC (0049), so the row
   // leaves the tab rather than sitting there as a row of zeros.
@@ -320,6 +344,7 @@ test('linking a prize moves stock without the list behind the dialog being re-qu
   // And the units are actually back — asserted against the inventory screen
   // rather than against the tab that just said so.
   await ownerPage.goto('/inventory');
+  await assertAvailableHeader(ownerPage);
   await expect(availableCell(ownerPage, prizeName)).toHaveText('10');
 
   await ownerContext.close();

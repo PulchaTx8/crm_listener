@@ -42,9 +42,16 @@ create unique index promotion_prizes_live_unique
   on public.promotion_prizes (promotion_id, prize_id)
   where deleted_at is null;
 
-create index promotion_prizes_promotion_idx
-  on public.promotion_prizes (promotion_id)
-  where deleted_at is null;
+-- No second index on (promotion_id) alone. There WAS one here —
+-- promotion_prizes_promotion_idx, same partial predicate — and it was removed
+-- by the Block 4b branch review before this migration was ever merged, because
+-- it was fully subsumed by the unique index above: identical `where deleted_at
+-- is null`, and promotion_id is its leading column, so every lookup and range
+-- scan by promotion the two RPCs and both read functions make is already served.
+-- It bought nothing and cost a write on every insert and update plus its own
+-- pages. Removed in place rather than dropped in a later file: migrations are
+-- append-only across merges, not within an unmerged branch, and this branch
+-- already amends its own (6228a8b on 0050, f64cadf on 0051).
 
 -- The foreign-key target both children below use. Three columns rather than
 -- two: with (id, company_id) a movement could name prize X through a link that

@@ -207,7 +207,15 @@ describe('linking a prize to a promotion', () => {
       p_quantity: 5,
     });
     expect(denied.error?.code).toBe('23514');
-    expect(denied.error?.message).toContain('3');
+    // The sentence, not a digit in it. `toContain('3')` passed here for a reason
+    // that has nothing to do with the guard: 23514 is the code the table checks
+    // raise too, and any refusal quoting any figure would carry a '3' somewhere.
+    // apply_inventory_movement is the one guard that names BOTH the stock it
+    // found and the number asked for, and that pairing is what the screen shows
+    // the operator — so that is what is pinned.
+    expect(denied.error?.message).toBe(
+      'only 3 unit(s) are in available, and 5 were requested',
+    );
   });
 
   it('refuses a non-positive quantity', async () => {
@@ -356,6 +364,11 @@ describe('unlinking', () => {
       p_prize_id: prizeId,
       p_quantity: 5,
     });
+    // Checked, for the reason the two sibling cases that do check it set out:
+    // everything below rests on this link, and without it the next line hands
+    // `null as string` to setPromotionPrizeDrawnDirectly, whose UUID guard
+    // blames the fixture helper for a link that never happened.
+    expect(linked.error).toBeNull();
     const linkId = linked.data as string;
 
     // Nothing writes `drawn` until Block 6; see the helper's own comment for
@@ -378,7 +391,18 @@ describe('unlinking', () => {
       p_quantity: 1,
     });
     expect(denied.error?.code).toBe('23514');
-    expect(denied.error?.message).toContain('2');
+    // The whole sentence, and this is the single most load-bearing assertion in
+    // the block. Remove the RPC's floor and the write is STILL refused — by
+    // promotion_prize_balances_drawn_within_linked (0045), which raises the same
+    // 23514 — so the code survives the mutation and only the message dies. It
+    // was `toContain('2')` until the branch review, which went red in that
+    // mutation solely because the constraint's own message happens to contain no
+    // digit; a constraint named with a numeral would have kept it green over a
+    // guard that was no longer there. What the operator can act on is the
+    // sentence, so the sentence is what is pinned.
+    expect(denied.error?.message).toBe(
+      'only 0 of the 2 unit(s) linked can be returned; 2 have already been drawn',
+    );
   });
 
   it('refuses a prize that is not linked to this promotion', async () => {
@@ -728,6 +752,73 @@ describe('a promotion that ends its life hands its prizes back', () => {
       .eq('prize_id', prizeId)
       .single();
     expect(station.data).toEqual({ available: 9, linked: 0 });
+  });
+
+  it('lets a delegate holding no promotions.prizes move stock by archiving', async () => {
+    const label = `archive-perm-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Unattended ${label}`);
+    await stockAsOwner(customer, prizeId, 6);
+    const promotionId = await promotionAsOwner(customer, {
+      startsAt: new Date(Date.now() - 2 * DAY).toISOString(),
+      endsAt: new Date(Date.now() - HOUR).toISOString(),
+    });
+
+    // The link is built by a SECOND delegate, the one who actually holds
+    // promotions.prizes — the same shape `refuses an unlink by a delegate who
+    // holds promotions.edit but not promotions.prizes` uses, and for the same
+    // reason: the delegate under test must never have held the code, or the case
+    // would prove nothing about what archiving carries with it.
+    const linker = await grantRoleWith(customer, `${label}-w`, [
+      'promotions.view',
+      'promotions.prizes',
+    ]);
+    const link = await (await clientFor(linker)).rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+    });
+    expect(link.error).toBeNull();
+
+    // promotions.view + promotions.archive and NOTHING else. No promotions.prizes
+    // and no inventory code at all — this delegate cannot link, cannot unlink,
+    // and cannot so much as read inventory_balances.
+    const archiver = await grantRoleWith(customer, `${label}-a`, [
+      'promotions.view',
+      'promotions.archive',
+    ]);
+    const client = await clientFor(archiver);
+
+    // The premise, asserted rather than assumed: this delegate is refused the
+    // direct route to the same movement. Without this the case below would read
+    // as "a delegate moved stock" rather than as "a delegate who may NOT move
+    // stock moved stock", which is the whole finding.
+    const refused = await client.rpc('unlink_prize_from_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+    });
+    expect(refused.error?.code).toBe('42501');
+
+    const archived = await client.rpc('archive_promotion', { p_promotion_id: promotionId });
+    expect(archived.error).toBeNull();
+
+    // And the four units moved anyway. Read through the OWNER, because the
+    // archiving delegate holds no inventory.view and so cannot see the balance
+    // it just changed — which is itself part of the finding.
+    //
+    // This case does not say the gating is wrong. It says promotions.archive
+    // now authorises a stock movement, that it does so with no inventory code
+    // and no promotions.prizes anywhere on the path, and that nothing on the
+    // permission screen says so. 0050's header and the spec's §7 carry the
+    // question; this is what makes the answer a decision instead of a surprise.
+    const owner = await clientFor(customer);
+    const station = await owner
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(station.data).toEqual({ available: 6, linked: 0 });
   });
 
   it('archiving after a cancellation finds nothing left to return', async () => {

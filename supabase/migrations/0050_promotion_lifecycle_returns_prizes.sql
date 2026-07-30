@@ -101,6 +101,35 @@ comment on function public.return_promotion_prizes(uuid, uuid, text) is
   'D1, shared by cancel_promotion and archive_promotion: appends one PROMOTION_UNLINK per live link for everything committed and not drawn, moving linked -> available, and closes each link that had nothing drawn. Returns the number of units handed back, which both callers record in their audit row. Takes no lock of its own — both callers hold FOR UPDATE on the promotion, and 0049 serialises every link and unlink behind that same lock. SECURITY INVOKER, EXECUTE granted to nobody.';
 
 -- ---------------------------------------------------------------------------
+-- WHAT THIS COSTS IN PERMISSIONS, which is a different question from what it
+-- costs in behaviour and is not answered anywhere else.
+--
+-- promotions.prizes exists because linking moves stock, and 0045's own comment
+-- gives the reason for its own code: "somebody who may reword a promotion is not
+-- thereby somebody who may commit inventory to it." The two functions below are
+-- the converse of that separation. cancel_promotion gates on promotions.cancel
+-- alone and archive_promotion on promotions.archive alone, and each then calls
+-- return_promotion_prizes, which moves units from `linked` back to `available`.
+--
+-- So a delegate holding promotions.view + promotions.archive and NOTHING ELSE —
+-- no promotions.prizes, no inventory code at all — moves inventory. Same for
+-- promotions.view + promotions.cancel. Those two codes now authorise a stock
+-- movement, and an owner reading the permission screen has no way to tell:
+-- nothing on it says "archive" or "cancel" touches the balance.
+--
+-- This is DELIBERATE and is not being changed here. The alternative is to
+-- require promotions.prizes alongside, and that makes archiving a compound
+-- permission nobody would guess from the screen and refuses the operation to
+-- exactly the person whose job it is — an ended promotion nobody may archive is
+-- an ended promotion whose prizes stay stranded, which is the state D1 exists to
+-- end. It is written down here, in the code, so the next reader meets it as a
+-- decision rather than as a discovery, and it is on the spec's open list as a
+-- question for the owner. tests/isolation/promotion-prizes.test.ts drives it
+-- under a delegate holding no promotions.prizes, so the reach is proved rather
+-- than described.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
 -- cancel_promotion, recreated. Everything 0042 wrote is unchanged — the
 -- FOR UPDATE, the reason, the already-cancelled refusal, the already-ended
 -- refusal — and the return is written after the UPDATE that marks the row so
@@ -184,7 +213,7 @@ end;
 $$;
 
 comment on function public.cancel_promotion(uuid, text) is
-  'Stops a promotion accepting entries before its end, and hands its prizes back (D1). Gated on promotions.cancel. Requires a reason, refuses a promotion already cancelled, and refuses one whose window has already closed — cancelling something already over would only mislabel it, and archiving is what returns that one''s prizes. Every unit still linked and not drawn goes back to available as its own PROMOTION_UNLINK carrying the cancellation as its note, in this transaction; what has been drawn stays where it is, because it belongs to a winner. The number returned is recorded on the audit row.';
+  'Stops a promotion accepting entries before its end, and hands its prizes back (D1). Gated on promotions.cancel. Requires a reason, refuses a promotion already cancelled, and refuses one whose window has already closed — cancelling something already over would only mislabel it, and archiving is what returns that one''s prizes. Every unit still linked and not drawn goes back to available as its own PROMOTION_UNLINK carrying the cancellation as its note, in this transaction; what has been drawn stays where it is, because it belongs to a winner. The number returned is recorded on the audit row. Note what this means for permissions: promotions.cancel alone now authorises a stock movement — a delegate holding it and no promotions.prizes, and no inventory code at all, moves units back into available by cancelling. That is deliberate, and it is on the spec''s open list for the owner.';
 
 -- ---------------------------------------------------------------------------
 -- archive_promotion, recreated. Its refusal is unchanged; what is new is that
@@ -256,7 +285,7 @@ end;
 $$;
 
 comment on function public.archive_promotion(uuid) is
-  'Soft-deletes a promotion, recording who did it, and hands its undrawn prizes back first. Gated on promotions.archive. Refused while the promotion is inside its window and not cancelled: archiving frees the hashtag for another promotion, and doing that while listeners are still texting it would hand their entries to the wrong promotion. Archiving MOVES STOCK, which it did not before Block 4b — an ended, never-cancelled promotion cannot be cancelled (cancel_promotion refuses one whose window has closed) and so had no other way to give its prizes back; the alternative was a new refusal that would have left the operator unlinking by hand first. A promotion already cancelled has nothing left to return.';
+  'Soft-deletes a promotion, recording who did it, and hands its undrawn prizes back first. Gated on promotions.archive. Refused while the promotion is inside its window and not cancelled: archiving frees the hashtag for another promotion, and doing that while listeners are still texting it would hand their entries to the wrong promotion. Archiving MOVES STOCK, which it did not before Block 4b — an ended, never-cancelled promotion cannot be cancelled (cancel_promotion refuses one whose window has closed) and so had no other way to give its prizes back; the alternative was a new refusal that would have left the operator unlinking by hand first. A promotion already cancelled has nothing left to return. Note what this means for permissions: promotions.archive alone now authorises a stock movement — a delegate holding promotions.view and promotions.archive, with no promotions.prizes and no inventory code at all, moves units back into available by archiving. That is the converse of the separation promotions.prizes was created to make, it is deliberate, and it is on the spec''s open list for the owner.';
 
 -- ---------------------------------------------------------------------------
 -- The reachability of Block 4a's six promotion write RPCs, stated as a grant.

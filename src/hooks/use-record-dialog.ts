@@ -28,8 +28,10 @@ export function useRecordDialog(
 
   /**
    * Whether the entry the browser is showing right now is one open() pushed —
-   * which is to say, whether closing has an entry OF ITS OWN to pop. See
-   * close() for why the record being in the URL is not the same question.
+   * which is to say, whether closing has an entry OF ITS OWN to step back off.
+   * See close() for why the record being in the URL is not the same question,
+   * and for why "pop" is the wrong word: back() moves the traversal pointer and
+   * leaves the entry standing.
    *
    * Deliberately pessimistic: it goes false on every popstate, because the
    * event says the pointer moved and not where it moved to, and there is no
@@ -92,14 +94,16 @@ export function useRecordDialog(
    * which instrument does that depends on who put the record in the address.
    *
    * After open() there is an entry of ours on the stack, and history.back()
-   * pops exactly it: the address returns to the list the operator was already
-   * looking at, and the stack does not grow. Pushing the closed URL instead
+   * steps the pointer off exactly it: the address returns to the list the
+   * operator was already looking at, and the stack does not grow — it does not
+   * POP the entry, which is the correction the last paragraph of this comment
+   * makes at length. Pushing the closed URL instead
    * would leave the record one Back away, so Back would walk backwards through
    * every record opened on this page rather than leaving the list — which is
    * what Back means while a dialog is open.
    *
    * When the record arrived any other way — a pasted link, a bookmark, the
-   * first address of the session — there is no entry of ours to pop, and back()
+   * first address of the session — there is no entry of ours behind us, and back()
    * walks the operator off the page: a full document navigation to whatever
    * preceded this one. replaceState overwrites the address in place instead.
    * Nothing navigates, no entry is added, and the record is left neither behind
@@ -133,9 +137,14 @@ export function useRecordDialog(
    */
   const close = useCallback(() => {
     setRecordId(null);
+    // Cleared before the early return, not inside the branch below: no record in
+    // the address means no entry of ours under the pointer, so the invariant
+    // "this ref is false whenever the record is closed" holds unconditionally
+    // rather than by an argument about which paths can reach which line.
+    const owned = ownsCurrentEntry.current;
+    ownsCurrentEntry.current = false;
     if (!new URLSearchParams(window.location.search).has('record')) return;
-    if (ownsCurrentEntry.current) {
-      ownsCurrentEntry.current = false;
+    if (owned) {
       window.history.back();
       return;
     }

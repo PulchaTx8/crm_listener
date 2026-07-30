@@ -277,6 +277,24 @@ describe('promotionPrizeLinkSchema', () => {
     expect(result.error?.issues[0]?.message).toBe('How many units?');
   });
 
+  it('accepts the largest quantity Postgres can hold', () => {
+    expect(promotionPrizeLinkSchema.safeParse({ ...valid, quantity: 2_147_483_647 }).success).toBe(
+      true,
+    );
+  });
+
+  it('refuses one past it with a sentence rather than letting 22003 come back', () => {
+    // The bound is the RPCs' `p_quantity integer`, not a product rule. Without
+    // it a hand-posted 2147483648 reaches Postgres, comes back as 22003, maps to
+    // InternalError and reaches the operator as a generic "Could not save" —
+    // which says nothing about what to change. The number below is exactly one
+    // past the ceiling, so this case fails if the bound is loosened by a single
+    // unit and cannot pass on some smaller refusal.
+    const result = promotionPrizeLinkSchema.safeParse({ ...valid, quantity: 2_147_483_648 });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe('That is more units than this system can count.');
+  });
+
   it('refuses an id that is not a uuid, so a hand-edited form cannot reach the RPC', () => {
     expect(promotionPrizeLinkSchema.safeParse({ ...valid, prizeId: 'not-an-id' }).success).toBe(
       false,

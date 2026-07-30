@@ -384,9 +384,15 @@ export async function getPromotionRecord(
     p_promotion_id: promotionId,
   });
 
-  if (prizeError) {
-    throw new InternalError(`Could not read the linked prizes: ${prizeError.message}`);
-  }
+  // Through mapPromotionError like every other RPC call in this module, rather
+  // than wrapped in InternalError directly. This is the one call in
+  // getPromotionRecord that can raise 42501 — list_promotion_prizes re-checks
+  // promotions.view in its own body because it is SECURITY DEFINER — and
+  // InternalError would have turned a permission refusal into a 500 and logged
+  // it as ours. The three reads above it are ordinary PostgREST selects, where a
+  // policy denial arrives as an empty result and never as an error, so they have
+  // nothing to map.
+  if (prizeError) throw mapPromotionError(prizeError.code, prizeError.message);
 
   return {
     id: promotion.id,

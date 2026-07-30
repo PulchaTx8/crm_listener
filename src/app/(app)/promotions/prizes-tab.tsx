@@ -111,6 +111,7 @@ export function PrizesTab({
                       <UnlinkControl
                         promotionId={promotionId}
                         prizeId={row.prizeId}
+                        prizeName={row.prizeName}
                         free={row.linked - row.drawn}
                         onSaved={onSaved}
                       />
@@ -162,15 +163,31 @@ export function PrizesTab({
  * Bounded by Resto rather than by Vinculados: the drawn units belong to a
  * winner. The RPC refuses the same thing and names both figures, so this is the
  * verdict without a round trip and not the boundary.
+ *
+ * The prize's NAME goes into both accessible names, which is the precedent
+ * inventory-grid.tsx sets with `aria-label={`Edit ${prize.name}`}`. Before this,
+ * every row on a tab with several prizes linked offered a screen reader the same
+ * two names — "Units to return to stock", "Return" — with nothing to say which
+ * prize either belonged to.
+ *
+ * The prize's ID, not its name, goes into the three test ids. Same defect, same
+ * fix, different key on purpose: the ids were duplicated across rows and worked
+ * only because the e2e links exactly one prize, so the first person to link two
+ * in a test got a Playwright strict-mode violation that reads as their own bug —
+ * but nothing in the schema makes a prize's name unique within a Station, so
+ * keying on the name would leave that violation reachable, and a rename would
+ * move every selector. The id is unique by construction and stable.
  */
 function UnlinkControl({
   promotionId,
   prizeId,
+  prizeName,
   free,
   onSaved,
 }: {
   promotionId: string;
   prizeId: string;
+  prizeName: string;
   free: number;
   onSaved: () => void;
 }) {
@@ -197,15 +214,24 @@ function UnlinkControl({
         max={free}
         value={quantity}
         onChange={(e) => setQuantity(e.target.value)}
-        aria-label="Units to return to stock"
+        aria-label={`Units of ${prizeName} to return to stock`}
         className="w-20"
-        data-testid="prize-unlink-quantity"
+        data-testid={`prize-unlink-quantity-${prizeId}`}
       />
-      <Button type="submit" variant="outline" disabled={pending} data-testid="prize-unlink">
+      <Button
+        type="submit"
+        variant="outline"
+        disabled={pending}
+        aria-label={`Return ${prizeName} to stock`}
+        data-testid={`prize-unlink-${prizeId}`}
+      >
         {pending ? 'Returning…' : 'Return'}
       </Button>
       {state.status === 'error' && (
-        <span className="text-xs text-destructive" data-testid="prize-unlink-error">
+        <span
+          className="text-xs text-destructive"
+          data-testid={`prize-unlink-error-${prizeId}`}
+        >
           {state.message}
         </span>
       )}
