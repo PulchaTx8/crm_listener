@@ -11,19 +11,32 @@ import { getPromotionRecordAction } from './record';
 import { formatInstant, SITUATION_CLASSES, SITUATION_LABELS } from './format';
 import { PromotionFields } from './promotion-fields';
 import { WhatsappFields } from './whatsapp-fields';
+import { PrizesTab } from './prizes-tab';
 import { QuizTab } from './quiz-tab';
 
-export const PROMOTION_TABS = ['data', 'whatsapp', 'quiz'] as const;
+export const PROMOTION_TABS = ['data', 'whatsapp', 'quiz', 'prizes'] as const;
 export type PromotionTab = (typeof PROMOTION_TABS)[number];
 
 const TAB_LABELS: Record<PromotionTab, string> = {
   data: 'Promotion',
   whatsapp: 'WhatsApp',
   quiz: 'Quiz',
+  prizes: 'Prizes',
 };
+
+/**
+ * The tabs the shared promotion form spans, and so the tabs the footer's Save
+ * belongs on. Stated positively rather than as a list of the tabs it is not:
+ * the negative form is right today and silently offers Save again the day a
+ * fifth tab is added, which is exactly how Save came to be offered from the
+ * Prizes tab before this list existed.
+ */
+const FORM_TABS: readonly PromotionTab[] = ['data', 'whatsapp'];
 
 export interface PromotionRecordPowers {
   edit: boolean;
+  /** Linking moves stock, so it is its own code rather than part of promotions.edit. */
+  prizes: boolean;
 }
 
 const INITIAL_SAVE: PromotionFormState = { status: 'idle' };
@@ -272,6 +285,16 @@ export function PromotionRecordDialog({
               />
             )}
 
+            {tab === 'prizes' && (
+              <PrizesTab
+                promotionId={record.id}
+                companyId={record.companyId}
+                prizes={record.prizes}
+                canLink={powers.prizes}
+                onSaved={refresh}
+              />
+            )}
+
             {saveState.status === 'error' && (
               <p className="mt-4 text-sm text-destructive" data-testid="promotion-save-error">
                 {saveState.message}
@@ -283,7 +306,15 @@ export function PromotionRecordDialog({
               </p>
             )}
 
-            {readOnly && (
+            {/* Scoped to the tabs the shared form spans, because that is what
+                the sentence is about. On the Quiz tab it merely duplicated
+                QuizTab's own version of it; on the Prizes tab it would be
+                false — promotions.prizes is a separate code, so a caller who
+                holds it without promotions.edit is being offered the Link
+                control directly underneath a line telling them this promotion
+                cannot be changed. Each of those two tabs says its own
+                sentence about its own permission. */}
+            {readOnly && FORM_TABS.includes(tab) && (
               <p className="mt-4 text-sm text-muted-foreground">
                 You do not hold promotions.edit at this Station, so this promotion can be read here
                 but not changed.
@@ -294,7 +325,7 @@ export function PromotionRecordDialog({
       </DialogBody>
 
       <DialogFooter>
-        {record && !readOnly && tab !== 'quiz' && (
+        {record && !readOnly && FORM_TABS.includes(tab) && (
           <Button
             type="submit"
             form="promotion-record-form"

@@ -12,6 +12,7 @@ import {
 } from '@/lib/errors';
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
+import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type { PromotionSituation } from '@/lib/promotion-situation';
@@ -581,8 +582,16 @@ export async function removePromotionQuestion(
   if (error) throw mapPromotionError(error.code, error.message);
 }
 
-/** What the picker shows. The RPC reads one more than this and the extra row is the signal. */
-export const LINKABLE_PRIZE_PAGE_SIZE = 50;
+/**
+ * What the picker shows. The RPC reads one more than this and the extra row is
+ * the signal.
+ *
+ * Re-exported rather than declared here so that this module stays the one place
+ * a server-side caller looks for it, while the Prizes tab — a client component —
+ * can reach the same number without importing a `server-only` module. See
+ * @/lib/linkable-prizes.
+ */
+export { LINKABLE_PRIZE_PAGE_SIZE };
 
 export interface LinkablePrizePage {
   prizes: LinkablePrize[];
