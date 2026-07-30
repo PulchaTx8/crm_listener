@@ -15,25 +15,34 @@ export const BLOCK_KIND_LABELS: Record<MemberBlockKind, string> = {
 
 /**
  * For a timestamptz field (createdAt, anonymizedAt, linkedAt) — an instant,
- * rendered with no explicit `timeZone`, so `toLocaleDateString` uses the
- * RUNTIME's own zone. Both current callers (members/page.tsx and
- * members/[memberId]/page.tsx) are Server Components — `export const dynamic
- * = 'force-dynamic'`, no `'use client'` — so that runtime is the SERVER, not
- * the browser reading the page: this renders in whatever zone the Node
- * process happens to be running in, never the viewer's own (whole-branch
- * review, I3 — an earlier version of this comment claimed the opposite,
- * "meant to render in the viewer's own zone," which described a mechanism
- * this function does not have; docs/block-3-report.md §5.6 already stated
- * the correct fact, so the code and the report disagreed). `companies.timezone`
- * (0003) exists if a future change wants the Station's own zone instead of
- * the server's; nothing here reads it today.
+ * rendered as a calendar day pinned to UTC.
+ *
+ * The pin is not cosmetic. Until Block 3c both callers were Server Components,
+ * so leaving the zone implicit meant "the Node process's zone" — disclosed as
+ * debt, but at least deterministic. The audience grid and the record dialog are
+ * CLIENT components: React renders them once on the server and again in the
+ * browser, and an implicit zone would produce the server's calendar day in the
+ * HTML and the viewer's in the hydrated DOM. Near midnight those differ, which
+ * is a hydration mismatch and, worse, two different dates for the same stored
+ * instant depending on when you looked.
+ *
+ * So this reads UTC on both sides, exactly as formatCalendarDate already does
+ * for birth_date, and every screen agrees with itself. What it still does NOT
+ * do is render the operator's own day: `companies.timezone` (0003) exists and
+ * nothing reads it, which is the same debt Block 3 recorded, now uniform
+ * instead of nondeterministic.
  */
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' });
+  return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });
 }
 
+/** Same UTC pin, same reason: this one renders inside the record dialog. */
 export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  return new Date(iso).toLocaleString('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  });
 }
 
 /**
@@ -48,15 +57,12 @@ export function formatDateTime(iso: string): string {
  * same stored value reading as two different birthdays depending on where
  * the Node process happened to be running — see the fix report for the
  * before/after under both zones). formatDate itself is intentionally left
- * timezone-naive for its own three timestamptz callers (createdAt,
- * anonymizedAt, linkedAt) — birth_date needs the UTC pin THIS function
- * applies because it is a date-only column with no zone of its own to begin
- * with; formatDate's own callers do not have that specific problem, but they
- * carry a different, disclosed one of their own (see formatDate's own
- * comment: it currently renders in the SERVER's zone, not the viewer's,
- * since both pages that call it are Server Components) — this function
- * exists because birth_date is not a timestamptz and needs a different fix
- * than that one.
+ * timezone-naive for its own three timestamptz callers until Block 3c, when
+ * moving them into client components forced the same UTC pin on formatDate
+ * for a different reason: determinism between the server's render and the
+ * browser's. This function still exists separately because birth_date is a
+ * date-only column with no zone of its own, which is a different problem
+ * from an instant needing to be shown as a day.
  */
 export function formatCalendarDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });

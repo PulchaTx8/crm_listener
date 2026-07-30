@@ -1,7 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
-import { inviteAction, type InviteState } from './actions';
+import { useActionState, useEffect, useState } from 'react';
+import { inviteAction, type InviteState, type PendingInvitation } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 
@@ -21,12 +21,24 @@ export function InviteForm({
   organizationId,
   roles,
   companies,
+  onInvited,
 }: {
   organizationId: string;
   roles: RoleOption[];
   companies: CompanyOption[];
+  /** Reports the stored invitation so the grid can put its row on the list. */
+  onInvited?: (invitation: PendingInvitation) => void;
 }) {
   const [state, action, pending] = useActionState(inviteAction, INITIAL);
+
+  useEffect(() => {
+    // Absent when the read-back after createInvitation failed. The invitation
+    // exists either way and the link above is still shown; the roster simply
+    // does not gain its line until the next navigation, which is the smaller
+    // of the two failures.
+    if (state.status === 'revealed' && state.invitation) onInvited?.(state.invitation);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
   // The only interactive piece: whether the role select and Station list are
   // disabled follows this one checkbox. createInvitationSchema (Block 1c)
   // rejects an owner invitation that carries a role or a Station, and rejects

@@ -1,35 +1,20 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { decodeCursor } from '@/lib/keyset';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  PageControls,
-  SortLink,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Card, CardContent } from '@/components/ui/card';
 import { listOrganizationMembers, MEMBER_SEARCH_MAX_LENGTH } from '@/services/members';
 import type { MemberListPage } from '@/services/members';
-import { canViewAudience } from './access';
+import { canViewAudience, getAudiencePowers } from './access';
+import type { AudiencePowers } from './access';
 import { describeMembersReadError } from './errors';
-import { ageFromBirthDate, formatDate } from './format';
-import {
-  hasActiveFilters,
-  membersHref,
-  parseMemberListCursor,
-  parseMemberListState,
-  sortHref,
-} from './list-params';
+import { membersHref, parseMemberListCursor, parseMemberListState } from './list-params';
 import type { MemberListSearchParams } from './list-params';
 import { MembersFilters } from './members-filters';
-import { RegisterMemberForm } from './register-member-form';
+import { MembersGrid } from './members-grid';
+import { parseRecordParam } from '@/lib/record-params';
+import { MEMBER_TABS } from './member-record-dialog';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { StationSearchForm } from '../inventory/station-search-form';
@@ -37,9 +22,6 @@ import { StationSearchForm } from '../inventory/station-search-form';
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
 export const dynamic = 'force-dynamic';
-
-/** How many columns the empty-state row has to span. */
-const COLUMN_COUNT = 8;
 
 export default async function MembersPage({
   searchParams,
@@ -105,6 +87,16 @@ export default async function MembersPage({
   // uses for inventory.view.
   if (!canView) redirect('/app');
 
+  // Which controls the grid renders. A courtesy, not the boundary: every RPC
+  // behind them re-checks its own power before writing.
+  let powers: AudiencePowers;
+  try {
+    powers = await getAudiencePowers(supabase, organizationId);
+  } catch (cause) {
+    logger.error({ err: cause, organizationId }, 'could not resolve audience powers');
+    return <LoadError message={describeMembersReadError(cause)} />;
+  }
+
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) redirect('/login');
   const accessToken = sessionData.session.access_token;
@@ -159,11 +151,6 @@ export default async function MembersPage({
     logger.error({ err: cause, organizationId }, 'could not resolve registration access');
   }
 
-  const nameSorted = state.sort === 'name';
-  const registeredSorted = state.sort === 'created';
-  const ariaSort = (sorted: boolean) =>
-    sorted ? (state.direction === 'asc' ? 'ascending' : 'descending') : 'none';
-
   return (
     <>
       <PageHeader
@@ -171,38 +158,27 @@ export default async function MembersPage({
         description="The audience across every Station you can reach."
       />
 
-      {(registrableStations.length > 0 || suspendedStations.length > 0) && (
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Register a listener</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {(registrationCapped || stationSearch) && (
-              <>
-                {registrationCapped && (
-                  <p className="text-xs text-muted-foreground">
-                    Showing {registrableStations.length + suspendedStations.length} of the
-                    Stations you can register a listener at. Search by name to reach one that is
-                    not listed.
-                  </p>
-                )}
-                {/* A GET form submits only its own fields, so the filters
-                    already in the URL are repeated as hidden inputs — built
-                    from membersHref, the same helper every link on this screen
-                    uses, so the two cannot drift apart. */}
-                <StationSearchForm
-                  action="/members"
-                  value={stationSearch ?? ''}
-                  preserve={Object.fromEntries(
-                    new URLSearchParams(membersHref(state).split('?')[1] ?? ''),
-                  )}
-                  label="Find a Station to register at"
-                />
-              </>
+      {/* The registration form itself now lives in a dialog the grid opens
+          (Block 3c). What stays on the page is the way to REACH a Station
+          beyond listCompanyAccess's cap, because that is a navigation the
+          operator asks for rather than something the record dialog does. */}
+      {(registrationCapped || stationSearch) && (
+        <div className="mb-6 flex flex-col gap-2">
+          {registrationCapped && (
+            <p className="text-xs text-muted-foreground">
+              Showing {registrableStations.length + suspendedStations.length} of the Stations you
+              can register a listener at. Search by name to reach one that is not listed.
+            </p>
+          )}
+          <StationSearchForm
+            action="/members"
+            value={stationSearch ?? ''}
+            preserve={Object.fromEntries(
+              new URLSearchParams(membersHref(state).split('?')[1] ?? ''),
             )}
-            <RegisterMemberForm stations={registrableStations} suspended={suspendedStations} />
-          </CardContent>
-        </Card>
+            label="Find a Station to register at"
+          />
+        </div>
       )}
 
       <MembersFilters state={state} />
@@ -220,117 +196,23 @@ export default async function MembersPage({
         </p>
       )}
 
-      <div className="mt-4 rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead aria-sort={ariaSort(nameSorted)}>
-                <SortLink
-                  href={sortHref(state, 'name')}
-                  active={nameSorted}
-                  direction={nameSorted ? state.direction : 'asc'}
-                >
-                  Name
-                </SortLink>
-              </TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>E-mail</TableHead>
-              <TableHead>CPF</TableHead>
-              <TableHead>Age</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead aria-sort={ariaSort(registeredSorted)}>
-                <SortLink
-                  href={sortHref(state, 'created')}
-                  active={registeredSorted}
-                  direction={registeredSorted ? state.direction : 'desc'}
-                >
-                  Registered
-                </SortLink>
-              </TableHead>
-              <TableHead>Block state</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {page.rows.length === 0 ? (
-              <TableRow>
-                {/* Two different facts, kept apart: nobody is registered yet,
-                    and nobody matches what was asked for. Collapsing them
-                    would tell an operator whose filter is simply too narrow
-                    that their Station has no audience at all. */}
-                <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
-                  {hasActiveFilters(state)
-                    ? 'No listener matches these filters.'
-                    : 'No listener registered yet at a Station you can reach.'}
-                </TableCell>
-              </TableRow>
-            ) : (
-              page.rows.map((member) => {
-                const age = ageFromBirthDate(member.birthDate);
-                return (
-                  <TableRow key={member.id} data-testid="member-row">
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/members/${member.id}`}
-                        className="ring-offset-background hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      >
-                        {member.anonymizedAt
-                          ? 'Personal data erased'
-                          : (member.fullName ?? 'Unnamed listener')}
-                      </Link>
-                    </TableCell>
-                    {/* An anonymised row's contact fields are all null
-                        (anonymize_member, 0034) and read as an em dash here,
-                        the same as a listener who never gave one — the Name
-                        cell above is what says which of the two happened. */}
-                    <TableCell>{member.phone ?? '—'}</TableCell>
-                    <TableCell>{member.email ?? '—'}</TableCell>
-                    <TableCell>
-                      {member.cpfLastDigits ? `···${member.cpfLastDigits}` : '—'}
-                    </TableCell>
-                    <TableCell>{age === null ? '—' : age}</TableCell>
-                    <TableCell>{member.city ?? '—'}</TableCell>
-                    <TableCell>{formatDate(member.createdAt)}</TableCell>
-                    <TableCell>
-                      {member.blocked ? (
-                        <span
-                          data-testid="member-blocked-badge"
-                          className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive"
-                        >
-                          Blocked
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-
-        {/* Outside Table, never inside it: PageControls renders a div, and a
-            div inside a table is invalid HTML the browser foster-parents out
-            (the component's own warning). */}
-        <PageControls
-          total={page.total}
-          label={
-            page.total === null
-              ? 'Not counted while the rules-consent filter is on'
-              : page.total === 1
-                ? 'listener'
-                : 'listeners'
-          }
-          previousHref={
-            page.previousCursor
-              ? membersHref(state, { side: 'before', value: page.previousCursor })
-              : null
-          }
-          nextHref={
-            page.nextCursor ? membersHref(state, { side: 'after', value: page.nextCursor }) : null
-          }
-        />
-      </div>
+      <MembersGrid
+        initialRows={page.rows}
+        initialTotal={page.total}
+        state={state}
+        previousHref={
+          page.previousCursor
+            ? membersHref(state, { side: 'before', value: page.previousCursor })
+            : null
+        }
+        nextHref={
+          page.nextCursor ? membersHref(state, { side: 'after', value: page.nextCursor }) : null
+        }
+        powers={powers}
+        registrableStations={registrableStations}
+        suspendedStations={suspendedStations}
+        initialRecord={parseRecordParam(raw as Record<string, string | undefined>, MEMBER_TABS)}
+      />
     </>
   );
 }

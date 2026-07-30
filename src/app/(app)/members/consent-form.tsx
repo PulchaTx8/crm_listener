@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect } from 'react';
 import { recordConsentAction, type ConsentFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
@@ -26,11 +26,25 @@ const INITIAL: ConsentFormState = { status: 'idle' };
 export function ConsentForm({
   memberId,
   stations,
+  onRecorded,
 }: {
   memberId: string;
   stations: Pick<MemberStationRow, 'companyId' | 'companyName'>[];
+  /**
+   * Asks the record to re-read itself so the history above gains the row that
+   * was just appended. The detail page this form used to live on got that from
+   * revalidatePath('/members/[memberId]'); that route is gone, and the list
+   * route must not be revalidated at all (Block 3c), so the record refreshes
+   * itself instead — a server action, not a render of the screen behind it.
+   */
+  onRecorded?: () => void;
 }) {
   const [state, action, pending] = useActionState(recordConsentAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <form action={action} data-testid="consent-form" className="flex flex-col gap-3">

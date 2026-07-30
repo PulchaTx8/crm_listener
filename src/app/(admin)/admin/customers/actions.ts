@@ -1,11 +1,29 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { provisionCustomerSchema } from '@/schemas/provisioning';
 import { provisionCustomer, regenerateProvisionalPassword } from '@/services/provisioning';
 import { logger } from '@/lib/logger';
+
+// ---------------------------------------------------------------------------
+// Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
+// members/actions.ts, inventory/actions.ts, roles/actions.ts and
+// team/actions.ts carry.
+//
+// Every write below is invoked from the customer record dialog, and
+// revalidatePath returns a fresh render of /admin/customers alongside the
+// action's result, re-running that screen's keyset query and losing the
+// admin's place in it. The grid patches its own row instead
+// (src/lib/row-patch.ts).
+//
+// The redirects went with them, and they were load-bearing: suspend,
+// reactivate and addCompany each had to redirect to the bare path to clear a
+// stale ?stationError=1 from the address bar, because that query parameter was
+// the only place a failure could be reported from a plain <form action={...}>
+// with no state of its own. All three return their outcome now, so there is no
+// parameter to clear and nothing to redirect for.
+// ---------------------------------------------------------------------------
 
 /**
  * The provisional password is returned through the action result, never
@@ -18,6 +36,26 @@ export interface CredentialState {
   email?: string;
   password?: string;
   message?: string;
+  /** Present when a provisioning created a Station, so the grid can show its row. */
+  company?: CustomerRow;
+}
+
+/** One line of the customers list, as both the page and the actions build it. */
+export interface CustomerRow {
+  id: string;
+  name: string;
+  status: string;
+  suspensionReason: string | null;
+  createdAt: string;
+  organizationId: string;
+  owner: { userId: string; email: string } | null;
+}
+
+export interface CustomerActionState {
+  status: 'idle' | 'done' | 'error';
+  message?: string;
+  /** The Station this call created, for addCompanyAction only. */
+  company?: CustomerRow;
 }
 
 async function requireAccessToken(): Promise<string> {
@@ -48,16 +86,52 @@ export async function provisionAction(
 
   try {
     const result = await provisionCustomer(parsed.data, token);
-    revalidatePath('/admin/customers');
     return {
       status: 'revealed',
       email: parsed.data.ownerEmail,
       password: result.provisionalPassword,
+      company: await readCompanyRow(result.companyId, {
+        userId: result.userId,
+        email: parsed.data.ownerEmail,
+      }),
     };
   } catch (cause) {
     logger.error({ err: cause }, 'provisioning failed');
     return { status: 'error', message: 'Provisioning failed and was rolled back.' };
   }
+}
+
+/**
+ * Reads back the row the grid is about to show, rather than assembling it from
+ * what was submitted: `created_at` is the database's own now(), `status` its
+ * default, and the name is stored trimmed. A failure here is deliberately not
+ * an error for the caller — the Station exists, and the worst case is that the
+ * list does not gain its line until the next navigation, which is a far smaller
+ * loss than a provisional password the operator never got to read.
+ */
+async function readCompanyRow(
+  companyId: string,
+  owner: { userId: string; email: string } | null,
+): Promise<CustomerRow | undefined> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('companies')
+    .select('id, name, status, suspension_reason, created_at, organization_id')
+    .eq('id', companyId)
+    .single();
+  if (error || !data) {
+    logger.error({ err: error, companyId }, 'could not read back the Station that was just created');
+    return undefined;
+  }
+  return {
+    id: data.id,
+    name: data.name,
+    status: data.status,
+    suspensionReason: data.suspension_reason,
+    createdAt: data.created_at,
+    organizationId: data.organization_id,
+    owner,
+  };
 }
 
 export async function regenerateAction(
@@ -72,7 +146,6 @@ export async function regenerateAction(
 
   try {
     const password = await regenerateProvisionalPassword(userId, token);
-    revalidatePath('/admin/customers');
     return { status: 'revealed', email, password };
   } catch (cause) {
     logger.error({ err: cause }, 'provisional password regeneration failed');
@@ -80,62 +153,78 @@ export async function regenerateAction(
   }
 }
 
-export async function suspendAction(formData: FormData): Promise<void> {
+/**
+ * Both status writes are platform-admin only (0007), and everyone who reaches
+ * this console already is one, so a refusal here means the row moved under the
+ * admin — archived, or suspended by somebody else in another tab — rather than
+ * something adversarial. Reported rather than logged and dropped: a suspension
+ * that silently did not happen is the one failure this screen cannot afford,
+ * since the whole point of the button is that the customer loses access.
+ */
+export async function suspendAction(
+  _prev: CustomerActionState,
+  formData: FormData,
+): Promise<CustomerActionState> {
   const supabase = await createUserClient();
   const { error } = await supabase.rpc('suspend_company', {
     p_company_id: String(formData.get('companyId')),
     p_reason: String(formData.get('reason') || 'non-payment'),
   });
-  if (error) logger.error({ err: error }, 'suspend_company failed');
-  revalidatePath('/admin/customers');
-  // Explicit redirect, not just the revalidatePath above: revalidatePath alone
-  // re-renders in place and leaves the address bar untouched, so a stale
-  // ?stationError=1 from an earlier failed Add Station would survive this
-  // click too. Redirecting to the bare path on every completion — success or
-  // failure, there is no error banner of this action's own to preserve — is
-  // what actually clears it.
-  redirect('/admin/customers');
+  if (error) {
+    logger.error({ err: error }, 'suspend_company failed');
+    return { status: 'error', message: 'Could not suspend this Station. Try again.' };
+  }
+  return { status: 'done' };
 }
 
-export async function reactivateAction(formData: FormData): Promise<void> {
+export async function reactivateAction(
+  _prev: CustomerActionState,
+  formData: FormData,
+): Promise<CustomerActionState> {
   const supabase = await createUserClient();
   const { error } = await supabase.rpc('reactivate_company', {
     p_company_id: String(formData.get('companyId')),
   });
-  if (error) logger.error({ err: error }, 'reactivate_company failed');
-  revalidatePath('/admin/customers');
-  redirect('/admin/customers');
+  if (error) {
+    logger.error({ err: error }, 'reactivate_company failed');
+    return { status: 'error', message: 'Could not reactivate this Station. Try again.' };
+  }
+  return { status: 'done' };
 }
 
 /**
  * Adds a second (or third...) Station to an existing Organization. add_company
- * (0017) is platform-admin only — everyone who reaches this console already
- * is one, so a denial here usually means ordinary bad input (a whitespace-only
+ * (0017) is platform-admin only — everyone who reaches this console already is
+ * one, so a denial here usually means ordinary bad input (a whitespace-only
  * name passes the form's `required` but still trips the RPC's own "company
- * name is required") rather than something adversarial. Unlike suspend/
- * reactivate above, whose buttons are only ever shown for the status they
- * apply to, this form has no such guard, so a failure is redirected into a
- * query param the page reads back into a banner (same pattern as /login's
- * ?error=1) instead of being a silent no-op alongside the log line.
+ * name is required") rather than something adversarial. The message is shown in
+ * the record dialog the form now lives in, which is where the ?stationError=1
+ * round trip went.
  *
- * The success path must ALSO redirect, to the bare path with no query string:
- * revalidatePath re-renders in place without touching the address bar, so
- * without this a failed attempt's ?stationError=1 would still be sitting in
- * the URL after the admin fixes the name and successfully retries — the
- * banner would say "Could not add the Station" underneath a Station that was
- * just added.
+ * The row comes back without an owner: the new Station belongs to the
+ * Organization whose record this was added from, so the caller already holds
+ * the owner it should carry and attaches it there rather than this action
+ * reading a profile it has no other use for.
  */
-export async function addCompanyAction(formData: FormData): Promise<void> {
+export async function addCompanyAction(
+  _prev: CustomerActionState,
+  formData: FormData,
+): Promise<CustomerActionState> {
   const supabase = await createUserClient();
-  const { error } = await supabase.rpc('add_company', {
+  const { data, error } = await supabase.rpc('add_company', {
     p_organization_id: String(formData.get('organizationId')),
     p_name: String(formData.get('name')),
     p_timezone: String(formData.get('timezone') || 'America/Sao_Paulo'),
   });
   if (error) {
     logger.error({ err: error }, 'add_company failed');
-    redirect('/admin/customers?stationError=1');
+    return {
+      status: 'error',
+      message: 'Could not add the Station. Check the name and try again.',
+    };
   }
-  revalidatePath('/admin/customers');
-  redirect('/admin/customers');
+  return {
+    status: 'done',
+    company: typeof data === 'string' ? await readCompanyRow(data, null) : undefined,
+  };
 }

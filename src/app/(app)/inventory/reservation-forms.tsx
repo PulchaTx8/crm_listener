@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect } from 'react';
 import {
   releaseReservationAction,
   reserveStockAction,
@@ -11,14 +11,28 @@ import { Input, Textarea } from '@/components/ui/input';
 
 const INITIAL: MovementFormState = { status: 'idle' };
 
+/** Asks the record to re-read, so the ledger and the balance show this movement. */
+interface MovementReport {
+  onRecorded?: () => void;
+}
+
 /**
  * Moves available stock into reserved. Both this and ReleaseForm below are
  * gated on the same permission (inventory.reserve — reserve_stock and
  * release_reservation both check it, 0027), so a caller who holds it sees
  * both forms or neither.
  */
-export function ReserveForm({ companyId, prizeId }: { companyId: string; prizeId: string }) {
+export function ReserveForm({
+  companyId,
+  prizeId,
+  onRecorded,
+}: { companyId: string; prizeId: string } & MovementReport) {
   const [state, action, pending] = useActionState(reserveStockAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <form action={action} data-testid="reserve-form" className="flex flex-col gap-3">
@@ -48,8 +62,17 @@ export function ReserveForm({ companyId, prizeId }: { companyId: string; prizeId
 }
 
 /** Moves reserved stock back to available. */
-export function ReleaseForm({ companyId, prizeId }: { companyId: string; prizeId: string }) {
+export function ReleaseForm({
+  companyId,
+  prizeId,
+  onRecorded,
+}: { companyId: string; prizeId: string } & MovementReport) {
   const [state, action, pending] = useActionState(releaseReservationAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <form action={action} data-testid="release-form" className="flex flex-col gap-3">

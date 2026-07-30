@@ -5,16 +5,6 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
-import {
-  PageControls,
-  SortLink,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { listPrizeCategories, listPrizesPage, PRIZE_SEARCH_MAX_LENGTH } from '@/services/inventory';
 import { STATION_SEARCH_MAX_LENGTH } from './station-access';
 import { StationSearchForm } from './station-search-form';
@@ -22,26 +12,17 @@ import type { PrizeCategorySummary, PrizeListPage } from '@/services/inventory';
 import { getInventoryPermissions, listCompanyAccess } from './station-access';
 import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './station-access';
 import { describeInventoryReadError } from './errors';
-import { formatDate, physicalTotal } from './format';
 import { InventoryFilters } from './inventory-filters';
-import {
-  hasActiveInventoryFilters,
-  inventoryHref,
-  inventorySortHref,
-  parseInventoryCursor,
-  parseInventoryListState,
-} from './list-params';
+import { InventoryGrid } from './inventory-grid';
+import { PRIZE_TABS } from './prize-record-dialog';
+import { parseRecordParam } from '@/lib/record-params';
+import { inventoryHref, parseInventoryCursor, parseInventoryListState } from './list-params';
 import type { InventorySearchParams } from './list-params';
-import { CategoryForm } from './category-form';
-import { PrizeForm } from './prize-form';
 import { ReconciliationPanel } from './reconciliation-panel';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
 export const dynamic = 'force-dynamic';
-
-/** How many columns the empty-state row has to span. */
-const COLUMN_COUNT = 11;
 
 export default async function InventoryPage({
   searchParams,
@@ -127,12 +108,6 @@ export default async function InventoryPage({
     return <LoadError message={describeInventoryReadError(cause)} />;
   }
 
-  const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
-  const nameSorted = state.sort === 'name';
-  const addedSorted = state.sort === 'created';
-  const ariaSort = (sorted: boolean) =>
-    sorted ? (state.direction === 'asc' ? 'ascending' : 'descending') : 'none';
-
   return (
     <>
       <PageHeader
@@ -192,34 +167,6 @@ export default async function InventoryPage({
         </div>
       )}
 
-      {/* Rendered only as a courtesy — see getInventoryPermissions'
-          (station-access.ts) own comment for why this is not the boundary.
-          create_prize_category and create_prize both re-check
-          inventory.catalogue themselves before writing anything, so hiding
-          these forms from someone who lacks it is convenience, not the
-          refusal itself. */}
-      {permissions.catalogue && (
-        <div className="mb-6 grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Register a category</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CategoryForm companyId={selected.id} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Register a prize</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PrizeForm companyId={selected.id} categories={categories} />
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Reconciliation</CardTitle>
@@ -231,101 +178,22 @@ export default async function InventoryPage({
 
       <InventoryFilters state={state} categories={categories} />
 
-      <div className="mt-4 rounded-lg border">
-        <Table>
-          {/* Said once, where the numbers are read: BalanceStats carries the
-              same sentence inline on the detail screen, and a column header
-              has no room for it. */}
-          <caption className="px-3 py-2 text-left text-xs text-muted-foreground">
-            Delivered is a cumulative counter and sits outside physical stock, as does written
-            off, which this table leaves to each prize&apos;s own screen.
-          </caption>
-          <TableHeader>
-            <TableRow>
-              <TableHead aria-sort={ariaSort(nameSorted)}>
-                <SortLink
-                  href={inventorySortHref(state, 'name')}
-                  active={nameSorted}
-                  direction={nameSorted ? state.direction : 'asc'}
-                >
-                  Prize
-                </SortLink>
-              </TableHead>
-              <TableHead>Code</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead aria-sort={ariaSort(addedSorted)}>
-                <SortLink
-                  href={inventorySortHref(state, 'created')}
-                  active={addedSorted}
-                  direction={addedSorted ? state.direction : 'desc'}
-                >
-                  Added
-                </SortLink>
-              </TableHead>
-              <TableHead className="text-right">In stock</TableHead>
-              <TableHead className="text-right">Available</TableHead>
-              <TableHead className="text-right">Reserved</TableHead>
-              <TableHead className="text-right">Linked</TableHead>
-              <TableHead className="text-right">Awaiting pickup</TableHead>
-              <TableHead className="text-right">Pending return</TableHead>
-              <TableHead className="text-right">Delivered</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {page.rows.length === 0 ? (
-              <TableRow>
-                {/* Two different facts, kept apart: the Station has no
-                    catalogue yet, and nothing matches what was asked for. */}
-                <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
-                  {hasActiveInventoryFilters(state)
-                    ? 'No prize matches these filters.'
-                    : 'No prizes are registered in this Station yet.'}
-                </TableCell>
-              </TableRow>
-            ) : (
-              page.rows.map((prize) => (
-                <TableRow key={prize.id} data-testid="prize-row">
-                  <TableCell className="font-medium">
-                    <Link
-                      href={`/inventory/${prize.id}`}
-                      className="ring-offset-background hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      {prize.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{prize.internalCode ?? '—'}</TableCell>
-                  <TableCell>
-                    {categoryNameById.get(prize.categoryId ?? '') ?? 'Uncategorised'}
-                  </TableCell>
-                  <TableCell>{formatDate(prize.createdAt)}</TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {physicalTotal(prize.balance)}
-                  </TableCell>
-                  <TableCell className="text-right">{prize.balance.available}</TableCell>
-                  <TableCell className="text-right">{prize.balance.reserved}</TableCell>
-                  <TableCell className="text-right">{prize.balance.linked}</TableCell>
-                  <TableCell className="text-right">{prize.balance.awaitingPickup}</TableCell>
-                  <TableCell className="text-right">{prize.balance.pendingReturn}</TableCell>
-                  <TableCell className="text-right">{prize.balance.delivered}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-
-        <PageControls
-          total={page.total}
-          label={page.total === 1 ? 'prize' : 'prizes'}
-          previousHref={
-            page.previousCursor
-              ? inventoryHref(state, { side: 'before', value: page.previousCursor })
-              : null
-          }
-          nextHref={
-            page.nextCursor ? inventoryHref(state, { side: 'after', value: page.nextCursor }) : null
-          }
-        />
-      </div>
+      <InventoryGrid
+        initialRows={page.rows}
+        initialTotal={page.total}
+        state={state}
+        previousHref={
+          page.previousCursor
+            ? inventoryHref(state, { side: 'before', value: page.previousCursor })
+            : null
+        }
+        nextHref={
+          page.nextCursor ? inventoryHref(state, { side: 'after', value: page.nextCursor }) : null
+        }
+        categories={categories}
+        powers={permissions}
+        initialRecord={parseRecordParam(params as Record<string, string | undefined>, PRIZE_TABS)}
+      />
     </>
   );
 }

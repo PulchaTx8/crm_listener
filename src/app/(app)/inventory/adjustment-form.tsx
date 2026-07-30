@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect } from 'react';
 import { adjustStockAction, type AdjustmentFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -37,12 +37,21 @@ export function AdjustmentForm({
   companyId,
   prizeId,
   balance,
+  onRecorded,
 }: {
   companyId: string;
   prizeId: string;
   balance: PrizeBalance;
+  /** Asks the record to re-read, so the ledger and the balance show this movement. */
+  onRecorded?: () => void;
 }) {
   const [state, action, pending] = useActionState(adjustStockAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
   const physical = physicalTotal(balance);
   const committed = balance.reserved + balance.linked + balance.awaitingPickup + balance.pendingReturn;
 

@@ -55,10 +55,11 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await expect(page).toHaveURL(/\/app$/);
 
   await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByTestId('customer-create').click();
   await page.getByPlaceholder('Organization name').fill(orgName);
   await page.getByPlaceholder('Company (Station) name').fill(stationAName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });
@@ -93,38 +94,56 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await ownerPage.getByRole('link', { name: 'Roles' }).click();
   await expect(ownerPage).toHaveURL(/\/roles$/);
 
+  // The role composes in a dialog since Block 3c, with its two halves on two
+  // tabs: the name on Role data, the permission catalogue on Powers. Both
+  // halves are submitted together — update_role replaces the permission set
+  // wholesale, so a save carrying only one tab would strip the other.
+  await ownerPage.getByTestId('role-create').click();
   await ownerPage.getByLabel('Name').fill('Manager');
+  await ownerPage.getByRole('tab', { name: 'Powers' }).click();
   // users.invite is Organization-scoped, so its label also carries a "whole
   // Organization" badge — getByLabel matches by substring, so the plain
   // sentence below still finds the one checkbox unambiguously (it is the only
   // permission whose label contains this text).
   await ownerPage.getByLabel('Invite people to the Organization').check();
-  await ownerPage.getByRole('button', { name: 'Create role' }).click();
+  await ownerPage.getByTestId('role-save').click();
 
   const managerRow = ownerPage.locator('[data-testid="role-row"]', { hasText: 'Manager' });
   await expect(managerRow).toBeVisible();
   await expect(managerRow.getByText('held by 0 user(s)')).toBeVisible();
 
   // --- the platform admin adds a second Station, from the console only -----
-  // (the owner has no UI for this — add_company is platform-admin only).
+  // (the owner has no UI for this — add_company is platform-admin only). The
+  // form is on the customer record's Stations tab now, so the record is opened
+  // from the row that names Station A.
+  //
+  // ESC first: the provisioning dialog is still open from the step above,
+  // deliberately — it holds the owner's password, which is shown once — and it
+  // is modal, so the list behind it is inert until it closes.
+  await page.keyboard.press('Escape');
   const stationARow = page.locator('[data-testid="company-row"]', { hasText: stationAName });
   await expect(stationARow).toBeVisible();
-  await stationARow.getByPlaceholder('New Station name').fill(stationBName);
-  await stationARow.getByRole('button', { name: 'Add Station' }).click();
+  await stationARow.getByRole('button', { name: `Actions for ${stationAName}` }).click();
+  await page.getByRole('menuitem', { name: 'Add a Station…' }).click();
+  await page.getByPlaceholder('New Station name').fill(stationBName);
+  await page.getByRole('button', { name: 'Add Station' }).click();
 
+  // The new Station is patched onto the list rather than re-read from it, so
+  // this is the row the write returned.
   await expect(
     page.locator('[data-testid="company-row"]', { hasText: stationBName }),
   ).toBeVisible({ timeout: 15_000 });
+  await page.keyboard.press('Escape');
 
   // --- the owner invites a colleague into ONLY the first Station -----------
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
-  // Scoped to the invite form specifically: the Team screen also renders a
-  // Select per member per Station in the Members card, and this member has
-  // not been invited yet, so at this point the invite form's combobox is the
-  // only one anywhere in the "Manager" role's ballpark, but scoping here keeps
-  // this true even after that changes later in the test.
+  // Scoped to the invite form specifically. Since Block 3c the per-Station
+  // Selects live in a record dialog rather than beside every row, so only one
+  // of the two can be on screen at a time — but scoping costs nothing and says
+  // which form this is.
+  await ownerPage.getByTestId('team-invite').click();
   const inviteForm = ownerPage.locator('form', {
     has: ownerPage.getByPlaceholder("Colleague's e-mail"),
   });
@@ -190,6 +209,7 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await inviteePage.getByRole('link', { name: 'Team' }).click();
   await expect(inviteePage).toHaveURL(/\/team$/);
 
+  await inviteePage.getByTestId('team-invite').click();
   const managerInviteForm = inviteePage.locator('form', {
     has: inviteePage.getByPlaceholder("Colleague's e-mail"),
   });
@@ -206,9 +226,14 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   expect((await managerInviteLink.innerText()).trim()).toContain('/invite/');
 
   // --- the owner grants the second Station ----------------------------------
+  // The per-Station grants moved into the record's access tab (Block 3c), so
+  // the person's record is opened first. The row menu names that tab directly.
   await ownerPage.goto('/team');
   const memberRow = ownerPage.locator('[data-testid="member-row"]', { hasText: inviteeEmail });
-  const stationBAccessRow = memberRow.locator('[data-testid="station-access-row"]', {
+  await memberRow.getByRole('button', { name: /^Actions for / }).click();
+  await ownerPage.getByRole('menuitem', { name: 'Station access…' }).click();
+
+  const stationBAccessRow = ownerPage.locator('[data-testid="station-access-row"]', {
     hasText: stationBName,
   });
   await stationBAccessRow.getByRole('combobox').selectOption({ label: 'Manager' });
@@ -238,10 +263,17 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   ).toHaveCount(1);
 
   // --- Delete is refused for a role that is held ----------------------------
+  // The refusal is a sentence and a missing button now, rather than a disabled
+  // one: the menu item is always offered, and the confirmation explains why
+  // there is nothing to confirm. delete_role would refuse this anyway — that is
+  // the second line, not the only one.
   await ownerPage.goto('/roles');
   const managerRowAfter = ownerPage.locator('[data-testid="role-row"]', { hasText: 'Manager' });
   await expect(managerRowAfter.getByText(/held by [1-9]\d* user\(s\)/)).toBeVisible();
-  await expect(managerRowAfter.getByRole('button', { name: 'Delete' })).toBeDisabled();
+  await managerRowAfter.getByRole('button', { name: 'Actions for Manager' }).click();
+  await ownerPage.getByRole('menuitem', { name: 'Delete role…' }).click();
+  await expect(ownerPage.getByRole('heading', { name: 'This role is in use' })).toBeVisible();
+  await expect(ownerPage.getByTestId('role-delete-confirm')).toHaveCount(0);
 
   await inviteeContext.close();
   await ownerContext.close();

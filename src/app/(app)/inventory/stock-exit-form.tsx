@@ -1,14 +1,28 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect } from 'react';
 import { recordStockExitAction, type MovementFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 
 const INITIAL: MovementFormState = { status: 'idle' };
 
-export function StockExitForm({ companyId, prizeId }: { companyId: string; prizeId: string }) {
+export function StockExitForm({
+  companyId,
+  prizeId,
+  onRecorded,
+}: {
+  companyId: string;
+  prizeId: string;
+  /** Asks the record to re-read, so the ledger and the balance show this movement. */
+  onRecorded?: () => void;
+}) {
   const [state, action, pending] = useActionState(recordStockExitAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <form action={action} data-testid="stock-exit-form" className="flex flex-col gap-3">

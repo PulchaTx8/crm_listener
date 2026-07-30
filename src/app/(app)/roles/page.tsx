@@ -1,11 +1,10 @@
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { PageHeader } from '@/components/layout/app-shell';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { parseRecordParam } from '@/lib/record-params';
 import { listPermissionCatalogue, listRoles } from '@/services/roles';
-import { deleteRoleAction } from './actions';
-import { RoleForm } from './role-form';
+import { ROLE_TABS } from './role-record-dialog';
+import { RolesGrid } from './roles-grid';
 
 // Renders from the caller's session cookies and a live permission check, so it
 // can never be static.
@@ -14,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function RolesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ deleteError?: string }>;
+  searchParams: Promise<{ record?: string; tab?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await createUserClient();
@@ -56,87 +55,12 @@ export default async function RolesPage({
         description="A role is a set of powers you assign to someone in a Station."
       />
 
-      {/* Next's searchParams arrives already percent-decoded (same as every
-          other ?error=-style param in this codebase — none of them call
-          decodeURIComponent themselves), so this is rendered as-is. */}
-      {params.deleteError ? (
-        <p className="text-sm text-destructive">{params.deleteError}</p>
-      ) : null}
-
-      <div className="flex flex-col gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Existing roles</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {roles.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No roles yet. Create one below, then assign it on the Team screen.
-              </p>
-            ) : (
-              roles.map((role) => (
-                <div key={role.id} data-testid="role-row" className="rounded-lg border p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">{role.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {role.permissionCodes.length} permission(s) · held by {role.holders} user(s)
-                      </p>
-                    </div>
-                    <form action={deleteRoleAction}>
-                      <input type="hidden" name="roleId" value={role.id} />
-                      <Button
-                        type="submit"
-                        variant="outline"
-                        disabled={role.holders > 0}
-                        title={
-                          role.holders > 0
-                            ? `${role.holders} user(s) hold this role — reassign them on the Team screen before deleting it.`
-                            : 'Delete this role'
-                        }
-                      >
-                        Delete
-                      </Button>
-                    </form>
-                  </div>
-
-                  {/* A hover title alone would not be discoverable on touch, so
-                      the reason a disabled Delete button cannot be pressed is
-                      also written out here. */}
-                  {role.holders > 0 && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Reassign all {role.holders} holder(s) on the Team screen before this role can
-                      be deleted.
-                    </p>
-                  )}
-
-                  <details className="mt-3">
-                    <summary className="cursor-pointer text-sm text-primary underline underline-offset-2">
-                      Edit permissions
-                    </summary>
-                    <div className="mt-4 border-t pt-4">
-                      <RoleForm
-                        organizationId={membership.organization_id}
-                        catalogue={catalogue}
-                        role={role}
-                      />
-                    </div>
-                  </details>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>New role</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RoleForm organizationId={membership.organization_id} catalogue={catalogue} />
-          </CardContent>
-        </Card>
-      </div>
+      <RolesGrid
+        initialRoles={roles}
+        organizationId={membership.organization_id}
+        catalogue={catalogue}
+        initialRecord={parseRecordParam(params, ROLE_TABS)}
+      />
     </>
   );
 }

@@ -1,7 +1,12 @@
 'use client';
 
-import { useActionState } from 'react';
-import { provisionAction, regenerateAction, type CredentialState } from './actions';
+import { useActionState, useEffect } from 'react';
+import {
+  provisionAction,
+  regenerateAction,
+  type CredentialState,
+  type CustomerRow,
+} from './actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -28,8 +33,21 @@ function CredentialNotice({ state }: { state: CredentialState }) {
   );
 }
 
-export function ProvisionForm() {
+export function ProvisionForm({
+  onProvisioned,
+}: {
+  /** Reports the Station that was created, so the console can show its row. */
+  onProvisioned?: (company: CustomerRow) => void;
+}) {
   const [state, action, pending] = useActionState(provisionAction, INITIAL);
+
+  useEffect(() => {
+    // Absent when the read-back after provisioning failed. The customer exists
+    // either way and the password above is still shown; the list simply does
+    // not gain its line until the next navigation.
+    if (state.status === 'revealed' && state.company) onProvisioned?.(state.company);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <div className="flex flex-col gap-4">

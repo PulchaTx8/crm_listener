@@ -91,8 +91,8 @@ export async function listRoles(organizationId: string): Promise<RoleSummary[]> 
   // permissions with no warning at all. A failed company_memberships read
   // silently reports holders: 0, which (a) enables Delete for a role still in
   // use, (b) blanks the "reassign N holders first" caption, and (c) suppresses
-  // role-form.tsx's instant-effect warning — the one mitigation spec §3 names
-  // for editing a role in place. Neither failure may pass for success.
+  // role-record-dialog.tsx's instant-effect warning — the one mitigation spec
+  // §3 names for editing a role in place. Neither failure may pass for success.
   if (grantsError) throw new InternalError(`Could not read role permissions: ${grantsError.message}`);
   if (membershipsError) {
     throw new InternalError(`Could not read role holders: ${membershipsError.message}`);

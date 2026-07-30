@@ -58,10 +58,14 @@ test('provision a customer, sign in, change the password, then suspend', async (
   await expect(page).toHaveURL(/\/admin\/customers$/);
 
   // --- provisioning reveals the password exactly once ---------------------
+  // The form lives in a dialog over the console since Block 3c; the dialog is
+  // deliberately not closed on success, because the password below is shown
+  // once and stored nowhere.
+  await page.getByTestId('customer-create').click();
   await page.getByPlaceholder('Organization name').fill(`E2E Org ${stamp}`);
   await page.getByPlaceholder('Company (Station) name').fill(companyName);
   await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision' }).click();
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
 
   const revealed = page.locator('code').first();
   await expect(revealed).toBeVisible({ timeout: 15_000 });
@@ -94,8 +98,14 @@ test('provision a customer, sign in, change the password, then suspend', async (
   await expect(provisionedRow.getByText(`Owner: ${ownerEmail}`)).toBeVisible();
 
   // --- and can reissue a provisional password -----------------------------
-  await provisionedRow.getByRole('button', { name: 'New password' }).click();
-  const reissued = provisionedRow.locator('code').first();
+  // Reissuing lives on the record's Owner tab now, so the record is opened by
+  // name and the tab chosen. Same operation, same RPC, one screen further in.
+  // exact: the row also carries "Open <name>" and "Actions for <name>" buttons,
+  // and a substring match would resolve to all three.
+  await provisionedRow.getByRole('button', { name: companyName, exact: true }).click();
+  await page.getByRole('tab', { name: 'Owner' }).click();
+  await page.getByRole('button', { name: 'New password' }).click();
+  const reissued = page.locator('code').first();
   await expect(reissued).toBeVisible({ timeout: 15_000 });
   const reissuedPassword = (await reissued.innerText()).trim();
   expect(reissuedPassword.length).toBeGreaterThanOrEqual(16);
@@ -135,16 +145,20 @@ test('provision a customer, sign in, change the password, then suspend', async (
   await expect(customerRow.getByText('active', { exact: true })).toBeVisible();
 
   // --- suspension reaches the open session, without a forced sign-out -----
-  await page.reload();
+  // ESC first: the record dialog is modal, so the row menu behind it is inert
+  // until it closes — and closing it must leave the list exactly as it was.
+  await page.keyboard.press('Escape');
   const adminRow = page.locator('[data-testid="company-row"]', { hasText: companyName });
-  await adminRow.getByPlaceholder('Reason').fill('non-payment');
-  await adminRow.getByRole('button', { name: 'Suspend' }).click();
+  await adminRow.getByRole('button', { name: `Actions for ${companyName}` }).click();
+  await page.getByRole('menuitem', { name: 'Suspend…' }).click();
+  await page.getByPlaceholder('Reason').fill('non-payment');
+  await page.getByTestId('customer-status-confirm').click();
 
   // Wait for the console to reflect it before asking the customer's session,
-  // otherwise the reload races the server action.
-  await expect(adminRow.getByRole('button', { name: 'Reactivate' })).toBeVisible({
-    timeout: 15_000,
-  });
+  // otherwise the reload races the server action. The row is patched in place
+  // rather than re-read (Block 3c), so this is the grid showing what the write
+  // returned, not a fresh query.
+  await expect(adminRow.getByText(/suspended/)).toBeVisible({ timeout: 15_000 });
 
   // The open customer session loses access on its next request — no forced
   // sign-out — because the RLS helpers query the tables on every check.

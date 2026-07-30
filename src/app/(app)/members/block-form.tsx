@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { blockMemberAction, type BlockFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
@@ -22,14 +22,14 @@ const INITIAL: BlockFormState = { status: 'idle' };
  * creates a new block row (block_member is append-only, like every table in
  * this block).
  *
- * `stations` is non-empty on every real render: [memberId]/page.tsx only
+ * `stations` is non-empty on every real render: the record dialog only
  * mounts this component behind `stations.length > 0` (Task 9 re-review,
  * Important — an earlier draft of both that gate and this file's own Scope
  * comment claimed an empty list "can only happen for an owner/platform-admin
  * caller", which was false: canBlock is true for an ORDINARY delegate
  * holding members.block at any Station this listener is linked to, while
  * `stations` itself is filtered by a DIFFERENT permission, members.view —
- * see the gate's own comment in [memberId]/page.tsx for the full reasoning
+ * see the record dialog's own gating for the full reasoning
  * and the citations). `stations[0]?.companyId ?? ''` below is a type-level
  * fallback for the empty array TypeScript still allows, not a real path this
  * component expects to take.
@@ -54,15 +54,36 @@ const INITIAL: BlockFormState = { status: 'idle' };
 export function BlockForm({
   memberId,
   stations,
+  onRecorded,
 }: {
   memberId: string;
   stations: Pick<MemberStationRow, 'companyId' | 'companyName'>[];
+  /**
+   * Reports a block that landed, so the record can re-read its history and the
+   * grid can mark the row.
+   *
+   * `appliesNow` is answered here rather than guessed by the caller, and only
+   * from what block_member (0034) makes certain: the row it just wrote starts
+   * at now() and carries no lifted_at, so is_member_blocked (0032) — which
+   * reads starts_at/ends_at/lifted_at at query time on every check — treats it
+   * as blocking unless the end date chosen on this very form has already
+   * passed. That is the whole of the rule, evaluated on the one input this
+   * component owns; nothing here re-implements the rest of the predicate, and
+   * the badge is re-derived from the database on the next navigation regardless.
+   */
+  onRecorded?: (appliesNow: boolean) => void;
 }) {
   const [state, action, pending] = useActionState(blockMemberAction, INITIAL);
   const [endsAtLocal, setEndsAtLocal] = useState('');
   // '' (nothing chosen) stays '' — blockMemberSchema's own optionalTimestamp
   // already treats a blank endsAt as "indefinite", not as an invalid date.
   const endsAtIso = endsAtLocal ? new Date(endsAtLocal).toISOString() : '';
+
+  useEffect(() => {
+    if (state.status !== 'saved') return;
+    onRecorded?.(!endsAtIso || new Date(endsAtIso).getTime() > Date.now());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <form action={action} data-testid="block-form" className="flex flex-col gap-3">

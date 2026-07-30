@@ -22,3 +22,46 @@ export async function canViewAudience(
   if (error) throw new InternalError(`Could not check audience access: ${error.message}`);
   return data === true;
 }
+
+export interface AudiencePowers {
+  create: boolean;
+  edit: boolean;
+  block: boolean;
+  archive: boolean;
+  erase: boolean;
+}
+
+/**
+ * Which controls the audience grid renders. A courtesy, not the boundary: every
+ * RPC behind these re-checks its own power in the database before writing, so a
+ * hidden pencil saves a refusal rather than replacing one.
+ *
+ * Asked Organization-wide, like canViewAudience above, because that is the
+ * scope these screens work at — the per-Station refusal, where it applies,
+ * comes from the RPC itself.
+ */
+export async function getAudiencePowers(
+  supabase: UserClient,
+  organizationId: string,
+): Promise<AudiencePowers> {
+  const codes = ['members.create', 'members.edit', 'members.block', 'members.archive', 'members.erase'] as const;
+
+  const answers = await Promise.all(
+    codes.map(async (code) => {
+      const { data, error } = await supabase.rpc('has_org_permission', {
+        p_permission: code,
+        p_organization_id: organizationId,
+      });
+      if (error) throw new InternalError(`Could not check ${code}: ${error.message}`);
+      return data === true;
+    }),
+  );
+
+  return {
+    create: answers[0] ?? false,
+    edit: answers[1] ?? false,
+    block: answers[2] ?? false,
+    archive: answers[3] ?? false,
+    erase: answers[4] ?? false,
+  };
+}
