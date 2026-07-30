@@ -204,8 +204,18 @@ select lives_ok('plain_entry', 'a movement that names no promotion is still lega
 -- the point — these assertions are about the mechanics, not about who may
 -- reach them, and 02_permissions.test.sql pins the grant grid separately.
 
+-- What this asserts and nothing more: a function of that name exists. The claim
+-- it carried until the branch review — that "the projection has exactly one
+-- INSERT statement, in its own function" — is not something has_function can
+-- see, and reading it as if it were is the same mistake Task 10 spent a whole
+-- mutation retracting one file over: three ::regprocedure lookups credited with
+-- pinning that apply_inventory_movement had no twin, which they never did.
+-- Retracting that claim and leaving its twin next door would have been
+-- inconsistent. The one-INSERT invariant remains prose-only, in 0047's header,
+-- and 02_permissions.test.sql is what pins this function's dangerous
+-- properties — SECURITY INVOKER, EXECUTE for nobody.
 select has_function('public', 'ensure_promotion_prize_balance_row',
-                    'the projection has exactly one INSERT statement, in its own function');
+                    'ensure_promotion_prize_balance_row exists');
 
 insert into public.inventory_movements
   (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket)

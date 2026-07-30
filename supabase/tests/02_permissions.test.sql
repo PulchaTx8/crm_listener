@@ -1,5 +1,5 @@
 begin;
-select plan(213);
+select plan(217);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -451,6 +451,43 @@ select ok(
 select ok(
   not has_function_privilege('service_role', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
   'service_role may not call ensure_promotion_prize_balance_row'
+);
+
+-- Block 4b's third private helper, and the one with the most riding on these
+-- four assertions of any function in the schema.
+--
+-- return_promotion_prizes (0050) performs NO PERMISSION CHECK OF ANY KIND. It
+-- reads every live link on a promotion and appends a PROMOTION_UNLINK for
+-- everything undrawn — it moves stock, for both cancel_promotion and
+-- archive_promotion — and its entire safety is the two properties below: it is
+-- SECURITY INVOKER, so it runs with the privileges of the DEFINER body that
+-- calls it and has none of its own, and it holds EXECUTE for nobody, so nothing
+-- outside such a body can reach it at all.
+--
+-- Marking it DEFINER is a ONE-WORD edit in a file that is full of DEFINER
+-- functions, and until these assertions existed nothing in supabase/tests would
+-- have noticed: it would have become a function any caller with a grant could
+-- use to empty a promotion's prizes back into stock with no permission checked
+-- anywhere on the path. That is the same argument the four above make for
+-- ensure_promotion_prize_balance_row, which cannot move a single unit, so it is
+-- worth no less here.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.return_promotion_prizes(uuid, uuid, text)'::regprocedure),
+  false,
+  'return_promotion_prizes is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.return_promotion_prizes(uuid, uuid, text)', 'EXECUTE'),
+  'anon may not call return_promotion_prizes'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.return_promotion_prizes(uuid, uuid, text)', 'EXECUTE'),
+  'authenticated may not call return_promotion_prizes'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.return_promotion_prizes(uuid, uuid, text)', 'EXECUTE'),
+  'service_role may not call return_promotion_prizes'
 );
 
 -- Important #6: service_role retained the default ACL's TRUNCATE grant on
