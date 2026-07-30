@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import type { MemberDetail } from '@/services/members';
+// The tab tuple is declared with parseRecordParam rather than here, because the
+// page that validates `tab=` against it is a Server Component and cannot import
+// a value out of a client module. See src/lib/record-params.ts.
+import { MEMBER_TABS, type MemberTab } from '@/lib/record-params';
 import { updateMemberAction, type MemberSaveState } from './actions';
 import { getMemberRecordAction, type MemberRecord } from './record';
 import { BlockForm } from './block-form';
@@ -13,9 +17,6 @@ import { ConsentForm } from './consent-form';
 import { EraseMemberForm } from './erase-member-form';
 import { LiftBlockButton } from './lift-block-button';
 import { BLOCK_KIND_LABELS, CONSENT_TYPE_LABELS, formatCalendarDate, formatDate, formatDateTime } from './format';
-
-export const MEMBER_TABS = ['data', 'stations', 'consents', 'notes', 'blocks'] as const;
-export type MemberTab = (typeof MEMBER_TABS)[number];
 
 const TAB_LABELS: Record<MemberTab, string> = {
   data: 'Data',

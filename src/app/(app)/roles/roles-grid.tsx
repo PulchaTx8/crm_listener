@@ -16,9 +16,10 @@ import {
 } from '@/components/ui/table';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { ROLE_TABS, type RoleTab } from '@/lib/record-params';
 import type { PermissionEntry, RoleSummary } from '@/services/roles';
 import { deleteRoleAction, type DeleteRoleState, type SavedRole } from './actions';
-import { ROLE_TABS, RoleRecordDialog, type RoleTab } from './role-record-dialog';
+import { RoleRecordDialog } from './role-record-dialog';
 
 /** How many columns the empty-state row has to span, actions included. */
 const COLUMN_COUNT = 5;

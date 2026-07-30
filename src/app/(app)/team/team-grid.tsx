@@ -16,16 +16,15 @@ import {
 } from '@/components/ui/table';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { TEAM_TABS, type TeamTab } from '@/lib/record-params';
 import { removeMemberAction, revokeAction, type TeamActionState } from './actions';
 import { InviteForm } from './invite-form';
 import {
   displayPerson,
-  TEAM_TABS,
   TeamRecordDialog,
   type RoleOption,
   type StationOption,
   type TeamRow,
-  type TeamTab,
 } from './team-record-dialog';
 
 /** How many columns the empty-state row has to span, actions included. */

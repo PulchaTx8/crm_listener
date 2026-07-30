@@ -311,6 +311,7 @@ export type Database = {
           note: string | null
           organization_id: string
           prize_id: string
+          promotion_prize_id: string | null
           quantity: number
           to_bucket: Database["public"]["Enums"]["inventory_bucket"] | null
         }
@@ -325,6 +326,7 @@ export type Database = {
           note?: string | null
           organization_id: string
           prize_id: string
+          promotion_prize_id?: string | null
           quantity: number
           to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
         }
@@ -339,6 +341,7 @@ export type Database = {
           note?: string | null
           organization_id?: string
           prize_id?: string
+          promotion_prize_id?: string | null
           quantity?: number
           to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
         }
@@ -363,6 +366,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "prizes"
             referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_promotion_prize_fk"
+            columns: ["promotion_prize_id", "prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_prizes"
+            referencedColumns: ["id", "prize_id", "company_id"]
           },
         ]
       }
@@ -1024,6 +1034,123 @@ export type Database = {
         }
         Relationships: []
       }
+      promotion_prize_balances: {
+        Row: {
+          company_id: string
+          drawn: number
+          linked: number
+          organization_id: string
+          prize_id: string
+          promotion_prize_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          drawn?: number
+          linked?: number
+          organization_id: string
+          prize_id: string
+          promotion_prize_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          drawn?: number
+          linked?: number
+          organization_id?: string
+          prize_id?: string
+          promotion_prize_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_prize_balances_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotion_prize_balances_link_fk"
+            columns: ["promotion_prize_id", "prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_prizes"
+            referencedColumns: ["id", "prize_id", "company_id"]
+          },
+          {
+            foreignKeyName: "promotion_prize_balances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      promotion_prizes: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          organization_id: string
+          prize_id: string
+          promotion_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          organization_id: string
+          prize_id: string
+          promotion_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          organization_id?: string
+          prize_id?: string
+          promotion_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_prizes_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotion_prizes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_prizes_prize_fk"
+            columns: ["prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "prizes"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "promotion_prizes_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       promotion_question_options: {
         Row: {
           company_id: string
@@ -1364,6 +1491,7 @@ export type Database = {
           p_idempotency_key: string
           p_note: string
           p_prize_id: string
+          p_promotion_prize_id?: string
           p_quantity: number
           p_to: Database["public"]["Enums"]["inventory_bucket"]
           p_type: Database["public"]["Enums"]["inventory_movement_type"]
@@ -1487,6 +1615,15 @@ export type Database = {
         Args: { p_company_id: string; p_org: string; p_prize_id: string }
         Returns: undefined
       }
+      ensure_promotion_prize_balance_row: {
+        Args: {
+          p_company_id: string
+          p_org: string
+          p_prize_id: string
+          p_promotion_prize_id: string
+        }
+        Returns: undefined
+      }
       find_member_by_identifier: {
         Args: {
           p_cpf_hash?: string
@@ -1524,12 +1661,39 @@ export type Database = {
         Args: { p_company_id: string; p_member_id: string }
         Returns: undefined
       }
+      link_prize_to_promotion: {
+        Args: {
+          p_note?: string
+          p_prize_id: string
+          p_promotion_id: string
+          p_quantity: number
+        }
+        Returns: string
+      }
+      list_linkable_prizes: {
+        Args: { p_company_id: string; p_search?: string }
+        Returns: {
+          available: number
+          name: string
+          prize_id: string
+        }[]
+      }
       list_manageable_companies: {
         Args: { p_organization_id: string; p_permission: string }
         Returns: {
           id: string
           name: string
           status: Database["public"]["Enums"]["company_status"]
+        }[]
+      }
+      list_promotion_prizes: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          drawn: number
+          linked: number
+          prize_id: string
+          prize_name: string
+          promotion_prize_id: string
         }[]
       }
       member_linked_to_company: {
@@ -1582,6 +1746,8 @@ export type Database = {
           computed: number
           prize_id: string
           prize_name: string
+          promotion_name: string
+          promotion_prize_id: string
           stored: number
         }[]
       }
@@ -1650,6 +1816,10 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      return_promotion_prizes: {
+        Args: { p_company_id: string; p_note: string; p_promotion_id: string }
+        Returns: number
+      }
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
@@ -1672,6 +1842,15 @@ export type Database = {
       }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }
+        Returns: undefined
+      }
+      unlink_prize_from_promotion: {
+        Args: {
+          p_note?: string
+          p_prize_id: string
+          p_promotion_id: string
+          p_quantity: number
+        }
         Returns: undefined
       }
       update_member: {

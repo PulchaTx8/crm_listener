@@ -1,5 +1,5 @@
 begin;
-select plan(208);
+select plan(217);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -354,6 +354,35 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'DELETE'),
           'service_role may not delete the projection directly either');
 
+-- Exactly one apply_inventory_movement, and THIS is the assertion that says so.
+--
+-- 0047 drops the eight-argument form and creates a nine-argument one, because
+-- create or replace cannot change an argument list. Forget the drop and both
+-- live: every eight-argument call site — record_stock_entry, record_stock_exit,
+-- adjust_stock, reserve_stock, release_reservation — becomes ambiguous between
+-- the survivor and the new function whose last parameter defaults, and raises
+-- 42725 at call time.
+--
+-- The three assertions below cannot see that, and the distinction is worth
+-- being exact about because the block got it wrong for seven tasks. They spell
+-- the nine-argument signature out in full rather than matching by name, which
+-- is right and is what pins their properties on the correct function if a later
+-- block widens the list again. But ::regprocedure RESOLVES the signature it is
+-- handed and succeeds regardless of what else shares the name. Comment out
+-- 0047's drop and this whole file stays green — measured, 331 of 331 — while
+-- the exact state 0047 exists to prevent is live in pg_proc. What actually
+-- catches it today is the isolation suite, through that 42725 across 38 cases,
+-- and the block's own commit message, migration header and PR draft all claimed
+-- these three did. A mutation in Task 10 found otherwise; this assertion is the
+-- answer to it, and it is proved by re-running that mutation against it.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'apply_inventory_movement'),
+  1,
+  'exactly one apply_inventory_movement exists — 0047 dropped the eight-argument form rather than leaving a twin'
+);
+
 -- Important #3: apply_inventory_movement's protective properties — SECURITY
 -- INVOKER and EXECUTE granted to nobody — are what make a stray future GRANT
 -- or a stray future SECURITY DEFINER harmless, respectively. Neither was
@@ -361,20 +390,20 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 -- have left this suite green while an unchecked write path opened.
 select is(
   (select prosecdef from pg_proc
-     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)'::regprocedure),
+     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)'::regprocedure),
   false,
   'apply_inventory_movement is SECURITY INVOKER, not DEFINER'
 );
 select ok(
-  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
   'anon may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
   'authenticated may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text)', 'EXECUTE'),
+  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
   'service_role may not call apply_inventory_movement'
 );
 
@@ -398,6 +427,67 @@ select ok(
 select ok(
   not has_function_privilege('service_role', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
   'service_role may not call ensure_inventory_balance_row'
+);
+
+-- Block 4b's second bootstrap, pinned exactly as the first one above is. A
+-- private helper that quietly became DEFINER, or that picked up an EXECUTE
+-- grant, is a second unaudited write path into a projection — which is the
+-- whole property these assertions exist to protect, and it is worth no less
+-- here than it was for inventory_balances.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)'::regprocedure),
+  false,
+  'ensure_promotion_prize_balance_row is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'anon may not call ensure_promotion_prize_balance_row'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'authenticated may not call ensure_promotion_prize_balance_row'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'service_role may not call ensure_promotion_prize_balance_row'
+);
+
+-- Block 4b's third private helper, and the one with the most riding on these
+-- four assertions of any function in the schema.
+--
+-- return_promotion_prizes (0050) performs NO PERMISSION CHECK OF ANY KIND. It
+-- reads every live link on a promotion and appends a PROMOTION_UNLINK for
+-- everything undrawn — it moves stock, for both cancel_promotion and
+-- archive_promotion — and its entire safety is the two properties below: it is
+-- SECURITY INVOKER, so it runs with the privileges of the DEFINER body that
+-- calls it and has none of its own, and it holds EXECUTE for nobody, so nothing
+-- outside such a body can reach it at all.
+--
+-- Marking it DEFINER is a ONE-WORD edit in a file that is full of DEFINER
+-- functions, and until these assertions existed nothing in supabase/tests would
+-- have noticed: it would have become a function any caller with a grant could
+-- use to empty a promotion's prizes back into stock with no permission checked
+-- anywhere on the path. That is the same argument the four above make for
+-- ensure_promotion_prize_balance_row, which cannot move a single unit, so it is
+-- worth no less here.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.return_promotion_prizes(uuid, uuid, text)'::regprocedure),
+  false,
+  'return_promotion_prizes is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.return_promotion_prizes(uuid, uuid, text)', 'EXECUTE'),
+  'anon may not call return_promotion_prizes'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.return_promotion_prizes(uuid, uuid, text)', 'EXECUTE'),
+  'authenticated may not call return_promotion_prizes'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.return_promotion_prizes(uuid, uuid, text)', 'EXECUTE'),
+  'service_role may not call return_promotion_prizes'
 );
 
 -- Important #6: service_role retained the default ACL's TRUNCATE grant on

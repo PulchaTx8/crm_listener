@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseRecordParam, withRecord } from '@/lib/record-params';
 
@@ -58,4 +61,137 @@ describe('withRecord', () => {
   it('drops a stale tab when the new open names none', () => {
     expect(withRecord('record=abc&tab=notes', 'abc', null)).toBe('record=abc');
   });
+});
+
+/**
+ * A source-shape test, and deliberately so.
+ *
+ * Everything above exercises parseRecordParam with a real array and passes no
+ * matter what, which is exactly why none of it caught the defect Block 4b
+ * found: every caller of this function is a Server Component, and until that
+ * block the six of them imported their tab tuple from a module beginning with
+ * 'use client'. React hands a Server Component a client reference for that
+ * import rather than the value, and every property read off one answers
+ * `undefined` — so `?record=<id>&tab=<slug>` called `undefined` as `includes`
+ * and threw during the server render on all six screens, while `?record=<id>`
+ * on its own quietly took a null tab and validated nothing. The account of both
+ * halves is in src/lib/record-params.ts.
+ *
+ * That is a fact about the module graph, not about anything this function does
+ * with its argument, so nothing runnable under vitest can observe it: there is
+ * no RSC transform here, and importing the dialog module just gives back the
+ * real array. Reading the graph is the only way to assert it, and a rule the
+ * whole codebase has to keep is worth one ugly test.
+ *
+ * Written against the graph rather than against a list of six paths on purpose:
+ * a seventh screen that opens a record is covered the day it is written, and
+ * the rule survives someone later moving the tuples back out of
+ * src/lib/record-params.ts into a neutral module per screen — which is a shape
+ * this project could reasonably choose, and is not the mistake.
+ */
+describe('the tab tuples a page validates against', () => {
+  const SRC_ROOT = fileURLToPath(new URL('../../src', import.meta.url));
+  const APP_ROOT = join(SRC_ROOT, 'app');
+
+  function pageFiles(dir: string): string[] {
+    return readdirSync(dir).flatMap((entry) => {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) return pageFiles(full);
+      return entry === 'page.tsx' ? [full] : [];
+    });
+  }
+
+  /**
+   * A module is a client module when its very first STATEMENT is the directive.
+   *
+   * Comments are not statements, so a licence header or a doc block sitting
+   * above `'use client'` still leaves the directive first, and the module is
+   * still a client module. Matching the first TEXT in the file instead would
+   * call such a module a server module and let this whole guard pass on a live
+   * bug — the day one of the six dialogs grows a header, which is an ordinary
+   * thing for a file to grow. A hand-written skip rather than one regex over
+   * the lot: the alternation that expresses it nests two quantifiers, and a
+   * guard nobody can read is a guard nobody will maintain.
+   */
+  function isClientModule(source: string): boolean {
+    let rest = source.trimStart();
+    for (;;) {
+      if (rest.startsWith('//')) {
+        const end = rest.indexOf('\n');
+        rest = end === -1 ? '' : rest.slice(end + 1).trimStart();
+      } else if (rest.startsWith('/*')) {
+        const end = rest.indexOf('*/');
+        rest = end === -1 ? '' : rest.slice(end + 2).trimStart();
+      } else {
+        break;
+      }
+    }
+    return /^(['"])use client\1/.test(rest);
+  }
+
+  function resolveImport(fromFile: string, specifier: string): string {
+    const base = specifier.startsWith('@/')
+      ? join(SRC_ROOT, specifier.slice(2))
+      : resolvePath(fromFile, '..', specifier);
+    for (const extension of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
+      try {
+        const candidate = `${base}${extension}`;
+        statSync(candidate);
+        return candidate;
+      } catch {
+        // Next extension.
+      }
+    }
+    throw new Error(`could not resolve '${specifier}' from ${fromFile}`);
+  }
+
+  /**
+   * Every page that calls parseRecordParam, paired with the module its tab
+   * tuple comes from. A page that calls it without importing a `*_TABS` binding
+   * is a failure rather than a skip: it means the tuple is being spelled some
+   * other way this test cannot see, and the guard would otherwise go quietly
+   * blind.
+   */
+  const callers = pageFiles(APP_ROOT)
+    .map((file) => ({ file, source: readFileSync(file, 'utf8') }))
+    .filter(({ source }) => source.includes('parseRecordParam('))
+    .map(({ file, source }) => {
+      const imports = [...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*'([^']+)'/g)];
+      const tabsImport = imports.find(([, names]) => /\b\w+_TABS\b/.test(names ?? ''));
+      if (!tabsImport) throw new Error(`${file} calls parseRecordParam but imports no *_TABS`);
+      return { file, specifier: tabsImport[2] as string };
+    });
+
+  // The six screens of Block 3c, 4a and the admin console. Asserted as a floor
+  // rather than an exact number so that adding a screen does not fail this line
+  // — but a discovery that silently finds nothing does.
+  it('finds every screen that opens a record', () => {
+    expect(callers.length).toBeGreaterThanOrEqual(6);
+  });
+
+  // The guard's own reading of the directive, asserted rather than asserted
+  // ABOUT: the header case below is the one that decides whether this whole
+  // describe still works on the day a dialog grows a licence block, and it is
+  // not exercised by any of the six real files, all of which open with the
+  // directive on line 1.
+  it.each([
+    ["'use client';\n", true],
+    ['"use client";\n', true],
+    ['/* Copyright somebody. */\n\n\'use client\';\n', true],
+    ['/**\n * A doc block.\n */\n\'use client\';\n', true],
+    ['// A line comment.\n\'use client\';\n', true],
+    ["import { x } from 'y';\n'use client';\n", false],
+    ["export const TABS = ['data'] as const;\n", false],
+  ] as [string, boolean][])('reads the directive past any header (%j)', (source, expected) => {
+    expect(isClientModule(source)).toBe(expected);
+  });
+
+  // A test per screen rather than one loop inside a single test, so that a
+  // failure names the screen instead of the first one that happened to break.
+  for (const { file, specifier } of callers) {
+    const screen = file.replace(/.*[\\/]src[\\/]/, 'src/').replace(/\\/g, '/');
+    it(`${screen} takes its tabs from a module a Server Component can read`, () => {
+      expect(isClientModule(readFileSync(resolveImport(file, specifier), 'utf8'))).toBe(false);
+    });
+  }
 });

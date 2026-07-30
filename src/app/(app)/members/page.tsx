@@ -13,8 +13,7 @@ import { membersHref, parseMemberListCursor, parseMemberListState } from './list
 import type { MemberListSearchParams } from './list-params';
 import { MembersFilters } from './members-filters';
 import { MembersGrid } from './members-grid';
-import { parseRecordParam } from '@/lib/record-params';
-import { MEMBER_TABS } from './member-record-dialog';
+import { parseRecordParam, MEMBER_TABS } from '@/lib/record-params';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { StationSearchForm } from '../inventory/station-search-form';

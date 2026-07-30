@@ -5,15 +5,16 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/input';
+// The tab tuple is declared with parseRecordParam rather than here, because the
+// page that validates `tab=` against it is a Server Component and cannot import
+// a value out of a client module. See src/lib/record-params.ts.
+import { TEAM_TABS, type TeamTab } from '@/lib/record-params';
 import {
   assignCompanyRoleAction,
   changeOrgRoleAction,
   removeCompanyAccessAction,
   type TeamActionState,
 } from './actions';
-
-export const TEAM_TABS = ['person', 'access'] as const;
-export type TeamTab = (typeof TEAM_TABS)[number];
 
 const TAB_LABELS: Record<TeamTab, string> = {
   person: 'Person',

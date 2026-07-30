@@ -1,5 +1,5 @@
 begin;
-select plan(37);
+select plan(57);
 
 -- Structure ------------------------------------------------------------------
 
@@ -20,7 +20,7 @@ select ok(not has_table_privilege('service_role', 'public.promotions', 'UPDATE')
 -- editor without that screen being touched.
 select is(
   (select count(*)::int from public.permissions where code like 'promotions.%'),
-  5, 'five promotion permissions are catalogued');
+  6, 'six promotion permissions are catalogued');
 
 -- Fixtures -------------------------------------------------------------------
 -- No auth user is seeded: created_by is nullable and nothing below sets it.
@@ -296,6 +296,114 @@ select is(relrowsecurity, true, 'RLS enabled on promotion_questions')
 -- time — calling it at all is what proves it still resolves.
 select is(public.is_owner_of_company(gen_random_uuid()), false,
           'is_owner_of_company fails closed with no session');
+
+-- The promotions module's whole RPC surface, its reachability pinned as a grant
+-- rather than left to the guard inside each body. 0042's four and 0043's two
+-- held the default PUBLIC EXECUTE from 4a until 0050 revoked it; they always
+-- refused anon on has_permission, so nothing was ever reachable, but a refusal
+-- that lives only in the first `if` of a body is one refactor away from not
+-- being there. These pairs are what make that regression fail here instead of
+-- in production. Same shape 02_permissions.test.sql uses for
+-- ensure_inventory_balance_row and apply_inventory_movement.
+--
+-- EVERY RPC of the feature, not a subset, and in ONE place. The first pass at
+-- this closed 0042's four and left 0043's two open, which is a surface that
+-- looks audited and is not. Block 4b then shipped four more — 0049's two writes
+-- and 0051's two reads — and pinned none of them, which is the same hole again
+-- and was caught by the branch review rather than by anything here. Splitting
+-- the grid by migration is exactly how both gaps happened, so 4b's four are
+-- listed below beside 4a's six rather than in 04_promotion_prizes.test.sql: a
+-- reader asking "which promotion RPCs can which role reach" has one list to
+-- read, and an RPC arriving without a pair here is the thing this block of
+-- assertions exists to make obvious.
+--
+-- The two reads are here for the same reason the writes are, and they need it
+-- more rather than less: both are SECURITY DEFINER (0051) and run past RLS
+-- entirely, so a stray grant on either is a direct read into another Station's
+-- prize names and figures, restrained only by the has_permission call in the
+-- body.
+select ok(
+  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'anon may not call create_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'authenticated may call create_promotion');
+
+select ok(
+  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'anon may not call update_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  'authenticated may call update_promotion');
+
+select ok(
+  not has_function_privilege('anon', 'public.cancel_promotion(uuid, text)', 'EXECUTE'),
+  'anon may not call cancel_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.cancel_promotion(uuid, text)', 'EXECUTE'),
+  'authenticated may call cancel_promotion');
+
+-- The one of the four that moves stock as of 0050, which is why the grant was
+-- closed in that migration rather than left for a later block.
+select ok(
+  not has_function_privilege('anon', 'public.archive_promotion(uuid)', 'EXECUTE'),
+  'anon may not call archive_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.archive_promotion(uuid)', 'EXECUTE'),
+  'authenticated may call archive_promotion');
+
+-- 0043's two, which carry neither a revoke nor a grant of their own and so held
+-- the same PUBLIC EXECUTE until 0050.
+select ok(
+  not has_function_privilege('anon', 'public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid)', 'EXECUTE'),
+  'anon may not call save_promotion_question');
+select ok(
+  has_function_privilege('authenticated', 'public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid)', 'EXECUTE'),
+  'authenticated may call save_promotion_question');
+
+select ok(
+  not has_function_privilege('anon', 'public.remove_promotion_question(uuid)', 'EXECUTE'),
+  'anon may not call remove_promotion_question');
+select ok(
+  has_function_privilege('authenticated', 'public.remove_promotion_question(uuid)', 'EXECUTE'),
+  'authenticated may call remove_promotion_question');
+
+-- Block 4b's two write RPCs (0049). Both move stock, and both gate on
+-- promotions.prizes inside a SECURITY DEFINER body — which is the shape whose
+-- only structural backstop is the pair below.
+select ok(
+  not has_function_privilege('anon', 'public.link_prize_to_promotion(uuid, uuid, integer, text)', 'EXECUTE'),
+  'anon may not call link_prize_to_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.link_prize_to_promotion(uuid, uuid, integer, text)', 'EXECUTE'),
+  'authenticated may call link_prize_to_promotion');
+
+select ok(
+  not has_function_privilege('anon', 'public.unlink_prize_from_promotion(uuid, uuid, integer, text)', 'EXECUTE'),
+  'anon may not call unlink_prize_from_promotion');
+select ok(
+  has_function_privilege('authenticated', 'public.unlink_prize_from_promotion(uuid, uuid, integer, text)', 'EXECUTE'),
+  'authenticated may call unlink_prize_from_promotion');
+
+-- Block 4b's two read RPCs (0051), both SECURITY DEFINER and therefore past
+-- every policy. They gate on different codes on purpose — list_promotion_prizes
+-- on promotions.view, list_linkable_prizes on promotions.prizes, because
+-- showing somebody the Station's whole stock is not something reading a
+-- promotion should carry with it — and neither distinction survives a grant to
+-- anon, which is what these four pin.
+select ok(
+  not has_function_privilege('anon', 'public.list_promotion_prizes(uuid)', 'EXECUTE'),
+  'anon may not call list_promotion_prizes');
+select ok(
+  has_function_privilege('authenticated', 'public.list_promotion_prizes(uuid)', 'EXECUTE'),
+  'authenticated may call list_promotion_prizes');
+
+select ok(
+  not has_function_privilege('anon', 'public.list_linkable_prizes(uuid, text)', 'EXECUTE'),
+  'anon may not call list_linkable_prizes');
+select ok(
+  has_function_privilege('authenticated', 'public.list_linkable_prizes(uuid, text)', 'EXECUTE'),
+  'authenticated may call list_linkable_prizes');
 
 select * from finish();
 rollback;

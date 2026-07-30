@@ -1,9 +1,8 @@
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { PageHeader } from '@/components/layout/app-shell';
-import { parseRecordParam } from '@/lib/record-params';
+import { parseRecordParam, ROLE_TABS } from '@/lib/record-params';
 import { listPermissionCatalogue, listRoles } from '@/services/roles';
-import { ROLE_TABS } from './role-record-dialog';
 import { RolesGrid } from './roles-grid';
 
 // Renders from the caller's session cookies and a live permission check, so it

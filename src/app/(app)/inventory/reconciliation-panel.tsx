@@ -11,8 +11,10 @@ const INITIAL: ReconciliationState = { status: 'idle' };
  * A button and a result — nothing else. Success has two distinct shapes, both
  * rendered explicitly rather than one being a fallthrough of the other: an
  * empty `rows` array is "no divergence, checked at this time," and a non-empty
- * one is exactly the rows reconcile_inventory (0028) found disagreeing, each
- * naming the prize, the bucket, the stored figure and the computed one. No
+ * one is exactly the rows reconcile_inventory (0048) found disagreeing, each
+ * naming the prize, the promotion, the bucket, the stored figure and the
+ * computed one. The promotion cell is an em dash on a Station-wide row, which
+ * is how the two kinds of row tell themselves apart on screen. No
  * query flag is used for the error state — the result lives entirely in
  * useActionState's own state, so there is nothing that could survive to a
  * later, successful check the way a stale ?error= query param could.
@@ -47,6 +49,7 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-muted-foreground">
                   <th className="px-3 py-2 font-medium">Prize</th>
+                  <th className="px-3 py-2 font-medium">Promotion</th>
                   <th className="px-3 py-2 font-medium">Bucket</th>
                   <th className="px-3 py-2 font-medium">Stored</th>
                   <th className="px-3 py-2 font-medium">Computed</th>
@@ -55,11 +58,14 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
               <tbody>
                 {state.rows.map((row, index) => (
                   <tr
-                    key={`${row.prizeId}-${row.bucket}-${index}`}
+                    key={`${row.prizeId}-${row.promotionPrizeId ?? 'station'}-${row.bucket}-${index}`}
                     data-testid="reconciliation-row"
                     className="border-b last:border-0"
                   >
                     <td className="px-3 py-2">{row.prizeName}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {row.promotionName ?? '—'}
+                    </td>
                     <td className="px-3 py-2">{formatBucketName(row.bucket)}</td>
                     <td className="px-3 py-2">{row.stored}</td>
                     <td className="px-3 py-2">{row.computed}</td>

@@ -74,13 +74,44 @@ export function formatDate(iso: string): string {
 }
 
 /**
- * reconcile_inventory (0028) returns `bucket` as plain `text`, cast from the
- * enum at the very end of its own query — never NULL, unlike
- * inventory_movements.from_bucket/to_bucket, since reconciliation compares
- * real buckets only. BUCKET_LABELS is keyed by the enum itself, so this casts
- * to look a row's bucket text up in that same table, falling back to the raw
- * string rather than throwing if a future bucket is ever added here first.
+ * The two counter names on promotion_prize_balances, which reconcile_inventory
+ * (0048) emits in the very same `bucket` column as the enum above. Kept apart
+ * from BUCKET_LABELS rather than merged into it because that table is keyed by
+ * public.inventory_bucket and `drawn` is not a member of it — widening the type
+ * to fit one string would make BUCKET_LABELS lie to formatBucket, which really
+ * does only ever receive the enum.
+ *
+ * `linked` is deliberately absent: it is already in BUCKET_LABELS and reads the
+ * same way in both places. The two figures are NOT the same quantity — the
+ * per-promotion one counts units committed to a promotion and is not
+ * decremented by a draw (0045) — but the Promotion column beside it is what
+ * tells the reader which is which, not a second spelling of the word.
+ */
+const PROMOTION_COUNTER_LABELS: Record<string, string> = {
+  drawn: 'Drawn',
+};
+
+/**
+ * reconcile_inventory (0048) returns `bucket` as plain `text` carrying TWO
+ * vocabularies, which is why it cannot be typed against the enum. On a
+ * per-prize row it is a public.inventory_bucket value cast to text, exactly as
+ * 0028 returned it. On a per-promotion row it is one of the counter names on
+ * promotion_prize_balances: `linked`, which happens to spell an enum value too,
+ * and `drawn`, which is not a bucket and is not going to become one.
+ *
+ * Never NULL on either kind, unlike inventory_movements.from_bucket/to_bucket:
+ * reconciliation only ever reports a figure it actually compared.
+ *
+ * So the lookup tries the enum's labels first and the counter names second. The
+ * bare-string fallback stays, but it is no longer the "in case a future bucket
+ * is added here first" guard this comment used to claim: before 0048 it was
+ * hypothetical, and between 0048 and PROMOTION_COUNTER_LABELS it was the
+ * shipped rendering path for every `drawn` row on the screen.
  */
 export function formatBucketName(bucket: string): string {
-  return (BUCKET_LABELS as Record<string, string>)[bucket] ?? bucket;
+  return (
+    (BUCKET_LABELS as Record<string, string>)[bucket] ??
+    PROMOTION_COUNTER_LABELS[bucket] ??
+    bucket
+  );
 }

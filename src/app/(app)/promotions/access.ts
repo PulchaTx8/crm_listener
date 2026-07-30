@@ -9,6 +9,8 @@ export interface PromotionPowers {
   edit: boolean;
   cancel: boolean;
   archive: boolean;
+  /** Linking moves stock, so it is its own code rather than part of promotions.edit. */
+  prizes: boolean;
   /** True for the platform admin and the Organization owner — the only callers whose reads return archived rows (0044). */
   seesArchived: boolean;
 }
@@ -18,17 +20,19 @@ const WRITE_CODES = [
   'promotions.edit',
   'promotions.cancel',
   'promotions.archive',
+  'promotions.prizes',
 ] as const;
 
 /**
- * Which of the four write permissions the caller holds in this one Station,
+ * Which of the five write permissions the caller holds in this one Station,
  * plus whether they are the caller 0044 admits to archived rows.
  *
  * A courtesy gate for which controls get rendered at all, never the boundary:
  * create_promotion, update_promotion, cancel_promotion, archive_promotion and
  * both quiz RPCs re-check has_permission themselves before writing anything
- * (0042/0043), so a permission revoked after this page rendered — with a form
- * still sitting in an open tab — is still refused where it matters.
+ * (0042/0043), and so do link_prize_to_promotion and unlink_prize_from_promotion
+ * (0049), so a permission revoked after this page rendered — with a form still
+ * sitting in an open tab — is still refused where it matters.
  *
  * A failed has_permission call throws rather than being folded into "not
  * granted", the same reasoning getInventoryPermissions gives: collapsing a
@@ -67,6 +71,7 @@ export async function getPromotionPowers(
     edit: writes[1]?.data === true,
     cancel: writes[2]?.data === true,
     archive: writes[3]?.data === true,
+    prizes: writes[4]?.data === true,
     seesArchived: archived.data === true,
   };
 }

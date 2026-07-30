@@ -2,10 +2,10 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { parseRecordParam } from '@/lib/record-params';
+import { parseRecordParam, TEAM_TABS } from '@/lib/record-params';
 import { listRoles } from '@/services/roles';
 import { TeamGrid } from './team-grid';
-import { TEAM_TABS, type TeamRow } from './team-record-dialog';
+import type { TeamRow } from './team-record-dialog';
 
 // Renders from the caller's session cookies, so it can never be static.
 export const dynamic = 'force-dynamic';

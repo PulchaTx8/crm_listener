@@ -17,13 +17,14 @@ import {
 } from '@/components/ui/table';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
 import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
 import { archivePrizeAction, type ArchivePrizeState } from './actions';
 import { CategoryForm } from './category-form';
 import { formatDate, physicalTotal } from './format';
 import { hasActiveInventoryFilters, inventorySortHref } from './list-params';
 import type { InventoryListState } from './list-params';
-import { PRIZE_TABS, PrizeRecordDialog, type PrizeTab } from './prize-record-dialog';
+import { PrizeRecordDialog } from './prize-record-dialog';
 import { PrizeForm } from './prize-form';
 
 /** How many columns the empty-state row has to span, actions included. */

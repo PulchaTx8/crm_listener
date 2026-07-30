@@ -31,6 +31,20 @@ export default defineConfig({
     include: ['tests/isolation/**/*.test.ts'],
     hookTimeout: 30_000,
     testTimeout: 30_000,
+    // Already vitest 2's default — stated so a vitest upgrade cannot move it
+    // without somebody deciding to. This is a PIN, and it is NOT the answer to
+    // the `Worker exited unexpectedly` crash that drops a whole file from this
+    // suite: that crash was already happening under `forks`, so switching to it
+    // would have been a fix in name only. Nor were the two harness helpers that
+    // used to spawn the Supabase CLI from inside the worker — they were rewritten
+    // (see superuserStatement in tests/isolation/harness.ts) and the crash
+    // carried on unchanged: measured at six crashes in fifteen full runs, about
+    // two in five, on six different files with no repeats, four of which never
+    // called either helper. The crash is open; what is closed is that it can pass
+    // unnoticed, by scripts/verify-isolation-suite.mjs. The next thing to try here is
+    // `poolOptions: { forks: { singleFork: true } }`, which would reuse one child
+    // for every file and remove the per-file teardown the crash now lands in.
+    pool: 'forks',
     // These tests create and delete real users; parallel files would race on
     // the shared database.
     fileParallelism: false,

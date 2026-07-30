@@ -422,7 +422,7 @@ describe('inventory', () => {
     // were degraded to an INNER JOIN, because an inner join keeps any key
     // present on both sides. Only a key present on one side alone — this one —
     // actually depends on the join being FULL OUTER rather than INNER.
-    corruptBalanceDirectly(customer.companyId, prizeId, 'delivered', 4);
+    await corruptBalanceDirectly(customer.companyId, prizeId, 'delivered', 4);
 
     const dirty = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
     expect(dirty.error).toBeNull();
@@ -433,6 +433,102 @@ describe('inventory', () => {
       stored: 4,
       computed: 0,
     });
+  });
+
+  it('reconciliation still reports the per-prize divergence, and now says which promotion a row belongs to', async () => {
+    const label = `inv-recon-shape-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+    const delegate = await grantRoleWith(customer, label, ['inventory.view', 'inventory.entry']);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    await client.rpc('record_stock_entry', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_type: 'MANUAL_ENTRY',
+      p_quantity: 6,
+    });
+
+    await corruptBalanceDirectly(customer.companyId, prizeId, 'written_off', 2);
+
+    const dirty = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(dirty.error).toBeNull();
+    expect(dirty.data).toHaveLength(1);
+
+    // The two new columns are null on a per-prize row, and that is what tells
+    // the two kinds of row apart on screen. Asserted explicitly rather than
+    // left to toMatchObject, which would pass if they were missing entirely.
+    expect(dirty.data![0]).toEqual({
+      prize_id: prizeId,
+      prize_name: `Prize ${label}`,
+      promotion_prize_id: null,
+      promotion_name: null,
+      bucket: 'written_off',
+      stored: 2,
+      computed: 0,
+    });
+  });
+
+  it('releases a reservation back into available, which is the fifth call site into the one writer', async () => {
+    const label = `inv-release-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+    const delegate = await grantRoleWith(customer, label, [
+      'inventory.view',
+      'inventory.entry',
+      'inventory.reserve',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    await client.rpc('record_stock_entry', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_type: 'MANUAL_ENTRY',
+      p_quantity: 9,
+    });
+    await client.rpc('reserve_stock', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+      p_note: 'held for the afternoon show',
+    });
+
+    const released = await client.rpc('release_reservation', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+      p_note: 'show cancelled',
+    });
+    expect(released.error).toBeNull();
+
+    const balance = await client
+      .from('inventory_balances')
+      .select('available, reserved')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(balance.data).toEqual({ available: 8, reserved: 1 });
+
+    // What this proves: release_reservation actually reached the ledger, and
+    // the projection it wrote agrees with the movements behind it.
+    // reconcile_inventory recomputes available and reserved from
+    // inventory_movements alone, so an empty result here says the three
+    // movements this case appended and the two figures asserted just above are
+    // the same arithmetic. That is what makes this a real net under the fifth
+    // call site rather than a smoke test: a from/to bucket wired inconsistently
+    // with the arithmetic, or a release that moved a different number of units
+    // than it recorded, goes red here.
+    //
+    // What it does NOT prove, said plainly because it is the natural thing to
+    // assume: that the call resolves to the nine-argument
+    // apply_inventory_movement rather than to a stale eight-argument overload.
+    // release_reservation passes no promotion reference, so both bodies would
+    // write inventory_balances identically and reconciliation would stay clean
+    // either way. That failure mode needs no net here — 0047 dropped the
+    // eight-argument signature outright, so a call still expecting it fails
+    // loudly at the call itself instead of quietly passing this assertion.
+    const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(check.error).toBeNull();
+    expect(check.data).toEqual([]);
   });
 
   it('archiving a prize with stock is refused, naming the count; archiving one without stock succeeds', async () => {

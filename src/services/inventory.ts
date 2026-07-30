@@ -90,6 +90,10 @@ export interface MovementEntry {
 export interface ReconciliationRow {
   prizeId: string;
   prizeName: string;
+  /** Null on a per-prize row. Non-null names the promotion link the figure belongs to. */
+  promotionPrizeId: string | null;
+  /** Null on a per-prize row, for the same reason. */
+  promotionName: string | null;
   bucket: string;
   stored: number;
   computed: number;
@@ -550,6 +554,8 @@ export async function reconcileInventory(
   return (data ?? []).map((row) => ({
     prizeId: row.prize_id,
     prizeName: row.prize_name,
+    promotionPrizeId: row.promotion_prize_id,
+    promotionName: row.promotion_name,
     bucket: row.bucket,
     stored: row.stored,
     computed: row.computed,

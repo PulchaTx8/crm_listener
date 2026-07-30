@@ -3,18 +3,25 @@
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
-import { promotionFormSchema, questionFormSchema } from '@/schemas/promotions';
-import type { RequestedField } from '@/schemas/promotions';
+import {
+  promotionFormSchema,
+  promotionPrizeLinkSchema,
+  questionFormSchema,
+} from '@/schemas/promotions';
+import type { PromotionPrizeLinkInput, RequestedField } from '@/schemas/promotions';
 import {
   archivePromotion,
   cancelPromotion,
   createPromotion,
+  linkPrizeToPromotion,
+  listLinkablePrizes,
   removePromotionQuestion,
   savePromotionQuestion,
+  unlinkPrizeFromPromotion,
   updatePromotion,
 } from '@/services/promotions';
-import type { PromotionQuestionKind } from '@/services/promotions';
-import { describePromotionsWriteError } from './errors';
+import type { LinkablePrizePage, PromotionQuestionKind } from '@/services/promotions';
+import { describePromotionsReadError, describePromotionsWriteError } from './errors';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
@@ -253,5 +260,124 @@ export async function removePromotionQuestionAction(
   } catch (cause) {
     logger.error({ err: cause, questionId }, 'remove promotion question failed');
     return { status: 'error', message: describePromotionsWriteError(cause, 'edit this quiz') };
+  }
+}
+
+export interface PrizeLinkState {
+  status: 'idle' | 'saved' | 'error';
+  message?: string;
+}
+
+type PrizeLinkFormResult =
+  | { success: true; data: PromotionPrizeLinkInput }
+  | { success: false; message: string };
+
+/**
+ * The same missing-id guard updatePromotionAction, cancelPromotionAction,
+ * archivePromotionAction and the two quiz actions all check before parsing —
+ * added here because it was missing, not because the shape differs. It has to
+ * run before the schema, not merely be replaced by it:
+ * z.string().uuid(msg)'s own message only fires once the value has already
+ * passed as a string, so an absent field arrives as `null`, fails that base
+ * type check first, and the operator would have seen Zod's generic
+ * "Expected string, received null" instead of a sentence they can act on —
+ * the same failure mode this module was written to keep out of RPC codes.
+ * Both ids are guarded here rather than in each action, because both actions
+ * post the same three fields through this one reader.
+ */
+function readPrizeLinkForm(formData: FormData): PrizeLinkFormResult {
+  const promotionId = String(formData.get('promotionId') ?? '');
+  if (!promotionId) return { success: false, message: 'Which promotion? Reopen the record.' };
+
+  const prizeId = String(formData.get('prizeId') ?? '');
+  if (!prizeId) return { success: false, message: 'Choose a prize.' };
+
+  const raw = String(formData.get('quantity') ?? '').trim();
+  const parsed = promotionPrizeLinkSchema.safeParse({
+    promotionId,
+    prizeId,
+    // Number('') is 0, which would reach the schema as a real quantity and be
+    // refused with "Link at least one unit" for a field the operator left
+    // blank. NaN gets the "How many units?" message instead, which is the true
+    // one.
+    quantity: raw === '' ? Number.NaN : Number(raw),
+  });
+  if (!parsed.success) {
+    return { success: false, message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+  return { success: true, data: parsed.data };
+}
+
+export async function linkPrizeAction(
+  _prev: PrizeLinkState,
+  formData: FormData,
+): Promise<PrizeLinkState> {
+  const parsed = readPrizeLinkForm(formData);
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.message };
+  }
+
+  const token = await requireAccessToken();
+  try {
+    await linkPrizeToPromotion(parsed.data, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'link prize failed');
+    return {
+      status: 'error',
+      message: describePromotionsWriteError(cause, 'link this prize'),
+    };
+  }
+}
+
+export async function unlinkPrizeAction(
+  _prev: PrizeLinkState,
+  formData: FormData,
+): Promise<PrizeLinkState> {
+  const parsed = readPrizeLinkForm(formData);
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.message };
+  }
+
+  const token = await requireAccessToken();
+  try {
+    await unlinkPrizeFromPromotion(parsed.data, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'unlink prize failed');
+    return {
+      status: 'error',
+      message: describePromotionsWriteError(cause, 'return this prize to stock'),
+    };
+  }
+}
+
+/**
+ * The prize picker's own read, called from the tab rather than folded into the
+ * record: the record is read once per opening and this list changes with every
+ * keystroke in the search box. Not a form action — it takes arguments directly,
+ * because there is no form.
+ */
+export async function searchLinkablePrizesAction(
+  companyId: string,
+  search: string,
+): Promise<
+  { status: 'ok'; page: LinkablePrizePage } | { status: 'error'; message: string }
+> {
+  const token = await requireAccessToken();
+  try {
+    return { status: 'ok', page: await listLinkablePrizes(companyId, search.trim(), token) };
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'could not list linkable prizes');
+    // list_linkable_prizes gates on promotions.prizes rather than
+    // promotions.view (0051), so the default "promotions here" would be wrong
+    // here specifically: it would tell a caller who holds promotions.view —
+    // which is how this tab is open at all — that they cannot view
+    // promotions, when what they actually lack is the narrower permission to
+    // link stock.
+    return {
+      status: 'error',
+      message: describePromotionsReadError(cause, 'the prizes available to link'),
+    };
   }
 }

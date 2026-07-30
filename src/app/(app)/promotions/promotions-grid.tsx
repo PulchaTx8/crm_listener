@@ -19,6 +19,7 @@ import {
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { situationOf } from '@/lib/promotion-situation';
+import { PROMOTION_TABS, type PromotionTab } from '@/lib/record-params';
 import type { PromotionDetail, PromotionSummary } from '@/services/promotions';
 import {
   archivePromotionAction,
@@ -34,11 +35,7 @@ import {
 } from './format';
 import { promotionSortHref } from './list-params';
 import type { PromotionListState } from './list-params';
-import {
-  PROMOTION_TABS,
-  PromotionRecordDialog,
-  type PromotionTab,
-} from './promotion-record-dialog';
+import { PromotionRecordDialog } from './promotion-record-dialog';
 import { RegisterPromotionForm } from './register-promotion-form';
 
 /** How many columns the empty-state row has to span, actions included. */
@@ -52,6 +49,8 @@ export interface PromotionGridPowers {
   edit: boolean;
   cancel: boolean;
   archive: boolean;
+  /** Forwarded to the record's Prizes tab: linking moves stock, so it is its own code. */
+  prizes: boolean;
 }
 
 /** The grid's own view of a record, so a patched row and a fresh one agree. */
@@ -242,11 +241,14 @@ export function PromotionsGrid({
         />
       </div>
 
+      {/* The dialog's powers are named one by one rather than spread from this
+          grid's own: PromotionPowers carries codes the record has no use for,
+          and a spread would hand it every future one as well. */}
       <PromotionRecordDialog
         recordId={recordId}
         tab={(tab as PromotionTab) ?? 'data'}
         timeZone={timeZone}
-        powers={{ edit: powers.edit }}
+        powers={{ edit: powers.edit, prizes: powers.prizes }}
         onTab={setTab}
         onClose={close}
         onSaved={() => {

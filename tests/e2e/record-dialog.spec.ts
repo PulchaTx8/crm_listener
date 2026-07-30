@@ -42,6 +42,7 @@ const listenerNames = [`Ana Dialog ${stamp}`, `Bruno Dialog ${stamp}`, `Carla Di
 const renamed = `Zoe Dialog ${stamp}`;
 
 const createdUserIds: string[] = [];
+const reachableMemberIds: string[] = [];
 let unreachableMemberId = '';
 
 test.beforeAll(async () => {
@@ -177,11 +178,14 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   if (!station) throw new Error(`no company row for ${stationName}`);
 
   for (const name of listenerNames) {
-    const { error } = await asOwner.rpc('create_member', {
+    const { data: createdId, error } = await asOwner.rpc('create_member', {
       p_company_id: station.id,
       p_full_name: name,
     });
     expect(error).toBeNull();
+    // Kept for the deep link near the end of this journey, which needs an id it
+    // can put in an address rather than a row it can click.
+    reachableMemberIds.push(String(createdId));
   }
 
   // The listener the first owner must never reach, created on the second
@@ -297,6 +301,78 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   // block exists to make; if a revalidatePath ever finds its way back into
   // members/actions.ts, this is where it says so.
   expect(listRenders).toEqual([]);
+
+  // --- a record address arriving cold, on the tab it names ------------------
+  // Every open above went through useRecordDialog in the browser. This one does
+  // not: a pasted or bookmarked address is parsed by the PAGE, on the server,
+  // and that is the only path on which parseRecordParam runs there. It threw on
+  // this screen from Block 3c until Block 4b, because the tab tuple it validates
+  // against was exported from a 'use client' module and a Server Component
+  // importing across that boundary gets a client reference rather than the
+  // array. See src/lib/record-params.ts.
+  //
+  // `tab=consents` deliberately: not the first tab, so a silent fall back to
+  // `data` fails here rather than passing by accident — and, unlike the
+  // `?record=` address at the end of this journey, a tab is what makes the
+  // parse actually touch the tuple. That address was already here and still
+  // passed throughout, which is why it never gave the defect away.
+  //
+  // No render assertion around this one — a cold address IS a document render
+  // of the list, which is the whole point of it. The counter is deliberately
+  // left behind at the line above.
+  await ownerPage.goto(`/members?record=${reachableMemberIds[2]}&tab=consents`);
+  await expect(ownerPage.getByRole('tab', { name: 'Consents' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toBeVisible();
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  // --- CLOSING that cold record stays on the page ---------------------------
+  // The other half of the deep link, and the half nothing tested until Block
+  // 4b: every close asserted above followed an open() that had pushed a history
+  // entry of its own, so close()'s history.back() had something of ours to pop.
+  // A pasted address pushed nothing, and back() from it left the document
+  // altogether — a full navigation to whatever the operator was looking at
+  // before, which on this journey is /members?sort=name. The list came back
+  // looking right, so the damage was invisible from here and surfaced in
+  // another journey instead, as a dialog that opened and then closed itself
+  // (members-flow.spec.ts, "the registration desk's own duplicate check").
+  //
+  // The counter is re-armed for this one step, having been deliberately left
+  // behind above: the cold goto IS a render of the list and is not the subject
+  // here. What is measured is only what the Close button costs.
+  listRenders.length = 0;
+
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // The address drops `record` and `tab` and keeps everything else — here,
+  // nothing else, so the bare path. Before the fix this read
+  // `/members?sort=name`, the address of the page the browser had walked back
+  // to.
+  await expect(ownerPage).toHaveURL(/\/members$/);
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toHaveCount(0);
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  // And it cost nothing on the wire. This is the assertion that says "still on
+  // the page" rather than "on a page that looks like it": a document
+  // navigation, an RSC fetch or a router.push reaching for the same effect all
+  // land here, and the list surviving cannot tell them apart because the server
+  // would hand back the same three rows.
+  expect(listRenders, 'closing a record that arrived in the first URL').toEqual([]);
+
+  // Forward does not put the record back — the requirement close() has carried
+  // since Block 3c, now true on the path where it never was. goForward() on an
+  // empty forward stack is a no-op, which is exactly the claim being made.
+  //
+  // This is what keeps the tempting alternative fix out: give the cold address
+  // an entry of its own on mount (replaceState the closed URL, then pushState
+  // the record back over it) and close() needs no branch at all, because there
+  // is always something to pop. It also leaves the record sitting one Forward
+  // away, and this line is what says so.
+  await ownerPage.goForward();
+  await expect(ownerPage).toHaveURL(/\/members$/);
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toHaveCount(0);
 
   // --- a record the caller cannot reach -------------------------------------
   // A real listener, at a Station in another Organization: RLS is what hides

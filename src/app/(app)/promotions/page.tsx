@@ -5,7 +5,7 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
-import { parseRecordParam } from '@/lib/record-params';
+import { parseRecordParam, PROMOTION_TABS } from '@/lib/record-params';
 import { listPromotionsPage, PROMOTION_SEARCH_MAX_LENGTH } from '@/services/promotions';
 import type { PromotionListPage } from '@/services/promotions';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
@@ -18,7 +18,6 @@ import { promotionsHref, parsePromotionCursor, parsePromotionListState } from '.
 import type { PromotionSearchParams } from './list-params';
 import { PromotionsFilters } from './promotions-filters';
 import { PromotionsGrid } from './promotions-grid';
-import { PROMOTION_TABS } from './promotion-record-dialog';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
