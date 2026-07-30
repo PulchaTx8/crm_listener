@@ -1024,6 +1024,114 @@ export type Database = {
         }
         Relationships: []
       }
+      promotion_question_options: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          is_correct: boolean
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          label: string
+          organization_id: string
+          position: number
+          question_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          is_correct?: boolean
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          label: string
+          organization_id: string
+          position: number
+          question_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_correct?: boolean
+          kind?: Database["public"]["Enums"]["promotion_question_kind"]
+          label?: string
+          organization_id?: string
+          position?: number
+          question_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_question_options_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_question_options_question_fk"
+            columns: ["question_id", "kind", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_questions"
+            referencedColumns: ["id", "kind", "company_id"]
+          },
+        ]
+      }
+      promotion_questions: {
+        Row: {
+          button_label: string | null
+          company_id: string
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          menu_title: string | null
+          organization_id: string
+          position: number
+          promotion_id: string
+          prompt: string
+          updated_at: string
+        }
+        Insert: {
+          button_label?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          menu_title?: string | null
+          organization_id: string
+          position: number
+          promotion_id: string
+          prompt: string
+          updated_at?: string
+        }
+        Update: {
+          button_label?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["promotion_question_kind"]
+          menu_title?: string | null
+          organization_id?: string
+          position?: number
+          promotion_id?: string
+          prompt?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_questions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_questions_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       promotions: {
         Row: {
           allow_multiple_entries: boolean

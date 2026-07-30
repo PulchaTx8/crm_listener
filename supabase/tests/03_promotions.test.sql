@@ -1,5 +1,5 @@
 begin;
-select plan(23);
+select plan(33);
 
 -- Structure ------------------------------------------------------------------
 
@@ -185,6 +185,102 @@ select throws_ok(
             '00000000-0000-0000-0000-0000000000c1', 'rules', true,
             '00000000-0000-0000-0000-00000000dead')$$,
   '23503', null, 'a consent naming a promotion that does not exist is refused');
+
+-- The quiz --------------------------------------------------------------------
+
+select has_table('public', 'promotion_questions', 'promotion_questions exists');
+select has_table('public', 'promotion_question_options', 'promotion_question_options exists');
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at)
+values ('00000000-0000-0000-0000-0000000000d1',
+        '00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000c1',
+        'Quiz host', '2027-03-01Z', '2027-03-31Z');
+
+prepare essay as
+  insert into public.promotion_questions
+    (id, promotion_id, organization_id, company_id, position, kind, prompt)
+  values ('00000000-0000-0000-0000-0000000000e1',
+          '00000000-0000-0000-0000-0000000000d1',
+          '00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000c1',
+          1, 'ESSAY', 'Tell us why you listen');
+select lives_ok('essay', 'an essay question needs no menu or button title');
+
+select throws_ok(
+  $$insert into public.promotion_questions
+      (promotion_id, organization_id, company_id, position, kind, prompt, menu_title, button_label)
+    values ('00000000-0000-0000-0000-0000000000d1',
+            '00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000c1',
+            2, 'ESSAY', 'Why?', 'Choose', 'Options')$$,
+  '23514', null, 'an essay question may not carry a menu title');
+
+select throws_ok(
+  $$insert into public.promotion_questions
+      (promotion_id, organization_id, company_id, position, kind, prompt)
+    values ('00000000-0000-0000-0000-0000000000d1',
+            '00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000c1',
+            3, 'QUIZ', 'Who wins?')$$,
+  '23514', null, 'a choice question without a menu title is refused');
+
+select throws_ok(
+  $$insert into public.promotion_question_options
+      (question_id, kind, company_id, organization_id, position, label)
+    values ('00000000-0000-0000-0000-0000000000e1', 'ESSAY',
+            '00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1',
+            1, 'Nope')$$,
+  '23514', null, 'an option may not hang off an essay question');
+
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt, menu_title, button_label)
+values ('00000000-0000-0000-0000-0000000000e2',
+        '00000000-0000-0000-0000-0000000000d1',
+        '00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000c1',
+        4, 'MULTIPLE_CHOICE', 'Favourite genre?', 'Choose', 'Options');
+
+select throws_ok(
+  $$insert into public.promotion_question_options
+      (question_id, kind, company_id, organization_id, position, label, is_correct)
+    values ('00000000-0000-0000-0000-0000000000e2', 'MULTIPLE_CHOICE',
+            '00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1',
+            1, 'Rock', true)$$,
+  '23514', null, 'a poll may not have a right answer');
+
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt, menu_title, button_label)
+values ('00000000-0000-0000-0000-0000000000e3',
+        '00000000-0000-0000-0000-0000000000d1',
+        '00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000c1',
+        5, 'QUIZ', 'Which country wins the 2026 World Cup?', 'Choose', 'Options');
+insert into public.promotion_question_options
+  (question_id, kind, company_id, organization_id, position, label, is_correct)
+values ('00000000-0000-0000-0000-0000000000e3', 'QUIZ',
+        '00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1',
+        1, 'Brazil', true);
+
+select throws_ok(
+  $$insert into public.promotion_question_options
+      (question_id, kind, company_id, organization_id, position, label, is_correct)
+    values ('00000000-0000-0000-0000-0000000000e3', 'QUIZ',
+            '00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1',
+            2, 'Argentina', true)$$,
+  '23505', null, 'a second right answer in one question is refused');
+
+-- The error code is pinned on purpose. Drop the ON UPDATE CASCADE from the
+-- options' foreign key and this still fails — but with 23503 instead of 23514,
+-- so the assertion goes red rather than passing for a reason that has nothing
+-- to do with the rule it is meant to protect.
+select throws_ok(
+  $$update public.promotion_questions set kind = 'MULTIPLE_CHOICE'
+     where id = '00000000-0000-0000-0000-0000000000e3'$$,
+  '23514', null, 'a quiz with a right answer cannot become a poll');
+
+select throws_ok(
+  $$insert into public.promotion_questions
+      (promotion_id, organization_id, company_id, position, kind, prompt)
+    values ('00000000-0000-0000-0000-0000000000d1',
+            '00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000c1',
+            1, 'ESSAY', 'Duplicate position')$$,
+  '23505', null, 'two questions may not share a position');
 
 select * from finish();
 rollback;
