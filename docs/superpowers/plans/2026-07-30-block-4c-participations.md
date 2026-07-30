@@ -1733,6 +1733,16 @@ EOF
 
 **Read `0042:132-231` and `0043:139-182` before writing.** Both functions are recreated in place with `create or replace`, so there is no drop-and-recreate hazard — but `update_promotion`'s argument list **does** change, because D1 adds `p_max_entries_per_member`. That is Block 4b's trap exactly: `create or replace` cannot change an argument list, and doing it that way leaves the old overload alive beside the new one. **`update_promotion` must be dropped and recreated**, and `02_permissions.test.sql` must count `pg_proc` entries by name for it — the signature pin alone proves nothing about a surviving twin, which Block 4b discovered by mutation after asserting the opposite in five places for seven tasks.
 
+**One case moves here from Task 3.** `records OVER_LIMIT once the ceiling is reached` sets the ceiling through `update_promotion(p_max_entries_per_member: 2)` — an argument that RPC does not have until this task. In Task 3 it failed with `PGRST202`, the ceiling stayed null, and the third entry was correctly `VALID`. Task 3 removed it rather than leaving the suite red or skipping it (the isolation guard fails closed on skipped tests). **Add it back here, with the ceiling set through the seventeen-argument signature this task creates, and assert it goes green.** Its fixture must space the three entries more than the minimum interval apart, or it reports `TOO_SOON` and tests the wrong rule:
+
+```ts
+  it('records OVER_LIMIT once the ceiling is reached', async () => {
+    // Two hours between each entry against a one-hour interval, so the third is
+    // refused for the ceiling and not for coming in too early.
+    // Ceiling of 2, three entries: VALID, VALID, OVER_LIMIT.
+  });
+```
+
 - [ ] **Step 1: Write the failing cases**
 
 ```ts
