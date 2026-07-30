@@ -328,6 +328,52 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   await expect(ownerPage.locator('[data-testid="consent-form"]')).toBeVisible();
   await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
 
+  // --- CLOSING that cold record stays on the page ---------------------------
+  // The other half of the deep link, and the half nothing tested until Block
+  // 4b: every close asserted above followed an open() that had pushed a history
+  // entry of its own, so close()'s history.back() had something of ours to pop.
+  // A pasted address pushed nothing, and back() from it left the document
+  // altogether — a full navigation to whatever the operator was looking at
+  // before, which on this journey is /members?sort=name. The list came back
+  // looking right, so the damage was invisible from here and surfaced in
+  // another journey instead, as a dialog that opened and then closed itself
+  // (members-flow.spec.ts, "the registration desk's own duplicate check").
+  //
+  // The counter is re-armed for this one step, having been deliberately left
+  // behind above: the cold goto IS a render of the list and is not the subject
+  // here. What is measured is only what the Close button costs.
+  listRenders.length = 0;
+
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // The address drops `record` and `tab` and keeps everything else — here,
+  // nothing else, so the bare path. Before the fix this read
+  // `/members?sort=name`, the address of the page the browser had walked back
+  // to.
+  await expect(ownerPage).toHaveURL(/\/members$/);
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toHaveCount(0);
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
+
+  // And it cost nothing on the wire. This is the assertion that says "still on
+  // the page" rather than "on a page that looks like it": a document
+  // navigation, an RSC fetch or a router.push reaching for the same effect all
+  // land here, and the list surviving cannot tell them apart because the server
+  // would hand back the same three rows.
+  expect(listRenders, 'closing a record that arrived in the first URL').toEqual([]);
+
+  // Forward does not put the record back — the requirement close() has carried
+  // since Block 3c, now true on the path where it never was. goForward() on an
+  // empty forward stack is a no-op, which is exactly the claim being made.
+  //
+  // This is what keeps the tempting alternative fix out: give the cold address
+  // an entry of its own on mount (replaceState the closed URL, then pushState
+  // the record back over it) and close() needs no branch at all, because there
+  // is always something to pop. It also leaves the record sitting one Forward
+  // away, and this line is what says so.
+  await ownerPage.goForward();
+  await expect(ownerPage).toHaveURL(/\/members$/);
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toHaveCount(0);
+
   // --- a record the caller cannot reach -------------------------------------
   // A real listener, at a Station in another Organization: RLS is what hides
   // it, so an id nobody owns would be testing something easier than the real
