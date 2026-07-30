@@ -482,7 +482,7 @@ EOF
 
 **Files:**
 - Create: `supabase/migrations/0046_rls_promotion_prizes.sql`
-- Modify: `supabase/tests/04_promotion_prizes.test.sql` (plan count 21 → 28, new section at the end)
+- Modify: `supabase/tests/04_promotion_prizes.test.sql` (plan count 20 → 27, new section at the end)
 
 **Interfaces:**
 - Consumes: `public.has_permission(text, uuid)` (0024), the `promotions` read policy (0044:43).
@@ -492,7 +492,7 @@ This task's pgTAP proves the tables **fail closed** and that the grants are exac
 
 - [ ] **Step 1: Write the failing assertions**
 
-In `supabase/tests/04_promotion_prizes.test.sql`, change line 2 to `select plan(28);` and insert this section immediately before the final `select * from finish();`:
+In `supabase/tests/04_promotion_prizes.test.sql`, change line 2 to `select plan(27);` — the file holds 20 assertions today and this section adds 7 — and insert this section immediately before the final `select * from finish();`:
 
 ```sql
 -- The read gate --------------------------------------------------------------
@@ -635,7 +635,7 @@ EOF
 **Files:**
 - Create: `supabase/migrations/0047_promotion_prize_ledger.sql`
 - Modify: `supabase/tests/02_permissions.test.sql:364,369,373,377` (the pinned signature)
-- Modify: `supabase/tests/04_promotion_prizes.test.sql` (plan count 28 → 33, new section)
+- Modify: `supabase/tests/04_promotion_prizes.test.sql` (plan count 27 → 34, new section)
 
 **Interfaces:**
 - Consumes: `public.ensure_inventory_balance_row(uuid, uuid, uuid)` (0030), `public.promotion_prize_balances` (0045).
@@ -664,7 +664,7 @@ Leave the assertion texts as they are. Add this comment immediately above the bl
 
 - [ ] **Step 2: Write the failing assertions for the projection write**
 
-In `supabase/tests/04_promotion_prizes.test.sql`, change the plan to `select plan(33);` and insert this section immediately before the read-gate section added in Task 2:
+In `supabase/tests/04_promotion_prizes.test.sql`, change the plan to `select plan(34);` — 27 before this task, and this section adds 7 — and insert this section immediately before the read-gate section added in Task 2:
 
 ```sql
 -- The ledger's single writer feeds both projections ---------------------------
