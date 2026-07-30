@@ -269,17 +269,42 @@ back-to-back weekly rounds, and §9 tests it from both sides — touching accept
 crossing refused — because a test that only proves the refusal would pass just as
 well against an ordinary unique index.
 
-### 4.2 `btree_gist` must be verified before this is built
+### 4.2 `btree_gist`, and the constraint, verified against the real database
 
 The exclusion constraint compares `company_id` (uuid) and `lower(hashtag)`
 (text) with `=` inside a GiST index, which needs the `btree_gist` extension.
-Only `pgcrypto` is declared today (`0001_extensions.sql`). Supabase lists
-`btree_gist` as available, but **this has not been run against the real
-database** — Docker was down while this spec was written. Confirming it is the
-first task of the implementation plan, and if it turns out to be unavailable the
-fallback is a `SECURITY DEFINER` guard inside the write RPCs plus a serialising
-lock on the Station row, which is weaker and must be stated as such rather than
-quietly substituted.
+Only `pgcrypto` is declared today (`0001_extensions.sql`), so this block adds
+`create extension if not exists btree_gist with schema extensions;` — with the
+schema named explicitly, for the reason `0001`'s own comment gives.
+
+`btree_gist` 1.7 is available in the project's local Supabase image, and the
+constraint was **built and exercised there** rather than reasoned about. Nine
+cases in one rolled-back transaction, each on its own savepoint so that a refusal
+could not abort the ones after it:
+
+| Case | Expected | Result |
+| --- | --- | --- |
+| Overlapping windows, same hashtag, same Station | refuse | refused |
+| Same hashtag in a different case (`#euquero`) | refuse | refused |
+| Touching windows, same hashtag | accept | accepted |
+| Overlapping windows, same hashtag, different Station | accept | accepted |
+| Overlapping, but the new row is cancelled | accept | accepted |
+| Cancel the live one, then reuse its exact window | accept | accepted |
+| Archived (`deleted_at` set) does not block a new one | accept | accepted |
+| Null hashtag against another null hashtag, overlapping | accept | accepted |
+
+The touching-window case is the one that distinguishes this constraint from an
+ordinary unique index, and it passes: `tstzrange`'s default `[)` bounds mean a
+promotion ending at the instant another starts does not overlap it.
+
+**One behaviour found by the probe that was not designed for: the constraint
+re-evaluates on `UPDATE`, so un-cancelling is not always possible.** Cancel a
+promotion, let somebody reuse that window with the same hashtag, and restoring
+the first one is refused — correctly, since two live promotions would then share
+the hashtag. Nothing in this block un-cancels, so it does not bite here. It is
+recorded because a future "reactivate" button would fail for a reason that looks
+nothing like the permission error operators are used to, and whoever builds it
+should refuse it in the RPC with a sentence a human can act on.
 
 ---
 
@@ -432,11 +457,10 @@ a deliberate mutation, and the mutation is quoted in the report.
 
 ## 10. Open, and to be settled during implementation
 
-1. **`btree_gist` availability** (§4.2) — the plan's first task.
-2. **Whether five permission codes are the right granularity.** `cancel` and
+1. **Whether five permission codes are the right granularity.** `cancel` and
    `archive` could fold into `edit`. Split is proposed because both stop a
    promotion the audience can see; the owner can collapse them at review.
-3. **Timezone of the window.** `starts_at`/`ends_at` are `timestamptz` stored in
+2. **Timezone of the window.** `starts_at`/`ends_at` are `timestamptz` stored in
    UTC and displayed in `companies.timezone` per L2. The screen must make the
    Station's timezone visible beside the field, or an operator in another state
    will read the window wrongly — copy to be settled when the tab is built.
