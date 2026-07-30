@@ -8,6 +8,17 @@
  */
 export const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
 
+/**
+ * Postgres itself, as its superuser, outside the API entirely. `supabase start`
+ * publishes this on 54322 with the fixed credentials in `supabase/config.toml`.
+ *
+ * Used by the two harness helpers that have to write a table no role — not even
+ * service_role — holds a grant on; see corruptBalanceDirectly for why that state
+ * has to be reachable at all. Nothing else may use it: a test that can reach
+ * this connection can also bypass every policy the suite exists to prove.
+ */
+export const LOCAL_SUPABASE_DB_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+
 export const LOCAL_SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
 

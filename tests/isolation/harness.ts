@@ -1,19 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { Client } from 'pg';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { LOCAL_SUPABASE_DB_URL } from '../local-supabase';
 import type { Database } from '../../src/lib/supabase/database.types';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-// Resolved from this file's own location, not process.cwd() — vitest happens
-// to run from the repo root today, but a helper that only works from one
-// particular working directory is a trap for whoever runs it differently
-// tomorrow (a workspace script, an IDE test runner, a future CI step).
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 export const admin = createClient<Database>(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -341,6 +334,57 @@ type BalanceColumn = (typeof BALANCE_COLUMNS)[number];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * One statement on a superuser connection to Postgres, outside the API
+ * entirely. The two helpers below are its only callers and they are the only
+ * writes in this suite that no client can make; see corruptBalanceDirectly for
+ * why that state has to be reachable at all.
+ *
+ * This replaces `execFileSync(node, [supabase.js, 'db', 'query', …])`, which is
+ * what both helpers used until the Block 4b branch review. That call spawned the
+ * Supabase CLI's JS entrypoint, which spawns the CLI binary, from inside a
+ * vitest worker — three processes deep, ~6 s of the worker's event loop blocked
+ * solid per call, and a raw SQL string built by interpolation because the CLI
+ * takes no parameters. A `pg` client is one socket to a port the test config
+ * already pins, it takes real parameters, and it does not block the loop the
+ * worker answers its parent on.
+ *
+ * It was ALSO the suspected trigger for the `Worker exited unexpectedly` crash,
+ * being the one thing the two files that had ever hit it had in common. **That
+ * was wrong** and the record is kept here so nobody re-derives it: the crash
+ * survived this rewrite and later dropped `invitations.test.ts`, which has never
+ * called either helper. Keep this change for the reasons in the paragraph above;
+ * do not credit it with the flake. docs/block-4b-report.md §1.3 has the runs.
+ *
+ * Refuses outright when the suite has been pointed somewhere other than the
+ * local stack: vitest.isolation.config.ts allows a remote target behind
+ * ALLOW_REMOTE_ISOLATION_TESTS, and these two helpers cannot follow it there —
+ * they would corrupt the developer's own database while every assertion around
+ * them read the remote one, which is worse than either failing or working.
+ */
+async function superuserStatement(
+  label: string,
+  sql: string,
+  params: readonly unknown[],
+): Promise<number> {
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(url)) {
+    throw new Error(
+      `${label}: this helper writes Postgres directly on ${LOCAL_SUPABASE_DB_URL} and the suite ` +
+        `is pointed at ${url}. It cannot follow a remote target, and writing the local ` +
+        'database while the assertions read a remote one would be silently wrong.',
+    );
+  }
+
+  const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+  await client.connect();
+  try {
+    const result = await client.query(sql, params as unknown[]);
+    return result.rowCount ?? 0;
+  } finally {
+    await client.end();
+  }
+}
+
+/**
  * Adds `delta` directly to one bucket of one inventory_balances row, entirely
  * outside apply_inventory_movement — which is the one write no client can
  * make through the API, by design. 0029 revokes insert/update/delete from
@@ -358,31 +402,29 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * one written to directly, bypassing the ledger)". Proving that requires
  * actually producing that state, and the only route left is the one a human
  * operator would have to use too: a direct connection to Postgres, as its
- * superuser, outside the API entirely. `supabase db query --local` is that
+ * superuser, outside the API entirely. superuserStatement above is that
  * connection.
  *
- * Invoked via the CLI's own JS entrypoint through node.exe, rather than the
- * `.bin/supabase.cmd` shim: on Windows, `.cmd` files can only be exec'd with
- * `shell: true`, and `shell: true` re-tokenizes a repository path that
- * contains a space (this one) into garbage before the CLI ever sees it.
- * company_id/prize_id are validated as UUIDs before they are interpolated,
- * since this builds a raw SQL string rather than a parameterised query.
+ * The column name is checked against BALANCE_COLUMNS and the delta against
+ * Number.isInteger before either reaches the statement, because an identifier
+ * and an arithmetic operand cannot be bound as parameters; the two UUIDs are
+ * bound. The UUID check is kept even so — it names the mistake in the harness
+ * rather than letting Postgres report `22P02` from inside a test.
  *
- * The CLI's own stdout is captured and checked for the `UPDATE 1` command tag
- * rather than discarded: a WHERE clause that matches nothing still exits 0
- * with `UPDATE 0`, and a caller who passed the wrong company_id/prize_id
- * would otherwise see reconcile_inventory report nothing changed and read
- * that as "reconciliation missed the divergence" — exactly the wrong
- * diagnosis under this suite's own rule that a failure here names a real
+ * The affected row count is checked rather than discarded: a WHERE clause that
+ * matches nothing succeeds, and a caller who passed the wrong
+ * company_id/prize_id would otherwise see reconcile_inventory report nothing
+ * changed and read that as "reconciliation missed the divergence" — exactly the
+ * wrong diagnosis under this suite's own rule that a failure here names a real
  * defect in the migrations. Failing loudly here, in the harness, keeps that
  * misdiagnosis from ever reaching a test assertion.
  */
-export function corruptBalanceDirectly(
+export async function corruptBalanceDirectly(
   companyId: string,
   prizeId: string,
   column: BalanceColumn,
   delta: number,
-): void {
+): Promise<void> {
   if (!UUID_RE.test(companyId) || !UUID_RE.test(prizeId)) {
     throw new Error('corruptBalanceDirectly: company_id and prize_id must be UUIDs');
   }
@@ -393,19 +435,17 @@ export function corruptBalanceDirectly(
     throw new Error('corruptBalanceDirectly: delta must be an integer');
   }
 
-  const script = path.join(REPO_ROOT, 'node_modules', 'supabase', 'dist', 'supabase.js');
-  const sql =
-    `update inventory_balances set ${column} = ${column} + (${delta}) ` +
-    `where company_id = '${companyId}' and prize_id = '${prizeId}';`;
+  const updated = await superuserStatement(
+    'corruptBalanceDirectly',
+    `update public.inventory_balances set ${column} = ${column} + (${delta}) ` +
+      `where company_id = $1 and prize_id = $2`,
+    [companyId, prizeId],
+  );
 
-  const output = execFileSync(process.execPath, [script, 'db', 'query', '--local', sql], {
-    encoding: 'utf8',
-  });
-
-  if (!/\bUPDATE 1\b/.test(output)) {
+  if (updated !== 1) {
     throw new Error(
       `corruptBalanceDirectly: expected to update exactly one inventory_balances row ` +
-        `(company_id=${companyId}, prize_id=${prizeId}, column=${column}); the CLI reported: ${output.trim()}`,
+        `(company_id=${companyId}, prize_id=${prizeId}, column=${column}); ${updated} were updated`,
     );
   }
 }
@@ -424,11 +464,14 @@ export function corruptBalanceDirectly(
  * ledger has no record of it. Do not use this helper inside a test that also
  * asserts reconciliation is clean.
  *
- * Invoked through node.exe against the CLI's own JS entrypoint rather than the
- * .bin shim, and the `UPDATE 1` command tag is checked rather than discarded,
- * both for the reasons corruptBalanceDirectly's comment sets out at length.
+ * Runs on the same superuser connection, and checks the affected row count
+ * rather than discarding it, both for the reasons corruptBalanceDirectly's
+ * comment sets out at length.
  */
-export function setPromotionPrizeDrawnDirectly(promotionPrizeId: string, drawn: number): void {
+export async function setPromotionPrizeDrawnDirectly(
+  promotionPrizeId: string,
+  drawn: number,
+): Promise<void> {
   if (!UUID_RE.test(promotionPrizeId)) {
     throw new Error('setPromotionPrizeDrawnDirectly: promotion_prize_id must be a UUID');
   }
@@ -436,19 +479,16 @@ export function setPromotionPrizeDrawnDirectly(promotionPrizeId: string, drawn: 
     throw new Error('setPromotionPrizeDrawnDirectly: drawn must be a non-negative integer');
   }
 
-  const script = path.join(REPO_ROOT, 'node_modules', 'supabase', 'dist', 'supabase.js');
-  const sql =
-    `update promotion_prize_balances set drawn = ${drawn} ` +
-    `where promotion_prize_id = '${promotionPrizeId}';`;
+  const updated = await superuserStatement(
+    'setPromotionPrizeDrawnDirectly',
+    'update public.promotion_prize_balances set drawn = $1 where promotion_prize_id = $2',
+    [drawn, promotionPrizeId],
+  );
 
-  const output = execFileSync(process.execPath, [script, 'db', 'query', '--local', sql], {
-    encoding: 'utf8',
-  });
-
-  if (!/\bUPDATE 1\b/.test(output)) {
+  if (updated !== 1) {
     throw new Error(
       `setPromotionPrizeDrawnDirectly: expected to update exactly one row ` +
-        `(promotion_prize_id=${promotionPrizeId}); the CLI reported: ${output.trim()}`,
+        `(promotion_prize_id=${promotionPrizeId}); ${updated} were updated`,
     );
   }
 }

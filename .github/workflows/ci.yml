@@ -42,6 +42,14 @@ jobs:
       - run: npm ci
       # Credentials come from vitest.isolation.config.ts, which pins the local
       # stack and refuses any non-loopback target.
+      #
+      # This does NOT run vitest bare, and the difference is the point. A
+      # `Worker exited unexpectedly` crash has been observed dropping a whole
+      # test file — "Test Files 12 passed (13)" — and EXITING 0, which a step
+      # that checks only the exit code cannot see. `npm run test:isolation` goes
+      # through scripts/verify-isolation-suite.mjs, which compares the files that
+      # reported results against the files on disk and fails the build on a
+      # shortfall. Do not "simplify" this back to `vitest run`.
       - run: npm run test:isolation
       - name: Stop the stack
         if: always()

@@ -361,7 +361,7 @@ describe('unlinking', () => {
     // Nothing writes `drawn` until Block 6; see the helper's own comment for
     // why this is the only fixture available and why this test must not go on
     // to assert that reconciliation is clean.
-    setPromotionPrizeDrawnDirectly(linkId, 2);
+    await setPromotionPrizeDrawnDirectly(linkId, 2);
 
     // Three of the five may come back.
     const allowed = await client.rpc('unlink_prize_from_promotion', {
@@ -464,7 +464,7 @@ describe('unlinking', () => {
     // helper leaves a real divergence. Asserting the divergence is the opposite,
     // and it is the only way to reach `drawn` at all: nothing writes it until
     // Block 6 brings the draw.
-    setPromotionPrizeDrawnDirectly(link.data as string, 1);
+    await setPromotionPrizeDrawnDirectly(link.data as string, 1);
 
     // Exactly one row, and every field of it. `linked` agrees (3 linked, 3 in
     // the ledger) and so does every inventory_balances bucket, so the drawn arm
@@ -589,7 +589,7 @@ describe('a promotion that ends its life hands its prizes back', () => {
     // would blame the fixture helper for a link that never happened.
     expect(linked.error).toBeNull();
     const linkId = linked.data as string;
-    setPromotionPrizeDrawnDirectly(linkId, 2);
+    await setPromotionPrizeDrawnDirectly(linkId, 2);
 
     const cancelled = await client.rpc('cancel_promotion', {
       p_promotion_id: promotionId,
@@ -987,7 +987,7 @@ describe('reading the Prizes tab', () => {
     // rule this case exists to prove, and the owner's vacuously. Linking twice
     // instead does not help: 0049 adds to the live row rather than creating a
     // second one, which the second case of the first describe already pins.
-    setPromotionPrizeDrawnDirectly(link.data as string, 2);
+    await setPromotionPrizeDrawnDirectly(link.data as string, 2);
 
     // The positive control for the [] the delegate gets after the archival.
     // Through the same client and the same function, so that empty list means

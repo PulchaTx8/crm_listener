@@ -422,7 +422,7 @@ describe('inventory', () => {
     // were degraded to an INNER JOIN, because an inner join keeps any key
     // present on both sides. Only a key present on one side alone — this one —
     // actually depends on the join being FULL OUTER rather than INNER.
-    corruptBalanceDirectly(customer.companyId, prizeId, 'delivered', 4);
+    await corruptBalanceDirectly(customer.companyId, prizeId, 'delivered', 4);
 
     const dirty = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
     expect(dirty.error).toBeNull();
@@ -449,7 +449,7 @@ describe('inventory', () => {
       p_quantity: 6,
     });
 
-    corruptBalanceDirectly(customer.companyId, prizeId, 'written_off', 2);
+    await corruptBalanceDirectly(customer.companyId, prizeId, 'written_off', 2);
 
     const dirty = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
     expect(dirty.error).toBeNull();
