@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { PromotionDetail } from '@/services/promotions';
 import { situationOf } from '@/lib/promotion-situation';
+// The tab tuple is declared with parseRecordParam rather than here, because the
+// page that validates `tab=` against it is a Server Component and cannot import
+// a value out of a client module. See src/lib/record-params.ts.
+import { PROMOTION_TABS, type PromotionTab } from '@/lib/record-params';
 import { updatePromotionAction, type PromotionFormState } from './actions';
 import { getPromotionRecordAction } from './record';
 import { formatInstant, SITUATION_CLASSES, SITUATION_LABELS } from './format';
@@ -13,9 +17,6 @@ import { PromotionFields } from './promotion-fields';
 import { WhatsappFields } from './whatsapp-fields';
 import { PrizesTab } from './prizes-tab';
 import { QuizTab } from './quiz-tab';
-
-export const PROMOTION_TABS = ['data', 'whatsapp', 'quiz', 'prizes'] as const;
-export type PromotionTab = (typeof PROMOTION_TABS)[number];
 
 const TAB_LABELS: Record<PromotionTab, string> = {
   data: 'Promotion',

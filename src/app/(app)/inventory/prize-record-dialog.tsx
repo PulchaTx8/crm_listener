@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
+// The tab tuple is declared with parseRecordParam rather than here, because the
+// page that validates `tab=` against it is a Server Component and cannot import
+// a value out of a client module. See src/lib/record-params.ts.
+import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
 import { updatePrizeAction, type PrizeSaveState } from './actions';
 import { getPrizeRecordAction, type PrizeRecord } from './record';
 import { BalanceStats } from './balance-stats';
@@ -14,9 +18,6 @@ import { ReleaseForm, ReserveForm } from './reservation-forms';
 import { StockEntryForm } from './stock-entry-form';
 import { StockExitForm } from './stock-exit-form';
 import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABELS } from './format';
-
-export const PRIZE_TABS = ['data', 'movements'] as const;
-export type PrizeTab = (typeof PRIZE_TABS)[number];
 
 const TAB_LABELS: Record<PrizeTab, string> = { data: 'Prize data', movements: 'Stock movements' };
 

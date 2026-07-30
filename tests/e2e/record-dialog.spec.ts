@@ -42,6 +42,7 @@ const listenerNames = [`Ana Dialog ${stamp}`, `Bruno Dialog ${stamp}`, `Carla Di
 const renamed = `Zoe Dialog ${stamp}`;
 
 const createdUserIds: string[] = [];
+const reachableMemberIds: string[] = [];
 let unreachableMemberId = '';
 
 test.beforeAll(async () => {
@@ -177,11 +178,14 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   if (!station) throw new Error(`no company row for ${stationName}`);
 
   for (const name of listenerNames) {
-    const { error } = await asOwner.rpc('create_member', {
+    const { data: createdId, error } = await asOwner.rpc('create_member', {
       p_company_id: station.id,
       p_full_name: name,
     });
     expect(error).toBeNull();
+    // Kept for the deep link near the end of this journey, which needs an id it
+    // can put in an address rather than a row it can click.
+    reachableMemberIds.push(String(createdId));
   }
 
   // The listener the first owner must never reach, created on the second
@@ -297,6 +301,32 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   // block exists to make; if a revalidatePath ever finds its way back into
   // members/actions.ts, this is where it says so.
   expect(listRenders).toEqual([]);
+
+  // --- a record address arriving cold, on the tab it names ------------------
+  // Every open above went through useRecordDialog in the browser. This one does
+  // not: a pasted or bookmarked address is parsed by the PAGE, on the server,
+  // and that is the only path on which parseRecordParam runs there. It threw on
+  // this screen from Block 3c until Block 4b, because the tab tuple it validates
+  // against was exported from a 'use client' module and a Server Component
+  // importing across that boundary gets a client reference rather than the
+  // array. See src/lib/record-params.ts.
+  //
+  // `tab=consents` deliberately: not the first tab, so a silent fall back to
+  // `data` fails here rather than passing by accident — and, unlike the
+  // `?record=` address at the end of this journey, a tab is what makes the
+  // parse actually touch the tuple. That address was already here and still
+  // passed throughout, which is why it never gave the defect away.
+  //
+  // No render assertion around this one — a cold address IS a document render
+  // of the list, which is the whole point of it. The counter is deliberately
+  // left behind at the line above.
+  await ownerPage.goto(`/members?record=${reachableMemberIds[2]}&tab=consents`);
+  await expect(ownerPage.getByRole('tab', { name: 'Consents' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(ownerPage.locator('[data-testid="consent-form"]')).toBeVisible();
+  await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);
 
   // --- a record the caller cannot reach -------------------------------------
   // A real listener, at a Station in another Organization: RLS is what hides

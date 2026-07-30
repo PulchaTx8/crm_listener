@@ -14,8 +14,7 @@ import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './
 import { describeInventoryReadError } from './errors';
 import { InventoryFilters } from './inventory-filters';
 import { InventoryGrid } from './inventory-grid';
-import { PRIZE_TABS } from './prize-record-dialog';
-import { parseRecordParam } from '@/lib/record-params';
+import { parseRecordParam, PRIZE_TABS } from '@/lib/record-params';
 import { inventoryHref, parseInventoryCursor, parseInventoryListState } from './list-params';
 import type { InventorySearchParams } from './list-params';
 import { ReconciliationPanel } from './reconciliation-panel';

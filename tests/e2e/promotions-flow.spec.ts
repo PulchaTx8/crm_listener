@@ -324,3 +324,65 @@ test('a promotion is cancelled with a reason, and only then archived', async ({ 
 
   await context.close();
 });
+
+/**
+ * A record address arriving cold — pasted, bookmarked, or followed from a chat
+ * message — rather than produced by the hook while the list is already on
+ * screen.
+ *
+ * This is the ONE path on which parseRecordParam runs on the server, and no
+ * spec covered it with a tab from Block 3c until this one: every other test
+ * opens a record by clicking a row, which runs the same parse inside
+ * useRecordDialog in the browser, where the tab tuple is the real array. On the
+ * server the page used to import that tuple across the 'use client' boundary
+ * and get back something that is not an array, so this address answered with an
+ * error boundary rather than a record. The full account is in
+ * src/lib/record-params.ts, beside the tuples that moved.
+ *
+ * `tab=quiz` deliberately: not the first tab, so a fallback that silently lands
+ * on `data` fails here instead of passing by accident. A tab is what makes this
+ * the loud case — an address carrying only `?record=` took a different branch
+ * and failed quietly, which is how two specs walked past it for three blocks.
+ */
+test('a record address typed straight into the bar opens on the tab it names', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(ownerEmail);
+  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  // Read back rather than remembered from the seeding test: this promotion is
+  // the one neither earlier test touches, and looking it up by name keeps this
+  // test from depending on the order the seed loop happened to run in.
+  const { data: promotion } = await admin
+    .from('promotions')
+    .select('id')
+    .eq('name', promotionNames[2]!)
+    .single();
+  if (!promotion) throw new Error(`no promotion row for ${promotionNames[2]}`);
+
+  await page.goto(`/promotions?record=${promotion.id}&tab=quiz`);
+
+  // The list rendered at all — the assertion that catches a server render that
+  // threw, because a thrown page shows the error boundary and no rows.
+  await expect(page.getByTestId('promotion-row').first()).toBeVisible();
+
+  // The record opened, on the tab the address named and not on the first one.
+  await expect(page.getByTestId('promotion-tab-quiz')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('promotion-tab-data')).toHaveAttribute('aria-selected', 'false');
+  await expect(page.getByTestId('quiz-add')).toBeVisible();
+
+  // A tab nobody has ever heard of is hostile input, not an error page: the
+  // record still opens, on the first tab. Same contract parseRecordParam's unit
+  // test states for the same input — asserted again here because this is the
+  // call site where the tuple it validates against comes from somewhere else.
+  await page.goto(`/promotions?record=${promotion.id}&tab=nonsense`);
+  await expect(page.getByTestId('promotion-tab-data')).toHaveAttribute('aria-selected', 'true');
+
+  await context.close();
+});

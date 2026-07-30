@@ -20,13 +20,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { MEMBER_TABS, type MemberTab } from '@/lib/record-params';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import type { MemberDetail, MemberListRow } from '@/services/members';
 import { archiveMemberAction, type ArchiveMemberState } from './actions';
 import { ageFromBirthDate, formatDate } from './format';
 import { hasActiveFilters, membersHref } from './list-params';
 import type { MemberListState } from './list-params';
-import { MEMBER_TABS, MemberRecordDialog, type MemberTab } from './member-record-dialog';
+import { MemberRecordDialog } from './member-record-dialog';
 import { RegisterMemberForm } from './register-member-form';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 

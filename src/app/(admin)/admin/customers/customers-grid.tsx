@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { CUSTOMER_TABS, type CustomerTab } from '@/lib/record-params';
 import {
   reactivateAction,
   suspendAction,
@@ -24,12 +25,7 @@ import {
   type CustomerRow,
 } from './actions';
 import { ProvisionForm } from './credential-forms';
-import {
-  CUSTOMER_TABS,
-  CustomerRecordDialog,
-  type CustomerTab,
-  type StationBrief,
-} from './customer-record-dialog';
+import { CustomerRecordDialog, type StationBrief } from './customer-record-dialog';
 
 /** How many columns the empty-state row has to span, actions included. */
 const COLUMN_COUNT = 5;

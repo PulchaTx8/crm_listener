@@ -2,10 +2,10 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { decodeCursor, keysetFilter, keysetPage } from '@/lib/keyset';
 import { escapeLikePattern } from '@/lib/postgrest';
 import { logger } from '@/lib/logger';
-import { parseRecordParam } from '@/lib/record-params';
+import { parseRecordParam, CUSTOMER_TABS } from '@/lib/record-params';
 import { PageHeader } from '@/components/layout/app-shell';
 import type { CustomerRow } from './actions';
-import { CUSTOMER_TABS, type StationBrief } from './customer-record-dialog';
+import type { StationBrief } from './customer-record-dialog';
 import { CustomersGrid } from './customers-grid';
 
 // Renders from the caller's session cookies, so it can never be static. Stated

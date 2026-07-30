@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Textarea } from '@/components/ui/input';
 import type { PermissionEntry, RoleSummary } from '@/services/roles';
+// The tab tuple is declared with parseRecordParam rather than here, because the
+// page that validates `tab=` against it is a Server Component and cannot import
+// a value out of a client module. See src/lib/record-params.ts.
+import { ROLE_TABS, type RoleTab } from '@/lib/record-params';
 import { saveRoleAction, type RoleFormState, type SavedRole } from './actions';
-
-export const ROLE_TABS = ['data', 'powers'] as const;
-export type RoleTab = (typeof ROLE_TABS)[number];
 
 const TAB_LABELS: Record<RoleTab, string> = {
   data: 'Role data',

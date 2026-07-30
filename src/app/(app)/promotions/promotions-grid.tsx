@@ -19,6 +19,7 @@ import {
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { situationOf } from '@/lib/promotion-situation';
+import { PROMOTION_TABS, type PromotionTab } from '@/lib/record-params';
 import type { PromotionDetail, PromotionSummary } from '@/services/promotions';
 import {
   archivePromotionAction,
@@ -34,11 +35,7 @@ import {
 } from './format';
 import { promotionSortHref } from './list-params';
 import type { PromotionListState } from './list-params';
-import {
-  PROMOTION_TABS,
-  PromotionRecordDialog,
-  type PromotionTab,
-} from './promotion-record-dialog';
+import { PromotionRecordDialog } from './promotion-record-dialog';
 import { RegisterPromotionForm } from './register-promotion-form';
 
 /** How many columns the empty-state row has to span, actions included. */
