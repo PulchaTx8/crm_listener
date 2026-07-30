@@ -21,6 +21,20 @@
 -- linking and unlinking, and the lifecycle return moved here with the two
 -- functions that call it. 0045 is committed and migrations are append-only, so
 -- the correction is written down here rather than made there.
+--
+-- WHAT THIS LEAVES OPEN, for Block 6 to settle rather than discover. What has
+-- been drawn does not come back, and after a cancellation those units sit in
+-- the `linked` bucket on a promotion that is over, with no operation left that
+-- can move them: unlink_prize_from_promotion refuses to go below `drawn`
+-- (0049), cancelling again is refused, and nothing else in the schema touches
+-- that bucket. They are not lost — the ledger and both projections agree about
+-- them, and reconciliation stays clean — but they are stuck, and they stay
+-- stuck until Block 6 brings the draw, the delivery and the returns that move
+-- `linked` -> `awaiting_pickup` -> `delivered` or back to `available`. Whoever
+-- writes those must decide what a drawn unit on a CANCELLED promotion means:
+-- the winner was promised something the station then called off. That is a
+-- product question, it is not answered here, and the shape of this helper does
+-- not prejudge it — it simply refuses to take back what a winner was promised.
 
 -- Shared by both, so the rule has one implementation and one set of tests.
 -- SECURITY INVOKER with EXECUTE granted to nobody: only ever called from inside
@@ -54,8 +68,12 @@ begin
     where l.promotion_id = p_promotion_id and l.deleted_at is null
     order by l.id
   loop
-    -- What has been drawn does not come back: those units are in
-    -- awaiting_pickup and belong to a winner.
+    -- What has been drawn does not come back: it belongs to a winner. Those
+    -- units are still in the `linked` bucket today and will move to
+    -- awaiting_pickup once Block 6 brings the draw that moves them — nothing
+    -- writes `drawn` or touches awaiting_pickup before that block, which is why
+    -- the only fixture that can produce a non-zero `drawn` writes the
+    -- projection by hand. See this file's header for what that leaves stuck.
     if v_link.linked - v_link.drawn > 0 then
       perform public.apply_inventory_movement(
         p_company_id, v_link.prize_id, 'PROMOTION_UNLINK', v_link.linked - v_link.drawn,
@@ -85,8 +103,12 @@ comment on function public.return_promotion_prizes(uuid, uuid, text) is
 -- ---------------------------------------------------------------------------
 -- cancel_promotion, recreated. Everything 0042 wrote is unchanged — the
 -- FOR UPDATE, the reason, the already-cancelled refusal, the already-ended
--- refusal — and the return happens after the row is marked, so a failure
--- anywhere in it takes the cancellation with it.
+-- refusal — and the return is written after the UPDATE that marks the row so
+-- that the body reads in the order the operation happens. The ordering is for
+-- the reader and nothing else: the whole body is one transaction with no
+-- exception handler, so a failure in the return takes the cancellation with it
+-- whichever side of the mark it sits on, and nothing on the helper's path reads
+-- cancelled_at.
 -- ---------------------------------------------------------------------------
 create or replace function public.cancel_promotion(
   p_promotion_id uuid,
@@ -207,12 +229,16 @@ begin
       using errcode = '22023';
   end if;
 
-  -- Before the row is filed away, not after: an archived promotion is one
-  -- nobody will open again, and units still counted in its balance would be out
-  -- of available with nothing on any screen pointing at them. A cancelled
-  -- promotion has already been through this and its links are closed, so the
-  -- helper finds nothing and returns 0 — which is why this is safe to run on
-  -- every archival rather than only on the ones that skipped cancellation.
+  -- Why this happens AT ALL: an archived promotion is one nobody will open
+  -- again, and units still counted in its balance would be out of available
+  -- with nothing on any screen pointing at them. That it is written before the
+  -- soft delete rather than after is readability, not correctness — the whole
+  -- body is one transaction with no exception handler, and nothing on the
+  -- helper's path reads promotions.deleted_at, so either order produces the
+  -- same committed state or no state at all. A cancelled promotion has already
+  -- been through this and its links are closed, so the helper finds nothing and
+  -- returns 0 — which is why this is safe to run on every archival rather than
+  -- only on the ones that skipped cancellation.
   v_returned := public.return_promotion_prizes(p_promotion_id, v_company, 'promotion archived');
 
   update public.promotions set
@@ -233,36 +259,41 @@ comment on function public.archive_promotion(uuid) is
   'Soft-deletes a promotion, recording who did it, and hands its undrawn prizes back first. Gated on promotions.archive. Refused while the promotion is inside its window and not cancelled: archiving frees the hashtag for another promotion, and doing that while listeners are still texting it would hand their entries to the wrong promotion. Archiving MOVES STOCK, which it did not before Block 4b — an ended, never-cancelled promotion cannot be cancelled (cancel_promotion refuses one whose window has closed) and so had no other way to give its prizes back; the alternative was a new refusal that would have left the operator unlinking by hand first. A promotion already cancelled has nothing left to return.';
 
 -- ---------------------------------------------------------------------------
--- The reachability of 0042's four RPCs, stated as a grant.
+-- The reachability of Block 4a's six promotion write RPCs, stated as a grant.
 --
--- All four have held the default PUBLIC EXECUTE since 4a shipped: 0042 carries
+-- All six have held the default PUBLIC EXECUTE since 4a shipped. 0042 carries
 -- exactly one revoke, on the private promotion_write_error helper, and none on
--- create_promotion, update_promotion, cancel_promotion or archive_promotion.
--- Postgres grants EXECUTE to PUBLIC on every newly created function, so anon
--- has been able to call all four all along. Nothing was reachable through them:
--- each resolves has_permission against auth.uid(), which is null for anon, so
--- the call raises 42501 before it touches a row. The hole is that the safety
--- rests entirely on the first `if` of each body — one refactor away from not
--- being safe — where every other write RPC in this project (0027, 0028, 0049,
--- and promotion_write_error one line away in 0042 itself) states its
--- reachability as a grant instead.
+-- create_promotion, update_promotion, cancel_promotion or archive_promotion;
+-- 0043 carries neither a revoke nor a grant, so save_promotion_question and
+-- remove_promotion_question are in the same position. Postgres grants EXECUTE
+-- to PUBLIC on every newly created function, so anon has been able to call all
+-- six all along. Nothing was reachable through them: each resolves
+-- has_permission against auth.uid(), which is null for anon, so the call raises
+-- 42501 before it touches a row. The hole is that the safety rests entirely on
+-- the first `if` of each body — one refactor away from not being safe — where
+-- every other write RPC in this project (0027, 0028, 0049, and
+-- promotion_write_error one line away in 0042 itself) states its reachability
+-- as a grant instead.
 --
 -- Closed now rather than later because this migration is what changes the
 -- stakes: archive_promotion has just become an operation that MOVES STOCK. And
 -- it had to be said here explicitly in any case — create or replace preserves
--- an existing ACL, so recreating those two functions above inherited the
+-- an existing ACL, so recreating two of these functions above inherited the
 -- PUBLIC grant rather than resetting it.
 --
--- All four, not only the two recreated above. Leaving the identical gap open on
--- create_promotion and update_promotion because this migration happens not to
+-- All six, not only the two recreated above, and not only 0042's four. Leaving
+-- the identical gap open on any of them because this migration happens not to
 -- redefine them would read to the next person as a deliberate distinction, and
--- there is none. The precedent is 0029, which found the same class of hole late
--- — service_role keeping the default ACL's TRUNCATE on four tables nobody had
--- revoked it from — and closed it after somebody noticed. This is that lesson
--- applied on time.
+-- there is none: same block, same feature, same fail-closed has_permission
+-- gate. 0043's two were missed on the first pass at this exact argument, which
+-- is itself the point — a sweep that stops one file short leaves a surface
+-- that looks audited and is not. The precedent is 0029, which found the same
+-- class of hole late — service_role keeping the default ACL's TRUNCATE on four
+-- tables nobody had revoked it from — and closed it after somebody noticed.
+-- This is that lesson applied on time.
 --
 -- authenticated only, and deliberately not service_role: services/promotions.ts
--- calls all four through a client carrying the caller's own access token, for
+-- calls all six through a client carrying the caller's own access token, for
 -- the reason its own comment gives — these functions resolve has_permission
 -- against auth.uid(), so calling one with the service key would defeat the
 -- check it exists to make. Same grid 0049 gave the two linking RPCs.
@@ -271,8 +302,12 @@ revoke execute on function public.create_promotion(uuid, text, timestamptz, time
 revoke execute on function public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) from public;
 revoke execute on function public.cancel_promotion(uuid, text)  from public;
 revoke execute on function public.archive_promotion(uuid)       from public;
+revoke execute on function public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid) from public;
+revoke execute on function public.remove_promotion_question(uuid) from public;
 
 grant execute on function public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) to authenticated;
 grant execute on function public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[]) to authenticated;
 grant execute on function public.cancel_promotion(uuid, text)   to authenticated;
 grant execute on function public.archive_promotion(uuid)        to authenticated;
+grant execute on function public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid) to authenticated;
+grant execute on function public.remove_promotion_question(uuid) to authenticated;

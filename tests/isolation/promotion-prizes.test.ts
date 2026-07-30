@@ -597,8 +597,12 @@ describe('a promotion that ends its life hands its prizes back', () => {
     });
     expect(cancelled.error).toBeNull();
 
-    // Four of the six come back. The two that are drawn are in awaiting_pickup
-    // and belong to a winner; nothing here may take them.
+    // Four of the six come back. The two that are drawn belong to a winner and
+    // nothing here may take them — and they are still in the `linked` bucket,
+    // which is what the figures below say: they will move to awaiting_pickup
+    // only once Block 6 brings the draw that moves them. Nothing writes `drawn`
+    // or touches awaiting_pickup before that block, which is exactly why this
+    // fixture has to write the projection by hand.
     const station = await client
       .from('inventory_balances')
       .select('available, linked')
@@ -776,13 +780,19 @@ describe('a promotion that ends its life hands its prizes back', () => {
     const archived = await client.rpc('archive_promotion', { p_promotion_id: promotionId });
     expect(archived.error).toBeNull();
 
-    // Three back, and still exactly one PROMOTION_UNLINK — not two. A second
-    // one would mean the cancellation's own return had been repeated, which the
-    // linked bucket floor would have refused anyway; asserting the count is
-    // what proves the helper found the link already closed rather than silently
-    // failing to. The query is by prize rather than by link precisely so that a
-    // second movement written against a second, wrongly re-created link would
-    // still be counted here.
+    // Three back, and still exactly one PROMOTION_UNLINK — not two. What this
+    // count catches is a REPEATED return: a helper that walked links it had
+    // already closed, or an archival that re-created the link and unwound it a
+    // second time. The query is by prize rather than by link precisely so that
+    // a movement written against a second, wrongly re-created link is still
+    // counted here.
+    //
+    // What it does NOT catch, said plainly because the obvious reading is the
+    // wrong one: a helper that did nothing at all during the ARCHIVAL also
+    // leaves exactly one movement — the cancellation's — and this assertion
+    // accepts that. It cannot attribute the return to either operation. The two
+    // reads above, taken between the cancel and the archive, are what do that,
+    // and they are load-bearing rather than redundant with this one.
     const station = await client
       .from('inventory_balances')
       .select('available, linked')

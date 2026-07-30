@@ -1,5 +1,5 @@
 begin;
-select plan(45);
+select plan(49);
 
 -- Structure ------------------------------------------------------------------
 
@@ -297,13 +297,19 @@ select is(relrowsecurity, true, 'RLS enabled on promotion_questions')
 select is(public.is_owner_of_company(gen_random_uuid()), false,
           'is_owner_of_company fails closed with no session');
 
--- The four RPCs' reachability, pinned as a grant rather than left to the guard
--- inside each body. All four held the default PUBLIC EXECUTE from 4a until 0050
--- revoked it; they always refused anon on has_permission, so nothing was ever
--- reachable, but a refusal that lives only in the first `if` of a body is one
--- refactor away from not being there. These eight are what make that regression
--- fail here instead of in production. Same shape 02_permissions.test.sql uses
--- for ensure_inventory_balance_row and apply_inventory_movement.
+-- The six RPCs' reachability, pinned as a grant rather than left to the guard
+-- inside each body. All six — 0042's four and 0043's two — held the default
+-- PUBLIC EXECUTE from 4a until 0050 revoked it; they always refused anon on
+-- has_permission, so nothing was ever reachable, but a refusal that lives only
+-- in the first `if` of a body is one refactor away from not being there. These
+-- twelve are what make that regression fail here instead of in production. Same
+-- shape 02_permissions.test.sql uses for ensure_inventory_balance_row and
+-- apply_inventory_movement.
+--
+-- Every write RPC of the feature, not a subset: the first pass at this closed
+-- 0042's four and left 0043's two open, which is a surface that looks audited
+-- and is not. A seventh promotion write RPC arriving without a pair here is the
+-- thing this block of assertions exists to make obvious.
 select ok(
   not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
   'anon may not call create_promotion');
@@ -333,6 +339,22 @@ select ok(
 select ok(
   has_function_privilege('authenticated', 'public.archive_promotion(uuid)', 'EXECUTE'),
   'authenticated may call archive_promotion');
+
+-- 0043's two, which carry neither a revoke nor a grant of their own and so held
+-- the same PUBLIC EXECUTE until 0050.
+select ok(
+  not has_function_privilege('anon', 'public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid)', 'EXECUTE'),
+  'anon may not call save_promotion_question');
+select ok(
+  has_function_privilege('authenticated', 'public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid)', 'EXECUTE'),
+  'authenticated may call save_promotion_question');
+
+select ok(
+  not has_function_privilege('anon', 'public.remove_promotion_question(uuid)', 'EXECUTE'),
+  'anon may not call remove_promotion_question');
+select ok(
+  has_function_privilege('authenticated', 'public.remove_promotion_question(uuid)', 'EXECUTE'),
+  'authenticated may call remove_promotion_question');
 
 select * from finish();
 rollback;
