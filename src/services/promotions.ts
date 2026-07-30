@@ -306,8 +306,9 @@ export interface PromotionDetail {
 }
 
 /**
- * The whole record in three reads — the promotion, its questions, the options
- * of those questions — rather than one per tab or one per question.
+ * The whole record in four reads — the promotion, its questions, the options
+ * of those questions, and its linked prizes — rather than one per tab or one
+ * per question.
  *
  * Returns null when the promotion is not readable, which deliberately covers
  * two different facts: it does not exist, and it exists in a Station this

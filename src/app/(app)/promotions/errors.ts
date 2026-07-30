@@ -13,21 +13,32 @@ import {
 
 /**
  * The reads this screen performs — listPromotionsPage, getPromotionRecord,
- * listCompanyAccess, has_permission — are selects and one plain boolean
- * predicate, so in practice only InternalError is reachable today. The full
- * taxonomy is mapped anyway, for the reason describeInventoryReadError gives
+ * listCompanyAccess, has_permission — were selects and one plain boolean
+ * predicate, so in practice only InternalError was reachable. The full
+ * taxonomy was mapped anyway, for the reason describeInventoryReadError gives
  * for its own read-only callers: collapsing it to one generic message works
  * until a read on this surface starts going through a gated call, and then it
  * silently stops being true.
+ *
+ * That moment arrived with listLinkablePrizes: list_linkable_prizes (0051)
+ * gates on `promotions.prizes`, not `promotions.view`, and a fixed "you do not
+ * have permission to view promotions here" would tell a caller who holds
+ * promotions.view — which is how the Prizes tab is open at all — that they
+ * cannot view promotions, when what they actually lack is the narrower
+ * capability to link stock. `what` exists for the same reason
+ * describePromotionsWriteError's own `action` parameter does: a fixed message
+ * was accurate only while every read on this surface was gated by the same
+ * permission, and it no longer is. Defaults to the original wording, so every
+ * call site that does not pass `what` reads exactly as it always did.
  */
-export function describePromotionsReadError(cause: unknown): string {
+export function describePromotionsReadError(cause: unknown, what: string = 'promotions here'): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
     return 'That could not be found. Refresh the page and try again.';
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to view promotions here.';
+    return `You do not have permission to view ${what}.`;
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs, and
