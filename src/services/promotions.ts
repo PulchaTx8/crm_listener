@@ -14,6 +14,7 @@ import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
+import type { PromotionSituation } from '@/lib/promotion-situation';
 import type { PromotionFormInput, QuestionFormInput, RequestedField } from '@/schemas/promotions';
 
 export type PromotionQuestionKind = Database['public']['Enums']['promotion_question_kind'];
@@ -40,28 +41,17 @@ export const PROMOTION_SEARCH_MAX_LENGTH = 100;
 export type PromotionSortKey = 'starts' | 'name';
 
 /**
- * What the list shows in its Situation column.
+ * What the list shows in its Situation column: computed from three columns,
+ * never stored — the owner's decision was that the window decides, with
+ * cancellation the one exception (design spec D1/D2). That makes it a filter
+ * and NOT a sort key: Block 3b proved a keyset cursor must compare exactly the
+ * column it orders by, and there is no column here to compare. See
+ * listPromotionsPage.
  *
- * Computed from three columns, never stored — the owner's decision was that the
- * window decides, with cancellation as the one exception (design spec D1/D2).
- * That makes it a filter and NOT a sort key: Block 3b proved a keyset cursor
- * must compare exactly the column it orders by, and there is no column here to
- * compare. See listPromotionsPage.
+ * The rule itself lives in @/lib/promotion-situation because this module is
+ * `server-only` and the grid and the dialog are client components.
  */
-export type PromotionSituation = 'scheduled' | 'live' | 'ended' | 'cancelled';
-
-export function situationOf(
-  row: { startsAt: string; endsAt: string; cancelledAt: string | null },
-  now: Date = new Date(),
-): PromotionSituation {
-  if (row.cancelledAt !== null) return 'cancelled';
-  const at = now.getTime();
-  if (at < Date.parse(row.startsAt)) return 'scheduled';
-  // The window is half-open, matching the exclusion constraint in 0040: a
-  // promotion is over at the instant it ends, not a moment after.
-  if (at >= Date.parse(row.endsAt)) return 'ended';
-  return 'live';
-}
+export type { PromotionSituation };
 
 export interface PromotionSummary {
   id: string;
