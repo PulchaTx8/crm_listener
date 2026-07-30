@@ -1,5 +1,5 @@
 begin;
-select plan(24);
+select plan(31);
 
 -- Structure ------------------------------------------------------------------
 
@@ -255,6 +255,40 @@ select throws_ok(
     from public.participations p
     where p.promotion_id = '00000000-0000-0000-0000-0000000004e1' and p.status = 'VALID'$$,
   '23505', null, 'one answer per question per participation');
+
+-- The read gate --------------------------------------------------------------
+
+select ok(has_table_privilege('authenticated', 'public.participations', 'SELECT'),
+          'authenticated may read participations, subject to policy');
+select ok(has_table_privilege('service_role', 'public.participation_answers', 'SELECT'),
+          'service_role may read answers — BYPASSRLS is not a grant');
+select ok(not has_table_privilege('service_role', 'public.participations', 'TRUNCATE'),
+          'service_role may not truncate participations');
+select ok(not has_table_privilege('service_role', 'public.participation_answers', 'TRUNCATE'),
+          'service_role may not truncate answers');
+
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'participations'),
+  1, 'participations carries exactly one policy, and it is a read policy');
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'participation_answers'),
+  1, 'participation_answers carries exactly one policy, and it is a read policy');
+
+-- Fails closed against a row that exists. The claim names a user with no
+-- membership anywhere, and the fixtures above left real participations behind,
+-- so a zero here is a denial and not an empty table.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000004ff", "role": "authenticated"}';
+
+create temporary view stranger_participations as
+  select id from public.participations;
+
+reset role;
+select is(
+  (select count(*)::int from stranger_participations),
+  0, 'a caller holding participations.view nowhere reads no participations at all');
 
 select * from finish();
 rollback;
