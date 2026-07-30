@@ -1631,6 +1631,10 @@ export type Database = {
         Returns: undefined
       }
       remove_member: { Args: { p_membership_id: string }; Returns: undefined }
+      remove_promotion_question: {
+        Args: { p_question_id: string }
+        Returns: undefined
+      }
       reserve_stock: {
         Args: {
           p_company_id: string
@@ -1648,6 +1652,18 @@ export type Database = {
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
+      }
+      save_promotion_question: {
+        Args: {
+          p_button_label?: string
+          p_kind: Database["public"]["Enums"]["promotion_question_kind"]
+          p_menu_title?: string
+          p_options?: Json
+          p_promotion_id: string
+          p_prompt: string
+          p_question_id: string
+        }
+        Returns: string
       }
       shares_organization_with: {
         Args: { p_user_id: string }
