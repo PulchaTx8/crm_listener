@@ -1372,6 +1372,10 @@ export type Database = {
       }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
+      archive_promotion: {
+        Args: { p_promotion_id: string }
+        Returns: undefined
+      }
       assign_company_role: {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
@@ -1385,6 +1389,10 @@ export type Database = {
           p_reason: string
         }
         Returns: string
+      }
+      cancel_promotion: {
+        Args: { p_promotion_id: string; p_reason: string }
+        Returns: undefined
       }
       change_org_role: {
         Args: {
@@ -1442,6 +1450,27 @@ export type Database = {
       }
       create_prize_category: {
         Args: { p_company_id: string; p_name: string }
+        Returns: string
+      }
+      create_promotion: {
+        Args: {
+          p_allow_multiple_entries?: boolean
+          p_art_url?: string
+          p_call_to_action?: string
+          p_company_id: string
+          p_ends_at: string
+          p_hashtag?: string
+          p_min_hours_between_entries?: number
+          p_name: string
+          p_no_button_label?: string
+          p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          p_require_correct_answer?: boolean
+          p_site_integration_code?: number
+          p_starts_at: string
+          p_use_art?: boolean
+          p_whatsapp_enabled?: boolean
+          p_yes_button_label?: string
+        }
         Returns: string
       }
       create_role: {
@@ -1523,6 +1552,10 @@ export type Database = {
       }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
+      promotion_write_error: {
+        Args: { p_hashtag: string; p_site_code: number; p_sqlstate: string }
+        Returns: undefined
+      }
       provision_customer: {
         Args: {
           p_company_name: string
@@ -1653,6 +1686,27 @@ export type Database = {
           p_internal_code?: string
           p_name: string
           p_prize_id: string
+        }
+        Returns: undefined
+      }
+      update_promotion: {
+        Args: {
+          p_allow_multiple_entries?: boolean
+          p_art_url?: string
+          p_call_to_action?: string
+          p_ends_at: string
+          p_hashtag?: string
+          p_min_hours_between_entries?: number
+          p_name: string
+          p_no_button_label?: string
+          p_promotion_id: string
+          p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          p_require_correct_answer?: boolean
+          p_site_integration_code?: number
+          p_starts_at: string
+          p_use_art?: boolean
+          p_whatsapp_enabled?: boolean
+          p_yes_button_label?: string
         }
         Returns: undefined
       }
