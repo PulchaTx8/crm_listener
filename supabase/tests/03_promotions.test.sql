@@ -20,7 +20,7 @@ select ok(not has_table_privilege('service_role', 'public.promotions', 'UPDATE')
 -- editor without that screen being touched.
 select is(
   (select count(*)::int from public.permissions where code like 'promotions.%'),
-  5, 'five promotion permissions are catalogued');
+  6, 'six promotion permissions are catalogued');
 
 -- Fixtures -------------------------------------------------------------------
 -- No auth user is seeded: created_by is nullable and nothing below sets it.
