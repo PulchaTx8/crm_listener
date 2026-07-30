@@ -100,6 +100,7 @@ const REQUIRED_TEST_FILES = [
   'tests/isolation/invitations.test.ts',
   'tests/isolation/listing.test.ts',
   'tests/isolation/members.test.ts',
+  'tests/isolation/participations.test.ts',
   'tests/isolation/permissions.test.ts',
   'tests/isolation/promotion-prizes.test.ts',
   'tests/isolation/promotions.test.ts',
