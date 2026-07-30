@@ -115,6 +115,11 @@ describe('linking a prize to a promotion', () => {
       p_prize_id: prizeId,
       p_quantity: 2,
     });
+    // Checked, because everything below compares against first.data: if the
+    // first link failed, `toBe(first.data)` would be comparing a uuid against
+    // null and the case would fail naming the wrong call.
+    expect(first.error).toBeNull();
+
     const second = await client.rpc('link_prize_to_promotion', {
       p_promotion_id: promotionId,
       p_prize_id: prizeId,
@@ -221,6 +226,14 @@ describe('linking a prize to a promotion', () => {
       p_quantity: 0,
     });
     expect(denied.error?.code).toBe('22023');
+    // The message, not only the code, because two guards raise 22023 on this
+    // path and the code alone cannot tell them apart: delete the check in
+    // link_prize_to_promotion and control reaches apply_inventory_movement's
+    // own ("quantity must be a positive whole number"), which raises 22023 too
+    // and rolls the link row back with the transaction, leaving a
+    // code-only assertion green over a guard that is no longer there. This
+    // pins the RPC's own wording, which is the one that reaches the screen.
+    expect(denied.error?.message).toBe('the number of units must be a positive whole number');
   });
 
   it('refuses a prize from another Station', async () => {
@@ -277,11 +290,24 @@ describe('unlinking', () => {
     ]);
     const client = await clientFor(delegate);
 
-    await client.rpc('link_prize_to_promotion', {
+    const link = await client.rpc('link_prize_to_promotion', {
       p_promotion_id: promotionId,
       p_prize_id: prizeId,
       p_quantity: 3,
     });
+    expect(link.error).toBeNull();
+
+    // The positive control for the assertion further down. PostgREST answers []
+    // both for a row a policy filtered out and for a client that cannot read
+    // the table at all, so "empty afterwards" on its own cannot tell
+    // soft-deleted from never-visible. This read, through the same client and
+    // the same policy, is what fixes which of the two the zero below means.
+    const before = await client
+      .from('promotion_prizes')
+      .select('id')
+      .eq('promotion_id', promotionId);
+    expect(before.data).toEqual([{ id: link.data }]);
+
     const undo = await client.rpc('unlink_prize_from_promotion', {
       p_promotion_id: promotionId,
       p_prize_id: prizeId,
@@ -400,6 +426,66 @@ describe('unlinking', () => {
     expect(denied.error?.code).toBe('42501');
   });
 
+  it('reports a drawn figure the ledger cannot account for', async () => {
+    const label = `recon-drawn-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeName = `Counted ${label}`;
+    const prizeId = await createPrizeAs(customer, prizeName);
+    await stockAsOwner(customer, prizeId, 6);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'inventory.view',
+    ]);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+    });
+    expect(link.error).toBeNull();
+
+    const promotion = await client
+      .from('promotions')
+      .select('name')
+      .eq('id', promotionId)
+      .single();
+
+    // The case that dies if 0048's per-promotion half is deleted, which the
+    // clean round trip below cannot be: [] is what an absent half returns too,
+    // so a suite holding only that one asserts a reconciler's silence rather
+    // than its work. This asserts the row it is supposed to produce.
+    //
+    // No conflict with setPromotionPrizeDrawnDirectly's own warning — that
+    // forbids asserting reconciliation is CLEAN after using it, because the
+    // helper leaves a real divergence. Asserting the divergence is the opposite,
+    // and it is the only way to reach `drawn` at all: nothing writes it until
+    // Block 6 brings the draw.
+    setPromotionPrizeDrawnDirectly(link.data as string, 1);
+
+    // Exactly one row, and every field of it. `linked` agrees (3 linked, 3 in
+    // the ledger) and so does every inventory_balances bucket, so the drawn arm
+    // is the only thing that can be speaking here: stored 1 against computed 0,
+    // which is the truth — the ledger has no DRAW movement behind it, and
+    // cannot until Block 6 widens inventory_movements_promotion_reference.
+    const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(check.error).toBeNull();
+    expect(check.data).toEqual([
+      {
+        prize_id: prizeId,
+        prize_name: prizeName,
+        promotion_prize_id: link.data,
+        promotion_name: promotion.data?.name,
+        bucket: 'drawn',
+        stored: 1,
+        computed: 0,
+      },
+    ]);
+  });
+
   it('reports no divergence after a link and unlink round trip', async () => {
     const label = `unlink-recon-${Date.now()}`;
     const customer = await provisionCustomer(label);
@@ -454,8 +540,23 @@ describe('unlinking', () => {
     ]);
 
     // The second projection recomputed from the ledger must equal what the RPCs
-    // wrote. This is the assertion that goes red if the per-promotion write is
-    // dropped from apply_inventory_movement — see the mutation log in Task 9.
+    // wrote.
+    //
+    // What this assertion does NOT catch, stated because the obvious reading is
+    // wrong and was written down as fact once already: it is not what goes red
+    // if apply_inventory_movement's per-promotion write is dropped. Drop that
+    // block and ensure_promotion_prize_balance_row still bootstraps the all-zero
+    // row, `linked` stays 0, and the unlink of 2 hits this RPC's own floor and
+    // raises 23514 — so the CASE goes red, thirty lines above, at
+    // expect(undo.error).toBeNull(). Measured, not reasoned: that mutation was
+    // run against this file.
+    //
+    // Its own job is the other failure: a stored figure that is WRONG rather
+    // than missing. Set this link's `linked` to 9 by hand and reconciliation
+    // returns one row, stored 9 against computed 5. The case above — `reports a
+    // drawn figure the ledger cannot account for` — is the one that proves the
+    // per-promotion half emits a row at all, which this one cannot, because []
+    // is also what a half that had been deleted outright would return.
     const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
     expect(check.error).toBeNull();
     expect(check.data).toEqual([]);
