@@ -951,8 +951,14 @@ EOF
 - Create: `supabase/migrations/0048_reconcile_promotion_prizes.sql`
 - Modify: `src/services/inventory.ts:90-96` (`ReconciliationRow`), `:550-556` (the mapping)
 - Modify: `src/app/(app)/inventory/reconciliation-panel.tsx:49-67`
-- Modify: `src/lib/supabase/database.types.ts` (regenerated, not hand-edited)
-- Modify: `tests/isolation/inventory.test.ts` (one new case)
+- Modify: `src/lib/supabase/database.types.ts` (regenerated, not hand-edited — it is stale as of Task 3 and this is the task that fixes it)
+- Modify: `tests/isolation/inventory.test.ts` (two new cases)
+- Modify: `supabase/tests/02_permissions.test.sql` (plan 208 → 212, four assertions)
+
+**Two gaps Task 3 surfaced are closed here**, both added to this task rather than left for the final review because this is the task that already touches the two files involved:
+
+1. **`release_reservation` is never called anywhere in the isolation suite.** It is one of the five RPCs that reach `apply_inventory_movement` through the default on its new ninth parameter, and it was the only one with no end-to-end net under it when that function was dropped and recreated. Nothing in pgTAP covers those call sites; the isolation suite is the only thing that can.
+2. **`ensure_promotion_prize_balance_row`'s SECURITY INVOKER and empty grant grid are not pinned**, while its twin `ensure_inventory_balance_row` is pinned four ways at `supabase/tests/02_permissions.test.sql:390-407`. A private helper that quietly became DEFINER, or that picked up an EXECUTE grant, is a second unaudited write path into a projection — which is the property those four assertions exist to protect.
 
 **Interfaces:**
 - Produces: `public.reconcile_inventory(uuid)` returning `(prize_id uuid, prize_name text, promotion_prize_id uuid, promotion_name text, bucket text, stored integer, computed integer)`. The two new columns are **null on every per-prize row**, which is what tells the two kinds of row apart.
@@ -1220,16 +1226,100 @@ and widen the row key (line 58) so two rows differing only by link are distinct:
                     key={`${row.prizeId}-${row.promotionPrizeId ?? 'station'}-${row.bucket}-${index}`}
 ```
 
-- [ ] **Step 7: Run every gate green**
+- [ ] **Step 7: Pin the new helper's grant grid**
+
+In `supabase/tests/02_permissions.test.sql`, change `select plan(208);` to `select plan(212);` and add, immediately after the four `ensure_inventory_balance_row` assertions that end at line 407:
+
+```sql
+-- Block 4b's second bootstrap, pinned exactly as the first one above is. A
+-- private helper that quietly became DEFINER, or that picked up an EXECUTE
+-- grant, is a second unaudited write path into a projection — which is the
+-- whole property these assertions exist to protect, and it is worth no less
+-- here than it was for inventory_balances.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)'::regprocedure),
+  false,
+  'ensure_promotion_prize_balance_row is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'anon may not call ensure_promotion_prize_balance_row'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'authenticated may not call ensure_promotion_prize_balance_row'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'service_role may not call ensure_promotion_prize_balance_row'
+);
+```
+
+- [ ] **Step 8: Put a net under the fifth caller**
+
+`release_reservation` is the one RPC reaching `apply_inventory_movement` that the isolation suite never calls, which means Task 3 dropped and recreated that function with four of its five call sites covered and this one resting on inspection alone. Append to `tests/isolation/inventory.test.ts`, in the same `describe` as the other movement cases:
+
+```ts
+  it('releases a reservation back into available, which is the fifth call site into the one writer', async () => {
+    const label = `inv-release-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+    const delegate = await grantRoleWith(customer, label, [
+      'inventory.view',
+      'inventory.entry',
+      'inventory.reserve',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    await client.rpc('record_stock_entry', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_type: 'MANUAL_ENTRY',
+      p_quantity: 9,
+    });
+    await client.rpc('reserve_stock', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+      p_note: 'held for the afternoon show',
+    });
+
+    const released = await client.rpc('release_reservation', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+      p_note: 'show cancelled',
+    });
+    expect(released.error).toBeNull();
+
+    const balance = await client
+      .from('inventory_balances')
+      .select('available, reserved')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(balance.data).toEqual({ available: 8, reserved: 1 });
+
+    // The projection agrees with the ledger it was written from. This is what
+    // would go red if release_reservation stopped reaching the one writer —
+    // an eight-argument call resolving to a function that no longer exists
+    // fails loudly, but one resolving to a stale overload would not.
+    const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(check.error).toBeNull();
+    expect(check.data).toEqual([]);
+  });
+```
+
+- [ ] **Step 9: Run every gate green**
 
 Run: `npm run typecheck && npm run lint && npm test && npm run db:test && npm run test:isolation -- tests/isolation/inventory.test.ts`
 
-Expected: all green, including the new case and the two pre-existing reconciliation cases at `inventory.test.ts:70` and `:381` — the latter asserts with `toMatchObject`, so the two extra null keys do not disturb it.
+Expected: all green — the two new cases, `02_permissions.test.sql` at 212 of 212, and the two pre-existing reconciliation cases at `inventory.test.ts:70` and `:381`; the latter asserts with `toMatchObject`, so the two extra null keys do not disturb it.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add supabase/migrations/0048_reconcile_promotion_prizes.sql src/services/inventory.ts src/app/\(app\)/inventory/reconciliation-panel.tsx src/lib/supabase/database.types.ts tests/isolation/inventory.test.ts
+git add supabase/migrations/0048_reconcile_promotion_prizes.sql src/services/inventory.ts src/app/\(app\)/inventory/reconciliation-panel.tsx src/lib/supabase/database.types.ts tests/isolation/inventory.test.ts supabase/tests/02_permissions.test.sql
 git commit -m "$(cat <<'EOF'
 feat(inventory): reconciliation reaches the per-promotion projection
 
@@ -1249,6 +1339,13 @@ wrong forever.
 
 Soft-deleted links are included, so unlinking cannot become a way to hide a
 divergence.
+
+Two gaps 0047 surfaced close here as well. release_reservation was the one of
+the five callers into the single writer that no test ever called, so it went
+through that function being dropped and recreated on inspection alone; it has a
+case now. And the new bootstrap's SECURITY INVOKER and empty grant grid are
+pinned the four ways its twin has been pinned since 0030 — a private helper that
+quietly becomes DEFINER is a second unaudited write path into a projection.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
