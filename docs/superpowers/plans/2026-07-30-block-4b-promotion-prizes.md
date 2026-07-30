@@ -18,7 +18,8 @@
 - **No write grants on any table.** Every write goes through a SECURITY DEFINER RPC. `revoke truncate ... from service_role` too — 0029's own late fix.
 - **Private helpers are SECURITY INVOKER with EXECUTE granted to nobody**, called only from inside a DEFINER body (`ensure_inventory_balance_row`, `promotion_write_error` are the two precedents).
 - **New permission code:** `promotions.prizes`, module `promotions`, scope `company`, `introduced_by_block` `'4b'`, `display_order` 60.
-- **Migrations are numbered `0045`–`0049`** and are append-only: never edit a migration that has been committed; add another.
+- **Migrations are numbered `0045`–`0051`** and are append-only: never edit a migration that has been committed; add another.
+- **Postgres has no partial function redefinition.** Recreating a function restates its whole body, so the migrations in Tasks 3, 4 and 6 necessarily repeat code from 0027/0028/0030/0042. That is not duplication to be factored out — it is how `create or replace` works, and 0030 is the project's own precedent for it.
 - **A guard that cannot fire does not ship.** Where one is deliberately unreachable today (the Block 6 tripwire in Task 3), it says so in its own comment and is tested by removing what makes it unreachable.
 
 ## Decision taken during planning, beyond the spec
@@ -40,7 +41,9 @@ The spec's §5 assumes the Prêmios tab can render one row per linked prize. It 
 - `supabase/migrations/0046_rls_promotion_prizes.sql` — grants and read policies. Deliberately *before* the function migrations, unlike 0029/0044 which sit last in their blocks: every task after this one asserts state by reading these two tables, and a suite that cannot read them would have to assert through functions that do not exist yet.
 - `supabase/migrations/0047_promotion_prize_ledger.sql` — `ensure_promotion_prize_balance_row`, and `apply_inventory_movement` dropped and recreated with a ninth parameter.
 - `supabase/migrations/0048_reconcile_promotion_prizes.sql` — `reconcile_inventory` dropped and recreated with two more output columns.
-- `supabase/migrations/0049_promotion_prize_rpcs.sql` — `return_promotion_prizes`, `link_prize_to_promotion`, `unlink_prize_from_promotion`, `cancel_promotion` and `archive_promotion` recreated, `list_promotion_prizes`, `list_linkable_prizes`.
+- `supabase/migrations/0049_promotion_prize_rpcs.sql` — `link_prize_to_promotion`, `unlink_prize_from_promotion`.
+- `supabase/migrations/0050_promotion_lifecycle_returns_prizes.sql` — `return_promotion_prizes`, and `cancel_promotion` and `archive_promotion` recreated around it.
+- `supabase/migrations/0051_promotion_prize_reads.sql` — `list_promotion_prizes`, `list_linkable_prizes`.
 
 **pgTAP (create/modify):**
 - `supabase/tests/04_promotion_prizes.test.sql` — new; every constraint in this block, both ways.
@@ -1257,7 +1260,7 @@ EOF
 ## Task 5: Linking and unlinking
 
 **Files:**
-- Create: `supabase/migrations/0049_promotion_prize_rpcs.sql` (this task writes the first two functions; Task 6 appends to the same file **only if it has not yet been committed** — otherwise Task 6 creates `0050`)
+- Create: `supabase/migrations/0049_promotion_prize_rpcs.sql` (link and unlink only; Task 6's shared helper and the two recreated lifecycle functions go in `0050`, because this file is committed at the end of this task)
 - Create: `tests/isolation/promotion-prizes.test.ts`
 - Modify: `tests/isolation/harness.ts` (append `setPromotionPrizeDrawnDirectly`)
 
