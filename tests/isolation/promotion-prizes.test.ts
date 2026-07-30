@@ -562,3 +562,301 @@ describe('unlinking', () => {
     expect(check.data).toEqual([]);
   });
 });
+
+describe('a promotion that ends its life hands its prizes back', () => {
+  it('cancelling returns every undrawn unit and leaves the drawn ones alone', async () => {
+    const label = `cancel-d1-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Watch ${label}`);
+    await stockAsOwner(customer, prizeId, 10);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'promotions.cancel',
+      'inventory.view',
+    ]);
+    const client = await clientFor(delegate);
+
+    const linked = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 6,
+    });
+    // Checked, because everything below rests on this link: without it the next
+    // line is what goes red, and setPromotionPrizeDrawnDirectly's UUID guard
+    // would blame the fixture helper for a link that never happened.
+    expect(linked.error).toBeNull();
+    const linkId = linked.data as string;
+    setPromotionPrizeDrawnDirectly(linkId, 2);
+
+    const cancelled = await client.rpc('cancel_promotion', {
+      p_promotion_id: promotionId,
+      p_reason: 'sponsor pulled out',
+    });
+    expect(cancelled.error).toBeNull();
+
+    // Four of the six come back. The two that are drawn are in awaiting_pickup
+    // and belong to a winner; nothing here may take them.
+    const station = await client
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(station.data).toEqual({ available: 8, linked: 2 });
+
+    // The link row survives, because it still has to show Sorteados 2.
+    const balance = await client
+      .from('promotion_prize_balances')
+      .select('linked, drawn')
+      .eq('promotion_prize_id', linkId)
+      .single();
+    expect(balance.data).toEqual({ linked: 2, drawn: 2 });
+
+    // The movement carries the cancellation, so the ledger explains itself
+    // without anybody having to cross-reference the promotion.
+    const movements = await client
+      .from('inventory_movements')
+      .select('movement_type, quantity, note')
+      .eq('promotion_prize_id', linkId)
+      .eq('movement_type', 'PROMOTION_UNLINK');
+    expect(movements.data).toHaveLength(1);
+    // `?.[0]?.` rather than `data![0].`: noUncheckedIndexedAccess is on, so the
+    // element is possibly-undefined however certain the non-null assertion is
+    // about the array. The same idiom inventory.test.ts already uses.
+    expect(movements.data?.[0]?.quantity).toBe(4);
+    expect(movements.data?.[0]?.note).toContain('sponsor pulled out');
+  });
+
+  it('cancelling closes a link that had nothing drawn', async () => {
+    const label = `cancel-close-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Camera ${label}`);
+    await stockAsOwner(customer, prizeId, 4);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'promotions.cancel',
+    ]);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+    });
+    expect(link.error).toBeNull();
+
+    // The positive control for the assertion at the end, and the same one
+    // `returns the units and leaves no row behind` needs for the same reason:
+    // PostgREST answers [] for a row a policy filtered out, for a client that
+    // cannot read the table at all, and for a link that was never created — so
+    // "empty afterwards" cannot on its own tell a soft-delete from any of the
+    // three. Asserted as the link's own id, so it also pins WHICH row was there.
+    const before = await client
+      .from('promotion_prizes')
+      .select('id')
+      .eq('promotion_id', promotionId);
+    expect(before.data).toEqual([{ id: link.data }]);
+
+    const cancelled = await client.rpc('cancel_promotion', {
+      p_promotion_id: promotionId,
+      p_reason: 'no longer running',
+    });
+    expect(cancelled.error).toBeNull();
+
+    const links = await client
+      .from('promotion_prizes')
+      .select('id')
+      .eq('promotion_id', promotionId);
+    expect(links.data).toHaveLength(0);
+  });
+
+  it('archiving an ended promotion returns its prizes rather than stranding them', async () => {
+    const label = `archive-strand-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Tablet ${label}`);
+    await stockAsOwner(customer, prizeId, 9);
+    // Ended, never cancelled. cancel_promotion refuses this one outright, so
+    // before this task its prizes had no way back at all.
+    const promotionId = await promotionAsOwner(customer, {
+      startsAt: new Date(Date.now() - 2 * DAY).toISOString(),
+      endsAt: new Date(Date.now() - HOUR).toISOString(),
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'promotions.archive',
+      'inventory.view',
+    ]);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 5,
+    });
+    expect(link.error).toBeNull();
+
+    // Asserted BEFORE the archival, and load-bearing rather than decorative:
+    // { available: 9, linked: 0 } at the end is also exactly what a Station
+    // whose link never happened reads. Without this the case would go green
+    // over a link_prize_to_promotion that had refused this ended promotion
+    // outright — which is precisely the thing 0049 deliberately allows and
+    // which this case's whole premise depends on.
+    const committed = await client
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(committed.data).toEqual({ available: 4, linked: 5 });
+
+    const archived = await client.rpc('archive_promotion', { p_promotion_id: promotionId });
+    expect(archived.error).toBeNull();
+
+    const station = await client
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(station.data).toEqual({ available: 9, linked: 0 });
+  });
+
+  it('archiving after a cancellation finds nothing left to return', async () => {
+    const label = `archive-after-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Voucher ${label}`);
+    await stockAsOwner(customer, prizeId, 3);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'promotions.cancel',
+      'promotions.archive',
+      'inventory.view',
+    ]);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+    });
+    expect(link.error).toBeNull();
+    const cancelled = await client.rpc('cancel_promotion', {
+      p_promotion_id: promotionId,
+      p_reason: 'called off',
+    });
+    expect(cancelled.error).toBeNull();
+
+    // Read BETWEEN the two operations, because the end state alone cannot say
+    // WHICH of them returned the units: with the cancellation returning nothing
+    // the archival would return all three on its own and every assertion below
+    // would read exactly the same. These two are what fix the cancellation as
+    // the one that acted, which is the premise the name rests on.
+    const afterCancel = await client
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(afterCancel.data).toEqual({ available: 3, linked: 0 });
+
+    const beforeArchive = await client
+      .from('inventory_movements')
+      .select('id')
+      .eq('prize_id', prizeId)
+      .eq('movement_type', 'PROMOTION_UNLINK');
+    expect(beforeArchive.data).toHaveLength(1);
+
+    const archived = await client.rpc('archive_promotion', { p_promotion_id: promotionId });
+    expect(archived.error).toBeNull();
+
+    // Three back, and still exactly one PROMOTION_UNLINK — not two. A second
+    // one would mean the cancellation's own return had been repeated, which the
+    // linked bucket floor would have refused anyway; asserting the count is
+    // what proves the helper found the link already closed rather than silently
+    // failing to. The query is by prize rather than by link precisely so that a
+    // second movement written against a second, wrongly re-created link would
+    // still be counted here.
+    const station = await client
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(station.data).toEqual({ available: 3, linked: 0 });
+
+    const movements = await client
+      .from('inventory_movements')
+      .select('id')
+      .eq('prize_id', prizeId)
+      .eq('movement_type', 'PROMOTION_UNLINK');
+    expect(movements.data).toHaveLength(1);
+  });
+
+  it('reports no divergence after a cancellation returned the units', async () => {
+    const label = `cancel-recon-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Checked ${label}`);
+    await stockAsOwner(customer, prizeId, 6);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.prizes',
+      'promotions.cancel',
+      'inventory.view',
+    ]);
+    const client = await clientFor(delegate);
+
+    const link = await client.rpc('link_prize_to_promotion', {
+      p_promotion_id: promotionId,
+      p_prize_id: prizeId,
+      p_quantity: 6,
+    });
+    expect(link.error).toBeNull();
+    const cancelled = await client.rpc('cancel_promotion', {
+      p_promotion_id: promotionId,
+      p_reason: 'weather',
+    });
+    expect(cancelled.error).toBeNull();
+
+    // Asserted BEFORE reconciling, for the reason `reports no divergence after
+    // a link and unlink round trip` sets out at length: reconcile_inventory
+    // returns [] just as readily over a Station where the cancellation moved
+    // nothing at all, so an empty result on its own says "nothing to recompute"
+    // as easily as "recomputed and agreed". Measured, not reasoned — without
+    // this read the case was the ONE green line in this describe's RED run,
+    // passing over a cancel_promotion that returned nothing whatsoever.
+    const station = await client
+      .from('inventory_balances')
+      .select('available, linked')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(station.data).toEqual({ available: 6, linked: 0 });
+
+    // The link this reconciliation is about, named so the [] below cannot be
+    // read as "there was nothing here". It is asserted through the ledger
+    // rather than through promotion_prize_balances because the cancellation
+    // soft-deleted the link, and 0046's policy on the projection is carried by
+    // the one on promotion_prizes, which filters deleted_at — the row is real
+    // and reconciled, and deliberately out of the ordinary read path.
+    const movements = await client
+      .from('inventory_movements')
+      .select('movement_type, quantity')
+      .eq('promotion_prize_id', link.data as string)
+      .order('movement_type');
+    expect(movements.data).toEqual([
+      { movement_type: 'PROMOTION_LINK', quantity: 6 },
+      { movement_type: 'PROMOTION_UNLINK', quantity: 6 },
+    ]);
+
+    const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(check.error).toBeNull();
+    expect(check.data).toEqual([]);
+  });
+});

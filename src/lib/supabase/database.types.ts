@@ -1798,6 +1798,10 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      return_promotion_prizes: {
+        Args: { p_company_id: string; p_note: string; p_promotion_id: string }
+        Returns: number
+      }
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
