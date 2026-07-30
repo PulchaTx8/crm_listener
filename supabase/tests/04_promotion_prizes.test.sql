@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(27);
 
 -- Structure -------------------------------------------------------------------
 
@@ -185,6 +185,40 @@ prepare plain_entry as
   values ('00000000-0000-0000-0000-0000000004b1','00000000-0000-0000-0000-0000000004c1',
           '00000000-0000-0000-0000-0000000004a1', 'MANUAL_ENTRY', 10, null, 'available');
 select lives_ok('plain_entry', 'a movement that names no promotion is still legal');
+
+-- The read gate --------------------------------------------------------------
+
+select ok(has_table_privilege('authenticated', 'public.promotion_prizes', 'SELECT'),
+          'authenticated may read links, subject to policy');
+select ok(has_table_privilege('service_role', 'public.promotion_prize_balances', 'SELECT'),
+          'service_role may read the projection — BYPASSRLS is not a grant');
+select ok(not has_table_privilege('service_role', 'public.promotion_prizes', 'TRUNCATE'),
+          'service_role may not truncate the links');
+select ok(not has_table_privilege('service_role', 'public.promotion_prize_balances', 'TRUNCATE'),
+          'service_role may not truncate the projection');
+
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'promotion_prizes'),
+  1, 'promotion_prizes carries exactly one policy, and it is a read policy');
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'promotion_prize_balances'),
+  1, 'promotion_prize_balances carries exactly one policy, and it is a read policy');
+
+-- Fails closed. The claim names a user with no membership anywhere, so
+-- has_permission is false for every Station and both policies must return
+-- nothing — including for the link and balance rows this file inserted above.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000004f9", "role": "authenticated"}';
+
+create temporary view stranger_links as
+  select id from public.promotion_prizes;
+
+reset role;
+select is(
+  (select count(*)::int from stranger_links),
+  0, 'a caller holding promotions.view nowhere reads no links at all');
 
 select * from finish();
 rollback;
