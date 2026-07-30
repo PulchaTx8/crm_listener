@@ -101,9 +101,32 @@ describe('the tab tuples a page validates against', () => {
     });
   }
 
-  /** A module is a client module when its very first statement is the directive. */
+  /**
+   * A module is a client module when its very first STATEMENT is the directive.
+   *
+   * Comments are not statements, so a licence header or a doc block sitting
+   * above `'use client'` still leaves the directive first, and the module is
+   * still a client module. Matching the first TEXT in the file instead would
+   * call such a module a server module and let this whole guard pass on a live
+   * bug — the day one of the six dialogs grows a header, which is an ordinary
+   * thing for a file to grow. A hand-written skip rather than one regex over
+   * the lot: the alternation that expresses it nests two quantifiers, and a
+   * guard nobody can read is a guard nobody will maintain.
+   */
   function isClientModule(source: string): boolean {
-    return /^\s*(['"])use client\1/.test(source);
+    let rest = source.trimStart();
+    for (;;) {
+      if (rest.startsWith('//')) {
+        const end = rest.indexOf('\n');
+        rest = end === -1 ? '' : rest.slice(end + 1).trimStart();
+      } else if (rest.startsWith('/*')) {
+        const end = rest.indexOf('*/');
+        rest = end === -1 ? '' : rest.slice(end + 2).trimStart();
+      } else {
+        break;
+      }
+    }
+    return /^(['"])use client\1/.test(rest);
   }
 
   function resolveImport(fromFile: string, specifier: string): string {
@@ -144,6 +167,23 @@ describe('the tab tuples a page validates against', () => {
   // — but a discovery that silently finds nothing does.
   it('finds every screen that opens a record', () => {
     expect(callers.length).toBeGreaterThanOrEqual(6);
+  });
+
+  // The guard's own reading of the directive, asserted rather than asserted
+  // ABOUT: the header case below is the one that decides whether this whole
+  // describe still works on the day a dialog grows a licence block, and it is
+  // not exercised by any of the six real files, all of which open with the
+  // directive on line 1.
+  it.each([
+    ["'use client';\n", true],
+    ['"use client";\n', true],
+    ['/* Copyright somebody. */\n\n\'use client\';\n', true],
+    ['/**\n * A doc block.\n */\n\'use client\';\n', true],
+    ['// A line comment.\n\'use client\';\n', true],
+    ["import { x } from 'y';\n'use client';\n", false],
+    ["export const TABS = ['data'] as const;\n", false],
+  ] as [string, boolean][])('reads the directive past any header (%j)', (source, expected) => {
+    expect(isClientModule(source)).toBe(expected);
   });
 
   // A test per screen rather than one loop inside a single test, so that a

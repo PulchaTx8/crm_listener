@@ -18,9 +18,12 @@
  * defect. Every one of those modules opens with 'use client', so the six page
  * components — Server Components, all of them — were importing a value across
  * the boundary and receiving what React hands back for a client export: a
- * registered client reference, which is a function, not the array. Every
- * property read off it answers `undefined`, which made the failure two-faced
- * and is precisely why it survived three blocks:
+ * registered client reference, which is a function, not the array. Both reads
+ * this parser makes off it — `.includes` and `[0]` — answer `undefined`, and
+ * neither throws on the way. (Not every read: it is a function, so `.length`
+ * answers 0, its arity. The two that matter here are the two that lie.) That
+ * is what made the failure two-faced, and it is precisely why it survived
+ * three blocks:
  *
  *   - `?record=<id>&tab=<slug>` reached `tabs.includes(requested)`, called
  *     `undefined`, and threw `TypeError: tabs.includes is not a function`
@@ -40,7 +43,18 @@
  * spelled, and six new files would be six more that know it — kept uniform
  * across six directories by hand, which is the drift this defect grew out of.
  * The screens are all a page, a grid and a dialog reading the same tuple, so
- * there is one idea here, not six.
+ * there is one idea here, not six. src/lib/promotion-situation.ts already
+ * carries one screen's vocabulary on the same reasoning.
+ *
+ * The cost of that, so the next person weighs it rather than discovers it:
+ * this file now grows with every screen, and adding a seventh means editing a
+ * module that six other directories already import — a wider blast radius than
+ * touching a tuple beside the screen it belongs to, and a merge point when two
+ * blocks add a screen at once. The trade is deliberate: a wider blast radius on
+ * a file whose whole job is this, against six copies of one idea drifting
+ * apart, which is the failure that actually happened. If the list ever gets
+ * long enough that this reads as a junk drawer, the answer is one module per
+ * screen chosen deliberately and applied to all of them — never to some.
  *
  * `as const` on each, because every screen derives its union type from its own
  * tuple and a widened `string[]` would give the dialogs back an unchecked
