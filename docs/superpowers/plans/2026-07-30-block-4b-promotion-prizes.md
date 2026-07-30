@@ -3040,25 +3040,44 @@ and in the returned object, after `questions: ...`:
 d. Append the three call wrappers at the end of the file:
 
 ```ts
-/** The picker behind the Link control. Capped at 50 by the RPC; the screen says so. */
+/** What the picker shows. The RPC reads one more than this and the extra row is the signal. */
 export const LINKABLE_PRIZE_PAGE_SIZE = 50;
 
+export interface LinkablePrizePage {
+  prizes: LinkablePrize[];
+  /** True when the catalogue holds more than this page shows, so the screen can say so truthfully. */
+  hasMore: boolean;
+}
+
+/**
+ * `list_linkable_prizes` (0051) reads fifty-one rows and returns them all. The
+ * fifty-first is not a result — it is the answer to "is there more", which is
+ * the same convention listPromotionsPage uses with PROMOTION_PAGE_SIZE + 1 and
+ * keysetPage. Counting instead would cost a second scan of the catalogue on
+ * every keystroke; asking the screen to infer truncation from a full page would
+ * make it announce a cut that did not happen to a Station holding exactly fifty
+ * prizes, which is worse than saying nothing.
+ */
 export async function listLinkablePrizes(
   companyId: string,
   search: string | null,
   accessToken: string,
-): Promise<LinkablePrize[]> {
+): Promise<LinkablePrizePage> {
   const { data, error } = await asCaller(accessToken).rpc('list_linkable_prizes', {
     p_company_id: companyId,
     p_search: search || undefined,
   });
   if (error) throw mapPromotionError(error.code, error.message);
 
-  return (data ?? []).map((row) => ({
-    prizeId: row.prize_id,
-    name: row.name,
-    available: row.available,
-  }));
+  const rows = data ?? [];
+  return {
+    prizes: rows.slice(0, LINKABLE_PRIZE_PAGE_SIZE).map((row) => ({
+      prizeId: row.prize_id,
+      name: row.name,
+      available: row.available,
+    })),
+    hasMore: rows.length > LINKABLE_PRIZE_PAGE_SIZE,
+  };
 }
 
 export async function linkPrizeToPromotion(
@@ -3171,10 +3190,12 @@ export async function unlinkPrizeAction(
 export async function searchLinkablePrizesAction(
   companyId: string,
   search: string,
-): Promise<{ status: 'ok'; prizes: LinkablePrize[] } | { status: 'error'; message: string }> {
+): Promise<
+  { status: 'ok'; page: LinkablePrizePage } | { status: 'error'; message: string }
+> {
   const token = await requireAccessToken();
   try {
-    return { status: 'ok', prizes: await listLinkablePrizes(companyId, search.trim(), token) };
+    return { status: 'ok', page: await listLinkablePrizes(companyId, search.trim(), token) };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'could not list linkable prizes');
     return { status: 'error', message: describePromotionsReadError(cause) };
@@ -3182,7 +3203,7 @@ export async function searchLinkablePrizesAction(
 }
 ```
 
-Extend the imports at the top of the file: `linkPrizeToPromotion`, `unlinkPrizeFromPromotion`, `listLinkablePrizes` and the type `LinkablePrize` from `@/services/promotions`; `promotionPrizeLinkSchema` from `@/schemas/promotions`; and `describePromotionsReadError` from `./errors` alongside the write one.
+Extend the imports at the top of the file: `linkPrizeToPromotion`, `unlinkPrizeFromPromotion`, `listLinkablePrizes` and the type `LinkablePrizePage` from `@/services/promotions`; `promotionPrizeLinkSchema` from `@/schemas/promotions`; and `describePromotionsReadError` from `./errors` alongside the write one.
 
 - [ ] **Step 9: Run every gate**
 
@@ -3234,6 +3255,7 @@ Create `src/app/(app)/promotions/prizes-tab.tsx`:
 import { useActionState, useEffect, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
+import { LINKABLE_PRIZE_PAGE_SIZE } from '@/services/promotions';
 import type { LinkablePrize, PromotionPrizeRow } from '@/services/promotions';
 import {
   linkPrizeAction,
@@ -3243,9 +3265,6 @@ import {
 } from './actions';
 
 const INITIAL: PrizeLinkState = { status: 'idle' };
-
-/** The RPC's own cap (0051), stated here so the notice and the query cannot drift apart. */
-const PICKER_CAP = 50;
 
 /**
  * Vinculados / Sorteados / Resto, one row per linked prize, plus the two
@@ -3425,6 +3444,7 @@ function LinkForm({
   const [state, action, pending] = useActionState(linkPrizeAction, INITIAL);
   const [search, setSearch] = useState('');
   const [options, setOptions] = useState<LinkablePrize[]>([]);
+  const [cut, setCut] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [loading, startLoading] = useTransition();
 
@@ -3440,11 +3460,13 @@ function LinkForm({
       startLoading(async () => {
         const result = await searchLinkablePrizesAction(companyId, search);
         if (result.status === 'ok') {
-          setOptions(result.prizes);
+          setOptions(result.page.prizes);
+          setCut(result.page.hasMore);
           setFailure(null);
           return;
         }
         setOptions([]);
+        setCut(false);
         setFailure(result.message);
       });
     }, 250);
@@ -3475,11 +3497,15 @@ function LinkForm({
             </option>
           ))}
         </Select>
-        {/* No silent caps: a list that stops at fifty must say so, or an
-            operator hunting for the fifty-first concludes the prize is gone. */}
-        {options.length === PICKER_CAP && (
+        {/* No silent caps: a list that stops must say so, or an operator
+            hunting for the prize that is not there concludes it is gone.
+            Driven by the service's own hasMore — which comes from the RPC
+            returning one row past the page — rather than from a full page,
+            because a Station holding exactly fifty prizes would otherwise be
+            told about a truncation that did not happen. */}
+        {cut && (
           <span className="text-xs text-muted-foreground">
-            Showing the first {PICKER_CAP}. Narrow the search to reach the rest.
+            Showing the first {LINKABLE_PRIZE_PAGE_SIZE}. Narrow the search to reach the rest.
           </span>
         )}
         {loading && <span className="text-xs text-muted-foreground">Looking…</span>}
