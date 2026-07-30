@@ -1,5 +1,5 @@
 begin;
-select plan(33);
+select plan(37);
 
 -- Structure ------------------------------------------------------------------
 
@@ -281,6 +281,21 @@ select throws_ok(
             '00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-0000000000c1',
             1, 'ESSAY', 'Duplicate position')$$,
   '23505', null, 'two questions may not share a position');
+
+-- Reads and grants ------------------------------------------------------------
+
+select ok(has_table_privilege('authenticated', 'public.promotions', 'SELECT'),
+          'authenticated may read promotions, subject to policy');
+select ok(not has_table_privilege('authenticated', 'public.promotion_questions', 'INSERT'),
+          'authenticated may not insert a question directly');
+select is(relrowsecurity, true, 'RLS enabled on promotion_questions')
+  from pg_class where oid = 'public.promotion_questions'::regclass;
+
+-- Fails closed with no session in play, and doubles as a canary: the function
+-- is `language sql`, so a body referencing a dropped column errors at plan
+-- time — calling it at all is what proves it still resolves.
+select is(public.is_owner_of_company(gen_random_uuid()), false,
+          'is_owner_of_company fails closed with no session');
 
 select * from finish();
 rollback;
