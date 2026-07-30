@@ -83,8 +83,20 @@ select lives_ok('relink', 'a prize can be linked again after its link was unwoun
 -- Delete before undeleting: the relink above left a second live row for the
 -- same (promotion_id, prize_id) pair, and undeleting 4e1 while that row is
 -- still live would itself collide with promotion_prizes_live_unique.
+--
+-- Scoped to this test's own promotion, and load-bearing from 0049 onwards. It
+-- read `where id <> 4e1` until then, which swept every promotion_prizes row in
+-- the database — harmless only while nothing could create one, because Block
+-- 4b had no linking RPC yet. link_prize_to_promotion is that RPC, and the
+-- moment the isolation suite has run against this stack the unscoped delete
+-- hits promotion_prize_balances_link_fk on somebody else's link and takes the
+-- whole file down with "Bad plan. You planned 34 tests but ran 10" — which
+-- reads like a defect in the migrations and is not one. CI never saw it
+-- because it runs `supabase test db` before the isolation suite on a fresh
+-- stack; a developer running the gates twice, or in the other order, does.
 delete from public.promotion_prizes
- where id <> '00000000-0000-0000-0000-0000000004e1';
+ where promotion_id = '00000000-0000-0000-0000-0000000004d1'
+   and id <> '00000000-0000-0000-0000-0000000004e1';
 update public.promotion_prizes set deleted_at = null
  where id = '00000000-0000-0000-0000-0000000004e1';
 

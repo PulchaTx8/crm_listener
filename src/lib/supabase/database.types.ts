@@ -1661,6 +1661,15 @@ export type Database = {
         Args: { p_company_id: string; p_member_id: string }
         Returns: undefined
       }
+      link_prize_to_promotion: {
+        Args: {
+          p_note?: string
+          p_prize_id: string
+          p_promotion_id: string
+          p_quantity: number
+        }
+        Returns: string
+      }
       list_manageable_companies: {
         Args: { p_organization_id: string; p_permission: string }
         Returns: {
@@ -1811,6 +1820,15 @@ export type Database = {
       }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }
+        Returns: undefined
+      }
+      unlink_prize_from_promotion: {
+        Args: {
+          p_note?: string
+          p_prize_id: string
+          p_promotion_id: string
+          p_quantity: number
+        }
         Returns: undefined
       }
       update_member: {

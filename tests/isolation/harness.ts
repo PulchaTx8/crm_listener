@@ -409,3 +409,46 @@ export function corruptBalanceDirectly(
     );
   }
 }
+
+/**
+ * Sets `drawn` on one promotion_prize_balances row directly, outside
+ * apply_inventory_movement — the same escape hatch corruptBalanceDirectly uses
+ * and for a narrower reason: nothing writes `drawn` until Block 6 brings the
+ * draw, so D4's floor ("do not unlink below what has been drawn") has no
+ * reachable fixture through any RPC. 0046 revokes every write grant on this
+ * table from every role, service_role included, so a direct connection to
+ * Postgres as its superuser is the only route left, exactly as it is there.
+ *
+ * A row set this way is a real divergence and reconcile_inventory (0048) will
+ * report it as stored=N against computed=0 — which is the truth, because the
+ * ledger has no record of it. Do not use this helper inside a test that also
+ * asserts reconciliation is clean.
+ *
+ * Invoked through node.exe against the CLI's own JS entrypoint rather than the
+ * .bin shim, and the `UPDATE 1` command tag is checked rather than discarded,
+ * both for the reasons corruptBalanceDirectly's comment sets out at length.
+ */
+export function setPromotionPrizeDrawnDirectly(promotionPrizeId: string, drawn: number): void {
+  if (!UUID_RE.test(promotionPrizeId)) {
+    throw new Error('setPromotionPrizeDrawnDirectly: promotion_prize_id must be a UUID');
+  }
+  if (!Number.isInteger(drawn) || drawn < 0) {
+    throw new Error('setPromotionPrizeDrawnDirectly: drawn must be a non-negative integer');
+  }
+
+  const script = path.join(REPO_ROOT, 'node_modules', 'supabase', 'dist', 'supabase.js');
+  const sql =
+    `update promotion_prize_balances set drawn = ${drawn} ` +
+    `where promotion_prize_id = '${promotionPrizeId}';`;
+
+  const output = execFileSync(process.execPath, [script, 'db', 'query', '--local', sql], {
+    encoding: 'utf8',
+  });
+
+  if (!/\bUPDATE 1\b/.test(output)) {
+    throw new Error(
+      `setPromotionPrizeDrawnDirectly: expected to update exactly one row ` +
+        `(promotion_prize_id=${promotionPrizeId}); the CLI reported: ${output.trim()}`,
+    );
+  }
+}
