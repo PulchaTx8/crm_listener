@@ -449,7 +449,7 @@ select is(
 
 Run: `npm run db:reset && npm run db:test`
 
-Expected: all four files pass; `04_promotion_prizes.test.sql` reports 21 of 21.
+Expected: all four files pass; `04_promotion_prizes.test.sql` reports 20 of 20.
 
 - [ ] **Step 6: Commit**
 
@@ -603,7 +603,7 @@ create policy promotion_prize_balances_select_promotions_view on public.promotio
 
 Run: `npm run db:reset && npm run db:test`
 
-Expected: `04_promotion_prizes.test.sql` reports 28 of 28; the other three files unchanged and green.
+Expected: `04_promotion_prizes.test.sql` reports 27 of 27; the other three files unchanged and green.
 
 - [ ] **Step 5: Commit**
 
@@ -909,7 +909,7 @@ comment on function public.apply_inventory_movement(uuid, uuid, public.inventory
 
 Run: `npm run db:reset && npm run db:test`
 
-Expected: `02_permissions.test.sql` 208 of 208, `04_promotion_prizes.test.sql` 33 of 33, `00`/`01`/`03` unchanged. If `02` fails on an inventory movement case rather than the signature, the eight-argument overload was not really dropped — check for a second row in `pg_proc` for `apply_inventory_movement`.
+Expected: `02_permissions.test.sql` 208 of 208, `04_promotion_prizes.test.sql` 34 of 34, `00`/`01`/`03` unchanged. If `02` fails on an inventory movement case rather than the signature, the eight-argument overload was not really dropped — check for a second row in `pg_proc` for `apply_inventory_movement`.
 
 - [ ] **Step 6: Prove the five existing callers still reach it**
 
