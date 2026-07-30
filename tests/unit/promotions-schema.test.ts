@@ -266,9 +266,15 @@ describe('promotionPrizeLinkSchema', () => {
   });
 
   it('refuses a quantity that arrived as text the form could not read', () => {
-    expect(promotionPrizeLinkSchema.safeParse({ ...valid, quantity: Number.NaN }).success).toBe(
-      false,
-    );
+    const result = promotionPrizeLinkSchema.safeParse({ ...valid, quantity: Number.NaN });
+    expect(result.success).toBe(false);
+    // Pins the message, not just the failure: Number('') is 0, which would
+    // otherwise reach the schema as a real quantity and be refused with "Link
+    // at least one unit" — a sentence about a number the operator never typed.
+    // NaN's invalid_type check short-circuits before .int()/.min() ever run
+    // (confirmed by hand: exactly one issue is produced for this input), so
+    // asserting on issues[0] is safe rather than merely convenient.
+    expect(result.error?.issues[0]?.message).toBe('How many units?');
   });
 
   it('refuses an id that is not a uuid, so a hand-edited form cannot reach the RPC', () => {
