@@ -1514,6 +1514,7 @@ export type Database = {
       }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
+      is_owner_of_company: { Args: { p_company_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       lift_member_block: {
         Args: { p_block_id: string; p_reason: string }
@@ -1661,7 +1662,7 @@ export type Database = {
           p_options?: Json
           p_promotion_id: string
           p_prompt: string
-          p_question_id: string
+          p_question_id?: string
         }
         Returns: string
       }

@@ -5,14 +5,18 @@
 -- options at all, or still carrying the previous version's — the same reasoning
 -- that keeps a role's two halves in one submission (Block 3c).
 
+-- p_question_id comes last and defaults to null on purpose: omitting it is what
+-- means "append a new question", which is the commoner call and the one whose
+-- intent should read at the call site rather than as a bare null in the middle
+-- of the arguments.
 create or replace function public.save_promotion_question(
   p_promotion_id uuid,
-  p_question_id  uuid,
   p_kind         public.promotion_question_kind,
   p_prompt       text,
   p_menu_title   text default null,
   p_button_label text default null,
-  p_options      jsonb default '[]'::jsonb
+  p_options      jsonb default '[]'::jsonb,
+  p_question_id  uuid default null
 )
 returns uuid
 language plpgsql
@@ -129,7 +133,7 @@ begin
 end;
 $$;
 
-comment on function public.save_promotion_question(uuid, uuid, public.promotion_question_kind, text, text, text, jsonb) is
+comment on function public.save_promotion_question(uuid, public.promotion_question_kind, text, text, text, jsonb, uuid) is
   'Writes a question and its options in one call — they are one form, and splitting them would let a question exist with no options or with the previous version''s. A null p_question_id appends; a given one replaces, options included. Gated on promotions.edit. Holds "exactly one right answer on a QUIZ", which no index can express: an index forbids the second and nothing can require the first.';
 
 create or replace function public.remove_promotion_question(p_question_id uuid)
