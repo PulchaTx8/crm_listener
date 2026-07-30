@@ -620,6 +620,13 @@ export type Database = {
             referencedRelation: "members"
             referencedColumns: ["id", "organization_id"]
           },
+          {
+            foreignKeyName: "member_consents_promotion_fk"
+            columns: ["promotion_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
         ]
       }
       member_notes: {
@@ -1017,6 +1024,108 @@ export type Database = {
         }
         Relationships: []
       }
+      promotions: {
+        Row: {
+          allow_multiple_entries: boolean
+          art_url: string | null
+          call_to_action: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          ends_at: string
+          hashtag: string | null
+          id: string
+          min_hours_between_entries: number | null
+          name: string
+          no_button_label: string | null
+          organization_id: string
+          requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
+          require_correct_answer: boolean
+          site_integration_code: number | null
+          starts_at: string
+          updated_at: string
+          use_art: boolean
+          whatsapp_enabled: boolean
+          yes_button_label: string | null
+        }
+        Insert: {
+          allow_multiple_entries?: boolean
+          art_url?: string | null
+          call_to_action?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          ends_at: string
+          hashtag?: string | null
+          id?: string
+          min_hours_between_entries?: number | null
+          name: string
+          no_button_label?: string | null
+          organization_id: string
+          requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          require_correct_answer?: boolean
+          site_integration_code?: number | null
+          starts_at: string
+          updated_at?: string
+          use_art?: boolean
+          whatsapp_enabled?: boolean
+          yes_button_label?: string | null
+        }
+        Update: {
+          allow_multiple_entries?: boolean
+          art_url?: string | null
+          call_to_action?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          ends_at?: string
+          hashtag?: string | null
+          id?: string
+          min_hours_between_entries?: number | null
+          name?: string
+          no_button_label?: string | null
+          organization_id?: string
+          requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          require_correct_answer?: boolean
+          site_integration_code?: number | null
+          starts_at?: string
+          updated_at?: string
+          use_art?: boolean
+          whatsapp_enabled?: boolean
+          yes_button_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotions_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_limit_counters: {
         Row: {
           count: number
@@ -1252,6 +1361,7 @@ export type Database = {
         Returns: Json
       }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
+      has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
         Args: { p_organization_id: string; p_permission: string }
         Returns: boolean
@@ -1486,6 +1596,16 @@ export type Database = {
         | "internal_policy"
       org_role: "owner" | "member"
       permission_scope: "organization" | "company"
+      promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
+      promotion_requested_field:
+        | "full_name"
+        | "address"
+        | "city"
+        | "neighbourhood"
+        | "age"
+        | "cpf"
+        | "passport"
+        | "discovery_source"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1655,6 +1775,17 @@ export const Constants = {
       ],
       org_role: ["owner", "member"],
       permission_scope: ["organization", "company"],
+      promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],
+      promotion_requested_field: [
+        "full_name",
+        "address",
+        "city",
+        "neighbourhood",
+        "age",
+        "cpf",
+        "passport",
+        "discovery_source",
+      ],
     },
   },
 } as const
