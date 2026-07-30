@@ -19,30 +19,34 @@ column, one function dropped and recreated, five RPCs, one screen.
 
 ## 1. Verification
 
-Every gate run at its real defaults on the final tree, after all four mutations
-below were reverted and after the assertion §4.4 adds.
+Every gate run at its real defaults on the final tree — after all four mutations
+below were reverted, after the assertion §4.4 adds, and after the whole-branch
+review's fix wave (§1.3, §8).
 
 | Gate | Command | Result |
 | --- | --- | --- |
 | Lint | `npm run lint` | ✔ no ESLint warnings or errors |
 | Types | `npm run typecheck` | clean |
-| Unit | `npm test` | **256 passed**, 19 files (from 237) |
-| Database | `npm run db:reset` then `npm run db:test` | **332 passed**, 5 files, `Result: PASS` (from 281) |
-| Isolation | `npm run test:isolation` | **151 passed**, 13 files, under real JWTs (from 121) — see §1.2 |
-| End to end | `npx playwright test --workers=1` | **14 passed**, 9 spec files (from 12) |
+| Unit | `npm test` | **258 passed**, 19 files (from 237) |
+| Database | `npm run db:reset` then `npm run db:test` | **344 passed**, 5 files, `Result: PASS` (from 281) |
+| Isolation | `npm run test:isolation` | **13 files, 152 passed** under real JWTs (from 121) — on the runs that completed. **A pre-existing worker crash aborts roughly one run in three on this machine and the gate now fails every one of them: §1.3, §1.4.** |
+| End to end | `npm run test:e2e -- --workers=1` | **14 passed**, 9 spec files (from 12) |
 
-The first five were re-run on the final tree after the mutation round, from a
-clean `db:reset`. **The e2e row is Task 9c's run, not a sixth one**: all four
-mutations were to migrations, every one was reverted, and the tree that produced
-14/14 is byte-identical to the tree these five ran against (§4.5). Saying
-otherwise would be inventing a result.
+Every row is a run on the final tree, from a clean `db:reset`. The isolation row
+is written as a run's own output rather than as a composite: the previous version
+of this table read "151 passed, 13 files", **a pair of numbers no single run ever
+produced** — §1.2 explains why, and a reader scanning the table would have taken
+it for a result. It also no longer implies that every run of that suite finishes,
+because on this machine they do not (§1.3), and pretending otherwise in a summary
+table is the same failure in a smaller font.
 
-Unit went from 237 to 256: nineteen cases, fourteen of them for
-`parseRecordParam` and the client-module guard (§5.1) and five for the link and
-unlink schemas. pgTAP from 281 to 332: fifty-one, one per constraint in the spec's
-§6 list plus the grant grid, the recreated signature and the projection writes.
-Isolation from 121 to 151: thirty, twenty-eight of them in one new file driven
-by a non-owner delegate.
+Unit went from 237 to 258: twenty-one cases — fourteen for `parseRecordParam` and
+the client-module guard (§5.1), five for the link and unlink schemas, and two the
+branch review added for the quantity ceiling (§8.5). pgTAP from 281 to 344:
+sixty-three, one per constraint in the spec's §6 list plus the grant grid, the
+recreated signature and the projection writes, and twelve the branch review added
+for this block's own five functions (§8.2). Isolation from 121 to 152:
+thirty-one, twenty-nine of them in one new file driven by a non-owner delegate.
 
 ### 1.1 Two facts about running the gates that cost real time to rediscover
 
@@ -67,7 +71,13 @@ the limiter above, which is per IP and therefore per machine, not per worker.
 The result is failures that do not reproduce when the spec is run on its own,
 which is the most expensive kind to chase.
 
-### 1.2 The tinypool flake is worse than the ledger recorded, and it is no longer random
+### 1.2 The tinypool flake is worse than the ledger recorded — and what the branch review did about it
+
+**Read §1.3 with this section.** What follows is Task 10's account, corrected
+where it was wrong. What was actually done about it — the fix, its verification,
+and the gate that now fails closed regardless — is §1.3, and one of the things
+it corrects is the mechanism this section proposed.
+
 
 The ledger escalated a `Worker exited unexpectedly` flake seen in Tasks 3, 4, 5
 and 6, noting that "every run that hit it still reported every test passing, and
@@ -91,13 +101,29 @@ the count of cases that got through before the worker died varied between runs
 code does not reliably distinguish the two, and a green isolation gate can be
 missing a file.
 
-There is now a mechanism to point at rather than a shrug. The dropped file is
-the only one that calls `execFileSync` to spawn the Supabase CLI from inside a
-vitest worker thread — `corruptBalanceDirectly` and
-`setPromotionPrizeDrawnDirectly`, `tests/isolation/harness.ts:431-454`. The
-correlation is exact in both directions: under Mutation 4 (§4.4) every case in
-that file failed before reaching either helper, the file finished in a fifth of
-the time, and that run accounted for all 151 tests with no worker death.
+> **Corrected by §1.3.** "The same file every time" held for three runs and does
+> not hold: across ten further runs it dropped `inventory.test.ts` once and
+> `invitations.test.ts` once. It is not this block's file, and it is not this
+> block's defect.
+
+There is a mechanism to point at rather than a shrug, and **this report stated
+it wrongly**. It said the dropped file "is the only one that calls
+`execFileSync` to spawn the Supabase CLI from inside a vitest worker thread".
+**It is not the only one.** `tests/isolation/inventory.test.ts:425` and `:452`
+call `corruptBalanceDirectly`, which spawns the same CLI through the same
+`execFileSync` in the same helper file, and has done since Block 2 — the two
+helpers sat eight lines apart. Two files shared the mechanism, not one. The
+correlation was therefore never "exact in both directions"; what it was is a
+mechanism present in both files that hit the crash and absent from the eleven
+that did not, which is weaker and is what should have been written.
+
+Two further corrections to what was written above it. The pool was already
+`forks`, not threads: vitest 2 changed that default, and this suite runs 2.1.9,
+so "inside a vitest worker thread" named the wrong thing. And under Mutation 4
+(§4.4) every case in the dropped file failed before reaching either helper and
+the run accounted for all 151 tests — which is evidence, but of a run that
+finished in a fifth of the time and never called the helper at all, so it cannot
+distinguish "the spawn is the trigger" from "a short file does not trip it".
 
 **The revert was therefore proved in two parts** rather than trusted: the full
 suite green on twelve files, plus `promotion-prizes.test.ts` run scoped, 28 of
@@ -116,13 +142,184 @@ Nothing here says one did; what it says is that the evidence does not
 distinguish. The claims in §1's table are the exception: they were checked file
 by file, and the thirteenth was run scoped precisely because it could not be.
 
-The cheap standing defence, until the crash itself is fixed: read `Test Files
-N passed (13)` and `Tests N passed (151)` on every isolation run and treat any
-shortfall as a failure regardless of the exit code.
+The standing defence Task 10 proposed — read `Test Files N passed (13)` on every
+run and treat a shortfall as a failure regardless of the exit code — was the
+right instinct and the wrong instrument, because it is a human reading a summary
+line. It is now a step in the runner. See §1.3.
 
-**For the branch review to rule on**, because four tasks have now re-run past
-it and this task will not be the fifth: this is a gate that can report success
-while a file did not run.
+**Ruled on by the branch review**, because four tasks re-ran past it and Task 10
+declined to be the fifth: this was a gate that could report success while a file
+did not run, and it was the branch's most serious problem. §1.3 is what was done.
+
+### 1.3 What the branch review did about it
+
+Three things, in the order they matter.
+
+**1. The suspected trigger was removed from both files rather than from one —
+and it turned out not to be the trigger.** Say that first, because the rest of
+this item reads like a fix and only item 3 is one. The two harness helpers no
+longer spawn anything. `corruptBalanceDirectly` and
+`setPromotionPrizeDrawnDirectly` each existed to run a single `UPDATE` against a
+table no role holds a write grant on, and each did it by spawning
+`node node_modules/supabase/dist/supabase.js db query --local <sql>` — which
+itself spawns the CLI binary. Three processes deep, from inside a vitest worker,
+with the worker's event loop blocked solid for the duration (measured at 6.1 s
+for one call during Task 5, and there are four per run in the dropped file
+alone). They now open one `pg` connection to `127.0.0.1:54322`, the port the
+test config already pins, and run a **parameterised** statement —
+`superuserStatement` in `tests/isolation/harness.ts`. `pg` is a new
+devDependency and that is the cost. Both helpers became `async`; the six call
+sites across two files take an `await`.
+
+The side effects are worth stating because, the crash having survived, they are
+now the *whole* argument for the change: the raw SQL string built by
+interpolation is gone, both statements bind their values, the affected-row check
+is a `rowCount` rather than a regex over CLI stdout, the helpers refuse outright
+if the suite has been pointed at a remote stack they cannot follow, and
+`promotion-prizes.test.ts` runs scoped in **26 s** where it used to take over a
+minute. The change is worth keeping on those grounds. It is not worth crediting
+with anything else — see the end of this section.
+
+**2. `pool: 'forks'` was NOT the fix, and the first thing to check was whether
+it would have been.** It would not: `configDefaults.pool` in vitest 2.1.9 is
+already `'forks'`, so setting it changes nothing at all. It is now written into
+`vitest.isolation.config.ts` anyway, as an explicit pin so that a vitest upgrade
+cannot move it silently, with a comment saying in as many words that it is a pin
+and not the answer. Anyone who "fixes" this flake by adding that line has done
+nothing and will believe otherwise.
+
+**3. The gate now fails closed whatever the cause — and this is the part that
+actually holds.** `npm run test:isolation` runs
+`scripts/verify-isolation-suite.mjs`, which asks **two independent questions**
+about every full run, because neither can see what the other sees:
+
+- **The JSON report**, against the `*.test.ts` files on disk. It is the only
+  thing that knows which files were supposed to run. A file that reported nothing
+  is named in the banner.
+- **Vitest's own summary line**, echoed through as it arrives and then parsed.
+  It is the only thing that saw a worker die *after* its file's tests had all
+  passed — `Test Files 12 passed (13)` beside `Tests 152 passed (152)`, a state
+  in which the JSON report has nothing whatever to complain about. An `Errors N
+  error` line fails the run too, on its own.
+
+The exit code is checked **last and never alone**, because this crash exited 0
+once and 1 once from the same broken state. A run narrowed to particular files
+skips the file-count check and **says so on stdout**, so a scoped run cannot be
+mistaken for a whole one. `.github/workflows/ci.yml` carries a comment forbidding
+its "simplification" back to `vitest run`.
+
+**Both halves were proved against real output rather than reasoned about**, which
+is how the second half came to exist at all. `--verify-report` validates a saved
+JSON report and `--verify-summary` a saved run log; run against the branch
+review's own logs, the four clean runs pass and the crashed one fails on both
+counts:
+
+```
+$ node scripts/verify-isolation-suite.mjs --verify-summary iso-4.log
+==============================================================================
+ISOLATION SUITE INCOMPLETE — this run proves nothing.
+==============================================================================
+  * vitest collected 13 test file(s) and reported on only 12: "Test Files 12
+    passed (13)". A file's worker died without the file being reported.
+  * vitest reported 1 unhandled error(s) during the run.
+EXIT=1
+```
+
+**The crash reproduced after the change, repeatedly, and it killed the diagnosis
+outright. Say that first and plainly.** Across **fifteen** full runs on the final
+tree it hit **six times** — `Worker exited unexpectedly`, from
+`tinypool/dist/index.js:118`, `Test Files 12 passed (13)` every time. So the
+spawn was **not** the cause, and item 1 is a tidying-up rather than a repair.
+Four things are worth having:
+
+- **It drops a different file every time.** Six crashes, six files, no repeats:
+  `inventory`, `invitations`, `roles`, `tenant`, `listing`, and — once, at the
+  end — `promotion-prizes`. **Four of the six call neither harness helper**: no
+  `execFileSync`, no `pg`, no direct write to Postgres at all, and nothing Block
+  4b added. The correlation this report built its whole diagnosis on, which had
+  already been overstated (see above), is **dead**. This is a general flake in how
+  the runner tears a worker down on this machine. Everything the block said about
+  "this block's own file, every time" was true of three runs and is not true.
+- **The damage varies run to run.** Five times every case in all thirteen files
+  ran and passed and only the file-level line went missing (`Tests 152 passed
+  (152)`); once results were genuinely lost (`145 passed (152)`), which is the
+  pre-change signature. So a crashed run may or may not have lost coverage, and
+  from the summary alone you cannot tell which — another reason the run has to
+  fail rather than be interpreted.
+- **An accumulated-stack explanation was tested and does not hold either.** The
+  rate looked like it rose with the age of the local stack — none of the first
+  three runs after a `db:reset` crashed, four of the next seven did, and by then
+  `auth.users` held **4128 rows**, because `cleanupUsers` cannot delete every user
+  it creates (a pre-existing ⚑ in §8.6: non-cascading foreign keys and the "at
+  least one owner" trigger). So batch 3 in §1.4 was run from a clean `db:reset` —
+  and it crashed on the **second** run, with the stack barely used. A fourth
+  explanation crossed off. The leak is real, it is now measured at about 450 rows
+  a run, and it is still worth fixing; it is not this.
+- **The first version of the guard nearly missed the first crash.** Its JSON
+  report was clean — every assertion it knew of had passed — so the
+  file-completeness check said nothing and the run failed only on the exit code,
+  which is the one signal this crash is known to fake. That is why the summary
+  check above exists; it was written *because* of that run rather than in
+  anticipation of it. All six crashes were then caught loudly, on three or four
+  independent signals each.
+
+**What is therefore still open:** the crash is real, it is about two full runs in
+five on this machine, its mechanism is unknown, it is **not** Block 4b's, and four
+explanations have now been tested and killed — the CLI spawn; an inherited
+`NODE_CHANNEL_FD` corrupting the parent's IPC channel (probed directly with a
+`fork()` and an `execFileSync`: Node deletes the variable, both child and
+grandchild read `undefined`); the idea that it is confined to the files that
+write Postgres directly; and an accumulated local stack. **What is closed:** it
+can no longer be mistaken for a
+pass. **The lead that remains** is `poolOptions.forks.singleFork`, which would run
+every file in one reused child and so remove the per-file worker teardown this
+crash lands in. Untried here: telling it from noise at this rate needs far more
+runs than a fix wave can afford, and shipping an unverified pool option to chase
+a flake is exactly how the `pool: 'forks'` non-fix would have happened.
+
+**Every observation of this crash, across five tasks and eleven full runs, has
+been local and on Windows.** CI runs `ubuntu-latest` and there is no evidence of
+it there. If it does appear there, the answer is to fix the flake, **never** to
+weaken the guard or add a retry — a gate that is re-run past is the exact failure
+this block spent eleven tasks on.
+
+### 1.4 The isolation runs
+
+Full `npm run test:isolation` on the final tree, on the same machine that
+produced the three dropped-file runs. **Fifteen of them**, in three batches of
+five. Batches 1 and 2 ran back to back on one stack and are §1.3's evidence — the
+first found that the crash survives the change, the second that it drops a
+different file every time. Batch 3 is the verification batch, **from a clean
+`db:reset`**, which is the condition CI's `db` job always runs under and the
+condition §1.3's last lead says matters.
+
+| Batch | Stack | Runs | Crashed | Files dropped |
+| --- | --- | --- | --- | --- |
+| 1 | 5 runs old | 5 | 1 | `inventory` |
+| 2 | 10 runs old, 4128 rows in `auth.users` | 5 | 3 | `invitations`, `roles`, `tenant` |
+| 3 | fresh `db:reset`, 0 rows | 5 | 2 | `listing`, `promotion-prizes` |
+
+Batch 3, run by run — this is the row the gate table in §1 is quoting:
+
+| Run | `Test Files` | `Tests` | Exit | Guard |
+| --- | --- | --- | --- | --- |
+| 1 | 13 passed (13) | 152 passed (152) | 0 | complete |
+| **2** | **12 passed (13)** | 152 passed (152) | 1 | **INCOMPLETE** — `listing` |
+| 3 | 13 passed (13) | 152 passed (152) | 0 | complete |
+| **4** | **12 passed (13)** | 152 passed (152) | 1 | **INCOMPLETE** — `promotion-prizes` |
+| 5 | 13 passed (13) | 152 passed (152) | 0 | complete |
+
+**Six crashes in fifteen runs, on six different files, no repeats:**
+`inventory`, `invitations`, `roles`, `tenant`, `listing`, `promotion-prizes`.
+Every file that reported, reported 13/13 and 152/152 — the suite itself is not in
+question. What is in question is the runner, and §1.3 has what is known about it.
+Note batch 3 crashing on its second run: the fresh stack does not help either,
+which is the fourth explanation crossed off.
+
+**A leak worth writing down while it is measured**, because it is the ⚑ in §8.6
+and nobody had put a number on it: five runs from a clean `db:reset` left
+**2245 rows in `auth.users`** — about 450 a run that `cleanupUsers` cannot
+delete.
 
 ---
 
@@ -518,6 +715,9 @@ $ git rev-parse HEAD
 which is what it was before this task started. The gates the mutations touched
 were then re-run from a clean `db:reset`: pgTAP 332 `PASS`, isolation green
 (§1.2 for how that was proved in two parts), plus lint, typecheck and 256 unit.
+Those three totals are **Task 10's**, recorded as they stood when the mutations
+were reverted; the branch review's fix wave later took them to 344, 152 and 258.
+§1 has the current table.
 
 ---
 
@@ -628,7 +828,8 @@ opened on the page. Only the reason given was wrong.
 
 Three blocks of briefs carried the false sentence forward as a requirement.
 **Do not carry it into another one.** The correction is now in the code, at
-`src/hooks/use-record-dialog.ts:120-128`.
+`src/hooks/use-record-dialog.ts:122-132`, and the two remaining "pops" the
+branch review found beside it are gone too (§8.4).
 
 **The open product question, for the owner.** Nobody has ever decided whether
 that Forward behaviour is *wanted* or merely *tolerated*, because until this
@@ -685,13 +886,22 @@ either — `promotion_prize_balances_drawn_within_linked` (`0045:86`) constrains
 what the answer is allowed to be.
 
 **5. `setPromotionPrizeDrawnDirectly` becomes unnecessary and should be
-deleted.** `tests/isolation/harness.ts:431-454`, called at
-`tests/isolation/promotion-prizes.test.ts:364, 467, 592, 990`. It exists only
-because `drawn` has no writer in this block, so D4's floor has no fixture
-reachable through any RPC. Once the draw exists, all four call sites should
-become real `DRAW` movements and the helper should go — along with the warning
-attached to it, and, if §1.2's diagnosis holds, along with one of the two
-`execFileSync` spawns that correlate with the worker crash.
+deleted.** `tests/isolation/harness.ts`, called four times in
+`tests/isolation/promotion-prizes.test.ts`. It exists only because `drawn` has no
+writer in this block, so D4's floor has no fixture reachable through any RPC.
+Once the draw exists, all four call sites should become real `DRAW` movements and
+the helper should go, along with the warning attached to it.
+
+**And it takes nothing else with it.** An earlier version of this report said
+deleting it would also remove "one of the two `execFileSync` spawns that
+correlate with the worker crash". That was false in two ways. The other spawn was
+never in this file: `corruptBalanceDirectly` is called from
+`tests/isolation/inventory.test.ts` and has been since Block 2, so deleting this
+helper would have left the mechanism live in a file nobody was watching — which
+is the worst possible outcome for a reader who trusted the sentence. And there is
+now no spawn to remove from either: both helpers run one parameterised statement
+on a `pg` connection (§1.3). `superuserStatement`, which they share, must stay
+for `corruptBalanceDirectly` regardless of what Block 6 does to this one.
 
 **6. The modelling gap — the one that is not a test artefact.**
 `supabase/migrations/0050_promotion_lifecycle_returns_prizes.sql:25-37` names it
@@ -715,33 +925,61 @@ what a winner was promised.
 
 ## 8. Deferred minors, grouped
 
-Roughly twenty-five across eleven tasks, all disclosed in the ledger rather than
-discovered here. **⚑ marks the seven that should not survive to Block 5** — not
-because they are the largest, but because each either hides a future failure or
-misleads the next reader. Two more carried the mark until Task 10 closed them;
-both are still listed, unmarked, because a defect that was fixed is worth more
-to the next reader as a record than as a silence.
+Roughly twenty-five across eleven tasks, disclosed in the ledger rather than
+discovered here — **plus seven the whole-branch review found that this list did
+not contain at all**, which is the more important half of that sentence. The
+roll-up as Task 10 wrote it claimed completeness; it was complete over the
+ledger, not over the branch. The seven are marked **✚** below and each says
+where it came from. The five unpinned functions and the archive permission
+consequence are the two that were merge-blocking; the rest are one- or
+two-liners.
+
+**⚑ marks what should not survive to Block 5.** ✔ marks what has since been
+closed — during the block, or in the branch review's fix wave — and every one of
+those is still listed, unmarked with ⚑, because a defect that was fixed is worth
+more to the next reader as a record than as a silence.
 
 ### 8.1 Assertions that measure the wrong thing, or cannot fail
 
-- ⚑ **`promotion-prizes.spec.ts` uses `nth(5)` for the Available column with no
+- ✔ **`promotion-prizes.spec.ts` used `nth(5)` for the Available column with no
   header assertion pinning the index.** Insert a column before it and the
   locator shifts onto In stock, which holds the same number at that point — so
   it keeps passing while measuring something that never moved. This is exactly
   the defect class the block spent ten tasks hunting; shipping one is worse than
-  shipping none.
-- ⚑ **`refuses to go below what has been drawn` asserts `toContain('2')`**, a
+  shipping none. **Closed in the fix wave**: the index is a named constant and
+  `assertAvailableHeader` reads the header at that same index before the cell is
+  read.
+- ✔ **`refuses to go below what has been drawn` asserted `toContain('2')`**, a
   weak substring match on a message that also contains other digits. §4.1 is the
-  run that depended on it. Pin the sentence.
+  run that depended on it — and, per that section, the *sole* assertion in the
+  repository that dies when D4's floor is removed, because the table check raises
+  the same `23514`. **Closed in the fix wave**: it now pins the whole sentence,
+  `only 0 of the 2 unit(s) linked can be returned; 2 have already been drawn`.
+- ✚ ✔ **`refuses more units than are available` asserted `toContain('3')`**, with
+  the identical weakness, and was **not in this roll-up at all** — the branch
+  review found it. Any refusal quoting any figure carries a `3` somewhere, and
+  `23514` is the code the table checks raise too. **Closed in the fix wave**: it
+  pins `only 3 unit(s) are in available, and 5 were requested`, which is the
+  pairing the screen shows the operator.
 - Two assertions in `promotion-prizes.spec.ts` are entailed by the row-count
   assertion above them and cannot fail.
-- `04_promotion_prizes.test.sql`'s `has_function` check for
-  `ensure_promotion_prize_balance_row` is described as proving "exactly one
-  INSERT statement" and proves only that the function exists. The invariant
-  stays prose-only.
+- ✔ `04_promotion_prizes.test.sql`'s `has_function` check for
+  `ensure_promotion_prize_balance_row` was described as proving "exactly one
+  INSERT statement, in its own function" and proves only that the function
+  exists. **Closed in the fix wave**, by rewording rather than by a new
+  assertion: this is the same species as the overload claim two bullets below,
+  which Task 10 spent a mutation retracting, and retracting one while leaving its
+  twin next door is the inconsistency. The invariant stays prose-only, in `0047`'s
+  header, and the message now says what it asserts.
 - `tests/isolation/inventory.test.ts` discards `released.data`, so a
   `release_reservation` returning null while writing correctly would pass.
   Trivial given the assertions that follow.
+- ✚ ✔ **`refuses to go below what has been drawn` handed `linked.data as string`
+  to `setPromotionPrizeDrawnDirectly` without checking `linked.error` first**,
+  while two sibling cases in the same file explain at length why they do check
+  exactly that. Found by the branch review. Without it a failed link makes the
+  helper's own UUID guard the red line, blaming the fixture for a link that never
+  happened. **Closed in the fix wave.**
 - The "exactly 50 prizes" half of the picker cap test is a baseline sanity
   check, not a regression net: with 50 rows, `limit 50` and `limit 51` return
   identical output. Only the 52-prize half distinguishes them.
@@ -752,6 +990,26 @@ to the next reader as a record than as a silence.
 
 ### 8.2 Coverage the block shipped without
 
+- ✚ ✔ **This block pinned Block 4a's grant grid and none of its own.**
+  `03_promotions.test.sql` added twelve assertions closing 4a's gap, with a
+  comment arguing that "a seventh promotion write RPC arriving without a pair
+  here is the thing this block of assertions exists to make obvious" — and the
+  same branch then shipped **five** functions with no such pair:
+  `link_prize_to_promotion` and `unlink_prize_from_promotion` (`0049`),
+  `list_promotion_prizes` and `list_linkable_prizes` (`0051`), and
+  `return_promotion_prizes` (`0050`). Found by the branch review, not in this
+  roll-up, and the only merge-blocking item on this list besides the isolation
+  gate. **`return_promotion_prizes` is the sharp one**: it performs **no
+  permission check of any kind**, it moves stock for both lifecycle RPCs, and its
+  entire safety is that it is SECURITY INVOKER with EXECUTE granted to nobody —
+  precisely the pair of properties `ensure_promotion_prize_balance_row` has four
+  dedicated assertions for, and that one cannot move a unit. Marking it DEFINER
+  is a one-word edit in a file full of DEFINER functions. **Closed in the fix
+  wave**: four assertions for it in `02_permissions.test.sql` beside the two
+  bootstraps it mirrors (plan 213 → 217), and an anon/authenticated pair for each
+  of the four public RPCs in `03_promotions.test.sql` (plan 49 → 57), beside 4a's
+  six rather than in Block 4b's own file — splitting the grid by migration is
+  exactly how both gaps happened. Suite total 332 → **344**.
 - ⚑ **The read-only notice scoping and the whole `!canLink` branch of the Prizes
   tab have no coverage** — the new e2e runs entirely as the owner. A permission
   branch on a shipped screen that no test enters.
@@ -768,12 +1026,16 @@ to the next reader as a record than as a silence.
 
 ### 8.3 Accessibility and screen defects
 
-- ⚑ **Per-row unlink controls share one accessible name** ("Units to return to
+- ✔ **Per-row unlink controls shared one accessible name** ("Units to return to
   stock", "Return") with no prize in either, against the precedent
-  `inventory-grid.tsx` sets. The per-row testids are likewise duplicated and
-  work only because the test links exactly one prize — **a second row makes them
-  strict-mode violations**, so this is a latent test break as well as an
-  accessibility defect.
+  `inventory-grid.tsx` sets. The per-row testids were likewise duplicated and
+  worked only because the test links exactly one prize — **a second row makes
+  them strict-mode violations**, so this was a latent test break as well as an
+  accessibility defect. **Closed in the fix wave**: the prize's *name* is
+  interpolated into both accessible names, and its *id* into the three test ids —
+  different keys on purpose, because nothing in the schema makes a prize's name
+  unique within a Station, so keying the ids on the name would leave the
+  strict-mode violation reachable and a rename would move every selector.
 - The tab hand-rolls a `<table>` instead of `@/components/ui/table`
   (plan-mandated) and has no `<caption>` where `inventory-grid.tsx` has one.
 - A half-filled Link form is discarded on a tab switch — consistent with
@@ -791,9 +1053,33 @@ to the next reader as a record than as a silence.
   `comment on function` carried the same sentence (§4.4). **Both corrected in
   place in Task 10** — append-only binds across merges, not within an unmerged
   branch, and `6228a8b` and `f64cadf` set the precedent on this branch.
-- The hook still says `back()` "pops" the entry in two places
-  (`src/hooks/use-record-dialog.ts:95, 102`), which is the exact wrong model the
-  paragraph twenty lines below now disowns (§6). Cheap and worth taking.
+- ✔ The hook said `back()` "pops" the entry in two places
+  (`src/hooks/use-record-dialog.ts`), which is the exact wrong model the
+  paragraph twenty lines below disowns (§6). **Closed in the fix wave**: both now
+  say the pointer steps off the entry and the entry stands.
+- ✚ ✔ **`close()`'s early return left `ownsCurrentEntry` set**, so the invariant
+  "this ref is false whenever the record is closed" held by an argument about
+  which paths reach which line rather than unconditionally. Found by the branch
+  review, not in this roll-up. **Closed in the fix wave**: the ref is read into a
+  local and cleared before the early return.
+- ✚ ✔ **`promotions.archive` and `promotions.cancel` now authorise a stock
+  movement, and nothing said so.** `archive_promotion` gates on
+  `promotions.archive` alone and then calls `return_promotion_prizes`; same for
+  `cancel_promotion` on `promotions.cancel`. So a delegate holding
+  `promotions.view` + `promotions.archive` and nothing else moves inventory,
+  with no `promotions.prizes` and no `inventory.*` anywhere on the path — the
+  **converse** of the separation `promotions.prizes` was created to make.
+  The spec, the plan, `0050`'s header and §3.1 of this report all discussed
+  archiving moving stock as a *behavioural* cost; **none discussed it as a
+  permission cost**, which is the one an owner reviewing the permission screen
+  would want. Found by the branch review. **The gating was deliberately not
+  changed** — that is the owner's decision, not a reviewer's. **Stated in the fix
+  wave**: a paragraph in `0050` above both functions, a sentence in each shipped
+  `comment on function`, a question in the spec's §7, and an isolation case
+  (`lets a delegate holding no promotions.prizes move stock by archiving`) that
+  builds the link with a second client and asserts the same delegate is refused
+  `unlink_prize_from_promotion` with `42501` first, so the case is about a
+  delegate who may *not* move stock rather than merely about one who did. See §9.
 - `0049:48-50` raises `P0002` before its permission gate, so a caller can
   distinguish "no such promotion" from "exists, you lack the code". `0042:259`,
   `:174` and `:323` do the same. `list_promotion_prizes`' two "cannot see it"
@@ -813,18 +1099,59 @@ to the next reader as a record than as a silence.
   `.prettierrc`'s `printWidth` 100. **The real item is that no gate catches it**:
   `next lint` does not check formatting and CI has no `prettier --check` step.
 
-### 8.5 Harness and runner
+### 8.5 Schema and server layer
 
-- ⚑ **The tinypool worker crash** (§1.2). Escalated in the ledger after four
-  tasks; this task has the mechanism and the evidence that it can drop a file
-  while the run reports success.
+Three the whole-branch review found, none of them in this roll-up, all closed in
+the fix wave.
+
+- ✚ ✔ **`promotion_prizes_promotion_idx` was write cost and storage for
+  nothing.** `(promotion_id) WHERE deleted_at IS NULL`, two lines below
+  `promotion_prizes_live_unique (promotion_id, prize_id) WHERE deleted_at IS
+  NULL` — same predicate, same leading column, so every lookup and range scan by
+  promotion that the two RPCs and both read functions make was already served by
+  the unique index. **Removed in place in `0045`**, with the reasoning in the
+  comment where the index used to be: append-only binds across merges, not within
+  an unmerged branch, and `6228a8b` and `f64cadf` set that precedent here.
+- ✚ ✔ **`quantity` in `src/schemas/promotions.ts` had no upper bound**, so a
+  hand-posted `2147483648` reached `p_quantity integer` and came back `22003` —
+  which maps to `InternalError` and reaches the operator as a generic "Could not
+  save", a sentence that says nothing about what to change. **Closed**: a `.max()`
+  at exactly `2147483647` with a message, plus two unit cases (the ceiling
+  accepted, one past it refused by that message), so the bound cannot be loosened
+  by a single unit without a red test. Unit 256 → **258**.
+- ✚ ✔ **`list_promotion_prizes`' error was wrapped in `InternalError` directly**
+  instead of going through `mapPromotionError`, unlike every other RPC call in
+  `src/services/promotions.ts` — and it is the one call in `getPromotionRecord`
+  that can raise `42501`, because the function is SECURITY DEFINER and re-checks
+  `promotions.view` in its own body. A permission refusal was becoming a 500
+  logged as ours. **Closed.** The three reads above it are ordinary PostgREST
+  selects, where a policy denial arrives as an empty result and never as an
+  error, so they have nothing to map.
+
+### 8.6 Harness and runner
+
+- ⚑ **The tinypool worker crash is still open, and it is bigger than this block**
+  (§1.2, §1.3, §1.4). Escalated in the ledger after four tasks; Task 10
+  established that it can drop a file while the run reports success. The branch
+  review removed its suspected trigger, **and it reproduced anyway** — six times
+  in fifteen full runs, on **six different files**, four of which touch nothing
+  Block 4b added. Four hypotheses tested and killed. What *is* closed is the thing
+  that made it dangerous: the gate can no longer report success while a file did
+  not run, and that half was proved against the crash's own output. Read §1.3
+  before spending time on this; the crossed-off answers are listed there, and the
+  one lead left (`poolOptions.forks.singleFork`) with it.
 - ⚑ **Isolation stderr is not pristine** — `cleanupUsers: could not delete N
   user(s)` on every run. Documented in `harness.ts` and pre-existing, but it
   means a genuine cleanup failure is indistinguishable from the baseline, which
-  is how the §1.2 crash stayed unnoticed as long as it did.
-- `setPromotionPrizeDrawnDirectly` took 6.1 s and failed once during Task 5. It
-  reuses `corruptBalanceDirectly`'s mechanism verbatim, so the block extended an
-  existing vector rather than introducing one — see §1.2 and §7 item 5.
+  is how the §1.2 crash stayed unnoticed as long as it did. **Now measured**, and
+  the figure is worse than "not pristine" suggests: five runs from a clean
+  `db:reset` left **2245 rows in `auth.users`**, about 450 a run.
+- ✔ `setPromotionPrizeDrawnDirectly` took 6.1 s and failed once during Task 5,
+  because it reused `corruptBalanceDirectly`'s mechanism verbatim — the block
+  extended an existing vector rather than introducing one, which is also why
+  removing only this one would have left the vector live (§7 item 5). Both now
+  run one parameterised statement on a `pg` connection instead of spawning the
+  Supabase CLI; the whole file runs scoped in 26 s.
 
 **Closed during the block, recorded so nobody re-opens them:** Task 2's gap that
 `promotion_prize_balances`' own policy had no live denial case was closed in
@@ -846,6 +1173,14 @@ The spec's §7 as amended, plus what this task added.
   call at review, exactly as with 4a's five.
 - **The inventory screen still cannot answer "which promotions hold this prize's
   stock"** (spec §5). Worth answering; not this block's.
+- **Should `promotions.archive` and `promotions.cancel` authorise a stock
+  movement on their own?** (spec §7, this report §8.4). The permission half of
+  the decision below, and the half nobody had ruled on because nobody had written
+  it down. A delegate holding `promotions.view` + `promotions.archive` and
+  nothing else moves inventory. **The owner's call:** leave it, require
+  `promotions.prizes` alongside, or split archiving in two. Deliberately not
+  changed by the branch review; stated in the code, in both `comment on
+  function` texts, in the spec and in an isolation case.
 - **Archiving moves stock now** (spec §2 D1, this report §3.1). The only
   operation in the project whose name suggests filing a record away and which
   also touches a balance. Worth revisiting if Block 6's draw gives an ended

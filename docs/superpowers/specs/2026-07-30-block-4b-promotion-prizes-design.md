@@ -231,6 +231,26 @@ are assertions that would otherwise pass while the thing they guard was gone.
   whose name suggests filing a record away and which also touches a balance;
   that was the owner's choice over a new refusal, and it is worth revisiting if
   Block 6's draw gives an ended promotion another way to let go of its prizes.
+- **Should `promotions.archive` and `promotions.cancel` authorise a stock
+  movement on their own?** — a question for the owner, and the one thing the
+  decision above changed that nobody has ruled on. `archive_promotion` gates on
+  `promotions.archive` alone and `cancel_promotion` on `promotions.cancel`
+  alone, and each then calls `return_promotion_prizes`, which moves units from
+  `linked` to `available`. So a delegate holding `promotions.view` +
+  `promotions.archive` and nothing else — no `promotions.prizes`, no
+  `inventory.*` — moves inventory. That is the **converse** of the separation
+  `promotions.prizes` was created to make (§4: "somebody who may reword a
+  promotion is not thereby somebody who may commit inventory to it"). The spec,
+  the plan, `0050`'s header and the block report all discussed archiving moving
+  stock as a *behavioural* cost; none discussed it as a *permission* cost, and
+  that is the one visible from the permission screen — where nothing says
+  Arquivar or Cancelar touches a balance. Deliberately **not** changed by the
+  branch review, because requiring `promotions.prizes` alongside makes archiving
+  a compound permission nobody would guess and refuses it to exactly the person
+  whose job it is, leaving the prizes stranded. Stated in `0050`'s comments and
+  in both `comment on function` texts, and proved by an isolation case driven by
+  a delegate holding no `promotions.prizes`. **The owner's call:** leave it,
+  require both codes, or split archiving into two operations.
 - **`list_linkable_prizes` caps at 50** and the picker says so. A Station with
   hundreds of prizes has a search box and nothing else; whether that is enough
   is a question for the first operator who has one.
