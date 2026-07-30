@@ -174,11 +174,18 @@ sites across two files take an `await`.
 The side effects are worth stating because, the crash having survived, they are
 now the *whole* argument for the change: the raw SQL string built by
 interpolation is gone, both statements bind their values, the affected-row check
-is a `rowCount` rather than a regex over CLI stdout, the helpers refuse outright
-if the suite has been pointed at a remote stack they cannot follow, and
-`promotion-prizes.test.ts` runs scoped in **26 s** where it used to take over a
-minute. The change is worth keeping on those grounds. It is not worth crediting
-with anything else — see the end of this section.
+is a `rowCount` rather than a regex over CLI stdout, and the helpers refuse
+outright if the suite has been pointed at a remote stack they cannot follow. The
+change is worth keeping on those grounds and it is not worth crediting with
+anything else — see the end of this section.
+
+**Including speed, which is worth stating because the obvious claim is not true.**
+The full suite took **124.98 s** before the change and **117–126 s** across the
+fifteen runs after it: no measurable difference. The 6.1 s that Task 5 measured
+for one helper call was an outlier rather than the going rate, so removing four
+of them a run was never going to be worth tens of seconds, and saying it was
+would be exactly the kind of unmeasured claim this branch review exists to
+retract.
 
 **2. `pool: 'forks'` was NOT the fix, and the first thing to check was whether
 it would have been.** It would not: `configDefaults.pool` in vitest 2.1.9 is
@@ -1151,7 +1158,8 @@ the fix wave.
   extended an existing vector rather than introducing one, which is also why
   removing only this one would have left the vector live (§7 item 5). Both now
   run one parameterised statement on a `pg` connection instead of spawning the
-  Supabase CLI; the whole file runs scoped in 26 s.
+  Supabase CLI. Note that this bought no measurable time: 124.98 s for the full
+  suite before, 117–126 s over fifteen runs after, so that 6.1 s was an outlier.
 
 **Closed during the block, recorded so nobody re-opens them:** Task 2's gap that
 `promotion_prize_balances`' own policy had no live denial case was closed in
