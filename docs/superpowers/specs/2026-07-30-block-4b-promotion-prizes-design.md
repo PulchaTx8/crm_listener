@@ -80,8 +80,15 @@ The H1 projection, keyed on `promotion_prize_id`:
 ```
 linked     units currently committed to this promotion
 drawn      units drawn from it (Block 6 writes this; 4b only reads and guards)
-delivered  cumulative, outside the physical total
 ```
+
+**No `delivered` column here, deliberately.** The design document's §5 lists one
+on this projection, and it cannot be written in this block: a `DELIVERY`
+movement may not carry `promotion_prize_id` until Block 6 widens the ledger
+check (§3.3), so nothing could ever increment it. A column whose only writer
+does not exist yet is the same shape as a guard that can never fire, and this
+project has shipped five of those. **Block 6 adds it**, with the movement that
+fills it.
 
 `Resto` — the third column on the owner's screen — is `linked − drawn`,
 computed, never stored: a stored total is one more thing that can disagree with
@@ -143,6 +150,12 @@ own comment gives.
 linking to a cancelled or archived promotion; linking more than `available`;
 unlinking more than `linked − drawn`; linking a prize from another Station;
 a non-positive quantity.
+
+**A promotion whose window has closed still accepts links, and that is not an
+oversight.** The draw happens *after* entries close (Block 6), so a promotion
+that has ended is exactly when its prizes are most likely to be adjusted. Only
+cancellation and archiving close the door — which is consistent with D1, where
+cancelling is the thing that hands the units back.
 
 **New permission code: `promotions.prizes`.** Linking moves stock, so gating it
 on `promotions.edit` alone would let somebody who may reword a promotion also
