@@ -6,6 +6,13 @@ import type { UserClient } from '@/lib/supabase/user-client';
 export interface ViewableCompany {
   id: string;
   name: string;
+  /**
+   * The Station's own zone. Carried here because every screen that shows a
+   * period has to render it in the Station's local time rather than the
+   * reader's (spec L2), and reading `companies.timezone` a second time from
+   * each of those screens is how two of them start disagreeing.
+   */
+  timezone: string;
 }
 
 /**
@@ -95,7 +102,7 @@ export async function listCompanyAccess(
 ): Promise<CompanyAccess> {
   let query = supabase
     .from('companies')
-    .select('id, name, status')
+    .select('id, name, status, timezone')
     .is('deleted_at', null)
     .order('name');
 
@@ -129,7 +136,7 @@ export async function listCompanyAccess(
 
   if (isAdmin === true) {
     return {
-      viewable: active.map((c) => ({ id: c.id, name: c.name })),
+      viewable: active.map((c) => ({ id: c.id, name: c.name, timezone: c.timezone })),
       suspended,
       capped,
     };
@@ -146,7 +153,9 @@ export async function listCompanyAccess(
           `Could not check ${permission} access for a station: ${permError.message}`,
         );
       }
-      return allowed === true ? { id: company.id, name: company.name } : null;
+      return allowed === true
+        ? { id: company.id, name: company.name, timezone: company.timezone }
+        : null;
     }),
   );
 

@@ -620,6 +620,13 @@ export type Database = {
             referencedRelation: "members"
             referencedColumns: ["id", "organization_id"]
           },
+          {
+            foreignKeyName: "member_consents_promotion_fk"
+            columns: ["promotion_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id"]
+          },
         ]
       }
       member_notes: {
@@ -1017,6 +1024,216 @@ export type Database = {
         }
         Relationships: []
       }
+      promotion_question_options: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          is_correct: boolean
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          label: string
+          organization_id: string
+          position: number
+          question_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          is_correct?: boolean
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          label: string
+          organization_id: string
+          position: number
+          question_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_correct?: boolean
+          kind?: Database["public"]["Enums"]["promotion_question_kind"]
+          label?: string
+          organization_id?: string
+          position?: number
+          question_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_question_options_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_question_options_question_fk"
+            columns: ["question_id", "kind", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_questions"
+            referencedColumns: ["id", "kind", "company_id"]
+          },
+        ]
+      }
+      promotion_questions: {
+        Row: {
+          button_label: string | null
+          company_id: string
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          menu_title: string | null
+          organization_id: string
+          position: number
+          promotion_id: string
+          prompt: string
+          updated_at: string
+        }
+        Insert: {
+          button_label?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          menu_title?: string | null
+          organization_id: string
+          position: number
+          promotion_id: string
+          prompt: string
+          updated_at?: string
+        }
+        Update: {
+          button_label?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["promotion_question_kind"]
+          menu_title?: string | null
+          organization_id?: string
+          position?: number
+          promotion_id?: string
+          prompt?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_questions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_questions_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      promotions: {
+        Row: {
+          allow_multiple_entries: boolean
+          art_url: string | null
+          call_to_action: string | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          ends_at: string
+          hashtag: string | null
+          id: string
+          min_hours_between_entries: number | null
+          name: string
+          no_button_label: string | null
+          organization_id: string
+          requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
+          require_correct_answer: boolean
+          site_integration_code: number | null
+          starts_at: string
+          updated_at: string
+          use_art: boolean
+          whatsapp_enabled: boolean
+          yes_button_label: string | null
+        }
+        Insert: {
+          allow_multiple_entries?: boolean
+          art_url?: string | null
+          call_to_action?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          ends_at: string
+          hashtag?: string | null
+          id?: string
+          min_hours_between_entries?: number | null
+          name: string
+          no_button_label?: string | null
+          organization_id: string
+          requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          require_correct_answer?: boolean
+          site_integration_code?: number | null
+          starts_at: string
+          updated_at?: string
+          use_art?: boolean
+          whatsapp_enabled?: boolean
+          yes_button_label?: string | null
+        }
+        Update: {
+          allow_multiple_entries?: boolean
+          art_url?: string | null
+          call_to_action?: string | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          ends_at?: string
+          hashtag?: string | null
+          id?: string
+          min_hours_between_entries?: number | null
+          name?: string
+          no_button_label?: string | null
+          organization_id?: string
+          requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          require_correct_answer?: boolean
+          site_integration_code?: number | null
+          starts_at?: string
+          updated_at?: string
+          use_art?: boolean
+          whatsapp_enabled?: boolean
+          yes_button_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotions_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_limit_counters: {
         Row: {
           count: number
@@ -1155,6 +1372,10 @@ export type Database = {
       }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
+      archive_promotion: {
+        Args: { p_promotion_id: string }
+        Returns: undefined
+      }
       assign_company_role: {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
@@ -1168,6 +1389,10 @@ export type Database = {
           p_reason: string
         }
         Returns: string
+      }
+      cancel_promotion: {
+        Args: { p_promotion_id: string; p_reason: string }
+        Returns: undefined
       }
       change_org_role: {
         Args: {
@@ -1227,6 +1452,27 @@ export type Database = {
         Args: { p_company_id: string; p_name: string }
         Returns: string
       }
+      create_promotion: {
+        Args: {
+          p_allow_multiple_entries?: boolean
+          p_art_url?: string
+          p_call_to_action?: string
+          p_company_id: string
+          p_ends_at: string
+          p_hashtag?: string
+          p_min_hours_between_entries?: number
+          p_name: string
+          p_no_button_label?: string
+          p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          p_require_correct_answer?: boolean
+          p_site_integration_code?: number
+          p_starts_at: string
+          p_use_art?: boolean
+          p_whatsapp_enabled?: boolean
+          p_yes_button_label?: string
+        }
+        Returns: string
+      }
       create_role: {
         Args: {
           p_description?: string
@@ -1252,6 +1498,7 @@ export type Database = {
         Returns: Json
       }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
+      has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
         Args: { p_organization_id: string; p_permission: string }
         Returns: boolean
@@ -1267,6 +1514,7 @@ export type Database = {
       }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
+      is_owner_of_company: { Args: { p_company_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       lift_member_block: {
         Args: { p_block_id: string; p_reason: string }
@@ -1305,6 +1553,10 @@ export type Database = {
       }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
+      promotion_write_error: {
+        Args: { p_hashtag: string; p_site_code: number; p_sqlstate: string }
+        Returns: undefined
+      }
       provision_customer: {
         Args: {
           p_company_name: string
@@ -1380,6 +1632,10 @@ export type Database = {
         Returns: undefined
       }
       remove_member: { Args: { p_membership_id: string }; Returns: undefined }
+      remove_promotion_question: {
+        Args: { p_question_id: string }
+        Returns: undefined
+      }
       reserve_stock: {
         Args: {
           p_company_id: string
@@ -1397,6 +1653,18 @@ export type Database = {
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
+      }
+      save_promotion_question: {
+        Args: {
+          p_button_label?: string
+          p_kind: Database["public"]["Enums"]["promotion_question_kind"]
+          p_menu_title?: string
+          p_options?: Json
+          p_promotion_id: string
+          p_prompt: string
+          p_question_id?: string
+        }
+        Returns: string
       }
       shares_organization_with: {
         Args: { p_user_id: string }
@@ -1435,6 +1703,27 @@ export type Database = {
           p_internal_code?: string
           p_name: string
           p_prize_id: string
+        }
+        Returns: undefined
+      }
+      update_promotion: {
+        Args: {
+          p_allow_multiple_entries?: boolean
+          p_art_url?: string
+          p_call_to_action?: string
+          p_ends_at: string
+          p_hashtag?: string
+          p_min_hours_between_entries?: number
+          p_name: string
+          p_no_button_label?: string
+          p_promotion_id: string
+          p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
+          p_require_correct_answer?: boolean
+          p_site_integration_code?: number
+          p_starts_at: string
+          p_use_art?: boolean
+          p_whatsapp_enabled?: boolean
+          p_yes_button_label?: string
         }
         Returns: undefined
       }
@@ -1486,6 +1775,16 @@ export type Database = {
         | "internal_policy"
       org_role: "owner" | "member"
       permission_scope: "organization" | "company"
+      promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
+      promotion_requested_field:
+        | "full_name"
+        | "address"
+        | "city"
+        | "neighbourhood"
+        | "age"
+        | "cpf"
+        | "passport"
+        | "discovery_source"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1655,6 +1954,17 @@ export const Constants = {
       ],
       org_role: ["owner", "member"],
       permission_scope: ["organization", "company"],
+      promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],
+      promotion_requested_field: [
+        "full_name",
+        "address",
+        "city",
+        "neighbourhood",
+        "age",
+        "cpf",
+        "passport",
+        "discovery_source",
+      ],
     },
   },
 } as const

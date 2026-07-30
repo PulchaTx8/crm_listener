@@ -52,6 +52,16 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/members', label: 'Members', icon: ICONS.headphones }],
     },
     {
+      // Visible to every member, on the same courtesy the two sections above
+      // extend: /promotions redirects at the top of its own page for anyone
+      // holding promotions.view in no Station, and 0044's three select
+      // policies plus every RPC in 0042/0043 re-check has_permission
+      // regardless of that redirect. Hiding a link is a courtesy; the boundary
+      // is in the database.
+      label: 'Promotions',
+      items: [{ href: '/promotions', label: 'Promotions', icon: ICONS.megaphone }],
+    },
+    {
       // Visible to every member, including those holding no organization-scoped
       // permission at all. Deliberate, and not a hole: Team renders the member
       // roster (widened per-permission by RLS, 0024), the role list, the
