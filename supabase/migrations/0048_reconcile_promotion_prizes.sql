@@ -11,10 +11,22 @@
 -- turns a bug in a movement RPC into a number that is briefly wrong and then
 -- quietly right, which is the hardest kind to find.
 --
--- Every reference below is table-qualified. The OUT parameters share their
--- names with columns in the body, and an unqualified reference to any of them
--- is an ambiguity error at plan time rather than at call time — which is the
--- shape 0028 was already written in, for this reason.
+-- Every reference below is table- or alias-qualified, and neither this
+-- migration applying nor this function being created proves that it needed to
+-- be. Under `language plpgsql`, check_function_bodies runs only the plpgsql
+-- syntax validator, which never resolves an identifier against the catalog: an
+-- ambiguity between an OUT parameter and a column surfaces on the first
+-- EXECUTION of the offending statement, not at create time. A clean
+-- `supabase db reset` says nothing about it. 02_permissions.test.sql actually
+-- calling this function is what does.
+--
+-- And ambiguity is only the loud half. plpgsql.variable_conflict = error fires
+-- where a name matches BOTH a variable and a visible column. A name matching
+-- ONLY an OUT parameter — `stored` or `computed` in a select list with no such
+-- column in scope — is substituted with the variable's value silently, no
+-- diagnostic of any kind, and a query that returns quiet nonsense is what
+-- qualifying every reference actually buys protection against. 0028 was
+-- already written this way for the same reason.
 drop function public.reconcile_inventory(uuid);
 
 create function public.reconcile_inventory(p_company_id uuid)
@@ -98,6 +110,19 @@ begin
       where b.company_id = p_company_id
     ),
 
+    -- FULL OUTER JOIN, keyed on (prize_id, bucket): a plain join would drop
+    -- exactly the two divergences that matter most — a prize with movements and
+    -- no balance row (present only in computed_buckets), and a balance row with
+    -- no movements (present only in stored_buckets) — instead of surfacing
+    -- them. The coalesce()s are what turn "absent from this side" into the
+    -- correct zero rather than a NULL.
+    --
+    -- That is also why the filter is coalesce(...) <> coalesce(...) and not a
+    -- bare <>. A NULL on either side makes a bare <> evaluate to NULL, which
+    -- WHERE treats as not-true, so the row would be dropped — silently losing
+    -- precisely the one-sided case the FULL OUTER JOIN was chosen to catch.
+    -- Carried from 0028, and load-bearing twice over now: per_promotion below
+    -- repeats both patterns and points back here for the reason.
     per_prize as (
       select
         coalesce(s.prize_id, c.prize_id)   as prize_id,
@@ -133,9 +158,16 @@ begin
       -- today. It is here rather than omitted because `drawn` IS stored, and a
       -- stored figure nothing recomputes is a figure that can be wrong forever:
       -- a hand-written drawn surfaces as stored = N against computed = 0, which
-      -- is the truth — the ledger has no record of it. When Block 6 starts
-      -- writing those movements this arm begins returning real figures with no
-      -- change here.
+      -- is the truth — the ledger has no record of it.
+      --
+      -- When Block 6 starts writing those movements this arm begins returning
+      -- real figures, but it may well need widening first and Block 6's
+      -- implementer should check this rather than trust it. It handles DRAW and
+      -- DRAW_CANCEL only; DELIVERY, RETURN_PENDING and RETURN_TO_STOCK all fall
+      -- to the `else 0` today, and whether a delivered or returned unit should
+      -- leave `drawn` is an open question nobody has settled. It is not a free
+      -- choice either: promotion_prize_balances' drawn <= linked check (0045)
+      -- constrains what the answer is allowed to be.
       select
         m.promotion_prize_id,
         'drawn'::text,
@@ -186,13 +218,21 @@ begin
     join public.promotion_prizes l on l.id = x.promotion_prize_id
     join public.prizes pz          on pz.id = l.prize_id
     join public.promotions pr      on pr.id = l.promotion_id
-    -- Position 5 is the bucket as TEXT, so this sorts alphabetically where
-    -- 0028 sorted by the enum's own declaration order. Forced, not sloppy:
-    -- `drawn` is not a value of public.inventory_bucket at all — it is a
-    -- counter on promotion_prize_balances — so the per-promotion half cannot
-    -- produce an enum, and no cast spans a union whose two halves disagree on
-    -- the type. Ordinals rather than names because a UNION takes its output
-    -- names from the first branch, where columns 3 and 4 are bare nulls.
+    -- Position 5 is the bucket as TEXT, so this sorts alphabetically where 0028
+    -- sorted by the enum's own declaration order. A deliberate simplification
+    -- with a cost, not something the types forced. The premise is real —
+    -- `drawn` is not a value of public.inventory_bucket, it is a counter on
+    -- promotion_prize_balances, so the union cannot be ordered by the enum
+    -- directly — but wrapping the whole union in a subselect and ordering by a
+    -- `case` rank would have preserved 0028's order, and that was simply not
+    -- done. The cost, named rather than left to be discovered: a prize
+    -- diverging in several buckets at once now lists them alphabetically
+    -- instead of in the order the balances screen puts them in. Accepted
+    -- because a reconciliation result is read a row at a time, not scanned as
+    -- a column — revisit it the moment that stops being true.
+    --
+    -- Ordinals rather than names because a UNION takes its output names from
+    -- the first branch, where columns 3 and 4 are bare nulls.
     order by 2, 4 nulls first, 5;
 end;
 $$;
