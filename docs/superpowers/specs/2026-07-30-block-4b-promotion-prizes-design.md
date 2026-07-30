@@ -35,10 +35,20 @@ transaction.** Every unit still linked and not yet drawn goes back to
 cancellation as its note. **What has been drawn does not come back** — those
 units are in `awaiting_pickup` and belong to a winner.
 
-Archiving still refuses while the promotion is accepting entries (4a), so by
-the time a promotion can be archived it has been cancelled and nothing is held.
 Without this rule a cancelled promotion strands its prizes: out of `available`,
 counted in the balance, inside a record nobody will open again.
+
+**Archiving returns them too, and that is a correction to this spec rather than
+an extension of it.** The paragraph that stood here reasoned that archiving
+already refuses while a promotion is accepting entries, so anything archivable
+had been cancelled first and D1 was enough on its own. That is not what 4a
+shipped: `archive_promotion` refuses only *inside* the window, and
+`cancel_promotion` refuses a promotion that has already *ended*. An ended,
+never-cancelled promotion was therefore archivable with its prizes still linked
+— the exact stranding this decision exists to prevent, reachable by doing
+nothing at all. The owner's call was that archiving should hand the units back
+itself rather than grow a new refusal, so archiving now moves stock, which it
+did not before. Both paths share one helper (`return_promotion_prizes`, 0050).
 
 **D2 — Linking always takes a quantity.** A prize is not linked to a promotion;
 *N units of it* are. This matches the owner's current screen, whose Prêmios tab
@@ -93,6 +103,12 @@ fills it.
 `Resto` — the third column on the owner's screen — is `linked − drawn`,
 computed, never stored: a stored total is one more thing that can disagree with
 its parts.
+
+`drawn` has no writer in this block, so D4's floor has no fixture reachable
+through any RPC. `setPromotionPrizeDrawnDirectly` in the isolation harness is
+the escape hatch, the same shape `corruptBalanceDirectly` opened for the
+per-prize projection and with the same warning attached: a row set that way is a
+genuine divergence and reconciliation reports it.
 
 Every bucket carries `check (… >= 0)`, and `drawn <= linked` is a table check.
 That last one is what makes D4's floor structural: an unlink that would push
@@ -211,3 +227,10 @@ are assertions that would otherwise pass while the thing they guard was gone.
   at review.
 - The inventory screen still cannot answer "which promotions hold this prize's
   stock" (§5).
+- **Archiving moves stock now** (§2 D1). It is the only operation in the project
+  whose name suggests filing a record away and which also touches a balance;
+  that was the owner's choice over a new refusal, and it is worth revisiting if
+  Block 6's draw gives an ended promotion another way to let go of its prizes.
+- **`list_linkable_prizes` caps at 50** and the picker says so. A Station with
+  hundreds of prizes has a search box and nothing else; whether that is enough
+  is a question for the first operator who has one.
