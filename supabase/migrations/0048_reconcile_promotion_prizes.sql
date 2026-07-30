@@ -41,6 +41,22 @@ begin
   end if;
 
   return query
+    -- Each movement carries from_bucket/to_bucket, never a signed quantity —
+    -- quantity is always positive (0026's check constraint), and direction
+    -- lives entirely in which bucket column is which. So the computed value
+    -- of a bucket b is the sum of quantities where it was the destination
+    -- minus the sum where it was the source; a NULL bucket means "outside the
+    -- Station" and contributes to nothing. Reading movement_type here instead
+    -- would make this function's correctness depend on every type ever being
+    -- kept in sync with its own bucket pair, which is exactly the class of
+    -- defect inventory_movements_legal_transition (0026) already makes
+    -- unrepresentable at insert time. A bucket a prize's movements never
+    -- mention simply has no row in this CTE — folded to 0 by the coalesce
+    -- below, which is the correct computed value for it.
+    --
+    -- Carried from 0028 unchanged, because the per-promotion half below reads
+    -- movement_type and says it is doing the opposite of "the half above" —
+    -- a contrast the next reader can only check against the argument itself.
     with movement_totals as (
       select m.prize_id, m.to_bucket as bucket, m.quantity as signed_qty
       from public.inventory_movements m
@@ -170,6 +186,13 @@ begin
     join public.promotion_prizes l on l.id = x.promotion_prize_id
     join public.prizes pz          on pz.id = l.prize_id
     join public.promotions pr      on pr.id = l.promotion_id
+    -- Position 5 is the bucket as TEXT, so this sorts alphabetically where
+    -- 0028 sorted by the enum's own declaration order. Forced, not sloppy:
+    -- `drawn` is not a value of public.inventory_bucket at all — it is a
+    -- counter on promotion_prize_balances — so the per-promotion half cannot
+    -- produce an enum, and no cast spans a union whose two halves disagree on
+    -- the type. Ordinals rather than names because a UNION takes its output
+    -- names from the first branch, where columns 3 and 4 are bare nulls.
     order by 2, 4 nulls first, 5;
 end;
 $$;

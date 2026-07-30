@@ -508,10 +508,24 @@ describe('inventory', () => {
       .single();
     expect(balance.data).toEqual({ available: 8, reserved: 1 });
 
-    // The projection agrees with the ledger it was written from. This is what
-    // would go red if release_reservation stopped reaching the one writer —
-    // an eight-argument call resolving to a function that no longer exists
-    // fails loudly, but one resolving to a stale overload would not.
+    // What this proves: release_reservation actually reached the ledger, and
+    // the projection it wrote agrees with the movements behind it.
+    // reconcile_inventory recomputes available and reserved from
+    // inventory_movements alone, so an empty result here says the three
+    // movements this case appended and the two figures asserted just above are
+    // the same arithmetic. That is what makes this a real net under the fifth
+    // call site rather than a smoke test: a from/to bucket wired inconsistently
+    // with the arithmetic, or a release that moved a different number of units
+    // than it recorded, goes red here.
+    //
+    // What it does NOT prove, said plainly because it is the natural thing to
+    // assume: that the call resolves to the nine-argument
+    // apply_inventory_movement rather than to a stale eight-argument overload.
+    // release_reservation passes no promotion reference, so both bodies would
+    // write inventory_balances identically and reconciliation would stay clean
+    // either way. That failure mode needs no net here — 0047 dropped the
+    // eight-argument signature outright, so a call still expecting it fails
+    // loudly at the call itself instead of quietly passing this assertion.
     const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
     expect(check.error).toBeNull();
     expect(check.data).toEqual([]);
