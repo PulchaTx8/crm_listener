@@ -76,7 +76,20 @@ begin
     -- a guard that cannot fire. If a later block makes that state reachable,
     -- leaving it out is still what this tab wants: hiding the link would take
     -- units that belong to a winner off the one screen that has to account for
-    -- them.
+    -- them. The picker below restates the same predicate, because there it CAN
+    -- fire: a prize holding no stock is archivable.
+    --
+    -- No company predicate on this join either, and that is not an omission: the
+    -- composite foreign key promotion_prizes_prize_fk (0045) references
+    -- prizes (id, company_id) with the link's own company_id, so a link cannot
+    -- name a prize from another Station structurally, and link_prize_to_promotion
+    -- (0049) refuses one before it ever gets that far. The Station was decided
+    -- when v_company was read from the promotion row above; adding `pz.company_id
+    -- = v_company` here would restate a fact the schema already makes
+    -- unrepresentable. Said out loud because the picker spells the equivalent
+    -- argument out for inventory_balances, and in a file whose thesis is that a
+    -- DEFINER body must restate what it bypasses, the unstated confinement is
+    -- the one that erodes.
     join public.prizes pz on pz.id = l.prize_id
     -- A LEFT JOIN to the projection rather than an inner one, the same shape
     -- 0049 and 0050 both use. The two rows are written inside one transaction
@@ -149,20 +162,31 @@ begin
     -- more here: names are not unique in a Station, and a tie straddling the cut
     -- below would decide which of two prizes the operator is even offered.
     order by pz.name, pz.id
-    -- Capped, and the screen says so rather than presenting a truncated list as
-    -- the whole catalogue. Fifty is what a person can scan; the search is how
-    -- they reach the fifty-first. Nothing in the result says the cut happened —
-    -- exactly fifty prizes and fifty-one look identical from here — so the
-    -- contract is that a caller receiving fifty rows treats the list as cut and
-    -- says so. Returning a total alongside was the alternative and was rejected:
-    -- it costs a second count over the catalogue on every keystroke of the
-    -- search to refine a message that reads the same either way.
-    limit 50;
+    -- Fifty-one for a list of fifty, the house idiom: listPromotionsPage
+    -- (src/services/promotions.ts) reads PROMOTION_PAGE_SIZE + 1 and keysetPage
+    -- (src/lib/keyset.ts) treats the extra row as "there is more" and drops it
+    -- before rendering. The caller takes the first fifty and reads a fifty-first
+    -- row as the signal that the list was cut.
+    --
+    -- A bare `limit 50` was what this shipped as, and it was wrong: fifty rows
+    -- would have meant "cut, probably" over a Station holding exactly fifty
+    -- prizes, so the screen would have announced a truncation that did not
+    -- happen — a false statement to the operator rather than a cautious one.
+    -- Over-fetching one makes the signal exact in both directions and costs one
+    -- row. Returning a total alongside was the other alternative and stays
+    -- rejected: a second count over the catalogue on every keystroke of the
+    -- search, to refine a message that reads the same either way.
+    --
+    -- The search does NOT escape this cap and never did — it runs through the
+    -- same query, so a term matching sixty prizes is cut at fifty and signals it
+    -- the same way. What the search is for is reaching a prize that sorts past
+    -- the window, not seeing more than fifty at once.
+    limit 51;
 end;
 $$;
 
 comment on function public.list_linkable_prizes(uuid, text) is
-  'The prize picker behind the Link control: every live prize in the Station with its available count, ordered by name (the prize id breaks ties, since names are not unique in a Station) and capped at 50 — a caller that receives 50 rows must treat the list as cut and say so on screen, because nothing in the result distinguishes a Station holding exactly fifty prizes from one holding more. Prizes with zero available are included on purpose: hiding one would leave an operator hunting for a prize they can see on the inventory screen, and link_prize_to_promotion refuses the quantity anyway, naming the figure. Gated on promotions.prizes rather than promotions.view — showing somebody the Station''s stock is not something reading a promotion should carry with it — and SECURITY DEFINER for the same reason as list_promotion_prizes: the caller may hold nothing from the inventory module. The search is a plain substring match, not a LIKE pattern, so a term containing % or _ is a term.';
+  'The prize picker behind the Link control: every live prize in the Station with its available count, ordered by name (the prize id breaks ties, since names are not unique in a Station) and windowed at 50. It returns up to 51 rows, the house over-fetch idiom listPromotionsPage and keysetPage already use: the caller renders the first 50 and reads a 51st row as the signal that the list was cut, which is exact in both directions — a Station holding exactly 50 prizes returns 50 and must not be told it was truncated. The search runs through the same window and does not escape it; it is how somebody reaches a prize that sorts past the fifty, not how they see more than fifty. Prizes with zero available are included on purpose: hiding one would leave an operator hunting for a prize they can see on the inventory screen, and link_prize_to_promotion refuses the quantity anyway, naming the figure. Gated on promotions.prizes rather than promotions.view — showing somebody the Station''s stock is not something reading a promotion should carry with it — and SECURITY DEFINER for the same reason as list_promotion_prizes: the caller may hold nothing from the inventory module. The search is a plain substring match, not a LIKE pattern, so a term containing % or _ is a term.';
 
 revoke execute on function public.list_promotion_prizes(uuid)      from public;
 revoke execute on function public.list_linkable_prizes(uuid, text) from public;

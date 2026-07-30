@@ -918,7 +918,10 @@ describe('reading the Prizes tab', () => {
     ]);
   });
 
-  it('refuses a delegate holding nothing in this Station', async () => {
+  // Named for what the delegate is missing rather than for where they are: they
+  // hold members.view in this very Station. What they hold nothing of is the
+  // promotions module, which is the thing the refusal is about.
+  it('refuses a delegate who holds nothing from the promotions module', async () => {
     const label = `read-denied-${Date.now()}`;
     const customer = await provisionCustomer(label);
     const promotionId = await promotionAsOwner(customer);
@@ -1108,51 +1111,94 @@ describe('reading the Prizes tab', () => {
     expect(none.data).toEqual([]);
   });
 
-  it('caps the picker at fifty, and the search is how you reach the fifty-first', async () => {
+  it('reads one past the fifty it shows, so a cut list can say it was cut', async () => {
     const label = `read-cap-${Date.now()}`;
     const customer = await provisionCustomer(label);
     const owner = await clientFor(customer);
 
-    // Fifty-one prizes, so the cap has something to cut. Registered through the
-    // real RPC on one owner client rather than through createPrizeAs, which
-    // signs in again on every call.
-    const bulk = await Promise.all(
+    // Through the real RPC on one owner client rather than through
+    // createPrizeAs, which signs in again on every call.
+    const register = async (name: string): Promise<string> => {
+      const { data, error } = await owner.rpc('create_prize', {
+        p_company_id: customer.companyId,
+        p_name: name,
+      });
+      if (error) throw new Error(`create_prize failed: ${error.message}`);
+      return data as string;
+    };
+
+    // Exactly fifty to start with.
+    await Promise.all(
       Array.from({ length: 50 }, (_, index) =>
-        owner.rpc('create_prize', {
-          p_company_id: customer.companyId,
-          p_name: `Capped ${label} ${String(index).padStart(2, '0')}`,
-        }),
+        register(`Capped ${label} ${String(index).padStart(2, '0')}`),
       ),
     );
-    for (const one of bulk) {
-      if (one.error) throw new Error(`create_prize failed: ${one.error.message}`);
-    }
-    // Named so it sorts last, which is what puts it outside the fifty.
-    const beyond = await owner.rpc('create_prize', {
-      p_company_id: customer.companyId,
-      p_name: `Zzz beyond ${label}`,
-    });
-    expect(beyond.error).toBeNull();
 
     const delegate = await grantRoleWith(customer, label, ['promotions.view', 'promotions.prizes']);
     const client = await clientFor(delegate);
 
-    const capped = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
-    expect(capped.error).toBeNull();
-    expect(capped.data).toHaveLength(50);
-    // Which fifty, not merely how many: the list is ordered by name and cut at
-    // the end of that order, so the fifty-first is the one missing.
-    expect(capped.data?.map((row) => row.prize_id)).not.toContain(beyond.data);
+    // Fifty rows for a Station holding fifty prizes, and this half is the whole
+    // reason the window is 51 rather than 50: under a bare `limit 50` this and
+    // the cut list below would be the same result, and a screen following the
+    // convention would announce a truncation that did not happen — a false
+    // statement to the operator rather than a cautious one.
+    const exact = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(exact.error).toBeNull();
+    expect(exact.data).toHaveLength(50);
 
-    // And the search is how somebody reaches it — the whole of what the cap
-    // costs, and why the screen has to say the list is capped rather than
-    // present it as the Station's whole catalogue.
+    // Two more: one that sorts inside the window and one named to sort past it.
+    await register(`Capped ${label} 50`);
+    const beyond = await register(`Zzz beyond ${label}`);
+
+    const cut = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(cut.error).toBeNull();
+    // Fifty-one rows: the fifty the screen renders plus the one that says there
+    // is more. The same over-fetch listPromotionsPage does with
+    // PROMOTION_PAGE_SIZE + 1 and keysetPage drops before rendering.
+    expect(cut.data).toHaveLength(51);
+    // Which rows, not merely how many: the prize that sorts past the window is
+    // absent, so the fifty-first row really is a cut rather than a full list.
+    expect(cut.data?.map((row) => row.prize_id)).not.toContain(beyond);
+
+    // The search is how somebody reaches that prize. It does NOT escape the
+    // window — a term matching sixty prizes is cut at fifty-one exactly like
+    // this — which is why the screen has to carry the convention into the
+    // search results too rather than treat a search as complete by definition.
     const searched = await client.rpc('list_linkable_prizes', {
       p_company_id: customer.companyId,
       p_search: 'zzz beyond',
     });
     expect(searched.data).toHaveLength(1);
-    expect(searched.data?.[0]?.prize_id).toBe(beyond.data);
+    expect(searched.data?.[0]?.prize_id).toBe(beyond);
+  });
+
+  it('leaves an archived prize off the picker', async () => {
+    const label = `read-gone-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const liveId = await createPrizeAs(customer, `Live ${label}`);
+    const goneId = await createPrizeAs(customer, `Retired ${label}`);
+
+    const delegate = await grantRoleWith(customer, label, ['promotions.view', 'promotions.prizes']);
+    const client = await clientFor(delegate);
+
+    // The positive control: both are offered before one is archived, so the
+    // absence below is the filter doing its work rather than a prize that was
+    // never registered.
+    const before = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(before.data?.map((row) => row.prize_id).sort()).toEqual([liveId, goneId].sort());
+
+    const owner = await clientFor(customer);
+    const archived = await owner.rpc('archive_prize', { p_prize_id: goneId });
+    expect(archived.error).toBeNull();
+
+    // This restatement of 0029's `deleted_at is null` CAN fire, unlike the one
+    // deliberately left out of list_promotion_prizes's join: archive_prize
+    // (0027) refuses only above zero stock, so a prize holding nothing is
+    // archivable and would otherwise go on being offered for linking. Deleting
+    // the predicate turns this case red and nothing else in the suite.
+    const after = await client.rpc('list_linkable_prizes', { p_company_id: customer.companyId });
+    expect(after.error).toBeNull();
+    expect(after.data).toEqual([{ prize_id: liveId, name: `Live ${label}`, available: 0 }]);
   });
 
   it('refuses the picker to a delegate who may see promotions but not commit stock to them', async () => {
