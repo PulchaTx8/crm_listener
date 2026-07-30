@@ -435,6 +435,88 @@ describe('inventory', () => {
     });
   });
 
+  it('reconciliation still reports the per-prize divergence, and now says which promotion a row belongs to', async () => {
+    const label = `inv-recon-shape-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+    const delegate = await grantRoleWith(customer, label, ['inventory.view', 'inventory.entry']);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    await client.rpc('record_stock_entry', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_type: 'MANUAL_ENTRY',
+      p_quantity: 6,
+    });
+
+    corruptBalanceDirectly(customer.companyId, prizeId, 'written_off', 2);
+
+    const dirty = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(dirty.error).toBeNull();
+    expect(dirty.data).toHaveLength(1);
+
+    // The two new columns are null on a per-prize row, and that is what tells
+    // the two kinds of row apart on screen. Asserted explicitly rather than
+    // left to toMatchObject, which would pass if they were missing entirely.
+    expect(dirty.data![0]).toEqual({
+      prize_id: prizeId,
+      prize_name: `Prize ${label}`,
+      promotion_prize_id: null,
+      promotion_name: null,
+      bucket: 'written_off',
+      stored: 2,
+      computed: 0,
+    });
+  });
+
+  it('releases a reservation back into available, which is the fifth call site into the one writer', async () => {
+    const label = `inv-release-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+    const delegate = await grantRoleWith(customer, label, [
+      'inventory.view',
+      'inventory.entry',
+      'inventory.reserve',
+    ]);
+    const client = await signInAs(delegate.email, delegate.password);
+
+    await client.rpc('record_stock_entry', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_type: 'MANUAL_ENTRY',
+      p_quantity: 9,
+    });
+    await client.rpc('reserve_stock', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_quantity: 4,
+      p_note: 'held for the afternoon show',
+    });
+
+    const released = await client.rpc('release_reservation', {
+      p_company_id: customer.companyId,
+      p_prize_id: prizeId,
+      p_quantity: 3,
+      p_note: 'show cancelled',
+    });
+    expect(released.error).toBeNull();
+
+    const balance = await client
+      .from('inventory_balances')
+      .select('available, reserved')
+      .eq('prize_id', prizeId)
+      .single();
+    expect(balance.data).toEqual({ available: 8, reserved: 1 });
+
+    // The projection agrees with the ledger it was written from. This is what
+    // would go red if release_reservation stopped reaching the one writer —
+    // an eight-argument call resolving to a function that no longer exists
+    // fails loudly, but one resolving to a stale overload would not.
+    const check = await client.rpc('reconcile_inventory', { p_company_id: customer.companyId });
+    expect(check.error).toBeNull();
+    expect(check.data).toEqual([]);
+  });
+
   it('archiving a prize with stock is refused, naming the count; archiving one without stock succeeds', async () => {
     const label = `inv-archive-${Date.now()}`;
     const customer = await provisionCustomer(label);

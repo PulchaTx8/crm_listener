@@ -1,5 +1,5 @@
 begin;
-select plan(208);
+select plan(212);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -404,6 +404,30 @@ select ok(
 select ok(
   not has_function_privilege('service_role', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
   'service_role may not call ensure_inventory_balance_row'
+);
+
+-- Block 4b's second bootstrap, pinned exactly as the first one above is. A
+-- private helper that quietly became DEFINER, or that picked up an EXECUTE
+-- grant, is a second unaudited write path into a projection — which is the
+-- whole property these assertions exist to protect, and it is worth no less
+-- here than it was for inventory_balances.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)'::regprocedure),
+  false,
+  'ensure_promotion_prize_balance_row is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'anon may not call ensure_promotion_prize_balance_row'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'authenticated may not call ensure_promotion_prize_balance_row'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, uuid)', 'EXECUTE'),
+  'service_role may not call ensure_promotion_prize_balance_row'
 );
 
 -- Important #6: service_role retained the default ACL's TRUNCATE grant on
