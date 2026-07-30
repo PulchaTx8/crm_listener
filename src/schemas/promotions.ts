@@ -337,3 +337,24 @@ export const questionFormSchema = z
   });
 
 export type QuestionFormInput = z.infer<typeof questionFormSchema>;
+
+/**
+ * The Link and Unlink controls on the Prizes tab. Both post the same three
+ * fields, and the direction is which action they post to rather than a flag in
+ * the payload — a flag would make "unlink 5" and "link 5" one keystroke apart
+ * in a form the operator cannot see.
+ *
+ * Every rule here has a refusal behind it in 0049, and that duplication is the
+ * point rather than an oversight: this one gives the verdict on the screen
+ * without a round trip, and the RPC gives it whether or not this ran.
+ */
+export const promotionPrizeLinkSchema = z.object({
+  promotionId: z.string().uuid('Which promotion? Reopen the record.'),
+  prizeId: z.string().uuid('Choose a prize.'),
+  quantity: z
+    .number({ invalid_type_error: 'How many units?' })
+    .int('Units come in whole numbers.')
+    .min(1, 'Link at least one unit.'),
+});
+
+export type PromotionPrizeLinkInput = z.infer<typeof promotionPrizeLinkSchema>;

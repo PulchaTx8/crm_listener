@@ -3,18 +3,25 @@
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
-import { promotionFormSchema, questionFormSchema } from '@/schemas/promotions';
+import {
+  promotionFormSchema,
+  promotionPrizeLinkSchema,
+  questionFormSchema,
+} from '@/schemas/promotions';
 import type { RequestedField } from '@/schemas/promotions';
 import {
   archivePromotion,
   cancelPromotion,
   createPromotion,
+  linkPrizeToPromotion,
+  listLinkablePrizes,
   removePromotionQuestion,
   savePromotionQuestion,
+  unlinkPrizeFromPromotion,
   updatePromotion,
 } from '@/services/promotions';
-import type { PromotionQuestionKind } from '@/services/promotions';
-import { describePromotionsWriteError } from './errors';
+import type { LinkablePrizePage, PromotionQuestionKind } from '@/services/promotions';
+import { describePromotionsReadError, describePromotionsWriteError } from './errors';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
@@ -253,5 +260,88 @@ export async function removePromotionQuestionAction(
   } catch (cause) {
     logger.error({ err: cause, questionId }, 'remove promotion question failed');
     return { status: 'error', message: describePromotionsWriteError(cause, 'edit this quiz') };
+  }
+}
+
+export interface PrizeLinkState {
+  status: 'idle' | 'saved' | 'error';
+  message?: string;
+}
+
+function readPrizeLinkForm(formData: FormData) {
+  const raw = String(formData.get('quantity') ?? '').trim();
+  return promotionPrizeLinkSchema.safeParse({
+    promotionId: formData.get('promotionId'),
+    prizeId: formData.get('prizeId'),
+    // Number('') is 0, which would reach the schema as a real quantity and be
+    // refused with "Link at least one unit" for a field the operator left
+    // blank. NaN gets the "How many units?" message instead, which is the true
+    // one.
+    quantity: raw === '' ? Number.NaN : Number(raw),
+  });
+}
+
+export async function linkPrizeAction(
+  _prev: PrizeLinkState,
+  formData: FormData,
+): Promise<PrizeLinkState> {
+  const parsed = readPrizeLinkForm(formData);
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+  try {
+    await linkPrizeToPromotion(parsed.data, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'link prize failed');
+    return {
+      status: 'error',
+      message: describePromotionsWriteError(cause, 'link this prize'),
+    };
+  }
+}
+
+export async function unlinkPrizeAction(
+  _prev: PrizeLinkState,
+  formData: FormData,
+): Promise<PrizeLinkState> {
+  const parsed = readPrizeLinkForm(formData);
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+  try {
+    await unlinkPrizeFromPromotion(parsed.data, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'unlink prize failed');
+    return {
+      status: 'error',
+      message: describePromotionsWriteError(cause, 'return this prize to stock'),
+    };
+  }
+}
+
+/**
+ * The prize picker's own read, called from the tab rather than folded into the
+ * record: the record is read once per opening and this list changes with every
+ * keystroke in the search box. Not a form action — it takes arguments directly,
+ * because there is no form.
+ */
+export async function searchLinkablePrizesAction(
+  companyId: string,
+  search: string,
+): Promise<
+  { status: 'ok'; page: LinkablePrizePage } | { status: 'error'; message: string }
+> {
+  const token = await requireAccessToken();
+  try {
+    return { status: 'ok', page: await listLinkablePrizes(companyId, search.trim(), token) };
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'could not list linkable prizes');
+    return { status: 'error', message: describePromotionsReadError(cause) };
   }
 }

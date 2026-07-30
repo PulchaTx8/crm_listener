@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { promotionFormSchema, questionFormSchema } from '@/schemas/promotions';
+import {
+  promotionFormSchema,
+  promotionPrizeLinkSchema,
+  questionFormSchema,
+} from '@/schemas/promotions';
 
 const base = {
   companyId: '00000000-0000-0000-0000-0000000000c1',
@@ -237,5 +241,39 @@ describe('questionFormSchema', () => {
       options: [{ label: '  ', isCorrect: false }, choice.options[1]],
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe('promotionPrizeLinkSchema', () => {
+  const valid = {
+    promotionId: '11111111-1111-1111-1111-111111111111',
+    prizeId: '22222222-2222-2222-2222-222222222222',
+    quantity: 3,
+  };
+
+  it('accepts a whole number of units', () => {
+    expect(promotionPrizeLinkSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('refuses zero, because a link of nothing is not an event', () => {
+    const result = promotionPrizeLinkSchema.safeParse({ ...valid, quantity: 0 });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain('at least one');
+  });
+
+  it('refuses a fraction — units are things, not amounts', () => {
+    expect(promotionPrizeLinkSchema.safeParse({ ...valid, quantity: 1.5 }).success).toBe(false);
+  });
+
+  it('refuses a quantity that arrived as text the form could not read', () => {
+    expect(promotionPrizeLinkSchema.safeParse({ ...valid, quantity: Number.NaN }).success).toBe(
+      false,
+    );
+  });
+
+  it('refuses an id that is not a uuid, so a hand-edited form cannot reach the RPC', () => {
+    expect(promotionPrizeLinkSchema.safeParse({ ...valid, prizeId: 'not-an-id' }).success).toBe(
+      false,
+    );
   });
 });

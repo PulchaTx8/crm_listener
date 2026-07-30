@@ -15,7 +15,12 @@ import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type { PromotionSituation } from '@/lib/promotion-situation';
-import type { PromotionFormInput, QuestionFormInput, RequestedField } from '@/schemas/promotions';
+import type {
+  PromotionFormInput,
+  PromotionPrizeLinkInput,
+  QuestionFormInput,
+  RequestedField,
+} from '@/schemas/promotions';
 
 export type PromotionQuestionKind = Database['public']['Enums']['promotion_question_kind'];
 
@@ -256,6 +261,22 @@ export interface PromotionQuestion {
   options: PromotionQuestionOption[];
 }
 
+export interface PromotionPrizeRow {
+  promotionPrizeId: string;
+  prizeId: string;
+  prizeName: string;
+  /** Units committed to this promotion. Includes the drawn ones — the screen calls it Vinculados. */
+  linked: number;
+  /** Written by Block 6. Zero on every row until then, and the floor an unlink cannot go below. */
+  drawn: number;
+}
+
+export interface LinkablePrize {
+  prizeId: string;
+  name: string;
+  available: number;
+}
+
 export interface PromotionDetail {
   id: string;
   companyId: string;
@@ -281,6 +302,7 @@ export interface PromotionDetail {
   /** Who archived it. Null while live; readable only by the callers 0044 admits to archived rows. */
   deletedBy: string | null;
   questions: PromotionQuestion[];
+  prizes: PromotionPrizeRow[];
 }
 
 /**
@@ -347,6 +369,23 @@ export async function getPromotionRecord(
     byQuestion.set(option.question_id, list);
   }
 
+  // The Prizes tab, read here rather than when the tab is opened: moving
+  // between tabs must not reach the server, because a server round trip from
+  // inside the dialog is how the list behind it gets re-rendered. Four reads
+  // per opening, still one opening.
+  //
+  // list_promotion_prizes is SECURITY DEFINER (0051) and re-checks
+  // promotions.view itself, so this is not a hole in the read gate: it is the
+  // only way to get the prize NAME to a caller who holds no inventory
+  // permission, which is most of the people who will use this tab.
+  const { data: prizes, error: prizeError } = await supabase.rpc('list_promotion_prizes', {
+    p_promotion_id: promotionId,
+  });
+
+  if (prizeError) {
+    throw new InternalError(`Could not read the linked prizes: ${prizeError.message}`);
+  }
+
   return {
     id: promotion.id,
     companyId: promotion.company_id,
@@ -379,28 +418,50 @@ export async function getPromotionRecord(
       buttonLabel: q.button_label,
       options: byQuestion.get(q.id) ?? [],
     })),
+    prizes: (prizes ?? []).map((row) => ({
+      promotionPrizeId: row.promotion_prize_id,
+      prizeId: row.prize_id,
+      prizeName: row.prize_name,
+      linked: row.linked,
+      drawn: row.drawn,
+    })),
   };
 }
 
 /**
  * Every code below is raised deliberately by 0042/0043, and each maps to what
- * the caller should do about it:
+ * the caller should do about it. 0049's two linking RPCs — link_prize_to_promotion
+ * and unlink_prize_from_promotion — raise from the same set rather than adding
+ * a new one, and are folded into each bullet below rather than given their own:
  *
  * - `22023` is every validation and business refusal the RPCs raise — a
  *   missing cancellation reason, a promotion already cancelled or already
  *   over, archiving one that is still accepting, a quiz without exactly one
  *   right answer. Their messages already say what is wrong in a sentence, so
- *   they pass straight through.
+ *   they pass straight through. 0049 raises it too: a non-positive quantity on
+ *   either linking RPC, and linking to a promotion that is cancelled.
  * - `23514` is a table check the form did not catch, which means a caller
  *   bypassed the form. The database's message is not a sentence, but it does
- *   name the constraint, and mislabelling it would hide that.
+ *   name the constraint, and mislabelling it would hide that. 0049 also raises
+ *   this code directly — the over-link (apply_inventory_movement names the
+ *   units available and requested) and the D4 floor on unlinking
+ *   (unlink_prize_from_promotion names the units free, linked and drawn) — and
+ *   there the message already is a sentence rather than a constraint name.
+ *   BusinessRuleError is still the right class for both: what changes is the
+ *   shape of the message under this code, not what the caller should do about
+ *   it, which in every case is read the refusal and adjust the request rather
+ *   than retry it unchanged.
  * - `23P01` is the hashtag overlap and `23505` the duplicate integration
  *   code; both are rewritten by the RPC to name the value.
  * - `P0002` is a stale id — the promotion, the Station or the question is
  *   gone. Not a permission refusal: telling somebody they lack permission
  *   for a record that no longer exists sends them to fix the wrong thing.
+ *   0049 raises it for a stale promotion or a stale prize on linking, and for
+ *   a stale link — the pair is not linked at all — on unlinking.
  * - `42501` is has_permission failing inside a SECURITY DEFINER body, already
- *   logged server-side by the RPC.
+ *   logged server-side by the RPC. 0049's two RPCs gate on `promotions.prizes`
+ *   rather than any of the four codes 0042/0043 check, and raise this same
+ *   code for it.
  * - Anything else is ours, not the caller's.
  */
 function mapPromotionError(code: string | undefined, message: string): Error {
@@ -515,6 +576,71 @@ export async function removePromotionQuestion(
 ): Promise<void> {
   const { error } = await asCaller(accessToken).rpc('remove_promotion_question', {
     p_question_id: questionId,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
+}
+
+/** What the picker shows. The RPC reads one more than this and the extra row is the signal. */
+export const LINKABLE_PRIZE_PAGE_SIZE = 50;
+
+export interface LinkablePrizePage {
+  prizes: LinkablePrize[];
+  /** True when the catalogue holds more than this page shows, so the screen can say so truthfully. */
+  hasMore: boolean;
+}
+
+/**
+ * `list_linkable_prizes` (0051) reads fifty-one rows and returns them all. The
+ * fifty-first is not a result — it is the answer to "is there more", which is
+ * the same convention listPromotionsPage uses with PROMOTION_PAGE_SIZE + 1 and
+ * keysetPage. Counting instead would cost a second scan of the catalogue on
+ * every keystroke; asking the screen to infer truncation from a full page would
+ * make it announce a cut that did not happen to a Station holding exactly fifty
+ * prizes, which is worse than saying nothing.
+ */
+export async function listLinkablePrizes(
+  companyId: string,
+  search: string | null,
+  accessToken: string,
+): Promise<LinkablePrizePage> {
+  const { data, error } = await asCaller(accessToken).rpc('list_linkable_prizes', {
+    p_company_id: companyId,
+    p_search: search || undefined,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
+
+  const rows = data ?? [];
+  return {
+    prizes: rows.slice(0, LINKABLE_PRIZE_PAGE_SIZE).map((row) => ({
+      prizeId: row.prize_id,
+      name: row.name,
+      available: row.available,
+    })),
+    hasMore: rows.length > LINKABLE_PRIZE_PAGE_SIZE,
+  };
+}
+
+export async function linkPrizeToPromotion(
+  input: PromotionPrizeLinkInput,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('link_prize_to_promotion', {
+    p_promotion_id: input.promotionId,
+    p_prize_id: input.prizeId,
+    p_quantity: input.quantity,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
+  return data as string;
+}
+
+export async function unlinkPrizeFromPromotion(
+  input: PromotionPrizeLinkInput,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('unlink_prize_from_promotion', {
+    p_promotion_id: input.promotionId,
+    p_prize_id: input.prizeId,
+    p_quantity: input.quantity,
   });
   if (error) throw mapPromotionError(error.code, error.message);
 }
