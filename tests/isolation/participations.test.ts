@@ -163,53 +163,15 @@ describe('recording a participation', () => {
     expect(later.data).toMatchObject({ status: 'VALID' });
   });
 
-  it('records OVER_LIMIT once the ceiling is reached', async () => {
-    const label = `part-limit-${Date.now()}`;
-    const customer = await provisionCustomer(label);
-    const memberId = await createMemberAs(customer, customer.companyId, {
-      fullName: 'Ouvinte Quatro',
-      phone: '11988887770',
-    });
-    const promotionId = await promotionAsOwner(customer, {
-      p_allow_multiple_entries: true,
-      p_min_hours_between_entries: 1,
-    });
-
-    const owner = await clientFor(customer);
-    await owner.rpc('update_promotion', {
-      p_promotion_id: promotionId,
-      p_name: 'Com teto',
-      p_starts_at: new Date(Date.now() - 2 * DAY).toISOString(),
-      p_ends_at: new Date(Date.now() + 20 * DAY).toISOString(),
-      p_allow_multiple_entries: true,
-      p_min_hours_between_entries: 1,
-      p_max_entries_per_member: 2,
-    });
-
-    const delegate = await grantRoleWith(customer, label, [
-      'promotions.view',
-      'participations.view',
-      'participations.create',
-    ]);
-    const client = await clientFor(delegate);
-
-    const base = Date.now();
-    // `as const` on the source, the same way the concurrency case at the foot of
-    // this file writes it: without it the literal widens to `string` and no
-    // longer satisfies the generated participation_source union.
-    const entry = { p_promotion_id: promotionId, p_member_id: memberId, p_source: 'MANUAL' as const, p_answers: [] };
-
-    const a = await client.rpc('record_participation', { ...entry, p_participated_at: new Date(base - 5 * HOUR).toISOString() });
-    const b = await client.rpc('record_participation', { ...entry, p_participated_at: new Date(base - 3 * HOUR).toISOString() });
-    const c = await client.rpc('record_participation', { ...entry, p_participated_at: new Date(base).toISOString() });
-
-    expect(a.data).toMatchObject({ status: 'VALID' });
-    expect(b.data).toMatchObject({ status: 'VALID' });
-    // The ceiling counts VALID entries only, so the third is refused for the
-    // ceiling and not for the interval — which is why the fixture leaves two
-    // hours between each.
-    expect(c.data).toMatchObject({ status: 'OVER_LIMIT' });
-  });
+  // The OVER_LIMIT case lives in Task 5, not here. Its fixture has to set the
+  // ceiling, and the only way to set it is update_promotion's
+  // p_max_entries_per_member — an argument that RPC does not have until Task 5
+  // drops and recreates it. Written here it could only sit red, and it could not
+  // be skipped either: the isolation guard fails closed on a pending or todo
+  // test, so one .skip breaks the gate for everybody after it.
+  //
+  // Which leaves the fourth status unexercised until then. Deliberate and
+  // recorded, not forgotten.
 
   it('stores the answers, and stores them for a refused attempt too', async () => {
     const label = `part-answers-${Date.now()}`;
@@ -276,6 +238,76 @@ describe('recording a participation', () => {
     expect(answers.data!.every((a) => a.option_id === brasil)).toBe(true);
   });
 
+  it('refuses an answer naming a question from another promotion, and writes nothing', async () => {
+    const label = `part-foreign-q-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Nove',
+      phone: '11988887776',
+    });
+    const promotionId = await promotionAsOwner(customer);
+    const otherPromotionId = await promotionAsOwner(customer);
+
+    const owner = await clientFor(customer);
+    const { data: foreignQuestionId, error: questionError } = await owner.rpc(
+      'save_promotion_question',
+      {
+        p_promotion_id: otherPromotionId,
+        p_kind: 'QUIZ',
+        p_prompt: 'Pergunta de outra promoção',
+        p_menu_title: 'Escolha',
+        p_button_label: 'Opções',
+        p_options: [
+          { label: 'Sim', is_correct: true },
+          { label: 'Não', is_correct: false },
+        ],
+      },
+    );
+    if (questionError) throw new Error(`save_promotion_question failed: ${questionError.message}`);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const { data: options } = await client
+      .from('promotion_question_options')
+      .select('id')
+      .eq('question_id', foreignQuestionId as string);
+
+    const denied = await client.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [{ question_id: foreignQuestionId, option_id: options![0]!.id }],
+    });
+
+    // The sentence, not only the code, and the two are not interchangeable here.
+    // Drop the `q.promotion_id = p_promotion_id` predicate from the answers loop
+    // and this question is FOUND, the insert goes ahead, and
+    // participation_answers_question_fk refuses it with 23503 and a constraint
+    // name. A code-only assertion would go red on that mutation too, but for the
+    // wrong reason and with nothing said about what the operator sees; this pins
+    // the refusal an operator can act on.
+    expect(denied.error?.code).toBe('P0002');
+    expect(denied.error?.message).toBe(
+      `question not found in this promotion: ${foreignQuestionId}`,
+    );
+
+    // And the attempt left nothing behind. The participation row is inserted
+    // BEFORE the answers loop runs, so it survives only if the refusal fails to
+    // roll the whole call back — which is the half of this that the error code
+    // cannot say anything about.
+    const rows = await client
+      .from('participations')
+      .select('id')
+      .eq('promotion_id', promotionId);
+    expect(rows.data).toEqual([]);
+  });
+
   it('refuses a cancelled promotion, one outside its window, and a listener from another Station', async () => {
     const label = `part-refuse-${Date.now()}`;
     const customer = await provisionCustomer(label);
@@ -335,6 +367,56 @@ describe('recording a participation', () => {
     expect(crossStation.error?.code).toBe('P0002');
   });
 
+  it('refuses a promotion that is not there and one that has been archived', async () => {
+    const label = `part-missing-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Dez',
+      phone: '11988887781',
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.archive',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const missing = await client.rpc('record_participation', {
+      p_promotion_id: '00000000-0000-0000-0000-0000000000ff',
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [],
+    });
+    expect(missing.error?.code).toBe('P0002');
+
+    // Archived rather than merely closed, and the two are different refusals.
+    // archive_promotion (0042) will not touch a promotion that is still taking
+    // entries, so this one has to have ended first — which is why its window is
+    // in the past.
+    const ended = await promotionAsOwner(customer, {
+      p_starts_at: new Date(Date.now() - 3 * DAY).toISOString(),
+      p_ends_at: new Date(Date.now() - DAY).toISOString(),
+    });
+    const archived = await client.rpc('archive_promotion', { p_promotion_id: ended });
+    expect(archived.error).toBeNull();
+
+    // The timestamp is INSIDE that past window on purpose. An attempt stamped
+    // `now` would be outside it, and the case would pass on the window guard
+    // (22023) rather than on deleted_at — which is not what its name claims and
+    // would survive deleting the `v_deleted is not null` half outright.
+    const onArchived = await client.rpc('record_participation', {
+      p_promotion_id: ended,
+      p_member_id: memberId,
+      p_participated_at: new Date(Date.now() - 2 * DAY).toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [],
+    });
+    expect(onArchived.error?.code).toBe('P0002');
+  });
+
   it('refuses a delegate who may see participations but not record one', async () => {
     const label = `part-perm-${Date.now()}`;
     const customer = await provisionCustomer(label);
@@ -360,15 +442,53 @@ describe('recording a participation', () => {
     expect(denied.error?.code).toBe('42501');
   });
 
+  /**
+   * Twelve, and the number is arithmetic rather than taste.
+   *
+   * One round of this race is a WEAK detector of a missing lock. Measured, by
+   * re-applying record_participation with the pg_advisory_xact_lock line removed
+   * and nothing else changed: 7 red in 21 single-round runs, so it catches the
+   * missing lock about one time in three and MISSES it two times in three. It is
+   * not that the two calls fail to overlap — a probe with the lock removed and a
+   * pg_sleep(2) between the decision and the insert failed every time, and took
+   * one sleep's worth of wall time for two calls, so they do overlap. The window
+   * a missing lock leaves open is simply sub-millisecond, and two HTTP requests
+   * do not reliably interleave that finely.
+   *
+   * Rounds are independent, so twelve of them miss with probability
+   * (2/3)^12 = 0.0077 — under one run in a hundred. Five would leave
+   * (2/3)^5 = 0.13, one run in eight, which is not a net. The measured figure
+   * after this change is in the report; if it ever drifts, re-measure and move
+   * this number from the measurement, never the other way round.
+   */
+  const RACE_ROUNDS = 12;
+
   // This is the case N3 exists for, and the one the mutation in Task 10 targets.
   it('lets exactly one of two simultaneous entries be VALID', async () => {
     const label = `part-race-${Date.now()}`;
     const customer = await provisionCustomer(label);
-    const memberId = await createMemberAs(customer, customer.companyId, {
-      fullName: 'Ouvinte Oito',
-      phone: '11988887775',
-    });
     const promotionId = await promotionAsOwner(customer);
+
+    // A fresh listener per round, so each round is a fresh (promotion, member)
+    // pair: the advisory lock is taken over exactly that pair, and reusing one
+    // listener would make every round after the first trivially DUPLICATE
+    // against the first round's committed row rather than a race at all.
+    //
+    // Registered through one owner client rather than through createMemberAs,
+    // which signs in again on every call — the same reason the prize-picker cap
+    // case in promotion-prizes.test.ts calls create_prize directly.
+    const owner = await clientFor(customer);
+    const members = await Promise.all(
+      Array.from({ length: RACE_ROUNDS }, async (_, index) => {
+        const { data, error } = await owner.rpc('create_member', {
+          p_company_id: customer.companyId,
+          p_full_name: `Ouvinte Oito ${index}`,
+          p_phone: `1198888${String(7800 + index)}`,
+        });
+        if (error) throw new Error(`create_member failed: ${error.message}`);
+        return data as string;
+      }),
+    );
 
     const delegate = await grantRoleWith(customer, label, [
       'promotions.view',
@@ -380,30 +500,32 @@ describe('recording a participation', () => {
     const a = await clientFor(delegate);
     const b = await clientFor(delegate);
 
-    const entry = {
-      p_promotion_id: promotionId,
-      p_member_id: memberId,
-      p_participated_at: new Date().toISOString(),
-      p_source: 'MANUAL' as const,
-      p_answers: [],
-    };
+    for (const memberId of members) {
+      const entry = {
+        p_promotion_id: promotionId,
+        p_member_id: memberId,
+        p_participated_at: new Date().toISOString(),
+        p_source: 'MANUAL' as const,
+        p_answers: [],
+      };
 
-    const [first, second] = await Promise.all([
-      a.rpc('record_participation', entry),
-      b.rpc('record_participation', entry),
-    ]);
+      const [first, second] = await Promise.all([
+        a.rpc('record_participation', entry),
+        b.rpc('record_participation', entry),
+      ]);
 
-    expect(first.error).toBeNull();
-    expect(second.error).toBeNull();
+      expect(first.error).toBeNull();
+      expect(second.error).toBeNull();
 
-    // Exactly one VALID and exactly one DUPLICATE — asserted on the statuses
-    // rather than on a count, because the partial unique index would also
-    // produce "one row" by raising 23505 on the loser. The whole point of the
-    // lock is that the loser is RECORDED as a duplicate rather than lost, and
-    // only the status can tell those two outcomes apart.
-    const statuses = [first.data, second.data]
-      .map((d) => (d as { status: string }).status)
-      .sort();
-    expect(statuses).toEqual(['DUPLICATE', 'VALID']);
+      // Exactly one VALID and exactly one DUPLICATE — asserted on the statuses
+      // rather than on a count, because the partial unique index would also
+      // produce "one row" by raising 23505 on the loser. The whole point of the
+      // lock is that the loser is RECORDED as a duplicate rather than lost, and
+      // only the status can tell those two outcomes apart.
+      const statuses = [first.data, second.data]
+        .map((d) => (d as { status: string }).status)
+        .sort();
+      expect(statuses).toEqual(['DUPLICATE', 'VALID']);
+    }
   });
 });
