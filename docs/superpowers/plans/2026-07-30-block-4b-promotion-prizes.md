@@ -902,7 +902,7 @@ $$;
 revoke execute on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid) from public;
 
 comment on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid) is
-  'Private ledger mechanics shared by every movement RPC: locks the balance row (bootstrap shared with adjust_stock via ensure_inventory_balance_row, 0030), locks the per-promotion balance row when the movement names one, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement with both projections untouched), moves the buckets, moves the per-promotion figure, and writes the audit row. Dropped and recreated in 0047 rather than replaced, because create or replace cannot change an argument list and the eight-argument overload left behind would have gone on being the one every existing caller resolved to. SECURITY INVOKER, EXECUTE granted to nobody. Lock order is prize (FOR SHARE), inventory_balances, promotion_prize_balances — the same order for every caller. Idempotency keys are scoped to the Station, not to a prize: a client reusing "retry-1" across two prizes in one Station silently gets the first movement back. p_promotion_prize_id is projected by movement_type, not by the bucket pair, because linked on that projection counts units committed to the promotion and is not decremented by a draw; a type it does not know is refused with XX000 rather than appended silently.';
+  'Private ledger mechanics shared by every movement RPC: locks the balance row (bootstrap shared with adjust_stock via ensure_inventory_balance_row, 0030), locks the per-promotion balance row when the movement names one, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement with both projections untouched), moves the buckets, moves the per-promotion figure, and writes the audit row. Dropped and recreated in 0047 rather than replaced, because create or replace cannot change an argument list and the eight-argument overload left behind would have made every eight-argument call ambiguous between the two and raised 42725 at call time — 02_permissions.test.sql counts pg_proc entries by this name for exactly that reason, the signature lookups beside it being unable to see a twin. SECURITY INVOKER, EXECUTE granted to nobody. Lock order is prize (FOR SHARE), inventory_balances, promotion_prize_balances — the same order for every caller. Idempotency keys are scoped to the Station, not to a prize: a client reusing "retry-1" across two prizes in one Station silently gets the first movement back. p_promotion_prize_id is projected by movement_type, not by the bucket pair, because linked on that projection counts units committed to the promotion and is not decremented by a draw; a type it does not know is refused with XX000 rather than appended silently.';
 ```
 
 - [ ] **Step 5: Run both suites green**
@@ -3813,10 +3813,21 @@ and gives the record dialog its fourth tab.
 
 **`apply_inventory_movement` is dropped and recreated, not replaced.** Its
 argument list changes, and `create or replace` cannot do that — it would have
-left the eight-argument overload in place, and all five existing movement RPCs
-would have gone on resolving to it and silently never writing the new
-projection. `02_permissions.test.sql` pins the signature literally so that
-mistake fails the suite.
+left the eight-argument overload in place alongside the new nine-argument one,
+and every eight-argument call site would have become ambiguous between them,
+raising `42725` on the five oldest write paths in the schema.
+
+**This paragraph used to say something else, and the correction is the most
+useful thing in the block's mutation round.** It claimed those five callers
+"would have gone on resolving to it and silently never writing the new
+projection", and that `02_permissions.test.sql` "pins the signature literally so
+that mistake fails the suite". Both were false, and nobody noticed for seven
+tasks. The failure is loud, not silent; and `::regprocedure` resolves the
+signature it is handed and succeeds regardless of what else shares the name, so
+pgTAP passed **331 of 331 with both overloads live**. `02_permissions.test.sql`
+now counts `pg_proc` entries by name, which does catch it, and that assertion
+was proved by re-running the mutation against it. Full account in
+`docs/block-4b-report.md` §4.4.
 
 **Archiving moves stock now.** The spec's D1 assumed cancelling was the only way
 a promotion could let go of its prizes; it is not, because `cancel_promotion`

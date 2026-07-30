@@ -19,15 +19,15 @@ column, one function dropped and recreated, five RPCs, one screen.
 
 ## 1. Verification
 
-Every gate run at its real defaults on the final tree (`948bcac`), after all
-four mutations below were reverted.
+Every gate run at its real defaults on the final tree, after all four mutations
+below were reverted and after the assertion §4.4 adds.
 
 | Gate | Command | Result |
 | --- | --- | --- |
 | Lint | `npm run lint` | ✔ no ESLint warnings or errors |
 | Types | `npm run typecheck` | clean |
 | Unit | `npm test` | **256 passed**, 19 files (from 237) |
-| Database | `npm run db:reset` then `npm run db:test` | **331 passed**, 5 files, `Result: PASS` (from 281) |
+| Database | `npm run db:reset` then `npm run db:test` | **332 passed**, 5 files, `Result: PASS` (from 281) |
 | Isolation | `npm run test:isolation` | **151 passed**, 13 files, under real JWTs (from 121) — see §1.2 |
 | End to end | `npx playwright test --workers=1` | **14 passed**, 9 spec files (from 12) |
 
@@ -39,7 +39,7 @@ otherwise would be inventing a result.
 
 Unit went from 237 to 256: nineteen cases, fourteen of them for
 `parseRecordParam` and the client-module guard (§5.1) and five for the link and
-unlink schemas. pgTAP from 281 to 331: fifty, one per constraint in the spec's
+unlink schemas. pgTAP from 281 to 332: fifty-one, one per constraint in the spec's
 §6 list plus the grant grid, the recreated signature and the projection writes.
 Isolation from 121 to 151: thirty, twenty-eight of them in one new file driven
 by a non-owner delegate.
@@ -71,9 +71,10 @@ which is the most expensive kind to chase.
 
 The ledger escalated a `Worker exited unexpectedly` flake seen in Tasks 3, 4, 5
 and 6, noting that "every run that hit it still reported every test passing, and
-every re-run was clean". **That is no longer true.** On this task's two
-full-suite isolation runs it hit both times, on the same file, and it does not
-merely add noise — **it silently drops a whole test file**:
+every re-run was clean". **Neither half of that is true.** On this task's
+**three** full-suite isolation runs it hit **all three times, on the same
+file** — so on this machine it is not intermittent at all — and it does not
+merely add noise: **it silently drops a whole test file**:
 
 ```
  Test Files  12 passed (13)
@@ -82,10 +83,13 @@ merely add noise — **it silently drops a whole test file**:
 ```
 
 Twelve files are named as passed, 151 tests are counted, 144 are reported, and
-the missing seven are never mentioned again. The dropped file both times was
-`tests/isolation/promotion-prizes.test.ts` — this block's own. The first run
-**exited 0** with that summary; the second exited 1. So the exit code does not
-reliably distinguish the two, and a green isolation gate can be missing a file.
+the missing seven are never mentioned again. The dropped file was
+`tests/isolation/promotion-prizes.test.ts` — this block's own — every time, and
+the count of cases that got through before the worker died varied between runs
+(144, 142, 142), which is what a crash mid-file looks like rather than a skip.
+**The first run exited 0** with that summary; the second exited 1. So the exit
+code does not reliably distinguish the two, and a green isolation gate can be
+missing a file.
 
 There is now a mechanism to point at rather than a shrug. The dropped file is
 the only one that calls `execFileSync` to spawn the Supabase CLI from inside a
@@ -97,10 +101,28 @@ the time, and that run accounted for all 151 tests with no worker death.
 
 **The revert was therefore proved in two parts** rather than trusted: the full
 suite green on twelve files, plus `promotion-prizes.test.ts` run scoped, 28 of
-28, three separate times. Scoped, that file has never once triggered it.
+28, four separate times across this task. **Scoped, that file has never once
+triggered it** — which is the other half of the correlation, and the reason the
+two-part proof is a proof rather than a workaround.
+
+**This is the most important sentence in the report, because it is about
+whether the rest of the report can be trusted.** The intermittent worker crash
+that four tasks re-ran past can drop an entire file's results **and still exit
+0**. Every "isolation green" claim in this block's history — in task reports, in
+the ledger, in review sign-offs — came from a run whose summary nobody checked
+against the expected file count, because until now the flake was believed to be
+cosmetic. **Any of them may have come from a run that silently dropped a file.**
+Nothing here says one did; what it says is that the evidence does not
+distinguish. The claims in §1's table are the exception: they were checked file
+by file, and the thirteenth was run scoped precisely because it could not be.
+
+The cheap standing defence, until the crash itself is fixed: read `Test Files
+N passed (13)` and `Tests N passed (151)` on every isolation run and treat any
+shortfall as a failure regardless of the exit code.
 
 **For the branch review to rule on**, because four tasks have now re-run past
-it: this is a gate that can report success while a file did not run.
+it and this task will not be the fifth: this is a gate that can report success
+while a file did not run.
 
 ---
 
@@ -290,9 +312,9 @@ survived a mutation it is supposed to catch. See §7.
 
 ### 4.2 Drop the per-promotion write from the ledger
 
-`supabase/migrations/0047_promotion_prize_ledger.sql:223-245` — the whole
+`supabase/migrations/0047_promotion_prize_ledger.sql:239-261` — the whole
 `if p_promotion_prize_id is not null then` block that does the arithmetic —
-commented out, leaving the bootstrap and the lock (`:143-150`) in place.
+commented out, leaving the bootstrap and the lock (`:159-166`) in place.
 
 `npm run db:reset && npm run test:isolation -- tests/isolation/promotion-prizes.test.ts`
 → **14 failed | 14 passed (28)**.
@@ -387,7 +409,7 @@ claim in this block that is both load-bearing and, as far as any grep could
 tell, entirely untested — and it names a specific, mechanically reproducible
 mistake, which is what makes it mutable at all.
 
-`supabase/migrations/0047_promotion_prize_ledger.sql:79-81`, the
+`supabase/migrations/0047_promotion_prize_ledger.sql:95-97`, the
 `drop function public.apply_inventory_movement(…8 args…)` statement, commented
 out. The nine-argument `create function` below it then succeeds as an overload:
 
@@ -408,36 +430,75 @@ inventory_movement_type, integer, unknown, unknown, text, text) is not unique
 
 Three findings, in order of how much they should change what a reviewer reads:
 
-1. **The claim about `02_permissions.test.sql` is false as written.** Its three
-   assertions name the nine-argument signature through `::regprocedure`
-   (`supabase/tests/02_permissions.test.sql:370, 375, 379, 383`). `::regprocedure`
-   resolves a signature and proves that *that* function exists; it says nothing
-   about what else shares the name. The whole database gate passes with both
-   overloads live.
+1. **The claim about `02_permissions.test.sql` was false as written.** Its three
+   assertions name the nine-argument signature through `::regprocedure`.
+   `::regprocedure` resolves a signature and proves that *that* function exists;
+   it says nothing about what else shares the name. The whole database gate
+   passed with both overloads live. **Closed below** — the file now counts
+   `pg_proc` entries by name as well.
 
-2. **`0047`'s own header is wrong about the mechanism.** It says (lines 36-40)
-   that the five existing callers "would keep resolving to the old body and
+2. **`0047`'s own header was wrong about the mechanism.** It said, at what were
+   then lines 36-40, that the five existing callers "would keep resolving to the old body and
    would silently never write the new projection". They do not resolve to it at
    all. Every eight-argument call is **ambiguous** between the surviving
    eight-argument function and the nine-argument one whose last parameter
    defaults, and raises `42725` at the first call — the more so because the
    callers pass the bucket names as untyped literals, which is why the error
-   reports `unknown, unknown`. The real failure is **loud, not silent**. That is
-   better than the comment claims, but the comment is still wrong, and a
-   reviewer who trusts it will go looking for a silence that is not there. The
-   drop itself is correct and necessary; only its stated rationale is not.
+   reports `unknown, unknown`. The real failure is **loud, not silent** — and
+   loud on the five oldest write paths in the schema rather than on the new one.
+   That is better than the comment claimed, but a reviewer who trusted it would
+   have gone looking for a silence that does not occur. The drop itself was
+   always correct and necessary; only its stated rationale was not. **Corrected
+   in place** (`0047:42-58`), along with the same sentence in the shipped
+   `comment on function`.
 
-3. **The mistake is caught — by the isolation suite, not the database one.** 38
-   cases across `promotion-prizes.test.ts` and `inventory.test.ts`. CI runs
-   pgTAP first, so a reviewer reading only the database gate sees green.
+3. **The mistake was already caught — by the isolation suite, not the database
+   one.** 38 cases across `promotion-prizes.test.ts` and `inventory.test.ts`. So
+   the net was real, just never the one the block named. CI runs pgTAP first, so
+   a reviewer reading only the database gate saw green.
 
-**Recommended close, one line, for the branch review to rule on rather than for
-this task to take:** an assertion in `02_permissions.test.sql` that `pg_proc`
-holds exactly one `apply_inventory_movement`. It was not added here — Task 10's
-remit is mutation and documentation, and adding a test changes the gate it is
-reporting on. `0047`'s header cannot be corrected in place either: migrations
-are append-only and `0045`–`0051` are committed. The correction belongs in
-whichever migration Block 6 writes, the same way `0050`'s header carries `0045`'s.
+**Closed, in this task, and the closing is the point.**
+
+`supabase/tests/02_permissions.test.sql` now counts `pg_proc` entries by name —
+the same `count(*)::int from pg_proc join pg_namespace` shape the file already
+used for `members_blocked_bulk` — beside the three signature lookups, with a
+comment saying why they are not enough. Plan 212 → 213; the suite total is
+**332**.
+
+**And it was proved by re-running the mutation against it**, because an
+assertion added to catch a specific mistake and never observed catching it is
+the exact shape this block spent ten tasks removing:
+
+```
+# Failed test 73: "exactly one apply_inventory_movement exists — 0047 dropped
+#                  the eight-argument form rather than leaving a twin"
+#         have: 2     want: 1
+# Looks like you failed 1 test of 213
+Result: FAIL
+```
+
+One assertion red, and only that one, where the whole 331 had been green. The
+mutation was then reverted and the suite is back to 332 `PASS`, with
+`promotion-prizes.test.ts` re-run at 28/28 to confirm nothing else moved.
+
+`0047`'s header and its `comment on function` were corrected too, in place.
+Migrations are append-only **across** merges, not within an unmerged branch, and
+this branch already does exactly this: `6228a8b` amended `0050` after `f06cfd5`
+committed it, and `f64cadf` amended `0051`. A comment-only correction is the
+mildest form of it, and the diff on `0047` is comment-only — 23 lines in, 7 out,
+no statement touched. The draft PR body in the plan's Task 10 is corrected as
+well, since the owner is about to use it.
+
+**Say it plainly, because it is worth more than a quietly corrected sentence:
+this block asserted, in a commit message, in a migration header, in a shipped
+`comment on function` and in the PR body a reviewer was about to read, that a
+test caught this mistake. It did not. The claim stood for seven tasks and
+through every review in them, and it was a mutation — not a reading — that
+found it. The assertion exists now because of that mutation.** The three
+`::regprocedure` lookups were never wrong about what they assert; they were
+wrong about what they were being credited with, and no amount of re-reading them
+would have shown it. This is the single clearest argument in the block for
+running the mutation rather than reasoning about it.
 
 ### 4.5 Revert proof
 
@@ -455,7 +516,7 @@ $ git rev-parse HEAD
 
 `HEAD` unmoved, no tracked file modified, the untracked `Arte/` the only entry —
 which is what it was before this task started. The gates the mutations touched
-were then re-run from a clean `db:reset`: pgTAP 331 `PASS`, isolation green
+were then re-run from a clean `db:reset`: pgTAP 332 `PASS`, isolation green
 (§1.2 for how that was proved in two parts), plus lint, typecheck and 256 unit.
 
 ---
@@ -592,14 +653,17 @@ column no caller can fill is a rule that cannot be tested. The header at
 this is a drop-and-recreate of the constraint in a new file.
 
 **2. Teach `apply_inventory_movement`'s type dispatch about each new type.**
-`supabase/migrations/0047_promotion_prize_ledger.sql:223-245`. It handles
+`supabase/migrations/0047_promotion_prize_ledger.sql:239-261`. It handles
 `PROMOTION_LINK` and `PROMOTION_UNLINK` and raises `XX000` on anything else
-(`0047:241-243`). **That raise is the tripwire**: widen the constraint above
+(`0047:257-259`). **That raise is the tripwire**: widen the constraint above
 without touching this and the first draw fails loudly instead of appending a
 movement the projection never hears about. Proved reachable — see §4.2, pgTAP
 test 27. When you recreate this function, read §4.4 first: its argument list is
-what forced the drop-and-recreate, nothing counts overloads, and the header's
-account of what a missed drop does is wrong.
+what forced the drop-and-recreate, and both the header's account of a missed
+drop and the test that was credited with catching one were wrong until Task 10.
+`02_permissions.test.sql` now counts `pg_proc` entries named
+`apply_inventory_movement` and expects exactly 1 — widen the signature again and
+that assertion still holds, which is the point of counting by name.
 
 **3. Add `delivered` to `promotion_prize_balances`, with the movement that fills
 it.** The column comment that promises it is
@@ -652,9 +716,11 @@ what a winner was promised.
 ## 8. Deferred minors, grouped
 
 Roughly twenty-five across eleven tasks, all disclosed in the ledger rather than
-discovered here. **⚑ marks the ones that should not survive to Block 5** — not
+discovered here. **⚑ marks the seven that should not survive to Block 5** — not
 because they are the largest, but because each either hides a future failure or
-misleads the next reader.
+misleads the next reader. Two more carried the mark until Task 10 closed them;
+both are still listed, unmarked, because a defect that was fixed is worth more
+to the next reader as a record than as a silence.
 
 ### 8.1 Assertions that measure the wrong thing, or cannot fail
 
@@ -679,9 +745,10 @@ misleads the next reader.
 - The "exactly 50 prizes" half of the picker cap test is a baseline sanity
   check, not a regression net: with 50 rows, `limit 50` and `limit 51` return
   identical output. Only the 52-prize half distinguishes them.
-- ⚑ **The overload-count gap** (§4.4). Listed here because it is the same
-  species: an assertion that names a signature and is read as pinning
-  uniqueness.
+- **The overload-count gap** (§4.4) — **closed in Task 10**, and listed here
+  anyway because it is the purest specimen in the block: an assertion that names
+  a signature, read for seven tasks as pinning uniqueness, and only a mutation
+  could tell the difference.
 
 ### 8.2 Coverage the block shipped without
 
@@ -720,9 +787,10 @@ misleads the next reader.
   `awaiting_pickup`" sentence. The code and the comments were fixed in
   `6228a8b`; the history was not, and rewriting branch history was not
   authorised.
-- ⚑ **`0047`'s header is wrong about what a missed drop does** (§4.4). It cannot
-  be fixed in place — append-only — so the correction has to travel to Block 6's
-  migration or it is lost.
+- **`0047`'s header was wrong about what a missed drop does**, and its shipped
+  `comment on function` carried the same sentence (§4.4). **Both corrected in
+  place in Task 10** — append-only binds across merges, not within an unmerged
+  branch, and `6228a8b` and `f64cadf` set the precedent on this branch.
 - The hook still says `back()` "pops" the entry in two places
   (`src/hooks/use-record-dialog.ts:95, 102`), which is the exact wrong model the
   paragraph twenty lines below now disowns (§6). Cheap and worth taking.

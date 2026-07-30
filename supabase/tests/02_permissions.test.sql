@@ -1,5 +1,5 @@
 begin;
-select plan(212);
+select plan(213);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -354,12 +354,35 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 select ok(not has_table_privilege('service_role', 'public.inventory_balances', 'DELETE'),
           'service_role may not delete the projection directly either');
 
--- The signature is spelled out rather than matched by name because pinning
--- SECURITY INVOKER and the empty grant grid on "whichever overload exists" is
--- exactly the assertion that would survive 0047 leaving the old eight-argument
--- function behind alongside the new one. Block 4b widened it to nine; if a
--- later block widens it again, this lookup fails loudly rather than silently
--- checking the wrong function.
+-- Exactly one apply_inventory_movement, and THIS is the assertion that says so.
+--
+-- 0047 drops the eight-argument form and creates a nine-argument one, because
+-- create or replace cannot change an argument list. Forget the drop and both
+-- live: every eight-argument call site — record_stock_entry, record_stock_exit,
+-- adjust_stock, reserve_stock, release_reservation — becomes ambiguous between
+-- the survivor and the new function whose last parameter defaults, and raises
+-- 42725 at call time.
+--
+-- The three assertions below cannot see that, and the distinction is worth
+-- being exact about because the block got it wrong for seven tasks. They spell
+-- the nine-argument signature out in full rather than matching by name, which
+-- is right and is what pins their properties on the correct function if a later
+-- block widens the list again. But ::regprocedure RESOLVES the signature it is
+-- handed and succeeds regardless of what else shares the name. Comment out
+-- 0047's drop and this whole file stays green — measured, 331 of 331 — while
+-- the exact state 0047 exists to prevent is live in pg_proc. What actually
+-- catches it today is the isolation suite, through that 42725 across 38 cases,
+-- and the block's own commit message, migration header and PR draft all claimed
+-- these three did. A mutation in Task 10 found otherwise; this assertion is the
+-- answer to it, and it is proved by re-running that mutation against it.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'apply_inventory_movement'),
+  1,
+  'exactly one apply_inventory_movement exists — 0047 dropped the eight-argument form rather than leaving a twin'
+);
+
 -- Important #3: apply_inventory_movement's protective properties — SECURITY
 -- INVOKER and EXECUTE granted to nobody — are what make a stray future GRANT
 -- or a stray future SECURITY DEFINER harmless, respectively. Neither was

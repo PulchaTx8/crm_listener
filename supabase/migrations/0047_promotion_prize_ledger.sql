@@ -34,12 +34,28 @@ comment on function public.ensure_promotion_prize_balance_row(uuid, uuid, uuid, 
 --
 -- create or replace cannot change a function's argument list: it would create a
 -- second, nine-argument overload and leave the eight-argument one in place.
--- Every existing caller — record_stock_entry, record_stock_exit, adjust_stock,
--- reserve_stock, release_reservation — would keep resolving to the old body and
--- would silently never write the new projection, which is the exact defect this
--- block exists to prevent. Postgres does not track plpgsql body dependencies,
--- so the drop succeeds and those five re-resolve to this function, through the
--- default on the new parameter, at their next call.
+-- Postgres does not track plpgsql body dependencies, so the drop succeeds and
+-- the five existing callers — record_stock_entry, record_stock_exit,
+-- adjust_stock, reserve_stock, release_reservation — re-resolve to this
+-- function, through the default on the new parameter, at their next call.
+--
+-- What forgetting the drop would actually do, corrected after a mutation ran
+-- it. This comment said those five "would keep resolving to the old body and
+-- would silently never write the new projection". They would not resolve to it
+-- at all: with both overloads live, every eight-argument call is AMBIGUOUS
+-- between the survivor and the nine-argument form whose last parameter
+-- defaults, and raises 42725 `function ... is not unique` at call time — the
+-- more so because those callers pass the bucket names as untyped literals. The
+-- failure is loud, not silent, and it is loud on the five oldest write paths in
+-- the schema rather than on the new one. The drop is still required; only the
+-- account of what it prevents was wrong, and a reviewer who trusted it would go
+-- looking for a silence that does not occur.
+--
+-- The claim that came with it — that 02_permissions.test.sql's signature pin
+-- catches the mistake — was false too, and pgTAP passed 331 of 331 with both
+-- overloads live. 02 now counts pg_proc entries by name, which does catch it,
+-- and that assertion is itself mutation-proved. See its comment for why the
+-- ::regprocedure lookups beside it cannot do the job.
 --
 -- Nothing else about this function changes. It takes prize (FOR SHARE), then
 -- inventory_balances, then promotion_prize_balances — but that is this
@@ -269,4 +285,4 @@ $$;
 revoke execute on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid) from public;
 
 comment on function public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid) is
-  'Private ledger mechanics shared by every movement RPC: locks the balance row (bootstrap shared with adjust_stock via ensure_inventory_balance_row, 0030), locks the per-promotion balance row when the movement names one, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement without moving a figure in either projection — it may have bootstrapped an all-zero promotion_prize_balances row on the way in, exactly as ensure_inventory_balance_row already does for inventory_balances on that same path, so "untouched" would overstate it), moves the buckets, moves the per-promotion figure, and writes the audit row. Dropped and recreated in 0047 rather than replaced, because create or replace cannot change an argument list and the eight-argument overload left behind would have gone on being the one every existing caller resolved to. SECURITY INVOKER, EXECUTE granted to nobody. This function locks prize (FOR SHARE), then inventory_balances, then promotion_prize_balances, but that order is NOT universal and must not be relied on as if it were: adjust_stock (0030) locks inventory_balances itself and reaches the prize only afterwards, when it delegates here. What holds instead is that promotion_prize_balances is locked nowhere but inside this function and only after inventory_balances; that a link determines its prize through the three-column foreign key in 0045, so two transactions contending for one promotion_prize_balances row have already serialised on one inventory_balances row; and that the prize lock is FOR SHARE and does not conflict with itself, archive_prize (0027) being its only FOR UPDATE taker and never waiting on inventory_balances. An RPC that locks inventory_balances itself and then touches promotion_prize_balances outside this function is where a real cycle first becomes possible. Idempotency keys are scoped to the Station, not to a prize: a client reusing "retry-1" across two prizes in one Station silently gets the first movement back. p_promotion_prize_id is projected by movement_type, not by the bucket pair, because linked on that projection counts units committed to the promotion and is not decremented by a draw; a type it does not know is refused with XX000 rather than appended silently.';
+  'Private ledger mechanics shared by every movement RPC: locks the balance row (bootstrap shared with adjust_stock via ensure_inventory_balance_row, 0030), locks the per-promotion balance row when the movement names one, appends the movement (a replay is detected via ON CONFLICT on the partial unique index over (company_id, idempotency_key) and returns the original movement without moving a figure in either projection — it may have bootstrapped an all-zero promotion_prize_balances row on the way in, exactly as ensure_inventory_balance_row already does for inventory_balances on that same path, so "untouched" would overstate it), moves the buckets, moves the per-promotion figure, and writes the audit row. Dropped and recreated in 0047 rather than replaced, because create or replace cannot change an argument list and the eight-argument overload left behind would have made every eight-argument call ambiguous between the two and raised 42725 at call time — 02_permissions.test.sql counts pg_proc entries by this name for exactly that reason, the signature lookups beside it being unable to see a twin. SECURITY INVOKER, EXECUTE granted to nobody. This function locks prize (FOR SHARE), then inventory_balances, then promotion_prize_balances, but that order is NOT universal and must not be relied on as if it were: adjust_stock (0030) locks inventory_balances itself and reaches the prize only afterwards, when it delegates here. What holds instead is that promotion_prize_balances is locked nowhere but inside this function and only after inventory_balances; that a link determines its prize through the three-column foreign key in 0045, so two transactions contending for one promotion_prize_balances row have already serialised on one inventory_balances row; and that the prize lock is FOR SHARE and does not conflict with itself, archive_prize (0027) being its only FOR UPDATE taker and never waiting on inventory_balances. An RPC that locks inventory_balances itself and then touches promotion_prize_balances outside this function is where a real cycle first becomes possible. Idempotency keys are scoped to the Station, not to a prize: a client reusing "retry-1" across two prizes in one Station silently gets the first movement back. p_promotion_prize_id is projected by movement_type, not by the bucket pair, because linked on that projection counts units committed to the promotion and is not decremented by a draw; a type it does not know is refused with XX000 rather than appended silently.';
