@@ -105,7 +105,6 @@ const PARTICIPATION_PAGE_SIZE = 25;
 const createdUserIds: string[] = [];
 
 interface World {
-  organizationId: string;
   stationAId: string;
   stationBId: string;
   listingPromotionId: string;
@@ -400,7 +399,6 @@ test.beforeAll(async () => {
   }
 
   world = {
-    organizationId,
     stationAId,
     stationBId: stationBId as string,
     listingPromotionId,
@@ -469,6 +467,44 @@ function countListRenders(page: Page): string[] {
     if (request.resourceType() === 'document' || isRsc) renders.push(request.url());
   });
   return renders;
+}
+
+/**
+ * The debounce the guard journey below has to interrupt, repeated from
+ * participations-filters.tsx rather than imported: importing it would make the
+ * test agree with the screen by construction, and a debounce lengthened by
+ * accident would then still look interrupted.
+ */
+const DEBOUNCE_MS = 350;
+
+/**
+ * The guard journey has a setup step that can silently stop being a test.
+ *
+ * It types a term and clicks a link, and the whole case rests on that click
+ * landing INSIDE the debounce window. On a loaded machine — a full suite under
+ * one worker, a slow CI box — `fill()` and `click()` can take longer than the
+ * window between them, the search fires on its own, and the journey then fails
+ * on the very assertion that catches the defect it was written for. A false red
+ * shaped exactly like a guard regression, which is the most expensive kind:
+ * somebody spends the afternoon this task already spent.
+ *
+ * So the precondition is asserted as a precondition. Two checks, because
+ * neither is sufficient alone: the elapsed time is measured from BEFORE the
+ * fill, so it over-counts and can only ever be conservative about "we were
+ * inside the window"; and the address is read immediately after the click,
+ * where a debounce that had already fired AND landed shows up as a `q=` that
+ * has no business being there yet. A failure of either says setup, not screen.
+ */
+function assertClickBeatTheDebounce(page: Page, startedAt: number, what: string) {
+  const elapsed = Date.now() - startedAt;
+  expect(
+    elapsed,
+    `setup, not the screen: ${what} had to be clicked within the ${DEBOUNCE_MS}ms debounce and this machine took ${elapsed}ms to type and click. The case did not run.`,
+  ).toBeLessThan(DEBOUNCE_MS);
+  expect(
+    page.url(),
+    `setup, not the screen: the search had already reached the address before ${what} was clicked, so nothing was pending to interrupt.`,
+  ).not.toContain('q=');
 }
 
 /** The Listener cell of a row on /participations: Listener, Promotion, Status, Source, Entered. */
@@ -846,8 +882,10 @@ test('a Station chip and a page turn both beat a search still waiting to fire', 
   // debounce that matters — the chip is clicked with the 350ms timer still
   // pending, which is the window the guard exists for. Nothing is awaited
   // between the two lines on purpose: the click has to land inside it.
-  await searchInput.fill('Bruno Listed');
+  const clickedAt = Date.now();
+  await searchInput.fill(brunoName);
   await managerPage.getByRole('link', { name: stationBName }).click();
+  assertClickBeatTheDebounce(managerPage, clickedAt, 'the Station chip');
 
   await expect(managerPage).toHaveURL(`/participations?companyId=${world.stationBId}`);
 
@@ -878,8 +916,10 @@ test('a Station chip and a page turn both beat a search still waiting to fire', 
   await expect(managerPage.getByTestId('participation-row')).toHaveCount(PARTICIPATION_PAGE_SIZE);
   await expect(managerPage.getByTestId('page-total')).toHaveText(`${PAGING_ENTRIES} entries`);
 
-  await searchInput.fill('Caio Paged');
+  const turnedAt = Date.now();
+  await searchInput.fill(caioName);
   await managerPage.getByTestId('page-next').click();
+  assertClickBeatTheDebounce(managerPage, turnedAt, 'the page turn');
 
   await expect(managerPage).toHaveURL(/[?&]after=/);
   await managerPage.waitForTimeout(700);

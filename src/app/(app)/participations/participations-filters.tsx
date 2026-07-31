@@ -33,6 +33,69 @@ export interface PromotionOption {
 }
 
 /**
+ * A click, reduced to the facts that decide whether it will navigate this
+ * document. `href` is null when the click was not inside an anchor at all.
+ */
+export interface ClickIntent {
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  /** The anchor's RESOLVED href, or null when there was no anchor. */
+  href: string | null;
+  /** The anchor's `target` attribute, or null/'' when it has none. */
+  target: string | null;
+}
+
+/**
+ * Whether this click is about to take the browser somewhere other than where it
+ * already is — which is the question the search-cancelling listener below asks,
+ * and the only reason it is out here as a pure function is that it must be
+ * possible to make each of its five refusals go red.
+ *
+ * Every `false` it returns protects something the operator typed. A cancel is
+ * DESTRUCTIVE — it throws away a search in flight — so a listener that answers
+ * "yes" too readily is not a smaller version of the defect it was written for,
+ * it is a new one. Read the branches as five ways of not doing damage:
+ *
+ *   - a non-primary or modified click opens a tab, or a context menu, and
+ *     leaves this document exactly where it is;
+ *   - a click that is not inside an anchor is not a navigation at all;
+ *   - `target="_blank"` (or a named frame) points somewhere else;
+ *   - a cross-origin link leaves the app, and by the time it matters this
+ *     component is gone anyway;
+ *   - a link to the address we are already at undoes nothing, so there is
+ *     nothing for a pending keystroke to trample.
+ *
+ * `_self`, `_top` and `_parent` all navigate THIS document — the app is never
+ * framed, so the last two are `_self` in practice — and they are spelled out
+ * rather than folded into "not _blank" so that a named frame, which is a real
+ * elsewhere, keeps its refusal.
+ *
+ * Covered by tests/unit/participations-filters.test.ts.
+ */
+const SAME_DOCUMENT_TARGETS = new Set(['', '_self', '_top', '_parent']);
+
+export function startsAnotherNavigation(intent: ClickIntent, currentHref: string): boolean {
+  if (intent.button !== 0) return false;
+  if (intent.metaKey || intent.ctrlKey || intent.shiftKey || intent.altKey) return false;
+  if (intent.href === null) return false;
+  if (!SAME_DOCUMENT_TARGETS.has(intent.target ?? '')) return false;
+
+  let destination: URL;
+  let current: URL;
+  try {
+    destination = new URL(intent.href, currentHref);
+    current = new URL(currentHref);
+  } catch {
+    return false;
+  }
+  if (destination.origin !== current.origin) return false;
+  return destination.href !== current.href;
+}
+
+/**
  * These controls filter nothing themselves: they edit the URL, and the Server
  * Component asks Postgres a narrower question — the shape every list in this
  * codebase has used since Block 3b. Changing any of them drops the cursor
@@ -115,23 +178,22 @@ export function ParticipationsFilters({
    * STARTED. The effect below cancels it too, and that is not a duplicate: this
    * one decides the outcome and that one repairs the input.
    *
-   * The reason it cannot be left to the effect alone is a measurement, not a
-   * theory. That effect is keyed on `currentHref`, which is a prop from the
-   * SERVER render, so it can only run once the destination has come back and
-   * committed — and this screen's render is several sequential Supabase round
-   * trips (the session, the Station access, the search permission, the page,
-   * the promotion picker). Measured against a production build on the local
-   * stack: one /participations RSC body completes in 276-305ms; a Station chip
-   * onto an empty Station commits at 320-351ms, and a page turn at 484-527ms.
-   * The debounce is 350ms and the click lands about 50ms into it, so the effect
-   * is being asked to win a race it does not know it is in. Driven six times
-   * per case in a production build, the chip held 5 of 6 and the page turn 0 of
-   * 6: typing and then turning the page threw the page turn away and applied
-   * the search the operator had abandoned. Tuning either number moves the
-   * boundary and leaves the defect live on a slower Station, which is why this
-   * is a listener and not a longer debounce. With the listener, the same rig
-   * holds 6 of 6 on all three — chip, page turn and Back — and the committed
-   * case is tests/e2e/participations-flow.spec.ts's fourth journey.
+   * The reason it cannot be left to the effect alone is structural rather than
+   * a matter of tuning. That effect is keyed on `currentHref`, which is a prop
+   * from the SERVER render, so it cannot run until the destination has come
+   * back and committed — and this screen's render is several sequential
+   * Supabase round trips (the session, the Station access, the search
+   * permission, the page, the promotion picker). A debounce is a fixed number
+   * of milliseconds; that round trip is not. So a guard that waits for the new
+   * render is being asked to win a race nothing tells it it is in, and on any
+   * stack where the render outruns the debounce it simply loses: the pending
+   * timer fires first and replaces the navigation the operator just made with
+   * the filters they just left, plus the search they abandoned. That was
+   * measured, not inferred — the numbers and the per-case hold counts are in
+   * Task 9's report rather than here, because they belong to one machine on one
+   * day and this comment has to stay true on every other one. Raising the
+   * debounce moves the boundary and leaves the same defect live on a slower
+   * Station, which is why this is a listener.
    *
    * A capture-phase click listener on the document, because the links that
    * start those navigations are not this component's to wrap: the Station chips
@@ -142,12 +204,10 @@ export function ParticipationsFilters({
    * commit-time, so it is the same defect) and monkey-patching `history`
    * (global, and it would fire for our own `replace` as well).
    *
-   * Deliberately narrow, because a cancel is destructive — it throws away
-   * something the operator typed. It fires only for a primary, unmodified click
-   * on a same-document anchor going somewhere other than where we already are.
-   * A ctrl/cmd/shift click opens a new tab and leaves this page exactly where it
-   * is, and dropping the search for one of those would be a new defect of the
-   * same family.
+   * What counts as a navigation is `startsAnotherNavigation` above, out there
+   * rather than inline so that each of its five refusals can be made to fail —
+   * every one of them is what stops a cancel throwing away something the
+   * operator typed.
    *
    * `popstate` is here for the same reason and gets the same treatment: Back and
    * Forward are navigations the operator started, and they are the case Task 7's
@@ -162,27 +222,22 @@ export function ParticipationsFilters({
     }
 
     function onNavigationStart(event: MouseEvent) {
-      // A modified or non-primary click does not navigate THIS document.
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const anchor = target.closest('a[href]');
-      if (!(anchor instanceof HTMLAnchorElement)) return;
-      // `_blank` and friends leave this page alone.
-      if (anchor.target && anchor.target !== '_self') return;
-      let destination: URL;
-      try {
-        destination = new URL(anchor.href, window.location.href);
-      } catch {
-        return;
-      }
-      if (destination.origin !== window.location.origin) return;
-      // A link to the address we are already at undoes nothing, so there is
-      // nothing for the pending keystroke to trample and no reason to lose it.
-      if (destination.href === window.location.href) return;
-      cancelPending();
+      // The DOM half, kept to exactly what needs a DOM: find the anchor. The
+      // decision itself is a pure function of the facts below.
+      const eventTarget = event.target;
+      const anchor = eventTarget instanceof Element ? eventTarget.closest('a[href]') : null;
+      const link = anchor instanceof HTMLAnchorElement ? anchor : null;
+      const intent: ClickIntent = {
+        button: event.button,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        // `.href` on an anchor is already resolved against the document.
+        href: link ? link.href : null,
+        target: link ? link.target : null,
+      };
+      if (startsAnotherNavigation(intent, window.location.href)) cancelPending();
     }
 
     // Capture, so a handler that stops propagation on its way up cannot leave
