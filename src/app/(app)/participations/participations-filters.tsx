@@ -111,10 +111,103 @@ export function ParticipationsFilters({
   const expectedHref = useRef(currentHref);
 
   /**
+   * The pending keystroke is cancelled when somebody else's navigation is
+   * STARTED. The effect below cancels it too, and that is not a duplicate: this
+   * one decides the outcome and that one repairs the input.
+   *
+   * The reason it cannot be left to the effect alone is a measurement, not a
+   * theory. That effect is keyed on `currentHref`, which is a prop from the
+   * SERVER render, so it can only run once the destination has come back and
+   * committed — and this screen's render is several sequential Supabase round
+   * trips (the session, the Station access, the search permission, the page,
+   * the promotion picker). Measured against a production build on the local
+   * stack: one /participations RSC body completes in 276-305ms; a Station chip
+   * onto an empty Station commits at 320-351ms, and a page turn at 484-527ms.
+   * The debounce is 350ms and the click lands about 50ms into it, so the effect
+   * is being asked to win a race it does not know it is in. Driven six times
+   * per case in a production build, the chip held 5 of 6 and the page turn 0 of
+   * 6: typing and then turning the page threw the page turn away and applied
+   * the search the operator had abandoned. Tuning either number moves the
+   * boundary and leaves the defect live on a slower Station, which is why this
+   * is a listener and not a longer debounce. With the listener, the same rig
+   * holds 6 of 6 on all three — chip, page turn and Back — and the committed
+   * case is tests/e2e/participations-flow.spec.ts's fourth journey.
+   *
+   * A capture-phase click listener on the document, because the links that
+   * start those navigations are not this component's to wrap: the Station chips
+   * are rendered by page.tsx, Previous/Next by the shared PageControls, and the
+   * app shell owns the rest. Wrapping them would mean touching three modules
+   * and remembering to do it again for the fourth. The alternatives were a
+   * router event (the App Router publishes none), `useSearchParams` (still
+   * commit-time, so it is the same defect) and monkey-patching `history`
+   * (global, and it would fire for our own `replace` as well).
+   *
+   * Deliberately narrow, because a cancel is destructive — it throws away
+   * something the operator typed. It fires only for a primary, unmodified click
+   * on a same-document anchor going somewhere other than where we already are.
+   * A ctrl/cmd/shift click opens a new tab and leaves this page exactly where it
+   * is, and dropping the search for one of those would be a new defect of the
+   * same family.
+   *
+   * `popstate` is here for the same reason and gets the same treatment: Back and
+   * Forward are navigations the operator started, and they are the case Task 7's
+   * first fix round was written for. Note what does NOT reach it — `router.replace`
+   * is a `history.replaceState`, and neither that nor a Link's `pushState`
+   * dispatches `popstate` — so this cancels genuine browser navigation and never
+   * our own.
+   */
+  useEffect(() => {
+    function cancelPending() {
+      clearTimeout(timer.current);
+    }
+
+    function onNavigationStart(event: MouseEvent) {
+      // A modified or non-primary click does not navigate THIS document.
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      // `_blank` and friends leave this page alone.
+      if (anchor.target && anchor.target !== '_self') return;
+      let destination: URL;
+      try {
+        destination = new URL(anchor.href, window.location.href);
+      } catch {
+        return;
+      }
+      if (destination.origin !== window.location.origin) return;
+      // A link to the address we are already at undoes nothing, so there is
+      // nothing for the pending keystroke to trample and no reason to lose it.
+      if (destination.href === window.location.href) return;
+      cancelPending();
+    }
+
+    // Capture, so a handler that stops propagation on its way up cannot leave
+    // the timer alive. It runs before the router's own handler, which only
+    // means the timer is cleared microseconds before the navigation it belongs
+    // to begins.
+    document.addEventListener('click', onNavigationStart, true);
+    window.addEventListener('popstate', cancelPending);
+    return () => {
+      document.removeEventListener('click', onNavigationStart, true);
+      window.removeEventListener('popstate', cancelPending);
+    };
+  }, []);
+
+  /**
    * Re-synced from the URL so browser back/forward leaves this input agreeing
    * with the list beside it — and, when the URL changed for a reason that was
    * not this component, the pending debounce is CANCELLED rather than left to
    * fire afterwards and undo that navigation.
+   *
+   * This is still the effect that decides what the INPUT says, and it is still
+   * the only guard against a navigation the listener above cannot observe (a
+   * programmatic push from elsewhere in the tree). What it is no longer asked to
+   * do is beat the network: by the time it runs, the timer is usually already
+   * cleared, and its `clearTimeout` is the backstop rather than the mechanism.
    *
    * Two things about the shape here, both of them defects this file already had
    * once each.

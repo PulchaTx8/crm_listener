@@ -14,26 +14,25 @@ import {
  * /participations then lists it, opening on the entries that counted and saying
  * so.
  *
- * Three journeys, and each names a claim that would otherwise rest on reasoning:
+ * Four journeys, and each names a claim that would otherwise rest on reasoning:
  *
  *   1. the write, the count, and the list that must not move (design spec D8);
  *   2. the VALID default announcing itself, and "Any status" undoing it (D5);
  *   3. a delegate who may read entries but not the audience being told their
- *      search was dropped — and still shown every row (Task 7 §5).
+ *      search was dropped — and still shown every row (Task 7 §5);
+ *   4. the debounced search losing to a navigation it did not make.
  *
- * A FOURTH was written and is deliberately not here, because it does not pass.
- * The filter bar cancels a pending debounced search when the address changes
- * for a reason that was not itself, and it does that from an effect keyed on
- * the address — so the cancel can only happen once the destination render has
- * COMMITTED. That commit is an RSC round trip, and this screen's own render
- * measures 276-305ms of server time: a Station chip onto an empty Station
- * commits at 320-351ms against a 350ms debounce (it held 5 of 6 runs), and a
- * page turn commits at 484-527ms (it held 0 of 6). So typing and then turning
- * the page inside the debounce window loses the page turn and applies the
- * search the operator abandoned. That is a defect in
- * participations-filters.tsx, not in the test, and this task was not the one
- * allowed to change it — the case is written out in Task 9's report ready to
- * be committed the moment the guard stops depending on winning a race.
+ * The fourth is the one that had never been driven. It was written first
+ * against the guard as Task 7 left it and FAILED — that guard cancelled the
+ * pending timer from an effect keyed on the address, so it could only fire
+ * once the destination render had committed, which on this screen is 276-305ms
+ * of server time against a 350ms debounce. Six runs per case in a production
+ * build: the Station chip held 5 of 6 and the page turn 0 of 6. The guard now
+ * cancels when the navigation is STARTED (participations-filters.tsx's
+ * document click listener), and both cases hold 6 of 6. That history is here
+ * because this journey looks like it is testing a detail, and what it is
+ * actually holding down is the difference between a guard that works and one
+ * that wins a race most of the time.
  */
 const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -78,15 +77,18 @@ const unseenListenerPhone = `1197${String(stamp).slice(-7)}`;
 const typedListenerName = `Carla Typed ${stamp}`;
 const typedListenerPhone = `1196${String(stamp).slice(-7)}`;
 
-// --- the other two journeys' world: one Organization, one Station, two roles -
+// --- the other three journeys' world: one Organization, two Stations --------
 const listOwnerEmail = `e2e-list-owner-${stamp}@example.test`;
 const listOrgName = `List Org ${stamp}`;
 const stationAName = `List Station A ${stamp}`;
+const stationBName = `List Station B ${stamp}`;
 const managerEmail = `e2e-list-manager-${stamp}@example.test`;
 const readerEmail = `e2e-list-reader-${stamp}@example.test`;
 const listingPromotionName = `Listing Promo ${stamp}`;
+const pagingPromotionName = `Paging Promo ${stamp}`;
 const anaName = `Ana Listed ${stamp}`;
 const brunoName = `Bruno Listed ${stamp}`;
+const caioName = `Caio Paged ${stamp}`;
 /**
  * Deliberately carries no digit. The service ORs the term against
  * `cpf_last_digits` and `phone_normalized` as well as the name, but only once
@@ -96,17 +98,23 @@ const brunoName = `Bruno Listed ${stamp}`;
  */
 const searchTerm = 'Ana Listed';
 
+/** How many entries the paging journey needs: one more than a full page (25). */
+const PAGING_ENTRIES = 26;
+const PARTICIPATION_PAGE_SIZE = 25;
+
 const createdUserIds: string[] = [];
 
 interface World {
   organizationId: string;
   stationAId: string;
+  stationBId: string;
   listingPromotionId: string;
+  pagingPromotionId: string;
   managerPassword: string;
   readerPassword: string;
 }
 /**
- * Built once in beforeAll and read by the last two journeys. The definite
+ * Built once in beforeAll and read by the last three journeys. The definite
  * assignment assertion is honest here rather than a way round the compiler: a
  * beforeAll that throws fails every test in the file, so no journey can reach
  * this while it is unset.
@@ -263,7 +271,7 @@ test.beforeAll(async () => {
   //
   // Not through the Customers screen, unlike the first journey below, and the
   // difference is deliberate: journey 1 is about what happens on a screen, so
-  // it walks in through the screens; journeys 2 and 3 are about what a list
+  // it walks in through the screens; journeys 2 to 4 are about what a list
   // shows, and provisioning is already proved by provisioning-flow.spec.ts and
   // driven again in journey 1. The owner here never opens a browser at all —
   // every write below is a signed-in RPC call, which the provisional-password
@@ -284,6 +292,16 @@ test.beforeAll(async () => {
     company_id: string;
   };
 
+  // add_company is platform-admin only (0017), so it goes through the admin's
+  // own session — the same call tests/isolation/harness.ts's addCompany makes
+  // and the same one members-flow.spec.ts makes for its second Station.
+  const { data: stationBId, error: stationBError } = await adminClient.rpc('add_company', {
+    p_organization_id: organizationId,
+    p_name: stationBName,
+    p_timezone: 'America/Sao_Paulo',
+  });
+  if (stationBError) throw new Error(`add_company failed: ${stationBError.message}`);
+
   const ownerClient = await signIn(listOwnerEmail, listOwner.password);
 
   // Two roles, and the ONE permission between them is the whole of journey 3:
@@ -302,12 +320,14 @@ test.beforeAll(async () => {
   });
   if (readerRoleError) throw new Error(`create_role(reader) failed: ${readerRoleError.message}`);
 
+  // The manager holds it at BOTH Stations, so the Station chip row journey 4
+  // needs is rendered for them. The reader holds it at Station A only.
   const manager = await addDelegate(
     ownerClient,
     organizationId,
     managerEmail,
     managerRoleId as string,
-    [stationAId],
+    [stationAId, stationBId as string],
   );
   const reader = await addDelegate(
     ownerClient,
@@ -358,10 +378,33 @@ test.beforeAll(async () => {
   );
   expect([anaFirst, brunoOnly, anaAgain]).toEqual(['VALID', 'VALID', 'DUPLICATE']);
 
+  // --- the paging promotion: one page and one row over it --------------------
+  const pagingPromotionId = await createPromotion(ownerClient, stationAId, pagingPromotionName);
+  const caioId = await createListener(
+    ownerClient,
+    stationAId,
+    caioName,
+    `1193${String(stamp).slice(-7)}`,
+  );
+  for (let i = 0; i < PAGING_ENTRIES; i += 1) {
+    // One listener, twenty-six rows: the first counts and the rest are
+    // DUPLICATEs, which are rows on the record all the same. Twenty-six
+    // listeners would have proved nothing more and cost twenty-five extra
+    // registrations.
+    await recordEntry(
+      ownerClient,
+      pagingPromotionId,
+      caioId,
+      new Date(Date.now() - (i + 1) * 60_000),
+    );
+  }
+
   world = {
     organizationId,
     stationAId,
+    stationBId: stationBId as string,
     listingPromotionId,
+    pagingPromotionId,
     managerPassword: manager.password,
     readerPassword: reader.password,
   };
@@ -775,4 +818,82 @@ test('a delegate who cannot see the audience is told their search was dropped, a
   await expect(readerPage.getByTestId('page-total')).toHaveText('2 entries');
 
   await readerContext.close();
+});
+
+test('a Station chip and a page turn both beat a search still waiting to fire', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+
+  const context = await browser.newContext();
+  const managerPage = await context.newPage();
+  await managerPage.goto('/login');
+  await managerPage.getByPlaceholder('E-mail').fill(managerEmail);
+  await managerPage.getByPlaceholder('Password').fill(world.managerPassword);
+  await managerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(managerPage).toHaveURL(/\/app$/);
+
+  const searchInput = managerPage.getByTestId('participation-search-input');
+
+  // --- the Station chip ------------------------------------------------------
+  await managerPage.goto(`/participations?companyId=${world.stationAId}`);
+  await expect(searchInput).toBeEnabled();
+
+  // fill() dispatches ONE input event carrying the whole term, which is how the
+  // stale-closure half of this defect was found in the first place: the
+  // scheduled callback held the value from the render before the keystroke, so
+  // it navigated with the EMPTY initial string and no q= at all. Here it is the
+  // debounce that matters — the chip is clicked with the 350ms timer still
+  // pending, which is the window the guard exists for. Nothing is awaited
+  // between the two lines on purpose: the click has to land inside it.
+  await searchInput.fill('Bruno Listed');
+  await managerPage.getByRole('link', { name: stationBName }).click();
+
+  await expect(managerPage).toHaveURL(`/participations?companyId=${world.stationBId}`);
+
+  // Past the debounce, on purpose. Everything this case is about happens AFTER
+  // 350ms: a timer that survived the navigation fires here, calls the navigate
+  // it closed over, and replaces the Station the operator just picked with the
+  // one they left plus the search they abandoned. A polling assertion cannot
+  // express "and then nothing happened", so the wait is the assertion's subject
+  // rather than a sleep hiding a race.
+  await managerPage.waitForTimeout(700);
+
+  await expect(
+    managerPage,
+    'a pending search must not reassert itself over the Station the operator picked',
+  ).toHaveURL(`/participations?companyId=${world.stationBId}`);
+  await expect(searchInput, 'and the input must agree with the URL it landed on').toHaveValue('');
+
+  // --- the page turn ---------------------------------------------------------
+  //
+  // Its own case, and not a variation on the one above. Previous and Next
+  // differ from the current address ONLY in the cursor, which is why the
+  // address the guard compares carries one — and, before this was driven, it
+  // was also the slowest destination on the screen and the one the old
+  // commit-time guard never once beat: 0 of 6, where the chip managed 5.
+  await managerPage.goto(
+    `/participations?companyId=${world.stationAId}&promotion=${world.pagingPromotionId}&status=all`,
+  );
+  await expect(managerPage.getByTestId('participation-row')).toHaveCount(PARTICIPATION_PAGE_SIZE);
+  await expect(managerPage.getByTestId('page-total')).toHaveText(`${PAGING_ENTRIES} entries`);
+
+  await searchInput.fill('Caio Paged');
+  await managerPage.getByTestId('page-next').click();
+
+  await expect(managerPage).toHaveURL(/[?&]after=/);
+  await managerPage.waitForTimeout(700);
+
+  await expect(managerPage, 'the page turn must stand').toHaveURL(/[?&]after=/);
+  await expect(managerPage, 'and must not have acquired the abandoned search').not.toHaveURL(
+    /[?&]q=/,
+  );
+  await expect(searchInput).toHaveValue('');
+  // Really on the second page, rather than on a first page that kept its
+  // cursor in the address: twenty-six entries, twenty-five to a page.
+  await expect(managerPage.getByTestId('participation-row')).toHaveCount(
+    PAGING_ENTRIES - PARTICIPATION_PAGE_SIZE,
+  );
+
+  await context.close();
 });
