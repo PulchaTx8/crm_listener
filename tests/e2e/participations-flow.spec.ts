@@ -84,6 +84,14 @@ const stationAName = `List Station A ${stamp}`;
 const stationBName = `List Station B ${stamp}`;
 const managerEmail = `e2e-list-manager-${stamp}@example.test`;
 const readerEmail = `e2e-list-reader-${stamp}@example.test`;
+/**
+ * promotions.view and nothing else. The one delegate in this file who can open
+ * a promotion record and may NOT read its entries, which is the only way to
+ * drive the fifth tab's "it is not a count of nothing — it is a count you may
+ * not read" branch. The reader below holds participations.view, so it can
+ * never reach it.
+ */
+const promotionsOnlyEmail = `e2e-list-promo-only-${stamp}@example.test`;
 const listingPromotionName = `Listing Promo ${stamp}`;
 const pagingPromotionName = `Paging Promo ${stamp}`;
 const anaName = `Ana Listed ${stamp}`;
@@ -111,6 +119,7 @@ interface World {
   pagingPromotionId: string;
   managerPassword: string;
   readerPassword: string;
+  promotionsOnlyPassword: string;
 }
 /**
  * Built once in beforeAll and read by the last three journeys. The definite
@@ -319,6 +328,23 @@ test.beforeAll(async () => {
   });
   if (readerRoleError) throw new Error(`create_role(reader) failed: ${readerRoleError.message}`);
 
+  // A third role, one permission narrower again: promotions.view alone. It is
+  // the only actor in this file that can open a promotion record without being
+  // allowed to read its entries, and it is what the fifth tab's hidden-count
+  // branch needs — a branch that, until this role existed, could have been
+  // deleted with every suite still green.
+  const { data: promotionsOnlyRoleId, error: promotionsOnlyRoleError } = await ownerClient.rpc(
+    'create_role',
+    {
+      p_organization_id: organizationId,
+      p_name: `Promotions Only ${stamp}`,
+      p_permission_codes: ['promotions.view'],
+    },
+  );
+  if (promotionsOnlyRoleError) {
+    throw new Error(`create_role(promotions only) failed: ${promotionsOnlyRoleError.message}`);
+  }
+
   // The manager holds it at BOTH Stations, so the Station chip row journey 4
   // needs is rendered for them. The reader holds it at Station A only.
   const manager = await addDelegate(
@@ -333,6 +359,13 @@ test.beforeAll(async () => {
     organizationId,
     readerEmail,
     readerRoleId as string,
+    [stationAId],
+  );
+  const promotionsOnly = await addDelegate(
+    ownerClient,
+    organizationId,
+    promotionsOnlyEmail,
+    promotionsOnlyRoleId as string,
     [stationAId],
   );
 
@@ -405,6 +438,7 @@ test.beforeAll(async () => {
     pagingPromotionId,
     managerPassword: manager.password,
     readerPassword: reader.password,
+    promotionsOnlyPassword: promotionsOnly.password,
   };
 });
 
@@ -934,6 +968,148 @@ test('a Station chip and a page turn both beat a search still waiting to fire', 
   await expect(managerPage.getByTestId('participation-row')).toHaveCount(
     PAGING_ENTRIES - PARTICIPATION_PAGE_SIZE,
   );
+
+  await context.close();
+});
+
+/**
+ * The fifth tab, driven by somebody who is NOT the owner.
+ *
+ * Journey 1 opens that tab as an Organization owner, who holds everything, so
+ * every permission-conditional branch on it renders the same way and none of
+ * them is under test. Delete `powers.participationsCreate` from the guard
+ * around "Record an entry", or either explanatory note, and the whole suite
+ * stayed green — on a tab whose entire job is to offer somebody exactly what
+ * they may do.
+ *
+ * Two delegates, one permission apart at each step, so each assertion is about
+ * one code rather than about a role:
+ *
+ *   - the READER holds participations.view and promotions.view. The counts are
+ *     theirs to see; neither writing surface is.
+ *   - PROMOTIONS ONLY holds promotions.view alone. Even the counts are refused,
+ *     and the tab has to say that it is a count they may not read rather than
+ *     render "0 in the draw" as a fact — which is the one failure mode a
+ *     count-shaped hole cannot express by itself.
+ *
+ * Reached by URL rather than by clicking through the list, deliberately: that
+ * is the `?record=&tab=` shape record-params.ts exists to support, and it is
+ * how an operator arrives from a link somebody sent them.
+ */
+test('the fifth tab offers a delegate only what they hold, and names what it is not showing', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+
+  const recordUrl = `/promotions?companyId=${world.stationAId}&record=${world.listingPromotionId}&tab=participations`;
+
+  // --- participations.view, and neither writing code -------------------------
+  const readerContext = await browser.newContext();
+  const readerPage = await readerContext.newPage();
+  await readerPage.goto('/login');
+  await readerPage.getByPlaceholder('E-mail').fill(readerEmail);
+  await readerPage.getByPlaceholder('Password').fill(world.readerPassword);
+  await readerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(readerPage).toHaveURL(/\/app$/);
+
+  await readerPage.goto(recordUrl);
+
+  // The counts arrive, which is what makes the two absences below absences and
+  // not a tab that failed to render. Two of the three fixture entries counted.
+  await expect(readerPage.getByTestId('promotion-participations-valid')).toHaveText('2');
+  await expect(readerPage.getByTestId('promotion-participations-refused')).toHaveText('1');
+  await expect(readerPage.getByTestId('promotion-participations-hidden')).toHaveCount(0);
+
+  // Neither writing surface is offered, and the note that says why is on
+  // screen. Both halves: a tab that hid the buttons and said nothing would look
+  // to an operator exactly like a tab that had failed to load them.
+  await expect(readerPage.getByTestId('promotion-participation-record-open')).toHaveCount(0);
+  await expect(readerPage.getByTestId('promotion-participation-import-open')).toHaveCount(0);
+  await expect(readerPage.getByText('neither participations.create nor')).toBeVisible();
+
+  // The link out IS offered — it leads to a list this caller may read.
+  await expect(readerPage.getByTestId('promotion-participations-link')).toBeVisible();
+  // And the qualification on the two figures, which is the tab's own answer to
+  // the fact that they are estimated above a thousand entries while the list
+  // one click away counts exactly.
+  await expect(readerPage.getByTestId('promotion-participations-note')).toContainText('estimates');
+
+  await readerContext.close();
+
+  // --- promotions.view alone: even the counts are refused --------------------
+  const blindContext = await browser.newContext();
+  const blindPage = await blindContext.newPage();
+  await blindPage.goto('/login');
+  await blindPage.getByPlaceholder('E-mail').fill(promotionsOnlyEmail);
+  await blindPage.getByPlaceholder('Password').fill(world.promotionsOnlyPassword);
+  await blindPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(blindPage).toHaveURL(/\/app$/);
+
+  await blindPage.goto(recordUrl);
+
+  // 0053's policy answers a caller without participations.view with no rows
+  // rather than with an error, so the counts would BOTH read "0" — the screen
+  // asserting as fact something it was refused. The tab says so instead.
+  await expect(blindPage.getByTestId('promotion-participations-hidden')).toBeVisible();
+  await expect(blindPage.getByTestId('promotion-participations-valid')).toHaveCount(0);
+  await expect(blindPage.getByTestId('promotion-participations-refused')).toHaveCount(0);
+  await expect(blindPage.getByTestId('promotion-participations-note')).toHaveCount(0);
+  // No link out either: that screen would redirect them off it or open on a
+  // different Station, so offering it is a promise this tab cannot keep.
+  await expect(blindPage.getByTestId('promotion-participations-link')).toHaveCount(0);
+
+  await blindContext.close();
+});
+
+/**
+ * `?companyId=<A>&record=<a promotion at B>` — a stale or pasted link, not a
+ * forged one.
+ *
+ * getPromotionRecord reads by id alone with no company filter, so the record
+ * comes back and the dialog used to render it against Station A's timezone,
+ * Station A's permissions, and Station A's list. The timezone is the one that
+ * writes data: both writing surfaces on the fifth tab convert the operator's
+ * wall clock to an instant with it, Brazil spans three zones, and the value
+ * they would silently shift by an hour or two is the one design spec D7
+ * measures the minimum interval against.
+ *
+ * The manager drives it because they hold promotions.view at BOTH Stations —
+ * so the record genuinely IS readable to them, and the refusal below is about
+ * the mismatch rather than about permission.
+ */
+test('a promotion opened under another Station is refused, with the way to open it properly', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(managerEmail);
+  await page.getByPlaceholder('Password').fill(world.managerPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  // Station B in the address, a promotion that belongs to Station A.
+  await page.goto(
+    `/promotions?companyId=${world.stationBId}&record=${world.listingPromotionId}&tab=participations`,
+  );
+
+  await expect(page.getByTestId('promotion-record-elsewhere')).toBeVisible();
+  // Nothing from the record is rendered under it — this is a refusal, not a
+  // banner over a working dialog. The fifth tab in particular, since it is the
+  // one carrying the two writing surfaces that would have used the wrong zone.
+  await expect(page.getByTestId('promotion-participations-valid')).toHaveCount(0);
+  await expect(page.getByTestId('promotion-tab-participations')).toHaveCount(0);
+  await expect(page.getByTestId('promotion-save')).toHaveCount(0);
+
+  // And the way out is one click, so the pasted link still works — it just goes
+  // through the Station that owns the promotion.
+  await page.getByTestId('promotion-record-elsewhere-link').click();
+  await expect(page).toHaveURL(new RegExp(`companyId=${world.stationAId}`));
+  await expect(page).toHaveURL(/tab=participations/);
+  await expect(page.getByTestId('promotion-record-elsewhere')).toHaveCount(0);
+  await expect(page.getByTestId('promotion-participations-valid')).toHaveText('2');
 
   await context.close();
 });

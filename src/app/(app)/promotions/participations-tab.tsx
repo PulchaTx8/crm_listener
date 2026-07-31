@@ -95,11 +95,26 @@ export function ParticipationsTab({
 
       {/* Design spec D5, said where the number is: a refused attempt was written
           down with the reason it did not count, rather than thrown away. Without
-          this sentence the second figure reads as a count of errors. */}
+          this sentence the second figure reads as a count of errors.
+
+          The second sentence is the qualification the counts had been shipping
+          without. countPromotionParticipations reads `count: 'estimated'` —
+          design spec D8's fixed cost, and the whole reason this tab can exist
+          on a promotion with eight thousand entries — which PostgREST answers
+          with an exact COUNT(*) below `db-max-rows` (1000 in
+          supabase/config.toml) and with a planner estimate above it. So on a
+          large promotion these two figures and the list's own exact footer
+          total, one click away through the link below, will disagree. That was
+          judged not to block, and the fix for it was never the architecture: it
+          was saying so where the numbers are, rather than letting an operator
+          find two different answers to one question and have to decide which
+          screen is lying. */}
       {powers.participationsView && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground" data-testid="promotion-participations-note">
           An attempt that did not count — already entered, came back too soon, past their limit — is
-          on the record with the reason. Nothing is thrown away.
+          on the record with the reason. Nothing is thrown away. Above about a thousand entries these
+          two figures become estimates, so they are kept cheap on a promotion of any size; the list
+          below counts exactly.
         </p>
       )}
 

@@ -253,6 +253,11 @@ export function PromotionsGrid({
       <PromotionRecordDialog
         recordId={recordId}
         tab={(tab as PromotionTab) ?? 'data'}
+        // The Station this list is showing, so the dialog can refuse a record
+        // that belongs to a different one — `timeZone` and every flag in
+        // `powers` below are that Station's answers, and a record from
+        // elsewhere would be rendered against all of them.
+        companyId={state.companyId}
         timeZone={timeZone}
         powers={{
           edit: powers.edit,

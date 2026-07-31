@@ -1,6 +1,8 @@
 'use client';
 
 import { useActionState, useEffect, useId, useState } from 'react';
+import Link from 'next/link';
+import type { Route } from 'next';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -119,6 +121,7 @@ export function nextRecordAfterFailedRead<T extends { id: string }>(
 export function PromotionRecordDialog({
   recordId,
   tab,
+  companyId,
   timeZone,
   powers,
   onTab,
@@ -128,6 +131,14 @@ export function PromotionRecordDialog({
 }: {
   recordId: string | null;
   tab: PromotionTab;
+  /**
+   * The Station the list behind this dialog is showing — `?companyId=`, which
+   * is also where `timeZone` and every flag in `powers` come from. Held here so
+   * a record belonging to a DIFFERENT Station can be refused rather than
+   * rendered against the wrong Station's answers; see the check in the read
+   * below.
+   */
+  companyId: string;
   timeZone: string;
   powers: PromotionRecordPowers;
   onTab: (tab: PromotionTab) => void;
@@ -151,21 +162,58 @@ export function PromotionRecordDialog({
   // repeat tick has to survive a trip through the WhatsApp tab.
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
   const [repeats, setRepeats] = useState(false);
+  /**
+   * Set when the record that came back belongs to a Station other than the one
+   * on screen. Holds that Station's id, because the way out of this state is a
+   * link to it — see the refusal rendered in the body.
+   */
+  const [elsewhere, setElsewhere] = useState<string | null>(null);
 
   useEffect(() => {
     if (!recordId) {
       setRecord(null);
       setFailure(null);
+      setElsewhere(null);
       setDirty(false);
       return;
     }
     let current = true;
     setLoading(true);
     setFailure(null);
+    setElsewhere(null);
     void getPromotionRecordAction(recordId).then((result) => {
       if (!current) return;
       setLoading(false);
       if (result.status === 'ok') {
+        // `?companyId=<A>&record=<a promotion at B>` is a URL nobody has to
+        // forge — a pasted or stale link is the shape record-params.ts exists
+        // to support — and getPromotionRecord reads by id alone, with no
+        // company filter, so the record comes back perfectly while EVERY answer
+        // this dialog was handed alongside it belongs to Station A:
+        //
+        //   - `timeZone`, which both writing surfaces convert wall-clock to
+        //     instant with. Brazil spans three zones, so that is a silent one-
+        //     or two-hour shift on the single value design spec D7 measures the
+        //     minimum interval against — and the import's mapping panel would
+        //     have CONFIRMED the wrong instant back to the operator rather than
+        //     exposing it, once per file rather than once per row.
+        //   - every flag in `powers`, resolved per Station in ./access.ts, so
+        //     the tab could hide a control this caller holds at B or offer one
+        //     they do not.
+        //   - `onLoaded` below, which patches the grid — a promotion from
+        //     Station B appearing in Station A's list.
+        //
+        // Refused rather than papered over. Carrying the record's own zone
+        // would have fixed the first of those three and left the other two, and
+        // this dialog's whole contract is "the selected Station's promotion":
+        // there is no version of it that is half true. The refusal is one
+        // click from being fixed, so the deep link still works — it just goes
+        // through the Station that owns the promotion.
+        if (result.record.companyId !== companyId) {
+          setRecord(null);
+          setElsewhere(result.record.companyId);
+          return;
+        }
         setRecord(result.record);
         setWhatsappEnabled(result.record.whatsappEnabled);
         setRepeats(result.record.allowMultipleEntries);
@@ -188,9 +236,12 @@ export function PromotionRecordDialog({
       current = false;
     };
     // onLoaded is stable for this dialog's lifetime, and adding it would make
-    // the record re-read whenever the grid re-renders its callback.
+    // the record re-read whenever the grid re-renders its callback. companyId
+    // is in the list because a Station change re-renders this component in
+    // place — the dialog is not remounted — and the answer to "does this record
+    // belong here" is different afterwards.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recordId, reloadToken]);
+  }, [recordId, reloadToken, companyId]);
 
   /**
    * Re-reads this one promotion after a write made inside the dialog.
@@ -292,6 +343,38 @@ export function PromotionRecordDialog({
             <Button type="button" variant="outline" onClick={refresh}>
               Try again
             </Button>
+          </div>
+        )}
+
+        {/* The whole promotion is readable — this caller holds promotions.view
+            at the Station that owns it — so this is not a denial and must not
+            read as one. It is the one thing this dialog cannot do: render a
+            promotion against another Station's timezone, permissions and list.
+            The link is the fix, and it carries the tab so the operator lands
+            back where they were.
+
+            Built by hand rather than through promotionsHref: that builder takes
+            the CURRENT list's whole state, and every part of it — the search,
+            the situation filter, the sort, the cursor — belongs to the Station
+            being left. Carrying them across would be carrying a position in a
+            result set that no longer exists. */}
+        {elsewhere && (
+          <div className="flex flex-col items-start gap-3" data-testid="promotion-record-elsewhere">
+            <p className="text-sm text-muted-foreground">
+              This promotion belongs to another Station, and its dates, its permissions and its
+              entries all read against that Station rather than the one on screen. Open it there.
+            </p>
+            <Link
+              href={
+                `/promotions?companyId=${encodeURIComponent(elsewhere)}&record=${encodeURIComponent(
+                  recordId ?? '',
+                )}&tab=${encodeURIComponent(tab)}` as Route
+              }
+              className="text-sm text-primary underline underline-offset-2"
+              data-testid="promotion-record-elsewhere-link"
+            >
+              Open it at the Station it belongs to
+            </Link>
           </div>
         )}
 
