@@ -24,7 +24,19 @@
 -- So: a listener who resolves but is not linked to this Station is a SKIPPED
 -- ROW with a reason of its own.
 --
--- THREE REASONS, NOT TWO, and the third is not a synonym of either:
+-- AND THE SAME DEFECT HAS A SECOND SPELLING, closed here in the same shape
+-- after the whole-branch review found it: apply_participation also raises —
+-- 22023 this time — for a row whose participated_at falls outside the
+-- promotion's window, and that raise propagates out of the same loop for the
+-- same reason. The principle stated above is not "one particular row must not
+-- destroy a file"; it is that NO row must. A file of last month's entries
+-- pointed at this month's promotion is not an exotic input, it is D7's own
+-- scenario with the wrong promotion picked, and it wrote nothing and named no
+-- line. Detected before the call, with a fourth reason, exactly as below.
+--
+-- FOUR REASONS, and no two of them are synonyms — each is a different
+-- instruction to the operator, which is the only reason they are four rather
+-- than one:
 --
 --   'no identifier'                 — the row carries no phone and no CPF. The
 --                                     operator fixes their spreadsheet.
@@ -37,19 +49,31 @@
 --                                     this Organization and not linked here.
 --                                     Fixable, and by this operator: link them
 --                                     to this Station and import again.
+--   'outside the promotion window'  — the row's own timestamp falls before the
+--                                     promotion opened or on/after it closed.
+--                                     Nothing about the listener is wrong; the
+--                                     date is, or the file belongs to a
+--                                     different promotion. Added in the same
+--                                     shape as the third and for the same
+--                                     reason: it was an ABORT, and the same
+--                                     abort — see the branch's own comment in
+--                                     the loop below.
 --
 -- Collapsing the third into the second would tell an operator to go and ask for
 -- permission they already hold, for a listener sitting in front of them. This
 -- branch has spent two rounds on refusals that answered with the wrong sentence.
 --
--- DETECTED BEFORE apply_participation IS CALLED, not by catching its raise. A
--- begin/exception block around the call would catch P0002 and would then have no
--- way to tell this case from the other three things that raise it — a promotion
--- deleted mid-import, a stale id, an answer naming a foreign question — so a
--- genuinely broken call would be reported per row as "at another station" and
--- the file would go on writing. The check is one index lookup on
--- member_company_links' primary key, per row, which is what the composite
--- foreign key would have cost anyway.
+-- BOTH DETECTED BEFORE apply_participation IS CALLED, not by catching its
+-- raise. A begin/exception block around the call would catch P0002 and would
+-- then have no way to tell the unlinked listener from the other three things
+-- that raise it — a promotion deleted mid-import, a stale id, an answer naming
+-- a foreign question — so a genuinely broken call would be reported per row as
+-- "at another station" and the file would go on writing. 22023 is worse, not
+-- better: a cancelled promotion raises it too, and catching it per row would
+-- report a whole cancelled file as six hundred bad dates. The link check is one
+-- index lookup on member_company_links' primary key per row, which is what the
+-- composite foreign key would have cost anyway; the window check is two
+-- comparisons against values read once for the whole file.
 --
 -- WHAT THIS DOES NOT DO, and both are deliberate:
 --
@@ -82,6 +106,9 @@ as $$
 declare
   v_actor     uuid := auth.uid();
   v_company   uuid;
+  v_starts    timestamptz;
+  v_ends      timestamptz;
+  v_when      timestamptz;
   v_row       jsonb;
   v_resolved  jsonb;
   v_member    uuid;
@@ -94,7 +121,12 @@ declare
   v_skipped   integer := 0;
   v_created   integer := 0;
 begin
-  select company_id into v_company
+  -- starts_at and ends_at read alongside company_id, in the same statement that
+  -- was already being made: see the fourth skip reason below for what they are
+  -- for. One read for the file, not one per row — the window belongs to the
+  -- promotion and cannot change under a loop that holds no lock on it, and
+  -- apply_participation re-reads it per row anyway as the authority.
+  select company_id, starts_at, ends_at into v_company, v_starts, v_ends
   from public.promotions
   where id = p_promotion_id and deleted_at is null;
 
@@ -124,6 +156,44 @@ begin
       v_result := v_result || jsonb_build_object(
         'line', (v_row ->> 'line')::integer, 'outcome', 'skipped',
         'reason', 'no identifier');
+      continue;
+    end if;
+
+    -- The SAME defect this migration exists for, in its second spelling, and it
+    -- survived the first pass because only one of the two raises was looked at.
+    -- apply_participation refuses a row outside the promotion's window with
+    -- 22023 (0054), the loop below has no begin/exception around the call, so
+    -- the raise propagates and the transaction rolls back: a three-hundred-row
+    -- file writes NOTHING because of row 47, and the operator is told the
+    -- promotion was not taking entries at some instant they have to go and find.
+    -- It is not a contrived row either — D7 exists because a file carries
+    -- historical timestamps, and importRowSchema
+    -- (src/schemas/participations.ts) validates only that the instant PARSES;
+    -- the form is never given the promotion's starts_at or ends_at, so it
+    -- cannot warn about this before the post.
+    --
+    -- The predicate is apply_participation's own, character for character
+    -- (`< starts or >= ends`, and the same coalesce to now() for a row carrying
+    -- no timestamp at all), because two spellings of one window is how the
+    -- import comes to skip a row the manual door would have taken.
+    --
+    -- DETECTED BEFORE THE CALL rather than by catching 22023, for the argument
+    -- this migration already makes above: a cancelled promotion raises 22023
+    -- too, and a caught code cannot be told from the other things that raise it.
+    --
+    -- Placed BEFORE resolve_or_create_member, unlike the link check below,
+    -- and the asymmetry is the point: this row can never be recorded whatever
+    -- the listener turns out to be, so resolving first would REGISTER a
+    -- listener for a line that is then skipped — a write with no entry behind
+    -- it, done on behalf of an operator who was told the line was ignored.
+    -- The link check cannot be hoisted the same way; it needs the member id
+    -- that only resolution produces.
+    v_when := coalesce((v_row ->> 'participated_at')::timestamptz, now());
+    if v_when < v_starts or v_when >= v_ends then
+      v_skipped := v_skipped + 1;
+      v_result := v_result || jsonb_build_object(
+        'line', (v_row ->> 'line')::integer, 'outcome', 'skipped',
+        'reason', 'outside the promotion window');
       continue;
     end if;
 
@@ -198,7 +268,7 @@ end;
 $$;
 
 -- Restated because the behaviour it describes changed. 0054's version named two
--- skip reasons and there are now three, and a comment that lists two of three is
--- how the next reader concludes the third is a defect.
+-- skip reasons and there are now four, and a comment that lists two of four is
+-- how the next reader concludes the other two are defects.
 comment on function public.import_participations(uuid, jsonb) is
-  'One call per file. The rules, the lock and the writes are apply_participation''s, shared with record_participation so the manual door and the file cannot drift; the gates are this function''s own and nothing downstream re-checks them. Gated on participations.import AND members.create — import registers listeners, and without the second this would be a side door that registers six hundred people for somebody who may not register one; both are checked before the first row is written rather than halfway through. Returns per-row outcomes with the line number from the file, so the screen can name what it skipped. THREE reasons a row is skipped, and they are three different instructions to the operator: no phone and no CPF ("no identifier"), fix the file; an identifier matching a listener this caller may not see ("listener is out of reach"), ask for access to the Station holding them, since find_member_by_identifier deliberately returns no id and 0031''s unique indexes would refuse a duplicate anyway; and an identifier matching a listener this caller CAN see who is registered elsewhere in the Organization and not linked here ("listener is at another station"), link them and import again. That third one was an ABORT until 0056 — resolution is Organization-wide and apply_participation requires the Station''s own link, so one such row rolled the whole file back and reported a missing promotion. It is detected before apply_participation is called rather than by catching P0002, which cannot be told apart from the three other things that raise it. Repeats are not skipped — they are recorded with the status that says so. The CPF is hashed in Node before it reaches here (0031).';
+  'One call per file. The rules, the lock and the writes are apply_participation''s, shared with record_participation so the manual door and the file cannot drift; the gates are this function''s own and nothing downstream re-checks them. Gated on participations.import AND members.create — import registers listeners, and without the second this would be a side door that registers six hundred people for somebody who may not register one; both are checked before the first row is written rather than halfway through. Returns per-row outcomes with the line number from the file, so the screen can name what it skipped. FOUR reasons a row is skipped, and they are four different instructions to the operator: no phone and no CPF ("no identifier"), fix the file; a timestamp before the promotion opened or on/after it closed ("outside the promotion window"), fix the date or import into the right promotion; an identifier matching a listener this caller may not see ("listener is out of reach"), ask for access to the Station holding them, since find_member_by_identifier deliberately returns no id and 0031''s unique indexes would refuse a duplicate anyway; and an identifier matching a listener this caller CAN see who is registered elsewhere in the Organization and not linked here ("listener is at another station"), link them and import again. The last two were ABORTS until 0056 — resolution is Organization-wide while apply_participation requires the Station''s own link, and apply_participation raises 22023 for a row outside the window — so one such row rolled the whole file back and reported a missing promotion or an instant the operator had to go and find. Both are detected before apply_participation is called rather than by catching its raise, which cannot be told apart from the other things that raise the same code. The window check is the promotion''s own, read once for the file; apply_participation re-reads it per row and remains the authority. Repeats are not skipped — they are recorded with the status that says so. The CPF is hashed in Node before it reaches here (0031).';

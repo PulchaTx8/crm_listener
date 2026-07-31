@@ -955,6 +955,102 @@ describe('importing a file', () => {
     expect(written.data!.map((r) => r.member_id)).not.toContain(neighbour.data!.id);
   });
 
+  /**
+   * The second spelling of the defect 0056 was written to remove, and it had
+   * survived every gate.
+   *
+   * apply_participation refuses a row outside the promotion's window with 22023
+   * (0054), and the loop has no begin/exception around the call — so before
+   * this fix ONE such row rolled the whole transaction back and a
+   * three-hundred-row file wrote nothing. 0056's own header states the
+   * principle it was closing ("a three-hundred-row file writes NOTHING because
+   * of row 47") and closed only the unlinked-listener half of it.
+   *
+   * Not a contrived input: `importRowSchema` validates only that the instant
+   * parses, and the import form is never given the promotion's starts_at or
+   * ends_at, so nothing in front of the operator can warn them. A file of last
+   * month's entries pointed at this month's promotion is D7's own scenario with
+   * the wrong promotion picked in the dialog.
+   *
+   * Both edges, because the predicate is asymmetric on purpose (`< starts` and
+   * `>= ends`, apply_participation's own): a row before the promotion opened
+   * and a row after it closed are one rule, and covering only the opening edge
+   * would leave `>=` free to become `>` unnoticed.
+   *
+   * The last assertion is the one that matters, exactly as in the sister case
+   * above: everything before it describes what the function SAID, and a
+   * transaction that skipped the bad rows and then died at commit would satisfy
+   * all of it.
+   */
+  it('skips a row dated outside the promotion window at either edge, and leaves the rest of the file written', async () => {
+    const label = `imp-window-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    // The window is named here rather than taken from the default, because
+    // every row below is positioned against these two instants.
+    const starts = new Date(Date.now() - 2 * DAY).toISOString();
+    const ends = new Date(Date.now() + 2 * DAY).toISOString();
+    const promotionId = await promotionAsOwner(customer, {
+      p_starts_at: starts,
+      p_ends_at: ends,
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.import',
+      'members.view',
+      'members.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const inside = new Date(Date.now() - HOUR).toISOString();
+    const result = await client.rpc('import_participations', {
+      p_promotion_id: promotionId,
+      p_rows: [
+        { line: 2, full_name: 'Dentro Da Janela', phone: '11970000021', participated_at: inside },
+        // Before it opened.
+        { line: 3, full_name: 'Cedo Demais', phone: '11970000022', participated_at: new Date(Date.now() - 10 * DAY).toISOString() },
+        // Exactly ON ends_at, which the predicate treats as closed (`>= ends`).
+        { line: 4, full_name: 'No Fechamento', phone: '11970000023', participated_at: ends },
+        { line: 5, full_name: 'Tambem Dentro', phone: '11970000024', participated_at: inside },
+      ],
+    });
+
+    // Not an error at all, which is the first half of the fix: before it, this
+    // came back 22023 with `data` null and nothing written.
+    expect(result.error).toBeNull();
+    expect(result.data).toMatchObject({ recorded: 2, skipped: 2 });
+
+    const rows = (result.data as { rows: Array<Record<string, unknown>> }).rows;
+    // The reason as a STRING, not merely "skipped": the screen turns each of
+    // the four into a different instruction, and answering this one with
+    // 'listener is out of reach' would send the operator to ask for access they
+    // already hold over a date they could have fixed themselves.
+    expect(rows.find((r) => r.line === 3)).toMatchObject({
+      outcome: 'skipped',
+      reason: 'outside the promotion window',
+    });
+    expect(rows.find((r) => r.line === 4)).toMatchObject({
+      outcome: 'skipped',
+      reason: 'outside the promotion window',
+    });
+    expect(rows.find((r) => r.line === 2)).toMatchObject({ outcome: 'recorded', status: 'VALID' });
+    expect(rows.find((r) => r.line === 5)).toMatchObject({ outcome: 'recorded', status: 'VALID' });
+
+    // Nobody was registered for a line that could never be entered: the window
+    // check sits BEFORE resolve_or_create_member precisely so a skipped row
+    // does not leave a listener behind it.
+    expect(result.data).toMatchObject({ members_created: 2 });
+
+    // THE assertion. What it did, rather than what it said.
+    const written = await client
+      .from('participations')
+      .select('member_id')
+      .eq('promotion_id', promotionId);
+    expect(written.error).toBeNull();
+    expect(written.data).toHaveLength(2);
+  });
+
   it('refuses a delegate holding participations.import but not members.create', async () => {
     const label = `imp-perm-${Date.now()}`;
     const customer = await provisionCustomer(label);

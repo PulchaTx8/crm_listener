@@ -581,13 +581,13 @@ export interface ImportRowOutcome {
   /** Present on a recorded row only. */
   status?: ParticipationStatus;
   /**
-   * Present on a skipped row only, and one of exactly three (0054, 0056):
-   * `'no identifier'`, `'listener is out of reach'`, `'listener is at another
-   * station'`. Typed as a plain string rather than as a union on purpose — it
-   * arrives from a jsonb payload, and a union here would promise the compiler
-   * something only the database can keep. The screen matches on the three and
-   * has a fallback, so a fourth reason added in Block 5 renders the reason
-   * itself rather than the sentence for one of these.
+   * Present on a skipped row only, and one of exactly four (0054, 0056):
+   * `'no identifier'`, `'outside the promotion window'`, `'listener is out of
+   * reach'`, `'listener is at another station'`. Typed as a plain string rather
+   * than as a union on purpose — it arrives from a jsonb payload, and a union
+   * here would promise the compiler something only the database can keep. The
+   * screen matches on the four and has a fallback, so a fifth reason added in
+   * Block 5 renders the reason itself rather than the sentence for one of these.
    */
   reason?: string;
 }

@@ -50,9 +50,9 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
 };
 
 /**
- * The three reasons import_participations skips a row (0054, 0056), each turned
- * into what the operator has to DO about it — which is different in all three
- * cases and is the only reason they are three reasons rather than one.
+ * The four reasons import_participations skips a row (0054, 0056), each turned
+ * into what the operator has to DO about it — which is different in all four
+ * cases and is the only reason they are four reasons rather than one.
  *
  * `no identifier` is the operator's own file to fix. `listener is out of reach`
  * cannot be fixed from a file at all: the identifier belongs to somebody at a
@@ -61,12 +61,15 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
  * another station` is the one in between, and telling it apart from the second
  * is the whole point of 0056 giving it its own reason: this listener IS visible
  * to this caller, they simply are not attached to the Station running the
- * promotion, and linking them is something the operator can go and do.
+ * promotion, and linking them is something the operator can go and do. `outside
+ * the promotion window` is about nobody at all — the line's date falls outside
+ * the promotion's own dates, so either the date is wrong or the file belongs to
+ * a different promotion, and no amount of access changes that.
  *
  * A lookup with a fallback rather than a ternary. The ternary this replaced read
- * anything that was not `no identifier` as "out of reach", so 0056's new reason
+ * anything that was not `no identifier` as "out of reach", so 0056's new reasons
  * would have rendered as an instruction to ask for a permission the operator
- * already held — and a fourth reason in Block 5 would do the same silently.
+ * already held — and a fifth reason in Block 5 would do the same silently.
  */
 const SKIP_REASONS: Record<string, string> = {
   'no identifier': 'no phone and no CPF, so there was nobody to match',
@@ -74,6 +77,8 @@ const SKIP_REASONS: Record<string, string> = {
     'that phone or CPF belongs to a listener at a Station you cannot see, so they cannot be entered or registered here',
   'listener is at another station':
     'that listener is registered at another Station of this Organization and is not linked to this one; link them and import again',
+  'outside the promotion window':
+    'this line is dated before the promotion opened or after it closed, so it could not be entered into it; check the date, or whether this file belongs to another promotion',
 };
 
 /**
