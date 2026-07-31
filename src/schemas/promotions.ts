@@ -78,6 +78,23 @@ export const promotionFormSchema = z
       .optional()
       .transform((v) => (v === null ? undefined : v)),
 
+    // The per-person ceiling D1 asked for, mirroring promotions_entry_ceiling_shape
+    // (0052): `max_entries_per_member is null or (allow_multiple_entries and
+    // max_entries_per_member >= 2)`. Absent means no ceiling.
+    //
+    // The upper bound is Postgres's, not a product rule: p_max_entries_per_member
+    // is `integer`, so a hand-posted 2147483648 comes back as 22003, maps to
+    // InternalError and reaches the operator as a generic "Could not save" —
+    // the same trap promotionPrizeLinkSchema's own ceiling exists to close.
+    maxEntriesPerMember: z
+      .number()
+      .int('The ceiling must be a whole number.')
+      .min(2, 'A ceiling of one is what turning repeat entries off already says, so set two or more.')
+      .max(2_147_483_647, 'That is a higher ceiling than this system can count.')
+      .nullable()
+      .optional()
+      .transform((v) => (v === null ? undefined : v)),
+
     requireCorrectAnswer: z.boolean(),
 
     whatsappEnabled: z.boolean(),
@@ -139,6 +156,19 @@ export const promotionFormSchema = z
         code: z.ZodIssueCode.custom,
         path: ['minHoursBetweenEntries'],
         message: 'There is no interval to set while only one entry per listener is allowed.',
+      });
+    }
+
+    // promotions_entry_ceiling_shape, the second half of it: the ceiling is
+    // meaningful only where repeats are already allowed. There is deliberately
+    // no matching "a repeatable promotion needs a ceiling" — unlike the
+    // interval above, which the constraint does require, a promotion that
+    // allows repeats without limit is the ordinary case.
+    if (!v.allowMultipleEntries && v.maxEntriesPerMember !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['maxEntriesPerMember'],
+        message: 'There is no ceiling to set while only one entry per listener is allowed.',
       });
     }
 

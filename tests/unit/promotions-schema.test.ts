@@ -68,6 +68,54 @@ describe('promotionFormSchema', () => {
     expect(r.success).toBe(false);
   });
 
+  // The per-person ceiling (D1), mirroring promotions_entry_ceiling_shape in
+  // 0052: `max_entries_per_member is null or (allow_multiple_entries and
+  // max_entries_per_member >= 2)`. The two must agree — the constraint is the
+  // one no caller can skip, and a form that accepted what it refuses would send
+  // an operator a constraint name instead of a sentence.
+  // The parsed VALUE is asserted, not merely `success`. A z.object strips keys
+  // it does not declare, so a schema with no ceiling field at all accepts this
+  // input happily and reports success — which is exactly the state this whole
+  // change exists to leave behind, and a case that cannot see it is a case that
+  // would have passed before the field existed.
+  it('accepts a ceiling when repetition is on, and carries it through', () => {
+    const r = promotionFormSchema.safeParse({
+      ...base,
+      allowMultipleEntries: true,
+      minHoursBetweenEntries: 24,
+      maxEntriesPerMember: 3,
+    });
+    expect(r.success).toBe(true);
+    expect(r.data?.maxEntriesPerMember).toBe(3);
+  });
+
+  it('refuses a ceiling when repetition is off', () => {
+    const r = promotionFormSchema.safeParse({ ...base, maxEntriesPerMember: 3 });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe(
+      'There is no ceiling to set while only one entry per listener is allowed.',
+    );
+  });
+
+  // A ceiling of one is what "no repeats" already says, and two ways to say one
+  // thing is one way too many — 0052's own comment on the column. The message is
+  // pinned rather than the boolean because the obvious wrong refusal here is the
+  // one above ("no ceiling while repeats are off"), which would pass a
+  // boolean-only assertion while telling the operator to untick a box they have
+  // correctly ticked.
+  it('refuses a ceiling of one', () => {
+    const r = promotionFormSchema.safeParse({
+      ...base,
+      allowMultipleEntries: true,
+      minHoursBetweenEntries: 24,
+      maxEntriesPerMember: 1,
+    });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe(
+      'A ceiling of one is what turning repeat entries off already says, so set two or more.',
+    );
+  });
+
   it('requires a hashtag when WhatsApp is on', () => {
     const r = promotionFormSchema.safeParse({ ...base, whatsappEnabled: true });
     expect(r.success).toBe(false);

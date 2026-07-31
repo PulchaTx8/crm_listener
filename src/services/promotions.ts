@@ -287,6 +287,8 @@ export interface PromotionDetail {
   endsAt: string;
   allowMultipleEntries: boolean;
   minHoursBetweenEntries: number | null;
+  /** How many times one person may enter; null means no ceiling (D1, 0052). Carried back so the form renders what is stored. */
+  maxEntriesPerMember: number | null;
   requireCorrectAnswer: boolean;
   callToAction: string | null;
   whatsappEnabled: boolean;
@@ -403,6 +405,7 @@ export async function getPromotionRecord(
     endsAt: promotion.ends_at,
     allowMultipleEntries: promotion.allow_multiple_entries,
     minHoursBetweenEntries: promotion.min_hours_between_entries,
+    maxEntriesPerMember: promotion.max_entries_per_member,
     requireCorrectAnswer: promotion.require_correct_answer,
     callToAction: promotion.call_to_action,
     whatsappEnabled: promotion.whatsapp_enabled,
@@ -483,7 +486,16 @@ function mapPromotionError(code: string | undefined, message: string): Error {
 }
 
 /**
- * The RPC parameters both writes share; `create` adds the Station, `update` the id.
+ * The RPC parameters both writes share; `create` adds the Station, `update` the
+ * id AND the per-person ceiling.
+ *
+ * The ceiling is deliberately NOT in here, and the asymmetry is a gap in the
+ * database rather than a preference: 0055 recreated update_promotion with a
+ * seventeenth argument, p_max_entries_per_member, and create_promotion — still
+ * the sixteen-argument function merged 0042 declares — has no such parameter.
+ * Sending it from here would make every CREATE resolve to no function at all
+ * (PGRST202) the moment an operator filled the field in, which is a worse
+ * failure than the one this change exists to close. See createPromotion below.
  *
  * Absent fields are sent as `undefined` rather than `null`, which means
  * PostgREST omits them and the function's own `default null` applies. For
@@ -515,6 +527,19 @@ export async function createPromotion(
   input: PromotionFormInput,
   accessToken: string,
 ): Promise<string> {
+  // create_promotion cannot store a ceiling: 0055 added p_max_entries_per_member
+  // to update_promotion only, and merged 0042's create_promotion still takes
+  // sixteen arguments. Refused here with a sentence rather than left to fail,
+  // because the two ways of "handling" it silently are both worse — passing the
+  // argument makes PostgREST fail to resolve the function at all and reach the
+  // operator as "Could not save", and dropping it quietly discards a number they
+  // typed and watched being accepted. Until a migration gives create_promotion
+  // the same argument, the ceiling is something an existing promotion has.
+  if (input.maxEntriesPerMember !== undefined) {
+    throw new ValidationError(
+      'Save the promotion first, then set how many times one person may enter.',
+    );
+  }
   const { data, error } = await asCaller(accessToken).rpc('create_promotion', {
     p_company_id: input.companyId,
     ...promotionRpcArgs(input),
@@ -531,6 +556,13 @@ export async function updatePromotion(
   const { error } = await asCaller(accessToken).rpc('update_promotion', {
     p_promotion_id: promotionId,
     ...promotionRpcArgs(input),
+    // The seventeenth argument (0055). Sent on every update because
+    // update_promotion replaces every field on every call: omitted, it would be
+    // written null, and the first edit of a promotion through the screen would
+    // silently remove whatever ceiling it had. That is the gap this change
+    // closes, and it is closed by SENDING the field rather than by the RPC
+    // remembering it.
+    p_max_entries_per_member: input.maxEntriesPerMember,
   });
   if (error) throw mapPromotionError(error.code, error.message);
 }
