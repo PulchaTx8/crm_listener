@@ -1,5 +1,5 @@
 begin;
-select plan(8);
+select plan(10);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -48,6 +48,36 @@ select throws_ok($$
     ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
      'WHATSAPP', '222222222222222', true)
 $$, '23505', null, 'a Station cannot hold two WhatsApp numbers');
+
+-- The reason the two indexes above are PARTIAL. Without this pair, replacing
+-- them with total unique constraints would leave every assertion in this file
+-- passing while the comment on them became false.
+--
+-- integrations_archival_shape demands deleted_by be set together with
+-- deleted_at, not left null, so the archiving actor needs a real auth.users
+-- row to reference.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000005b1', 'archivist-5a@example.test');
+
+update public.integrations
+   set deleted_at = now(), deleted_by = '00000000-0000-0000-0000-0000000005b1'
+ where phone_number_id = '111111111111111';
+
+select lives_ok($$
+  insert into public.integrations
+    (organization_id, company_id, provider, phone_number_id, enabled)
+  values
+    ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c2',
+     'WHATSAPP', '111111111111111', true)
+$$, 'a number can be moved to another Station once the old row is archived');
+
+select lives_ok($$
+  insert into public.integrations
+    (organization_id, company_id, provider, phone_number_id, enabled)
+  values
+    ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     'WHATSAPP', '222222222222222', true)
+$$, 'a Station can take a new number once its old one is archived');
 
 select * from finish();
 rollback;
