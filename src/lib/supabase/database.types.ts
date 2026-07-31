@@ -235,6 +235,69 @@ export type Database = {
         }
         Relationships: []
       }
+      integrations: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          display_phone_number: string | null
+          enabled: boolean
+          id: string
+          organization_id: string
+          phone_number_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          updated_at: string
+          waba_id: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          display_phone_number?: string | null
+          enabled?: boolean
+          id?: string
+          organization_id: string
+          phone_number_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          updated_at?: string
+          waba_id?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          display_phone_number?: string | null
+          enabled?: boolean
+          id?: string
+          organization_id?: string
+          phone_number_id?: string
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          updated_at?: string
+          waba_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integrations_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "integrations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_balances: {
         Row: {
           available: number
@@ -2112,6 +2175,7 @@ export type Database = {
     Enums: {
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      integration_provider: "WHATSAPP"
       inventory_bucket:
         | "available"
         | "reserved"
@@ -2290,6 +2354,7 @@ export const Constants = {
     Enums: {
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      integration_provider: ["WHATSAPP"],
       inventory_bucket: [
         "available",
         "reserved",
