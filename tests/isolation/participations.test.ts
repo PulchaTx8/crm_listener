@@ -442,6 +442,50 @@ describe('recording a participation', () => {
     expect(denied.error?.code).toBe('42501');
   });
 
+  // participations.import does not open the manual door, and p_source does not
+  // decide which door a call came through. Both halves matter and neither is
+  // covered by the case above, which grants no write code at all.
+  //
+  // The rules and the writes live in apply_participation, shared by both public
+  // functions; the gate is in each of them, beside its own operation (0027). An
+  // earlier draft had one function picking its permission code from p_source,
+  // which meant a caller-supplied label chose which check it faced. The second
+  // call below is what refuses that draft: with the gate back where it belongs,
+  // claiming IMPORT on a hand-typed entry changes the column and nothing else.
+  it('refuses a delegate holding participations.import at the manual door, whatever source the row claims', async () => {
+    const label = `part-import-only-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Onze',
+      phone: '11988887782',
+    });
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.import',
+    ]);
+    const client = await clientFor(delegate);
+
+    const entry = {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_answers: [],
+    };
+
+    const byHand = await client.rpc('record_participation', { ...entry, p_source: 'MANUAL' });
+    expect(byHand.error?.code).toBe('42501');
+    expect(byHand.error?.message).toBe('permission denied: participations.create required');
+
+    // The same refusal, and the same sentence, for a row that calls itself an
+    // import. A gate that read p_source would let this one through.
+    const mislabelled = await client.rpc('record_participation', { ...entry, p_source: 'IMPORT' });
+    expect(mislabelled.error?.code).toBe('42501');
+    expect(mislabelled.error?.message).toBe('permission denied: participations.create required');
+  });
+
   /**
    * Twelve, and the number is arithmetic rather than taste.
    *
@@ -527,5 +571,157 @@ describe('recording a participation', () => {
         .sort();
       expect(statuses).toEqual(['DUPLICATE', 'VALID']);
     }
+  });
+});
+
+describe('importing a file', () => {
+  it('records the good rows, marks the repeats, and skips the unusable ones', async () => {
+    const label = `imp-mixed-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.import',
+      'members.view',
+      'members.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const when = new Date(Date.now() - HOUR).toISOString();
+    const result = await client.rpc('import_participations', {
+      p_promotion_id: promotionId,
+      p_rows: [
+        { line: 2, full_name: 'Ana Lima', phone: '11970000001', participated_at: when },
+        { line: 3, full_name: 'Bruno Reis', phone: '11970000002', participated_at: when },
+        // The same person again: recorded, and marked as the repeat it is.
+        { line: 4, full_name: 'Ana Lima', phone: '11970000001', participated_at: when },
+        // Nothing to identify her by.
+        { line: 5, full_name: 'Carla Souza', participated_at: when },
+      ],
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.data).toMatchObject({
+      recorded: 3,
+      duplicate: 1,
+      skipped: 1,
+      members_created: 2,
+    });
+
+    const rows = (result.data as { rows: Array<Record<string, unknown>> }).rows;
+    expect(rows.find((r) => r.line === 5)).toMatchObject({
+      outcome: 'skipped',
+      reason: 'no identifier',
+    });
+    expect(rows.find((r) => r.line === 4)).toMatchObject({
+      outcome: 'recorded',
+      status: 'DUPLICATE',
+    });
+
+    // Two listeners for three recorded rows: the repeat reused the first one.
+    const members = await client.from('participations').select('member_id').eq('promotion_id', promotionId);
+    expect(new Set(members.data!.map((m) => m.member_id)).size).toBe(2);
+  });
+
+  it('honours the timestamp in the file rather than the clock', async () => {
+    const label = `imp-when-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const promotionId = await promotionAsOwner(customer, {
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 6,
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.import',
+      'members.view',
+      'members.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const base = Date.now();
+    const result = await client.rpc('import_participations', {
+      p_promotion_id: promotionId,
+      p_rows: [
+        { line: 2, full_name: 'Dora Melo', phone: '11970000003', participated_at: new Date(base - 30 * HOUR).toISOString() },
+        { line: 3, full_name: 'Dora Melo', phone: '11970000003', participated_at: new Date(base - 20 * HOUR).toISOString() },
+      ],
+    });
+
+    // Ten hours apart in the file, against a six-hour interval: both count.
+    // Stamped "now" on both, the second would have been TOO_SOON — which is the
+    // whole reason the column exists and the file carries it.
+    expect(result.data).toMatchObject({ recorded: 2, too_soon: 0 });
+  });
+
+  it('skips a row whose identifier belongs to a listener this caller cannot reach', async () => {
+    const label = `imp-elsewhere-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const otherCompanyId = await addCompany(customer, `Second ${label}`);
+    // Registered in the other Station, so a delegate scoped to the first cannot
+    // reach them — and 0031's unique index on the phone means they cannot be
+    // registered a second time either.
+    await createMemberAs(customer, otherCompanyId, {
+      fullName: 'Fora do Alcance',
+      phone: '11970000009',
+    });
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.import',
+      'members.view',
+      'members.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const result = await client.rpc('import_participations', {
+      p_promotion_id: promotionId,
+      p_rows: [
+        { line: 2, full_name: 'Fora do Alcance', phone: '11970000009', participated_at: new Date().toISOString() },
+      ],
+    });
+
+    expect(result.data).toMatchObject({ recorded: 0, skipped: 1 });
+    const rows = (result.data as { rows: Array<Record<string, unknown>> }).rows;
+    expect(rows[0]).toMatchObject({ outcome: 'skipped', reason: 'listener is out of reach' });
+  });
+
+  it('refuses a delegate holding participations.import but not members.create', async () => {
+    const label = `imp-perm-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const promotionId = await promotionAsOwner(customer);
+
+    // Import registers listeners. Without members.create this would be a side
+    // door that registers people for somebody who may not register one.
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.import',
+      'members.view',
+    ]);
+    const client = await clientFor(delegate);
+
+    const denied = await client.rpc('import_participations', {
+      p_promotion_id: promotionId,
+      p_rows: [
+        { line: 2, full_name: 'Nova Pessoa', phone: '11970000004', participated_at: new Date().toISOString() },
+      ],
+    });
+    // The message, not only the code, and here the two are not interchangeable.
+    // Delete the members.create gate from import_participations outright and
+    // this call STILL comes back 42501 — create_member has its own gate and
+    // row 2 would trip it — so a code-only assertion would stay green while the
+    // thing this case is named for, refusing the file before a single row is
+    // written rather than halfway through it, was gone. Only the sentence tells
+    // the two apart, the same reasoning the foreign-question case above gives.
+    expect(denied.error?.code).toBe('42501');
+    expect(denied.error?.message).toBe(
+      'permission denied: members.create required to import participations',
+    );
   });
 });

@@ -841,6 +841,152 @@ export type Database = {
         }
         Relationships: []
       }
+      participation_answers: {
+        Row: {
+          answer_text: string | null
+          company_id: string
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          option_id: string | null
+          organization_id: string
+          participation_id: string
+          promotion_id: string
+          question_id: string
+        }
+        Insert: {
+          answer_text?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["promotion_question_kind"]
+          option_id?: string | null
+          organization_id: string
+          participation_id: string
+          promotion_id: string
+          question_id: string
+        }
+        Update: {
+          answer_text?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["promotion_question_kind"]
+          option_id?: string | null
+          organization_id?: string
+          participation_id?: string
+          promotion_id?: string
+          question_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participation_answers_option_fk"
+            columns: ["option_id", "question_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_question_options"
+            referencedColumns: ["id", "question_id"]
+          },
+          {
+            foreignKeyName: "participation_answers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participation_answers_participation_fk"
+            columns: ["participation_id", "promotion_id"]
+            isOneToOne: false
+            referencedRelation: "participations"
+            referencedColumns: ["id", "promotion_id"]
+          },
+          {
+            foreignKeyName: "participation_answers_question_fk"
+            columns: ["question_id", "promotion_id", "kind", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_questions"
+            referencedColumns: ["id", "promotion_id", "kind", "company_id"]
+          },
+        ]
+      }
+      participations: {
+        Row: {
+          allows_multiple: boolean
+          company_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          member_id: string
+          organization_id: string
+          participated_at: string
+          promotion_id: string
+          source: Database["public"]["Enums"]["participation_source"]
+          status: Database["public"]["Enums"]["participation_status"]
+        }
+        Insert: {
+          allows_multiple: boolean
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          member_id: string
+          organization_id: string
+          participated_at: string
+          promotion_id: string
+          source: Database["public"]["Enums"]["participation_source"]
+          status: Database["public"]["Enums"]["participation_status"]
+        }
+        Update: {
+          allows_multiple?: boolean
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          member_id?: string
+          organization_id?: string
+          participated_at?: string
+          promotion_id?: string
+          source?: Database["public"]["Enums"]["participation_source"]
+          status?: Database["public"]["Enums"]["participation_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participations_allows_multiple_fk"
+            columns: ["promotion_id", "allows_multiple"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "allow_multiple_entries"]
+          },
+          {
+            foreignKeyName: "participations_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "participations_member_link_fk"
+            columns: ["member_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "member_company_links"
+            referencedColumns: ["member_id", "company_id"]
+          },
+          {
+            foreignKeyName: "participations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participations_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       permissions: {
         Row: {
           code: string
@@ -1275,6 +1421,7 @@ export type Database = {
           ends_at: string
           hashtag: string | null
           id: string
+          max_entries_per_member: number | null
           min_hours_between_entries: number | null
           name: string
           no_button_label: string | null
@@ -1303,6 +1450,7 @@ export type Database = {
           ends_at: string
           hashtag?: string | null
           id?: string
+          max_entries_per_member?: number | null
           min_hours_between_entries?: number | null
           name: string
           no_button_label?: string | null
@@ -1331,6 +1479,7 @@ export type Database = {
           ends_at?: string
           hashtag?: string | null
           id?: string
+          max_entries_per_member?: number | null
           min_hours_between_entries?: number | null
           name?: string
           no_button_label?: string | null
@@ -1498,6 +1647,16 @@ export type Database = {
         }
         Returns: string
       }
+      apply_participation: {
+        Args: {
+          p_answers?: Json
+          p_member_id: string
+          p_participated_at: string
+          p_promotion_id: string
+          p_source: Database["public"]["Enums"]["participation_source"]
+        }
+        Returns: Json
+      }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       archive_promotion: {
@@ -1644,6 +1803,10 @@ export type Database = {
         Args: { p_company_id: string; p_permission: string }
         Returns: boolean
       }
+      import_participations: {
+        Args: { p_promotion_id: string; p_rows: Json }
+        Returns: Json
+      }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_member_blocked: {
         Args: { p_company_id: string; p_member_id: string }
@@ -1762,6 +1925,16 @@ export type Database = {
         }
         Returns: string
       }
+      record_participation: {
+        Args: {
+          p_answers?: Json
+          p_member_id: string
+          p_participated_at: string
+          p_promotion_id: string
+          p_source: Database["public"]["Enums"]["participation_source"]
+        }
+        Returns: Json
+      }
       record_stock_entry: {
         Args: {
           p_company_id: string
@@ -1815,6 +1988,18 @@ export type Database = {
       reset_provisional_password: {
         Args: { p_user_id: string }
         Returns: undefined
+      }
+      resolve_or_create_member: {
+        Args: {
+          p_company_id: string
+          p_cpf_hash?: string
+          p_cpf_last_digits?: string
+          p_email?: string
+          p_full_name: string
+          p_passport?: string
+          p_phone?: string
+        }
+        Returns: Json
       }
       return_promotion_prizes: {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
@@ -1953,6 +2138,8 @@ export type Database = {
         | "court_order"
         | "internal_policy"
       org_role: "owner" | "member"
+      participation_source: "MANUAL" | "IMPORT"
+      participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
       permission_scope: "organization" | "company"
       promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
       promotion_requested_field:
@@ -2132,6 +2319,8 @@ export const Constants = {
         "internal_policy",
       ],
       org_role: ["owner", "member"],
+      participation_source: ["MANUAL", "IMPORT"],
+      participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
       permission_scope: ["organization", "company"],
       promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],
       promotion_requested_field: [

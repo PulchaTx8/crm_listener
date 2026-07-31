@@ -1,5 +1,5 @@
 begin;
-select plan(217);
+select plan(221);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -427,6 +427,34 @@ select ok(
 select ok(
   not has_function_privilege('service_role', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
   'service_role may not call ensure_inventory_balance_row'
+);
+
+-- Block 4c's private helper (0054), pinned exactly as the two above are, and
+-- for a sharper reason than either. apply_participation performs NO PERMISSION
+-- CHECK AT ALL: it holds the repetition rules, the lock, the participation row,
+-- its answers and the audit entry, and both gates that guard it —
+-- participations.create on record_participation, participations.import plus
+-- members.create on import_participations — sit in the callers, beside their own
+-- operations (0027's rule). An EXECUTE grant here, or a quiet turn to SECURITY
+-- DEFINER, would not weaken a check; it would produce a write path with no check
+-- in front of it at all, reachable by any signed-in user for any promotion.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)'::regprocedure),
+  false,
+  'apply_participation is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'anon may not call apply_participation'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'authenticated may not call apply_participation'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'service_role may not call apply_participation'
 );
 
 -- Block 4b's second bootstrap, pinned exactly as the first one above is. A
