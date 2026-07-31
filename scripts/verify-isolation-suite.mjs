@@ -28,9 +28,13 @@
  * independent questions are asked of every full run, because none of them can see
  * what the others do:
  *
- *   1. the manifest below, against disk — the only thing that knows a required
- *      file has been DELETED rather than merely not run, and the only check whose
- *      expectation a deletion cannot quietly lower;
+ *   1. the manifest below, against disk AND against each file's own case floor —
+ *      the only thing that knows a required file has been DELETED rather than
+ *      merely not run, and the only check whose expectation neither a deletion
+ *      nor an ordinary code edit can quietly lower. The floor on CASES is the
+ *      newer half: without it, deleting eight `it()` blocks left every total
+ *      below balancing perfectly, because the run really had accounted for
+ *      everything it collected — it had simply collected less;
  *   2. the JSON reporter's file list and counts, against the files on disk that
  *      the config's `include` would collect — including that nothing was pending
  *      or todo, because a skipped test balances every total while checking
@@ -93,21 +97,43 @@ const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
  * short, a manifest says which boundary went unchecked. Adding a test file means
  * adding a line here — that friction is the point, and the disk walk below still
  * catches a NEW file that failed to report even before anybody remembers to.
+ *
+ * `minTests` IS THE SECOND HALF OF THE FLOOR, and without it the first half was
+ * a floor on FILES and nothing else. Every count below derived its expectation
+ * from the run itself: delete eight `it()` blocks from members.test.ts, or wrap
+ * them in a condition that has quietly become false, and the collected total IS
+ * the reduced number — every arithmetic check balances, no file is missing, and
+ * this script prints "every one accounted for, nothing skipped". An ordinary
+ * code edit walked straight through the guard whose whole purpose is that a
+ * boundary cannot go unchecked silently.
+ *
+ * A FLOOR and not an equality, on purpose. Adding a case must not break the
+ * build for everybody until somebody remembers to bump a number — that is the
+ * friction that gets guards deleted. The cost, stated: after cases are added,
+ * the number here is lower than the truth until it is next refreshed, so the
+ * floor protects the cases that existed when it was last written rather than all
+ * of them. Refresh it when a file grows meaningfully; it is one number and it is
+ * printed by every full run.
+ *
+ * Counted as "cases that actually ran": a pending or todo case does not count
+ * towards a file's floor, so the two ways of hiding a case — deleting it and
+ * skipping it — are both caught here as well as by the scan further down.
  */
 const REQUIRED_TEST_FILES = [
-  'tests/isolation/contact-requests.test.ts',
-  'tests/isolation/inventory.test.ts',
-  'tests/isolation/invitations.test.ts',
-  'tests/isolation/listing.test.ts',
-  'tests/isolation/members.test.ts',
-  'tests/isolation/permissions.test.ts',
-  'tests/isolation/promotion-prizes.test.ts',
-  'tests/isolation/promotions.test.ts',
-  'tests/isolation/provisional-password.test.ts',
-  'tests/isolation/record.test.ts',
-  'tests/isolation/roles.test.ts',
-  'tests/isolation/signup-disabled.test.ts',
-  'tests/isolation/tenant.test.ts',
+  { path: 'tests/isolation/contact-requests.test.ts', minTests: 3 },
+  { path: 'tests/isolation/inventory.test.ts', minTests: 19 },
+  { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
+  { path: 'tests/isolation/listing.test.ts', minTests: 5 },
+  { path: 'tests/isolation/members.test.ts', minTests: 21 },
+  { path: 'tests/isolation/participations.test.ts', minTests: 29 },
+  { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
+  { path: 'tests/isolation/promotion-prizes.test.ts', minTests: 29 },
+  { path: 'tests/isolation/promotions.test.ts', minTests: 21 },
+  { path: 'tests/isolation/provisional-password.test.ts', minTests: 4 },
+  { path: 'tests/isolation/record.test.ts', minTests: 6 },
+  { path: 'tests/isolation/roles.test.ts', minTests: 17 },
+  { path: 'tests/isolation/signup-disabled.test.ts', minTests: 1 },
+  { path: 'tests/isolation/tenant.test.ts', minTests: 9 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */
@@ -129,7 +155,7 @@ function filesOnDisk(dir = SUITE_DIR) {
 function expectedTestFiles(required = REQUIRED_TEST_FILES) {
   const union = new Set([
     ...filesOnDisk(),
-    ...required.map((rel) => path.resolve(REPO_ROOT, rel)),
+    ...required.map((entry) => path.resolve(REPO_ROOT, entry.path)),
   ]);
   return [...union].sort();
 }
@@ -140,14 +166,14 @@ function expectedTestFiles(required = REQUIRED_TEST_FILES) {
  * report" — two different mistakes with two different fixes.
  */
 function complaintsAboutManifest(required = REQUIRED_TEST_FILES) {
-  const gone = required.filter((rel) => !existsSync(path.resolve(REPO_ROOT, rel)));
+  const gone = required.filter((entry) => !existsSync(path.resolve(REPO_ROOT, entry.path)));
   if (gone.length === 0) return [];
   return [
     `${gone.length} test file(s) this suite is REQUIRED to run are not on disk at all — ` +
       'deleted, renamed past the *.test.ts glob, or moved out of tests/isolation. If that ' +
       'was deliberate, the deletion belongs in the same commit as an edit to ' +
       'REQUIRED_TEST_FILES in this script, so somebody has to say so out loud:\n' +
-      gone.map((rel) => `      - ${rel}`).join('\n'),
+      gone.map((entry) => `      - ${entry.path}`).join('\n'),
   ];
 }
 
@@ -159,11 +185,41 @@ function complaintsAboutManifest(required = REQUIRED_TEST_FILES) {
  * previous run — which is how this guard was proved to fail rather than merely
  * asserted to.
  */
-function complaintsAbout(report, expected) {
+function complaintsAbout(report, expected, required = REQUIRED_TEST_FILES) {
   const complaints = [];
   const reported = new Set(
     (report.testResults ?? []).map((result) => path.resolve(REPO_ROOT, result.name)),
   );
+
+  // The case-level floor. Everything else in this function asks whether the run
+  // accounted for what the run collected, which a run that collected fewer
+  // cases answers perfectly. See REQUIRED_TEST_FILES' own comment: eight
+  // deleted `it()` blocks balanced every total here and printed a clean line.
+  const byFile = new Map(
+    (report.testResults ?? []).map((result) => [
+      path.resolve(REPO_ROOT, result.name),
+      (result.assertionResults ?? []).filter(
+        (assertion) => assertion.status !== 'pending' && assertion.status !== 'todo',
+      ).length,
+    ]),
+  );
+  const thin = required
+    .map((entry) => ({ entry, ran: byFile.get(path.resolve(REPO_ROOT, entry.path)) }))
+    // A file that reported nothing at all is already named by the check below;
+    // saying it twice would bury the more specific message.
+    .filter(({ entry, ran }) => ran !== undefined && ran < entry.minTests);
+  if (thin.length > 0) {
+    complaints.push(
+      `${thin.length} test file(s) ran FEWER cases than this suite requires of them. Every ` +
+        'case in this suite is a boundary somebody decided had to be checked on every run, ' +
+        'and a file that quietly lost some of them balances every other count here:\n' +
+        thin
+          .map(({ entry, ran }) => `      - ${entry.path}: ran ${ran}, floor is ${entry.minTests}`)
+          .join('\n') +
+        '\n      If cases were deliberately removed, the removal belongs in the same commit ' +
+        'as the new floor in REQUIRED_TEST_FILES.',
+    );
+  }
 
   const missing = expected.filter((file) => !reported.has(file));
   if (missing.length > 0) {
@@ -347,21 +403,56 @@ function fail(complaints) {
  * rather than reading it, after the version above had already been called
  * finished. That is the argument for having them here.
  */
+/** The floor's own sum: what a healthy run collects, at minimum. */
+const FLOOR_TOTAL = REQUIRED_TEST_FILES.reduce((sum, entry) => sum + entry.minTests, 0);
+
+/**
+ * A report as vitest writes one, from a description of what went wrong.
+ *
+ * Built from REQUIRED_TEST_FILES rather than hand-listed, so the fixtures below
+ * cannot drift out of agreement with the manifest they are checking — and so
+ * that each one differs from a healthy run in exactly the ONE way it is named
+ * for. `assertionResults` is populated because the case floor reads it; before
+ * that floor existed every fixture here carried `{ name, status }` alone.
+ */
+function reportLike({ omit = null, ranPerFile = null, totals = null } = {}) {
+  const testResults = REQUIRED_TEST_FILES.filter(
+    (entry) => omit === null || !entry.path.endsWith(omit),
+  ).map((entry) => {
+    const ran = ranPerFile?.[entry.path] ?? entry.minTests;
+    return {
+      name: entry.path,
+      status: 'passed',
+      assertionResults: Array.from({ length: ran }, () => ({ status: 'passed' })),
+    };
+  });
+  const collected = testResults.reduce((sum, r) => sum + r.assertionResults.length, 0);
+  return {
+    numTotalTests: collected,
+    numPassedTests: collected,
+    numFailedTests: 0,
+    numPendingTests: 0,
+    numTodoTests: 0,
+    ...(totals ?? {}),
+    testResults,
+  };
+}
+
 const FIXTURES = [
   {
     name: 'report: a crash that ended with the dead worker\'s tests marked skipped',
-    // 145 + 7 balances to 152, every file reports `passed`, nothing failed.
-    // Before the skipped scan this satisfied every check in complaintsAbout().
+    // The totals balance — passed + pending equals collected — every file
+    // reports `passed`, and nothing failed. Before the skipped scan this
+    // satisfied every check in complaintsAbout().
     run: () =>
       complaintsAbout(
-        {
-          numTotalTests: 152,
-          numPassedTests: 145,
-          numFailedTests: 0,
-          numPendingTests: 7,
-          numTodoTests: 0,
-          testResults: REQUIRED_TEST_FILES.map((name) => ({ name, status: 'passed' })),
-        },
+        reportLike({
+          totals: {
+            numTotalTests: FLOOR_TOTAL,
+            numPassedTests: FLOOR_TOTAL - 7,
+            numPendingTests: 7,
+          },
+        }),
         expectedTestFiles(),
       ),
     expect: /did not run — 7 skipped/,
@@ -377,45 +468,76 @@ const FIXTURES = [
   },
   {
     name: 'manifest: a required file deleted, renamed, or moved out of the glob',
-    run: () => complaintsAboutManifest(['tests/isolation/deleted-by-somebody.test.ts']),
+    run: () =>
+      complaintsAboutManifest([
+        { path: 'tests/isolation/deleted-by-somebody.test.ts', minTests: 1 },
+      ]),
     expect: /are not on disk at all/,
   },
   {
     name: 'report: a short file list — promotion-prizes never reported',
+    run: () => complaintsAbout(reportLike({ omit: 'promotion-prizes.test.ts' }), expectedTestFiles()),
+    expect: /promotion-prizes\.test\.ts/,
+  },
+  {
+    // THE GAP THE CASE FLOOR EXISTS FOR, and the one this script was blind to
+    // for its whole life: not a file that vanished, but a file that reported
+    // and ran fewer cases than it holds. Every other check in complaintsAbout
+    // is satisfied by this report, because the run really did account for
+    // everything it collected — it simply collected less.
+    name: 'report: a file that ran but lost eight of its cases',
     run: () =>
       complaintsAbout(
-        {
-          numTotalTests: 123,
-          numPassedTests: 123,
-          numFailedTests: 0,
-          numPendingTests: 0,
-          numTodoTests: 0,
-          testResults: REQUIRED_TEST_FILES.filter(
-            (name) => !name.endsWith('promotion-prizes.test.ts'),
-          ).map((name) => ({ name, status: 'passed' })),
-        },
+        reportLike({ ranPerFile: { 'tests/isolation/members.test.ts': 13 } }),
         expectedTestFiles(),
       ),
-    expect: /promotion-prizes\.test\.ts/,
+    expect: /members\.test\.ts: ran 13, floor is 21/,
+  },
+  {
+    // complaintsAbout's `counted !== accounted` branch, which had no fixture at
+    // all. This is the JSON shape of a file dropped part-way through: the
+    // reporter knows 182 were collected and can account for only 174, and no
+    // other check here sees it — every file reported, nothing failed, nothing
+    // was skipped.
+    name: 'report: collected more than it accounted for — a file dropped mid-flight',
+    run: () =>
+      complaintsAbout(
+        reportLike({ totals: { numTotalTests: FLOOR_TOTAL, numPassedTests: FLOOR_TOTAL - 8 } }),
+        expectedTestFiles(),
+      ),
+    expect: /but accounted for only/,
+  },
+  {
+    // The summary's Tests line failing to balance, which also had no fixture:
+    // fixture 2 above feeds a line that BALANCES and so trips the `idle > 0`
+    // branch instead, leaving this one — a different check, on a different
+    // line, with a different message — unexercised.
+    name: 'summary: "174 passed (182)" — the Tests line does not balance',
+    run: () =>
+      complaintsAboutSummary(' Test Files  14 passed (14)\n      Tests  174 passed (182)\n'),
+    expect: /collected 182 test\(s\) and reported on only 174/,
+  },
+  {
+    // The exact shape this whole script was written for, quoted at the top of
+    // this file and never once exercised: a worker that died AFTER its file's
+    // tests had all passed. The Tests line is perfect, the JSON report is
+    // perfect, and the only thing anywhere that can see it is the file total.
+    name: 'summary: "Test Files 12 passed (13)" with a clean Tests line — the original crash',
+    run: () =>
+      complaintsAboutSummary(' Test Files  12 passed (13)\n      Tests  152 passed (152)\n'),
+    expect: /collected 13 test file\(s\) and reported on only 12/,
   },
   {
     name: 'sanity: a genuinely clean report and summary produce NO complaint',
     // The other half of every fixture above, and the more important half: a
     // guard that fails closed on a healthy run is worse than the gap it closes.
+    // The file totals here are the manifest's own length, so this stays true as
+    // the suite grows.
     run: () => [
-      ...complaintsAbout(
-        {
-          numTotalTests: 152,
-          numPassedTests: 152,
-          numFailedTests: 0,
-          numPendingTests: 0,
-          numTodoTests: 0,
-          testResults: REQUIRED_TEST_FILES.map((name) => ({ name, status: 'passed' })),
-        },
-        expectedTestFiles(),
-      ),
+      ...complaintsAbout(reportLike(), expectedTestFiles()),
       ...complaintsAboutSummary(
-        ' Test Files  13 passed (13)\n      Tests  152 passed (152)\n',
+        ` Test Files  ${REQUIRED_TEST_FILES.length} passed (${REQUIRED_TEST_FILES.length})\n` +
+          `      Tests  ${FLOOR_TOTAL} passed (${FLOOR_TOTAL})\n`,
       ),
       ...complaintsAboutManifest(),
     ],
@@ -572,6 +694,7 @@ if (complaints.length > 0) fail(complaints);
 if (!scoped) {
   console.log(
     `\nIsolation suite complete: ${expectedTestFiles().length} file(s), every one accounted ` +
-      `for, ${REQUIRED_TEST_FILES.length} of them required by name, nothing skipped.`,
+      `for, ${REQUIRED_TEST_FILES.length} of them required by name and each above its own ` +
+      `case floor (${FLOOR_TOTAL} cases in total), nothing skipped.`,
   );
 }

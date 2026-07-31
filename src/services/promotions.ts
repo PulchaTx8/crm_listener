@@ -16,6 +16,12 @@ import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type { PromotionSituation } from '@/lib/promotion-situation';
+// The promotion record carries the fifth tab's two counts, so it reads them
+// through the participations service rather than writing a second count query
+// here. One direction only — participations never imports this module — so
+// there is no cycle to reason about.
+import { countPromotionParticipations } from '@/services/participations';
+import type { PromotionParticipationCounts } from '@/services/participations';
 import type {
   PromotionFormInput,
   PromotionPrizeLinkInput,
@@ -281,12 +287,21 @@ export interface LinkablePrize {
 export interface PromotionDetail {
   id: string;
   companyId: string;
+  /**
+   * The fifth tab's two figures: in the draw, and recorded but not in it. Part
+   * of the record rather than a read of the tab's own, so that moving onto that
+   * tab reaches the server no more than moving onto Prizes does — see the note
+   * beside the read itself.
+   */
+  participationCounts: PromotionParticipationCounts;
   name: string;
   siteIntegrationCode: number | null;
   startsAt: string;
   endsAt: string;
   allowMultipleEntries: boolean;
   minHoursBetweenEntries: number | null;
+  /** How many times one person may enter; null means no ceiling (D1, 0052). Carried back so the form renders what is stored. */
+  maxEntriesPerMember: number | null;
   requireCorrectAnswer: boolean;
   callToAction: string | null;
   whatsappEnabled: boolean;
@@ -316,6 +331,36 @@ export interface PromotionDetail {
  * caller cannot reach. Telling those apart would make `?record=<id>` an oracle
  * for ids, the same reasoning the audience record carries.
  */
+/**
+ * Which Station owns this promotion, or null when this caller cannot see it.
+ *
+ * One column, so that a write path can establish its own Station instead of
+ * being told one. `recordParticipationAction` read `companyId` off the form: it
+ * was never parsed as a uuid and never checked against the promotion, so a
+ * caller holding members.create at Station A could register a listener into A's
+ * audience while naming a promotion at Station B, and only then be refused —
+ * the listener stays registered, and nobody asked for them.
+ *
+ * Not `getPromotionRecord`: that is four reads and a whole record, and this
+ * question is one column of one row. Read through the caller's token like
+ * everything else here, so 0044's policy decides it — a promotion this caller
+ * may not see answers null, which is the same answer `record_participation`
+ * would give them a moment later and for the same reason.
+ */
+export async function getPromotionStationId(
+  promotionId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const { data, error } = await asCaller(accessToken)
+    .from('promotions')
+    .select('company_id')
+    .eq('id', promotionId)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the promotion: ${error.message}`);
+  return data?.company_id ?? null;
+}
+
 export async function getPromotionRecord(
   promotionId: string,
   accessToken: string,
@@ -394,15 +439,35 @@ export async function getPromotionRecord(
   // nothing to map.
   if (prizeError) throw mapPromotionError(prizeError.code, prizeError.message);
 
+  // The fifth tab's two figures, read here for exactly the reason the prizes
+  // above are: moving between tabs must not reach the server. Two `head: true`
+  // counts and not a page of rows — design spec D8 is explicit that a promotion
+  // with eight thousand entries cannot be read once per opening, and a count is
+  // the same size at eight thousand as at eight.
+  //
+  // The alternative, tried and rejected during Task 8: the tab calling a server
+  // action of its own when it mounts. It works and it is cheaper — nobody who
+  // never opens that tab pays for it — but it is dispatched from an effect that
+  // runs immediately after the tab strip's own navigation, and a server action
+  // dispatched in that window is silently dropped when the navigation aborts the
+  // record re-read that a Save on the Promotion tab has in flight. The tab then
+  // sits on "Counting the entries…" for ever. Reproduced deterministically: save,
+  // click Entries, and the request is never issued; put two seconds between the
+  // two and it always is. Reading it with the record removes the window instead
+  // of narrowing it.
+  const participationCounts = await countPromotionParticipations(promotionId, accessToken);
+
   return {
     id: promotion.id,
     companyId: promotion.company_id,
+    participationCounts,
     name: promotion.name,
     siteIntegrationCode: promotion.site_integration_code,
     startsAt: promotion.starts_at,
     endsAt: promotion.ends_at,
     allowMultipleEntries: promotion.allow_multiple_entries,
     minHoursBetweenEntries: promotion.min_hours_between_entries,
+    maxEntriesPerMember: promotion.max_entries_per_member,
     requireCorrectAnswer: promotion.require_correct_answer,
     callToAction: promotion.call_to_action,
     whatsappEnabled: promotion.whatsapp_enabled,
@@ -485,6 +550,16 @@ function mapPromotionError(code: string | undefined, message: string): Error {
 /**
  * The RPC parameters both writes share; `create` adds the Station, `update` the id.
  *
+ * The per-person ceiling is in here, sent to BOTH doors, and that is the whole
+ * point of this function existing: p_max_entries_per_member is one field of one
+ * form, and a promotion that could be edited into a ceiling but never born with
+ * one would be an asymmetry with no rule behind it. 0055 recreates
+ * create_promotion as well as update_promotion so that both signatures carry it
+ * — an earlier draft of that migration gave it to update_promotion alone, and
+ * this builder is where the consequence would have landed: a seventeenth
+ * argument sent to a sixteen-argument function does not raise a type error,
+ * PostgREST simply fails to resolve it and answers PGRST202.
+ *
  * Absent fields are sent as `undefined` rather than `null`, which means
  * PostgREST omits them and the function's own `default null` applies. For
  * update_promotion that is exactly the wholesale replace the RPC documents: a
@@ -508,6 +583,12 @@ function promotionRpcArgs(input: PromotionFormInput) {
     p_yes_button_label: input.yesButtonLabel,
     p_no_button_label: input.noButtonLabel,
     p_requested_fields: input.requestedFields,
+    // Sent on every write, not merged into one: both RPCs replace every field
+    // they are given, so an omitted ceiling is a ceiling written null. That is
+    // the defect this argument exists to close on update_promotion, and sending
+    // it from the shared builder is what stops the two doors drifting apart
+    // again.
+    p_max_entries_per_member: input.maxEntriesPerMember,
   };
 }
 

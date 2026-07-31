@@ -72,6 +72,22 @@ function readPromotionForm(formData: FormData) {
     callToAction: formData.get('callToAction') || null,
     allowMultipleEntries: formData.get('allowMultipleEntries') === 'on',
     minHoursBetweenEntries: readOptionalNumber(formData.get('minHoursBetweenEntries')),
+    // Read unconditionally, exactly as the interval above is, and NOT dropped
+    // when repeats are off the way the WhatsApp fields are dropped when
+    // WhatsApp is off. The two situations look alike and are not: the WhatsApp
+    // fields are dropped because promotion_whatsapp_shape wants them empty and
+    // a stale tab could post a hashtag the operator believes is coherent, so
+    // silence is the right answer. Here the schema has a SENTENCE for a ceiling
+    // arriving with repeats off — "There is no ceiling to set while only one
+    // entry per listener is allowed" — and dropping the value would throw that
+    // sentence away and save the promotion as if nothing had been typed.
+    //
+    // This line was the missing half of Task 6's work: the schema and both RPC
+    // doors already carried the ceiling, and without a reader here the input
+    // added to promotion-fields.tsx would have posted a value that arrived as
+    // `undefined` and wrote null on every save — the exact defect the plan
+    // predicted for the field it had not yet added.
+    maxEntriesPerMember: readOptionalNumber(formData.get('maxEntriesPerMember')),
     requireCorrectAnswer: formData.get('requireCorrectAnswer') === 'on',
     whatsappEnabled,
     // Everything on the WhatsApp tab is dropped when WhatsApp is off, rather

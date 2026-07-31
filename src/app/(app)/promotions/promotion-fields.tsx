@@ -141,6 +141,44 @@ export function PromotionFields({
             />
           </label>
         )}
+
+        {/* The per-person ceiling (design spec D1), beside the interval it
+            depends on.
+
+            Rendered only while repetition is on, and unmounted rather than
+            disabled when it is off, because an unmounted input posts nothing:
+            promotions_entry_ceiling_shape (0052) and promotionFormSchema both
+            refuse a ceiling without `allow_multiple_entries`, so offering the
+            field there would be offering something the database will reject —
+            and worse, a value left in a disabled input would still be in the
+            DOM for a stale form to post.
+
+            Optional where the interval is required, and the asymmetry is the
+            constraint's own: a promotion that allows repeats without any limit
+            is the ordinary case, while one that allows them with no interval is
+            the five-hundred-entries-in-a-minute case the interval exists to
+            stop. Blank means no ceiling.
+
+            `min={2}` matches the schema's message rather than the column's
+            type: a ceiling of one is what turning repeats off already says. */}
+        {repeats && (
+          <label className="flex w-64 flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">At most this many entries each</span>
+            <Input
+              name="maxEntriesPerMember"
+              type="number"
+              min={2}
+              step={1}
+              defaultValue={record?.maxEntriesPerMember ?? ''}
+              disabled={disabled}
+              data-testid="promotion-max-entries"
+            />
+            <span className="text-xs text-muted-foreground">
+              Optional. Leave it blank for no limit; two or more caps how many times one listener
+              can be in the draw.
+            </span>
+          </label>
+        )}
       </div>
 
       <label className="flex items-start gap-2 text-sm">

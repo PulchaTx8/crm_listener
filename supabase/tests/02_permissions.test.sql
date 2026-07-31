@@ -1,5 +1,5 @@
 begin;
-select plan(217);
+select plan(233);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -427,6 +427,168 @@ select ok(
 select ok(
   not has_function_privilege('service_role', 'public.ensure_inventory_balance_row(uuid, uuid, uuid)', 'EXECUTE'),
   'service_role may not call ensure_inventory_balance_row'
+);
+
+-- Block 4c's private helper (0054), pinned exactly as the two above are, and
+-- for a sharper reason than either. apply_participation performs NO PERMISSION
+-- CHECK AT ALL: it holds the repetition rules, the lock, the participation row,
+-- its answers and the audit entry, and both gates that guard it —
+-- participations.create on record_participation, participations.import plus
+-- members.create on import_participations — sit in the callers, beside their own
+-- operations (0027's rule). An EXECUTE grant here, or a quiet turn to SECURITY
+-- DEFINER, would not weaken a check; it would produce a write path with no check
+-- in front of it at all, reachable by any signed-in user for any promotion.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)'::regprocedure),
+  false,
+  'apply_participation is SECURITY INVOKER, not DEFINER'
+);
+select ok(
+  not has_function_privilege('anon', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'anon may not call apply_participation'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'authenticated may not call apply_participation'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'service_role may not call apply_participation'
+);
+
+-- Block 4c's three PUBLIC doors, and the converse claim to the four above: these
+-- three are meant to be reachable by a signed-in caller and meant to be
+-- unreachable without a session. Each of them resolves has_permission against
+-- auth.uid(), which is null for anon, so an accidental PUBLIC grant would leak
+-- nothing today — that is precisely the argument 0050's header refuses, because
+-- it makes the safety of six functions rest on the first `if` of each body
+-- rather than on a grant. The presence half matters as much as the absence: a
+-- future migration that recreated one of these and forgot the grant would leave
+-- every signed-in operator unable to record a participation at all, and nothing
+-- else in this suite would say why.
+select ok(
+  not has_function_privilege('anon', 'public.resolve_or_create_member(uuid, text, text, text, text, text, text)', 'EXECUTE'),
+  'anon may not call resolve_or_create_member'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.resolve_or_create_member(uuid, text, text, text, text, text, text)', 'EXECUTE'),
+  'authenticated may call resolve_or_create_member'
+);
+select ok(
+  not has_function_privilege('anon', 'public.record_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'anon may not call record_participation'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.record_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'authenticated may call record_participation'
+);
+select ok(
+  not has_function_privilege('anon', 'public.import_participations(uuid, jsonb)', 'EXECUTE'),
+  'anon may not call import_participations'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.import_participations(uuid, jsonb)', 'EXECUTE'),
+  'authenticated may call import_participations'
+);
+
+-- Exactly one update_promotion, and this is the assertion that says so — the
+-- same claim the apply_inventory_movement count above makes, for the same
+-- reason and against the same mistake.
+--
+-- 0055 drops the sixteen-argument form and creates a seventeen-argument one,
+-- because D1's ceiling adds p_max_entries_per_member and `create or replace`
+-- cannot change an argument list. Forget the drop and both live. This one does
+-- NOT then fail loudly the way apply_inventory_movement's twin did: every
+-- existing call site passes sixteen arguments, which resolves unambiguously to
+-- the SURVIVOR — the old body, with no freeze and no ceiling — so the freeze
+-- this whole migration exists to add would simply never run, in silence, with
+-- every other assertion in this file and every isolation case that does not set
+-- the ceiling still green. That is a worse failure than 42725, and only a count
+-- by name can see it: ::regprocedure resolves the signature it is handed and
+-- succeeds regardless of what else shares it, which is how Block 4b passed 331
+-- of 331 with two overloads live.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'update_promotion'),
+  1,
+  'exactly one update_promotion exists — 0055 dropped the sixteen-argument form rather than leaving a twin the old call sites would still resolve to'
+);
+
+-- And exactly one create_promotion, for the identical reason and against the
+-- identical mistake. 0055 gives the ceiling to BOTH doors rather than only to
+-- update_promotion: p_max_entries_per_member is one field of one form,
+-- services/promotions.ts builds both calls from one shared argument builder, and
+-- a promotion that can be edited into a ceiling but never born with one is a
+-- product defect rather than a staged rollout.
+--
+-- That means a second drop-and-recreate with a second chance to forget the drop,
+-- and this one fails as silently as its sibling: every sixteen-argument call
+-- site resolves unambiguously to the survivor, which has no
+-- max_entries_per_member in its INSERT, so a ceiling typed into the create form
+-- would appear to save and simply never be written — with the grant pins in
+-- 03_promotions.test.sql still green, because ::regprocedure resolves the
+-- signature it is handed and can see nothing else sharing the name.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'create_promotion'),
+  1,
+  'exactly one create_promotion exists — 0055 dropped merged 0042''s sixteen-argument form rather than leaving a twin that stores no ceiling'
+);
+--
+-- The grant grid on the survivor is deliberately NOT restated here, even though
+-- dropping a function discards its ACL and 0055 therefore had to close 0050's
+-- hole a second time by hand. It belongs in 03_promotions.test.sql, whose own
+-- header refuses exactly this: the promotion RPCs' reachability is one list in
+-- one place, because splitting it by migration is how two gaps were shipped
+-- already. That file's pair now names the seventeen-argument signature, which
+-- is what makes it fail if the revoke is ever dropped alongside the function.
+
+-- 0055's SECOND drop-and-recreate: promotion_write_error gains a fourth
+-- argument, the constraint name, because 0052 created a violation it could not
+-- name. Two constraints now raise 23505 through update_promotion's handler — a
+-- duplicate site integration code, and participations_one_per_member via the
+-- ON UPDATE CASCADE onto participations.allows_multiple — so the sqlstate alone
+-- was sending an operator who unticked "allow repeats" a sentence about a
+-- numeric field they never filled in, with the number rendered as <NULL>.
+--
+-- This one would NOT fail silently if the drop were forgotten, unlike
+-- update_promotion's above, and the difference is worth stating rather than
+-- claiming a uniform danger: create_promotion calls this with three arguments,
+-- which against both a surviving three-argument form and a new four-argument
+-- form whose last parameter defaults is AMBIGUOUS, and raises 42725 at call
+-- time. (That call site moved into 0055 with create_promotion itself; the
+-- three-argument call inside it is reproduced unchanged, so the hazard is the
+-- same one and it did not move.) The count is here because it is one line and it pins the
+-- intent; the isolation suite is what would actually scream.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'promotion_write_error'),
+  1,
+  'exactly one promotion_write_error exists — 0055 dropped the three-argument form rather than leaving a twin create_promotion''s call would go ambiguous against'
+);
+
+-- And its reachability, which the drop reset to PUBLIC and 0055 re-revoked.
+-- 0042 stated this as a grant for the reason its own comment gives — the
+-- function is only ever called from inside a SECURITY DEFINER body — and there
+-- was no assertion behind that claim before now, so dropping the revoke in a
+-- future migration would have gone unnoticed. Harmless if it ever happened (the
+-- function's whole job is to raise), but it is the same class of unstated
+-- reachability that left six promotion RPCs PUBLIC for the whole of Block 4a.
+select ok(
+  not has_function_privilege('anon', 'public.promotion_write_error(text, integer, text, text)', 'EXECUTE'),
+  'anon may not call promotion_write_error'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.promotion_write_error(text, integer, text, text)', 'EXECUTE'),
+  'authenticated may not call promotion_write_error'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.promotion_write_error(text, integer, text, text)', 'EXECUTE'),
+  'service_role may not call promotion_write_error'
 );
 
 -- Block 4b's second bootstrap, pinned exactly as the first one above is. A

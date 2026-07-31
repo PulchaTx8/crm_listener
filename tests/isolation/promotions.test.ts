@@ -192,6 +192,69 @@ describe('the promotion record', () => {
       expect(record?.minHoursBetweenEntries).toBe(24);
     });
 
+    /**
+     * The per-person ceiling, through the SERVICE, in both directions.
+     *
+     * This is the closure for Task 10's fourth mutation — the one that survived
+     * every gate. Deleting `p_max_entries_per_member` from `promotionRpcArgs`
+     * (`src/services/promotions.ts`) passed lint, typecheck, 321 unit tests,
+     * 391 pgTAP assertions, 175 isolation cases and 18 e2e journeys. `typecheck`
+     * is structurally blind because the argument is optional in
+     * `database.types.ts`; this file drove both doors through that very builder
+     * twenty times over and never once set a ceiling; and the only live proof of
+     * the ceiling anywhere called `update_promotion` DIRECTLY, bypassing the
+     * service entirely.
+     *
+     * The second half is the one that matters, and it is the half that would
+     * have shipped broken. `update_promotion` assigns
+     * `max_entries_per_member = p_max_entries_per_member` with no `coalesce`
+     * (`0055`), and `promotionRpcArgs`'s own comment records that an absent key
+     * is omitted by PostgREST so the function's `default null` applies. So with
+     * that one line gone, a ceiling typed into the form appears to save and is
+     * written null — AND an edit to any other field on a promotion that already
+     * has one silently removes it, which needs nobody to be looking.
+     */
+    it('carries the per-person ceiling to both doors, and an unrelated edit does not remove it', async () => {
+      const label = `promo-ceiling-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.create',
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      // Born with one. 0052's promotions_entry_ceiling_shape permits a ceiling
+      // only where repeats are allowed and only at two or more, so the window
+      // and the repeat rules are part of the fixture rather than decoration.
+      const window = liveWindow();
+      const base = {
+        ...window,
+        allowMultipleEntries: true,
+        minHoursBetweenEntries: 6,
+        maxEntriesPerMember: 3,
+      };
+      const promotionId = await createPromotion(
+        promotionInput(customer.companyId, { name: 'Com teto', ...base }),
+        token,
+      );
+
+      const born = await getPromotionRecord(promotionId, token);
+      expect(born?.maxEntriesPerMember).toBe(3);
+
+      // The wholesale replace: every field posted again, only the name
+      // different. This is what one ordinary edit on the Promotion tab does.
+      await updatePromotion(
+        promotionId,
+        promotionInput(customer.companyId, { name: 'Nome novo, mesmo teto', ...base }),
+        token,
+      );
+
+      const edited = await getPromotionRecord(promotionId, token);
+      expect(edited?.name).toBe('Nome novo, mesmo teto');
+      expect(edited?.maxEntriesPerMember).toBe(3);
+    });
+
     it('is refused without promotions.create, and writes nothing', async () => {
       const label = `promo-create-denied-${Date.now()}`;
       const customer = await provisionCustomer(label);

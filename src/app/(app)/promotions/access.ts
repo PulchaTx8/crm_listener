@@ -11,16 +11,64 @@ export interface PromotionPowers {
   archive: boolean;
   /** Linking moves stock, so it is its own code rather than part of promotions.edit. */
   prizes: boolean;
+  /**
+   * participations.view, and it is asked for one narrow reason: the fifth tab's
+   * two counts are read under 0053's select policy, so a caller without it is
+   * answered with zero rather than with an error. Rendered unqualified, "0 in
+   * the draw" would then be a screen stating as fact something it is not allowed
+   * to know.
+   */
+  participationsView: boolean;
+  /** record_participation, on the record's fifth tab. */
+  participationsCreate: boolean;
+  /** import_participations, which also needs membersCreate below (design spec D10). */
+  participationsImport: boolean;
+  /**
+   * members.view. Not decoration on either writing surface: both reach a
+   * listener through resolve_or_create_member, whose find_member_by_identifier
+   * (0033) raises 42501 without it. Somebody holding participations.create alone
+   * can record nothing at all, because there is no way from the screen to name a
+   * listener that does not go through that lookup.
+   */
+  membersView: boolean;
+  /**
+   * members.create. D10 for the import, checked by the RPC before its first row;
+   * narrower for the manual form, where only registering somebody new needs it.
+   */
+  membersCreate: boolean;
   /** True for the platform admin and the Organization owner — the only callers whose reads return archived rows (0044). */
   seesArchived: boolean;
 }
 
+/**
+ * The last five are not promotions codes, and they are here rather than in a
+ * second per-Station lookup of their own because the record's fifth tab needs
+ * them at exactly the moment this answer already exists.
+ *
+ * Block 4c tried the alternative first — the tab asking for them itself when it
+ * opened — and it produced a tab that could hang for ever: a server action
+ * dispatched from an effect that runs immediately after the tab strip's
+ * navigation is silently dropped when that navigation aborts an action already
+ * in flight. Resolved here, the tab renders from props like Quiz and Prizes do,
+ * and reaches the server only to write.
+ *
+ * The cost, stated: five more has_permission calls on every render of the
+ * promotions list, for a tab most of those renders will never open. They go out
+ * with the five above them in one Promise.all and each is a single predicate, so
+ * this is five more round trips and not five more queries anybody will feel —
+ * measured against a control that sometimes never loaded at all.
+ */
 const WRITE_CODES = [
   'promotions.create',
   'promotions.edit',
   'promotions.cancel',
   'promotions.archive',
   'promotions.prizes',
+  'participations.view',
+  'participations.create',
+  'participations.import',
+  'members.view',
+  'members.create',
 ] as const;
 
 /**
@@ -72,6 +120,11 @@ export async function getPromotionPowers(
     cancel: writes[2]?.data === true,
     archive: writes[3]?.data === true,
     prizes: writes[4]?.data === true,
+    participationsView: writes[5]?.data === true,
+    participationsCreate: writes[6]?.data === true,
+    participationsImport: writes[7]?.data === true,
+    membersView: writes[8]?.data === true,
+    membersCreate: writes[9]?.data === true,
     seesArchived: archived.data === true,
   };
 }
