@@ -241,8 +241,15 @@ export default async function ParticipationsPage({
         </div>
       )}
 
+      {/* `currentHref` is this render's own address, cursor included, built by
+          the same helper the filter bar navigates with. The filter bar cancels a
+          pending keystroke when the address changes for a reason that was not
+          itself, and it can only do that if it is told the address — a Station
+          chip, Clear filters, Previous/Next and Back all leave the search term
+          untouched, so the term alone cannot report them. */}
       <ParticipationsFilters
         state={state}
+        currentHref={participationsHref(state, cursorParam)}
         timeZone={selected.timezone}
         promotions={promotionOptions}
         canSearchByListener={canSearch}

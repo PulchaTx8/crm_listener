@@ -47,11 +47,20 @@ export interface PromotionOption {
  */
 export function ParticipationsFilters({
   state,
+  currentHref,
   timeZone,
   promotions,
   canSearchByListener,
 }: {
   state: ParticipationListState;
+  /**
+   * The address of the list this render represents, cursor included, built by
+   * the page with the same `participationsHref` this component navigates with.
+   * It is what the sync effect below watches, and it has to come from the server
+   * rather than be read from the browser: it must change on EVERY navigation,
+   * including the ones that leave the search term exactly where it was.
+   */
+  currentHref: string;
   /** The Station's zone, so the day the operator picks is that Station's day. */
   timeZone: string;
   promotions: PromotionOption[];
@@ -94,37 +103,60 @@ export function ParticipationsFilters({
   useEffect(() => () => clearTimeout(timer.current), []);
 
   /**
-   * The last term this component actually sent, which is how the effect below
-   * tells its own navigation landing apart from somebody else changing the URL.
+   * The address this component believes the list is currently at: the one the
+   * server just rendered, or — between asking and being answered — the one we
+   * asked for. The effect below compares the two to tell our own navigation
+   * landing apart from somebody else's.
    */
-  const lastNavigated = useRef<string | undefined>(state.search);
+  const expectedHref = useRef(currentHref);
 
   /**
    * Re-synced from the URL so browser back/forward leaves this input agreeing
    * with the list beside it — and, when the URL changed for a reason that was
    * not this component, the pending debounce is CANCELLED rather than left to
-   * fire afterwards and undo the Back.
+   * fire afterwards and undo that navigation.
    *
-   * The guard is not decoration, and the plain "clear the timer on every sync"
-   * that this fix started as is a downgrade rather than a smaller version of it.
-   * Our own navigation comes back through this same effect, so clearing
-   * unconditionally also cancels a keystroke typed during the round trip: type
+   * Two things about the shape here, both of them defects this file already had
+   * once each.
+   *
+   * FIRST, the dependency is the whole address and not `state.search`. Keyed on
+   * the search term alone, the body does not run at all when an external
+   * navigation leaves the term where it was — which is the ordinary case, since
+   * a Station chip, Clear filters, Previous/Next and Back all carry no `q=` and
+   * the term is usually already absent. `undefined → undefined` is not a change,
+   * React skips the effect, and no guard written inside it can fire. The stale
+   * timer then calls the stale `navigate`, which merges the PRE-navigation state
+   * with the abandoned text and replaces the navigation the operator just made
+   * with the filters they just left. The address changes on every one of those,
+   * so it is the thing to watch.
+   *
+   * SECOND, the guard is a comparison against a value and not a flag consumed
+   * once. Our own navigation comes back through this same effect, so clearing
+   * unconditionally would cancel a keystroke typed during the round trip: type
    * "Ana", pause past the debounce, type "b" while the render is in flight, and
-   * the "b" is silently dropped for good. Left alone, that case converges — the
-   * pending timer fires with "Anab" and the next sync agrees with it — so the
-   * unconditional clear turns a flicker into data loss.
+   * the "b" is dropped for good, where leaving it alone converges — the pending
+   * timer fires with "Anab" and the next render agrees with it. A boolean set
+   * before `router.replace` and cleared by the effect separates those two cases,
+   * but it strands: a `replace` to the address we are already at produces no
+   * render, nothing consumes the flag, and the next EXTERNAL navigation is
+   * silently treated as ours. Comparing addresses cannot strand, because there
+   * is no pending token to lose — a `replace` that changes nothing leaves
+   * `expectedHref` equal to `currentHref`, which is exactly true.
    *
-   * Comparing against what we last SENT separates the two exactly: an incoming
-   * `state.search` equal to it is the URL reporting our own edit back, and
-   * anything else — Back, forward, a Station chip, Clear filters — is somebody
-   * else's navigation, which is the case that must win over a pending keystroke.
+   * The one case this reads as "ours" wrongly is an external navigation to the
+   * address we are already at, and by definition that one changes nothing there
+   * is anything to undo.
    */
   useEffect(() => {
-    if (state.search === lastNavigated.current) return;
+    if (currentHref === expectedHref.current) return;
     clearTimeout(timer.current);
     setSearch(state.search ?? '');
     typedSearch.current = state.search ?? '';
-  }, [state.search]);
+    // Accepted: this render is now what we believe we are looking at. Without
+    // this, a later Forward onto an address we once sent would match the stale
+    // ref and be mistaken for our own.
+    expectedHref.current = currentHref;
+  }, [currentHref, state.search]);
 
   function navigate(next: Partial<ParticipationListState>) {
     clearTimeout(timer.current);
@@ -135,13 +167,17 @@ export function ParticipationsFilters({
       ...state,
       search: typedSearch.current.trim() || undefined,
     };
-    // Read off the MERGED target rather than off `typed`, so a caller that ever
-    // overrides `search` in `next` is recorded as what was really sent.
-    const target: ParticipationListState = { ...typed, ...next };
-    lastNavigated.current = target.search;
+    // Built from the MERGED target rather than from `typed`, so a caller that
+    // ever overrides a field in `next` is recorded as what was really sent.
+    const href = participationsHref({ ...typed, ...next });
+    // Recorded BEFORE the replace, so the render it produces is recognised as
+    // ours however fast it arrives. Every filter drops the cursor, and the page
+    // builds `currentHref` with the cursor it actually rendered, so the two
+    // strings are produced by the same function over the same shape.
+    expectedHref.current = href;
     // typedRoutes cannot express a query string assembled at runtime as a route
     // literal — the same cast the rest of this codebase uses.
-    router.replace(participationsHref(target) as Route);
+    router.replace(href as Route);
   }
 
   return (
