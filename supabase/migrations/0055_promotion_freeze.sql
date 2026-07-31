@@ -623,10 +623,36 @@ begin
     returning id into v_id;
   else
     -- Options are replaced wholesale below, so they must go before the kind
-    -- changes: an option row still marked correct would make a QUIZ-to-poll
-    -- edit fail on the cascade, refusing an edit the operator has already
-    -- corrected on screen.
-    delete from public.promotion_question_options where question_id = v_id;
+    -- changes: promotion_question_options_question_fk cascades kind ON UPDATE
+    -- (0041), and an option row still marked correct would make a QUIZ-to-poll
+    -- edit fail on promotion_question_options_correct_only_on_quiz — refusing an
+    -- edit the operator has already corrected on screen.
+    --
+    -- THE FILTER IS THE TENANCY CHECK, and it is not decoration. Until the
+    -- whole-branch review of Block 4c this delete read `where question_id =
+    -- v_id` and nothing else: p_question_id is a caller-supplied uuid, so a
+    -- question belonging to ANOTHER promotion — another Station, another
+    -- Organization — matched it, and its real option rows were deleted. What
+    -- held that back was not a check but an accident of control flow: the
+    -- `update ... where id = v_id and promotion_id = p_promotion_id` below
+    -- affects no row, the P0002 raises, and because this function has no
+    -- enclosing EXCEPTION block the whole transaction rolls back, delete
+    -- included. So it has never destroyed anything — and it becomes a real
+    -- cross-Station delete the day anybody wraps this call in a begin/exception,
+    -- which is a thing import_participations' own history says gets tried.
+    --
+    -- Filtered rather than reordered, which was the other candidate. The delete
+    -- CANNOT move after the update, for the cascade reason two paragraphs up,
+    -- so reordering would mean hoisting a second ownership read above it and
+    -- leaving the update's `if not found` beneath as a guard that could no
+    -- longer fire. A join to the parent asks the same question in the same
+    -- statement, keeps the ordering the cascade requires, and leaves the P0002
+    -- below as the single live refusal for a mismatched pair.
+    delete from public.promotion_question_options o
+     using public.promotion_questions q
+     where o.question_id = q.id
+       and q.id = v_id
+       and q.promotion_id = p_promotion_id;
 
     update public.promotion_questions set
       kind         = p_kind,

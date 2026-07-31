@@ -1,7 +1,10 @@
 # Block 4c — Participations, import, and the per-person ceiling — Verification Report
 
-Branch `block-4c`, cut from `block-4b`'s head at `a7927b3` while PR #16 was still
-open, so it carries 4b's commits until that merges. Block 4 was split into three
+Branch `block-4c`, cut from `block-4b`'s head at **`5adf2c2`** ("fix(isolation):
+the guard was blind to skipped tests, and had no floor") while PR #16 was still
+open, so it carries 4b's commits until that merges. `a7927b3`, which an earlier
+version of this line named as the branch point, is 4c's own plan commit — the
+fourth commit of this block's work, not its base. Block 4 was split into three
 passes with the owner; this is the third and last. Spec in
 `docs/superpowers/specs/2026-07-30-block-4c-participations-design.md`, plan in
 `docs/superpowers/plans/2026-07-30-block-4c-participations.md`, execution ledger
@@ -20,7 +23,14 @@ Five migrations (`0052`–`0056`), two tables, one column, two enums, one partia
 unique index, four new RPCs, four of 4a's recreated (two of them dropped and
 recreated, because their argument lists changed and `create or replace` cannot
 do that), a service layer, one new screen, two writing surfaces and a fifth tab.
-22 commits, 43 files, +9,842 / −10.
+
+**26 commits, 45 files, +12,973 / −10** over `5adf2c2..d773f4d`, which is the
+ten reviewed tasks. Recomputed with `git rev-list --count`, `git diff
+--shortstat` and `git diff --name-only`; the figures previously here — 22
+commits, 43 files, +9,842 — were measured against the wrong base and are
+corrected rather than left, because this document is what the pull request
+carries. The whole-branch review's fix wave adds commits after `d773f4d`; §10
+below records what it changed.
 
 ---
 
@@ -451,10 +461,10 @@ other field on a promotion that already has a ceiling removes it. That is
 precisely the defect Task 5 found and Task 6 closed, and nothing in this
 repository would notice it coming back.
 
-**Not fixed here, deliberately.** Task 10's remit is mutation and this report; it
-adds no features and no assertions, and inventing one at the end of a block is
-how a task's scope becomes unreviewable. The closure is cheap and specific and is
-the first thing Block 5 should do:
+**Not fixed by Task 10, deliberately.** Task 10's remit is mutation and this
+report; it adds no features and no assertions, and inventing one at the end of a
+block is how a task's scope becomes unreviewable. The closure was written out
+here instead:
 
 > In `tests/isolation/promotions.test.ts`, create a promotion through
 > `createPromotion` with `allowMultipleEntries: true` and
@@ -462,6 +472,12 @@ the first thing Block 5 should do:
 > `maxEntriesPerMember === 3`; then `updatePromotion` changing only the name and
 > assert it is still 3. Two assertions. The second is the one that matters — it
 > is the wholesale replace, and it is the half that would have shipped broken.
+
+**CLOSED in the fix wave**, as written above: `tests/isolation/promotions.test.ts`
+now carries *"carries the per-person ceiling to both doors, and an unrelated edit
+does not remove it"*. Re-run against the mutation, deleting the same line, the
+case goes red — `expected null to be 3`. The surviving mutant survives no
+longer.
 
 ### 4.5 Revert proof
 
@@ -586,24 +602,69 @@ all. `participations-filters.tsx` is the worked example for whoever takes this;
 `startsAnotherNavigation` is exported and unit-tested precisely so it can be
 reused rather than re-derived.
 
-### 8.3 `save_promotion_question` deletes options before it confirms the question is the promotion's
+### 8.3 `save_promotion_question` deleted options with no tenancy filter at all — **fixed in the fix wave**
 
-`0055:629` deletes the question's options; `0055:631-637` then runs the `update`
-whose `where id = v_id and promotion_id = p_promotion_id` (`:637`) is what raises
-the `P0002` at `:640` for a mismatched pair. A question id from another promotion
-therefore **loses real option rows before the refusal fires**. Predates this
-block (the ordering comes from `0043:103-115`); `0055` recreated the function and carried it forward
-unchanged, because reordering it was not this block's to do. The UI cannot
-currently produce the combination.
+**This section was wrong as first written, and the correction matters more than
+the original claim.** It said a question id from another promotion "loses real
+option rows before the refusal fires". It does not. `save_promotion_question`
+has no enclosing `EXCEPTION` block, so the `raise` that follows the failed
+`update` aborts the transaction and the `DELETE` rolls back with it. Nothing was
+ever destroyed, and the report should not have said it was.
 
-### 8.4 A hand-edited `?after=` reaches the operator as a 500
+The real defect was latent and worse-shaped. The delete read
 
-`decodeCursor` (`src/lib/keyset.ts:26`) accepts any string as a cursor id, so a
-malformed one makes `listPromotionsPage` raise `22P02` from Postgres and the page
-renders an error. Live on the promotions screen today. `/participations` reads an
-unreadable cursor as "start from the beginning"
-(`src/app/(app)/participations/page.tsx:85`) rather than as an error, which is
-the behaviour the older screens should have.
+```sql
+delete from public.promotion_question_options where question_id = v_id;
+```
+
+— **no tenancy filter of any kind**. `v_id` is a caller-supplied uuid, so a
+question belonging to another Station, or another Organization, matched it and
+its option rows were deleted. What held that back was not a check but an
+accident of control flow: the ownership test lives in the `update` BELOW the
+delete, and the rollback undoes both. It becomes a real cross-Station delete the
+day anybody wraps this call in a `begin/exception` — which is a thing
+`import_participations`' own history in this block says gets tried, twice.
+
+Fixed in the fix wave by joining the delete to its parent, so the statement
+carries its own ownership test:
+
+```sql
+delete from public.promotion_question_options o
+ using public.promotion_questions q
+ where o.question_id = q.id and q.id = v_id and q.promotion_id = p_promotion_id;
+```
+
+Filtered rather than reordered, and the reason is in the migration: the delete
+CANNOT move below the `update`, because
+`promotion_question_options_question_fk` cascades `kind` on update (`0041`) and
+an option still marked correct would make a QUIZ-to-poll edit fail on
+`promotion_question_options_correct_only_on_quiz`. Reordering would therefore
+mean hoisting a second ownership read above the delete and leaving the
+`update`'s own `if not found` beneath it as a guard that could no longer fire.
+The join asks the same question in the same statement, keeps the ordering the
+cascade requires, and leaves the `P0002` as the single live refusal for a
+mismatched pair. The ordering predates this block (`0043:103-115`); `0055`
+recreated the function and carried it forward unchanged.
+
+### 8.4 A hand-edited `?after=` reaches the operator as a 500 — on `/participations` too
+
+`decodeCursor` (`src/lib/keyset.ts:26`) returns null only for a value that is not
+base64-encoded JSON. It does not validate the `id` it decodes, so a well-formed
+`{"value":null,"id":"abc"}` parses perfectly, reaches Postgres as `id.lt."abc"`,
+and comes back `22P02`.
+
+**And `/participations` is not exempt, which this section originally claimed it
+was.** `mapParticipationError` routes `22P02` to `ValidationError` and
+`describeParticipationsReadError` renders that message VERBATIM, so the screen
+shows raw database text rather than starting from the beginning. The two
+comments in that directory disagreed about it and `errors.ts:25-29` had it
+right; the comment at `src/app/(app)/participations/page.tsx` was corrected in
+the fix wave to say what `decodeCursor` actually does and to name this.
+
+The fix itself — validating the id as a uuid inside `decodeCursor` — is
+deliberately **not** made. That function is shared by every keyset screen in the
+application, so it is one change with four callers and a scope call for the
+owner rather than a local workaround on one screen.
 
 ---
 
@@ -700,8 +761,15 @@ by later tasks in the same block and are marked as such.
   `src/app/(app)/participations/import-form.tsx:639` — `(row.reason &&
   SKIP_REASONS[row.reason]) ?? fallback` yields `''` when `row.reason` is the
   empty string, and `??` does not catch it, so the fallback never runs.
-- **The `unreadable` list is discarded when every row is unreadable.**
-  `src/app/(app)/participations/import-form.tsx:586-620`.
+- **The `unreadable` list was discarded when every row is unreadable** —
+  **fixed in the fix wave**, and the file named here was wrong: it is
+  `src/app/(app)/participations/actions.ts`, in the `rows.length === 0` branch,
+  not the report component. That branch returned a bare sentence and threw the
+  per-line list away, so a file where EVERY line failed named not one line while
+  a file where all but one failed listed every one of them — the worse the file,
+  the less the screen said about it. It now returns the same `done` shape with
+  all-zero counts and the full `unreadable` list, so the report component the
+  operator already knows renders the reasons it already knows how to render.
 - **"Participations" and "Entries" are used for the same thing** across the
   fifth tab and the list screen. A label decision, not a bug, and it should be
   made once.
@@ -712,7 +780,11 @@ by later tasks in the same block and are marked as such.
   block**: D8 demands the fixed cost outright, exactness holds for the ordinary
   case below 1,000, and `:293-298` reasons the tradeoff through and records why
   `'planned'` was rejected. Recorded so the ruling is visible rather than
-  implicit.
+  implicit. **The architecture stands; the qualification was added in the fix
+  wave** — the tab now says the two figures become estimates above about a
+  thousand entries and that the list one click away counts exactly, because the
+  defect was never the estimate, it was an operator finding two different
+  answers to one question with nothing on either screen saying why.
 
 ### 9.6 One gap that cannot be recovered from the artifacts
 
@@ -724,3 +796,168 @@ anything in the repository.** They are stated here as missing rather than
 silently dropped, and the process lesson is the one the ledger already teaches
 elsewhere: a finding that exists only in an agent's output is a finding with a
 session-length lifetime.
+
+---
+
+## 10. The whole-branch review's fix wave
+
+One agent, one pass, after the ten tasks were complete and before the pull
+request. What follows is the durable half — what changed in shipped code and
+what now holds it down. The per-finding record, with commands and output, is in
+`.superpowers/sdd/2026-07-30-block-4c-participations/final-fix-report.md`.
+
+### 10.1 The one that was silently wrong
+
+**The minimum interval was a floor, not a window.** `apply_participation` asked
+"is there a VALID entry LATER than N hours before this one" and nothing else, so
+an entry arbitrarily far in the FUTURE of the row being written fired the
+branch. Proved against the running stack at N = 6: an entry at 20:00Z, then one
+at 08:00Z the same day — twelve hours EARLIER — came back `TOO_SOON`, while the
+control twelve hours later came back `VALID`.
+
+The rule is symmetric (`|existing − this| < N`) and the code was not. It is
+silent and it costs somebody a prize: the row is not `VALID`, so Block 6's draw
+leaves out a listener who was entitled to be in it, and the import reports N
+people as having come back too soon. It is reachable through this block's
+headline path — `import_participations` walks a file in row order, D7 exists
+because files carry historical timestamps, and a spreadsheet exported
+newest-first marked every row after the first `TOO_SOON`.
+
+It survived all six gates because **every interval case in the block walks
+forward in time**. The new case walks backwards and asserts a window rather than
+a sign flip: an hour earlier is still `TOO_SOON`, twelve hours earlier is
+`VALID`.
+
+### 10.2 The import could still be destroyed by one row
+
+`0056` exists because one bad row rolled a three-hundred-row file back, and it
+closed **one of the two ways that happens**. `apply_participation` also raises —
+`22023` — for a row outside the promotion's window, out of the same loop, with
+the same absence of a `begin/exception`, to the same effect. `importRowSchema`
+validates only that the instant parses and the form is never given the
+promotion's `starts_at`/`ends_at`, so nothing in front of the operator could
+warn them.
+
+Closed in `0056`'s own shape: the window is read alongside `company_id` in the
+statement already being made, and a row outside it is **skipped before the call**
+with a fourth reason, `'outside the promotion window'`. Detected rather than
+caught, for `0056`'s own argument — a cancelled promotion raises `22023` too, so
+catching per row would report a whole cancelled file as six hundred bad dates.
+The check sits BEFORE `resolve_or_create_member`, unlike the link check beside
+it, so a line that can never be recorded does not leave a registered listener
+behind it.
+
+### 10.3 Read gates that had no denial anywhere
+
+- **`participation_answers` had none at all.** pgTAP asserted a policy exists —
+  which `using (true)` satisfies — the fail-closed stranger view covered
+  `public.participations` only, and the single live read was by a delegate who
+  HOLDS the permission. On the table that stores listeners' free-text answers.
+  `05_participations.test.sql` now carries a second stranger view (plan 31 → 32)
+  and the isolation suite the tenancy half.
+- **The archived-promotion sub-clause of both policies was untested.** `0053`
+  argues at length that it is not redundant and names the leak; deleting both
+  sub-clauses left every suite green. The new case archives a promotion that
+  already has an entry and an answer, and asserts zero rows **and** `total: 0`
+  for it while a sibling live promotion's row still comes back — so the zero is
+  a denial rather than the empty-set trap.
+
+### 10.4 Two writes that could half-succeed, and a Station taken on trust
+
+`recordParticipationAction` read `companyId` off the form: never parsed as a
+uuid, never established as the Station owning the promotion, and handed to a
+path that reaches `create_member`. Bounded by the database, so nothing escalated
+and nothing leaked — but a caller could register a listener into Station A's
+audience while naming Station B's promotion and only then be refused, leaving a
+person registered that nobody asked for. The Station is now derived server-side
+from the promotion.
+
+And the action's two writes are two transactions. A single `try` over both
+answered "Could not save" for a failure that had already registered somebody.
+They are held apart now: a resolution failure names the listener, a record
+failure says the listener WAS registered and to pick them from the search rather
+than type them again — and re-reads the promotion's counts either way, because a
+thrown error does not prove nothing was written.
+
+### 10.5 A guard for mojibake that could not fire
+
+`import-form.tsx` called `File.text()` — a **non-fatal** UTF-8 decode, where a
+malformed byte becomes U+FFFD and nothing throws — under a `catch` whose message
+said "It has to be a UTF-8 text file". Excel on a Windows machine set to
+Portuguese writes Windows-1252, the same machine the semicolon-delimiter branch
+two functions away already reasons about; the ASCII headers still matched, so
+the file imported and registered listeners under permanently mojibake names,
+**which then become the deduplication anchors every later import is matched
+against**.
+
+Replaced with `arrayBuffer()` and an explicit decode: UTF-8 `fatal: true` first,
+Windows-1252 second, and the panel names the second beside the delimiter it
+already names, with the first row's own name underneath as the operator's check.
+Accepted-and-named rather than refused, on this file's own established reasoning
+about the delimiter.
+
+Two things had to be measured rather than assumed, and both are why the refusal
+is now a guard that can fire: **Windows-1252's decoder cannot fail** — the
+Encoding Standard maps its five unassigned bytes to the matching C1 code points,
+so `fatal: true` on it is a no-op — and **UTF-8's decoder cannot fail on
+UTF-16LE ASCII**, which is a run of legal one-byte sequences that
+`normalizeHeader` would then match happily, NULs and all. So "is this text at
+all" is asked of the RESULT, on both branches.
+
+### 10.6 The record dialog rendered against whichever Station was selected
+
+`getPromotionRecord` reads by id with no company filter, so
+`?companyId=<A>&record=<promotion at B>` returned the record and the dialog
+rendered it against Station A's `timeZone`, Station A's `powers`, and Station
+A's list — the last through `onLoaded`, which patches the grid.
+
+The timezone is the one that writes data: both writing surfaces on the fifth tab
+convert the operator's wall clock to an instant with it, Brazil spans three
+zones, and the value shifted is the one D7 measures the interval against. The
+import's mapping panel would have confirmed the wrong instant back to the
+operator rather than exposing it.
+
+**Refused rather than papered over.** Carrying the record's own zone would have
+fixed one of the three and left the other two, and this dialog's contract is
+"the selected Station's promotion" — there is no half-true version of it. The
+refusal is one click from being fixed, so the pasted link still works; it just
+goes through the Station that owns the promotion.
+
+### 10.7 Coverage that did not exist
+
+- **Backward paging** was never driven: nothing passed `cursorSide: 'before'`
+  and the e2e clicks `page-next` only. Three lines on the existing case read
+  page one back through `previousCursor` and assert the **order**.
+- **`countPromotionParticipations`** — what the fifth tab shows, and what the
+  e2e's compensating assertion counts — had nothing at any layer. Two
+  promotions, because one cannot hold all three refusal statuses: `DUPLICATE`
+  needs repeats forbidden, `OVER_LIMIT` needs a ceiling, and
+  `promotions_entry_ceiling_shape` permits a ceiling only where repeats are
+  allowed. Plus a delegate without `participations.view` getting `0/0`.
+- **`searchStationListeners`**' two claims existed only in prose. The delegate
+  driving it holds `members.view` at both Stations, so an Organization-wide
+  query would legitimately return the neighbour — that is what makes the
+  assertion about the query's scope rather than about the role.
+- **The fifth tab's permission-conditional UI** was only ever driven by an
+  owner, who holds everything. Two delegates now drive it, one permission apart:
+  a reader (counts yes, both writing surfaces no) and a promotions.view-only
+  delegate (even the counts refused, and the tab says it is a count they may not
+  read rather than rendering "0").
+
+### 10.8 The guard's own floor
+
+`scripts/verify-isolation-suite.mjs` held a floor on **files** and nothing else.
+Delete eight `it()` blocks — or wrap them in a condition that has quietly become
+false — and the collected total IS the reduced number: every arithmetic check
+balances, no file is missing, and the script prints "every one accounted for,
+nothing skipped". An ordinary code edit walked straight through the guard whose
+purpose is that a boundary cannot go unchecked silently.
+
+`REQUIRED_TEST_FILES` now carries a per-file `minTests` floor, counted over
+cases that actually ran. And `--self-test` gained the three fixtures it was
+missing, each for a check that was load-bearing and unexercised: the JSON
+report's `counted !== accounted` branch, the summary's Tests line failing to
+balance (the existing fixture feeds a line that BALANCES and trips a different
+branch), and the `Test Files 12 passed (13)` shape quoted at the top of that
+very file — the original crash, which had no fixture at all. Nine fixtures now,
+from five.
