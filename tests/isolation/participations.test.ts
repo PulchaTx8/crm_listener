@@ -830,13 +830,20 @@ describe("Block 4a's freeze, now that there is something to freeze", () => {
     });
     expect(beforeAnyone.error).toBeNull();
 
-    await client.rpc('record_participation', {
+    // Asserted, not assumed. If this fixture failed, no participation would
+    // exist, every edit below would legitimately succeed, and the two refusal
+    // assertions would go red reading `expected undefined to be '22023'` —
+    // pointing at the guard when the fault was the fixture. Same reasoning as
+    // the ceiling case above.
+    const entered = await client.rpc('record_participation', {
       p_promotion_id: promotionId,
       p_member_id: memberId,
       p_participated_at: new Date().toISOString(),
       p_source: 'MANUAL',
       p_answers: [],
     });
+    expect(entered.error).toBeNull();
+    expect(entered.data).toMatchObject({ status: 'VALID' });
 
     const hashtagNow = await client.rpc('update_promotion', {
       ...base,
@@ -856,14 +863,37 @@ describe("Block 4a's freeze, now that there is something to freeze", () => {
     // What stays open: the name, the end date, the call to action, the art and
     // the button labels. Listeners are already texting the hashtag; nobody is
     // reading the name.
+    const newEnds = new Date(Date.now() + 40 * DAY).toISOString();
     const stillOpen = await client.rpc('update_promotion', {
       ...base,
       p_name: 'Nome novo',
       p_hashtag: '#OUTRO',
-      p_ends_at: new Date(Date.now() + 40 * DAY).toISOString(),
+      p_ends_at: newEnds,
       p_call_to_action: 'Manda #OUTRO agora',
     });
     expect(stillOpen.error).toBeNull();
+
+    // Read back, because `error is null` is not the claim this case makes. A
+    // freeze written as an early `return` rather than a `raise` would raise
+    // nothing, write nothing, and pass the assertion above — the edit would be
+    // silently discarded and the operator told it had landed. Only the row can
+    // tell "allowed" apart from "swallowed".
+    const after = await client
+      .from('promotions')
+      .select('name, ends_at, call_to_action, hashtag')
+      .eq('id', promotionId)
+      .single();
+    expect(after.error).toBeNull();
+    expect(after.data?.name).toBe('Nome novo');
+    expect(after.data?.call_to_action).toBe('Manda #OUTRO agora');
+    // Normalised through Date on both sides: Postgres renders timestamptz as
+    // `+00:00` where toISOString renders `Z`, so the strings differ while the
+    // instants do not.
+    expect(new Date(after.data!.ends_at).toISOString()).toBe(newEnds);
+    // And the frozen field is still what it was, which is the other half of
+    // "the refusals refused" — a guard that raised but wrote anyway would show
+    // up here and nowhere else.
+    expect(after.data?.hashtag).toBe('#OUTRO');
   });
 
   it('refuses to remove a question once somebody has entered', async () => {
@@ -903,17 +933,202 @@ describe("Block 4a's freeze, now that there is something to freeze", () => {
       p_prompt: 'E agora?',
       p_options: [],
     });
-    await client.rpc('record_participation', {
+    // Asserted for the same reason as the case above: a fixture that failed
+    // here would leave the removal legitimately permitted, and the assertion
+    // below would blame the guard.
+    const entered = await client.rpc('record_participation', {
       p_promotion_id: promotionId,
       p_member_id: memberId,
       p_participated_at: new Date().toISOString(),
       p_source: 'MANUAL',
       p_answers: [],
     });
+    expect(entered.error).toBeNull();
+    expect(entered.data).toMatchObject({ status: 'VALID' });
 
     const after = await client.rpc('remove_promotion_question', {
       p_question_id: second as string,
     });
     expect(after.error?.code).toBe('22023');
+  });
+
+  // D9's third surface. remove_promotion_question is not the only way to change
+  // what the audience was shown: save_promotion_question with a non-null
+  // p_question_id REPLACES the question and its options wholesale, so without a
+  // guard an operator could reword an option — or move the right answer onto a
+  // different one — under answers already given. 0052's table comment stakes
+  // Block 6's draw-time correctness on that being impossible.
+  it("freezes a question's wording once somebody has entered, and still lets a new one be added", async () => {
+    const label = `freeze-edit-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Onze',
+      phone: '11970000007',
+    });
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.edit',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    // menu_title and button_label are not decoration: 0041's
+    // promotion_questions_list_fields requires both on anything that is not an
+    // ESSAY, and omitting them fails the fixture with 23514 rather than testing
+    // anything about the freeze.
+    const quiz = {
+      p_promotion_id: promotionId,
+      p_kind: 'QUIZ' as const,
+      p_prompt: 'Quem ganha a Copa?',
+      p_menu_title: 'Escolha',
+      p_button_label: 'Opções',
+      p_options: [
+        { label: 'Brasil', is_correct: true },
+        { label: 'Argentina', is_correct: false },
+      ],
+    };
+    const created = await client.rpc('save_promotion_question', quiz);
+    expect(created.error).toBeNull();
+    const questionId = created.data as string;
+
+    // Before anybody enters, the wording moves freely — including which option
+    // is the right one, which is the edit that matters most.
+    const editBefore = await client.rpc('save_promotion_question', {
+      ...quiz,
+      p_question_id: questionId,
+      p_options: [
+        { label: 'Brasil', is_correct: false },
+        { label: 'Argentina', is_correct: true },
+      ],
+    });
+    expect(editBefore.error).toBeNull();
+
+    const entered = await client.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [],
+    });
+    expect(entered.error).toBeNull();
+    expect(entered.data).toMatchObject({ status: 'VALID' });
+
+    // Now the same edit is refused.
+    const editAfter = await client.rpc('save_promotion_question', {
+      ...quiz,
+      p_question_id: questionId,
+      p_prompt: 'Quem ganha mesmo?',
+    });
+    expect(editAfter.error?.code).toBe('22023');
+
+    // And the option nobody may reword still says what it said. The refusal
+    // deletes the options before rewriting them, so a guard placed after that
+    // delete would raise and still have destroyed them.
+    const options = await client
+      .from('promotion_question_options')
+      .select('label, is_correct')
+      .eq('question_id', questionId)
+      .order('position');
+    expect(options.data).toEqual([
+      { label: 'Brasil', is_correct: false },
+      { label: 'Argentina', is_correct: true },
+    ]);
+
+    // Appending stays open — D9's own wording. A question nobody has been asked
+    // cannot invalidate an answer nobody gave, and a running promotion routinely
+    // needs a tie-breaker added.
+    const appended = await client.rpc('save_promotion_question', {
+      p_promotion_id: promotionId,
+      p_kind: 'ESSAY',
+      p_prompt: 'Por que você merece?',
+      p_options: [],
+    });
+    expect(appended.error).toBeNull();
+    expect(appended.data).toBeTruthy();
+  });
+
+  // Not a freeze: 0052's ON UPDATE CASCADE plus its partial unique index. The
+  // operator is stopped, which 0052 intended — but the sentence they were given
+  // was about the site integration code, a field they never filled in, because
+  // this violation and that one share sqlstate 23505.
+  it('refuses to turn repeat entries off while one listener holds two, and names that rather than the site code', async () => {
+    const label = `no-repeats-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Doze',
+      phone: '11970000008',
+    });
+
+    // The window is captured rather than recomputed: the freeze refuses a start
+    // date that differs by so much as a millisecond, and this promotion will
+    // have a participation by the time it is edited.
+    const starts = new Date(Date.now() - 2 * DAY).toISOString();
+    const ends = new Date(Date.now() + 20 * DAY).toISOString();
+    const promotionId = await promotionAsOwner(customer, {
+      p_starts_at: starts,
+      p_ends_at: ends,
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 1,
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.edit',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const base = Date.now();
+    const entry = {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_source: 'MANUAL' as const,
+      p_answers: [],
+    };
+    // Five hours apart against a one-hour interval, so both are VALID — the
+    // partial index counts only VALID rows, and two TOO_SOON rows would not
+    // trip it.
+    const first = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base - 5 * HOUR).toISOString(),
+    });
+    const second = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base).toISOString(),
+    });
+    expect(first.data).toMatchObject({ status: 'VALID' });
+    expect(second.data).toMatchObject({ status: 'VALID' });
+
+    const denied = await client.rpc('update_promotion', {
+      p_promotion_id: promotionId,
+      p_name: 'Sem repetição',
+      p_starts_at: starts,
+      p_ends_at: ends,
+      p_allow_multiple_entries: false,
+    });
+
+    // The sentence, not only the code, and here they are not interchangeable.
+    // Before 0055 gave promotion_write_error a third case this came back as
+    // "site integration code <NULL> is already used by another promotion in this
+    // station" — same 23505, same handler, two cases. A code-only assertion
+    // would have passed against that.
+    expect(denied.error?.code).toBe('23505');
+    expect(denied.error?.message).toBe(
+      'somebody already has more than one entry in this promotion; repeat entries can no longer be turned off',
+    );
+
+    // And the promotion still allows repeats, because the whole update rolled
+    // back rather than half-landing.
+    const row = await client
+      .from('promotions')
+      .select('allow_multiple_entries, name')
+      .eq('id', promotionId)
+      .single();
+    expect(row.data?.allow_multiple_entries).toBe(true);
+    expect(row.data?.name).not.toBe('Sem repetição');
   });
 });

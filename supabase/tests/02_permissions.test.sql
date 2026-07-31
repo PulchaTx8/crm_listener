@@ -1,5 +1,5 @@
 begin;
-select plan(228);
+select plan(232);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -523,6 +523,49 @@ select is(
 -- one place, because splitting it by migration is how two gaps were shipped
 -- already. That file's pair now names the seventeen-argument signature, which
 -- is what makes it fail if the revoke is ever dropped alongside the function.
+
+-- 0055's SECOND drop-and-recreate: promotion_write_error gains a fourth
+-- argument, the constraint name, because 0052 created a violation it could not
+-- name. Two constraints now raise 23505 through update_promotion's handler — a
+-- duplicate site integration code, and participations_one_per_member via the
+-- ON UPDATE CASCADE onto participations.allows_multiple — so the sqlstate alone
+-- was sending an operator who unticked "allow repeats" a sentence about a
+-- numeric field they never filled in, with the number rendered as <NULL>.
+--
+-- This one would NOT fail silently if the drop were forgotten, unlike
+-- update_promotion's above, and the difference is worth stating rather than
+-- claiming a uniform danger: create_promotion in merged 0042 calls this with
+-- three arguments, which against both a surviving three-argument form and a new
+-- four-argument form whose last parameter defaults is AMBIGUOUS, and raises
+-- 42725 at call time. The count is here because it is one line and it pins the
+-- intent; the isolation suite is what would actually scream.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'promotion_write_error'),
+  1,
+  'exactly one promotion_write_error exists — 0055 dropped the three-argument form rather than leaving a twin create_promotion''s call would go ambiguous against'
+);
+
+-- And its reachability, which the drop reset to PUBLIC and 0055 re-revoked.
+-- 0042 stated this as a grant for the reason its own comment gives — the
+-- function is only ever called from inside a SECURITY DEFINER body — and there
+-- was no assertion behind that claim before now, so dropping the revoke in a
+-- future migration would have gone unnoticed. Harmless if it ever happened (the
+-- function's whole job is to raise), but it is the same class of unstated
+-- reachability that left six promotion RPCs PUBLIC for the whole of Block 4a.
+select ok(
+  not has_function_privilege('anon', 'public.promotion_write_error(text, integer, text, text)', 'EXECUTE'),
+  'anon may not call promotion_write_error'
+);
+select ok(
+  not has_function_privilege('authenticated', 'public.promotion_write_error(text, integer, text, text)', 'EXECUTE'),
+  'authenticated may not call promotion_write_error'
+);
+select ok(
+  not has_function_privilege('service_role', 'public.promotion_write_error(text, integer, text, text)', 'EXECUTE'),
+  'service_role may not call promotion_write_error'
+);
 
 -- Block 4b's second bootstrap, pinned exactly as the first one above is. A
 -- private helper that quietly became DEFINER, or that picked up an EXECUTE

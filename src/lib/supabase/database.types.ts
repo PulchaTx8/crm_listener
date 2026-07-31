@@ -1881,7 +1881,12 @@ export type Database = {
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
       promotion_write_error: {
-        Args: { p_hashtag: string; p_site_code: number; p_sqlstate: string }
+        Args: {
+          p_constraint?: string
+          p_hashtag: string
+          p_site_code: number
+          p_sqlstate: string
+        }
         Returns: undefined
       }
       provision_customer: {
