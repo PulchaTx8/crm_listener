@@ -174,6 +174,78 @@ describe('recording a participation', () => {
     expect(later.data).toMatchObject({ status: 'VALID' });
   });
 
+  /**
+   * The same rule read BACKWARDS, which is the direction that shipped broken.
+   *
+   * Every interval case in this block — the one above, and the import's
+   * "honours the timestamp in the file" case — walks forward in time, and that
+   * is exactly why nothing caught it. `apply_participation`'s check was a lower
+   * bound only (`participated_at > v_when - N hours`), so ANY existing VALID
+   * entry later than that instant fired the branch, including one arbitrarily
+   * far in the FUTURE of the row being written. Measured against this stack at
+   * the time: first entry at 20:00, second at 08:00 the same day — twelve hours
+   * EARLIER — came back TOO_SOON.
+   *
+   * It is silent and it costs somebody a prize: the row is not VALID, so Block
+   * 6's draw leaves out a listener who was entitled to be in it, and the import
+   * tells the operator N people came back too soon. And it is reachable through
+   * this block's headline path, not by contrivance — import_participations
+   * walks the file in row order, and a spreadsheet exported newest-first is an
+   * ordinary spreadsheet.
+   *
+   * Three entries, and the middle one is what makes this a test of a WINDOW
+   * rather than of a sign flip: an hour before the first is inside the interval
+   * and must still be TOO_SOON. Assert only the twelve-hour case and a fix that
+   * simply reversed the comparison would pass.
+   */
+  it('measures the interval symmetrically: an entry backdated past it counts, one inside it does not', async () => {
+    const label = `part-back-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Retroativo',
+      phone: '11988887783',
+    });
+    const promotionId = await promotionAsOwner(customer, {
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 6,
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const base = Date.now();
+    const entry = { p_promotion_id: promotionId, p_member_id: memberId, p_source: 'MANUAL' as const, p_answers: [] };
+
+    // The anchor, written first and dated latest — the shape a newest-first
+    // export produces on its very first line.
+    const anchor = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base).toISOString(),
+    });
+    expect(anchor.data).toMatchObject({ status: 'VALID' });
+
+    // One hour EARLIER than the anchor: inside the six-hour window on the
+    // backward side, so still too soon. This is the assertion that stops the
+    // fix from being "drop the bound".
+    const justBefore = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base - HOUR).toISOString(),
+    });
+    expect(justBefore.data).toMatchObject({ status: 'TOO_SOON' });
+
+    // Twelve hours EARLIER: outside it, and the one that came back TOO_SOON
+    // before the window had a second bound.
+    const wellBefore = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base - 12 * HOUR).toISOString(),
+    });
+    expect(wellBefore.data).toMatchObject({ status: 'VALID' });
+  });
+
   // Moved here from Task 3, which could not host it: the ceiling is only
   // settable through update_promotion's p_max_entries_per_member, an argument
   // that RPC did not have until 0055 dropped and recreated it. Written there it

@@ -178,11 +178,39 @@ begin
       and status = 'VALID'
   ) then
     v_status := 'DUPLICATE';
+  -- The interval is a WINDOW AROUND v_when, not a floor under it, and the
+  -- second bound is the one this branch shipped without.
+  --
+  -- The rule is "this person may not have two entries closer together than N
+  -- hours", which is symmetric in time: |existing - v_when| < N. Written with
+  -- the lower bound alone it read "is there a VALID entry LATER than N hours
+  -- before this one" — true of every entry after that instant, including ones
+  -- arbitrarily far in the FUTURE of v_when. Measured against this stack with
+  -- N = 6: an entry at 20:00Z, then one at 08:00Z the same day — twelve hours
+  -- EARLIER — came back TOO_SOON, while the control twelve hours later came
+  -- back VALID.
+  --
+  -- Silent and wrong in the direction that costs somebody a prize: the row is
+  -- not VALID, so Block 6's draw leaves out a listener who was entitled to be
+  -- in it, and nothing anywhere says so. It is reachable through this block's
+  -- headline path rather than by contrivance — import_participations walks the
+  -- file in row order and D7 exists precisely because a file carries historical
+  -- timestamps, so a spreadsheet exported newest-first marked every row after
+  -- the first TOO_SOON. record-participation-form.tsx already promises the
+  -- symmetric behaviour in the operator's own words ("an entry backdated to
+  -- last night is judged against last night").
+  --
+  -- The rejected alternative was ordering the caller's rows instead — sorting
+  -- an import by participated_at before the loop, so the file is always seen
+  -- chronologically. That hides the defect from one caller and leaves the
+  -- shared rule wrong for the other: the manual door takes one row at a time
+  -- and has nothing to sort. The rule belongs where the rule is.
   elsif v_min_hours is not null and exists (
     select 1 from public.participations
     where promotion_id = p_promotion_id and member_id = p_member_id
       and status = 'VALID'
       and participated_at > v_when - make_interval(hours => v_min_hours)
+      and participated_at < v_when + make_interval(hours => v_min_hours)
   ) then
     v_status := 'TOO_SOON';
   elsif v_ceiling is not null and (
@@ -252,7 +280,7 @@ $$;
 revoke execute on function public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb) from public;
 
 comment on function public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb) is
-  'The participation mechanics, shared by the manual door and the import so the two cannot drift. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from record_participation and import_participations, which check participations.create and participations.import respectively — the permission check stays out of here for the reason apply_inventory_movement (0027) gives, and because a gate inside a shared body would have to pick its code from p_source, letting a caller-supplied label choose which permission it faced. Repeating, coming in early and passing the ceiling are NOT refusals — they are written down with the status that says so, because Block 5 will have no choice about recording what happened to a message it received. A cancelled promotion, one outside its window, a listener this Station is not linked to and an answer naming a question from another promotion ARE refusals, because none of them is a fact about how often this person entered. The rules are applied under pg_advisory_xact_lock over (promotion, member); the partial unique index on participations (0052) holds the same floor whether or not this function took it, which is what makes the concurrency test meaningful rather than circular.';
+  'The participation mechanics, shared by the manual door and the import so the two cannot drift. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from record_participation and import_participations, which check participations.create and participations.import respectively — the permission check stays out of here for the reason apply_inventory_movement (0027) gives, and because a gate inside a shared body would have to pick its code from p_source, letting a caller-supplied label choose which permission it faced. Repeating, coming in early and passing the ceiling are NOT refusals — they are written down with the status that says so, because Block 5 will have no choice about recording what happened to a message it received. The minimum interval is measured SYMMETRICALLY around p_participated_at (|existing - this| < N hours): the rule is "no two entries closer together than N hours", which does not care which of the two was written first, and a lower bound alone marked a backdated entry TOO_SOON against an entry that had not happened yet. A cancelled promotion, one outside its window, a listener this Station is not linked to and an answer naming a question from another promotion ARE refusals, because none of them is a fact about how often this person entered. The rules are applied under pg_advisory_xact_lock over (promotion, member); the partial unique index on participations (0052) holds the same floor whether or not this function took it, which is what makes the concurrency test meaningful rather than circular.';
 
 -- ---------------------------------------------------------------------------
 -- The manual door. It resolves the promotion only far enough to know which
