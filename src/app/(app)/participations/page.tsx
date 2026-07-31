@@ -22,9 +22,10 @@ import {
   participationsHref,
   parseParticipationCursor,
   parseParticipationListState,
+  SEARCH_NOTE_ID,
 } from './list-params';
 import type { ParticipationSearchParams } from './list-params';
-import { ParticipationsFilters, SEARCH_NOTE_ID } from './participations-filters';
+import { ParticipationsFilters } from './participations-filters';
 import type { PromotionOption } from './participations-filters';
 import { ParticipationsGrid } from './participations-grid';
 
@@ -280,8 +281,9 @@ export default async function ParticipationsPage({
 
             `id` rather than only a test id: the control it explains is rendered
             disabled, and this is what points a screen reader from one to the
-            other. The constant is imported from the filter bar so the two ends of
-            that link cannot drift.
+            other. The constant comes from ./list-params, which both this Server
+            Component and the client filter bar can read — see its own comment for
+            why it is not exported from the filter bar itself.
           */}
           {!canSearch && (
             <p

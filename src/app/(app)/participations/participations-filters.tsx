@@ -17,6 +17,7 @@ import {
   DEFAULT_PARTICIPATION_STATUS,
   hasActiveParticipationFilters,
   participationsHref,
+  SEARCH_NOTE_ID,
   SOURCE_LABELS,
   SOURCE_ORDER,
 } from './list-params';
@@ -24,14 +25,6 @@ import type { ParticipationListState, ParticipationStatusFilter } from './list-p
 
 const DEBOUNCE_MS = 350;
 const ANY_SOURCE = '';
-
-/**
- * The id of the page's explanation of why the listener search is unavailable,
- * shared with page.tsx so the disabled input and the sentence about it point at
- * each other rather than at two strings kept equal by hand. A page-level
- * singleton, so a fixed id is safe — there is exactly one filter bar per render.
- */
-export const SEARCH_NOTE_ID = 'participation-search-note';
 
 /** Just enough of a promotion to name it in the picker. */
 export interface PromotionOption {
@@ -96,16 +89,42 @@ export function ParticipationsFilters({
    * to remember to pass). Neither is smaller than this.
    */
   const typedSearch = useRef(state.search ?? '');
-  // Re-synced from the URL so browser back/forward leaves this input agreeing
-  // with the list beside it; after this component's own edits the prop arrives
-  // holding what was already typed, making the sync a no-op.
-  useEffect(() => {
-    setSearch(state.search ?? '');
-    typedSearch.current = state.search ?? '';
-  }, [state.search]);
 
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
+
+  /**
+   * The last term this component actually sent, which is how the effect below
+   * tells its own navigation landing apart from somebody else changing the URL.
+   */
+  const lastNavigated = useRef<string | undefined>(state.search);
+
+  /**
+   * Re-synced from the URL so browser back/forward leaves this input agreeing
+   * with the list beside it — and, when the URL changed for a reason that was
+   * not this component, the pending debounce is CANCELLED rather than left to
+   * fire afterwards and undo the Back.
+   *
+   * The guard is not decoration, and the plain "clear the timer on every sync"
+   * that this fix started as is a downgrade rather than a smaller version of it.
+   * Our own navigation comes back through this same effect, so clearing
+   * unconditionally also cancels a keystroke typed during the round trip: type
+   * "Ana", pause past the debounce, type "b" while the render is in flight, and
+   * the "b" is silently dropped for good. Left alone, that case converges — the
+   * pending timer fires with "Anab" and the next sync agrees with it — so the
+   * unconditional clear turns a flicker into data loss.
+   *
+   * Comparing against what we last SENT separates the two exactly: an incoming
+   * `state.search` equal to it is the URL reporting our own edit back, and
+   * anything else — Back, forward, a Station chip, Clear filters — is somebody
+   * else's navigation, which is the case that must win over a pending keystroke.
+   */
+  useEffect(() => {
+    if (state.search === lastNavigated.current) return;
+    clearTimeout(timer.current);
+    setSearch(state.search ?? '');
+    typedSearch.current = state.search ?? '';
+  }, [state.search]);
 
   function navigate(next: Partial<ParticipationListState>) {
     clearTimeout(timer.current);
@@ -116,9 +135,13 @@ export function ParticipationsFilters({
       ...state,
       search: typedSearch.current.trim() || undefined,
     };
+    // Read off the MERGED target rather than off `typed`, so a caller that ever
+    // overrides `search` in `next` is recorded as what was really sent.
+    const target: ParticipationListState = { ...typed, ...next };
+    lastNavigated.current = target.search;
     // typedRoutes cannot express a query string assembled at runtime as a route
     // literal — the same cast the rest of this codebase uses.
-    router.replace(participationsHref({ ...typed, ...next }) as Route);
+    router.replace(participationsHref(target) as Route);
   }
 
   return (

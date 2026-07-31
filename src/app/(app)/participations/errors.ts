@@ -28,17 +28,31 @@ import {
  * message through rather than replacing it is right — it is the caller's value
  * that is wrong, not the request and not the server.
  *
- * `what` mirrors describePromotionsReadError's own parameter and defaults to the
- * original wording, so a call site that does not pass one reads exactly as this
- * screen's other reads do. The promotion filter passes its own phrase, because
- * that read is gated by `promotions.view` and this screen is reached with
- * `participations.view` — telling somebody they cannot view participations when
- * what they actually lack is the ability to name a promotion sends them to fix
- * the wrong thing.
+ * `what` names the thing that could not be read, and it is consumed by the
+ * permission branch AND by the generic fallback. That second one is the whole
+ * point rather than symmetry, and it is a deliberate departure from
+ * describePromotionsReadError, which spends the argument only on the permission
+ * branch.
+ *
+ * The reason is that on THIS screen the permission branch is the unreachable one
+ * and the fallback is the live one, which is the opposite of what the argument
+ * was originally introduced for. The promotion picker's read is
+ * listPromotionsPage: every failure path inside it wraps in InternalError, and a
+ * caller who may not read promotions is answered by RLS with an empty result
+ * rather than a 42501, so it cannot raise UnauthorizedError at all. With `what`
+ * spent only there, the single message that picker could ever show was "Could
+ * not load the entries. Refresh the page and try again." — rendered beside a list
+ * of entries that had loaded perfectly, which sends the operator to look at
+ * exactly the wrong thing. Naming the subject in both branches is what makes the
+ * paragraph above true of the behaviour rather than only of the intention.
+ *
+ * What the fallback still does NOT do is repeat the error: InternalError means
+ * the fault is ours, not theirs, and its message may carry raw database text.
+ * `what` names the subject, never the cause.
  */
 export function describeParticipationsReadError(
   cause: unknown,
-  what: string = 'participations here',
+  what: string = 'the entries in this Station',
 ): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
@@ -49,7 +63,5 @@ export function describeParticipationsReadError(
     return `You do not have permission to view ${what}.`;
   }
   if (cause instanceof ValidationError) return cause.message;
-  // Generic on purpose: InternalError means the fault is ours, not theirs, and
-  // its message may carry a raw database error — not something to show.
-  return 'Could not load the entries. Refresh the page and try again.';
+  return `Could not load ${what}. Refresh the page and try again.`;
 }

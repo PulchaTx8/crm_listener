@@ -64,6 +64,24 @@ export const SOURCE_LABELS: Record<ParticipationSource, string> = {
 
 export const SOURCE_ORDER: ParticipationSource[] = ['MANUAL', 'IMPORT'];
 
+/**
+ * The id of the page's explanation of why the listener search is unavailable.
+ * page.tsx puts it on the paragraph; the filter bar points `aria-describedby` at
+ * it from the disabled input, so the two ends of that link cannot drift.
+ *
+ * Here, and NOT beside the input it describes, because the input's module opens
+ * with 'use client'. A Server Component importing a value from a client module
+ * does not get the value — React hands back a registered client reference, which
+ * is a function — and this branch already carries a commit that moved six
+ * screens' tab tuples into @/lib/record-params.ts for precisely that reason
+ * (`parseRecordParam` read `.includes` off a function and threw, while `[0]`
+ * answered undefined and quietly stopped validating). A string survives that
+ * round trip well enough to render today, which makes it the quiet half of the
+ * same defect rather than a different one. This module is imported by both files
+ * and is not a client module, so it is the one place both can read it from.
+ */
+export const SEARCH_NOTE_ID = 'participation-search-note';
+
 export interface ParticipationListState {
   companyId: string;
   /** A Station-name search, carried by every link for the reason inventory/list-params.ts gives. */
