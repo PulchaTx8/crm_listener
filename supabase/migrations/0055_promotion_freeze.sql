@@ -85,13 +85,17 @@
 --
 -- DROPPED and recreated rather than replaced, for the same reason
 -- update_promotion is: the argument list changes. p_constraint takes a DEFAULT
--- so that create_promotion — which lives in merged 0042 and calls this with
--- three arguments — goes on resolving. Dropping the three-argument form without
--- a default would break that function at runtime, which is this migration's own
--- trap sprung in the opposite direction. create_promotion does not need the
--- fourth argument on its own account: it inserts a promotion no participation
--- can yet name, so of the three violations only two are reachable from it and
--- the sqlstate already separates those.
+-- so that create_promotion's three-argument call goes on resolving. Dropping the
+-- three-argument form without a default would break that function at runtime,
+-- which is this migration's own trap sprung in the opposite direction.
+-- create_promotion does not need the fourth argument on its own account: it
+-- inserts a promotion no participation can yet name, so of the three violations
+-- only two are reachable from it and the sqlstate already separates those.
+--
+-- That call site is now further down THIS file rather than in merged 0042 — this
+-- migration recreates create_promotion too, for D1's ceiling — and the default
+-- matters exactly as much either way, because the recreated body reproduces the
+-- three-argument call unchanged.
 -- ---------------------------------------------------------------------------
 drop function public.promotion_write_error(text, integer, text);
 
@@ -333,6 +337,165 @@ grant execute on function public.update_promotion(uuid, text, timestamptz, times
 
 comment on function public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer) is
   'Replaces a promotion''s fields wholesale. Gated on promotions.edit. The Organization and Station come from the row, never a parameter. Block 4a''s D9 freeze IS here, in 0055, and 0042''s comment saying it was deliberately absent because it would have had to consult a table that did not exist is corrected by this one: once ANY participation exists — refused ones included, because somebody who was too early still read the hashtag and texted it — the hashtag and the start date are refused with 22023 and everything else stays editable, because nobody entered on account of the name and extending the end date takes nothing from anybody. Dropped and recreated rather than replaced, since p_max_entries_per_member changes the argument list and create or replace cannot: it would have left the sixteen-argument body alive beside this one, with every existing caller still resolving to the version that has no freeze. The ceiling itself is stored, not enforced here — apply_participation (0054) counts against it, and 0052''s check is what refuses a ceiling of one or a ceiling on a promotion that allows no repeats.';
+
+-- ---------------------------------------------------------------------------
+-- create_promotion is DROPPED and recreated too, and it belongs beside its
+-- sibling above rather than in a migration of its own.
+--
+-- The first version of this migration gave the ceiling to update_promotion
+-- ALONE, and that is a defect rather than a staged rollout. p_max_entries_per_member
+-- is one field of one form: services/promotions.ts builds both calls from a
+-- single promotionRpcArgs precisely because the two doors take the same field
+-- set, and a promotion that can be edited into a ceiling but never born with one
+-- is the "consistent except for the one nobody got to" shape this branch has
+-- already rejected twice — Task 4's permission gate, and Block 4b's grant sweep.
+--
+-- Worse, the asymmetry is not inert. Sending seventeen arguments to the
+-- sixteen-argument function does not raise a type error; PostgREST simply fails
+-- to resolve the function at all and answers PGRST202, which maps to
+-- InternalError and reaches an operator who filled in a legitimate field as
+-- "Could not save". The alternative the service was carrying in the meantime —
+-- refusing a ceiling at create time with a sentence — was honest but wrong as a
+-- product: it made a field's availability depend on which button the operator
+-- had pressed.
+--
+-- DROPPED rather than replaced, for the same reason and with the same trap as
+-- update_promotion above: `create or replace` cannot change an argument list,
+-- and used that way it leaves a SECOND sixteen-argument function alive. Here the
+-- failure is silent in the same way — every existing sixteen-argument call site
+-- resolves unambiguously to the survivor, which stores no ceiling, so the field
+-- would appear to save and simply never be written. 02_permissions.test.sql
+-- counts pg_proc entries by name for this function as well as for
+-- update_promotion, because that count is the only assertion that can see a
+-- surviving twin; ::regprocedure resolves the signature it is handed and
+-- succeeds regardless of what else shares the name. (Measured, not assumed: with
+-- the drop below removed, that count fails 2-against-1 while every signature pin
+-- in 03_promotions.test.sql stays green.)
+--
+-- This SUPERSEDES the create_promotion in merged 0042, whose text is left alone
+-- because that migration has shipped. Its body is reproduced below unchanged
+-- except for the new parameter and the new column in the INSERT: the permission,
+-- the Station lookup, the two presence checks and the constraint handler are
+-- 0042's, and every coherence rule between the fields stays in the table's own
+-- checks (0040 and 0052) rather than being restated here.
+--
+-- promotion_write_error is still called with THREE arguments, and that is not an
+-- oversight of the fourth. An INSERT into promotions cannot cascade onto
+-- participations — the row is new and no participation can yet name it — so of
+-- the three violations that function distinguishes, only two are reachable from
+-- here and the sqlstate already separates those. The fourth parameter's DEFAULT
+-- is what keeps this call resolving, which is the reason it was given one.
+--
+-- Dropping resets the ACL to Postgres's default of EXECUTE to PUBLIC, so the
+-- revoke and the grant below are not restated out of tidiness: without them anon
+-- could reach this function, which is the exact hole 0050 closed for all six of
+-- Block 4a's promotion RPCs.
+-- ---------------------------------------------------------------------------
+drop function public.create_promotion(
+  uuid, text, timestamptz, timestamptz, integer, text, boolean, integer,
+  boolean, boolean, text, boolean, text, text, text,
+  public.promotion_requested_field[]);
+
+create function public.create_promotion(
+  p_company_id                uuid,
+  p_name                      text,
+  p_starts_at                 timestamptz,
+  p_ends_at                   timestamptz,
+  p_site_integration_code     integer default null,
+  p_call_to_action            text default null,
+  p_allow_multiple_entries    boolean default false,
+  p_min_hours_between_entries integer default null,
+  p_require_correct_answer    boolean default false,
+  p_whatsapp_enabled          boolean default false,
+  p_hashtag                   text default null,
+  p_use_art                   boolean default false,
+  p_art_url                   text default null,
+  p_yes_button_label          text default null,
+  p_no_button_label           text default null,
+  p_requested_fields          public.promotion_requested_field[] default '{}',
+  -- Last and defaulting to null, in the same position it takes on
+  -- update_promotion, so that the two signatures read alike at the call site and
+  -- one shared argument builder can fill both. Null means no ceiling; 0052's
+  -- check refuses 1 and refuses any value at all unless allow_multiple_entries
+  -- is true, so this function restates neither rule.
+  p_max_entries_per_member    integer default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_actor   uuid := auth.uid();
+  v_org     uuid;
+  v_id      uuid;
+  v_name    text := nullif(btrim(p_name), '');
+  v_cta     text := nullif(btrim(coalesce(p_call_to_action, '')), '');
+  v_hashtag text := nullif(btrim(coalesce(p_hashtag, '')), '');
+  v_art     text := nullif(btrim(coalesce(p_art_url, '')), '');
+  v_yes     text := nullif(btrim(coalesce(p_yes_button_label, '')), '');
+  v_no      text := nullif(btrim(coalesce(p_no_button_label, '')), '');
+begin
+  select organization_id into v_org
+  from public.companies
+  where id = p_company_id and deleted_at is null;
+
+  if not found then
+    raise exception 'station not found: %', p_company_id using errcode = 'P0002';
+  end if;
+
+  if not public.has_permission('promotions.create', p_company_id) then
+    raise log 'create_promotion denied: actor=% company=%', v_actor, p_company_id;
+    raise exception 'permission denied: promotions.create required' using errcode = '42501';
+  end if;
+
+  if v_name is null then
+    raise exception 'the promotion needs a name' using errcode = '22023';
+  end if;
+  if p_starts_at is null or p_ends_at is null then
+    raise exception 'the promotion needs a start and an end' using errcode = '22023';
+  end if;
+
+  begin
+    insert into public.promotions
+      (organization_id, company_id, site_integration_code, name, starts_at, ends_at,
+       allow_multiple_entries, min_hours_between_entries, max_entries_per_member,
+       require_correct_answer,
+       call_to_action, whatsapp_enabled, hashtag, use_art, art_url,
+       yes_button_label, no_button_label, requested_fields, created_by)
+    values
+      (v_org, p_company_id, p_site_integration_code, v_name, p_starts_at, p_ends_at,
+       coalesce(p_allow_multiple_entries, false), p_min_hours_between_entries,
+       p_max_entries_per_member,
+       coalesce(p_require_correct_answer, false),
+       v_cta, coalesce(p_whatsapp_enabled, false), v_hashtag,
+       coalesce(p_use_art, false), v_art, v_yes, v_no,
+       coalesce(p_requested_fields, '{}'), v_actor)
+    returning id into v_id;
+  exception
+    when exclusion_violation or unique_violation then
+      perform public.promotion_write_error(v_hashtag, p_site_integration_code, sqlstate);
+  end;
+
+  insert into public.audit_logs
+    (actor_id, action, target_table, target_id, organization_id, company_id, detail)
+  values
+    (v_actor, 'create_promotion', 'promotions', v_id, v_org, p_company_id,
+     jsonb_build_object('name', v_name, 'whatsapp', coalesce(p_whatsapp_enabled, false)));
+
+  return v_id;
+end;
+$$;
+
+-- Seventeen argument types, spelled out, on all three statements — the same
+-- discipline update_promotion's carry, and for the same reason: after the drop
+-- above there is exactly one create_promotion, so a list typed one type short
+-- errors rather than quietly applying to something else.
+revoke execute on function public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer) from public;
+grant execute on function public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer) to authenticated;
+
+comment on function public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer) is
+  'Registers a promotion. Gated on promotions.create. Every coherence rule between the fields lives in the table''s own checks (0040 and 0052), not here — this function''s job is the permission, the Station and turning two constraint violations into sentences. Dropped and recreated in 0055 rather than replaced, because D1''s ceiling adds p_max_entries_per_member and create or replace cannot change an argument list: it would have left the sixteen-argument body from merged 0042 alive beside this one, and every existing call site would go on resolving to the version that stores no ceiling — a field that appears to save and is never written. The ceiling is stored, not enforced here; apply_participation (0054) counts against it, and 0052''s check is what refuses a ceiling of one or a ceiling on a promotion that allows no repeats. It reaches promotion_write_error with three arguments on purpose: an INSERT cannot cascade onto participations, so the constraint-name case that function gained in 0055 is unreachable from here.';
 
 -- ---------------------------------------------------------------------------
 -- save_promotion_question: D9's third surface, and the one the first draft of

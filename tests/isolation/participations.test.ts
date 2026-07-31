@@ -1,4 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { decodeCursor } from '@/lib/keyset';
+import { PARTICIPATION_PAGE_SIZE, listParticipationsPage } from '@/services/participations';
+import type { Database } from '@/lib/supabase/database.types';
 import {
   addCompany,
   cleanupUsers,
@@ -16,6 +20,13 @@ const DAY = 24 * HOUR;
 
 async function clientFor(user: { email: string; password: string }) {
   return signInAs(user.email, user.password);
+}
+
+async function tokenFor(user: { email: string; password: string }): Promise<string> {
+  const client = await clientFor(user);
+  const { data, error } = await client.auth.getSession();
+  if (error || !data.session) throw new Error(`could not read an access token: ${error?.message}`);
+  return data.session.access_token;
 }
 
 /** A promotion on air now, registered by the owner. Fixture, never the operation under test. */
@@ -1130,5 +1141,249 @@ describe("Block 4a's freeze, now that there is something to freeze", () => {
       .single();
     expect(row.data?.allow_multiple_entries).toBe(true);
     expect(row.data?.name).not.toBe('Sem repetição');
+  });
+});
+
+/**
+ * The `/participations` list read, driven through the service the screen calls
+ * rather than through raw PostgREST.
+ *
+ * These cases exist because listParticipationsPage had nothing under it at all:
+ * its two selects, its cursor and the permission boundary between them were
+ * proved only by hand probes against a running stack, which stop proving
+ * anything the moment somebody stops typing. Every case is driven by a NON-OWNER
+ * delegate, for the reason members.test.ts's own header gives — the owner's
+ * bypass hides precisely the failure a read policy is supposed to produce.
+ * Owners appear here only as fixture setup.
+ */
+async function recordAsOwner(
+  owner: SupabaseClient<Database>,
+  promotionId: string,
+  memberId: string,
+  at: Date = new Date(),
+): Promise<void> {
+  const { error } = await owner.rpc('record_participation', {
+    p_promotion_id: promotionId,
+    p_member_id: memberId,
+    p_participated_at: at.toISOString(),
+    p_source: 'MANUAL',
+    p_answers: [],
+  });
+  if (error) throw new Error(`record_participation failed: ${error.message}`);
+}
+
+async function promotionAt(
+  owner: SupabaseClient<Database>,
+  companyId: string,
+  name: string,
+): Promise<string> {
+  const { data, error } = await owner.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: name,
+    p_starts_at: new Date(Date.now() - 2 * DAY).toISOString(),
+    p_ends_at: new Date(Date.now() + 20 * DAY).toISOString(),
+  });
+  if (error) throw new Error(`create_promotion failed: ${error.message}`);
+  return data as string;
+}
+
+/** The three codes the screen needs: the rows, the promotion behind them, and the listener. */
+const FULL_READER = ['promotions.view', 'participations.view', 'members.view'];
+
+describe('the participations list read', () => {
+  it('shows a Station its own participations and nothing from the Station beside it', async () => {
+    const label = `plist-tenant-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    const stationB = await addCompany(customer, `Station B ${label}`);
+
+    const promotionA = await promotionAt(owner, customer.companyId, 'Promo A');
+    const promotionB = await promotionAt(owner, stationB, 'Promo B');
+    const memberA = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte da Estacao A',
+      phone: '11900000001',
+    });
+    const memberB = await createMemberAs(customer, stationB, {
+      fullName: 'Ouvinte da Estacao B',
+      phone: '11900000002',
+    });
+
+    await recordAsOwner(owner, promotionA, memberA);
+    await recordAsOwner(owner, promotionB, memberB);
+
+    // The delegate's role exists at Station A only — grantRoleWith's default.
+    const delegate = await grantRoleWith(customer, label, FULL_READER);
+    const token = await tokenFor(delegate);
+
+    const atA = await listParticipationsPage(
+      { companyId: customer.companyId, cursor: null, cursorSide: 'after' },
+      token,
+    );
+    expect(atA.total).toBe(1);
+    expect(atA.rows).toHaveLength(1);
+    expect(atA.rows[0]?.promotionId).toBe(promotionA);
+    expect(atA.rows[0]?.memberId).toBe(memberA);
+    expect(atA.rows[0]?.promotionName).toBe('Promo A');
+    expect(atA.rows[0]?.status).toBe('VALID');
+    expect(atA.rows[0]?.source).toBe('MANUAL');
+
+    // The same Organization, a Station this delegate holds no role in. Asking is
+    // allowed; the answer is empty, and the TOTAL is empty too — a count taken
+    // outside the policy would have reported one row the page could not show.
+    const atB = await listParticipationsPage(
+      { companyId: stationB, cursor: null, cursorSide: 'after' },
+      token,
+    );
+    expect(atB.rows).toHaveLength(0);
+    expect(atB.total).toBe(0);
+  });
+
+  /**
+   * The two selects, over ONE fixture and with the permission the only
+   * difference between the two callers.
+   *
+   * listParticipationsPage swaps to an `!inner` embed when a search term is
+   * present, because a search has to be a condition Postgres evaluates rather
+   * than a filter over an already-fetched page — and member_company_links and
+   * members are behind 0035's policies, which need members.view. So the two
+   * selects genuinely can disagree about which rows exist, and this is the case
+   * that pins where: without members.view the plain read still lists every
+   * participation with the listener's name left null, and the searched read
+   * finds nothing at all.
+   *
+   * Deliberately one case rather than two, with both callers reading the same
+   * rows: two fixtures could differ, and then the assertion would be about the
+   * fixtures rather than about the permission.
+   */
+  it('lists rows without the name to a delegate lacking members.view, and answers only the delegate who holds it when they search', async () => {
+    const label = `plist-search-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    const promotionId = await promotionAt(owner, customer.companyId, 'Promo da busca');
+    const ana = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ana Isolada',
+      phone: '11911111111',
+    });
+    const bruno = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Bruno Isolado',
+      phone: '11922222222',
+    });
+    await recordAsOwner(owner, promotionId, ana);
+    await recordAsOwner(owner, promotionId, bruno);
+
+    const blind = await grantRoleWith(customer, `${label}-blind`, [
+      'promotions.view',
+      'participations.view',
+    ]);
+    const sighted = await grantRoleWith(customer, `${label}-sighted`, FULL_READER);
+    const blindToken = await tokenFor(blind);
+    const sightedToken = await tokenFor(sighted);
+
+    const params = { companyId: customer.companyId, cursor: null, cursorSide: 'after' } as const;
+
+    // Holding participations.view and not members.view: every row, no name.
+    // This is the assertion that would fail if the plain select were ever made
+    // `!inner` for symmetry with the searched one — the whole screen would empty
+    // itself for a caller who is entitled to it.
+    const blindPlain = await listParticipationsPage(params, blindToken);
+    expect(blindPlain.total).toBe(2);
+    expect(blindPlain.rows).toHaveLength(2);
+    expect(blindPlain.rows.map((r) => r.listenerName)).toEqual([null, null]);
+    expect(blindPlain.rows.map((r) => r.listenerPhone)).toEqual([null, null]);
+    // The row itself is still fully readable — this is a hidden name, not a hidden row.
+    expect(new Set(blindPlain.rows.map((r) => r.memberId))).toEqual(new Set([ana, bruno]));
+
+    // The same caller searching: nothing, because they may not read the column
+    // being searched. Asserted rather than left to discovery — it is the price
+    // of making the search a query condition instead of a post-filter, and a
+    // reader of this service should find it written down.
+    const blindSearch = await listParticipationsPage({ ...params, search: 'Ana' }, blindToken);
+    expect(blindSearch.rows).toHaveLength(0);
+    expect(blindSearch.total).toBe(0);
+
+    // And the same search, over the same rows, by a caller who holds members.view.
+    const sightedPlain = await listParticipationsPage(params, sightedToken);
+    expect(sightedPlain.rows.map((r) => r.listenerName).sort()).toEqual([
+      'Ana Isolada',
+      'Bruno Isolado',
+    ]);
+
+    const sightedSearch = await listParticipationsPage({ ...params, search: 'Ana' }, sightedToken);
+    expect(sightedSearch.rows).toHaveLength(1);
+    expect(sightedSearch.total).toBe(1);
+    expect(sightedSearch.rows[0]?.memberId).toBe(ana);
+    expect(sightedSearch.rows[0]?.listenerName).toBe('Ana Isolada');
+
+    // By phone digits too, which take the cpf_last_digits/phone_normalized arm
+    // of the same `or` — clauses that resolve inside the nested embed or do not,
+    // and nothing but a live read can say which.
+    const byDigits = await listParticipationsPage({ ...params, search: '922222222' }, sightedToken);
+    expect(byDigits.rows).toHaveLength(1);
+    expect(byDigits.rows[0]?.memberId).toBe(bruno);
+  });
+
+  it('reads one row past the page and returns it as the signal that there is more, never as a result', async () => {
+    const label = `plist-page-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    const promotionId = await promotionAt(owner, customer.companyId, 'Promo cheia');
+
+    // Exactly one more than a page. Distinct listeners rather than repeats, so
+    // every row is VALID and participations_one_per_member is not what is under
+    // test here. Seeded on ONE signed-in client — createMemberAs signs in per
+    // call, which is twenty-six needless auth round trips at this size.
+    const total = PARTICIPATION_PAGE_SIZE + 1;
+    const memberIds: string[] = [];
+    for (let i = 0; i < total; i += 1) {
+      const { data, error } = await owner.rpc('create_member', {
+        p_company_id: customer.companyId,
+        p_full_name: `Ouvinte ${String(i).padStart(2, '0')}`,
+        p_phone: `1193000${String(i).padStart(4, '0')}`,
+      });
+      if (error) throw new Error(`create_member failed at ${i}: ${error.message}`);
+      memberIds.push(data as string);
+    }
+    for (let i = 0; i < total; i += 1) {
+      // Spread through the window so participated_at does not tie across the
+      // page boundary for reasons unrelated to the cursor. The tiebreak on id is
+      // what handles a genuine tie, and listing.test.ts already proves that one.
+      await recordAsOwner(owner, promotionId, memberIds[i]!, new Date(Date.now() - i * HOUR));
+    }
+
+    const delegate = await grantRoleWith(customer, label, FULL_READER);
+    const token = await tokenFor(delegate);
+    const params = { companyId: customer.companyId, cursorSide: 'after' } as const;
+
+    const first = await listParticipationsPage({ ...params, cursor: null }, token);
+    // A page, not a page and the extra row. The read asked for PAGE_SIZE + 1 and
+    // the surplus row's only job was to populate nextCursor.
+    expect(first.rows).toHaveLength(PARTICIPATION_PAGE_SIZE);
+    expect(first.nextCursor).not.toBeNull();
+    expect(first.previousCursor).toBeNull();
+    expect(first.total).toBe(total);
+
+    const second = await listParticipationsPage(
+      { ...params, cursor: decodeCursor(first.nextCursor) },
+      token,
+    );
+    expect(second.rows).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
+    expect(second.previousCursor).not.toBeNull();
+
+    // The row that signalled "there is more" is the one the next page opens
+    // with, and it was not also rendered on the first — the two halves of the
+    // off-by-one this convention exists to get right.
+    const rows = [...first.rows, ...second.rows];
+    expect(new Set(rows.map((r) => r.id)).size).toBe(total);
+    expect(first.rows.map((r) => r.id)).not.toContain(second.rows[0]?.id);
+
+    // Newest first, which is what participations_listing_idx carries and what
+    // the screen claims. A cursor that resumed on the wrong side would still
+    // fill both pages.
+    const instants = rows.map((r) => Date.parse(r.participatedAt));
+    expect(instants).toEqual([...instants].sort((a, b) => b - a));
   });
 });

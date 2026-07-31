@@ -89,6 +89,25 @@ describe('promotionFormSchema', () => {
     expect(r.data?.maxEntriesPerMember).toBe(3);
   });
 
+  // One schema, one field set, both doors. promotionFormSchema is what
+  // createPromotion and updatePromotion both parse, and promotionRpcArgs builds
+  // both calls from it — so a ceiling that parsed for an edit and not for a
+  // registration would be an asymmetry with no rule behind it. 0055 recreates
+  // create_promotion with the same seventeenth argument for exactly that reason;
+  // this case is what notices if the schema ever grows a create/update split.
+  it('accepts a ceiling on a promotion being registered, not only on one being edited', () => {
+    const r = promotionFormSchema.safeParse({
+      ...base,
+      companyId: base.companyId,
+      allowMultipleEntries: true,
+      minHoursBetweenEntries: 6,
+      maxEntriesPerMember: 2,
+    });
+    expect(r.success).toBe(true);
+    expect(r.data?.companyId).toBe(base.companyId);
+    expect(r.data?.maxEntriesPerMember).toBe(2);
+  });
+
   it('refuses a ceiling when repetition is off', () => {
     const r = promotionFormSchema.safeParse({ ...base, maxEntriesPerMember: 3 });
     expect(r.success).toBe(false);

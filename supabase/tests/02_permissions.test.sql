@@ -1,5 +1,5 @@
 begin;
-select plan(232);
+select plan(233);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -515,6 +515,28 @@ select is(
   1,
   'exactly one update_promotion exists — 0055 dropped the sixteen-argument form rather than leaving a twin the old call sites would still resolve to'
 );
+
+-- And exactly one create_promotion, for the identical reason and against the
+-- identical mistake. 0055 gives the ceiling to BOTH doors rather than only to
+-- update_promotion: p_max_entries_per_member is one field of one form,
+-- services/promotions.ts builds both calls from one shared argument builder, and
+-- a promotion that can be edited into a ceiling but never born with one is a
+-- product defect rather than a staged rollout.
+--
+-- That means a second drop-and-recreate with a second chance to forget the drop,
+-- and this one fails as silently as its sibling: every sixteen-argument call
+-- site resolves unambiguously to the survivor, which has no
+-- max_entries_per_member in its INSERT, so a ceiling typed into the create form
+-- would appear to save and simply never be written — with the grant pins in
+-- 03_promotions.test.sql still green, because ::regprocedure resolves the
+-- signature it is handed and can see nothing else sharing the name.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'create_promotion'),
+  1,
+  'exactly one create_promotion exists — 0055 dropped merged 0042''s sixteen-argument form rather than leaving a twin that stores no ceiling'
+);
 --
 -- The grant grid on the survivor is deliberately NOT restated here, even though
 -- dropping a function discards its ACL and 0055 therefore had to close 0050's
@@ -534,10 +556,12 @@ select is(
 --
 -- This one would NOT fail silently if the drop were forgotten, unlike
 -- update_promotion's above, and the difference is worth stating rather than
--- claiming a uniform danger: create_promotion in merged 0042 calls this with
--- three arguments, which against both a surviving three-argument form and a new
--- four-argument form whose last parameter defaults is AMBIGUOUS, and raises
--- 42725 at call time. The count is here because it is one line and it pins the
+-- claiming a uniform danger: create_promotion calls this with three arguments,
+-- which against both a surviving three-argument form and a new four-argument
+-- form whose last parameter defaults is AMBIGUOUS, and raises 42725 at call
+-- time. (That call site moved into 0055 with create_promotion itself; the
+-- three-argument call inside it is reproduced unchanged, so the hazard is the
+-- same one and it did not move.) The count is here because it is one line and it pins the
 -- intent; the isolation suite is what would actually scream.
 select is(
   (select count(*)::int from pg_proc p

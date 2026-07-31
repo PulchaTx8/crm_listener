@@ -1,6 +1,5 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
-import { createUserClient } from '@/lib/supabase/user-client';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
 import {
   BusinessRuleError,
@@ -161,11 +160,21 @@ interface ParticipationRecord {
  * be thrown away, and the count read is built from the same builder as the row
  * read, so the two cannot narrow differently — the defect listOrganizationMembers'
  * own comment describes for its blocked-only join.
+ *
+ * Takes the caller's token and reads through asCaller, as listOrganizationMembers
+ * does and unlike listPromotionsPage's createUserClient(). Both reach the
+ * database as the same user and RLS decides identically either way; the
+ * difference is that createUserClient() reads `cookies()` from next/headers, so
+ * a function built on it can only ever run inside a request and CANNOT be driven
+ * from tests/isolation. This read is the participations screen — its two selects,
+ * its cursor and the permission boundary between them — and proving it by hand
+ * against a running stack proves it only until somebody stops typing.
  */
 export async function listParticipationsPage(
   params: ParticipationListParams,
+  accessToken: string,
 ): Promise<ParticipationListPage> {
-  const supabase = await createUserClient();
+  const supabase = asCaller(accessToken);
 
   const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
   // The display direction is always descending, so the ascending read is

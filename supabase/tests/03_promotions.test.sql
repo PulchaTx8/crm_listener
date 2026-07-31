@@ -322,11 +322,18 @@ select is(public.is_owner_of_company(gen_random_uuid()), false,
 -- entirely, so a stray grant on either is a direct read into another Station's
 -- prize names and figures, restrained only by the has_permission call in the
 -- body.
+-- Seventeen argument types as of 0055, not sixteen — the same correction its
+-- sibling below needed, and for the same reason. 0055 gives D1's ceiling to BOTH
+-- write doors rather than only to update_promotion, because one field of one
+-- form built by one shared argument builder cannot sensibly exist on one of
+-- them. Left at sixteen this pair does not merely go stale: has_function_privilege
+-- RAISES rather than returning false when handed a signature that does not
+-- exist, and the whole file aborts here.
 select ok(
-  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'anon may not call create_promotion');
 select ok(
-  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'authenticated may call create_promotion');
 
 -- Seventeen argument types as of 0055, not sixteen. This pair did not merely

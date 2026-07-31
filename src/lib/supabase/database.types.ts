@@ -1747,6 +1747,7 @@ export type Database = {
           p_company_id: string
           p_ends_at: string
           p_hashtag?: string
+          p_max_entries_per_member?: number
           p_min_hours_between_entries?: number
           p_name: string
           p_no_button_label?: string
