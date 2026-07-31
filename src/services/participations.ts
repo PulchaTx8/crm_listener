@@ -288,8 +288,25 @@ export interface PromotionParticipationCounts {
  * Two `head: true` count reads rather than a page of rows, because that tab is
  * the one place in this block where the size of a promotion could get into the
  * record dialog (design spec D8): the record is read once per opening, and a
- * promotion with eight thousand entries cannot be. Two counts cost the same at
- * eight thousand as at eight.
+ * promotion with eight thousand entries cannot be.
+ *
+ * `count: 'estimated'`, not `'exact'` — a fix-round correction of this
+ * function's own former claim that "two counts cost the same at eight
+ * thousand as at eight". That was false: `exact` is PostgREST doing a real
+ * `COUNT(*)` over every matching row, which is linear in the number of
+ * participations this promotion has, precisely the figure design spec D8
+ * says this tab must not pay for. `estimated` (PostgREST's own docs, Pagination
+ * and Count §Estimated Count) runs a cheap `EXPLAIN`-based planned count first
+ * and only falls through to an exact `COUNT(*)` when that plan estimate is
+ * BELOW `db-max-rows` (`max_rows = 1000` in supabase/config.toml) — so a
+ * promotion with dozens or low hundreds of entries, the ordinary case, still
+ * gets the same exact number `exact` gave it, and only a promotion whose valid
+ * or refused count has grown into the thousands trades exactness for the O(1)
+ * planner estimate design spec D8 requires at that size. `planned` alone was
+ * rejected: it is fast unconditionally, but a freshly-written table has thin
+ * statistics until autovacuum's next ANALYZE, and a screen that can answer "1"
+ * with "0" right after the operator's own entry was recorded is a worse defect
+ * than the one this fixes.
  *
  * `neq('status', 'VALID')` rather than three `eq` counts or one `in`: the tab
  * asks one question — how many did not count — and the three reasons are the
@@ -316,7 +333,7 @@ export async function countPromotionParticipations(
   const build = () =>
     supabase
       .from('participations')
-      .select('id', { count: 'exact', head: true })
+      .select('id', { count: 'estimated', head: true })
       .eq('promotion_id', promotionId);
 
   const [valid, refused] = await Promise.all([

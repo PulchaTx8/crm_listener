@@ -51,6 +51,42 @@ export interface PromotionRecordPowers {
 const INITIAL_SAVE: PromotionFormState = { status: 'idle' };
 
 /**
+ * What a failed re-read should leave on screen: the record already showing,
+ * unless there is nothing of THIS promotion to preserve.
+ *
+ * `refresh()` re-reads one promotion after a write made inside the dialog —
+ * including the import's own write, whose result is the per-line report
+ * ImportParticipationsForm renders from its own local action state. Before
+ * this fix, every failed read (first load or a later refresh alike) called
+ * `setRecord(null)`, which unmounts the whole `{record && (...)}` subtree —
+ * ParticipationsTab, the import form, and the report on rows the import had
+ * already written — over a re-read that failed for a reason that has nothing
+ * to do with whether those rows exist. A transient blip right after a
+ * successful import would silently destroy the only place that result was
+ * ever shown, with the promotion's own participations already sitting in the
+ * database and nothing on screen saying so.
+ *
+ * `previous.id === recordId` rather than "reloadToken === 0": this dialog is
+ * not remounted between two different promotions (only `recordId` changes),
+ * so a plain "is this the first reload" flag would still read as true the
+ * moment a SECOND promotion is opened after the first one's tab was ever
+ * refreshed even once — showing promotion A's fields under promotion B's
+ * title. Comparing the id is what actually answers "is what's on screen still
+ * about the promotion this read was for."
+ *
+ * Exported and pure so this decision can be checked without rendering the
+ * component — this project's unit tests run in vitest's `node` environment
+ * (vitest.config.ts) with no DOM, so a test that mounted the dialog itself is
+ * not available here.
+ */
+export function nextRecordAfterFailedRead<T extends { id: string }>(
+  previous: T | null,
+  recordId: string,
+): T | null {
+  return previous && previous.id === recordId ? previous : null;
+}
+
+/**
  * One promotion's whole record over the list. Same shape as the audience and
  * inventory records, and for the same reason: one read per opening, every tab
  * rendered from it, so nothing here can re-run the list query behind the
@@ -118,7 +154,10 @@ export function PromotionRecordDialog({
         onLoaded?.(result.record);
         return;
       }
-      setRecord(null);
+      // See nextRecordAfterFailedRead's own comment: a refresh that fails must
+      // not take an already-showing record (and everything mounted under it)
+      // down with it.
+      setRecord((previous) => nextRecordAfterFailedRead(previous, recordId));
       setFailure(
         result.status === 'not-found'
           ? 'No such promotion, or you do not have permission to see this one.'

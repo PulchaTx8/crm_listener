@@ -40,7 +40,7 @@ const COLUMN_ALIASES = {
   ],
 } as const;
 
-type ColumnKey = keyof typeof COLUMN_ALIASES;
+export type ColumnKey = keyof typeof COLUMN_ALIASES;
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
   fullName: 'Name',
@@ -76,8 +76,12 @@ const SKIP_REASONS: Record<string, string> = {
     'that listener is registered at another Station of this Organization and is not linked to this one; link them and import again',
 };
 
-/** One line of the file, mapped but not yet validated — importRowSchema does that on the server. */
-interface ParsedRow {
+/**
+ * One line of the file, mapped but not yet validated — importRowSchema does
+ * that on the server. Exported for the same reason the four functions below
+ * are: it is the shape their unit tests assert against.
+ */
+export interface ParsedRow {
   line: number;
   fullName: string;
   phone: string;
@@ -86,7 +90,7 @@ interface ParsedRow {
   participatedAt: string;
 }
 
-interface ParsedFile {
+export interface ParsedFile {
   name: string;
   delimiter: string;
   headers: string[];
@@ -104,8 +108,13 @@ interface ParsedFile {
  * range: the range spelling needs a class of characters that are invisible in
  * an editor, and anything that is not a letter or a digit is noise in a header
  * name anyway.
+ *
+ * Exported (with readDelimited, toInstant and parseFile below) so this
+ * codebase's edge-case-dense reader has a direct unit test rather than only
+ * the review it got via a throwaway e2e smoke spec — see
+ * tests/unit/participation-import.test.ts.
  */
-function normalizeHeader(raw: string): string {
+export function normalizeHeader(raw: string): string {
   return raw.trim().toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
 }
 
@@ -124,7 +133,7 @@ function normalizeHeader(raw: string): string {
  * among the records: a quoted field may contain a newline, and this number is
  * going back to an operator who will look for it in their spreadsheet.
  */
-function readDelimited(text: string, delimiter: string): { line: number; values: string[] }[] {
+export function readDelimited(text: string, delimiter: string): { line: number; values: string[] }[] {
   const records: { line: number; values: string[] }[] = [];
   let values: string[] = [];
   let field = '';
@@ -206,7 +215,7 @@ function readDelimited(text: string, delimiter: string): { line: number; values:
  * is explicit that this value is not decoration: the minimum interval measures
  * against it.
  */
-function toInstant(raw: string, timeZone: string): string {
+export function toInstant(raw: string, timeZone: string): string {
   const value = raw.trim();
   if (!value) return '';
 
@@ -236,7 +245,7 @@ function toInstant(raw: string, timeZone: string): string {
   return '';
 }
 
-function parseFile(name: string, text: string, timeZone: string): ParsedFile {
+export function parseFile(name: string, text: string, timeZone: string): ParsedFile {
   // A UTF-8 BOM is what Excel writes, and left in place it becomes part of the
   // first header — so `nome` would not match and a perfectly good file would be
   // refused over a byte nobody can see. Compared by code point rather than
@@ -293,6 +302,42 @@ function parseFile(name: string, text: string, timeZone: string): ParsedFile {
 }
 
 /**
+ * The server's own ceiling on one request body, restated here so the browser
+ * can refuse an oversized file before writing anything rather than let Next's
+ * body parser answer a partway-through POST with a 413 the operator cannot
+ * read — the defect the fix-round review named: at Next's 1 MB default, the
+ * `rows` field this form posts as one JSON string silently capped the import
+ * at roughly seven thousand rows with no message at all.
+ *
+ * MUST be kept equal, by hand, to next.config.mjs's
+ * `experimental.serverActions.bodySizeLimit` ('8mb'). There is no way to share
+ * one literal between the two files: next.config.mjs is loaded by plain
+ * Node before webpack ever runs, so it cannot import a value out of this
+ * `'use client'` module, and this module importing next.config.mjs would pull
+ * Next's own config-loading machinery into the browser bundle to reach one
+ * number. next.config.mjs's own comment states the other half of this pair
+ * and how the value was sized.
+ */
+export const IMPORT_ROWS_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The exact byte count of what the hidden `rows` field below will send.
+ *
+ * `TextEncoder`, not the JSON string's own `.length` — a `.length` counts
+ * UTF-16 code units, and an accented name (every "ã", "ç", "õ" this file's own
+ * header aliases expect) is more BYTES on the wire than characters on screen.
+ * Next's body size limit counts bytes (action-handler.js's `Buffer.byteLength`
+ * on the raw stream), so a byte count is the only measurement that answers
+ * the question this function exists to ask: will the server accept this.
+ *
+ * Exported so the cap can be tested directly against real rows rather than
+ * through a render — see tests/unit/participation-import.test.ts.
+ */
+export function importRowsPayloadBytes(rows: ParsedRow[]): number {
+  return new TextEncoder().encode(JSON.stringify(rows)).length;
+}
+
+/**
  * A file of entries, written in one call (design spec D6): it writes what it can
  * and reports what it skipped, by line number, with no preview-and-confirm
  * stage.
@@ -343,7 +388,14 @@ export function ImportParticipationsForm({
   // file. Neither COLUMN, though, means not one row in it could ever be matched.
   const noIdentifierColumn =
     file !== null && file.mapping.phone === undefined && file.mapping.cpf === undefined;
-  const ready = file !== null && missing.length === 0 && !noIdentifierColumn && file.rows.length > 0;
+  // Fix-round finding #1: above this, Next's own body size limit would have
+  // silently capped the import with no message at all. The refusal happens
+  // HERE, before anything is posted — never as a truncation and never as a
+  // 413 the operator has no way to read.
+  const rowsPayloadBytes = file ? importRowsPayloadBytes(file.rows) : 0;
+  const oversized = file !== null && rowsPayloadBytes > IMPORT_ROWS_BODY_LIMIT_BYTES;
+  const ready =
+    file !== null && missing.length === 0 && !noIdentifierColumn && !oversized && file.rows.length > 0;
 
   async function onFileChosen(chosen: File | undefined) {
     setReadFailure(null);
@@ -438,6 +490,19 @@ export function ImportParticipationsForm({
           {file.rows.length === 0 && missing.length === 0 && (
             <p className="text-sm text-destructive">
               That file has a header row and nothing under it.
+            </p>
+          )}
+          {/* Fix-round finding #1: a stated refusal, naming the cap, in place
+              of the silent one Next's default would have given this form —
+              see IMPORT_ROWS_BODY_LIMIT_BYTES's own comment. */}
+          {oversized && (
+            <p className="text-sm text-destructive" data-testid="participation-import-oversize">
+              This file is too large to import in one go: its {file.rows.length}{' '}
+              {file.rows.length === 1 ? 'line sends' : 'lines send'} about{' '}
+              {(rowsPayloadBytes / (1024 * 1024)).toFixed(1)} MB to the server, and one import is
+              limited to {(IMPORT_ROWS_BODY_LIMIT_BYTES / (1024 * 1024)).toFixed(0)} MB. Split it into
+              at least {Math.ceil(rowsPayloadBytes / IMPORT_ROWS_BODY_LIMIT_BYTES)} smaller files and
+              import each one separately. Nothing from this file has been written.
             </p>
           )}
         </div>
