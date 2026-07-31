@@ -49,6 +49,33 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   participatedAt: 'When they entered',
 };
 
+/**
+ * The three reasons import_participations skips a row (0054, 0056), each turned
+ * into what the operator has to DO about it — which is different in all three
+ * cases and is the only reason they are three reasons rather than one.
+ *
+ * `no identifier` is the operator's own file to fix. `listener is out of reach`
+ * cannot be fixed from a file at all: the identifier belongs to somebody at a
+ * Station this caller cannot see, and 0031's unique indexes would refuse a
+ * second registration, so it needs access rather than editing. `listener is at
+ * another station` is the one in between, and telling it apart from the second
+ * is the whole point of 0056 giving it its own reason: this listener IS visible
+ * to this caller, they simply are not attached to the Station running the
+ * promotion, and linking them is something the operator can go and do.
+ *
+ * A lookup with a fallback rather than a ternary. The ternary this replaced read
+ * anything that was not `no identifier` as "out of reach", so 0056's new reason
+ * would have rendered as an instruction to ask for a permission the operator
+ * already held — and a fourth reason in Block 5 would do the same silently.
+ */
+const SKIP_REASONS: Record<string, string> = {
+  'no identifier': 'no phone and no CPF, so there was nobody to match',
+  'listener is out of reach':
+    'that phone or CPF belongs to a listener at a Station you cannot see, so they cannot be entered or registered here',
+  'listener is at another station':
+    'that listener is registered at another Station of this Organization and is not linked to this one; link them and import again',
+};
+
 /** One line of the file, mapped but not yet validated — importRowSchema does that on the server. */
 interface ParsedRow {
   line: number;
@@ -531,14 +558,14 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
                   <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
                     skipped
                   </span>
-                  {/* The RPC's two reasons, turned into sentences. `no identifier`
-                      is the operator's file to fix; `listener is out of reach`
-                      is not fixable in a file at all — somebody who can see that
-                      listener has to link them to this Station. */}
+                  {/* An unrecognised reason renders itself rather than being
+                      dressed as one of the three. The database's own word is a
+                      worse sentence than a written one and a far better one than
+                      the wrong sentence — see SKIP_REASONS. */}
                   <span className="text-muted-foreground">
-                    {row.reason === 'no identifier'
-                      ? 'no phone and no CPF, so there was nobody to match'
-                      : 'that phone or CPF belongs to a listener you cannot reach from this Station'}
+                    {(row.reason && SKIP_REASONS[row.reason]) ??
+                      row.reason ??
+                      'the import could not use this line'}
                   </span>
                 </>
               ) : (

@@ -767,6 +767,122 @@ describe('importing a file', () => {
     expect(rows[0]).toMatchObject({ outcome: 'skipped', reason: 'listener is out of reach' });
   });
 
+  /**
+   * The case that would have caught 0056's defect, and the assertion that
+   * matters is the last one.
+   *
+   * Before 0056 this file did not skip a row — it destroyed itself.
+   * resolve_or_create_member searches the whole Organization (Block 3's
+   * deduplication, 0033), so a listener registered only at a sister Station
+   * RESOLVES; apply_participation one line later requires the promotion's own
+   * Station to be linked to them and raises P0002; that raise propagates out of
+   * import_participations and rolls the transaction back. A three-hundred-row
+   * file wrote nothing because of row 47, and the operator was told a promotion
+   * or a listener could not be found.
+   *
+   * Note what this listener is NOT: they are not out of reach. The delegate
+   * holds members.view across the Organization, so find_member_by_identifier
+   * answers `visible` and hands back an id — which is precisely why the
+   * `elsewhere` case above cannot stand in for this one, and why the reason has
+   * to be its own. The fix is different too: this operator can link them.
+   *
+   * The two rows either side of the bad one are the point. Asserting only that
+   * row 3 comes back skipped would pass against a function that skipped it and
+   * then rolled back anyway, or against one that never wrote rows 2 and 4 —
+   * which is the failure being fixed. The `participations` read at the end is
+   * the only assertion that can see it.
+   */
+  it('skips a listener registered only at a sister Station, and leaves the rest of the file written', async () => {
+    const label = `imp-unlinked-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const otherCompanyId = await addCompany(customer, `Second ${label}`);
+    const promotionId = await promotionAsOwner(customer);
+
+    // Registered at the OTHER Station only. Reachable — the delegate's role
+    // below is granted at both Stations, so members.view resolves them — but not
+    // linked to the Station the promotion belongs to.
+    await createMemberAs(customer, otherCompanyId, {
+      fullName: 'Vizinho De Outra Praca',
+      phone: '11970000010',
+    });
+
+    const delegate = await grantRoleWith(
+      customer,
+      label,
+      [
+        'promotions.view',
+        'participations.view',
+        'participations.import',
+        'members.view',
+        'members.create',
+      ],
+      // Both Stations, which is what separates this case from the `elsewhere`
+      // one above: there the delegate could not see the listener at all, here
+      // they can see them perfectly and still cannot enter them.
+      [customer.companyId, otherCompanyId],
+    );
+    const client = await clientFor(delegate);
+
+    const when = new Date(Date.now() - HOUR).toISOString();
+    const result = await client.rpc('import_participations', {
+      p_promotion_id: promotionId,
+      p_rows: [
+        { line: 2, full_name: 'Antes Da Falha', phone: '11970000011', participated_at: when },
+        { line: 3, full_name: 'Vizinho De Outra Praca', phone: '11970000010', participated_at: when },
+        { line: 4, full_name: 'Depois Da Falha', phone: '11970000012', participated_at: when },
+      ],
+    });
+
+    // Not an error at all, which is the first half of the fix: before 0056 this
+    // came back P0002 with `data` null.
+    expect(result.error).toBeNull();
+    expect(result.data).toMatchObject({
+      recorded: 2,
+      skipped: 1,
+      members_created: 2,
+    });
+
+    const rows = (result.data as { rows: Array<Record<string, unknown>> }).rows;
+    // The reason is asserted as a STRING and not merely as "skipped", because
+    // the screen turns each of the three into a different instruction. Answering
+    // this one with 'listener is out of reach' would send an operator who holds
+    // members.view here to go and ask for members.view.
+    expect(rows.find((r) => r.line === 3)).toMatchObject({
+      outcome: 'skipped',
+      reason: 'listener is at another station',
+    });
+    expect(rows.find((r) => r.line === 2)).toMatchObject({
+      outcome: 'recorded',
+      status: 'VALID',
+    });
+    expect(rows.find((r) => r.line === 4)).toMatchObject({
+      outcome: 'recorded',
+      status: 'VALID',
+    });
+
+    // THE assertion. Everything above describes what the function SAID; this is
+    // what it did. A transaction that rolled back would report the same summary
+    // only if it never returned at all — but a future "fix" that caught the raise
+    // per row and let the transaction die at commit would satisfy every line
+    // above and leave this table empty.
+    const written = await client
+      .from('participations')
+      .select('member_id')
+      .eq('promotion_id', promotionId);
+    expect(written.error).toBeNull();
+    expect(written.data).toHaveLength(2);
+
+    // And the skipped listener has no entry in this promotion — the row was not
+    // quietly recorded against a Station that is not linked to them.
+    const neighbour = await client
+      .from('members')
+      .select('id')
+      .eq('phone_normalized', '11970000010')
+      .single();
+    expect(neighbour.error).toBeNull();
+    expect(written.data!.map((r) => r.member_id)).not.toContain(neighbour.data!.id);
+  });
+
   it('refuses a delegate holding participations.import but not members.create', async () => {
     const label = `imp-perm-${Date.now()}`;
     const customer = await provisionCustomer(label);
