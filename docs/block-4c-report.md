@@ -37,22 +37,24 @@ below records what it changed.
 ## 1. Gates
 
 Every gate at its real defaults, on the final tree, after all four mutations
-were reverted and the tree proved clean.
+were reverted and the tree proved clean. Two columns: the ten reviewed tasks as
+they stood at `d773f4d`, and the same gates after the whole-branch review's fix
+wave (§10), which is what the pull request carries.
 
-| Gate | Result |
-| --- | --- |
-| `npm run lint` | No ESLint warnings or errors |
-| `npm run typecheck` | clean |
-| `npm test` | **321 passed**, 23 files |
-| `npm run db:test` | **391 PASS**, 6 files (`05_participations.test.sql` = 31) |
-| `npm run test:isolation` | **175 passed**, 14 files, nothing skipped, every file accounted for |
-| `npm run test:e2e` (`--workers=1`) | **18 passed** |
+| Gate | At `d773f4d` | After the fix wave |
+| --- | --- | --- |
+| `npm run lint` | No ESLint warnings or errors | No ESLint warnings or errors |
+| `npm run typecheck` | clean | clean |
+| `npm test` | **321 passed**, 23 files | **326 passed**, 23 files |
+| `npm run db:test` | **391 PASS**, 6 files (`05` = 31) | **392 PASS**, 6 files (`05` = 32) |
+| `npm run test:isolation` | **175 passed**, 14 files, nothing skipped | **182 passed**, 14 files, nothing skipped, each file above its own case floor |
+| `npm run test:e2e` (`--workers=1`) | **18 passed** | **20 passed** |
 
 What this block added to those totals: `supabase/tests/05_participations.test.sql`
-(31 pgTAP assertions, new); 23 isolation cases in
-`tests/isolation/participations.test.ts` (new); four e2e journeys in
+(32 pgTAP assertions, new); 29 isolation cases in
+`tests/isolation/participations.test.ts` (new); six e2e journeys in
 `tests/e2e/participations-flow.spec.ts` (new); and unit files for the CSV reader
-(`tests/unit/participation-import.test.ts`, 30) and the navigation guard
+(`tests/unit/participation-import.test.ts`, 35) and the navigation guard
 (`tests/unit/participations-filters.test.ts`, 15).
 
 ### 1.1 The isolation flake, and why no rate is quoted
