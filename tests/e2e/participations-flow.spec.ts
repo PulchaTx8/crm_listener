@@ -1,0 +1,778 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { test, expect, type Page } from '@playwright/test';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {
+  LOCAL_SUPABASE_URL,
+  LOCAL_SUPABASE_ANON_KEY,
+  LOCAL_SUPABASE_SERVICE_ROLE_KEY,
+} from '../local-supabase';
+
+/**
+ * Block 4c's proof, over the four surfaces Tasks 6 to 8 built: an entry
+ * recorded from the promotion record's fifth tab changes the count on that tab
+ * without the promotions list behind the dialog being re-queried once, and
+ * /participations then lists it, opening on the entries that counted and saying
+ * so.
+ *
+ * Three journeys, and each names a claim that would otherwise rest on reasoning:
+ *
+ *   1. the write, the count, and the list that must not move (design spec D8);
+ *   2. the VALID default announcing itself, and "Any status" undoing it (D5);
+ *   3. a delegate who may read entries but not the audience being told their
+ *      search was dropped — and still shown every row (Task 7 §5).
+ *
+ * A FOURTH was written and is deliberately not here, because it does not pass.
+ * The filter bar cancels a pending debounced search when the address changes
+ * for a reason that was not itself, and it does that from an effect keyed on
+ * the address — so the cancel can only happen once the destination render has
+ * COMMITTED. That commit is an RSC round trip, and this screen's own render
+ * measures 276-305ms of server time: a Station chip onto an empty Station
+ * commits at 320-351ms against a 350ms debounce (it held 5 of 6 runs), and a
+ * page turn commits at 484-527ms (it held 0 of 6). So typing and then turning
+ * the page inside the debounce window loses the page turn and applies the
+ * search the operator abandoned. That is a defect in
+ * participations-filters.tsx, not in the test, and this task was not the one
+ * allowed to change it — the case is written out in Task 9's report ready to
+ * be committed the moment the guard stops depending on winning a race.
+ */
+const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
+const stamp = Date.now();
+const platformAdminEmail = `e2e-entry-admin-${stamp}@example.test`;
+const platformAdminPassword = `E2e-entry-admin-${stamp}-pw`;
+
+// --- the first journey's world: ONE Organization holding exactly ONE Station -
+//
+// Its own Organization, and that is load-bearing rather than tidiness. The
+// render counter below cannot tell a Station chip's <Link> prefetch on
+// /promotions apart from the re-query this block forbids: both are RSC requests
+// for /promotions. An owner who can reach two Stations gets that chip row
+// (promotions/page.tsx renders it above one), and in CI — where the suite runs
+// a production build, and only there is <Link> prefetching enabled at all — it
+// would fire an RSC request this counter would count. So the operator whose
+// renders are being counted can reach exactly one Station, which is the
+// condition promotion-prizes.spec.ts already proves the counter under. It also
+// keeps this journey's promotions list at exactly one row whatever else the
+// file grows, which is what lets the compensating assertion below be a count
+// rather than a comparison against a number somebody has to keep up to date.
+const entryOwnerEmail = `e2e-entry-owner-${stamp}@example.test`;
+const entryOwnerPassword = `Entry-owner-${stamp}-chosen`;
+const entryOrgName = `Entry Org ${stamp}`;
+const entryStationName = `Entry Station ${stamp}`;
+const entryPromotionName = `Ana Entry Promo ${stamp}`;
+/**
+ * Registered on the owner's own session AFTER the promotions list is on screen
+ * and while the record is open. Nothing in that journey ever navigates to
+ * /promotions again, so the only way this name can reach the screen is a
+ * re-render of the list — which is exactly what must not happen. Named to sort
+ * last so that a list which DID rebuild would also have to re-sort, and cannot
+ * hide the extra row off the end of a page.
+ */
+const unseenPromotionName = `Zoe Unseen Promo ${stamp}`;
+/** The listener whose entry is planted out of band — see PLANTED, below. */
+const unseenListenerName = `Bruno Unseen ${stamp}`;
+const unseenListenerPhone = `1197${String(stamp).slice(-7)}`;
+/** The listener the operator types into the manual form, who does not exist yet. */
+const typedListenerName = `Carla Typed ${stamp}`;
+const typedListenerPhone = `1196${String(stamp).slice(-7)}`;
+
+// --- the other two journeys' world: one Organization, one Station, two roles -
+const listOwnerEmail = `e2e-list-owner-${stamp}@example.test`;
+const listOrgName = `List Org ${stamp}`;
+const stationAName = `List Station A ${stamp}`;
+const managerEmail = `e2e-list-manager-${stamp}@example.test`;
+const readerEmail = `e2e-list-reader-${stamp}@example.test`;
+const listingPromotionName = `Listing Promo ${stamp}`;
+const anaName = `Ana Listed ${stamp}`;
+const brunoName = `Bruno Listed ${stamp}`;
+/**
+ * Deliberately carries no digit. The service ORs the term against
+ * `cpf_last_digits` and `phone_normalized` as well as the name, but only once
+ * the term contains a digit — including the stamp here would put five- and
+ * six-digit substrings of it against every phone in the Station and make "this
+ * term matches exactly one listener" an accident rather than a fact.
+ */
+const searchTerm = 'Ana Listed';
+
+const createdUserIds: string[] = [];
+
+interface World {
+  organizationId: string;
+  stationAId: string;
+  listingPromotionId: string;
+  managerPassword: string;
+  readerPassword: string;
+}
+/**
+ * Built once in beforeAll and read by the last two journeys. The definite
+ * assignment assertion is honest here rather than a way round the compiler: a
+ * beforeAll that throws fails every test in the file, so no journey can reach
+ * this while it is unset.
+ */
+let world!: World;
+
+const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+
+function anonClient(): SupabaseClient {
+  return createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+async function signIn(email: string, password: string): Promise<SupabaseClient> {
+  const client = anonClient();
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`could not sign in as ${email}: ${error.message}`);
+  return client;
+}
+
+/** A real auth user with a profile row, recorded for afterAll. */
+async function createAuthUser(email: string): Promise<{ id: string; password: string }> {
+  const password = `Pw-${stamp}-${email.slice(0, 12)}`;
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`could not create ${email}: ${error?.message}`);
+  createdUserIds.push(data.user.id);
+  const { error: profileError } = await admin.from('profiles').insert({ id: data.user.id, email });
+  if (profileError)
+    throw new Error(`could not create profile for ${email}: ${profileError.message}`);
+  return { id: data.user.id, password };
+}
+
+/**
+ * Adds a colleague to an Organization through the real invitation RPCs, the
+ * long way round tests/isolation/harness.ts goes: Block 1a leaves the tenant
+ * tables read-only for service_role on purpose, so there is no shortcut to
+ * insert the membership rows, and going the long way means the seeding path is
+ * the production path.
+ *
+ * The RPCs, not the /invite screen. The accept screen is rate limited to ten
+ * per hour per IP (src/lib/rate-limit), which is an APPLICATION-layer limiter —
+ * accept_invitation itself has no counter — and four unrelated specs in this
+ * suite already spend against it. Driving the browser here would add two more
+ * for a screen invitation-flow.spec.ts already proves.
+ *
+ * Order matters: the invitation is created BEFORE the auth user exists, because
+ * create_invitation refuses an address that already has an account.
+ */
+async function addDelegate(
+  ownerClient: SupabaseClient,
+  organizationId: string,
+  email: string,
+  roleId: string,
+  companyIds: string[],
+): Promise<{ id: string; password: string }> {
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+
+  const { error: inviteError } = await ownerClient.rpc('create_invitation', {
+    p_organization_id: organizationId,
+    p_email: email,
+    p_is_owner: false,
+    p_role_id: roleId,
+    p_company_ids: companyIds,
+    p_token_hash: tokenHash,
+    p_ttl_days: 7,
+  });
+  if (inviteError) throw new Error(`create_invitation failed: ${inviteError.message}`);
+
+  const user = await createAuthUser(email);
+
+  const { error: acceptError } = await admin.rpc('accept_invitation', {
+    p_token_hash: tokenHash,
+    p_user_id: user.id,
+  });
+  if (acceptError) throw new Error(`accept_invitation failed: ${acceptError.message}`);
+  return user;
+}
+
+async function createPromotion(
+  client: SupabaseClient,
+  companyId: string,
+  name: string,
+): Promise<string> {
+  const { data, error } = await client.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: name,
+    p_starts_at: new Date(Date.now() - 30 * DAY).toISOString(),
+    p_ends_at: new Date(Date.now() + 30 * DAY).toISOString(),
+  });
+  if (error) throw new Error(`create_promotion(${name}) failed: ${error.message}`);
+  return data as string;
+}
+
+async function createListener(
+  client: SupabaseClient,
+  companyId: string,
+  fullName: string,
+  phone: string,
+): Promise<string> {
+  const { data, error } = await client.rpc('create_member', {
+    p_company_id: companyId,
+    p_full_name: fullName,
+    p_phone: phone,
+  });
+  if (error) throw new Error(`create_member(${fullName}) failed: ${error.message}`);
+  return data as string;
+}
+
+/** One entry through the real RPC, returning the status the database chose. */
+async function recordEntry(
+  client: SupabaseClient,
+  promotionId: string,
+  memberId: string,
+  participatedAt: Date,
+): Promise<string> {
+  const { data, error } = await client.rpc('record_participation', {
+    p_promotion_id: promotionId,
+    p_member_id: memberId,
+    p_participated_at: participatedAt.toISOString(),
+    p_source: 'MANUAL',
+  });
+  if (error) throw new Error(`record_participation failed: ${error.message}`);
+  return (data as { status: string }).status;
+}
+
+test.beforeAll(async () => {
+  // Two Organizations, two delegates, one promotion with three entries and one
+  // with twenty-six: past the 30s default, and sized to the work rather than
+  // rounded up.
+  test.setTimeout(120_000);
+
+  const platformAdmin = await admin.auth.admin.createUser({
+    email: platformAdminEmail,
+    password: platformAdminPassword,
+    email_confirm: true,
+  });
+  if (platformAdmin.error || !platformAdmin.data.user) {
+    throw new Error(`could not create admin: ${platformAdmin.error?.message}`);
+  }
+  createdUserIds.push(platformAdmin.data.user.id);
+  await admin
+    .from('profiles')
+    .insert({ id: platformAdmin.data.user.id, email: platformAdminEmail });
+  await admin.from('platform_admins').insert({ user_id: platformAdmin.data.user.id });
+
+  // --- the second Organization, seeded through the real RPCs -----------------
+  //
+  // Not through the Customers screen, unlike the first journey below, and the
+  // difference is deliberate: journey 1 is about what happens on a screen, so
+  // it walks in through the screens; journeys 2 and 3 are about what a list
+  // shows, and provisioning is already proved by provisioning-flow.spec.ts and
+  // driven again in journey 1. The owner here never opens a browser at all —
+  // every write below is a signed-in RPC call, which the provisional-password
+  // gate does not stand in front of (it is middleware over page requests), so
+  // nothing about that gate is being worked around.
+  const adminClient = await signIn(platformAdminEmail, platformAdminPassword);
+  const listOwner = await createAuthUser(listOwnerEmail);
+
+  const { data: provisioned, error: provisionError } = await adminClient.rpc('provision_customer', {
+    p_user_id: listOwner.id,
+    p_organization_name: listOrgName,
+    p_company_name: stationAName,
+    p_timezone: 'America/Sao_Paulo',
+  });
+  if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
+  const { organization_id: organizationId, company_id: stationAId } = provisioned as {
+    organization_id: string;
+    company_id: string;
+  };
+
+  const ownerClient = await signIn(listOwnerEmail, listOwner.password);
+
+  // Two roles, and the ONE permission between them is the whole of journey 3:
+  // both read entries and promotions, only the manager can see the audience.
+  const { data: managerRoleId, error: managerRoleError } = await ownerClient.rpc('create_role', {
+    p_organization_id: organizationId,
+    p_name: `Entry Manager ${stamp}`,
+    p_permission_codes: ['participations.view', 'promotions.view', 'members.view'],
+  });
+  if (managerRoleError) throw new Error(`create_role(manager) failed: ${managerRoleError.message}`);
+
+  const { data: readerRoleId, error: readerRoleError } = await ownerClient.rpc('create_role', {
+    p_organization_id: organizationId,
+    p_name: `Entry Reader ${stamp}`,
+    p_permission_codes: ['participations.view', 'promotions.view'],
+  });
+  if (readerRoleError) throw new Error(`create_role(reader) failed: ${readerRoleError.message}`);
+
+  const manager = await addDelegate(
+    ownerClient,
+    organizationId,
+    managerEmail,
+    managerRoleId as string,
+    [stationAId],
+  );
+  const reader = await addDelegate(
+    ownerClient,
+    organizationId,
+    readerEmail,
+    readerRoleId as string,
+    [stationAId],
+  );
+
+  // --- the listing promotion: two entries that counted, one that did not -----
+  const listingPromotionId = await createPromotion(ownerClient, stationAId, listingPromotionName);
+  const anaId = await createListener(
+    ownerClient,
+    stationAId,
+    anaName,
+    `1191${String(stamp).slice(-7)}`,
+  );
+  const brunoId = await createListener(
+    ownerClient,
+    stationAId,
+    brunoName,
+    `1192${String(stamp).slice(-7)}`,
+  );
+
+  const anaFirst = await recordEntry(
+    ownerClient,
+    listingPromotionId,
+    anaId,
+    new Date(Date.now() - 3 * HOUR),
+  );
+  const brunoOnly = await recordEntry(
+    ownerClient,
+    listingPromotionId,
+    brunoId,
+    new Date(Date.now() - 2 * HOUR),
+  );
+  // The promotion takes one entry each (create_promotion's own default), so the
+  // second attempt by the same listener is RECORDED as DUPLICATE rather than
+  // refused — design spec D5, and the whole reason the default filter has to
+  // announce itself. Asserted here rather than assumed: if this ever came back
+  // VALID the fixture would silently become three counted entries and journey
+  // 2's numbers would still add up, against nothing.
+  const anaAgain = await recordEntry(
+    ownerClient,
+    listingPromotionId,
+    anaId,
+    new Date(Date.now() - HOUR),
+  );
+  expect([anaFirst, brunoOnly, anaAgain]).toEqual(['VALID', 'VALID', 'DUPLICATE']);
+
+  world = {
+    organizationId,
+    stationAId,
+    listingPromotionId,
+    managerPassword: manager.password,
+    readerPassword: reader.password,
+  };
+});
+
+test.afterAll(async () => {
+  for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
+});
+
+/**
+ * Counts the requests that would re-render the promotions list: a document
+ * navigation to /promotions, or an RSC payload fetch for it. Next marks the
+ * latter with an `RSC` header and an `_rsc` query parameter.
+ *
+ * Server-action POSTs on the same path are expected and excluded by resource
+ * type: the block forbids re-running the LIST, not talking to the server.
+ *
+ * WHAT THIS CANNOT SEE — a revalidatePath() inside a server action does NOT
+ * produce a request of its own. Next returns the freshly rendered tree inside
+ * the action's own POST response, which this counter deliberately ignores, so
+ * the exact regression this block most fears would slip straight past it. What
+ * catches that one is the compensating assertion made AT THE MOMENT OF THE
+ * WRITE, and it has to be invented per spec, because it depends on what the
+ * write in question changes.
+ *
+ * THIS SPEC'S COMPENSATION, and why it is a PAIR rather than the single
+ * assertion promotion-prizes.spec.ts makes.
+ *
+ * Half of it is that spec's: a SECOND promotion is registered out of band,
+ * after the list is on screen, so a list rebuilt from the server would grow a
+ * row. That half transfers unchanged, and the check that it still applies here
+ * was not skipped — PromotionSummary (services/promotions.ts) carries name,
+ * window, cancellation, hashtag, question count and archive date, and NOT a
+ * participation count. So recording an entry changes nothing this list shows,
+ * a re-render would come back byte-identical, and an assertion about the rows
+ * already on screen could not fail. A row only the server knows about is still
+ * the only thing that separates the two.
+ *
+ * The second half is what this journey has and that one did not, and it is
+ * there because "the list did not change" is a NEGATIVE claim: it is satisfied
+ * just as well by a screen where nothing happened at all — a write that failed
+ * quietly, a refresh that never fired, a tab that reads from a stale prop.
+ * Against that, a counter of zero and an unchanged list are exactly what a dead
+ * screen produces. So an ENTRY is planted out of band at the same instant as
+ * the promotion, by the same session, for a listener the browser has never
+ * heard of; and after the operator's own entry the fifth tab must read TWO. Two
+ * is a number the browser cannot compute — it knows about precisely one entry,
+ * the one it just made — so it can only have come from a fresh read of the
+ * record, made after both writes landed.
+ *
+ * One planted fact must appear, the other must not, and the same round trip
+ * decides both. That asymmetry — the record re-read, the list left alone — is
+ * the block's rule stated as something that can go red, rather than as the
+ * absence of evidence.
+ */
+function countListRenders(page: Page): string[] {
+  const renders: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (!url.pathname.startsWith('/promotions')) return;
+    const isRsc = url.searchParams.has('_rsc') || request.headers()['rsc'] === '1';
+    if (request.resourceType() === 'document' || isRsc) renders.push(request.url());
+  });
+  return renders;
+}
+
+/** The Listener cell of a row on /participations: Listener, Promotion, Status, Source, Entered. */
+function listenerCell(page: Page, index: number) {
+  return page.getByTestId('participation-row').nth(index).locator('td').first();
+}
+
+test('an entry recorded from the fifth tab moves the count, leaves the list behind the dialog alone, and lands on /participations', async ({
+  page,
+  browser,
+}) => {
+  // A provisioning round trip, a promotion, a planted listener, a manual entry
+  // and two screens — measured past the 30s default.
+  test.setTimeout(90_000);
+
+  // --- seed a customer and an owner ------------------------------------------
+  // The same sequence promotion-prizes.spec.ts performs in its own first test,
+  // and through the same real screens.
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
+  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.getByRole('link', { name: 'Customers' }).click();
+  await page.getByTestId('customer-create').click();
+  await page.getByPlaceholder('Organization name').fill(entryOrgName);
+  await page.getByPlaceholder('Company (Station) name').fill(entryStationName);
+  await page.getByPlaceholder('Owner e-mail').fill(entryOwnerEmail);
+  await page.getByRole('button', { name: 'Provision', exact: true }).click();
+
+  const revealed = page.locator('code').first();
+  await expect(revealed).toBeVisible({ timeout: 15_000 });
+  const provisionalPassword = (await revealed.innerText()).trim();
+
+  const { data: ownerProfile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', entryOwnerEmail)
+    .single();
+  if (!ownerProfile) throw new Error(`no profile row for ${entryOwnerEmail}`);
+  createdUserIds.push(ownerProfile.id);
+
+  const ownerContext = await browser.newContext();
+  const ownerPage = await ownerContext.newPage();
+  await ownerPage.goto('/login');
+  await ownerPage.getByPlaceholder('E-mail').fill(entryOwnerEmail);
+  await ownerPage.getByPlaceholder('Password').fill(provisionalPassword);
+  await ownerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(ownerPage).toHaveURL(/\/change-password$/);
+  await ownerPage.getByPlaceholder('New password').fill(entryOwnerPassword);
+  await ownerPage.getByPlaceholder('Repeat the password').fill(entryOwnerPassword);
+  await ownerPage.getByRole('button', { name: 'Save' }).click();
+  await expect(ownerPage).toHaveURL(/\/app$/);
+
+  const asOwner = await signIn(entryOwnerEmail, entryOwnerPassword);
+
+  const { data: station } = await admin
+    .from('companies')
+    .select('id')
+    .eq('name', entryStationName)
+    .single();
+  if (!station) throw new Error(`no company row for ${entryStationName}`);
+
+  // The promotion is seeded through create_promotion on the owner's own session
+  // rather than by driving the registration dialog, for the reason
+  // promotions-flow.spec.ts gives for its own three: this spec is about what
+  // happens to a list once it is on screen.
+  const promotionId = await createPromotion(asOwner, station.id, entryPromotionName);
+  // Registered NOW, before the list is on screen, so that the ENTRY planted
+  // further down can be recorded for somebody the promotion will accept. The
+  // listener existing is not the planted fact; their entry is.
+  const unseenListenerId = await createListener(
+    asOwner,
+    station.id,
+    unseenListenerName,
+    unseenListenerPhone,
+  );
+
+  // --- the journey -----------------------------------------------------------
+  const renders = countListRenders(ownerPage);
+
+  await ownerPage.goto('/promotions');
+  await expect(ownerPage.getByTestId('promotion-row')).toHaveCount(1);
+  await expect(ownerPage.getByTestId('promotion-row').first()).toContainText(entryPromotionName);
+
+  // The navigation that put this list on screen is a render of it, and it is
+  // the last one this journey is allowed. Cleared rather than tolerated in the
+  // assertions below, so that the number checked is zero and not a magic
+  // constant somebody would later "fix" by incrementing.
+  renders.length = 0;
+
+  // A button, not a link: the promotions grid opens a record with
+  // `window.history.pushState` from a click handler, and a real anchor would be
+  // a navigation, which is the one thing this screen is built not to do.
+  // `exact`, because the row also carries "Edit <name>" and "Actions for
+  // <name>" controls and an accessible-name match is a substring match by
+  // default.
+  await ownerPage.getByRole('button', { name: entryPromotionName, exact: true }).click();
+  await expect(ownerPage.getByTestId('promotion-tab-data')).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+
+  await ownerPage.getByTestId('promotion-tab-participations').click();
+  await expect(ownerPage).toHaveURL(/tab=participations/);
+
+  // Nothing has been entered yet, and BOTH figures are read: a tab that showed
+  // "2" at the end would satisfy an assertion about the first number even if it
+  // had been counting something else all along.
+  await expect(ownerPage.getByTestId('promotion-participations-valid')).toHaveText('0');
+  await expect(ownerPage.getByTestId('promotion-participations-refused')).toHaveText('0');
+
+  // Asserted, not merely asserted-about-in-a-comment: the tab renders from the
+  // record that was already read when the dialog opened — Task 8 moved the
+  // counts onto PromotionDetail for exactly that reason — so reaching it costs
+  // nothing at all. Checked here rather than only at the end so that a failure
+  // names which half of the journey caused it.
+  expect(renders, 'opening the record and switching to the Entries tab').toEqual([]);
+
+  // The footer's Save submits the promotion's own form, which this tab shows
+  // none of. Checked against the two tabs that must still offer it, so this is
+  // an assertion about THIS tab rather than about a button that has gone
+  // missing everywhere.
+  await expect(ownerPage.getByTestId('promotion-save')).toHaveCount(0);
+  await ownerPage.getByTestId('promotion-tab-data').click();
+  await expect(ownerPage.getByTestId('promotion-save')).toHaveCount(1);
+  await ownerPage.getByTestId('promotion-tab-participations').click();
+  await expect(ownerPage.getByTestId('promotion-save')).toHaveCount(0);
+
+  // --- PLANTED: the two facts the browser cannot know ------------------------
+  // Both on the owner's own session, both with the list already on screen and
+  // the record open. One must never reach the list; the other must reach the
+  // tab. See countListRenders' comment for why it takes both.
+  const unseenPromotionId = await createPromotion(asOwner, station.id, unseenPromotionName);
+  expect(unseenPromotionId).toBeTruthy();
+  const plantedStatus = await recordEntry(
+    asOwner,
+    promotionId,
+    unseenListenerId,
+    new Date(Date.now() - 5 * 60_000),
+  );
+  // If this ever came back anything but VALID the count below would be 1 and
+  // the failure would read as a broken tab rather than as a broken fixture.
+  expect(plantedStatus, 'the planted entry must be one that counts').toBe('VALID');
+
+  // Neither has been able to reach the screen yet, and the screen has not been
+  // given any reason to go and look.
+  await expect(ownerPage.getByTestId('promotion-row')).toHaveCount(1);
+  await expect(ownerPage.getByTestId('promotion-participations-valid')).toHaveText('0');
+
+  // --- the operator records an entry by hand ---------------------------------
+  await ownerPage.getByTestId('promotion-participation-record-open').click();
+  await expect(ownerPage.getByTestId('participation-record-form')).toBeVisible();
+  await ownerPage.getByTestId('participation-full-name').fill(typedListenerName);
+  await ownerPage.getByTestId('participation-phone').fill(typedListenerPhone);
+  await ownerPage.getByTestId('participation-record-submit').click();
+
+  // What comes back is an OUTCOME, not a verdict: the badge names the status
+  // the database chose and the sentence beside it says the entry is on the
+  // record. Nobody held that phone, so the listener was registered too (D4).
+  await expect(ownerPage.getByTestId('participation-record-status')).toHaveText('Counted');
+  await expect(ownerPage.getByTestId('participation-listener-created')).toBeVisible();
+
+  // --- the compensating pair -------------------------------------------------
+  // TWO, not one. The browser made one entry and has never been told about the
+  // other, so this number can only have come from a fresh read of the record —
+  // which is also the synchronisation point for everything below it: once the
+  // count has moved, the refresh round trip is provably finished, and a list
+  // rebuilt inside that same response would already be on screen.
+  await expect(
+    ownerPage.getByTestId('promotion-participations-valid'),
+    'the tab must read the count off the server, not off its own write',
+  ).toHaveText('2');
+  await expect(ownerPage.getByTestId('promotion-participations-refused')).toHaveText('0');
+
+  // The whole point of the block's screen rule: the write and the re-read both
+  // happened, and the list behind the dialog was rendered neither time.
+  expect(renders, 'recording an entry from the fifth tab').toEqual([]);
+  // And the half the counter cannot make for itself. A revalidatePath in
+  // recordParticipationAction returns a rebuilt list inside the action's own
+  // response, and that list has two promotions in it.
+  await expect(ownerPage.getByTestId('promotion-row')).toHaveCount(1);
+  await expect(ownerPage.getByText(unseenPromotionName)).toHaveCount(0);
+
+  // --- and /participations lists it ------------------------------------------
+  // Through the tab's own link rather than a hand-built URL: the link is what
+  // an operator has, and it carries status=all deliberately, because the two
+  // figures above it add up to every entry.
+  await ownerPage.getByTestId('promotion-participations-link').click();
+  await expect(ownerPage).toHaveURL(/\/participations\?/);
+  await expect(ownerPage).toHaveURL(new RegExp(`promotion=${promotionId}`));
+  await expect(ownerPage).toHaveURL(/status=all/);
+
+  await expect(ownerPage.getByTestId('participation-row')).toHaveCount(2);
+  await expect(ownerPage.getByTestId('page-total')).toHaveText('2 entries');
+  // Newest first, fixed (participations_listing_idx, 0052): the entry just made
+  // is stamped now and the planted one five minutes ago, so this order is the
+  // ordering under test rather than an accident of insertion.
+  const typedRow = ownerPage.getByTestId('participation-row').first();
+  await expect(typedRow).toContainText(typedListenerName);
+  await expect(typedRow).toContainText(entryPromotionName);
+  await expect(typedRow.getByTestId('participation-status')).toHaveText('Counted');
+  await expect(typedRow).toContainText('Entered by hand');
+  await expect(ownerPage.getByTestId('participation-row').nth(1)).toContainText(unseenListenerName);
+
+  await ownerContext.close();
+});
+
+test('the list opens on the entries that counted and says so, and Any status brings the refusal back', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+
+  const context = await browser.newContext();
+  const managerPage = await context.newPage();
+  await managerPage.goto('/login');
+  await managerPage.getByPlaceholder('E-mail').fill(managerEmail);
+  await managerPage.getByPlaceholder('Password').fill(world.managerPassword);
+  await managerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(managerPage).toHaveURL(/\/app$/);
+
+  // Narrowed to this journey's own promotion, so the numbers below are facts
+  // about the fixture rather than about whatever else lives in this Station.
+  const base = `/participations?companyId=${world.stationAId}&promotion=${world.listingPromotionId}`;
+  await managerPage.goto(base);
+
+  // Two of the three, because the screen opens on VALID.
+  await expect(managerPage.getByTestId('participation-row')).toHaveCount(2);
+  await expect(managerPage.getByTestId('page-total')).toHaveText('2 entries');
+  await expect(managerPage.getByTestId('participation-status').first()).toHaveText('Counted');
+
+  // THE assertion of this journey, and not the row count. Two rows alone also
+  // pass against a screen that silently lost the refusal — that is exactly what
+  // "two of three" looks like from the outside — and design spec D5's whole
+  // claim is that the refusal was written down and can be found. The sentence
+  // that says a default is narrowing the list is the only thing on screen that
+  // distinguishes the two, so it is what is asserted.
+  await expect(managerPage.getByTestId('participation-status-note')).toBeVisible();
+  await expect(managerPage.getByTestId('participation-status-note')).toContainText('Any status');
+
+  await managerPage.getByTestId('participation-status-filter').selectOption('all');
+  await expect(managerPage).toHaveURL(/status=all/);
+
+  await expect(managerPage.getByTestId('participation-row')).toHaveCount(3);
+  await expect(managerPage.getByTestId('page-total')).toHaveText('3 entries');
+  // The refusal is a row with a status, not an error and not an absence — and
+  // the whole column is read in order rather than the one new badge being
+  // counted. `getByText('Already entered')` would have matched the status
+  // filter's own <option> as well as the row, which is a locator that answers
+  // two before it answers one. Newest first: the second attempt is the most
+  // recent instant in the fixture, so this order is the ordering under test.
+  await expect(managerPage.getByTestId('participation-status')).toHaveText([
+    'Already entered',
+    'Counted',
+    'Counted',
+  ]);
+  // And the note goes, because it is now telling the truth about nothing.
+  await expect(managerPage.getByTestId('participation-status-note')).toHaveCount(0);
+
+  // Narrowing to the refusals alone: the third row was not merely appended to
+  // the end of an unfiltered list.
+  await managerPage.getByTestId('participation-status-filter').selectOption('DUPLICATE');
+  await expect(managerPage.getByTestId('participation-row')).toHaveCount(1);
+  await expect(managerPage.getByTestId('participation-status')).toHaveText('Already entered');
+  await expect(managerPage.getByTestId('participation-status-note')).toHaveCount(0);
+
+  await context.close();
+});
+
+test('a delegate who cannot see the audience is told their search was dropped, and is still shown every entry', async ({
+  browser,
+}) => {
+  test.setTimeout(60_000);
+
+  const base = `/participations?companyId=${world.stationAId}&promotion=${world.listingPromotionId}`;
+  const searched = `${base}&q=${encodeURIComponent(searchTerm)}`;
+
+  // --- first, somebody who CAN search, so the term is known to narrow --------
+  //
+  // Without this the journey below proves nothing: an unfiltered row count that
+  // happens to equal the filtered one passes whether the term was dropped or
+  // forwarded. This is what makes "two rows" mean "the term was not applied".
+  const managerContext = await browser.newContext();
+  const managerPage = await managerContext.newPage();
+  await managerPage.goto('/login');
+  await managerPage.getByPlaceholder('E-mail').fill(managerEmail);
+  await managerPage.getByPlaceholder('Password').fill(world.managerPassword);
+  await managerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(managerPage).toHaveURL(/\/app$/);
+
+  await managerPage.goto(searched);
+  await expect(managerPage.getByTestId('participation-search-input')).toBeEnabled();
+  await expect(managerPage.getByTestId('participation-search-note')).toHaveCount(0);
+  await expect(
+    managerPage.getByTestId('participation-row'),
+    'the term must narrow the list for somebody holding members.view',
+  ).toHaveCount(1);
+  await expect(listenerCell(managerPage, 0)).toContainText(anaName);
+  await managerContext.close();
+
+  // --- and now somebody who cannot ------------------------------------------
+  const readerContext = await browser.newContext();
+  const readerPage = await readerContext.newPage();
+  await readerPage.goto('/login');
+  await readerPage.getByPlaceholder('E-mail').fill(readerEmail);
+  await readerPage.getByPlaceholder('Password').fill(world.readerPassword);
+  await readerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(readerPage).toHaveURL(/\/app$/);
+
+  // The premise, checked rather than assumed: this delegate really cannot read
+  // the audience, so every listener name renders as a dash — the same dash an
+  // anonymised listener gets, deliberately, so the column cannot answer "has
+  // this person been erased?". If this ever showed a name the whole journey
+  // would be about a permission the delegate in fact holds.
+  await readerPage.goto(base);
+  await expect(readerPage.getByTestId('participation-row')).toHaveCount(2);
+  await expect(listenerCell(readerPage, 0)).toHaveText('—');
+  const unfiltered = await readerPage.getByTestId('participation-row').count();
+
+  await readerPage.goto(searched);
+
+  await expect(readerPage.getByTestId('participation-search-note')).toBeVisible();
+  await expect(readerPage.getByTestId('participation-search-note')).toContainText(
+    'was not applied',
+  );
+  // The note names the term back, so the operator can see WHICH search was
+  // dropped rather than being told that searching is unavailable in general.
+  await expect(readerPage.getByTestId('participation-search-note')).toContainText(searchTerm);
+  // Rendered disabled rather than dropped, and pointing at the sentence that
+  // explains it.
+  await expect(readerPage.getByTestId('participation-search-input')).toBeDisabled();
+  await expect(readerPage.getByTestId('participation-search-input')).toHaveAttribute(
+    'aria-describedby',
+    'participation-search-note',
+  );
+
+  // The half that cannot be skipped. A screen that showed the note and still
+  // forwarded the term would pass on the note alone, while displaying exactly
+  // the empty "nobody matched" the whole decision exists to prevent — and the
+  // manager's single row above is the proof that forwarding it WOULD empty this
+  // list rather than leave it as it is.
+  await expect(
+    readerPage.getByTestId('participation-row'),
+    'the term is dropped, so the list is every entry matching the other filters',
+  ).toHaveCount(unfiltered);
+  await expect(readerPage.getByTestId('page-total')).toHaveText('2 entries');
+
+  await readerContext.close();
+});
