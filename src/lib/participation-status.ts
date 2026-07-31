@@ -54,6 +54,35 @@ export const STATUS_LABELS: Record<ParticipationStatus, string> = {
 };
 
 /**
+ * The same four outcomes as a full sentence, for the two writing surfaces: the
+ * manual form reporting what happened to one attempt, and the import reporting
+ * what happened to a line of a file.
+ *
+ * They exist because a LABEL is not enough there. On the list a badge reading
+ * "Already entered" sits in a column headed Status beside a row that is plainly
+ * on the record, so the operator can see that nothing was lost. On a form that
+ * has just been submitted the same two words, alone, read as a refusal —
+ * "already entered, so I did not write it down" — which is the exact opposite
+ * of what the database did, and of what design spec D5 exists to say. Three of
+ * these four sentences therefore state twice over that the entry WAS recorded
+ * and say why it will not be drawn.
+ *
+ * Here rather than in either form: both render them, both are client
+ * components, and one wording in one place is what stops the manual door and
+ * the import telling an operator two different things about one status — the
+ * same drift apply_participation is shared to prevent underneath.
+ */
+export const STATUS_MEANINGS: Record<ParticipationStatus, string> = {
+  VALID: 'Recorded, and in the draw.',
+  DUPLICATE:
+    'Recorded. This listener had already entered and this promotion takes one entry each, so this one is on the record but not in the draw.',
+  TOO_SOON:
+    'Recorded. This listener entered again sooner than this promotion allows, so this one is on the record but not in the draw.',
+  OVER_LIMIT:
+    'Recorded. This listener has used every entry this promotion allows them, so this one is on the record but not in the draw.',
+};
+
+/**
  * One strong colour for the entries that count and one muted family for the
  * three that do not. The three refusals deliberately share a look: they are the
  * same answer to the operator's question — this one is not in the draw — and

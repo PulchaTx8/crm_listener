@@ -65,3 +65,42 @@ export function describeParticipationsReadError(
   if (cause instanceof ValidationError) return cause.message;
   return `Could not load ${what}. Refresh the page and try again.`;
 }
+
+/**
+ * The same taxonomy worded for a write, in the shape describePromotionsWriteError
+ * and describeMembersWriteError both carry: each caller passes what it was
+ * trying to do, so a refusal reads as "you cannot do THIS" rather than as a
+ * permission code.
+ *
+ * NotFoundError is the one branch that is genuinely different here, and it is
+ * different because P0002 on this surface has a meaning the other screens' does
+ * not. apply_participation (0054) raises it for a listener the promotion's
+ * Station is not linked to, alongside the ordinary stale-promotion case — and
+ * that first one is reachable through the front door: resolve_or_create_member
+ * searches the whole ORGANIZATION through find_member_by_identifier (0033), so
+ * a listener registered at a sister Station resolves perfectly and then cannot
+ * be entered here. "That could not be found. Refresh the page and try again."
+ * would send an operator to reload a screen that is not stale, over and over,
+ * for a promotion and a listener that both plainly exist. The sentence names
+ * both possibilities instead, because from this layer the code alone cannot
+ * tell them apart, and names the one thing that fixes the live half.
+ *
+ * ConflictError carries two very different messages and passes both through.
+ * create_member's 23505 is already a sentence naming which identifier collided.
+ * participations_one_per_member's is Postgres's own, naming an index — ugly, and
+ * still better than a generic replacement, because it appears only when the
+ * advisory lock did not serialise two simultaneous entries and the operator's
+ * next action is to look at what actually got written rather than to retry.
+ */
+export function describeParticipationsWriteError(cause: unknown, action: string): string {
+  if (cause instanceof ConflictError) return cause.message;
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof BusinessRuleError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return 'The promotion or the listener is no longer reachable from this Station. A listener registered at another Station of this Organization has to be linked to this one before an entry can be recorded for them.';
+  }
+  if (cause instanceof UnauthorizedError) {
+    return `You do not have permission to ${action}.`;
+  }
+  return 'Could not save. Refresh the page and try again.';
+}

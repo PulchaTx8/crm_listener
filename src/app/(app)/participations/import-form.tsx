@@ -1,0 +1,570 @@
+'use client';
+
+import { useActionState, useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { STATUS_CLASSES, STATUS_LABELS } from '@/lib/participation-status';
+// Both borrowed from the promotions screen rather than re-derived, on that
+// module's own rule: a second copy of a timezone conversion is how two controls
+// on one screen start disagreeing about which day something happened (spec L2).
+import { formatInstant } from '../promotions/format';
+import { fromZonedWallClock } from '../promotions/zone';
+import { importParticipationsAction, type ImportParticipationsState } from './actions';
+
+const INITIAL: ImportParticipationsState = { status: 'idle' };
+
+/**
+ * The four columns of design spec D7, and the header spellings each is accepted
+ * under.
+ *
+ * The spellings are Portuguese because the file is the operator's, not ours —
+ * schemas/participations.ts says the same thing from the other side: the field
+ * NAMES in this project are English, and the CSV's header row is whatever the
+ * Station's spreadsheet already says. The English aliases are here so that a
+ * file this system exports one day still imports back into it.
+ *
+ * Matched after normalisation, so `Participou Em`, `participou_em` and
+ * `PARTICIPOU-EM` are one header. Read by NAME and never by position, which is
+ * what "in any order" means.
+ */
+const COLUMN_ALIASES = {
+  fullName: ['nome', 'nomecompleto', 'name', 'fullname'],
+  phone: ['telefone', 'celular', 'fone', 'whatsapp', 'phone'],
+  cpf: ['cpf'],
+  participatedAt: [
+    'participouem',
+    'participou',
+    'dataparticipacao',
+    'datahora',
+    'data',
+    'participatedat',
+  ],
+} as const;
+
+type ColumnKey = keyof typeof COLUMN_ALIASES;
+
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  fullName: 'Name',
+  phone: 'Phone',
+  cpf: 'CPF',
+  participatedAt: 'When they entered',
+};
+
+/** One line of the file, mapped but not yet validated — importRowSchema does that on the server. */
+interface ParsedRow {
+  line: number;
+  fullName: string;
+  phone: string;
+  cpf: string;
+  /** An instant, or '' when the file's value could not be read as a date. */
+  participatedAt: string;
+}
+
+interface ParsedFile {
+  name: string;
+  delimiter: string;
+  headers: string[];
+  /** Which header each column was found under; a missing one is what stops the import. */
+  mapping: Partial<Record<ColumnKey, string>>;
+  rows: ParsedRow[];
+}
+
+/**
+ * NFD splits an accented letter into a plain one and a combining mark, so
+ * dropping everything outside `a-z0-9` afterwards strips the accents together
+ * with the spaces, underscores, dots and dashes in one pass.
+ *
+ * One expression rather than a combining-mark range followed by a separator
+ * range: the range spelling needs a class of characters that are invisible in
+ * an editor, and anything that is not a letter or a digit is noise in a header
+ * name anyway.
+ */
+function normalizeHeader(raw: string): string {
+  return raw.trim().toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * A minimal RFC 4180 reader: quoted fields, `""` for a literal quote, CRLF or
+ * LF line endings.
+ *
+ * Hand-written rather than a dependency because the whole of what this needs is
+ * four columns of text — and because the one thing a naive `split(',')` gets
+ * wrong here matters. A quoted name containing a comma ("Silva, Ana Maria")
+ * would shift every column after it, so the row would import against the wrong
+ * person rather than fail, which is the one direction a reading mistake here
+ * must not go.
+ *
+ * The line number is the PHYSICAL line each record starts on, not its index
+ * among the records: a quoted field may contain a newline, and this number is
+ * going back to an operator who will look for it in their spreadsheet.
+ */
+function readDelimited(text: string, delimiter: string): { line: number; values: string[] }[] {
+  const records: { line: number; values: string[] }[] = [];
+  let values: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  let line = 1;
+  let recordLine = 1;
+  let touched = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        if (ch === '\n') line += 1;
+        field += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+      touched = true;
+      continue;
+    }
+    if (ch === delimiter) {
+      values.push(field);
+      field = '';
+      touched = true;
+      continue;
+    }
+    if (ch === '\r') continue;
+    if (ch === '\n') {
+      values.push(field);
+      records.push({ line: recordLine, values });
+      values = [];
+      field = '';
+      line += 1;
+      recordLine = line;
+      touched = false;
+      continue;
+    }
+    field += ch;
+    touched = true;
+  }
+
+  if (touched || field !== '' || values.length > 0) {
+    values.push(field);
+    records.push({ line: recordLine, values });
+  }
+
+  return records;
+}
+
+/**
+ * The file's own date format, read against the STATION's zone.
+ *
+ * In the browser and never on the server, the rule schemas/participations.ts
+ * states for this field in particular: only the browser knows which Station was
+ * on screen, and `01/08/2026 14:30` parsed in whatever zone the server process
+ * happens to run in is wrong by hours with nothing downstream able to notice.
+ *
+ * Three shapes, and only the first is already an instant:
+ *
+ *   - anything carrying `Z` or an explicit offset is taken as it stands;
+ *   - `dd/mm/yyyy`, which is what a Brazilian spreadsheet exports;
+ *   - `yyyy-mm-dd`, which is what everything else exports.
+ *
+ * A value with no time of day is read as midnight in the Station's zone, and
+ * the mapping shown before the import says so out loud. A date-only column is
+ * the ordinary case in a hand-kept spreadsheet, so refusing it would refuse most
+ * real files, while assuming noon would be inventing a fact — and design spec D7
+ * is explicit that this value is not decoration: the minimum interval measures
+ * against it.
+ */
+function toInstant(raw: string, timeZone: string): string {
+  const value = raw.trim();
+  if (!value) return '';
+
+  if (/([zZ]|[+-]\d{2}:?\d{2})$/.test(value)) {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? '' : new Date(parsed).toISOString();
+  }
+
+  const pad = (v: string | undefined, width = 2) => (v ?? '0').padStart(width, '0');
+
+  const dayFirst = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(
+    value,
+  );
+  if (dayFirst) {
+    const wall = `${dayFirst[3]}-${pad(dayFirst[2])}-${pad(dayFirst[1])}T${pad(dayFirst[4])}:${pad(dayFirst[5])}:${pad(dayFirst[6])}`;
+    return fromZonedWallClock(wall, timeZone) ?? '';
+  }
+
+  const yearFirst = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(
+    value,
+  );
+  if (yearFirst) {
+    const wall = `${yearFirst[1]}-${pad(yearFirst[2])}-${pad(yearFirst[3])}T${pad(yearFirst[4])}:${pad(yearFirst[5])}:${pad(yearFirst[6])}`;
+    return fromZonedWallClock(wall, timeZone) ?? '';
+  }
+
+  return '';
+}
+
+function parseFile(name: string, text: string, timeZone: string): ParsedFile {
+  // A UTF-8 BOM is what Excel writes, and left in place it becomes part of the
+  // first header — so `nome` would not match and a perfectly good file would be
+  // refused over a byte nobody can see. Compared by code point rather than
+  // stripped with a regexp for the reason normalizeHeader gives.
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+
+  // Comma per the spec; semicolon accepted because that is what Excel writes on
+  // a machine set to Portuguese, and refusing it would refuse the commonest file
+  // this feature will ever be handed. Never silent: the panel below names the
+  // separator it used, so a file that read as one column says so instead of
+  // looking empty.
+  const breakAt = body.indexOf('\n');
+  const firstLine = breakAt === -1 ? body : body.slice(0, breakAt);
+  const delimiter =
+    (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
+
+  const records = readDelimited(body, delimiter);
+  const headers = (records[0]?.values ?? []).map((h) => h.trim());
+  const normalized = headers.map(normalizeHeader);
+
+  const mapping: Partial<Record<ColumnKey, string>> = {};
+  const index: Partial<Record<ColumnKey, number>> = {};
+  (Object.keys(COLUMN_ALIASES) as ColumnKey[]).forEach((key) => {
+    const found = normalized.findIndex((h) =>
+      (COLUMN_ALIASES[key] as readonly string[]).includes(h),
+    );
+    if (found >= 0) {
+      index[key] = found;
+      mapping[key] = headers[found];
+    }
+  });
+
+  const valueOf = (values: string[], key: ColumnKey) => {
+    const position = index[key];
+    return position === undefined ? '' : (values[position] ?? '').trim();
+  };
+
+  const rows = records
+    .slice(1)
+    // A trailing newline produces one empty record, and a spreadsheet saved with
+    // blank rows at the bottom produces several. Reporting those back as lines
+    // with no name would be reporting our own reading of the file as the
+    // operator's mistake.
+    .filter((record) => record.values.some((value) => value.trim() !== ''))
+    .map((record) => ({
+      line: record.line,
+      fullName: valueOf(record.values, 'fullName'),
+      phone: valueOf(record.values, 'phone'),
+      cpf: valueOf(record.values, 'cpf'),
+      participatedAt: toInstant(valueOf(record.values, 'participatedAt'), timeZone),
+    }));
+
+  return { name, delimiter, headers, mapping, rows };
+}
+
+/**
+ * A file of entries, written in one call (design spec D6): it writes what it can
+ * and reports what it skipped, by line number, with no preview-and-confirm
+ * stage.
+ *
+ * What IS shown before the write is how the header mapped, which §6 asks for and
+ * which is not the same thing: it costs no round trip, writes nothing, and is
+ * the operator's only chance to notice that a month-first file was read
+ * day-first before six hundred rows land on the wrong dates.
+ */
+export function ImportParticipationsForm({
+  promotionId,
+  timeZone,
+  requireCorrectAnswer,
+  hasQuestions,
+  canRegisterListeners,
+  onCancel,
+  onImported,
+}: {
+  promotionId: string;
+  timeZone: string;
+  /** Drives the warning design spec D7 asks for: an imported row carries no answers. */
+  requireCorrectAnswer: boolean;
+  hasQuestions: boolean;
+  /** members.create — D10, and the RPC refuses the file before its first line without it. */
+  canRegisterListeners: boolean;
+  onCancel: () => void;
+  /** Called once a file has been written, so the tab re-reads its counts. */
+  onImported: () => void;
+}) {
+  const [state, action, pending] = useActionState(importParticipationsAction, INITIAL);
+  const [file, setFile] = useState<ParsedFile | null>(null);
+  const [readFailure, setReadFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (state.status === 'done') onImported();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  // The name and the timestamp are each required of every row by importRowSchema,
+  // so a file without those columns cannot produce one usable line.
+  const missing = file
+    ? (['fullName', 'participatedAt'] as ColumnKey[]).filter(
+        (key) => file.mapping[key] === undefined,
+      )
+    : [];
+  // Either identifier will do, and a row carrying neither is skipped per line by
+  // import_participations with the reason — a better report than refusing the
+  // file. Neither COLUMN, though, means not one row in it could ever be matched.
+  const noIdentifierColumn =
+    file !== null && file.mapping.phone === undefined && file.mapping.cpf === undefined;
+  const ready = file !== null && missing.length === 0 && !noIdentifierColumn && file.rows.length > 0;
+
+  async function onFileChosen(chosen: File | undefined) {
+    setReadFailure(null);
+    if (!chosen) {
+      setFile(null);
+      return;
+    }
+    try {
+      setFile(parseFile(chosen.name, await chosen.text(), timeZone));
+    } catch {
+      setFile(null);
+      setReadFailure('That file could not be read. It has to be a UTF-8 text file.');
+    }
+  }
+
+  return (
+    <form
+      action={action}
+      className="flex flex-col gap-4 rounded-md border p-4"
+      data-testid="participation-import-form"
+    >
+      <input type="hidden" name="promotionId" value={promotionId} />
+      {file && <input type="hidden" name="rows" value={JSON.stringify(file.rows)} />}
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted-foreground">The file</span>
+        <input
+          type="file"
+          accept=".csv,text/csv,text/plain"
+          onChange={(e) => void onFileChosen(e.target.files?.[0])}
+          className="text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm"
+          data-testid="participation-import-file"
+        />
+        <span className="text-xs text-muted-foreground">
+          A UTF-8 CSV with one header row naming its columns: a name, a phone and/or a CPF, and when
+          each person entered. The columns may be in any order.
+        </span>
+      </label>
+
+      {readFailure && <p className="text-sm text-destructive">{readFailure}</p>}
+
+      {file && (
+        <div
+          className="flex flex-col gap-2 rounded-md border p-3"
+          data-testid="participation-import-mapping"
+        >
+          <p className="text-sm font-medium">{file.name}</p>
+          <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+            {(Object.keys(COLUMN_ALIASES) as ColumnKey[]).map((key) => (
+              <li key={key}>
+                {COLUMN_LABELS[key]}:{' '}
+                {file.mapping[key] ? (
+                  <span className="text-foreground">{file.mapping[key]}</span>
+                ) : (
+                  <span>not found in this file</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            {file.rows.length} {file.rows.length === 1 ? 'line' : 'lines'} under the header,
+            separated by “{file.delimiter}”.
+            {file.rows[0] && (
+              <>
+                {' '}
+                The first reads as{' '}
+                <span className="text-foreground">{file.rows[0].fullName || '(no name)'}</span>,
+                entering{' '}
+                <span className="text-foreground">
+                  {file.rows[0].participatedAt
+                    ? formatInstant(file.rows[0].participatedAt, timeZone)
+                    : 'at a time spelled in a way this screen cannot read'}
+                </span>
+                . Times are read as this Station&apos;s local time, and a date with no time of day
+                is read as midnight.
+              </>
+            )}
+          </p>
+
+          {missing.length > 0 && (
+            <p className="text-sm text-destructive" data-testid="participation-import-missing">
+              This file has no column for {missing.map((key) => COLUMN_LABELS[key]).join(' or ')}.
+              Its header row reads: {file.headers.join(', ') || '(empty)'}.
+            </p>
+          )}
+          {noIdentifierColumn && (
+            <p className="text-sm text-destructive">
+              This file has neither a phone column nor a CPF column, so no line in it can be matched
+              to a listener. Its header row reads: {file.headers.join(', ') || '(empty)'}.
+            </p>
+          )}
+          {file.rows.length === 0 && missing.length === 0 && (
+            <p className="text-sm text-destructive">
+              That file has a header row and nothing under it.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/*
+        Design spec D7, said before anything is written rather than discovered in
+        the result. An imported line carries no answer — the file has four
+        columns and none of them is one — so on a promotion that draws only among
+        correct answers, everything imported is recorded, counted, and then
+        excluded from the draw. That is not a defect for the import to fix; it is
+        a fact about the promotion, and the operator is the only one who can
+        decide what to do about it.
+      */}
+      {requireCorrectAnswer && (
+        <p
+          className="rounded-md bg-amber-100 p-3 text-sm text-amber-900"
+          data-testid="participation-import-answer-warning"
+        >
+          This promotion draws only among listeners who answered correctly, and an imported line
+          carries no answer
+          {hasQuestions ? '' : ' — and this promotion has no quiz for anybody to answer'}. Every
+          entry from this file will be recorded and will count towards the rules, and none of them
+          will be in the draw.
+        </p>
+      )}
+
+      {!canRegisterListeners && (
+        <p className="text-sm text-muted-foreground" data-testid="participation-import-members-note">
+          Importing registers the listeners it does not find, so it needs permission to register one
+          — which you do not hold at this Station. The file will be refused before its first line is
+          written.
+        </p>
+      )}
+
+      {state.status === 'error' && (
+        <p className="text-sm text-destructive" data-testid="participation-import-error">
+          {state.message}
+        </p>
+      )}
+
+      {state.status === 'done' && <ImportReport state={state} />}
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Close
+        </Button>
+        <Button type="submit" disabled={pending || !ready} data-testid="participation-import-submit">
+          {pending ? 'Importing…' : 'Import'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * What the file did, line by line.
+ *
+ * The headline figure is deliberately NOT `recorded`. import_participations
+ * increments that for every row it writes, refusals included, and then counts
+ * the refusals again in three fields of its own — so "342 entered" over a file
+ * of repeats would be a number nobody could reconcile with the promotion's own
+ * tab. The entries that will be in the draw are `recorded` minus those three,
+ * and that is the figure shown first.
+ *
+ * The lines that counted sit behind a disclosure and everything else is in the
+ * open. That is a judgement about attention and not a cap: six hundred lines
+ * reading "counted" bury the four that need somebody to act. The disclosure says
+ * how many it holds and opening it costs nothing — no row is dropped and none is
+ * unreachable.
+ */
+function ImportReport({ state }: { state: Extract<ImportParticipationsState, { status: 'done' }> }) {
+  const { result, unreadable } = state;
+  const entered = result.recorded - result.duplicate - result.tooSoon - result.overLimit;
+  const total = result.recorded + result.skipped + unreadable.length;
+  const counted = result.rows.filter((row) => row.outcome === 'recorded' && row.status === 'VALID');
+  const attention = result.rows.filter((row) => row.outcome === 'skipped' || row.status !== 'VALID');
+
+  return (
+    <div
+      className="flex flex-col gap-3 rounded-md border p-3"
+      data-testid="participation-import-report"
+    >
+      <p className="text-sm">
+        <span data-testid="participation-import-entered">{entered}</span> of {total}{' '}
+        {total === 1 ? 'line' : 'lines'} entered the draw.
+      </p>
+
+      <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+        <li>Recorded as already entered: {result.duplicate}</li>
+        <li>Recorded as came back too soon: {result.tooSoon}</li>
+        <li>Recorded as past their limit: {result.overLimit}</li>
+        <li data-testid="participation-import-skipped">Skipped by the import: {result.skipped}</li>
+        <li data-testid="participation-import-unreadable">
+          Lines that could not be read: {unreadable.length}
+        </li>
+        <li data-testid="participation-import-created">
+          Listeners registered: {result.membersCreated}
+        </li>
+      </ul>
+
+      {(attention.length > 0 || unreadable.length > 0) && (
+        <ul className="flex flex-col gap-1 text-xs" data-testid="participation-import-problems">
+          {unreadable.map((row) => (
+            <li key={`unreadable-${row.line}`} className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">Line {row.line}</span>
+              <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
+                not read
+              </span>
+              <span className="text-muted-foreground">{row.reason}</span>
+            </li>
+          ))}
+          {attention.map((row) => (
+            <li key={`row-${row.line}`} className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">Line {row.line}</span>
+              {row.outcome === 'skipped' ? (
+                <>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                    skipped
+                  </span>
+                  {/* The RPC's two reasons, turned into sentences. `no identifier`
+                      is the operator's file to fix; `listener is out of reach`
+                      is not fixable in a file at all — somebody who can see that
+                      listener has to link them to this Station. */}
+                  <span className="text-muted-foreground">
+                    {row.reason === 'no identifier'
+                      ? 'no phone and no CPF, so there was nobody to match'
+                      : 'that phone or CPF belongs to a listener you cannot reach from this Station'}
+                  </span>
+                </>
+              ) : (
+                <span
+                  className={`rounded-full px-2 py-0.5 ${row.status ? STATUS_CLASSES[row.status] : ''}`}
+                >
+                  {row.status ? STATUS_LABELS[row.status] : ''}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {counted.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground">
+            {counted.length} {counted.length === 1 ? 'line' : 'lines'} counted
+          </summary>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {counted.map((row) => (
+              <li key={`counted-${row.line}`}>Line {row.line} — counted</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}

@@ -51,6 +51,12 @@ export interface PromotionGridPowers {
   archive: boolean;
   /** Forwarded to the record's Prizes tab: linking moves stock, so it is its own code. */
   prizes: boolean;
+  /** The five the record's fifth tab stands on — three participations codes and two the audience owns. */
+  participationsView: boolean;
+  participationsCreate: boolean;
+  participationsImport: boolean;
+  membersView: boolean;
+  membersCreate: boolean;
 }
 
 /** The grid's own view of a record, so a patched row and a fresh one agree. */
@@ -248,7 +254,15 @@ export function PromotionsGrid({
         recordId={recordId}
         tab={(tab as PromotionTab) ?? 'data'}
         timeZone={timeZone}
-        powers={{ edit: powers.edit, prizes: powers.prizes }}
+        powers={{
+          edit: powers.edit,
+          prizes: powers.prizes,
+          participationsView: powers.participationsView,
+          participationsCreate: powers.participationsCreate,
+          participationsImport: powers.participationsImport,
+          membersView: powers.membersView,
+          membersCreate: powers.membersCreate,
+        }}
         onTab={setTab}
         onClose={close}
         onSaved={() => {

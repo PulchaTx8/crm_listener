@@ -15,6 +15,12 @@ export const ICONS = {
   headphones:
     'M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z',
   megaphone: 'M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1zM16 9a3 3 0 0 1 0 6M19 6a7 7 0 0 1 0 12',
+  // A ticket, for the entries a promotion collects. Its own path rather than
+  // reusing megaphone: the two sit next to each other in the Promotions
+  // section, and one icon on both rows would make the pair read as one link
+  // that had been rendered twice.
+  ticket:
+    'M3 9V7a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v2a2 2 0 0 0 0 4v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a2 2 0 0 0 0-4zM13 6v2M13 11v2M13 16v2',
 } as const;
 
 export interface ShellUser {

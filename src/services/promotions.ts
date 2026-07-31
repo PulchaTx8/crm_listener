@@ -16,6 +16,12 @@ import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type { PromotionSituation } from '@/lib/promotion-situation';
+// The promotion record carries the fifth tab's two counts, so it reads them
+// through the participations service rather than writing a second count query
+// here. One direction only — participations never imports this module — so
+// there is no cycle to reason about.
+import { countPromotionParticipations } from '@/services/participations';
+import type { PromotionParticipationCounts } from '@/services/participations';
 import type {
   PromotionFormInput,
   PromotionPrizeLinkInput,
@@ -281,6 +287,13 @@ export interface LinkablePrize {
 export interface PromotionDetail {
   id: string;
   companyId: string;
+  /**
+   * The fifth tab's two figures: in the draw, and recorded but not in it. Part
+   * of the record rather than a read of the tab's own, so that moving onto that
+   * tab reaches the server no more than moving onto Prizes does — see the note
+   * beside the read itself.
+   */
+  participationCounts: PromotionParticipationCounts;
   name: string;
   siteIntegrationCode: number | null;
   startsAt: string;
@@ -396,9 +409,28 @@ export async function getPromotionRecord(
   // nothing to map.
   if (prizeError) throw mapPromotionError(prizeError.code, prizeError.message);
 
+  // The fifth tab's two figures, read here for exactly the reason the prizes
+  // above are: moving between tabs must not reach the server. Two `head: true`
+  // counts and not a page of rows — design spec D8 is explicit that a promotion
+  // with eight thousand entries cannot be read once per opening, and a count is
+  // the same size at eight thousand as at eight.
+  //
+  // The alternative, tried and rejected during Task 8: the tab calling a server
+  // action of its own when it mounts. It works and it is cheaper — nobody who
+  // never opens that tab pays for it — but it is dispatched from an effect that
+  // runs immediately after the tab strip's own navigation, and a server action
+  // dispatched in that window is silently dropped when the navigation aborts the
+  // record re-read that a Save on the Promotion tab has in flight. The tab then
+  // sits on "Counting the entries…" for ever. Reproduced deterministically: save,
+  // click Entries, and the request is never issued; put two seconds between the
+  // two and it always is. Reading it with the record removes the window instead
+  // of narrowing it.
+  const participationCounts = await countPromotionParticipations(promotionId, accessToken);
+
   return {
     id: promotion.id,
     companyId: promotion.company_id,
+    participationCounts,
     name: promotion.name,
     siteIntegrationCode: promotion.site_integration_code,
     startsAt: promotion.starts_at,

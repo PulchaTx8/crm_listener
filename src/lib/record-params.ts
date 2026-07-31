@@ -60,7 +60,15 @@
  * tuple and a widened `string[]` would give the dialogs back an unchecked
  * string for a prop that decides which half of a form renders.
  */
-export const PROMOTION_TABS = ['data', 'whatsapp', 'quiz', 'prizes'] as const;
+/**
+ * `participations` is last, and the position is load-bearing twice over:
+ * parseRecordParam falls back to `tabs[0]` for an unknown `tab=`, so the first
+ * element is the default a record opens on, and the dialog renders the strip in
+ * this order. Appending rather than inserting also keeps
+ * tests/e2e/promotions-flow.spec.ts's `tab=nonsense` case — which asserts the
+ * fallback lands on `data` — meaning what it meant before.
+ */
+export const PROMOTION_TABS = ['data', 'whatsapp', 'quiz', 'prizes', 'participations'] as const;
 export type PromotionTab = (typeof PROMOTION_TABS)[number];
 
 export const PRIZE_TABS = ['data', 'movements'] as const;

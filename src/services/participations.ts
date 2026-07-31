@@ -14,6 +14,10 @@ import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import { PARTICIPATION_STATUSES } from '@/lib/participation-status';
 import type { ParticipationStatus } from '@/lib/participation-status';
+// The picker's page size lives in @/lib for the reason that module's own
+// comment gives: the form that announces the cut is a client component and
+// cannot import a value out of this `server-only` file.
+import { STATION_LISTENER_PAGE_SIZE } from '@/lib/station-listeners';
 import type { Database } from '@/lib/supabase/database.types';
 import { cpfLastDigits, hashCpf } from '@/services/members';
 import type { ImportRowInput, ParticipationAnswerInput } from '@/schemas/participations';
@@ -268,6 +272,149 @@ export async function listParticipationsPage(
     nextCursor,
     previousCursor,
     total: count ?? 0,
+  };
+}
+
+export interface PromotionParticipationCounts {
+  /** In the draw. */
+  valid: number;
+  /** Written down and not in the draw: DUPLICATE, TOO_SOON and OVER_LIMIT together. */
+  refused: number;
+}
+
+/**
+ * The two figures the promotion record's fifth tab shows, and nothing else.
+ *
+ * Two `head: true` count reads rather than a page of rows, because that tab is
+ * the one place in this block where the size of a promotion could get into the
+ * record dialog (design spec D8): the record is read once per opening, and a
+ * promotion with eight thousand entries cannot be. Two counts cost the same at
+ * eight thousand as at eight.
+ *
+ * `neq('status', 'VALID')` rather than three `eq` counts or one `in`: the tab
+ * asks one question — how many did not count — and the three reasons are the
+ * list screen's job, which is what the tab links out to. Adding a fourth status
+ * to the enum in Block 5 therefore changes this figure's meaning without
+ * changing this code, which is the behaviour that is wanted: anything that is
+ * not VALID is not in the draw.
+ *
+ * Read through the caller's token like every other read here, so 0053's select
+ * policy decides what is counted. A caller who cannot see this promotion's
+ * entries gets zeroes rather than an error, which is the same answer the list
+ * screen gives them.
+ */
+export async function countPromotionParticipations(
+  promotionId: string,
+  accessToken: string,
+): Promise<PromotionParticipationCounts> {
+  const supabase = asCaller(accessToken);
+
+  // One builder, called twice: the two counts must narrow identically apart
+  // from the status, and two hand-written selects are how a `promotion_id`
+  // added to one and not the other turns into a refused total that counts the
+  // whole Station.
+  const build = () =>
+    supabase
+      .from('participations')
+      .select('id', { count: 'exact', head: true })
+      .eq('promotion_id', promotionId);
+
+  const [valid, refused] = await Promise.all([
+    build().eq('status', 'VALID'),
+    build().neq('status', 'VALID'),
+  ]);
+
+  if (valid.error) throw mapParticipationError(valid.error.code, valid.error.message);
+  if (refused.error) throw mapParticipationError(refused.error.code, refused.error.message);
+
+  return { valid: valid.count ?? 0, refused: refused.count ?? 0 };
+}
+
+export interface StationListener {
+  memberId: string;
+  fullName: string | null;
+  phone: string | null;
+  cpfLastDigits: string | null;
+}
+
+export interface StationListenerPage {
+  listeners: StationListener[];
+  /** True when the search matched more than one page — surfaced, never silently dropped. */
+  hasMore: boolean;
+}
+
+/**
+ * The manual form's picker: listeners already linked to THIS Station, by name,
+ * phone or CPF digits.
+ *
+ * Station-scoped and not Organization-scoped, and that is the whole reason this
+ * is not listOrganizationMembers with a search term. apply_participation (0054)
+ * refuses a listener the promotion's Station is not linked to — it checks
+ * member_company_links itself so the refusal is a sentence rather than a
+ * composite foreign key's name — so an Organization-wide picker would offer
+ * people that recording an entry for is guaranteed to fail. A picker whose
+ * options can be picked is worth a query of its own.
+ *
+ * The read is from `members` with the link table embedded `!inner`, rather than
+ * from the link table outwards, because the ordering has to be on the parent:
+ * PostgREST orders by an embedded column only within the embed. The `or` clauses
+ * are listOrganizationMembers' and listParticipationsPage's, same escaping and
+ * same digit-only pair — `cpf_last_digits` is three digits and
+ * `phone_normalized` is 0031's generated digits-only column, so a term with no
+ * digit has nothing to compare against either.
+ *
+ * An anonymised listener is excluded, which is a filter with a reason rather
+ * than a convenience: 0034 scrubs full_name, so the row would be offered as a
+ * blank line nobody can identify, and recording a fresh entry against somebody
+ * who exercised erasure is precisely what that erasure was for.
+ *
+ * Needs members.view at this Station — 0035's policies decide it, and the
+ * screen asks the same question first through canSearchByListener so an empty
+ * answer is never mistaken for "nobody matched".
+ */
+export async function searchStationListeners(
+  companyId: string,
+  search: string,
+  accessToken: string,
+): Promise<StationListenerPage> {
+  const term = search.trim().slice(0, PARTICIPATION_SEARCH_MAX_LENGTH);
+
+  let query = asCaller(accessToken)
+    .from('members')
+    .select('id,full_name,phone,cpf_last_digits,member_company_links!inner(company_id)')
+    .eq('member_company_links.company_id', companyId)
+    .is('deleted_at', null)
+    .is('anonymized_at', null);
+
+  if (term) {
+    const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
+    const clauses = [`full_name.ilike.${wildcard}`, `phone.ilike.${wildcard}`];
+    const digits = term.replace(/[^0-9]/g, '');
+    if (digits) {
+      clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+      clauses.push(`phone_normalized.ilike.${quoteForOrFilter(`%${digits}%`)}`);
+    }
+    query = query.or(clauses.join(','));
+  }
+
+  // One row past the page, spent on `hasMore` and never rendered as an option —
+  // the same shape listLinkablePrizes uses, and the reason the picker can say it
+  // was cut instead of quietly ending.
+  const { data, error } = await query
+    .order('full_name', { ascending: true })
+    .limit(STATION_LISTENER_PAGE_SIZE + 1);
+
+  if (error) throw mapParticipationError(error.code, error.message);
+
+  const rows = data ?? [];
+  return {
+    listeners: rows.slice(0, STATION_LISTENER_PAGE_SIZE).map((row) => ({
+      memberId: row.id,
+      fullName: row.full_name,
+      phone: row.phone,
+      cpfLastDigits: row.cpf_last_digits,
+    })),
+    hasMore: rows.length > STATION_LISTENER_PAGE_SIZE,
   };
 }
 

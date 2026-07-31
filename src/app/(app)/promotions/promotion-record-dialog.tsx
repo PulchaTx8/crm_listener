@@ -15,6 +15,7 @@ import { getPromotionRecordAction } from './record';
 import { formatInstant, SITUATION_CLASSES, SITUATION_LABELS } from './format';
 import { PromotionFields } from './promotion-fields';
 import { WhatsappFields } from './whatsapp-fields';
+import { ParticipationsTab } from './participations-tab';
 import { PrizesTab } from './prizes-tab';
 import { QuizTab } from './quiz-tab';
 
@@ -23,6 +24,7 @@ const TAB_LABELS: Record<PromotionTab, string> = {
   whatsapp: 'WhatsApp',
   quiz: 'Quiz',
   prizes: 'Prizes',
+  participations: 'Entries',
 };
 
 /**
@@ -38,6 +40,12 @@ export interface PromotionRecordPowers {
   edit: boolean;
   /** Linking moves stock, so it is its own code rather than part of promotions.edit. */
   prizes: boolean;
+  /** The fifth tab's five; see PromotionPowers in ./access.ts for why two of them are audience codes. */
+  participationsView: boolean;
+  participationsCreate: boolean;
+  participationsImport: boolean;
+  membersView: boolean;
+  membersCreate: boolean;
 }
 
 const INITIAL_SAVE: PromotionFormState = { status: 'idle' };
@@ -292,6 +300,29 @@ export function PromotionRecordDialog({
                 companyId={record.companyId}
                 prizes={record.prizes}
                 canLink={powers.prizes}
+                onSaved={refresh}
+              />
+            )}
+
+            {/* Props and `onSaved`, exactly like Quiz and Prizes: the counts
+                come with the record and every write here calls `refresh`, which
+                re-reads this one promotion. That is not a hole in the rule this
+                block rests on — the prohibition is on re-running the LIST — and
+                it is deliberately not the cheaper shape Task 8 tried first,
+                where the tab fetched its own counts when it mounted. See the
+                note beside the count read in services/promotions.ts: an action
+                dispatched from an effect that runs right after the tab strip's
+                navigation is silently dropped, and that tab could hang for
+                ever. */}
+            {tab === 'participations' && (
+              <ParticipationsTab
+                promotionId={record.id}
+                companyId={record.companyId}
+                timeZone={timeZone}
+                questions={record.questions}
+                requireCorrectAnswer={record.requireCorrectAnswer}
+                counts={record.participationCounts}
+                powers={powers}
                 onSaved={refresh}
               />
             )}
