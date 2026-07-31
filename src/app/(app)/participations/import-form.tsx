@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { STATUS_CLASSES, STATUS_LABELS } from '@/lib/participation-status';
 // Both borrowed from the promotions screen rather than re-derived, on that
@@ -392,7 +392,15 @@ export function ImportParticipationsForm({
   // silently capped the import with no message at all. The refusal happens
   // HERE, before anything is posted — never as a truncation and never as a
   // 413 the operator has no way to read.
-  const rowsPayloadBytes = file ? importRowsPayloadBytes(file.rows) : 0;
+  //
+  // Memoized on `file` (fix-round finding, minor): importRowsPayloadBytes does
+  // a full JSON.stringify + TextEncoder.encode over every row, and without
+  // this it re-ran on every render of this component — including the ones
+  // `pending` triggers while the file itself has not changed at all.
+  const rowsPayloadBytes = useMemo(
+    () => (file ? importRowsPayloadBytes(file.rows) : 0),
+    [file],
+  );
   const oversized = file !== null && rowsPayloadBytes > IMPORT_ROWS_BODY_LIMIT_BYTES;
   const ready =
     file !== null && missing.length === 0 && !noIdentifierColumn && !oversized && file.rows.length > 0;

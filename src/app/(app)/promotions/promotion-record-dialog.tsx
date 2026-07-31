@@ -51,28 +51,44 @@ export interface PromotionRecordPowers {
 const INITIAL_SAVE: PromotionFormState = { status: 'idle' };
 
 /**
- * What a failed re-read should leave on screen: the record already showing,
- * unless there is nothing of THIS promotion to preserve.
+ * What a failed re-read should leave on screen.
  *
  * `refresh()` re-reads one promotion after a write made inside the dialog —
  * including the import's own write, whose result is the per-line report
- * ImportParticipationsForm renders from its own local action state. Before
- * this fix, every failed read (first load or a later refresh alike) called
- * `setRecord(null)`, which unmounts the whole `{record && (...)}` subtree —
- * ParticipationsTab, the import form, and the report on rows the import had
- * already written — over a re-read that failed for a reason that has nothing
- * to do with whether those rows exist. A transient blip right after a
- * successful import would silently destroy the only place that result was
- * ever shown, with the promotion's own participations already sitting in the
- * database and nothing on screen saying so.
+ * ImportParticipationsForm renders from its own local action state. Before the
+ * first fix round, every failed read (first load or a later refresh alike)
+ * called `setRecord(null)`, which unmounts the whole `{record && (...)}`
+ * subtree — ParticipationsTab, the import form, and the report on rows the
+ * import had already written — over a re-read that failed for a reason that
+ * has nothing to do with whether those rows exist. A transient blip right
+ * after a successful import would silently destroy the only place that
+ * result was ever shown, with the promotion's own participations already
+ * sitting in the database and nothing on screen saying so.
  *
- * `previous.id === recordId` rather than "reloadToken === 0": this dialog is
- * not remounted between two different promotions (only `recordId` changes),
- * so a plain "is this the first reload" flag would still read as true the
- * moment a SECOND promotion is opened after the first one's tab was ever
- * refreshed even once — showing promotion A's fields under promotion B's
- * title. Comparing the id is what actually answers "is what's on screen still
- * about the promotion this read was for."
+ * That fix's own gap, found on re-review: it treated every failure alike.
+ * `getPromotionRecordAction` (`./record.ts`) does not — it is two different
+ * facts wearing one `status !== 'ok'` shape:
+ *
+ * - `'not-found'` is RLS answering "zero rows, right now"
+ *   (`services/promotions.ts`'s `getPromotionRecord`: `.maybeSingle()`
+ *   SUCCEEDED and returned none). That is deliberately not told apart from a
+ *   revoked permission — `record.ts`'s own comment: "this must not let the
+ *   screen tell them apart, or `?record=<id>` becomes an oracle for ids" — but
+ *   either way it is authoritative and CURRENT, not flaky: nothing about a
+ *   network blip makes a successful query return zero rows for a promotion
+ *   that is still there. A stale record must not outlive that answer, whatever
+ *   id it names — an editable form with a working Save button rendered
+ *   underneath "you do not have permission to see this one" is a worse defect
+ *   than the one this function exists to fix.
+ * - anything else reaching here is `'error'`: an exception was THROWN and
+ *   caught (`record.ts`'s own try/catch), which is the shape a network blip or
+ *   a momentary timeout actually takes. That is the case worth keeping stale
+ *   content for — but only for the SAME promotion: `previous.id === recordId`
+ *   rather than "reloadToken === 0", because this dialog is not remounted
+ *   between two different promotions (only `recordId` changes), so a plain
+ *   "is this the first reload" flag would still read as satisfied the moment
+ *   a SECOND promotion is opened after the first one's tab was ever refreshed
+ *   even once — showing promotion A's fields under promotion B's title.
  *
  * Exported and pure so this decision can be checked without rendering the
  * component — this project's unit tests run in vitest's `node` environment
@@ -82,7 +98,9 @@ const INITIAL_SAVE: PromotionFormState = { status: 'idle' };
 export function nextRecordAfterFailedRead<T extends { id: string }>(
   previous: T | null,
   recordId: string,
+  status: 'not-found' | 'error',
 ): T | null {
+  if (status === 'not-found') return null;
   return previous && previous.id === recordId ? previous : null;
 }
 
@@ -154,10 +172,12 @@ export function PromotionRecordDialog({
         onLoaded?.(result.record);
         return;
       }
-      // See nextRecordAfterFailedRead's own comment: a refresh that fails must
-      // not take an already-showing record (and everything mounted under it)
-      // down with it.
-      setRecord((previous) => nextRecordAfterFailedRead(previous, recordId));
+      // See nextRecordAfterFailedRead's own comment: a `not-found` clears
+      // unconditionally (RLS's current, authoritative answer), and only an
+      // `error` for THIS SAME promotion keeps an already-showing record
+      // (and everything mounted under it) rather than taking it down over a
+      // re-read that may well be transient.
+      setRecord((previous) => nextRecordAfterFailedRead(previous, recordId, result.status));
       setFailure(
         result.status === 'not-found'
           ? 'No such promotion, or you do not have permission to see this one.'
