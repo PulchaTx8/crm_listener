@@ -43,7 +43,6 @@
 |---|---|
 | `src/lib/integrations/whatsapp/signature.ts` | HMAC-SHA256 verification over a raw body |
 | `src/lib/integrations/whatsapp/payload.ts` | Zod schema for Meta's webhook body; flattening it to messages |
-| `src/lib/integrations/whatsapp/replies.ts` | The four reply strings and their rendering |
 | `src/lib/integrations/whatsapp/transport.ts` | `WhatsAppTransport` interface |
 | `src/lib/integrations/whatsapp/graph.ts` | `GraphTransport` — the real Meta Graph API client |
 | `src/lib/integrations/whatsapp/fake.ts` | `FakeTransport` — records sends, fails on demand |
@@ -64,9 +63,8 @@
 |---|---|
 | `tests/unit/whatsapp-signature.test.ts` | Task 7 |
 | `tests/unit/whatsapp-payload.test.ts` | Task 8 |
-| `tests/unit/whatsapp-replies.test.ts` | Task 9 |
 | `tests/unit/whatsapp-transport.test.ts` | Task 10 |
-| `supabase/tests/06_whatsapp.test.sql` | Tasks 1–6 |
+| `supabase/tests/06_whatsapp.test.sql` | Tasks 1–6 and 9 |
 | `tests/isolation/whatsapp.test.ts` | Task 13, including the 12-round race |
 
 ---
@@ -778,6 +776,10 @@ begin
   -- The FOR SHARE on the Station row comes with the body: it protects the
   -- Station's deleted_at through to the member_company_links insert, and
   -- 0034's comment says so.
+  --
+  -- The line below is scaffolding for whoever is reading this plan. It MUST NOT
+  -- survive into the committed migration: if `git diff` still shows it, the
+  -- body was not moved and Task 5 is not done.
   raise exception 'replace this body with create_member''s, per the comment above';
 end;
 $$;
@@ -1174,7 +1176,20 @@ comment on function public.ingest_whatsapp_event(uuid) is
 
 `public.finish_whatsapp_event(p_event_id uuid, p_outcome text, p_status text, p_part uuid) returns jsonb` — sets `status = 'DONE'`, `outcome`, `processed_at = now()`, writes the `ingest_whatsapp_event` audit row (`actor_id` NULL; detail carrying `integration_id`, `wamid` = the event's `external_id`, `promotion_id`, `member_id` and `outcome`, and **no phone**), and returns the jsonb result shape. `SECURITY INVOKER`, EXECUTE for nobody.
 
-`public.whatsapp_reply_body(p_promotion_id uuid, p_member_id uuid, p_status text) returns text` — renders the four strings from Task 9's table, with `{promoção}` from `promotions.name`, `{n}` from `max_entries_per_member`, and `{hora}` computed from the member's last `VALID` participation plus `min_hours_between_entries`, rendered `at time zone` the Station's `companies.timezone`. `SECURITY INVOKER`, EXECUTE for nobody.
+`public.whatsapp_reply_body(p_promotion_id uuid, p_member_id uuid, p_status text) returns text` — **the single home of the reply copy.** `SECURITY INVOKER`, EXECUTE for nobody. It renders exactly these six strings and nothing else:
+
+| Case | Text |
+|---|---|
+| `VALID` | `Pronto! Você está participando de {nome}. Boa sorte!` |
+| `DUPLICATE` | `Você já está participando de {nome}.` |
+| `TOO_SOON`, next chance known | `Você já participou há pouco. Sua próxima chance é às {hora}.` |
+| `TOO_SOON`, not computable | `Você já participou há pouco. Tente novamente mais tarde.` |
+| `OVER_LIMIT`, ceiling known | `Você já usou suas {n} chances nesta promoção.` |
+| `OVER_LIMIT`, no ceiling | `Você já usou todas as suas chances nesta promoção.` |
+
+`{nome}` is `promotions.name`; `{n}` is `promotions.max_entries_per_member`; `{hora}` is the member's most recent `VALID` participation in this promotion plus `min_hours_between_entries`, rendered `to_char(..., 'HH24:MI')` **`at time zone` the Station's `companies.timezone`** — not the server's, and not the listener's, which we do not know. Any other status returns null and the caller enqueues nothing.
+
+There is deliberately **no TypeScript copy of these strings.** The reply must be enqueued inside the transaction that writes the entry (design spec D7), so SQL is the only place that can render it, and a second copy in the worker would be a second thing to keep in step with the first. Task 9 tests this function.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1575,160 +1590,133 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 9: The four replies
+### Task 9: The reply copy, proved
+
+`whatsapp_reply_body` was written in Task 6 because the reply has to be enqueued inside the transaction that writes the entry. This task is where its six strings are pinned, and it is the only place they are asserted.
 
 **Files:**
-- Create: `src/lib/integrations/whatsapp/replies.ts`
-- Create: `tests/unit/whatsapp-replies.test.ts`
+- Modify: `supabase/tests/06_whatsapp.test.sql`
+- Modify: `supabase/migrations/0062_ingest_whatsapp_event.sql` **only if** a case below reveals a defect — a new migration, never an edit to a pushed one. If `0062` is already pushed anywhere, write `0064_fix_whatsapp_reply_body.sql` instead.
 
 **Interfaces:**
-- Produces: `renderReply(input: { status: 'VALID' | 'DUPLICATE' | 'TOO_SOON' | 'OVER_LIMIT'; promotionName: string; nextChanceAt: Date | null; timezone: string; ceiling: number | null }): string`.
+- Consumes: `public.whatsapp_reply_body(uuid, uuid, text) returns text` (Task 6).
+- Produces: nothing new. This task adds assertions.
 
-These strings are the reference copy. `whatsapp_reply_body` (Task 6) renders the same four in SQL; this module is what the unit tests pin and what the owner edits. **If you change one, change both** — the pgTAP case in Task 6 and the unit case here must not disagree.
+There is no TypeScript module for this copy and there must not be one. SQL is the only place that can render inside the transaction (design spec D7), and a second copy in the worker would be a second thing to keep in step with the first.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Create `tests/unit/whatsapp-replies.test.ts`:
+Change `plan(34)` to `plan(41)` and append. Reuse the Station, promotion and listener the earlier cases seeded.
 
-```ts
-import { describe, expect, it } from 'vitest';
-import { renderReply } from '@/lib/integrations/whatsapp/replies';
+```sql
+-- The reply copy ---------------------------------------------------------------
 
-const base = {
-  promotionName: 'Disney',
-  nextChanceAt: null,
-  timezone: 'America/Sao_Paulo',
-  ceiling: null,
-};
+-- A promotion with a ceiling and an interval, so the two parameterised strings
+-- have something real to render.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, allow_multiple_entries, min_hours_between_entries,
+   max_entries_per_member)
+values
+  ('00000000-0000-0000-0000-0000000005e2', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c1', 'Show', '2026-08-01Z', '2026-08-31Z',
+   true, '#SHOW', true, 6, 3);
 
-describe('renderReply', () => {
-  it('confirms a valid entry by name', () => {
-    expect(renderReply({ ...base, status: 'VALID' })).toBe(
-      'Pronto! Você está participando de Disney. Boa sorte!',
-    );
-  });
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e2',
+                             '00000000-0000-0000-0000-0000000005d1', 'VALID'),
+  'Pronto! Você está participando de Show. Boa sorte!',
+  'a valid entry is confirmed by name');
 
-  it('tells a repeat entrant they are already in', () => {
-    expect(renderReply({ ...base, status: 'DUPLICATE' })).toBe(
-      'Você já está participando de Disney.',
-    );
-  });
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e2',
+                             '00000000-0000-0000-0000-0000000005d1', 'DUPLICATE'),
+  'Você já está participando de Show.',
+  'a repeat entrant is told they are already in');
 
-  // Rendered in the Station's timezone, not the server's and not the
-  // listener's, which we do not know.
-  it('gives the next chance in the Station timezone', () => {
-    expect(
-      renderReply({
-        ...base,
-        status: 'TOO_SOON',
-        nextChanceAt: new Date('2026-08-10T17:30:00Z'),
-      }),
-    ).toBe('Você já participou há pouco. Sua próxima chance é às 14:30.');
-  });
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e2',
+                             '00000000-0000-0000-0000-0000000005d1', 'OVER_LIMIT'),
+  'Você já usou suas 3 chances nesta promoção.',
+  'the ceiling is named when the promotion has one');
 
-  it('names the ceiling when there is one', () => {
-    expect(renderReply({ ...base, status: 'OVER_LIMIT', ceiling: 3 })).toBe(
-      'Você já usou suas 3 chances nesta promoção.',
-    );
-  });
+-- Disney has no ceiling, so the same status renders the fallback.
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e1',
+                             '00000000-0000-0000-0000-0000000005d1', 'OVER_LIMIT'),
+  'Você já usou todas as suas chances nesta promoção.',
+  'an uncapped promotion falls back rather than saying "suas null chances"');
 
-  it('falls back when the ceiling is unknown', () => {
-    expect(renderReply({ ...base, status: 'OVER_LIMIT' })).toBe(
-      'Você já usou todas as suas chances nesta promoção.',
-    );
-  });
+-- No entry yet, so there is no last participation to add the interval to.
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e2',
+                             '00000000-0000-0000-0000-0000000005d1', 'TOO_SOON'),
+  'Você já participou há pouco. Tente novamente mais tarde.',
+  'an uncomputable next chance falls back rather than rendering a null time');
 
-  it('falls back when the next chance is unknown', () => {
-    expect(renderReply({ ...base, status: 'TOO_SOON' })).toBe(
-      'Você já participou há pouco. Tente novamente mais tarde.',
-    );
-  });
-});
+-- Now give the listener an entry at 14:00 America/Sao_Paulo (17:00Z) with a
+-- six-hour interval, so the next chance is 20:00 local and NOT 23:00, which is
+-- what a server-timezone render would produce.
+insert into public.member_company_links (member_id, company_id, organization_id)
+values ('00000000-0000-0000-0000-0000000005d1',
+        '00000000-0000-0000-0000-0000000005c1',
+        '00000000-0000-0000-0000-0000000005f1')
+on conflict do nothing;
+
+insert into public.participations
+  (promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-0000000005e2', '00000000-0000-0000-0000-0000000005d1',
+   '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+   true, 'VALID', 'WHATSAPP', '2026-08-10T17:00:00Z');
+
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e2',
+                             '00000000-0000-0000-0000-0000000005d1', 'TOO_SOON'),
+  'Você já participou há pouco. Sua próxima chance é às 20:00.',
+  'the next chance is rendered in the Station timezone, not the server''s');
+
+-- An outcome that is not one of the four is not copy this function owns.
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-0000000005e2',
+                             '00000000-0000-0000-0000-0000000005d1', 'SOMETHING'),
+  null,
+  'an unrecognised status renders nothing rather than a sentence');
 ```
 
-- [ ] **Step 2: Run it to make sure it fails**
+- [ ] **Step 2: Run them and read every failure**
 
-Run: `npx vitest run tests/unit/whatsapp-replies.test.ts`
-Expected: FAIL — cannot resolve the module.
+Run: `npm run db:reset && npm run db:test`
 
-- [ ] **Step 3: Write the implementation**
+Expected: the six cases Task 6 already satisfies pass; any that fail are defects in `whatsapp_reply_body`. The timezone case is the one most likely to fail — a `to_char` without `at time zone` renders `23:00` here, and that is the bug this case exists to catch.
 
-Create `src/lib/integrations/whatsapp/replies.ts`:
+- [ ] **Step 3: Fix `whatsapp_reply_body` if a case failed**
 
-```ts
-export type ReplyStatus = 'VALID' | 'DUPLICATE' | 'TOO_SOON' | 'OVER_LIMIT';
+If `0062` has not been pushed anywhere, correct it in place. If it has, add `supabase/migrations/0064_fix_whatsapp_reply_body.sql` with a `create or replace` carrying the whole corrected function and a comment naming which case caught it. **Never edit a migration that has been applied outside your machine.**
 
-export interface ReplyInput {
-  status: ReplyStatus;
-  promotionName: string;
-  /** When the listener may enter again; null when it cannot be computed. */
-  nextChanceAt: Date | null;
-  /** The Station's IANA timezone (`companies.timezone`). */
-  timezone: string;
-  /** `promotions.max_entries_per_member`, or null when uncapped. */
-  ceiling: number | null;
-}
+- [ ] **Step 4: Run the tests to verify they pass**
 
-/**
- * The four sentences the bot sends, one per outcome apply_participation
- * returns. The listener hears nothing at all in every other case — an unknown
- * hashtag, a cancelled promotion, a message outside the window (design spec
- * D4): replying to unmatched text would turn the Station's number into a paid
- * loudspeaker for whoever pointed traffic at it.
- *
- * This is copy, not logic. The owner edits it.
- *
- * `whatsapp_reply_body` (migration 0062) renders the same four in SQL, because
- * the reply has to be enqueued in the transaction that wrote the entry. The
- * duplication is deliberate and narrow — six strings — and the pgTAP case in
- * that migration asserts the same text this file does.
- */
-export function renderReply(input: ReplyInput): string {
-  switch (input.status) {
-    case 'VALID':
-      return `Pronto! Você está participando de ${input.promotionName}. Boa sorte!`;
-    case 'DUPLICATE':
-      return `Você já está participando de ${input.promotionName}.`;
-    case 'TOO_SOON':
-      return input.nextChanceAt
-        ? `Você já participou há pouco. Sua próxima chance é às ${formatTime(input.nextChanceAt, input.timezone)}.`
-        : 'Você já participou há pouco. Tente novamente mais tarde.';
-    case 'OVER_LIMIT':
-      return input.ceiling === null
-        ? 'Você já usou todas as suas chances nesta promoção.'
-        : `Você já usou suas ${input.ceiling} chances nesta promoção.`;
-  }
-}
-
-function formatTime(at: Date, timezone: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: timezone,
-  }).format(at);
-}
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `npx vitest run tests/unit/whatsapp-replies.test.ts`
-Expected: PASS, 6 tests.
+Run: `npm run db:reset && npm run db:test`
+Expected: 41 of 41.
 
 - [ ] **Step 5: Run the gate and commit**
 
 ```bash
 npm run lint && npm run typecheck && npm test
-git add src/lib/integrations/whatsapp/replies.ts tests/unit/whatsapp-replies.test.ts
-git commit -m "feat(whatsapp): four sentences, and silence everywhere else
+git add supabase/tests/06_whatsapp.test.sql supabase/migrations/
+git commit -m "test(whatsapp): the six sentences, and the clock they are rendered on
 
-The time is rendered in the Station's timezone -- not the server's and not
-the listener's, which we do not know.
+The timezone case is the one that earns its keep: a to_char without
+at time zone tells a listener in Sao Paulo their next chance is at 23:00
+when it is at 20:00, and every other assertion here would still pass.
+
+Both fallbacks are asserted too -- an uncapped promotion must not say
+'suas null chances', and a listener with no previous entry must not be
+given a null time.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
-
----
 
 ### Task 10: The transport
 
@@ -2704,4 +2692,4 @@ gh pr create --base main --title "Block 5a — The WhatsApp spine" --body "<summ
 
 **Type consistency.** `SendResult`/`SendTextInput`/`WhatsAppTransport` (Task 10) are used unchanged in Task 12. `InboundMessage` (Task 8) is consumed only inside Task 11. `nextAttemptDelay`/`BACKOFF_SECONDS` are defined in Task 12 and asserted in its own test. `apply_member_lookup`/`apply_member_creation`/`apply_member_link` are declared in Task 5 and called in Task 6 with the same arities their `revoke` statements name. `finish_whatsapp_event` and `whatsapp_reply_body` are called in Task 6 and specified in the same task.
 
-**Known duplication, accepted:** the four reply strings exist in `replies.ts` and in `whatsapp_reply_body`. The SQL copy is required — the reply must be enqueued inside the transaction that writes the entry — and both suites assert the same text. It is named in the report rather than hidden.
+**A duplication found and removed during the pre-flight scan.** An earlier draft put the four reply strings in both `src/lib/integrations/whatsapp/replies.ts` and `whatsapp_reply_body`, and called the duplication accepted. It was not necessary: the worker never renders a reply, because the reply must be enqueued inside the transaction that writes the entry (D7), so SQL is the only place that can produce it. The TypeScript module is gone, Task 9 tests the SQL function instead, and the copy has one home.
