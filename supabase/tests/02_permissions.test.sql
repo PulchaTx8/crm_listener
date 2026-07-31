@@ -1,5 +1,5 @@
 begin;
-select plan(221);
+select plan(228);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -456,6 +456,73 @@ select ok(
   not has_function_privilege('service_role', 'public.apply_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
   'service_role may not call apply_participation'
 );
+
+-- Block 4c's three PUBLIC doors, and the converse claim to the four above: these
+-- three are meant to be reachable by a signed-in caller and meant to be
+-- unreachable without a session. Each of them resolves has_permission against
+-- auth.uid(), which is null for anon, so an accidental PUBLIC grant would leak
+-- nothing today — that is precisely the argument 0050's header refuses, because
+-- it makes the safety of six functions rest on the first `if` of each body
+-- rather than on a grant. The presence half matters as much as the absence: a
+-- future migration that recreated one of these and forgot the grant would leave
+-- every signed-in operator unable to record a participation at all, and nothing
+-- else in this suite would say why.
+select ok(
+  not has_function_privilege('anon', 'public.resolve_or_create_member(uuid, text, text, text, text, text, text)', 'EXECUTE'),
+  'anon may not call resolve_or_create_member'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.resolve_or_create_member(uuid, text, text, text, text, text, text)', 'EXECUTE'),
+  'authenticated may call resolve_or_create_member'
+);
+select ok(
+  not has_function_privilege('anon', 'public.record_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'anon may not call record_participation'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.record_participation(uuid, uuid, timestamptz, public.participation_source, jsonb)', 'EXECUTE'),
+  'authenticated may call record_participation'
+);
+select ok(
+  not has_function_privilege('anon', 'public.import_participations(uuid, jsonb)', 'EXECUTE'),
+  'anon may not call import_participations'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.import_participations(uuid, jsonb)', 'EXECUTE'),
+  'authenticated may call import_participations'
+);
+
+-- Exactly one update_promotion, and this is the assertion that says so — the
+-- same claim the apply_inventory_movement count above makes, for the same
+-- reason and against the same mistake.
+--
+-- 0055 drops the sixteen-argument form and creates a seventeen-argument one,
+-- because D1's ceiling adds p_max_entries_per_member and `create or replace`
+-- cannot change an argument list. Forget the drop and both live. This one does
+-- NOT then fail loudly the way apply_inventory_movement's twin did: every
+-- existing call site passes sixteen arguments, which resolves unambiguously to
+-- the SURVIVOR — the old body, with no freeze and no ceiling — so the freeze
+-- this whole migration exists to add would simply never run, in silence, with
+-- every other assertion in this file and every isolation case that does not set
+-- the ceiling still green. That is a worse failure than 42725, and only a count
+-- by name can see it: ::regprocedure resolves the signature it is handed and
+-- succeeds regardless of what else shares it, which is how Block 4b passed 331
+-- of 331 with two overloads live.
+select is(
+  (select count(*)::int from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'update_promotion'),
+  1,
+  'exactly one update_promotion exists — 0055 dropped the sixteen-argument form rather than leaving a twin the old call sites would still resolve to'
+);
+--
+-- The grant grid on the survivor is deliberately NOT restated here, even though
+-- dropping a function discards its ACL and 0055 therefore had to close 0050's
+-- hole a second time by hand. It belongs in 03_promotions.test.sql, whose own
+-- header refuses exactly this: the promotion RPCs' reachability is one list in
+-- one place, because splitting it by migration is how two gaps were shipped
+-- already. That file's pair now names the seventeen-argument signature, which
+-- is what makes it fail if the revoke is ever dropped alongside the function.
 
 -- Block 4b's second bootstrap, pinned exactly as the first one above is. A
 -- private helper that quietly became DEFINER, or that picked up an EXECUTE

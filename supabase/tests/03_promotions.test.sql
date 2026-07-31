@@ -329,11 +329,19 @@ select ok(
   has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
   'authenticated may call create_promotion');
 
+-- Seventeen argument types as of 0055, not sixteen. This pair did not merely
+-- need rewording: it ERRORED, because has_function_privilege raises rather than
+-- returning false when the signature it is handed does not exist at all, and
+-- the whole file aborted at this line. That is the good failure — the grid
+-- noticed the signature had moved under it. The bad one would have been a pair
+-- that went on passing against a sixteen-argument twin the drop in 0055 forgot
+-- to remove, which is why 02_permissions.test.sql counts pg_proc entries by
+-- name for this function: no signature pin, here or there, can see a twin.
 select ok(
-  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'anon may not call update_promotion');
 select ok(
-  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[])', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'authenticated may call update_promotion');
 
 select ok(

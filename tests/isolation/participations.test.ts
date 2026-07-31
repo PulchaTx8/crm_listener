@@ -163,15 +163,80 @@ describe('recording a participation', () => {
     expect(later.data).toMatchObject({ status: 'VALID' });
   });
 
-  // The OVER_LIMIT case lives in Task 5, not here. Its fixture has to set the
-  // ceiling, and the only way to set it is update_promotion's
-  // p_max_entries_per_member — an argument that RPC does not have until Task 5
-  // drops and recreates it. Written here it could only sit red, and it could not
-  // be skipped either: the isolation guard fails closed on a pending or todo
-  // test, so one .skip breaks the gate for everybody after it.
-  //
-  // Which leaves the fourth status unexercised until then. Deliberate and
-  // recorded, not forgotten.
+  // Moved here from Task 3, which could not host it: the ceiling is only
+  // settable through update_promotion's p_max_entries_per_member, an argument
+  // that RPC did not have until 0055 dropped and recreated it. Written there it
+  // could only sit red, and it could not be skipped either — the isolation guard
+  // fails closed on a pending or todo test, so one .skip breaks the gate for
+  // everybody after it. OVER_LIMIT is the one status with no coverage anywhere
+  // else, which is why it came back rather than being dropped.
+  it('records OVER_LIMIT once the ceiling is reached', async () => {
+    const label = `part-limit-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Quatro',
+      phone: '11988887770',
+    });
+    const promotionId = await promotionAsOwner(customer, {
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 1,
+    });
+
+    // The ceiling has no other door. create_promotion does not take it (0042 is
+    // merged history and 0055 only reopened the update side), so the fixture
+    // registers the promotion and then edits it — which is also why this case
+    // could not exist before the seventeen-argument signature did.
+    const owner = await clientFor(customer);
+    const ceiling = await owner.rpc('update_promotion', {
+      p_promotion_id: promotionId,
+      p_name: 'Com teto',
+      p_starts_at: new Date(Date.now() - 2 * DAY).toISOString(),
+      p_ends_at: new Date(Date.now() + 20 * DAY).toISOString(),
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 1,
+      p_max_entries_per_member: 2,
+    });
+    // Asserted rather than assumed. A ceiling that failed to land silently would
+    // leave max_entries_per_member null, the third entry would be VALID, and the
+    // case would go red naming the ceiling while the real fault was the edit —
+    // which is exactly how it failed in Task 3 (PGRST202, the argument absent).
+    expect(ceiling.error).toBeNull();
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const base = Date.now();
+    // `as const` on the source, the same way the concurrency case at the foot of
+    // this file writes it: without it the literal widens to `string` and no
+    // longer satisfies the generated participation_source union.
+    const entry = { p_promotion_id: promotionId, p_member_id: memberId, p_source: 'MANUAL' as const, p_answers: [] };
+
+    // Two hours between each entry against a one-hour interval, so the third is
+    // refused for the ceiling and not for coming in too early. Ceiling of 2,
+    // three entries: VALID, VALID, OVER_LIMIT. Space them any tighter and the
+    // interval fires first, the case passes on TOO_SOON's rule, and it says
+    // nothing at all about the one it is named for.
+    const a = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base - 5 * HOUR).toISOString(),
+    });
+    const b = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base - 3 * HOUR).toISOString(),
+    });
+    const c = await client.rpc('record_participation', {
+      ...entry,
+      p_participated_at: new Date(base).toISOString(),
+    });
+
+    expect(a.data).toMatchObject({ status: 'VALID' });
+    expect(b.data).toMatchObject({ status: 'VALID' });
+    expect(c.data).toMatchObject({ status: 'OVER_LIMIT' });
+  });
 
   it('stores the answers, and stores them for a refused attempt too', async () => {
     const label = `part-answers-${Date.now()}`;
@@ -723,5 +788,132 @@ describe('importing a file', () => {
     expect(denied.error?.message).toBe(
       'permission denied: members.create required to import participations',
     );
+  });
+});
+
+describe("Block 4a's freeze, now that there is something to freeze", () => {
+  it('locks the hashtag and the start date once somebody has entered, and leaves the rest open', async () => {
+    const label = `freeze-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Nove',
+      phone: '11970000005',
+    });
+    const promotionId = await promotionAsOwner(customer, {
+      p_whatsapp_enabled: true,
+      p_hashtag: '#EUQUERO',
+    });
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.edit',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const starts = new Date(Date.now() - 2 * DAY).toISOString();
+    const ends = new Date(Date.now() + 20 * DAY).toISOString();
+    const base = {
+      p_promotion_id: promotionId,
+      p_starts_at: starts,
+      p_ends_at: ends,
+      p_whatsapp_enabled: true,
+      p_hashtag: '#EUQUERO',
+    };
+
+    // Before anybody enters, the hashtag moves freely.
+    const beforeAnyone = await client.rpc('update_promotion', {
+      ...base,
+      p_name: 'Ainda editável',
+      p_hashtag: '#OUTRO',
+    });
+    expect(beforeAnyone.error).toBeNull();
+
+    await client.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [],
+    });
+
+    const hashtagNow = await client.rpc('update_promotion', {
+      ...base,
+      p_name: 'Ainda editável',
+      p_hashtag: '#MUDOU',
+    });
+    expect(hashtagNow.error?.code).toBe('22023');
+
+    const startNow = await client.rpc('update_promotion', {
+      ...base,
+      p_name: 'Ainda editável',
+      p_hashtag: '#OUTRO',
+      p_starts_at: new Date(Date.now() - 3 * DAY).toISOString(),
+    });
+    expect(startNow.error?.code).toBe('22023');
+
+    // What stays open: the name, the end date, the call to action, the art and
+    // the button labels. Listeners are already texting the hashtag; nobody is
+    // reading the name.
+    const stillOpen = await client.rpc('update_promotion', {
+      ...base,
+      p_name: 'Nome novo',
+      p_hashtag: '#OUTRO',
+      p_ends_at: new Date(Date.now() + 40 * DAY).toISOString(),
+      p_call_to_action: 'Manda #OUTRO agora',
+    });
+    expect(stillOpen.error).toBeNull();
+  });
+
+  it('refuses to remove a question once somebody has entered', async () => {
+    const label = `freeze-q-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Dez',
+      phone: '11970000006',
+    });
+    const promotionId = await promotionAsOwner(customer);
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'promotions.edit',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const { data: questionId } = await client.rpc('save_promotion_question', {
+      p_promotion_id: promotionId,
+      p_kind: 'ESSAY',
+      p_prompt: 'Por que você ouve?',
+      p_options: [],
+    });
+
+    // Removable while nothing points at it — which is what 0041's table comment
+    // says is the only time it is ever removable.
+    const before = await client.rpc('remove_promotion_question', {
+      p_question_id: questionId as string,
+    });
+    expect(before.error).toBeNull();
+
+    const { data: second } = await client.rpc('save_promotion_question', {
+      p_promotion_id: promotionId,
+      p_kind: 'ESSAY',
+      p_prompt: 'E agora?',
+      p_options: [],
+    });
+    await client.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_participated_at: new Date().toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [],
+    });
+
+    const after = await client.rpc('remove_promotion_question', {
+      p_question_id: second as string,
+    });
+    expect(after.error?.code).toBe('22023');
   });
 });
