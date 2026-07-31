@@ -331,6 +331,36 @@ export interface PromotionDetail {
  * caller cannot reach. Telling those apart would make `?record=<id>` an oracle
  * for ids, the same reasoning the audience record carries.
  */
+/**
+ * Which Station owns this promotion, or null when this caller cannot see it.
+ *
+ * One column, so that a write path can establish its own Station instead of
+ * being told one. `recordParticipationAction` read `companyId` off the form: it
+ * was never parsed as a uuid and never checked against the promotion, so a
+ * caller holding members.create at Station A could register a listener into A's
+ * audience while naming a promotion at Station B, and only then be refused —
+ * the listener stays registered, and nobody asked for them.
+ *
+ * Not `getPromotionRecord`: that is four reads and a whole record, and this
+ * question is one column of one row. Read through the caller's token like
+ * everything else here, so 0044's policy decides it — a promotion this caller
+ * may not see answers null, which is the same answer `record_participation`
+ * would give them a moment later and for the same reason.
+ */
+export async function getPromotionStationId(
+  promotionId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const { data, error } = await asCaller(accessToken)
+    .from('promotions')
+    .select('company_id')
+    .eq('id', promotionId)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the promotion: ${error.message}`);
+  return data?.company_id ?? null;
+}
+
 export async function getPromotionRecord(
   promotionId: string,
   accessToken: string,

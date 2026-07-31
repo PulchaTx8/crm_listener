@@ -104,7 +104,16 @@ export function RecordParticipationForm({
     setShowResult(true);
     // Every recorded attempt, not only the VALID ones: a DUPLICATE is a row in
     // the table and the tab's refused count has just changed.
-    if (state.status === 'recorded') onRecorded();
+    //
+    // And every ATTEMPTED one, even the failures. A thrown error does not prove
+    // nothing was written — a transport failure after record_participation
+    // committed is indistinguishable here from one that never reached it — so
+    // re-reading is the only answer that is right either way. A failure before
+    // the call (the schema, the listener) carries no `attempted` and does not
+    // re-read, because nothing could have changed.
+    if (state.status === 'recorded' || (state.status === 'error' && state.attempted)) {
+      onRecorded();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
@@ -175,7 +184,13 @@ export function RecordParticipationForm({
       data-testid="participation-record-form"
     >
       <input type="hidden" name="promotionId" value={promotionId} />
-      <input type="hidden" name="companyId" value={companyId} />
+      {/* No companyId is posted. The action derives the Station from the
+          promotion itself (getPromotionStationId), because a Station read off
+          the form is one the server never established: it let a caller register
+          a listener into one Station's audience while naming another Station's
+          promotion. `companyId` is still a prop here — the picker below
+          searches one Station's listeners — but it is a read, and a read the
+          database bounds. */}
       {picked && <input type="hidden" name="memberId" value={picked.memberId} />}
 
       <div key={round} className="flex flex-col gap-4">

@@ -16,6 +16,7 @@ import type {
   ParticipationStatus,
   StationListenerPage,
 } from '@/services/participations';
+import { getPromotionStationId } from '@/services/promotions';
 import { describeParticipationsReadError, describeParticipationsWriteError } from './errors';
 
 // ---------------------------------------------------------------------------
@@ -93,7 +94,26 @@ export async function searchStationListenersAction(
  */
 export type RecordParticipationState =
   | { status: 'idle' }
-  | { status: 'error'; message: string }
+  | {
+      status: 'error';
+      message: string;
+      /**
+       * True once record_participation has been CALLED, whatever it answered.
+       * A thrown error does not prove nothing was written — a transport failure
+       * after the RPC committed looks exactly like one that never reached it —
+       * so the form re-reads the promotion's counts on this branch too rather
+       * than leaving a tab that is quietly one entry behind.
+       */
+      attempted?: boolean;
+      /**
+       * True when a listener was REGISTERED and the entry then failed. The two
+       * writes are two transactions, so this is a real half-finished state and
+       * not a hypothetical: saying only "Could not save" leaves an operator
+       * about to type the same person in again, and 0031's unique indexes will
+       * refuse the second registration with a message about a duplicate phone.
+       */
+      listenerRegistered?: boolean;
+    }
   | { status: 'out-of-reach' }
   | {
       status: 'recorded';
@@ -132,16 +152,30 @@ function readAnswers(formData: FormData) {
     .filter((answer) => answer.optionId !== undefined || answer.answerText !== undefined);
 }
 
+/**
+ * One hand-typed entry, in two writes that are two transactions.
+ *
+ * **The Station is derived here, never posted.** It used to arrive as a hidden
+ * `companyId` field: unparsed, unchecked against the promotion, and handed
+ * straight to `resolveOrCreateMember`, whose path reaches `create_member`. The
+ * database bounded it — nothing could be escalated and nothing leaked — but a
+ * caller holding members.create at Station A could register a listener into A's
+ * audience while naming a promotion at Station B, get `P0002` for the entry,
+ * and leave a person registered that nobody asked for. `apply_participation`
+ * (0054) resolves the Station from `p_promotion_id` itself, so the form was
+ * being asked for a fact the write path already knows.
+ *
+ * **The two writes are reported separately, because they can half-succeed.**
+ * `resolveOrCreateMember` commits on its own; `recordParticipation` is a second
+ * round trip. A single try/catch over both answered "Could not save" for a
+ * failure that had already registered somebody — sending the operator to type
+ * the same person in again, where 0031's unique index refuses them with a
+ * message about a duplicate phone. Held apart so each failure names itself.
+ */
 export async function recordParticipationAction(
   _prev: RecordParticipationState,
   formData: FormData,
 ): Promise<RecordParticipationState> {
-  // Guarded before the schema for the reason readPrizeLinkForm gives: an absent
-  // field arrives as null, fails z.string()'s base type check first, and the
-  // operator sees "Expected string, received null" instead of a sentence.
-  const companyId = String(formData.get('companyId') ?? '');
-  if (!companyId) return { status: 'error', message: 'Which Station? Reopen the record.' };
-
   const parsed = participationFormSchema.safeParse({
     promotionId: formData.get('promotionId'),
     memberId: formData.get('memberId'),
@@ -158,11 +192,23 @@ export async function recordParticipationAction(
   const token = await requireAccessToken();
   const input = parsed.data;
 
-  try {
-    let memberId = input.memberId;
-    let listener: 'picked' | 'resolved' | 'created' = 'picked';
+  let memberId = input.memberId;
+  let listener: 'picked' | 'resolved' | 'created' = 'picked';
 
-    if (!memberId) {
+  if (!memberId) {
+    try {
+      // The Station the PROMOTION belongs to, established here rather than
+      // taken from the form. Null means this caller cannot see the promotion at
+      // all, which is the same answer record_participation would give them one
+      // round trip later — said now, before anybody is registered against it.
+      const companyId = await getPromotionStationId(input.promotionId, token);
+      if (!companyId) {
+        return {
+          status: 'error',
+          message: 'That promotion is no longer reachable. Reopen the record and try again.',
+        };
+      }
+
       // The schema has already refused a form with no memberId and no
       // identifier, so `fullName` is present on this branch by construction —
       // asserted with `??` rather than `!` so a future change to that refinement
@@ -181,8 +227,21 @@ export async function recordParticipationAction(
       if (resolved.outcome === 'elsewhere') return { status: 'out-of-reach' };
       memberId = resolved.memberId;
       listener = resolved.outcome;
+    } catch (cause) {
+      logger.error({ err: cause, promotionId: input.promotionId }, 'resolve listener failed');
+      // Named for what failed. Nothing has been recorded and — unless
+      // create_member itself committed and then the response was lost, which
+      // this layer cannot see — nobody has been registered either, so the
+      // operator's next move is to correct the listener rather than to wonder
+      // about the entry.
+      return {
+        status: 'error',
+        message: describeParticipationsWriteError(cause, 'register this listener at this Station'),
+      };
     }
+  }
 
+  try {
     const result = await recordParticipation(
       {
         promotionId: input.promotionId,
@@ -200,13 +259,15 @@ export async function recordParticipationAction(
 
     return { status: 'recorded', outcome: result.status, listener };
   } catch (cause) {
-    logger.error(
-      { err: cause, promotionId: input.promotionId, companyId },
-      'record participation failed',
-    );
+    logger.error({ err: cause, promotionId: input.promotionId }, 'record participation failed');
+    const registered = listener === 'created';
     return {
       status: 'error',
-      message: describeParticipationsWriteError(cause, 'record an entry in this promotion'),
+      attempted: true,
+      listenerRegistered: registered,
+      message: registered
+        ? `The listener was registered, but the entry was not recorded. ${describeParticipationsWriteError(cause, 'record an entry in this promotion')} They are now in this Station's audience, so pick them from the search above rather than typing them again.`
+        : describeParticipationsWriteError(cause, 'record an entry in this promotion'),
     };
   }
 }
@@ -300,10 +361,32 @@ export async function importParticipationsAction(
   });
 
   if (rows.length === 0) {
+    // The per-line report survives the one case where the operator has least to
+    // go on. This branch used to return a bare sentence and throw `unreadable`
+    // away — so a file where every line failed said "check the columns and the
+    // date format" and named not one line, while a file where all but one line
+    // failed listed every single one of them. The worse the file, the less the
+    // screen said about it.
+    //
+    // Reported through the SAME `done` shape rather than a sentence, so the
+    // report component renders the reasons it already knows how to render:
+    // nothing was sent, so every count is zero and every line is in
+    // `unreadable`, which is exactly true. `recorded: 0` with `skipped: 0` and
+    // no rows is not a claim about the database — no call was made — it is the
+    // arithmetic the report shows, and `total` there is
+    // recorded + skipped + unreadable.length, which is the whole file.
     return {
-      status: 'error',
-      message:
-        'Not one line of that file could be read. Check the columns and the date format, then try again.',
+      status: 'done',
+      result: {
+        recorded: 0,
+        duplicate: 0,
+        tooSoon: 0,
+        overLimit: 0,
+        skipped: 0,
+        membersCreated: 0,
+        rows: [],
+      },
+      unreadable,
     };
   }
 
