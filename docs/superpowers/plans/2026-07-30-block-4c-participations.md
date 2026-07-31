@@ -1980,6 +1980,18 @@ EOF
 - [ ] **Step 3** — write the two schemas and the status module, then the service. Model `listParticipationsPage` on `listPromotionsPage` in `src/services/promotions.ts`: the same keyset shape, `.limit(PAGE_SIZE + 1)`, `keysetPage` from `@/lib/keyset`, ordering by `participated_at desc, id desc` to match `participations_listing_idx`. Map errors through a `mapParticipationError` in the shape of `mapPromotionError`, covering `22023`, `P0002`, `42501` and `23505`.
 - [ ] **Step 4** — `npm run lint && npm run typecheck && npm test`, then commit.
 
+### Also in this task: the ceiling reaches the promotion form
+
+**A gap this plan shipped and Task 5 found.** Decision D1 says a promotion may cap entries per person, and the spec calls for "a new field on the Promotion tab". Task 5 added `p_max_entries_per_member` to `update_promotion` — but nothing in `src/services/promotions.ts` sends it, `PromotionFormInput` has no such field, and `update_promotion` replaces every field on every call. So **every edit of a promotion through the screen nulls whatever ceiling it had**. Nothing can set one through the UI today, so no data is lost yet; the moment Task 8 puts the field on the form, it would be.
+
+Close it here, in the promotions layer rather than the participations one:
+
+- `src/schemas/promotions.ts` — `promotionFormSchema` gains `maxEntriesPerMember`, an optional positive integer of at least 2, refused unless `allowMultipleEntries` is true. That mirrors `promotions_entry_ceiling_shape` in `0052`, and the two must agree: a ceiling of one is what "no repeats" already says.
+- `src/services/promotions.ts` — `promotionRpcArgs` sends `p_max_entries_per_member: input.maxEntriesPerMember`, and `PromotionDetail` carries it back so the form can render what is stored.
+- `tests/unit/promotions-schema.test.ts` — a case for the ceiling accepted with repeats on, one for it refused with repeats off, and one for a ceiling of 1 refused. Assert on `issues[0].message`, not on `success` alone.
+
+Task 8 puts the input on the Promotion tab beside the repeat interval.
+
 ---
 
 ## Task 7: The `/participations` screen
@@ -2001,6 +2013,7 @@ Filters: promotion, status, source, date range, and a listener search. **The def
 - The fifth tab is **fixed cost**: a count of valid against refused, the two buttons, and a link into `/participations` filtered to this promotion. It must not list participations — the record is read once per opening and a promotion with eight thousand entries cannot be.
 - `PROMOTION_TABS` gains `'participations'`. It is validated against by `parseRecordParam`, and the tuple now lives in `src/lib/record-params.ts` — **not** in the dialog module, which is a `'use client'` file. Adding it back to the dialog would reintroduce the defect commit `caef39d` fixed across six screens.
 - The footer's Save button already hides on tabs that are not part of the shared form; confirm the condition covers the new tab as it does `quiz` and `prizes`.
+- **The per-person ceiling gets its input on the Promotion tab**, beside the repeat interval it depends on, in `src/app/(app)/promotions/promotion-fields.tsx`. Task 6 added the schema and the service field; this is where an operator can finally set one. It renders only when "allows repeats" is ticked — the schema and `promotions_entry_ceiling_shape` (`0052`) both refuse it otherwise, and offering a field the database will reject is how a form teaches somebody the wrong thing.
 - The import form hashes the CPF in the browser action before calling the RPC (`0031`), parses the CSV with its header row in any order, and renders the per-row result the RPC returns — recorded, refused with which status, skipped with the line number and the reason, and how many listeners were created. It warns before writing when the promotion has `require_correct_answer` set, because imported rows carry no answers and would be outside the draw.
 
 - [ ] Steps: the tab; the manual form; the import form; `npm run lint && npm run typecheck && npm test`; commit.
