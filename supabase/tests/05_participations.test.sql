@@ -1,5 +1,5 @@
 begin;
-select plan(31);
+select plan(32);
 
 -- Structure ------------------------------------------------------------------
 
@@ -277,18 +277,37 @@ select is(
   1, 'participation_answers carries exactly one policy, and it is a read policy');
 
 -- Fails closed against a row that exists. The claim names a user with no
--- membership anywhere, and the fixtures above left real participations behind,
--- so a zero here is a denial and not an empty table.
+-- membership anywhere, and the fixtures above left real participations and real
+-- ANSWERS behind, so a zero here is a denial and not an empty table.
+--
+-- Two views, not one, and the second is the one that had no proof anywhere.
+-- Until this fix round `participation_answers` was covered by the policy COUNT
+-- above and by nothing else in this repository — rewrite 0053's second policy
+-- `using (true)` and every gate stayed green, on the table that holds listeners'
+-- free-text answers. The one live read of it (tests/isolation/participations
+-- .test.ts) is by a delegate who holds participations.view, so it can only ever
+-- show the permitted direction. The stranger is the denied one.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000004ff", "role": "authenticated"}';
 
 create temporary view stranger_participations as
   select id from public.participations;
 
+create temporary view stranger_participation_answers as
+  select id from public.participation_answers;
+
 reset role;
 select is(
   (select count(*)::int from stranger_participations),
   0, 'a caller holding participations.view nowhere reads no participations at all');
+
+-- Asserted against a table that is NOT empty: the `quiz_answer` fixture above
+-- ran under lives_ok and left a row. Without that, a zero here would be the
+-- empty-set trap rather than a denial, which is the shape this suite has been
+-- caught by before.
+select is(
+  (select count(*)::int from stranger_participation_answers),
+  0, 'a caller holding participations.view nowhere reads no answers either');
 
 select * from finish();
 rollback;

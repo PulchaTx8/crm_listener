@@ -1,7 +1,12 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { decodeCursor } from '@/lib/keyset';
-import { PARTICIPATION_PAGE_SIZE, listParticipationsPage } from '@/services/participations';
+import {
+  PARTICIPATION_PAGE_SIZE,
+  countPromotionParticipations,
+  listParticipationsPage,
+  searchStationListeners,
+} from '@/services/participations';
 import type { Database } from '@/lib/supabase/database.types';
 import {
   addCompany,
@@ -1669,5 +1674,382 @@ describe('the participations list read', () => {
     // fill both pages.
     const instants = rows.map((r) => Date.parse(r.participatedAt));
     expect(instants).toEqual([...instants].sort((a, b) => b - a));
+
+    // And back again through previousCursor, which nothing exercised anywhere:
+    // no caller in this repository passes `cursorSide: 'before'`, and the e2e
+    // clicks page-next and never page-previous. listParticipationsPage collapses
+    // listPromotionsPage's two-variable form into `const ascending = walkingBack`
+    // (services/participations.ts) because the display order is fixed
+    // descending, then leans on keysetPage to reverse the rows back — an
+    // inversion with two chances to be wrong and, until this line, no proof
+    // either way. Asserted on the ORDER as well as the set: reading the page
+    // back upside down would satisfy a set comparison perfectly.
+    const back = await listParticipationsPage(
+      { ...params, cursor: decodeCursor(second.previousCursor), cursorSide: 'before' },
+      token,
+    );
+    expect(back.rows).toHaveLength(PARTICIPATION_PAGE_SIZE);
+    expect(back.rows.map((r) => r.id)).toEqual(first.rows.map((r) => r.id));
+  });
+
+  /**
+   * The archived-promotion sub-clause of 0053's read policy, which had no
+   * proof anywhere.
+   *
+   * `participations_select_participations_view` is `has_permission(...) and
+   * promotion_id in (select id from public.promotions)`, and 0053's own comment
+   * argues at length that the second half is not redundant with the first: the
+   * subquery is itself filtered by 0044's policy on promotions, which hides an
+   * archived promotion from everyone but the Organization owner and the
+   * platform admin. Without it, a delegate who kept an id could go on reading
+   * the participations of a promotion that has left every one of their other
+   * reads. Delete both sub-clauses and, before this case, every suite in the
+   * repository stayed green.
+   *
+   * The live sibling is what makes this an assertion rather than an empty-set
+   * trap. A policy that denied everything, a fixture that wrote nothing, and a
+   * delegate with no permission at all would each produce the same zero; only a
+   * second promotion whose rows DO come back, through the same call with the
+   * same token, tells them apart.
+   */
+  it('hides an archived promotion\'s entries and its answers, while a live promotion beside it still lists', async () => {
+    const label = `plist-archived-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Arquivado',
+      phone: '11944444441',
+    });
+
+    // archive_promotion (0042) refuses a promotion that is still taking
+    // entries, so this one has to have ended — and the entry below is stamped
+    // INSIDE that past window, because apply_participation refuses anything
+    // outside it.
+    const { data: endedId, error: endedError } = await owner.rpc('create_promotion', {
+      p_company_id: customer.companyId,
+      p_name: 'Promo arquivada',
+      p_starts_at: new Date(Date.now() - 3 * DAY).toISOString(),
+      p_ends_at: new Date(Date.now() - DAY).toISOString(),
+    });
+    if (endedError) throw new Error(`create_promotion failed: ${endedError.message}`);
+    const archivedId = endedId as string;
+
+    const { data: questionId, error: questionError } = await owner.rpc('save_promotion_question', {
+      p_promotion_id: archivedId,
+      p_kind: 'ESSAY',
+      p_prompt: 'Por que você ouve?',
+      p_options: [],
+    });
+    if (questionError) throw new Error(`save_promotion_question failed: ${questionError.message}`);
+
+    const entered = await owner.rpc('record_participation', {
+      p_promotion_id: archivedId,
+      p_member_id: memberId,
+      p_participated_at: new Date(Date.now() - 2 * DAY).toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [{ question_id: questionId, answer_text: 'Pela música' }],
+    });
+    // Asserted rather than assumed: a fixture that failed here would leave
+    // nothing to hide, and every assertion below would pass against a policy
+    // with no sub-clause at all.
+    expect(entered.error).toBeNull();
+    expect(entered.data).toMatchObject({ status: 'VALID' });
+
+    const liveId = await promotionAt(owner, customer.companyId, 'Promo viva');
+    await recordAsOwner(owner, liveId, memberId);
+
+    const archived = await owner.rpc('archive_promotion', { p_promotion_id: archivedId });
+    expect(archived.error).toBeNull();
+
+    const delegate = await grantRoleWith(customer, label, FULL_READER);
+    const token = await tokenFor(delegate);
+    const client = await clientFor(delegate);
+    const params = { companyId: customer.companyId, cursor: null, cursorSide: 'after' } as const;
+
+    // Gone from the list, and the TOTAL is gone with it — a count taken outside
+    // the policy would report a row the page will not show.
+    const onArchived = await listParticipationsPage({ ...params, promotionId: archivedId }, token);
+    expect(onArchived.rows).toHaveLength(0);
+    expect(onArchived.total).toBe(0);
+
+    // The sibling, same caller, same call: still there. This is the half that
+    // makes the zero above mean something.
+    const onLive = await listParticipationsPage({ ...params, promotionId: liveId }, token);
+    expect(onLive.rows).toHaveLength(1);
+    expect(onLive.total).toBe(1);
+    expect(onLive.rows[0]?.promotionId).toBe(liveId);
+
+    // And unfiltered, which is what the screen opens on: exactly one row, the
+    // live one. The archived promotion's entry is not merely un-navigable, it
+    // is not in the Station's list at all.
+    const everything = await listParticipationsPage(params, token);
+    expect(everything.total).toBe(1);
+    expect(everything.rows.map((r) => r.promotionId)).toEqual([liveId]);
+
+    // One level down, and it is a policy of its own (0053) rather than a
+    // consequence of the one above: participation_answers carries the same
+    // archived rule through `participation_id in (select id from
+    // public.participations)`. The answer exists — the fixture asserted the
+    // entry that holds it — so this zero is a denial.
+    const answers = await client
+      .from('participation_answers')
+      .select('id')
+      .eq('promotion_id', archivedId);
+    expect(answers.error).toBeNull();
+    expect(answers.data).toEqual([]);
+  });
+});
+
+/**
+ * `participation_answers` on its own, because until this fix round the table
+ * that holds listeners' free-text answers had no denial proof anywhere.
+ *
+ * pgTAP asserted that a policy exists, which `using (true)` satisfies; the
+ * fail-closed stranger view covered `public.participations` only; and the one
+ * live read of the table in this suite is by a delegate who HOLDS
+ * participations.view, so it could only ever show the permitted direction.
+ * 05_participations.test.sql now carries the stranger half. This is the tenancy
+ * half: a real delegate, at a real Station, denied a neighbour's answers.
+ */
+describe('the answers read gate', () => {
+  it("shows a Station its own answers and none of the Station beside it", async () => {
+    const label = `pans-tenant-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    const stationB = await addCompany(customer, `Station B ${label}`);
+
+    const promotionA = await promotionAt(owner, customer.companyId, 'Promo com respostas');
+    const { data: questionId, error: questionError } = await owner.rpc('save_promotion_question', {
+      p_promotion_id: promotionA,
+      p_kind: 'ESSAY',
+      p_prompt: 'Conte uma história',
+      p_options: [],
+    });
+    if (questionError) throw new Error(`save_promotion_question failed: ${questionError.message}`);
+
+    const ana = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ana das Respostas',
+      phone: '11955555551',
+    });
+    const bruno = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Bruno das Respostas',
+      phone: '11955555552',
+    });
+
+    for (const [memberId, text] of [
+      [ana, 'Ouço desde criança'],
+      [bruno, 'Pela música da tarde'],
+    ] as const) {
+      const { error } = await owner.rpc('record_participation', {
+        p_promotion_id: promotionA,
+        p_member_id: memberId,
+        p_participated_at: new Date().toISOString(),
+        p_source: 'MANUAL',
+        p_answers: [{ question_id: questionId, answer_text: text }],
+      });
+      if (error) throw new Error(`record_participation failed: ${error.message}`);
+    }
+
+    // Two delegates, one Organization, one role definition each — the only
+    // difference between them is WHICH Station the role was granted at.
+    const atA = await grantRoleWith(customer, `${label}-a`, [
+      'promotions.view',
+      'participations.view',
+    ]);
+    const atB = await grantRoleWith(
+      customer,
+      `${label}-b`,
+      ['promotions.view', 'participations.view'],
+      [stationB],
+    );
+
+    const clientA = await clientFor(atA);
+    const clientB = await clientFor(atB);
+
+    const readA = await clientA
+      .from('participation_answers')
+      .select('answer_text')
+      .eq('promotion_id', promotionA);
+    expect(readA.error).toBeNull();
+    expect(readA.data).toHaveLength(2);
+
+    // The same question of the same rows, by somebody holding the same
+    // permission at the Station next door. Rewrite 0053's second policy
+    // `using (true)` and this is the assertion that goes red.
+    const readB = await clientB
+      .from('participation_answers')
+      .select('answer_text')
+      .eq('promotion_id', promotionA);
+    expect(readB.error).toBeNull();
+    expect(readB.data).toEqual([]);
+  });
+});
+
+/**
+ * The two service functions this block shipped with no coverage at any layer.
+ *
+ * `countPromotionParticipations` is load-bearing rather than decorative: it is
+ * what the promotion record's fifth tab shows, and the e2e's compensating
+ * assertion — the number a dead browser could not have computed — is the number
+ * it produces. `searchStationListeners` had two claims that existed only in its
+ * own prose.
+ */
+describe('the fifth tab’s counts and the manual form’s picker', () => {
+  /**
+   * `refused` is `neq('status', 'VALID')`, which is one filter standing in for
+   * three statuses, and nothing proved it caught all three.
+   *
+   * TWO promotions, because one cannot hold all three: DUPLICATE only ever
+   * arises where `allow_multiple_entries` is false, and OVER_LIMIT needs a
+   * ceiling, which `promotions_entry_ceiling_shape` (0052) permits only where
+   * repeats ARE allowed. That is a structural fact about the schema rather than
+   * an awkward fixture, so it is written down instead of worked around.
+   */
+  it('counts every refusal status as refused, across the two promotion shapes that can produce them', async () => {
+    const label = `pcount-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Contado',
+      phone: '11966666661',
+    });
+
+    const starts = new Date(Date.now() - 3 * DAY).toISOString();
+    const ends = new Date(Date.now() + 20 * DAY).toISOString();
+
+    // Shape one: repeats allowed, a six-hour interval and a ceiling of two.
+    // VALID, VALID, TOO_SOON, OVER_LIMIT.
+    const repeatable = await promotionAsOwner(customer, {
+      p_starts_at: starts,
+      p_ends_at: ends,
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 6,
+    });
+    const ceiling = await owner.rpc('update_promotion', {
+      p_promotion_id: repeatable,
+      p_name: 'Com teto para contagem',
+      p_starts_at: starts,
+      p_ends_at: ends,
+      p_allow_multiple_entries: true,
+      p_min_hours_between_entries: 6,
+      p_max_entries_per_member: 2,
+    });
+    expect(ceiling.error).toBeNull();
+
+    const base = Date.now();
+    const at = async (promotionId: string, offsetHours: number) => {
+      const { data, error } = await owner.rpc('record_participation', {
+        p_promotion_id: promotionId,
+        p_member_id: memberId,
+        p_participated_at: new Date(base - offsetHours * HOUR).toISOString(),
+        p_source: 'MANUAL',
+        p_answers: [],
+      });
+      if (error) throw new Error(`record_participation failed: ${error.message}`);
+      return (data as { status: string }).status;
+    };
+
+    // Asserted one by one rather than trusted, because the whole case is about
+    // which status each row ended up with — a fixture that produced four
+    // TOO_SOONs would still make `refused` equal 2 by accident.
+    expect(await at(repeatable, 30)).toBe('VALID');
+    expect(await at(repeatable, 29)).toBe('TOO_SOON');
+    expect(await at(repeatable, 20)).toBe('VALID');
+    expect(await at(repeatable, 4)).toBe('OVER_LIMIT');
+
+    // Shape two: repeats forbidden, so the second attempt is a DUPLICATE — the
+    // one status the promotion above cannot produce.
+    const once = await promotionAsOwner(customer, { p_starts_at: starts, p_ends_at: ends });
+    expect(await at(once, 10)).toBe('VALID');
+    expect(await at(once, 9)).toBe('DUPLICATE');
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+    ]);
+    const token = await tokenFor(delegate);
+
+    expect(await countPromotionParticipations(repeatable, token)).toEqual({ valid: 2, refused: 2 });
+    expect(await countPromotionParticipations(once, token)).toEqual({ valid: 1, refused: 1 });
+
+    // A delegate holding no participations.view at this Station: zeroes, not an
+    // error and not the real figures. 0053's policy answers a caller it does not
+    // admit with no rows, so the two counts come back 0/0 — which is what the
+    // tab renders behind its own `powers.participationsView` check, and what
+    // must never be a leak by another route.
+    const blind = await grantRoleWith(customer, `${label}-blind`, ['promotions.view']);
+    const blindToken = await tokenFor(blind);
+    expect(await countPromotionParticipations(repeatable, blindToken)).toEqual({
+      valid: 0,
+      refused: 0,
+    });
+  });
+
+  /**
+   * The picker's two claims, both of which existed only in the prose above
+   * `searchStationListeners`.
+   *
+   * Station-scoped rather than Organization-scoped is the whole reason that
+   * function is not `listOrganizationMembers` with a term: apply_participation
+   * (0054) refuses a listener the promotion's Station is not linked to, so a
+   * picker offering a sister-Station listener produces a guaranteed P0002 the
+   * moment the operator submits. The delegate below holds members.view at BOTH
+   * Stations, so an Organization-wide read would legitimately return the
+   * neighbour — which is exactly what makes the assertion about the scope of the
+   * query rather than about the caller's permissions.
+   *
+   * And an anonymised listener is excluded: 0034 scrubs full_name, so the row
+   * would otherwise be offered as a blank line nobody can identify, and
+   * recording a fresh entry against somebody who exercised erasure is precisely
+   * what that erasure was for.
+   */
+  it('offers only this Station’s listeners, and never an anonymised one', async () => {
+    const label = `picker-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+    const stationB = await addCompany(customer, `Station B ${label}`);
+
+    // One shared surname, so a single term reaches all three and the only thing
+    // separating them is the rule under test.
+    const here = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Silveira Aqui',
+      phone: '11977777771',
+    });
+    await createMemberAs(customer, stationB, {
+      fullName: 'Silveira Vizinha',
+      phone: '11977777772',
+    });
+    const erased = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Silveira Apagada',
+      phone: '11977777773',
+    });
+
+    const { error: erasureError } = await owner.rpc('anonymize_member', {
+      p_member_id: erased,
+      p_reason: 'subject_request',
+    });
+    if (erasureError) throw new Error(`anonymize_member failed: ${erasureError.message}`);
+
+    const delegate = await grantRoleWith(
+      customer,
+      label,
+      ['promotions.view', 'participations.view', 'participations.create', 'members.view'],
+      // Both Stations. Without this the case would pass against an
+      // Organization-wide query too, and would be testing the role rather than
+      // the function.
+      [customer.companyId, stationB],
+    );
+    const token = await tokenFor(delegate);
+
+    const page = await searchStationListeners(customer.companyId, 'Silveira', token);
+    expect(page.listeners.map((l) => l.memberId)).toEqual([here]);
+    expect(page.hasMore).toBe(false);
+
+    // And the neighbour IS reachable to this same caller through the Station
+    // they belong to — so the empty answer above is a scope, not a denial.
+    const neighbours = await searchStationListeners(stationB, 'Silveira', token);
+    expect(neighbours.listeners.map((l) => l.fullName)).toEqual(['Silveira Vizinha']);
   });
 });
