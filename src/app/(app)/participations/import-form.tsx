@@ -95,13 +95,92 @@ export interface ParsedRow {
   participatedAt: string;
 }
 
+/** What the bytes were read as. Named on screen, never assumed silently. */
+export type ImportEncoding = 'utf-8' | 'windows-1252';
+
 export interface ParsedFile {
   name: string;
   delimiter: string;
+  encoding: ImportEncoding;
   headers: string[];
   /** Which header each column was found under; a missing one is what stops the import. */
   mapping: Partial<Record<ColumnKey, string>>;
   rows: ParsedRow[];
+}
+
+/**
+ * Control characters no spreadsheet ever puts in a CSV: C0 except tab, newline
+ * and carriage return, DEL, and the whole C1 block.
+ *
+ * This is the only thing standing between the reader and a file that is neither
+ * of the two encodings below, and it is needed because NEITHER decoder can
+ * refuse one:
+ *
+ *   - Windows-1252's decoder cannot fail at all. The Encoding Standard maps
+ *     every one of its five unassigned bytes (0x81, 0x8D, 0x8F, 0x90, 0x9D) to
+ *     the matching C1 code point, so `{ fatal: true }` on it is a no-op —
+ *     measured, not assumed; the first version of this function relied on it and
+ *     its own test went green where it should have gone red.
+ *   - UTF-8's decoder cannot fail on UTF-16LE text that is all ASCII: `n\0o\0m\0`
+ *     is a run of perfectly legal one-byte sequences. The headers then normalise
+ *     correctly (normalizeHeader strips anything outside a-z0-9, NUL included)
+ *     and the file would import with a NUL between every letter of every name.
+ *
+ * So "is this text at all" is asked of the RESULT rather than of the decoder,
+ * on both branches. That is what makes the refusal in onFileChosen a guard that
+ * can fire, which is this project's rule for shipping one.
+ */
+const NOT_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
+
+/**
+ * The bytes, turned into text, with the encoding SAID rather than assumed.
+ *
+ * This replaced `await chosen.text()`, which is a non-fatal UTF-8 decode: a
+ * malformed byte becomes U+FFFD and nothing throws, so the `catch` that showed
+ * "It has to be a UTF-8 text file" was unreachable for the exact case its own
+ * copy named. Excel on a Windows machine set to Portuguese writes Windows-1252
+ * — the same machine this file already reasons about two functions down, where
+ * it accepts a semicolon delimiter for the same reason — and the ASCII headers
+ * still matched, so the file imported and registered listeners under
+ * permanently mojibake names. Those names then BECOME the deduplication anchors
+ * every future import matches against, which is what makes it worth more than a
+ * cosmetic fix.
+ *
+ * Two attempts, in the order that cannot guess wrong. UTF-8 with `fatal: true`
+ * first: valid UTF-8 is not ambiguous, so anything that decodes cleanly is
+ * decoded correctly. Only when that throws is Windows-1252 tried, and the panel
+ * then names it beside the delimiter, with the first row's own name rendered
+ * underneath — the operator's check that "Antônio" is not "AntÃ´nio", the same
+ * check they already make on the date.
+ *
+ * REFUSING Windows-1252 outright was the other candidate, and it is what the
+ * message this function makes reachable used to demand. Rejected on this file's
+ * own established reasoning about the semicolon delimiter: refusing it would
+ * refuse the commonest file this feature will ever be handed, on the very
+ * machine the delimiter branch was written for. Accepted and NAMED is the shape
+ * that already exists here — never silent.
+ *
+ * Not chardet or a byte-frequency heuristic: guessing between eight Latin
+ * encodings that all decode without error is a guess presented as a fact, and
+ * the panel already gives the operator a better instrument than any heuristic —
+ * their own listener's name, on screen, before anything is written.
+ *
+ * Exported for the same reason the four readers below are: it is the shape its
+ * unit tests assert against, and a decode is not something a render can prove.
+ */
+export function decodeImportFile(bytes: ArrayBuffer): { text: string; encoding: ImportEncoding } {
+  let utf8: string | null = null;
+  try {
+    utf8 = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    // Not UTF-8. Fall through to the one other encoding worth trying.
+  }
+
+  const text = utf8 ?? new TextDecoder('windows-1252').decode(bytes);
+  if (NOT_TEXT.test(text)) {
+    throw new Error('this file is not text in either encoding this reader accepts');
+  }
+  return { text, encoding: utf8 === null ? 'windows-1252' : 'utf-8' };
 }
 
 /**
@@ -250,7 +329,12 @@ export function toInstant(raw: string, timeZone: string): string {
   return '';
 }
 
-export function parseFile(name: string, text: string, timeZone: string): ParsedFile {
+export function parseFile(
+  name: string,
+  text: string,
+  timeZone: string,
+  encoding: ImportEncoding = 'utf-8',
+): ParsedFile {
   // A UTF-8 BOM is what Excel writes, and left in place it becomes part of the
   // first header — so `nome` would not match and a perfectly good file would be
   // refused over a byte nobody can see. Compared by code point rather than
@@ -303,7 +387,7 @@ export function parseFile(name: string, text: string, timeZone: string): ParsedF
       participatedAt: toInstant(valueOf(record.values, 'participatedAt'), timeZone),
     }));
 
-  return { name, delimiter, headers, mapping, rows };
+  return { name, delimiter, encoding, headers, mapping, rows };
 }
 
 /**
@@ -417,10 +501,16 @@ export function ImportParticipationsForm({
       return;
     }
     try {
-      setFile(parseFile(chosen.name, await chosen.text(), timeZone));
+      // arrayBuffer(), not text(): File.text() is a NON-FATAL UTF-8 decode, so
+      // it never throws and the refusal below could never fire for the case it
+      // names. See decodeImportFile.
+      const { text, encoding } = decodeImportFile(await chosen.arrayBuffer());
+      setFile(parseFile(chosen.name, text, timeZone, encoding));
     } catch {
       setFile(null);
-      setReadFailure('That file could not be read. It has to be a UTF-8 text file.');
+      setReadFailure(
+        'That file could not be read as text. It is neither UTF-8 nor Windows-1252 — re-save it from your spreadsheet as CSV UTF-8 and choose it again.',
+      );
     }
   }
 
@@ -443,8 +533,9 @@ export function ImportParticipationsForm({
           data-testid="participation-import-file"
         />
         <span className="text-xs text-muted-foreground">
-          A UTF-8 CSV with one header row naming its columns: a name, a phone and/or a CPF, and when
-          each person entered. The columns may be in any order.
+          A CSV with one header row naming its columns: a name, a phone and/or a CPF, and when each
+          person entered. The columns may be in any order. UTF-8 is what this reads first; a
+          Windows-1252 file from Excel is accepted too, and the panel below says which was used.
         </span>
       </label>
 
@@ -468,6 +559,19 @@ export function ImportParticipationsForm({
               </li>
             ))}
           </ul>
+          {/* The encoding is named for the same reason the separator beside it
+              is: a guess this screen made about the operator's file has to be
+              visible, or a wrong one looks exactly like a right one. Only the
+              non-obvious case is called out — every file that decodes as UTF-8
+              decodes as itself, and a line saying so on every import would be
+              noise the eye stops reading. */}
+          {file.encoding === 'windows-1252' && (
+            <p className="text-xs text-muted-foreground" data-testid="participation-import-encoding">
+              This file is not UTF-8, so it was read as Windows-1252 — what Excel writes on a machine
+              set to Portuguese. Check that the name below has its accents; if it does not, re-save
+              the file as CSV UTF-8 and choose it again.
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             {file.rows.length} {file.rows.length === 1 ? 'line' : 'lines'} under the header,
             separated by “{file.delimiter}”.

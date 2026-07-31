@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   IMPORT_ROWS_BODY_LIMIT_BYTES,
+  decodeImportFile,
   importRowsPayloadBytes,
   normalizeHeader,
   parseFile,
@@ -20,6 +21,86 @@ const TZ = 'America/Sao_Paulo';
  * tested here in isolation, the shape tests/unit/participations-schema.test.ts
  * already uses for this directory's schemas.
  */
+
+/**
+ * The decode, which had no test because it had no function: the form called
+ * `File.text()`, a NON-FATAL UTF-8 decode that turns a malformed byte into
+ * U+FFFD and never throws — so the `catch` beside it, whose message said "It
+ * has to be a UTF-8 text file", could not fire for the case it named. A
+ * Windows-1252 export from Excel-pt imported with its ASCII headers matching
+ * perfectly and registered listeners under mojibake names, which then become
+ * the deduplication anchors every later import is matched against.
+ *
+ * `Buffer` is used to build the fixtures because these run in vitest's `node`
+ * environment; the bytes are what matters and they are the same bytes a browser
+ * would hand `arrayBuffer()`.
+ */
+describe('decodeImportFile', () => {
+  /** The ArrayBuffer a File would give, from explicit bytes. */
+  const bytesOf = (...values: number[]) => Uint8Array.from(values).buffer;
+
+  it('reads valid UTF-8 as UTF-8', () => {
+    const utf8 = new TextEncoder().encode('nome\nAntônio Gonçalves');
+    const result = decodeImportFile(utf8.buffer as ArrayBuffer);
+    expect(result.encoding).toBe('utf-8');
+    expect(result.text).toBe('nome\nAntônio Gonçalves');
+  });
+
+  // 0xF4 is "ô" in Windows-1252 and is not a legal UTF-8 sequence start
+  // followed by these bytes — which is exactly the file Excel writes on a
+  // machine set to Portuguese, the same machine parseFile already accepts a
+  // semicolon delimiter for.
+  it('falls back to Windows-1252 and says so, rather than producing U+FFFD', () => {
+    // "nome\nAnt<F4>nio" — the mojibake case, in the bytes that cause it.
+    const result = decodeImportFile(
+      bytesOf(0x6e, 0x6f, 0x6d, 0x65, 0x0a, 0x41, 0x6e, 0x74, 0xf4, 0x6e, 0x69, 0x6f),
+    );
+    expect(result.encoding).toBe('windows-1252');
+    expect(result.text).toBe('nome\nAntônio');
+    // The whole point: not a replacement character anywhere. `File.text()`
+    // would have returned "Ant�nio" and thrown nothing.
+    expect(result.text).not.toContain('�');
+  });
+
+  // The guard that has to be able to fire, and the two cases that show why
+  // neither DECODER can be the one to fire it.
+  //
+  // 0x81 is one of the five bytes Windows-1252 leaves unassigned, and
+  // `{ fatal: true }` on that decoder does NOT refuse it — the Encoding
+  // Standard maps it to U+0081. The first version of this function relied on
+  // that refusal and this very case went green where it should have gone red.
+  it('throws on a byte no encoding assigns, which neither decoder rejects', () => {
+    expect(() => decodeImportFile(bytesOf(0x6e, 0x6f, 0x6d, 0x65, 0x0a, 0x81))).toThrow();
+  });
+
+  // And the mirror image, on the other decoder: UTF-16LE ASCII is a run of
+  // perfectly legal one-byte UTF-8 sequences, so `{ fatal: true }` on UTF-8
+  // accepts it happily. normalizeHeader strips NUL along with every other
+  // non-alphanumeric, so "n\0o\0m\0e\0" would have matched the `nome` column
+  // and every name in the file would have imported with a NUL between its
+  // letters.
+  it('throws on UTF-16LE text, which the UTF-8 decoder accepts as ASCII plus NULs', () => {
+    const utf16 = Buffer.from('nome\nAna', 'utf16le');
+    expect(() =>
+      decodeImportFile(utf16.buffer.slice(utf16.byteOffset, utf16.byteOffset + utf16.byteLength)),
+    ).toThrow();
+  });
+
+  it('carries the encoding through parseFile onto the panel’s own field', () => {
+    const { text, encoding } = decodeImportFile(
+      // "nome;participou em\nJo<E3>o;01/08/2026"
+      bytesOf(
+        0x6e, 0x6f, 0x6d, 0x65, 0x3b, 0x70, 0x61, 0x72, 0x74, 0x69, 0x63, 0x69, 0x70, 0x6f, 0x75,
+        0x20, 0x65, 0x6d, 0x0a, 0x4a, 0x6f, 0xe3, 0x6f, 0x3b, 0x30, 0x31, 0x2f, 0x30, 0x38, 0x2f,
+        0x32, 0x30, 0x32, 0x36,
+      ),
+    );
+    const file = parseFile('lista.csv', text, TZ, encoding);
+    expect(file.encoding).toBe('windows-1252');
+    expect(file.delimiter).toBe(';');
+    expect(file.rows[0]?.fullName).toBe('João');
+  });
+});
 
 describe('normalizeHeader', () => {
   it('lowercases and strips separators', () => {
