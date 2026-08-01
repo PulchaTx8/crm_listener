@@ -702,6 +702,42 @@ export type Database = {
           },
         ]
       }
+      member_field_confirmations: {
+        Row: {
+          confirmed_at: string
+          field: Database["public"]["Enums"]["promotion_requested_field"]
+          member_id: string
+          organization_id: string
+        }
+        Insert: {
+          confirmed_at?: string
+          field: Database["public"]["Enums"]["promotion_requested_field"]
+          member_id: string
+          organization_id: string
+        }
+        Update: {
+          confirmed_at?: string
+          field?: Database["public"]["Enums"]["promotion_requested_field"]
+          member_id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_field_confirmations_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "member_field_confirmations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_notes: {
         Row: {
           body: string | null
@@ -1550,6 +1586,65 @@ export type Database = {
           },
         ]
       }
+      promotion_refusals: {
+        Row: {
+          company_id: string
+          id: string
+          member_id: string
+          organization_id: string
+          promotion_id: string
+          refused_at: string
+          source: Database["public"]["Enums"]["participation_source"]
+        }
+        Insert: {
+          company_id: string
+          id?: string
+          member_id: string
+          organization_id: string
+          promotion_id: string
+          refused_at?: string
+          source: Database["public"]["Enums"]["participation_source"]
+        }
+        Update: {
+          company_id?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          promotion_id?: string
+          refused_at?: string
+          source?: Database["public"]["Enums"]["participation_source"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_refusals_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotion_refusals_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotion_refusals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_refusals_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       promotions: {
         Row: {
           allow_multiple_entries: boolean
@@ -1561,6 +1656,7 @@ export type Database = {
           company_id: string
           created_at: string
           created_by: string | null
+          data_validity_months: number | null
           deleted_at: string | null
           deleted_by: string | null
           ends_at: string
@@ -1590,6 +1686,7 @@ export type Database = {
           company_id: string
           created_at?: string
           created_by?: string | null
+          data_validity_months?: number | null
           deleted_at?: string | null
           deleted_by?: string | null
           ends_at: string
@@ -1619,6 +1716,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           created_by?: string | null
+          data_validity_months?: number | null
           deleted_at?: string | null
           deleted_by?: string | null
           ends_at?: string
@@ -1820,6 +1918,41 @@ export type Database = {
           },
         ]
       }
+      whatsapp_conversations: {
+        Row: {
+          created_at: string
+          expires_at: string
+          integration_id: string
+          phone: string
+          state: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          integration_id: string
+          phone: string
+          state: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          integration_id?: string
+          phone?: string
+          state?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversations_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1941,6 +2074,7 @@ export type Database = {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
       }
+      backfill_member_field_confirmations: { Args: never; Returns: undefined }
       block_member: {
         Args: {
           p_company_id?: string
