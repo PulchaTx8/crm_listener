@@ -1,5 +1,5 @@
 begin;
-select plan(91);
+select plan(97);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -543,6 +543,25 @@ values
    '00000000-0000-0000-0000-0000000005c2', 'Cinema', '2026-06-01Z', '2026-06-30Z',
    true, 6, true, '#REPETE', 'Quero!', 'Nao');
 
+-- Two promotions whose hashtags differ only by a trailing '!'. Both are legal:
+-- promotions_hashtag_shape (0040) permits punctuation inside a stored hashtag,
+-- and promotions_hashtag_no_overlap compares lower(hashtag), so '#vai!' and
+-- '#vai' are different tags and do not overlap. They exist so that "the exact
+-- token wins over the trimmed one" is a testable claim rather than a comment:
+-- a message saying '#VAI!' means Grito, and an implementation that trimmed
+-- first would enter the listener into Sussurro instead -- a draw they never
+-- asked for, confirmed by name in the reply they receive.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+values
+  ('00000000-0000-0000-0000-000000000595', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Grito', '2026-06-01Z', '2026-06-30Z',
+   true, '#VAI!', 'Quero!', 'Nao'),
+  ('00000000-0000-0000-0000-000000000596', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Sussurro', '2026-06-01Z', '2026-06-30Z',
+   true, '#VAI', 'Quero!', 'Nao');
+
 -- The one promotion anchored to the clock, and the only one that is: it is open
 -- RIGHT NOW, so a message written a month ago must still be refused by it.
 insert into public.promotions
@@ -593,16 +612,15 @@ begin
 end $$;
 
 -- The outbox row a given message produced, found through the dedupe_key SHAPE
--- 0059 documents ('<participation_id>:confirmation'). That indirection is the
--- assertion: an implementation keying the row on the wamid or the event id
--- leaves every lookup below empty rather than merely differently named.
+-- 0059 documents ('<wamid>:confirmation'). That indirection is the assertion:
+-- an implementation keying the row on the participation or the event id leaves
+-- every lookup below empty rather than merely differently named.
 create or replace function pg_temp.confirmation(p_wamid text)
 returns public.outbox_messages language sql as $$
   select o.*
   from public.outbox_messages o
-  join pg_temp.ingest_log l
-    on o.dedupe_key = (l.result ->> 'participation_id') || ':confirmation'
-  where l.wamid = p_wamid;
+  where o.provider = 'WHATSAPP'
+    and o.dedupe_key = p_wamid || ':confirmation';
 $$;
 
 -- The door: one message, decided end to end -------------------------------------
@@ -662,6 +680,31 @@ select is(pg_temp.ingest('wamid.A8', '5511988886666', '#EUQUERO',
 select is(pg_temp.ingest('wamid.A9', '5511988886666', '#CANCELADO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
           'promotion_cancelled', 'a cancelled promotion is told apart from one that never existed');
+
+-- Punctuation stuck to the tag ---------------------------------------------------
+--
+-- '#EUQUERO!!' is how somebody writes when they are excited, which is the state
+-- this feature is designed to produce. '!' is neither whitespace nor '#', so the
+-- token swallows it and matches nothing -- and under D4 that listener gets
+-- silence and never learns why. The trimmed form is tried second.
+--
+-- The second case is why it must be SECOND and not instead: '#VAI!' is a stored
+-- hashtag in its own right. Trimming before matching would answer 'Sussurro' to
+-- somebody who asked for 'Grito', and the reply naming the promotion is what
+-- makes the difference visible.
+
+select is(pg_temp.ingest('wamid.P1', '5511988882222', 'AAAA quero!! #EUQUERO!!',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded',
+          'a hashtag with punctuation stuck to it still resolves, rather than answering silence');
+
+select is(pg_temp.ingest('wamid.P2', '5511988882222', '#VAI!',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded', 'a hashtag that legitimately ends in punctuation is recorded');
+
+select is((pg_temp.confirmation('wamid.P2')).body,
+          'Pronto! Você está participando de Grito. Boa sorte!',
+          'and it resolves to the promotion stored with the punctuation, not to the one whose tag is its trimmed form');
 
 -- The message's own clock, not the server's --------------------------------------
 --
@@ -779,14 +822,28 @@ select is(
 -- Block 3's rule, and it is absolute. audit_logs is never pruned, whereas
 -- webhook_events.payload -- where the phone and the profile name stay -- is
 -- cleared after thirty days and is unreadable through any user-scoped client.
--- Every sender above shares the run '98888', and every payload carries the
--- profile name 'Ouvinte Bot'.
+--
+-- Asserted STRUCTURALLY rather than by grepping the serialised detail for a run
+-- of digits. A substring test cannot distinguish a leaked phone from a uuid
+-- that happens to contain the same digits -- a uuid's twelve-character final
+-- block alone carries eleven consecutive decimal digits about half a percent of
+-- the time -- so it would eventually go red for no reason and be disbelieved
+-- when it finally went red for a real one. It also misses the likelier
+-- regression: a contributor adding personal data under a key nobody thought to
+-- grep for. The key SET is the thing to pin.
 
 select is(
   (select count(*)::int from public.audit_logs
-    where action = 'ingest_whatsapp_event'
-      and (detail::text like '%98888%' or detail::text like '%Ouvinte Bot%')),
-  0, 'no phone number and no WhatsApp profile name reaches audit_logs');
+    where action = 'ingest_whatsapp_event' and detail ? 'from_phone'),
+  0, 'no audit row of the bot door carries a from_phone key');
+
+select is(
+  (select array_agg(distinct k order by k)
+     from public.audit_logs a, jsonb_object_keys(a.detail) k
+    where a.action = 'ingest_whatsapp_event'),
+  array['integration_id', 'member_id', 'outcome', 'participation_id',
+        'promotion_id', 'wamid'],
+  'across every outcome the audit detail carries exactly these six keys -- ids, the message id and the reason, and nothing that describes a person');
 
 select is(
   (select detail ->> 'wamid' from public.audit_logs
@@ -804,6 +861,38 @@ select is(
   (select (result ->> 'participation_id')::uuid
      from pg_temp.ingest_log where wamid = 'wamid.A1'),
   'and ties it to the entry it produced, which is the only link between a message and its participation');
+
+-- One message, one reply, however many times it is decided --------------------------
+--
+-- This is the assertion that would have caught the defect 0059's comment used to
+-- describe. The claim predicate declines a DONE event, so getting here at all
+-- takes an operator resetting the row by hand -- which also means clearing
+-- outcome and processed_at, since webhook_events_done_shape forbids a non-DONE
+-- row from carrying either. That operator is the case the unique dedupe_key
+-- exists for, and it is the case a participation-keyed value cannot serve: the
+-- second pass writes a SECOND participation (the row is a fact about the
+-- attempt), so a participation-keyed value differs every time and the ON
+-- CONFLICT never fires once.
+--
+-- Deliberately LAST in the file. It puts a third participation on the listener
+-- and a second audit row on the event, both of which earlier assertions count.
+
+update public.webhook_events
+   set status = 'FAILED', outcome = null, processed_at = null
+ where external_id = 'wamid.A1';
+
+-- The re-run must actually happen, or the count below would pass because
+-- nothing ran rather than because nothing was enqueued twice.
+select is(
+  (select public.ingest_whatsapp_event(id) ->> 'outcome'
+     from public.webhook_events where external_id = 'wamid.A1'),
+  'recorded',
+  'an event put back by hand really is decided again');
+
+select is(
+  (select count(*)::int from public.outbox_messages
+    where provider = 'WHATSAPP' and dedupe_key = 'wamid.A1:confirmation'),
+  1, 'but the listener is answered once: the reply is keyed on the message, so deciding it twice enqueues one row');
 
 select * from finish();
 rollback;
