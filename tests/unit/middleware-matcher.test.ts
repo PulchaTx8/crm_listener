@@ -34,6 +34,23 @@ describe('middleware matcher', () => {
     expect(matcher.test('/api/webhooks/telegram')).toBe(false);
   });
 
+  // C1 again, for the worker. pg_cron calls this through pg_net every ten
+  // seconds with no session cookie; matched, it is answered with a 307 to
+  // /login and src/app/api/worker/tick/route.ts never runs. The scheduler
+  // reads no response body, so both queues would stop draining in silence —
+  // and no unit test can see it, because a test imports the handler and
+  // calls it directly, never passing through the middleware at all.
+  it('does not match the worker tick route', () => {
+    expect(matcher.test('/api/worker/tick')).toBe(false);
+  });
+
+  // A prefix, like the webhook one: everything under /api/worker/ is a
+  // machine endpoint called without a session and carrying its own shared
+  // secret, so a second one must not have to rediscover this.
+  it('does not match another route under the same worker prefix', () => {
+    expect(matcher.test('/api/worker/anything')).toBe(false);
+  });
+
   // Kept narrow: a page still needs a session, and an unrelated API route
   // still needs a session too. Excluding all of /api would silently strip
   // auth from things that need it.

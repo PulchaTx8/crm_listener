@@ -2036,6 +2036,13 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      due_whatsapp_events: {
+        Args: { p_limit: number; p_max_attempts: number }
+        Returns: {
+          attempts: number
+          id: string
+        }[]
+      }
       ensure_inventory_balance_row: {
         Args: { p_company_id: string; p_org: string; p_prize_id: string }
         Returns: undefined
@@ -2187,6 +2194,10 @@ export type Database = {
         }[]
       }
       reactivate_company: { Args: { p_company_id: string }; Returns: undefined }
+      reclaim_stale_whatsapp_events: {
+        Args: { p_stale_after?: string }
+        Returns: number
+      }
       reconcile_inventory: {
         Args: { p_company_id: string }
         Returns: {
