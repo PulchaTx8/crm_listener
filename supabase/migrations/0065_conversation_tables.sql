@@ -51,6 +51,56 @@ revoke truncate on public.member_field_confirmations from service_role;
 grant select on public.member_field_confirmations to authenticated;
 grant select, insert, update on public.member_field_confirmations to service_role;
 
+-- ---------------------------------------------------------------------------
+-- The eight-way mapping from a promotion_requested_field value to the column
+-- on members it names. Lives in EXACTLY this one function -- every other place
+-- that needs it (the backfill just below, Task 2's whatsapp_conversation_steps,
+-- and Task 10's write path) calls here, so a ninth requested field is one edit
+-- rather than a search. It moved here, ahead of the backfill, rather than
+-- staying beside its other caller in 0066: the backfill below is the SECOND
+-- place this mapping would otherwise have been hand-written, and a function
+-- that exists to be the one place has to be defined before its first caller.
+--
+-- Returns null for a blank string, not just for a null column: `nullif(btrim(...), '')`
+-- so a field holding '' or '   ' counts as empty, the same way apply_member_creation
+-- (0061) treats a blank string as "not supplied" on the write side. birth_date is
+-- cast to text because the column it names is a date and every other branch of
+-- this CASE returns text; the cast happens before btrim so a literal date value
+-- (never blank) simply passes through.
+--
+-- PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside
+-- a SECURITY DEFINER body -- the shape apply_participation (0054) established.
+-- ---------------------------------------------------------------------------
+create or replace function public.member_field_value(
+  p_member_id uuid,
+  p_field     public.promotion_requested_field
+)
+returns text
+language sql
+stable
+set search_path = pg_catalog, public
+as $$
+  select nullif(btrim(coalesce(
+    case p_field
+      when 'full_name'        then m.full_name
+      when 'address'          then m.address_line
+      when 'city'              then m.city
+      when 'neighbourhood'    then m.neighbourhood
+      when 'age'                then m.birth_date::text
+      when 'cpf'               then m.cpf_hash
+      when 'passport'          then m.passport
+      when 'discovery_source' then m.discovery_source
+    end,
+    '')), '')
+  from public.members m
+  where m.id = p_member_id;
+$$;
+
+revoke execute on function public.member_field_value(uuid, public.promotion_requested_field) from public;
+
+comment on function public.member_field_value(uuid, public.promotion_requested_field) is
+  'The eight-way mapping from a promotion_requested_field value to the members column it names -- full_name, address_line, city, neighbourhood, birth_date::text, cpf_hash, passport, discovery_source. Lives in EXACTLY this one function; every other place that needs the mapping (the backfill just below, whatsapp_conversation_steps in 0066, and Task 10''s write path) calls here rather than repeating the CASE, so a ninth requested field is one edit rather than a search. Returns null for a blank or whitespace-only string as well as for a null column, so an empty field always counts as empty. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside a SECURITY DEFINER body.';
+
 -- D3. Data an operator typed counts as confirmed when it was typed. The
 -- backfill uses created_at and NOT updated_at: a 2024 record whose phone was
 -- corrected yesterday would otherwise report a fresh address, and created_at
@@ -68,6 +118,14 @@ grant select, insert, update on public.member_field_confirmations to service_rol
 -- test call the same function closes that gap: there is exactly one copy of
 -- the logic, and 08_conversation.test.sql calls it a second time, against
 -- fixtures of its own, to prove which column it reads.
+--
+-- The field-by-field mapping is member_field_value's, called once per
+-- (member, requested field) pair rather than hand-written a second time here
+-- as a VALUES list -- that VALUES list is exactly what a ninth field would
+-- have needed a second edit to. enum_range gives every field the enum has,
+-- independent of any promotion's requested_fields, because the backfill's job
+-- is dating every field a member already holds, not just the ones somebody
+-- happens to have marked on a promotion.
 create function public.backfill_member_field_confirmations()
 returns void
 language sql
@@ -75,18 +133,9 @@ as $$
   insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at)
   select m.id, m.organization_id, f.field, m.created_at
   from public.members m
-  cross join lateral (values
-    ('full_name'::public.promotion_requested_field, m.full_name),
-    ('address',          m.address_line),
-    ('city',             m.city),
-    ('neighbourhood',    m.neighbourhood),
-    ('age',              m.birth_date::text),
-    ('cpf',              m.cpf_hash),
-    ('passport',         m.passport),
-    ('discovery_source', m.discovery_source)
-  ) as f(field, value)
+  cross join unnest(enum_range(null::public.promotion_requested_field)) as f(field)
   where m.deleted_at is null
-    and nullif(btrim(coalesce(f.value, '')), '') is not null
+    and public.member_field_value(m.id, f.field) is not null
   on conflict do nothing;
 $$;
 

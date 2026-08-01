@@ -3,52 +3,13 @@
 -- Block 5b, Task 2: which steps a given listener still has to answer for a
 -- given promotion. Nothing calls this yet -- a later task computes it once,
 -- at the moment the hashtag arrives, and walks the list turn by turn.
-
--- ---------------------------------------------------------------------------
--- The eight-way mapping from a promotion_requested_field value to the column
--- on members it names. Lives in EXACTLY this one function -- every other place
--- that needs it (whatsapp_conversation_steps below, and Task 10's write path)
--- calls here, so a ninth requested field is one edit rather than a search.
 --
--- Returns null for a blank string, not just for a null column: `nullif(btrim(...), '')`
--- so a field holding '' or '   ' counts as empty, the same way apply_member_creation
--- (0061) treats a blank string as "not supplied" on the write side. birth_date is
--- cast to text because the column it names is a date and every other branch of
--- this CASE returns text; the cast happens before btrim so a literal date value
--- (never blank) simply passes through.
---
--- PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside
--- a SECURITY DEFINER body -- the shape apply_participation (0054) established.
--- ---------------------------------------------------------------------------
-create or replace function public.member_field_value(
-  p_member_id uuid,
-  p_field     public.promotion_requested_field
-)
-returns text
-language sql
-stable
-set search_path = pg_catalog, public
-as $$
-  select nullif(btrim(coalesce(
-    case p_field
-      when 'full_name'        then m.full_name
-      when 'address'          then m.address_line
-      when 'city'              then m.city
-      when 'neighbourhood'    then m.neighbourhood
-      when 'age'                then m.birth_date::text
-      when 'cpf'               then m.cpf_hash
-      when 'passport'          then m.passport
-      when 'discovery_source' then m.discovery_source
-    end,
-    '')), '')
-  from public.members m
-  where m.id = p_member_id;
-$$;
-
-revoke execute on function public.member_field_value(uuid, public.promotion_requested_field) from public;
-
-comment on function public.member_field_value(uuid, public.promotion_requested_field) is
-  'The eight-way mapping from a promotion_requested_field value to the members column it names -- full_name, address_line, city, neighbourhood, birth_date::text, cpf_hash, passport, discovery_source. Lives in EXACTLY this one function; every other place that needs the mapping (whatsapp_conversation_steps here, and Task 10''s write path) calls here rather than repeating the CASE, so a ninth requested field is one edit rather than a search. Returns null for a blank or whitespace-only string as well as for a null column, so an empty field always counts as empty. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside a SECURITY DEFINER body.';
+-- member_field_value, the eight-way promotion_requested_field-to-members-column
+-- mapping this function's `stale` CTE calls below, lives in 0065 -- moved there
+-- ahead of backfill_member_field_confirmations, its other caller, once the
+-- backfill stopped hand-writing an equivalent VALUES list and started calling
+-- it instead. See that function's own comment for the mapping itself and the
+-- reasoning; nothing here repeats it.
 
 -- ---------------------------------------------------------------------------
 -- The step list, computed ONCE when the hashtag arrives (design spec D7).
@@ -127,4 +88,4 @@ $$;
 revoke execute on function public.whatsapp_conversation_steps(uuid, uuid) from public;
 
 comment on function public.whatsapp_conversation_steps(uuid, uuid) is
-  'The ordered list of steps this listener still has to answer for this promotion: consent, then every stale or empty requested field in promotion_requested_field''s own declared order (0040), then every question in position order. Computed ONCE per conversation (design spec D7) -- recomputing per message would cost a round trip per turn and would let a field fresh at the start expire mid-conversation, and editing a promotion mid-conversation would otherwise change what a listener already talking to the bot is asked. member_field_value (this migration) supplies the eight-way field mapping. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside a SECURITY DEFINER body -- the shape apply_participation (0054) established.';
+  'The ordered list of steps this listener still has to answer for this promotion: consent, then every stale or empty requested field in promotion_requested_field''s own declared order (0040), then every question in position order. Computed ONCE per conversation (design spec D7) -- recomputing per message would cost a round trip per turn and would let a field fresh at the start expire mid-conversation, and editing a promotion mid-conversation would otherwise change what a listener already talking to the bot is asked. member_field_value (0065) supplies the eight-way field mapping. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from inside a SECURITY DEFINER body -- the shape apply_participation (0054) established.';

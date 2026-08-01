@@ -1,5 +1,5 @@
 begin;
-select plan(25);
+select plan(33);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -112,6 +112,53 @@ select is(
 
 -- Task 2: which steps this listener still has to answer -----------------------
 --
+-- Both of 0066's functions, pinned exactly as apply_participation (0054) is
+-- pinned in 02_permissions.test.sql: prosecdef = false plus has_function_privilege
+-- against all three of anon, authenticated and service_role. Placed HERE rather
+-- than growing 02_permissions.test.sql further, following the more recent
+-- precedent: 0061's four private cores (apply_member_candidates and friends)
+-- are pinned the same way in 06_whatsapp.test.sql, the test file for the block
+-- that shipped them, not in the central permissions file. This block's own
+-- test file is that file for 0066.
+--
+-- has_function_privilege reads pg_proc.proacl rather than attempting an actual
+-- call -- which is the only reason it means anything from THIS session. pgTAP
+-- runs as postgres, a superuser, and a superuser bypasses ACL checks on every
+-- real call regardless of what proacl says; an assertion that tried to prove
+-- the grant by calling the function as postgres would pass whether or not the
+-- revoke below ever ran. Reading the catalogue instead of attempting the call
+-- is what makes this able to catch a future `grant execute ... to authenticated`
+-- slipping past all 611 other assertions in this suite untouched.
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.member_field_value(uuid, public.promotion_requested_field)'::regprocedure),
+  false,
+  'member_field_value is SECURITY INVOKER, not DEFINER');
+select ok(
+  not has_function_privilege('anon', 'public.member_field_value(uuid, public.promotion_requested_field)', 'EXECUTE'),
+  'anon may not call member_field_value');
+select ok(
+  not has_function_privilege('authenticated', 'public.member_field_value(uuid, public.promotion_requested_field)', 'EXECUTE'),
+  'authenticated may not call member_field_value');
+select ok(
+  not has_function_privilege('service_role', 'public.member_field_value(uuid, public.promotion_requested_field)', 'EXECUTE'),
+  'service_role may not call member_field_value');
+
+select is(
+  (select prosecdef from pg_proc
+    where oid = 'public.whatsapp_conversation_steps(uuid, uuid)'::regprocedure),
+  false,
+  'whatsapp_conversation_steps is SECURITY INVOKER, not DEFINER');
+select ok(
+  not has_function_privilege('anon', 'public.whatsapp_conversation_steps(uuid, uuid)', 'EXECUTE'),
+  'anon may not call whatsapp_conversation_steps');
+select ok(
+  not has_function_privilege('authenticated', 'public.whatsapp_conversation_steps(uuid, uuid)', 'EXECUTE'),
+  'authenticated may not call whatsapp_conversation_steps');
+select ok(
+  not has_function_privilege('service_role', 'public.whatsapp_conversation_steps(uuid, uuid)', 'EXECUTE'),
+  'service_role may not call whatsapp_conversation_steps');
+
 -- A dedicated Org/Station keeps these fixtures from ever touching the ones
 -- above (member 8d1 already carries a 'city' confirmation from Task 1's own
 -- fixtures) and from ever touching each other: every promotion below gets its
