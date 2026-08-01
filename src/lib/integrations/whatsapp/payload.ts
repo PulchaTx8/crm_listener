@@ -24,23 +24,33 @@ const contactSchema = z.object({
   profile: z.object({ name: z.string() }).optional(),
 });
 
-const bodySchema = z.object({
-  entry: z.array(
+// Validated per entry, not as part of one body-wide schema: Meta batches
+// several senders' events into one POST via `entry[]`, and a malformed entry
+// must not cost the valid messages sitting beside it in the same request. A
+// schema that covered `entry` as a single array (as this one used to) fails
+// atomically — one bad element fails the whole array — so every message in
+// every OTHER entry would be dropped too, silently, because this route
+// answers 200 and Meta never re-delivers what it wasn't told failed.
+const entrySchema = z.object({
+  changes: z.array(
     z.object({
-      changes: z.array(
-        z.object({
-          value: z.object({
-            metadata: z.object({ phone_number_id: z.string().min(1) }),
-            contacts: z.array(contactSchema).optional(),
-            // Anything that is not a text message is dropped below rather than
-            // refused here: a delivery receipt is a valid payload we have no
-            // use for, not a malformed one.
-            messages: z.array(z.unknown()).optional(),
-          }),
-        }),
-      ),
+      value: z.object({
+        metadata: z.object({ phone_number_id: z.string().min(1) }),
+        contacts: z.array(contactSchema).optional(),
+        // Anything that is not a text message is dropped below rather than
+        // refused here: a delivery receipt is a valid payload we have no
+        // use for, not a malformed one.
+        messages: z.array(z.unknown()).optional(),
+      }),
     }),
   ),
+});
+
+const bodySchema = z.object({
+  // Left as z.unknown() here on purpose — each element is validated on its
+  // own by entrySchema below, once per entry, so one malformed entry cannot
+  // fail its siblings' validation.
+  entry: z.array(z.unknown()),
 });
 
 /**
@@ -53,12 +63,15 @@ const bodySchema = z.object({
  * throwing turns one odd payload into a retry loop.
  */
 export function flattenWebhookBody(body: unknown): InboundMessage[] {
-  const parsed = bodySchema.safeParse(body);
-  if (!parsed.success) return [];
+  const parsedBody = bodySchema.safeParse(body);
+  if (!parsedBody.success) return [];
 
   const out: InboundMessage[] = [];
-  for (const entry of parsed.data.entry) {
-    for (const change of entry.changes) {
+  for (const rawEntry of parsedBody.data.entry) {
+    const entry = entrySchema.safeParse(rawEntry);
+    if (!entry.success) continue;
+
+    for (const change of entry.data.changes) {
       const { metadata, contacts, messages } = change.value;
       if (!messages) continue;
 

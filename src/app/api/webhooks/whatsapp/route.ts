@@ -1,0 +1,111 @@
+import { createHash } from 'node:crypto';
+import { env } from '@/lib/env';
+import { createServiceClient } from '@/lib/supabase/service-client';
+import { flattenWebhookBody } from '@/lib/integrations/whatsapp/payload';
+import { verifyMetaSignature } from '@/lib/integrations/whatsapp/signature';
+
+// The raw body is the signed artefact. Next must not parse it for us.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+/**
+ * Meta's one-time verification handshake. It is how the callback URL is
+ * registered, and it runs again whenever the URL is re-saved in the App
+ * dashboard.
+ */
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const token = env.WHATSAPP_VERIFY_TOKEN;
+
+  if (
+    !token ||
+    url.searchParams.get('hub.mode') !== 'subscribe' ||
+    url.searchParams.get('hub.verify_token') !== token
+  ) {
+    return new Response('forbidden', { status: 403 });
+  }
+  return new Response(url.searchParams.get('hub.challenge') ?? '', { status: 200 });
+}
+
+/**
+ * Receipt, and nothing more. The order below is the security of this route:
+ * verify the signature over the bytes received, then store, then answer 200
+ * fast — Meta re-delivers anything slow, and a duplicate delivery is normal
+ * traffic rather than an attack.
+ *
+ * Nothing here decides anything about a promotion. That is
+ * ingest_whatsapp_event's, called by the worker, so this route stays inside
+ * Meta's timeout however slow the database is.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const appSecret = env.WHATSAPP_APP_SECRET;
+  if (!appSecret) {
+    // Refusing to serve beats accepting unverified traffic. This is a
+    // deployment fault, not a caller fault, and 503 says so.
+    return new Response('not configured', { status: 503 });
+  }
+
+  // Read as text, not json(): the signature below is over these exact bytes,
+  // and Next's body parser would hand back a re-serialised object whose
+  // whitespace and key order Meta never signed.
+  const raw = await request.text();
+
+  if (!verifyMetaSignature(raw, request.headers.get('x-hub-signature-256'), appSecret)) {
+    // Nothing is written. Storing unverified events would let anyone fill the
+    // table by POSTing to a URL that is, by design, public.
+    return new Response('unauthorized', { status: 401 });
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return new Response('ok', { status: 200 });
+  }
+
+  // One row per MESSAGE, never one per POST: Meta packs several into one
+  // request and idempotency (provider, external_id) is per message (0058).
+  const messages = flattenWebhookBody(body);
+  if (messages.length === 0) {
+    // Delivery and read receipts land here. They carry no participation and
+    // storing them would make the table mostly noise before anything reads it.
+    return new Response('ok', { status: 200 });
+  }
+
+  const { error } = await createServiceClient()
+    .from('webhook_events')
+    .upsert(
+      messages.map((message) => ({
+        provider: 'WHATSAPP' as const,
+        // The SHA-256 of the wamid, lowercase hex, hashed HERE in Node rather
+        // than passed raw into the RPC — the same reason members.cpf_hash
+        // (0031) is hashed before it reaches the database: a wamid decodes to
+        // bytes containing the counterparty's phone number, and an argument
+        // passed to an RPC lands in query logs and backups. 0058 carries a
+        // CHECK (`^[0-9a-f]{64}$`) that refuses a raw id, but that is a
+        // backstop, not a reason to rely on it here.
+        external_id: createHash('sha256').update(message.wamid).digest('hex'),
+        payload: {
+          // The RAW id, and the only place it lives once this column is
+          // pruned at 30 days (design spec D9, prune_webhook_payloads). The
+          // ingest function never reads this key — it exists for the
+          // operator debugging against Meta's dashboard before that prune.
+          wamid: message.wamid,
+          metadata: { phone_number_id: message.phoneNumberId },
+          from: message.from,
+          profile_name: message.profileName,
+          text: message.text,
+          timestamp: message.timestamp,
+        },
+      })),
+      { onConflict: 'provider,external_id', ignoreDuplicates: true },
+    );
+
+  if (error) {
+    // 500 makes Meta re-deliver, which is what we want: the message is not
+    // stored, so it is not lost either.
+    return new Response('storage failed', { status: 500 });
+  }
+
+  return new Response('ok', { status: 200 });
+}

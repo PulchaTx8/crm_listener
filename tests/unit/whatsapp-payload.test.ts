@@ -119,4 +119,31 @@ describe('flattenWebhookBody', () => {
     expect(flattenWebhookBody({ entry: 'not an array' })).toEqual([]);
     expect(flattenWebhookBody({})).toEqual([]);
   });
+
+  // A malformed ENTRY must not cost the valid messages sitting beside it in a
+  // different entry of the same POST: this route answers 200 regardless, so
+  // Meta never re-delivers whatever a body-wide parse failure silently
+  // dropped. Two entries here, the first entirely well formed, the second
+  // missing `metadata` (required by the schema) — only the second is lost.
+  it('keeps a valid entry when a sibling entry in the same request is malformed', () => {
+    const malformedEntry = {
+      id: 'WABA',
+      changes: [
+        {
+          field: 'messages',
+          value: {
+            messaging_product: 'whatsapp',
+            // metadata omitted: this change cannot resolve a phone_number_id.
+            messages: [textMessage('wamid.B', '#PERDIDA')],
+          },
+        },
+      ],
+    };
+    const wellFormed = body([textMessage('wamid.A', '#EUQUERO')]);
+    const result = flattenWebhookBody({
+      object: 'whatsapp_business_account',
+      entry: [...wellFormed.entry, malformedEntry],
+    });
+    expect(result.map((m) => m.wamid)).toEqual(['wamid.A']);
+  });
 });
