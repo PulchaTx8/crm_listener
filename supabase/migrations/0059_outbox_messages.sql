@@ -79,16 +79,34 @@ create table public.outbox_messages (
   )
 );
 
--- FAILED is excluded here but not from webhook_events_pending (0058), and
--- that asymmetry is deliberate rather than an oversight. On the outbound
--- side a retryable failure is written back as PENDING with a future
--- next_attempt_at, so FAILED here means permanent or the retry ladder is
--- spent -- terminal, and rightly excluded from the sendable scan. On the
--- inbound side FAILED is transient: it means "try again", and
--- webhook_events_pending scans it back in for exactly that reason.
+-- What claim_outbox_batch (0063) scans, and it holds ONE status because that
+-- function asks for one. Two are excluded, for different reasons.
+--
+-- FAILED is excluded here but not from webhook_events_pending (0058), and that
+-- asymmetry is deliberate rather than an oversight. On the outbound side a
+-- retryable failure is written back as PENDING with a future next_attempt_at,
+-- so FAILED here means permanent or the retry ladder is spent -- terminal, and
+-- rightly outside the sendable scan. On the inbound side FAILED is transient:
+-- it means "try again", and webhook_events_pending scans it back in for exactly
+-- that reason.
+--
+-- SENDING is excluded because NOTHING SCANS IT BY next_attempt_at. It was in
+-- this predicate when the design had the worker walk claimed rows; it does not
+-- any more. The only reader of SENDING is the reclaim, which asks
+-- "claimed_at < now() - interval" and is served by outbox_messages_sending
+-- (0063), an index on the column it actually compares.
+--
+-- Leaving it here would not be harmless breadth. With two statuses in the
+-- predicate, claim_outbox_batch's `status = 'PENDING'` stops being part of the
+-- index condition and becomes a FILTER applied to rows the scan has already
+-- fetched -- the precise cost 0063 refuses `attempts < p_max_attempts` for. And
+-- it degrades exactly in the failure the reclaim exists to answer: an abandoned
+-- SENDING row keeps the old next_attempt_at it was claimed with, so it sits at
+-- the HEAD of this index, and every claim walks past every one of them for up
+-- to the stale threshold before reaching a row it may actually send.
 create index outbox_messages_sendable
   on public.outbox_messages (next_attempt_at)
-  where status in ('PENDING', 'SENDING');
+  where status = 'PENDING';
 
 alter table public.outbox_messages enable row level security;
 -- No policy. See integrations (0057).
@@ -103,7 +121,14 @@ alter table public.outbox_messages enable row level security;
 -- clause. No INSERT: the only writer of a new row is ingest_whatsapp_event
 -- (0062), which is SECURITY DEFINER and runs as the owner. No DELETE: an
 -- outbox row is the record that a reply was owed, and it outlives the reply.
+revoke all      on public.outbox_messages from anon, authenticated;
 grant select, update on public.outbox_messages to service_role;
+-- And TRUNCATE, which the default ACL hands out and which none of the grants
+-- above mention -- it is neither INSERT, UPDATE nor DELETE, so no assertion
+-- about those would ever catch it. The same hole 0029 found in review and
+-- 0035, 0046 and 0050 have closed since; this block simply had not been asked
+-- yet. Immutability is a grant, not a comment.
+revoke truncate on public.outbox_messages from service_role;
 
 comment on table public.outbox_messages is
   'Outbound messages as rows, so a reply commits in the same transaction as the participation it announces. dedupe_key is unique and is keyed on the MESSAGE (''<sha256 of the wamid>:confirmation''), not on the participation: reprocessing an event by hand writes a new participation, so a participation-keyed value would have produced a second reply and never fired the constraint at all. Keyed on the message the promise is real and matches the inbound side, whose idempotency is already (provider, external_id) on webhook_events; the value is the HASH of the wamid, following external_id, because the raw id is not anonymous and this column is not pruned either. RLS enabled with no policy — service_role only.';

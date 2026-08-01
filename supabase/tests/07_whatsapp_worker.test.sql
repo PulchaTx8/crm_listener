@@ -1,5 +1,5 @@
 begin;
-select plan(40);
+select plan(49);
 
 -- The worker's queue routines (0063), the claim columns they measure (0058,
 -- 0059) and the grants without which none of it can be reached over HTTP.
@@ -61,6 +61,35 @@ select ok(has_table_privilege('service_role', 'public.outbox_messages', 'UPDATE'
           'and may settle it once Meta has answered');
 select ok(not has_table_privilege('authenticated', 'public.webhook_events', 'SELECT'),
           'while authenticated still reaches neither table');
+
+-- integrations has NO table grant, and that is the design rather than the same
+-- omission left unfixed: every reader of it is inside a SECURITY DEFINER body
+-- (0057). This asserts the absence, so that adding a PostgREST read of the
+-- table is a decision somebody has to make here rather than a 42501 they meet
+-- in production.
+select ok(not has_table_privilege('service_role', 'public.integrations', 'SELECT'),
+          'integrations is reachable only from inside SECURITY DEFINER bodies');
+
+-- TRUNCATE, which the default ACL grants and which no assertion about INSERT,
+-- UPDATE or DELETE would ever catch. 0029 found this class of hole in review
+-- and 02_permissions pins it for the inventory tables; this block had not been
+-- asked yet. It matters most on webhook_events: that table's whole job is to
+-- make a replayed delivery harmless, and one TRUNCATE would make every message
+-- Meta ever sent deliverable again, each producing a fresh participation.
+select ok(not has_table_privilege('service_role', 'public.webhook_events', 'TRUNCATE'),
+          'service_role may not truncate the idempotency ledger');
+select ok(not has_table_privilege('service_role', 'public.outbox_messages', 'TRUNCATE'),
+          'service_role may not truncate the outbox');
+select ok(not has_table_privilege('service_role', 'public.integrations', 'TRUNCATE'),
+          'service_role may not truncate the number-to-Station map');
+select ok(not has_table_privilege('authenticated', 'public.webhook_events', 'TRUNCATE'),
+          'authenticated may not truncate the idempotency ledger');
+select ok(not has_table_privilege('authenticated', 'public.outbox_messages', 'TRUNCATE'),
+          'authenticated may not truncate the outbox');
+select ok(not has_table_privilege('authenticated', 'public.integrations', 'TRUNCATE'),
+          'authenticated may not truncate the number-to-Station map');
+select ok(not has_table_privilege('anon', 'public.webhook_events', 'TRUNCATE'),
+          'and neither may anon, on the table an unauthenticated caller is nearest to');
 
 select has_index('public', 'webhook_events', 'webhook_events_processing',
                  'PROCESSING has an index of its own to be found through');
@@ -146,6 +175,16 @@ values
   -- Claimed a day ago and never finished. Abandoned, and reclaimed below.
   ('00000000-0000-0000-0000-0000000007e5', 'WHATSAPP', pg_temp.hash64('e5'),
    'PROCESSING', 1, now() - interval '1 day', null, now() - interval '1 day'),
+  -- THE INBOUND MIRROR OF b1, AND THE FIXTURE THAT MAKES claimed_at
+  -- LOAD-BEARING ON THIS SIDE. Received a day ago, claimed ten seconds ago: a
+  -- healthy tick working through a backlog, which is when every row is old and
+  -- reclaiming the wrong one costs the most. Under the predicate this replaced
+  -- -- coalesce(next_attempt_at, received_at) -- it is stale on sight, because
+  -- its next_attempt_at is null and its received_at is a day back. e5 above
+  -- cannot show that: it is old by BOTH measures, so it is reclaimed either
+  -- way and every other assertion in this section passes against the old rule.
+  ('00000000-0000-0000-0000-0000000007e8', 'WHATSAPP', pg_temp.hash64('e8'),
+   'PROCESSING', 0, now() - interval '1 day', null, now() - interval '10 seconds'),
   -- PARKED. next_attempt_at is infinity, which is how a spent ladder leaves the
   -- queue: beyond the index condition for ever, and at the far end of the index
   -- rather than sorting first the way a null would.
@@ -273,6 +312,16 @@ select is(
   (select status::text from public.outbox_messages
     where id = '00000000-0000-0000-0000-0000000007b5'),
   'PENDING', 'and the abandoned message is sendable again');
+
+-- I3 on the INBOUND side, which the outbound fixtures cannot speak for. e8 was
+-- received a day ago and claimed ten seconds ago; measured against the row it
+-- is ancient, measured against the CLAIM it is a tick that started a moment
+-- ago and is still running. Reclaiming it would take an event away from a live
+-- worker and hand the same message to two of them.
+select is(
+  (select status::text from public.webhook_events
+    where id = '00000000-0000-0000-0000-0000000007e8'),
+  'PROCESSING', 'an event received long ago but claimed a moment ago is left exactly where it is');
 
 -- I3, AND THE ASSERTION THE OLD PREDICATE COULD NOT HAVE PASSED. b1 and b2 were
 -- enqueued ten and five minutes ago and claimed a moment ago. A reclaim

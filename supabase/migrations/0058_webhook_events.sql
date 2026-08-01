@@ -138,7 +138,17 @@ alter table public.webhook_events enable row level security;
 -- (0063), which defers a failed event. No DELETE: nothing in this system
 -- deletes an event, and prune_webhook_payloads below nulls the payload
 -- precisely so it does not have to.
+revoke all on public.webhook_events from anon, authenticated;
 grant select, insert, update on public.webhook_events to service_role;
+-- And TRUNCATE, which the default ACL hands out and which none of the grants
+-- above mention -- it is neither INSERT, UPDATE nor DELETE, so no assertion
+-- about those would catch it. It matters more here than almost anywhere: this
+-- table's whole job is to be the ledger that makes a replayed delivery
+-- harmless, and one TRUNCATE would make every message Meta ever sent
+-- deliverable again, each producing a fresh participation. The same hole 0029
+-- found in review and 0035, 0046 and 0050 have closed since. Immutability is a
+-- grant, not a comment.
+revoke truncate on public.webhook_events from service_role;
 
 -- Design spec D9. The payload holds a phone number, a WhatsApp profile name and
 -- the raw provider message id — personal data at rest in a table Block 3's
