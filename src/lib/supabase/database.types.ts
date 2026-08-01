@@ -919,9 +919,10 @@ export type Database = {
           next_attempt_at: string
           organization_id: string
           provider: Database["public"]["Enums"]["integration_provider"]
+          pruned_at: string | null
           sent_at: string | null
           status: Database["public"]["Enums"]["outbox_status"]
-          to_phone: string
+          to_phone: string | null
         }
         Insert: {
           attempts?: number
@@ -937,9 +938,10 @@ export type Database = {
           next_attempt_at?: string
           organization_id: string
           provider: Database["public"]["Enums"]["integration_provider"]
+          pruned_at?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["outbox_status"]
-          to_phone: string
+          to_phone?: string | null
         }
         Update: {
           attempts?: number
@@ -955,9 +957,10 @@ export type Database = {
           next_attempt_at?: string
           organization_id?: string
           provider?: Database["public"]["Enums"]["integration_provider"]
+          pruned_at?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["outbox_status"]
-          to_phone?: string
+          to_phone?: string | null
         }
         Relationships: [
           {
@@ -2196,6 +2199,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: Json
+      }
+      prune_outbox_messages: {
+        Args: { p_older_than?: string }
+        Returns: number
       }
       prune_webhook_payloads: {
         Args: { p_older_than?: string }

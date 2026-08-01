@@ -7,6 +7,13 @@ execution ledger in
 `.superpowers/sdd/2026-07-31-block-5a-whatsapp-spine/progress.md`. Fourteen
 tasks, this report is the fourteenth.
 
+**Amended by the whole-branch fix wave** (`.superpowers/sdd/2026-07-31-block-5a-whatsapp-spine/final-fix-report.md`),
+which is the last work on this branch before it is offered for merge. Three
+Important items, eight minors, one production defect on the headline path and one
+new isolation case. Every section below that the wave touched says so where it
+says it, rather than in a footnote: §2 (what shipped), §3 (D9), the new §4.1
+(deviations), §6.3, §6.5 and §8.
+
 One sentence, from the spec: *a listener sends a hashtag to their Station's
 WhatsApp number and is entered into the promotion, or registered and then
 entered, and told so.* This is the first of two passes — **5a is the spine**
@@ -14,41 +21,52 @@ entered, and told so.* This is the first of two passes — **5a is the spine**
 **5b is the conversation** (art, call to action, buttons, requested fields,
 the promotion's questions), and needs the same spine underneath it.
 
-**35 commits, 39 files, +11,041 / −10** over `04206fe..HEAD` — the thirteen
-reviewed tasks, Task 14, and this task's own fix round (three files total:
-the schedule migration, the runbook, and this report — the report's own size
-is inside that count, and so is this fix round's edit to it). Measured with
-`git rev-list --count` and `git diff --shortstat` as the last action before
-the fix-round commit, on the tree about to be committed, because the figure
-cannot be stable while the file stating it is still being edited.
+**36 commits, 39 files, +12,193 / −10** over `04206fe..HEAD` — the thirteen
+reviewed tasks, Task 14, Task 14's own fix round, and the whole-branch fix
+wave (fourteen files: five migrations, two pgTAP files, the isolation suite
+and its guard's floor, the worker's batch-cap comment, the generated types,
+and the spec, runbook and this report). Measured with `git rev-list --count`
+and `git diff --shortstat 04206fe`, excluding the untracked `Arte/`, as the
+last action before the commit and on the tree about to be committed, because
+the figure cannot be stable while the file stating it is still being edited.
+The deletion count stays small because almost every file here was created on
+this branch: a line rewritten in `0059` reads as an insertion against
+`04206fe`, not as a replacement.
 
 ---
 
 ## 1. Gates
 
-Measured on this task's own run, on a freshly reset local stack, in gate
-order — pgTAP before the isolation suite, for the reason §1.1 gives.
+Measured by the **whole-branch fix wave**, which is the last work on this
+branch, on a freshly reset local stack, in gate order — pgTAP before the
+isolation suite, for the reason §1.1 gives. The figures Task 14 recorded are
+in the right-hand column.
 
-| Gate | Result |
-| --- | --- |
-| `npm run lint` | No ESLint warnings or errors |
-| `npm run typecheck` | clean |
-| `npm test` | **405 passed**, 30 files |
-| `npm run db:test` | **553 PASS**, 8 files (`06_whatsapp` + `07_whatsapp_worker` new this block) |
-| `npm run test:isolation` | **190 passed**, 15 files, **GUARD-COMPLETE** on the first attempt this run — every file accounted for, every file's case count above its own floor, nothing skipped |
-| `CI=1 npx playwright test` | **23 passed** (37.9s) |
+| Gate | Result | Task 14 |
+| --- | --- | --- |
+| `npm run lint` | No ESLint warnings or errors | same |
+| `npm run typecheck` | clean | same |
+| `npm test` | **405 passed**, 30 files | 405 |
+| `npm run db:test` | **585 PASS**, 8 files | 553 |
+| `npm run test:isolation` | **192 passed**, 15 files, **GUARD-COMPLETE** — every file accounted for, every file above its own case floor, nothing skipped | 190 |
+| `CI=1 npx playwright test` | **23 passed** (42.2s) | 23 |
 
-Every number is unchanged from Task 13's own final gate — expected, since
-this task adds no `src/` code and no test file, only a migration that
-schedules an existing route and two documents. The isolation suite's
-worker-death flake (§6.6) did not fire on this run; it has fired on other
-runs throughout this block and the absence of a repeat here is not evidence
-it is fixed.
+`+32` pgTAP assertions: 29 in `06_whatsapp` (the two prunes' predicates, the
+two new payload guards, and the operator-typed phone shape) and 3 in
+`07_whatsapp_worker` (`anon` against the three worker RPCs). `+2` isolation
+cases, both driving `runTick` itself.
+
+**The isolation suite's worker-death flake (§6.6) fired on this wave's first
+full run** — `Test Files 14 passed (15)`, 192 tests passed, one worker dead,
+and `scripts/verify-isolation-suite.mjs` refused it with *"a file's worker
+died without the file being reported"*. The second run was guard-complete and
+is the one recorded above. That is the guard doing exactly the job it was
+written for; the flake remains open and uncaused.
 
 ### 1.1 Local gate order matters, and CI does not need to care
 
 Two environment facts, both spent real diagnosis time in this block and both
-belong in `docs/block-5a-runbook.md` §7 for the same reason:
+belong in `docs/block-5a-runbook.md` §8 for the same reason:
 
 - **The isolation suite commits rows that outlive it.** The twelve-round
   races and the privilege-boundary cases in `tests/isolation/whatsapp.test.ts`
@@ -88,12 +106,32 @@ belong in `docs/block-5a-runbook.md` §7 for the same reason:
   `external_id` is `sha256(wamid)`, hex, with a format `CHECK` refusing a raw
   id outright; `webhook_events_done_shape` makes `DONE` a claim about
   `outcome` and `processed_at` together (`0058:93-96`); `prune_webhook_payloads`
-  (`0058:161-180`) nulls `payload` after 30 days without scheduling itself —
-  Block 11 turns that on.
+  nulls `payload` after 30 days without scheduling itself — Block 11 turns
+  that on. **Fix wave:** that prune had no status predicate and emptied rows
+  still awaiting processing or retry; a later reprocessing of one would find no
+  `phone_number_id` and finish `DONE`/`no_integration`, a routing verdict
+  invented for a destroyed message. It now reaches only `DONE` rows and rows
+  parked at `next_attempt_at = infinity`, and `ingest_whatsapp_event` raises
+  rather than deciding an emptied one.
 - `0059_outbox_messages.sql` — outbound messages as rows, so a reply commits
   in the same transaction as the participation it announces. `dedupe_key` is
-  keyed on the message (`sha256(wamid):confirmation`), not the participation
-  — see §6.5 for why that distinction is the whole mechanism.
+  keyed on the message (`sha256(wamid):confirmation`), not the participation:
+  reprocessing writes a *new* participation, so a participation-keyed value
+  would differ every time and the unique constraint would never fire once. The
+  reasoning is in the column's own comment; **fix wave:** two comments still
+  arguing the retired participation-keyed version survived to HEAD — one in
+  `0062`, one in `06_whatsapp.test.sql` forty lines above that file's own
+  correct version — and a reader following either would have concluded the
+  `ON CONFLICT` was unreachable and free to delete. A third copy was in the
+  spec. All three are corrected.
+  **Fix wave, second item:** this table was also a permanent, un-erasable
+  store of listener phone numbers — `to_phone` in the clear, the raw reply
+  `wamid` in `external_id`, no retention function of any kind, and
+  `anonymize_member` cannot reach it because there is no `member_id` to join
+  on. A listener who exercised erasure kept their number here for ever.
+  `prune_outbox_messages` closes it on `prune_webhook_payloads`' own terms;
+  `pruned_at` is what lets both shape constraints go on demanding a recipient
+  and a provider id everywhere else.
 - `0060_participation_source_whatsapp.sql` — `participation_source` gains
   `'WHATSAPP'`, alone in its own migration because `ALTER TYPE ... ADD VALUE`
   cannot be used in the transaction that adds it.
@@ -106,14 +144,38 @@ belong in `docs/block-5a-runbook.md` §7 for the same reason:
 - `0062_ingest_whatsapp_event.sql` — the whole decision, one transaction:
   `whatsapp_local_phone` (sender normalisation), `whatsapp_reply_body` (the
   six reply sentences, the only copy), `finish_whatsapp_event`, and
-  `ingest_whatsapp_event` itself (637 lines, the bulk of the block's logic).
+  `ingest_whatsapp_event` itself, the bulk of the block's logic.
+  **Fix wave:** three guards and one lookup. A payload whose `from` is absent —
+  or carries no digits — used to reach `apply_member_creation` and register a
+  listener with a NULL phone that no later message could ever dedupe against,
+  while the timestamp beside it had a written justification for raising; both
+  raise now, and the payload contract comment claiming "both absences RAISE" is
+  true rather than incidentally true. A pruned (NULL) payload raises too. And
+  the listener lookup falls back to the unstripped sender — §6.3.
 - `0063_whatsapp_worker_queue.sql` — `due_whatsapp_events`,
   `claim_outbox_batch`, `reclaim_stale_whatsapp_claims`, and the two partial
   indexes they run on. SQL functions rather than PostgREST queries because
   the pending-index is on an expression `order` cannot name, and because
   claiming a batch has to be one statement under overlapping ticks.
+  **Fix wave:** the reclaim's load-bearing arm justified itself with "an
+  ordinary serverless timeout" — a runtime this project does not use — in both
+  of its deliberately duplicated copies, and `src/services/whatsapp.ts` sized
+  the batch caps on the same wrong picture — as did a **fourth** copy in the
+  spec's own §4.2, found by grepping for the retired wording rather than by
+  trusting the review's list of three. The caps are unchanged; the reason
+  now names what really bounds a tick. See also §6.5 on the call-site count.
 - `0064_schedule_worker_tick.sql` (this task) — the `pg_cron` job. No URL, no
   secret; both are read from database settings the runbook sets.
+  **Fix wave:** the guard was `is not null`, which a setting that exists and is
+  blank passes — `current_setting(..., true)` returns `''` for one — so a
+  half-finished configuration step would have POSTed to an empty URL every ten
+  seconds; it is `nullif(..., '')` now. `net.http_post` also passed no
+  `timeout_milliseconds`, so pg_net's 5-second default recorded a **timeout**
+  in `net._http_response` for every busy tick that in fact succeeded — the one
+  table the runbook sends an operator to, trained to be ignored. Set to 90
+  seconds, past a full batch and still bounded. And the comment justifying the
+  database settings named "a Vercel environment variable"; this project deploys
+  through EasyPanel.
 
 **Transport and routes (`src/`).**
 
@@ -134,16 +196,18 @@ belong in `docs/block-5a-runbook.md` §7 for the same reason:
 **Tests.** Unit: `whatsapp-signature`, `whatsapp-payload`, `whatsapp-transport`,
 `whatsapp-route`, `whatsapp-worker`, `worker-tick-route`,
 `middleware-matcher` (79 cases across these seven files). pgTAP:
-`06_whatsapp.test.sql` (112 assertions) and `07_whatsapp_worker.test.sql`
-(49 assertions) — 161 of the block's 553 total.
-Isolation: `tests/isolation/whatsapp.test.ts` — 8 cases: the door closed to
+`06_whatsapp.test.sql` (141 assertions) and `07_whatsapp_worker.test.sql`
+(52 assertions) — 193 of the block's 585 total.
+Isolation: `tests/isolation/whatsapp.test.ts` — 10 cases: the door closed to
 an ordinary session and to `anon` (2), three twelve-round concurrency races
 (pre-registered listener, unknown-number listener creation, cross-Station
-listener creation) (3), and three privilege-boundary cases proving the exact
+listener creation) (3), three privilege-boundary cases proving the exact
 writes the webhook route and the worker perform succeed for `service_role`
-over real HTTP (3) — plus `harness.ts`'s `seedIntegration` (a direct-Postgres
-insert, since `integrations` has no PostgREST grant for any role) and
-`anonClient`. E2e: `tests/e2e/whatsapp-boundary.spec.ts` — a correctly signed
+over real HTTP (3), and two driving `runTick` itself, which is a different
+question from the three beside them (§8) — plus `harness.ts`'s
+`seedIntegration` (a direct-Postgres insert, since `integrations` has no
+PostgREST grant for any role) and `anonClient`. E2e:
+`tests/e2e/whatsapp-boundary.spec.ts` — a correctly signed
 POST reaches the route and leaves a row, a wrongly signed one is refused with
 401 and writes nothing, and a tick with the shared secret returns 200 with
 `dbErrors: 0` — against the **running app**, not a mock, which is what closes
@@ -163,7 +227,7 @@ the gap §6.2 describes.
 | **D6** — no secret in the database in 5a | `src/lib/env.ts:15-19` — four optional environment variables; `integrations` (`0057`) carries `phone_number_id`/`display_phone_number`/`waba_id` and no token column |
 | **D7** — the ingestion rule lives in SQL; the worker is thin | `ingest_whatsapp_event` decides everything inside one transaction; `runTick`/`drainEvents`/`drainOutbox` (`src/services/whatsapp.ts`) hold no promotion or listener rule, only queue mechanics |
 | **D8** — a listener elsewhere in the Organization is linked, not duplicated | `apply_member_lookup` / `apply_member_link` (`0061`), called from `ingest_whatsapp_event`'s resolution branch. **Never asked of the owner — see §7.1, still open.** |
-| **D9** — the payload is pruned at 30 days; the row and its hash are not | `prune_webhook_payloads` (`0058:161-180`, not scheduled by this block — Block 11's); `external_id = sha256(wamid)` with a format `CHECK` (`0058`); the raw id lives only at `payload.wamid` |
+| **D9** — the payload is pruned at 30 days; the row and its hash are not | `prune_webhook_payloads` (not scheduled by this block — Block 11's); `external_id = sha256(wamid)` with a format `CHECK` (`0058`). **Corrected by the fix wave, in all three places it was stated** — the spec, `0058`'s column comment and this table: "the raw provider message id lives at `payload.wamid` and expires with it" was true of the **inbound** half only. `outbox_messages.external_id` held the raw wamid Meta returns for our reply, and `to_phone` the listener's number in the clear, with **no retention at all**. Both halves expire now: `prune_webhook_payloads` for the inbound one, `prune_outbox_messages` for the outbound one. The prune predicate was corrected in the same wave (see §2). |
 
 ---
 
@@ -187,6 +251,35 @@ From spec §8, unchanged by execution:
 - Operator screens for events, outbox and integrations — Block 10.
 - Station-initiated messages, and therefore message templates (D5).
 
+### 4.1 Deviations from the spec, recorded
+
+Where the shipped behaviour differs from what the design says, and why. The Deno
+Edge Function above is the first and largest; these are the rest.
+
+**A malformed payload with a valid signature is answered 200 and stored
+nowhere.** Spec §6.3 says it is stored `FAILED` with `last_error` — *"it really
+came from Meta and the evidence matters"* — and the route instead returns 200
+having written nothing (`src/app/api/webhooks/whatsapp/route.ts:76-80` for
+unparseable JSON, `:87-96` for entries the flattening drops).
+
+**The deviation is correct and the spec is not implementable as written.**
+`webhook_events.external_id` is NOT NULL with a format `CHECK` restricting it to
+a 64-character hex digest, and it is derived from the message id inside the
+payload. A payload malformed enough to have no message id has **no key to file a
+row under**; there is nothing to insert, and inventing one would put a
+synthetic value into the column that carries this table's whole idempotency
+guarantee. The evidence is not lost silently either: `stats.dropped` is counted
+and logged with the number of entries dropped out of the number seen, without any
+field from the payload.
+
+It is pinned by a test rather than left to drift
+(`tests/unit/whatsapp-route.test.ts`), and it was simply never written down.
+Recorded by the fix wave, on review.
+
+**A `pruned_at` column and a nullable `to_phone` on `outbox_messages`**, neither
+of which appears in spec §3.3. Both follow from `prune_outbox_messages`, which
+§3.3 did not have either — see §3's D9 row.
+
 ---
 
 ## 5. What Block 5b inherits
@@ -207,10 +300,17 @@ From spec §8, unchanged by execution:
   not assumed** — 5b's own writes against these tables inherit the same
   "no PostgREST grant, `SECURITY DEFINER` only" pattern and the boundary
   tests that check it (§6.2).
-- **`whatsapp_local_phone`'s +55-only limit (§6.3) is inherited as-is.** 5b
-  does not touch phone resolution, so it inherits the duplicate-listener
-  risk unchanged; whoever picks up Block 9's ETL reconciliation (L1) is the
-  actual owner of a fix.
+- **`whatsapp_local_phone`'s +55-only limit (§6.3) is inherited as-is**, minus
+  the one case the fix wave closed: a listener an operator registered *with* the
+  country code is now found, because the lookup asks for both shapes. 5b does
+  not touch phone resolution otherwise, so the ninth-digit and non-Brazilian
+  cases are inherited unchanged; whoever picks up Block 9's ETL reconciliation
+  (L1) is the actual owner of those.
+- **`prune_webhook_payloads` and `prune_outbox_messages` are the only erasure
+  either of this block's two personal-data stores has**, because
+  `anonymize_member` reaches neither. 5b must not add a column holding a phone
+  number, a name or a raw provider id to either table without extending the
+  matching prune — and neither is scheduled yet, which is Block 11's.
 - **D8 and the punctuation-fallback ruling (§7) are still open.** 5b should
   not assume either is settled.
 
@@ -264,13 +364,23 @@ writes against the exact statements the route and worker perform) and
 `tests/e2e/whatsapp-boundary.spec.ts` (real signed HTTP against the running
 app, including a mutation that reads a bare `307` when the middleware
 exclusion is removed). **That closes the first two of the three for good.**
-The third — the embed — has no standing regression test, because there is no
-embed today to test against; it remains a documented prohibition rather than
-an assertion.
+The third — the embed — had no standing regression test at the time, because
+there is no embed today to test against, and it remained a documented
+prohibition rather than an assertion.
+
+**The fix wave closed it too, though not by testing for an embed.** The two
+`runTick` cases drive the worker's own statements, as `service_role`, against
+a real database. An embed reintroduced anywhere in `runTick` is a PostgREST
+read of `integrations`, which carries no grant for any role, so it comes back
+42501 and lands in `dbErrors` — which both cases assert is zero, and assert
+first. The same is true of an ungranted RPC and of a settle patch whose column
+set breaks a `CHECK`. It is a test for the *class*, which is what a defect
+found three times in one block needs, rather than a test for the one instance
+that has already been removed.
 
 ### 6.3 `whatsapp_local_phone` strips `+55` only
 
-`0062:32-37, 39-52`. A Brazilian mobile that gained its ninth digit after the
+`0062`. A Brazilian mobile that gained its ninth digit after the
 listener was registered still normalises to a different string and therefore
 reads as a different person; no other country's numbering is handled at all,
 and a twelve-digit foreign number that happens to start with `55` is stripped
@@ -279,6 +389,20 @@ production**, not because it is theoretical — this is the sender-matching
 path every inbound message runs through. Deferred, on the record, to Block
 9's ETL reconciliation (L1), which faces the identical problem against
 legacy data.
+
+**The fix wave closed the likeliest of the three, which was not on this
+function's side at all.** `whatsapp_local_phone` normalises what *Meta* sent;
+nothing normalised what an *operator* typed. `members.phone_normalized` is
+GENERATED from `members.phone` as entered (`0031`), so a listener an operator
+registered as `+55 11 9…` is stored as thirteen digits, the local-form lookup
+asked for eleven, missed, and the bot **registered a duplicate on that
+listener's first message — every time**. It needed no unusual number and no
+ninth-digit change; it needed an operator who typed the country code, which
+nothing in the app has ever asked them not to do. `ingest_whatsapp_event` now
+falls back to the unstripped form when the local one finds nobody, in that
+order, so the local form stays the shape a new listener is registered under.
+Both directions are asserted in `06_whatsapp.test.sql` and the fallback is
+mutation-proved. The two limits above are untouched and remain Block 9's.
 
 ### 6.4 Outbound delivery is at-least-once
 
@@ -305,15 +429,21 @@ PL/pgSQL handler's implicit savepoint is a *sub*transaction, and a
 subtransaction cannot commit independently of its parent, so catching an
 error inside one cannot durably write anything out from under an aborting
 caller. The conclusion survives on a structural argument instead: the only
-`RETURN` below the `PROCESSING` write is `finish_whatsapp_event`, called from
+`RETURN` below the `PROCESSING` write is `finish_whatsapp_event`, called for
 all six outcomes (`no_integration`, `no_hashtag`, `no_promotion`,
 `promotion_cancelled`, `outside_window`, `recorded`), and it writes `DONE`,
 `outcome` and `processed_at` together in one statement; every other exit is
 an uncaught `RAISE` that aborts the whole transaction and takes the
-`PROCESSING` write down with it. The correction itself needed two passes —
-the first replacement named only `'recorded'` as the return, which was also
-wrong, before the second named all six call sites. Worth recording precisely
-because two independent reviewers cited the false version as settled fact.
+`PROCESSING` write down with it. The correction needed **three** passes, not
+two: the first replacement named only `'recorded'` as the return; the second
+named the six outcomes but called them *"six different call sites"*, which is
+a number nothing in `0062` has ever matched — the six outcomes arrive through
+**four** call sites, because the diagnostic branch chooses among
+`no_promotion`, `promotion_cancelled` and `outside_window` and then calls once.
+The fix wave corrected that in both of `0063`'s deliberately duplicated copies
+and in the third instance in `0062`'s own comment. Worth recording precisely
+because two independent reviewers cited the false version as settled fact, and
+because the *correction* was then wrong twice in a row.
 
 ### 6.6 The isolation suite's worker-death flake is unresolved
 
@@ -402,10 +532,18 @@ one common one and either choice is defensible.
   Ruled **not fixed**: diverging in `06_whatsapp` alone would cost
   consistency with `05_participations` and every sibling file for a marginal
   gain. A repo-wide change or nothing.
-- **The backoff-settle and `deferEvent` write shapes are not driven by the
-  boundary tests** (Task 13). Privilege-wise this is redundant with what the
-  boundary cases already prove — same table, same grants — so only the
-  `CHECK`-constraint shapes on those specific writes go unpinned at the HTTP
-  boundary; pgTAP still covers the shapes themselves as `postgres`. Not
-  extended, to avoid growing Task 13's scope after its own review had
-  closed.
+- ~~**The backoff-settle and `deferEvent` write shapes are not driven by the
+  boundary tests** (Task 13).~~ **Closed by the fix wave.**
+  `tests/isolation/whatsapp.test.ts` now calls `runTick` itself, twice, against
+  a seeded fixture with the rest of both queues quiesced: once on the happy
+  path (`dbErrors: 0`, `ingested: 1`, `sent: 1`, the fake's recorded recipient,
+  and the `SENT` settle read back) and once on the failure paths (an event whose
+  payload lost its timestamp, so `deferEvent` runs, and a retryable send
+  failure, so the backoff settle runs). That drives **every** PostgREST
+  statement the worker issues, per row, as `service_role` — which is a
+  different question from the boundary cases beside it, since those perform the
+  worker's writes *by hand* in shapes copied from `src/services/whatsapp.ts` and
+  therefore cannot see the worker growing a resource embed, calling an ungranted
+  RPC, or writing one column too many. It is the standing regression test for
+  the defect family this block was returned for three times, including the
+  third — the `integrations` embed — which had no test at all.

@@ -3,7 +3,27 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/supabase/database.types';
 import type { WhatsAppTransport } from '@/lib/integrations/whatsapp/transport';
 
-/** Batch caps, so one tick stays inside a serverless function timeout. */
+/**
+ * Batch caps, so one tick does a bounded amount of work.
+ *
+ * NOT a serverless function timeout, which an earlier version of this line
+ * named: this application is a long-running Next.js server deployed through
+ * EasyPanel, and there is no platform execution limit to stay inside. Naming
+ * one sends the next reader looking for a constraint that does not exist, and
+ * the reclaim in 0063 leaned on the same wrong picture.
+ *
+ * What the caps really bound is how much a tick that does NOT finish can leave
+ * behind — a deploy restarting the container, the proxy cutting the request
+ * off, the process killed. A full batch is fifty ingest transactions plus fifty
+ * sequential HTTPS calls to Meta; everything it claimed and had not settled
+ * waits on `reclaim_stale_whatsapp_claims`' five minutes (0063), so the cap is
+ * the size of that exposure. It also keeps a tick inside the request timeout
+ * the pg_cron job records its result against (0064), which is what keeps
+ * `net._http_response` a usable diagnostic rather than a wall of timeouts.
+ *
+ * A backlog larger than a cap simply takes more ticks; nothing is dropped,
+ * because the selection reads the table rather than being handed a list.
+ */
 export const EVENT_BATCH = 50;
 export const OUTBOX_BATCH = 50;
 

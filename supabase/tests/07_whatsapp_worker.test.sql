@@ -1,5 +1,5 @@
 begin;
-select plan(49);
+select plan(52);
 
 -- The worker's queue routines (0063), the claim columns they measure (0058,
 -- 0059) and the grants without which none of it can be reached over HTTP.
@@ -22,6 +22,26 @@ select has_function('public', 'claim_outbox_batch', array['integer'],
 select has_function('public', 'reclaim_stale_whatsapp_claims', array['interval'],
                     'the reclaim exists');
 
+-- THREE ROLES APIECE, the convention this block holds for every other function
+-- it ships (06_whatsapp pins anon/authenticated/service_role on all four private
+-- cores, on the bot door and on its two helpers). These three were pinned
+-- against `authenticated` alone, which leaves the regression the convention
+-- exists to catch entirely uncovered: a hand-written `grant execute ... to anon`
+-- added by somebody debugging the worker. anon is the UNAUTHENTICATED PostgREST
+-- role, reachable by anyone who has the URL and the publishable key, and
+-- claim_outbox_batch is not a read -- it returns to_phone and body across every
+-- tenant in the installation AND marks the rows it returns as claimed, so one
+-- grant would be a cross-tenant disclosure of listener phone numbers and a
+-- denial of service on every Station's replies at the same time.
+select ok(not has_function_privilege('anon',
+            'public.due_whatsapp_events(integer)', 'EXECUTE'),
+          'anon may not ask what is due');
+select ok(not has_function_privilege('anon',
+            'public.claim_outbox_batch(integer)', 'EXECUTE'),
+          'anon may not claim outbound messages');
+select ok(not has_function_privilege('anon',
+            'public.reclaim_stale_whatsapp_claims(interval)', 'EXECUTE'),
+          'anon may not reclaim');
 select ok(not has_function_privilege('authenticated',
             'public.due_whatsapp_events(integer)', 'EXECUTE'),
           'authenticated may not ask what is due');

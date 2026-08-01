@@ -26,7 +26,7 @@ gitignored (`.gitignore:17-18`); keep it that way.
 All four are optional in `src/lib/env.ts` by design (D6: no secret lives in
 the database in 5a) — their absence does not stop the app from booting, so a
 misconfigured deployment fails quietly at the one route that needs the
-missing value, not at startup. That is why the checks in §5 and §7 exist:
+missing value, not at startup. That is why the checks in §5 and §8 exist:
 nothing will tell you a secret is missing except a message that never
 arrives.
 
@@ -66,6 +66,23 @@ to restart Postgres. Read them back to confirm:
 ```sql
 select current_setting('app.worker_tick_url', true), current_setting('app.worker_tick_secret', true);
 ```
+
+**Set them, or leave them unset — never set them to an empty string.** The job
+guards on `nullif(current_setting(...), '') is not null`, so an unset setting
+and a blank one are both no-ops, which is why the two orders (schedule first or
+configure first) are equally safe. Both queries above returning `null` means
+the job is firing and doing nothing, which is the correct state before §3.
+
+### What the job records, and why its timeout is 90 seconds
+
+`pg_net` is fire-and-forget: nothing reads the tick's response, and the tick
+runs to completion on the server whatever the database does. The only thing the
+timeout decides is the row pg_net leaves in `net._http_response`, which is the
+one trace of a tick visible from the database side. At pg_net's default of five
+seconds, every busy tick — up to fifty ingestions plus fifty sequential calls to
+Meta — is recorded as a **timeout that in fact succeeded**, which makes that
+table useless as an alarm. `0064` sets `timeout_milliseconds := 90000`, past a
+full batch and still bounded. A timeout there is now worth looking at.
 
 ### Before you rely on a ten-second cadence, check the extension version
 
@@ -283,6 +300,67 @@ minutes.** The worker tick is not running. Check §2's job exists and its
 `schedule`; check `WORKER_TICK_SECRET` matches on both sides (§2); hit the
 tick directly and read what it reports (next section).
 
+### Un-parking a row, and the window you have to do it in
+
+A row whose retry ladder is spent is **parked**: `status = 'FAILED'` with
+`next_attempt_at = 'infinity'`. That is deliberate and permanent — infinity puts
+it beyond `due_whatsapp_events`' index for ever, at the far end of the index
+rather than at the head of it — so nothing will pick it up again on its own.
+Find them with:
+
+```sql
+select id, received_at, attempts, last_error
+from public.webhook_events
+where status = 'FAILED' and next_attempt_at = 'infinity'
+order by received_at desc;
+```
+
+**Fix the cause first.** A parked row is one that raised five times; re-running
+it before the reason is understood simply parks it again five attempts later.
+`last_error` is what it raised.
+
+Then put it back in the queue:
+
+```sql
+update public.webhook_events
+   set status = 'FAILED', next_attempt_at = null, attempts = 0, last_error = null
+ where id = '<event id>';
+```
+
+`next_attempt_at = null` makes it due immediately — `due_whatsapp_events` orders
+by `coalesce(next_attempt_at, received_at)` — and `attempts = 0` gives it a
+fresh ladder rather than one rung. The next tick takes it. To re-run an event
+that finished (`DONE`) rather than one that failed, `outcome` and `processed_at`
+must be cleared in the same statement, because `webhook_events_done_shape`
+forbids a non-`DONE` row from carrying either:
+
+```sql
+update public.webhook_events
+   set status = 'FAILED', outcome = null, processed_at = null,
+       next_attempt_at = null, attempts = 0
+ where id = '<event id>';
+```
+
+Re-deciding a message writes a **second participation** — the row is a fact
+about the attempt, and `apply_participation` records it as `DUPLICATE` — but
+**not** a second reply: `outbox_messages.dedupe_key` is keyed on the message
+(`'<sha256 of the wamid>:confirmation'`), so it is the same key both times and
+the second enqueue is refused.
+
+**The window: 30 days.** `prune_webhook_payloads` (§7 below) empties `payload`
+on rows that are finished, and a *parked* row counts as finished — it holds a
+listener's phone number and profile name exactly as a decided one does, and
+retention is not conditional on the bot having succeeded. Past the cut there is
+nothing left to decide the message from. You will not get a misleading
+`no_integration` for it: `ingest_whatsapp_event` **raises** on an empty payload
+and the row lands back in `FAILED` with
+
+```
+whatsapp payload has been pruned and this event can no longer be decided
+```
+
+in `last_error`. If a parked row matters, un-park it inside the window.
+
 ### Reading a tick's own result
 
 `POST /api/worker/tick` (with the correct `x-worker-secret` header) returns a
@@ -319,7 +397,43 @@ the reclaim to paper over it.
 
 ---
 
-## 7. Local verification, before you touch any of the above
+## 7. Retention — two prunes, and nothing runs them yet
+
+This block stores two kinds of personal data at rest, in two tables no
+user-scoped client can read (RLS on, no policy) and **neither of which
+`anonymize_member` can reach**:
+
+| Table | What it holds | Cleared by |
+|---|---|---|
+| `webhook_events.payload` | the sender's phone number, their WhatsApp profile name, and the raw inbound `wamid` | `prune_webhook_payloads(interval)` |
+| `outbox_messages.to_phone`, `.external_id` | the recipient's number in the clear, and the raw `wamid` Meta returned for our reply — which decodes to bytes containing that same number | `prune_outbox_messages(interval)` |
+
+`anonymize_member` (Block 3) erases a listener by `member_id`, and neither table
+carries one. **Retention is the only thing that erases a listener from either**,
+which is why the second function exists at all: without it, a listener who
+exercised their right to erasure had their number nulled on `members` and kept
+for ever in the outbox.
+
+Both default to 30 days, both keep the row (the `webhook_events` row is what
+refuses a replayed message; the `outbox_messages` row is what refuses a second
+confirmation), and **neither is scheduled by this block** — Block 11 owns
+schedules and turns both on with the rest of N7. Until it does, they can be run
+by hand and they are safe to run repeatedly:
+
+```sql
+select public.prune_webhook_payloads();   -- returns rows cleared
+select public.prune_outbox_messages();    -- returns rows cleared
+```
+
+Each reaches only rows **nothing will look at again automatically** — for
+`webhook_events` that is `DONE` or parked; for `outbox_messages`, `SENT` or
+`FAILED`. A message still waiting to be processed, retried or sent keeps its
+data, because it cannot be acted on without it. The consequence for support is
+in §6: manual reprocessing has a 30-day window.
+
+---
+
+## 8. Local verification, before you touch any of the above
 
 Three things that cost real diagnosis time while this block was built, kept
 here so nobody re-discovers them:

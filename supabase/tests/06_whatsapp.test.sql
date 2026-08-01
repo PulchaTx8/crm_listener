@@ -1,5 +1,5 @@
 begin;
-select plan(112);
+select plan(141);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -116,30 +116,92 @@ select throws_ok($$
   values ('WHATSAPP', 'wamid.HBgNNTUxMTk4ODg4Nzc3NxUCABIYFjNBMEQ3', '{}')
 $$, '23514', null, 'a raw provider message id cannot be stored as external_id');
 
--- A second event, left at its natural (recent) received_at. Without it, a
--- prune_webhook_payloads that nulled every payload regardless of age would
--- pass the assertion below just as well as a correct one.
-insert into public.webhook_events (provider, external_id, payload) values
-  ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST2'), '{"still":"here"}');
-
+-- WHAT prune_webhook_payloads MAY AND MAY NOT TOUCH (design spec D9) ----------
+--
 -- The row survives pruning; only the payload goes. external_id is what
 -- idempotency needs, and it survives BECAUSE it is a hash: the raw provider id
 -- is personal data, so it lives in the payload and expires with it. That
 -- asymmetry is the whole reason 0058 hashes rather than stores.
-update public.webhook_events
-   set received_at = now() - interval '40 days'
- where external_id = pg_temp.wamid_hash('wamid.TEST1');
+--
+-- WHICH rows is the other half, and it is not answered by age. Two properties
+-- have to hold together, and each fixture below breaks a different plausible
+-- predicate:
+--
+--   * AGE ALONE -- the shipped version -- empties rows this system still means
+--     to act on. ingest_whatsapp_event reads five paths out of the payload, so
+--     an emptied one finds no phone_number_id, misses the integration lookup
+--     and finishes DONE/no_integration: a routing verdict invented for a
+--     message whose content was destroyed. That is what the missing-timestamp
+--     RAISE (0062) exists to stop happening for the other malformed case.
+--   * `status = 'DONE'` ALONE keeps a PARKED row's phone number and profile
+--     name for ever. A parked row is one nothing will look at again
+--     automatically, and retention is not conditional on the outcome having
+--     been a happy one.
+--
+-- So: DONE, or FAILED with next_attempt_at = infinity, past the cut. Six rows,
+-- one per state, all with a payload and all but one older than the cut.
+insert into public.webhook_events
+  (provider, external_id, payload, status, received_at, outcome, processed_at)
+values
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.PR-DONE-OLD'), '{"gone":"soon"}',
+   'DONE', now() - interval '40 days', 'recorded', now() - interval '40 days'),
+  -- Recent and DONE, so ONLY its age keeps it: a prune that dropped the age
+  -- predicate would take this one and no other assertion here would notice.
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.PR-DONE-NEW'), '{"still":"here"}',
+   'DONE', now(), 'recorded', now());
+
+insert into public.webhook_events
+  (provider, external_id, payload, status, received_at, next_attempt_at, claimed_at)
+values
+  -- Parked: the ladder is spent and the worker wrote infinity, which is beyond
+  -- due_whatsapp_events' index condition for ever. Nothing will look at it
+  -- again on its own, so its payload must go.
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.PR-PARKED'), '{"gone":"soon"}',
+   'FAILED', now() - interval '40 days', 'infinity', null),
+  -- FAILED but still on the ladder: due again in a minute. Old, and NOT
+  -- finished.
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.PR-RETRY'), '{"still":"here"}',
+   'FAILED', now() - interval '40 days', now() + interval '1 minute', null),
+  -- Never processed at all -- the tick was down for a month. Still the work
+  -- this system intends to do.
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.PR-RECEIVED'), '{"still":"here"}',
+   'RECEIVED', now() - interval '40 days', null, null),
+  -- Claimed and abandoned. reclaim_stale_whatsapp_claims (0063) returns it to
+  -- RECEIVED, so it too is still awaiting processing.
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.PR-PROCESSING'), '{"still":"here"}',
+   'PROCESSING', now() - interval '40 days', null, now() - interval '40 days');
+
 select public.prune_webhook_payloads('30 days');
+
 select is(
-  (select payload from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.TEST1')),
-  null, 'pruning clears the payload');
+  (select payload from public.webhook_events
+    where external_id = pg_temp.wamid_hash('wamid.PR-DONE-OLD')),
+  null, 'pruning clears the payload of a decided event past the cut');
 select is(
-  (select count(*)::int from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.TEST1')),
-  1, 'the pruned row is still present');
+  (select payload from public.webhook_events
+    where external_id = pg_temp.wamid_hash('wamid.PR-PARKED')),
+  null, 'and of a parked one, which holds a phone number exactly as a decided one does');
+select is(
+  (select count(*)::int from public.webhook_events
+    where external_id in (pg_temp.wamid_hash('wamid.PR-DONE-OLD'),
+                          pg_temp.wamid_hash('wamid.PR-PARKED'))),
+  2, 'both pruned rows are still present, so a replayed message is still refused');
 select is(
   (select payload is not null from public.webhook_events
-    where external_id = pg_temp.wamid_hash('wamid.TEST2')),
+    where external_id = pg_temp.wamid_hash('wamid.PR-DONE-NEW')),
   true, 'a recent event keeps its payload after pruning');
+select is(
+  (select payload is not null from public.webhook_events
+    where external_id = pg_temp.wamid_hash('wamid.PR-RETRY')),
+  true, 'an old event still on the retry ladder keeps its payload: it has not finished');
+select is(
+  (select payload is not null from public.webhook_events
+    where external_id = pg_temp.wamid_hash('wamid.PR-RECEIVED')),
+  true, 'and so does one never processed at all, however long the tick was down');
+select is(
+  (select payload is not null from public.webhook_events
+    where external_id = pg_temp.wamid_hash('wamid.PR-PROCESSING')),
+  true, 'and one claimed and abandoned, which the reclaim will hand back to the queue');
 
 -- Tenancy guard: webhook_events_company_org_fk -------------------------------
 -- A composite FK defaults to MATCH SIMPLE: it is satisfied whenever any
@@ -242,6 +304,153 @@ select lives_ok($$
      '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
      '11999998888', 'ok', 'p1:pending-plain')
 $$, 'a plain PENDING row with no sent_at or external_id is legal');
+
+-- Retention on the OUTBOX (design spec D9, corrected) ---------------------------
+--
+-- This table was a permanent, un-erasable store of listener phone numbers: to_phone
+-- holds one in the clear and external_id holds the raw wamid Meta returns for the
+-- reply, which decodes to bytes containing that same number (0058). Nothing pruned
+-- either, and anonymize_member (0034) cannot reach this table -- it erases by
+-- member_id and there is none here to join on -- so a listener who exercised
+-- erasure kept their number here for ever. prune_outbox_messages is the fix, and
+-- these are its rules.
+--
+-- Three roles apiece on the two prunes, the convention this block holds everywhere
+-- else: they are SECURITY DEFINER writers over every tenant at once.
+
+select has_function('public', 'prune_outbox_messages', array['interval'],
+                    'the outbox has a retention function of its own');
+
+select ok(not has_function_privilege('anon',
+            'public.prune_outbox_messages(interval)', 'EXECUTE'),
+          'anon may not prune the outbox');
+select ok(not has_function_privilege('authenticated',
+            'public.prune_outbox_messages(interval)', 'EXECUTE'),
+          'authenticated may not prune the outbox');
+select ok(has_function_privilege('service_role',
+            'public.prune_outbox_messages(interval)', 'EXECUTE'),
+          'and the retention job may');
+select ok(not has_function_privilege('anon',
+            'public.prune_webhook_payloads(interval)', 'EXECUTE'),
+          'anon may not prune webhook payloads');
+select ok(not has_function_privilege('authenticated',
+            'public.prune_webhook_payloads(interval)', 'EXECUTE'),
+          'authenticated may not prune webhook payloads');
+select ok(has_function_privilege('service_role',
+            'public.prune_webhook_payloads(interval)', 'EXECUTE'),
+          'and the retention job may');
+
+-- Five rows, one per state, laid out so that each half of the predicate is broken
+-- by a different one: drop the age test and the recent SENT row goes; drop the
+-- status test and the PENDING and SENDING rows go, and a reply that had not been
+-- sent yet would have no recipient left to send it to.
+insert into public.outbox_messages
+  (id, provider, integration_id, organization_id, company_id, to_phone, body,
+   dedupe_key, status, created_at, sent_at, external_id, claimed_at)
+values
+  ('00000000-0000-0000-0000-000000005e01', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000005a1', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c1', '5511977770001', 'Pronto! Boa sorte!',
+   'prune-sent-old:confirmation', 'SENT', now() - interval '40 days',
+   now() - interval '40 days', 'wamid.REPLY-OLD', null),
+  ('00000000-0000-0000-0000-000000005e02', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000005a1', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c1', '5511977770002', 'Pronto! Boa sorte!',
+   'prune-sent-new:confirmation', 'SENT', now(), now(), 'wamid.REPLY-NEW', null),
+  ('00000000-0000-0000-0000-000000005e03', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000005a1', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c1', '5511977770003', 'Pronto! Boa sorte!',
+   'prune-failed-old:confirmation', 'FAILED', now() - interval '40 days',
+   null, null, null),
+  ('00000000-0000-0000-0000-000000005e04', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000005a1', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c1', '5511977770004', 'Pronto! Boa sorte!',
+   'prune-pending-old:confirmation', 'PENDING', now() - interval '40 days',
+   null, null, null),
+  ('00000000-0000-0000-0000-000000005e05', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000005a1', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c1', '5511977770005', 'Pronto! Boa sorte!',
+   'prune-sending-old:confirmation', 'SENDING', now() - interval '40 days',
+   null, null, now() - interval '40 days');
+
+select public.prune_outbox_messages('30 days');
+
+-- The body stays on purpose: it names a promotion and says what happened, which
+-- is a fact about a draw rather than about a person, and it is what an operator
+-- asked "what were they actually told?" has left once the number is gone.
+select is(
+  (select jsonb_build_object('to_phone', to_phone, 'external_id', external_id,
+                             'pruned', pruned_at is not null, 'body', body,
+                             'status', status::text)
+     from public.outbox_messages where id = '00000000-0000-0000-0000-000000005e01'),
+  jsonb_build_object('to_phone', null, 'external_id', null, 'pruned', true,
+                     'body', 'Pronto! Boa sorte!', 'status', 'SENT'),
+  'a sent reply past the cut loses the recipient and the provider id, and keeps everything else');
+
+select is(
+  (select jsonb_build_object('to_phone', to_phone, 'pruned', pruned_at is not null)
+     from public.outbox_messages where id = '00000000-0000-0000-0000-000000005e03'),
+  jsonb_build_object('to_phone', null, 'pruned', true),
+  'and so does one that permanently failed, which holds a number just as much');
+
+select is(
+  (select to_phone from public.outbox_messages
+    where id = '00000000-0000-0000-0000-000000005e02'),
+  '5511977770002', 'a recently sent reply is untouched');
+select is(
+  (select to_phone from public.outbox_messages
+    where id = '00000000-0000-0000-0000-000000005e04'),
+  '5511977770004',
+  'a message still waiting to be sent keeps its recipient, however old: erasing it would make the reply undeliverable');
+select is(
+  (select to_phone from public.outbox_messages
+    where id = '00000000-0000-0000-0000-000000005e05'),
+  '5511977770005',
+  'and so does one claimed and in flight, which the reclaim returns to PENDING rather than abandoning');
+
+select is(
+  (select count(*)::int from public.outbox_messages
+    where id in ('00000000-0000-0000-0000-000000005e01',
+                 '00000000-0000-0000-0000-000000005e03')),
+  2, 'the pruned rows are kept, not deleted');
+
+-- THE REASON THEY ARE KEPT. dedupe_key is what stops a reprocessed event sending a
+-- second confirmation, and it carries nothing personal, so it survives the prune
+-- and goes on refusing. A retention that deleted rows would hand every listener a
+-- duplicate reply the first time an old event was re-run by hand.
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body, dedupe_key)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     '5511977770001', 'Pronto! Boa sorte!', 'prune-sent-old:confirmation')
+$$, '23505', null, 'a pruned row still refuses the confirmation it already sent');
+
+-- to_phone became nullable FOR THE PRUNE and for nothing else, and
+-- outbox_messages_retention_shape is what says so. Without it, "nullable" would
+-- mean a reply could be enqueued with nobody to send it to.
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, body, dedupe_key)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     'ok', 'p1:no-recipient')
+$$, '23514', null, 'a row nobody has pruned must still say who it is for');
+
+-- And the matching half on outbox_messages_sent_shape: the prune is an EXEMPTION
+-- from "SENT names the message Meta accepted", not the removal of it. A settle
+-- write that recorded the status without the provider id must still be 23514.
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body,
+     dedupe_key, status, sent_at)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     '11999998888', 'ok', 'p1:sent-unpruned', 'SENT', now())
+$$, '23514', null, 'SENT with a sent_at, no provider id and no prune behind it is still refused');
 
 select ok(
   'WHATSAPP' = any(enum_range(null::public.participation_source)::text[]),
@@ -820,6 +1029,55 @@ select is(
   'RECEIVED',
   'and nothing about it is half-written: the event is left for the worker to park, not filed as decided');
 
+-- The OTHER limb of the same payload contract, which used to be enforced only by
+-- accident. `from` absent, and `from` present but carrying no digits: both
+-- normalise to NULL through normalize_phone (0031), so apply_member_lookup --
+-- which requires a non-null normalised phone -- matches nothing, and
+-- apply_member_creation then REGISTERED A LISTENER WITH A NULL PHONE. That row is
+-- real, is counted, is entered into the draw, and no later message from the same
+-- person can ever dedupe against it, because members_phone_unique does not
+-- constrain nulls. It failed at write time in neither direction, so nothing but
+-- this guard would ever have said so.
+
+select is(pg_temp.ingest('wamid.X2', null, '#EUQUERO', '2026-06-10T12:00:00Z') ->> 'outcome',
+          'RAISED 22023: whatsapp payload carries no usable sender phone',
+          'a message that names a promotion and carries no sender raises rather than entering nobody in particular');
+select is(pg_temp.ingest('wamid.X3', 'abc', '#EUQUERO', '2026-06-10T12:00:00Z') ->> 'outcome',
+          'RAISED 22023: whatsapp payload carries no usable sender phone',
+          'and so does one whose sender carries no digits at all, which normalises to the same nothing');
+select is(
+  (select count(*)::int from public.members
+    where organization_id = '00000000-0000-0000-0000-0000000005f1'
+      and first_contact_origin = 'WHATSAPP'
+      and phone_normalized is null),
+  0, 'and neither of them left a phoneless listener behind');
+
+-- A row whose payload prune_webhook_payloads has already emptied. The prune's own
+-- predicate keeps this off the AUTOMATIC path -- it reaches only DONE and parked
+-- rows, and the door declines a DONE one -- so what is left is an operator
+-- un-parking a row older than the retention window. Unguarded it finds no
+-- phone_number_id, misses the integration lookup and finishes DONE/no_integration:
+-- a routing verdict recorded against a message whose content no longer exists,
+-- indistinguishable from a real one.
+create or replace function pg_temp.ingest_empty(p_wamid text)
+returns text language plpgsql as $$
+declare v_id uuid; v_out text;
+begin
+  insert into public.webhook_events (provider, external_id, payload)
+  values ('WHATSAPP', pg_temp.wamid_hash(p_wamid), null)
+  returning id into v_id;
+  begin
+    v_out := public.ingest_whatsapp_event(v_id) ->> 'outcome';
+  exception when others then
+    v_out := 'RAISED ' || sqlstate || ': ' || sqlerrm;
+  end;
+  return v_out;
+end $$;
+
+select is(pg_temp.ingest_empty('wamid.X4'),
+          'RAISED 22023: whatsapp payload has been pruned and this event can no longer be decided',
+          'an event whose payload has been pruned says so, instead of reporting a routing outcome it cannot have decided');
+
 -- The message's own clock, not the server's --------------------------------------
 --
 -- '#AGORA' is open at this instant and the message is a month old. Matched on
@@ -963,11 +1221,65 @@ select ok(
              and company_id = '00000000-0000-0000-0000-0000000005c2'),
   'the Station they messaged is added to their reach');
 
+-- The shape an OPERATOR typed, which nothing normalises ------------------------------
+--
+-- whatsapp_local_phone normalises what Meta sent. Nothing normalises what an
+-- operator entered: members.phone_normalized is GENERATED from members.phone as
+-- typed (0031), so a listener registered as "+55 (11) 98888-1111" is stored as
+-- thirteen digits, the local-form lookup asks for eleven, and it misses. Before
+-- the second lookup the bot registered a SECOND record for that listener on
+-- their first message -- and on every first message of every listener entered
+-- that way. It needs no unusual number and no ninth-digit change; it needs an
+-- operator who typed the country code.
+--
+-- BOTH DIRECTIONS, because a fallback that REPLACED the local lookup instead of
+-- following it would pass one of these and fail the other, and because the local
+-- form must stay the preference: it is what a new listener is registered under.
+
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000005d6', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Local', '(11) 97777-2222'),
+  ('00000000-0000-0000-0000-0000000005d7', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Internacional', '+55 (11) 97777-1111');
+
+select is(pg_temp.ingest('wamid.F1', '5511977772222', '#EUQUERO',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded',
+          'a listener stored in the local form is found from the number Meta delivered');
+select is(
+  (select member_id from public.participations
+    where id = (select (result ->> 'participation_id')::uuid
+                  from pg_temp.ingest_log where wamid = 'wamid.F1')),
+  '00000000-0000-0000-0000-0000000005d6'::uuid,
+  'and the entry is that listener''s own, not a new record''s');
+
+select is(pg_temp.ingest('wamid.F2', '5511977771111', '#EUQUERO',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded',
+          'a listener an operator stored WITH the country code is found as well');
+select is(
+  (select member_id from public.participations
+    where id = (select (result ->> 'participation_id')::uuid
+                  from pg_temp.ingest_log where wamid = 'wamid.F2')),
+  '00000000-0000-0000-0000-0000000005d7'::uuid,
+  'and the entry is theirs: without the second lookup this is a brand-new listener with the same phone in a different shape');
+select is(
+  (select count(*)::int from public.members
+    where organization_id = '00000000-0000-0000-0000-0000000005f1'
+      and phone_normalized in ('5511977771111', '11977771111')),
+  1, 'so that person has exactly one record, in the shape the operator typed');
+
 -- Reprocessing ---------------------------------------------------------------------
 --
--- The status predicate is what actually holds the promise, not the unique
--- dedupe_key: a genuinely re-run event would produce a NEW participation and so
--- a new key. An event already DONE is never taken.
+-- TWO mechanisms, not one, and an earlier version of this comment named only the
+-- first while denying the second. The status predicate declines a DONE event, so
+-- the automatic path never decides one twice. The unique dedupe_key covers the
+-- case the predicate cannot -- an operator putting a finished row back by hand --
+-- because it is keyed on the MESSAGE (`external_id || ':confirmation'`, 0062),
+-- which is the same for every decision of the same event. It is NOT keyed on the
+-- participation: the retired sentence said so, and a reader following it would
+-- conclude the ON CONFLICT in 0062 is unreachable and free to delete. The block
+-- at the very end of this file is that case, asserted.
 
 select is(
   (select public.ingest_whatsapp_event(id) ->> 'outcome'

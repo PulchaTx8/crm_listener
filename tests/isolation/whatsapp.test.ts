@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
+import type { Json } from '@/lib/supabase/database.types';
+import { runTick } from '@/services/whatsapp';
 import {
   addCompany,
   admin,
@@ -561,6 +564,10 @@ describe('the privilege boundary pgTAP cannot see', () => {
   });
 
   it('lets service_role execute the queue RPCs the worker calls every tick', async () => {
+    // Kept for the RPC surface alone. The two `runTick` cases below drive the
+    // same three calls plus every PostgREST WRITE the worker performs, per row,
+    // which these three cannot: an RPC that returns an empty set exercises the
+    // grant on the function and nothing beyond it.
     // ingest_whatsapp_event's own service_role executability is already
     // proven, positively, by the race above (twelve rounds of admin.rpc
     // succeeding) and by the seed ingestions just above. These three are the
@@ -576,5 +583,181 @@ describe('the privilege boundary pgTAP cannot see', () => {
       p_stale_after: '5 minutes',
     });
     expect(reclaimed.error).toBeNull();
+  });
+});
+
+/**
+ * `runTick` itself, against the real database, over real HTTP, as `service_role`
+ * — and this is a different question from every case above it.
+ *
+ * The cases above call `ingest_whatsapp_event` directly and then perform the
+ * worker's writes by hand, in shapes copied from `src/services/whatsapp.ts`.
+ * That proves the shapes were legal when they were copied. It cannot notice the
+ * worker growing a resource embed on a table with no grant (the third of this
+ * block's three boundary defects, closed only by circumstance), a call to an RPC
+ * nobody granted, or a settle patch that writes one column too many for a CHECK.
+ * Driving the function itself is what asks the question the three defects were
+ * all answers to: does what the worker ACTUALLY sends work, as the role it
+ * actually holds?
+ *
+ * These two cases between them execute every statement a tick issues: the three
+ * RPCs, the SENT settle, the failure settle onto the backoff ladder, and
+ * `deferEvent`'s write. The last two run only when a queue is non-empty and are
+ * the deferred minor Task 13 left open.
+ */
+describe('a whole tick, over the wire', () => {
+  /**
+   * Everything in the queues except the named events is put beyond this tick's
+   * reach, and without it `ingested` and `sent` are counts of whatever the
+   * database happens to be holding.
+   *
+   * `due_whatsapp_events` and `claim_outbox_batch` carry NO tenant scope, by
+   * design — the worker drains the installation, not a Station — and this suite
+   * commits rows that outlive it (report §1.1): every race above leaves DONE
+   * events and un-drained PENDING replies behind, and so does every previous
+   * run against the same local stack. Parking them is not cleanup for its own
+   * sake; it is what makes an exact count mean something.
+   *
+   * Both statements are writes `service_role` is granted (0058, 0059). Nothing
+   * here reaches for the superuser connection: a quiesce that needed privileges
+   * the worker does not hold would be a fixture the worker could not have
+   * produced.
+   */
+  async function quiesceQueues(keepEventIds: string[]): Promise<void> {
+    const events = await admin
+      .from('webhook_events')
+      .update({ next_attempt_at: 'infinity' })
+      .in('status', ['RECEIVED', 'FAILED', 'PROCESSING'])
+      .not('id', 'in', `(${keepEventIds.join(',')})`);
+    if (events.error) {
+      throw new Error(`could not quiesce webhook_events: ${events.error.message}`);
+    }
+
+    // PENDING *and* SENDING: the tick reclaims abandoned claims before it
+    // drains anything, so a stale SENDING row left by an earlier run would come
+    // back as PENDING inside the very tick under test and be sent.
+    const outbox = await admin
+      .from('outbox_messages')
+      .update({ status: 'FAILED', last_error: 'quiesced by the runTick isolation case' })
+      .in('status', ['PENDING', 'SENDING']);
+    if (outbox.error) {
+      throw new Error(`could not quiesce outbox_messages: ${outbox.error.message}`);
+    }
+  }
+
+  it('decides one event and sends its reply, as the role and over the transport it really uses', async () => {
+    const fixture = await seedPromotionWithIntegration(`wa-tick-${Date.now()}`);
+    await quiesceQueues([fixture.eventA]);
+
+    const transport = new FakeTransport();
+    const result = await runTick({ supabase: admin, transport });
+
+    // FIRST, and not as a footnote: a tick in which every database call failed
+    // returns 200 with an all-zero body, so `dbErrors` is the only field that
+    // tells "nothing to do" from "nothing worked" (src/services/whatsapp.ts).
+    // Asserting it before the counts means a missing grant reads as itself
+    // rather than as "ingested 0".
+    expect(result.dbErrors, 'every database call the tick made succeeded').toBe(0);
+
+    expect(result.ingested).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(result.sent).toBe(1);
+    expect(result.sendFailed).toBe(0);
+
+    // The recipient is the number WhatsApp delivered, country code and all —
+    // not the local form this database stores, which Meta cannot route to.
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0]?.to).toBe(`55${fixture.localPhone}`);
+
+    // The settle write, read back. outbox_messages_sent_shape (0059) makes SENT
+    // a claim about sent_at and external_id together, so this is the assertion
+    // that a patch which moved one of the three without the others — a 23514 in
+    // production — did not happen.
+    const { data: row, error } = await admin
+      .from('outbox_messages')
+      .select('status, external_id, sent_at, attempts')
+      .eq('dedupe_key', `${fixture.externalIdA}:confirmation`)
+      .single();
+    expect(error).toBeNull();
+    expect(row?.status).toBe('SENT');
+    expect(row?.external_id).toBe('wamid.FAKE1');
+    expect(row?.sent_at).not.toBeNull();
+    expect(row?.attempts).toBe(1);
+  });
+
+  it('defers an event that raised and puts a failed send back on the ladder', async () => {
+    const fixture = await seedPromotionWithIntegration(`wa-tick-fail-${Date.now()}`);
+
+    // Event A loses its `timestamp`, which makes ingest_whatsapp_event RAISE
+    // (0062) rather than file a malformed message under a plausible outcome.
+    // That is the only way to reach deferEvent, and deferEvent's patch is the
+    // one webhook_events_done_shape refuses if it carries an outcome or a
+    // processed_at — a 23514 that no test in this repository could see before,
+    // because nothing drove the worker against a real database.
+    const { data: seeded, error: readError } = await admin
+      .from('webhook_events')
+      .select('payload')
+      .eq('id', fixture.eventA)
+      .single();
+    if (readError || !seeded?.payload) {
+      throw new Error(`could not read the seeded payload: ${readError?.message}`);
+    }
+    const withoutTimestamp = Object.fromEntries(
+      Object.entries(seeded.payload as Record<string, unknown>).filter(
+        ([key]) => key !== 'timestamp',
+      ),
+    ) as Json;
+    const corrupted = await admin
+      .from('webhook_events')
+      .update({ payload: withoutTimestamp })
+      .eq('id', fixture.eventA);
+    if (corrupted.error) {
+      throw new Error(`could not corrupt the seeded payload: ${corrupted.error.message}`);
+    }
+
+    await quiesceQueues([fixture.eventA, fixture.eventB]);
+
+    const transport = new FakeTransport();
+    transport.failNext(true);
+    const result = await runTick({ supabase: admin, transport });
+
+    expect(result.dbErrors, 'every database call the tick made succeeded').toBe(0);
+    expect(result.ingested).toBe(1);
+    expect(result.eventsFailed).toBe(1);
+    expect(result.sent).toBe(0);
+    expect(result.sendFailed).toBe(1);
+    expect(result.sendAborted).toBe(false);
+
+    const { data: deferred, error: deferredError } = await admin
+      .from('webhook_events')
+      .select('status, attempts, last_error, next_attempt_at, outcome, processed_at')
+      .eq('id', fixture.eventA)
+      .single();
+    expect(deferredError).toBeNull();
+    expect(deferred?.status).toBe('FAILED');
+    expect(deferred?.attempts).toBe(1);
+    expect(deferred?.last_error).toMatch(/timestamp/i);
+    // Scheduled, not parked: one rung of the ladder, with four left.
+    expect(deferred?.next_attempt_at).not.toBe('infinity');
+    // FAILED means "try again" (0058), so neither of these may be written.
+    expect(deferred?.outcome).toBeNull();
+    expect(deferred?.processed_at).toBeNull();
+
+    const { data: settled, error: settledError } = await admin
+      .from('outbox_messages')
+      .select('status, attempts, last_error, external_id, sent_at')
+      .eq('dedupe_key', `${fixture.externalIdB}:confirmation`)
+      .single();
+    expect(settledError).toBeNull();
+    // Retryable, so PENDING with a future next_attempt_at — never FAILED, which
+    // on this side is terminal and outside the sendable scan (0059).
+    expect(settled?.status).toBe('PENDING');
+    expect(settled?.attempts).toBe(1);
+    expect(settled?.last_error).toBe('fake failure');
+    // Untouched on a row that is not SENT, which outbox_messages_sent_shape
+    // requires of every status but that one.
+    expect(settled?.external_id).toBeNull();
+    expect(settled?.sent_at).toBeNull();
   });
 });

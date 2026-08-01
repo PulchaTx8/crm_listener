@@ -149,6 +149,29 @@ does not need the message id itself. `external_id` therefore holds
 reaches it. A replayed message is still refused a year later; the value that made
 it personal is gone.
 
+> **Corrected after the whole-branch review, and the correction is the whole
+> point of D9 rather than a detail of it.** As written above, and as repeated in
+> `0058`'s column comment and in the block report, D9 said *the raw provider
+> message id lives at `payload.wamid` and expires with it*. That was true of the
+> **inbound** half only. `outbox_messages` — a table this block created —
+> holds the listener's number in the clear in `to_phone` and the raw wamid Meta
+> returns for our reply in `external_id`, and **nothing pruned either**;
+> `anonymize_member` cannot reach that table at all, because it erases by
+> `member_id` and there is no `member_id` there to join on. A listener who
+> exercised erasure had their number nulled on `members` and kept for ever in a
+> table 5a added. `prune_outbox_messages` (§3.3) closes it, on the same terms:
+> terminal status plus age, the identifying columns nulled, the row kept so
+> `dedupe_key` goes on refusing a second confirmation.
+>
+> The prune's **predicate** was corrected in the same wave. It touches only
+> rows nothing will look at again automatically — `DONE`, or `FAILED` and
+> parked at `next_attempt_at = infinity`. Age alone empties rows still awaiting
+> processing or retry, and a pruned row read by `ingest_whatsapp_event` finds no
+> `phone_number_id`, so it finishes `DONE`/`no_integration`: a routing verdict
+> invented for a message whose content was destroyed. A `status = 'DONE'`
+> predicate has the opposite fault, keeping a parked row's phone number for
+> ever. The cost is stated in §6.3: manual reprocessing has a bounded window.
+
 This was a correction, not the original design, and the original is why the
 correction matters: keeping the raw id would have left a recoverable phone in the
 one column the retention rule deliberately never touches (D2). **The hash is
@@ -250,8 +273,11 @@ structure. Meta retries any delivery it does not see a 200 for, so a duplicate
 is normal traffic, not an attack.
 
 `prune_webhook_payloads(p_older_than interval default '30 days')` ships with the
-table and nulls `payload` on rows past the cut, keeping the row (D9). This block
-does not schedule it; Block 11 does, alongside the rest of N7.
+table and nulls `payload`, keeping the row (D9), on rows past the cut **that are
+finished** — `DONE`, or `FAILED` and parked at `next_attempt_at = infinity`. An
+event still awaiting processing or retry keeps its payload, because every rule
+in `ingest_whatsapp_event` is read out of it. This block does not schedule it;
+Block 11 does, alongside the rest of N7.
 
 **`status` distinguishes "finished deciding" from "it worked".** `DONE` means
 this event will not be looked at again; it covers a recorded participation, an
@@ -272,12 +298,16 @@ create table public.outbox_messages (
   organization_id uuid not null,
   company_id      uuid not null,
 
-  to_phone text not null,
+  -- Nullable only because prune_outbox_messages empties it; a row nobody has
+  -- pruned must still name a recipient, and outbox_messages_retention_shape
+  -- says so structurally.
+  to_phone text,
   body     text not null,
 
   -- Unique. Reprocessing a parked event by hand must not send its confirmation
   -- a second time, and that is held here rather than by the worker being
-  -- careful. Shape: '<participation_id>:confirmation'.
+  -- careful. Shape: '<sha256 of the wamid>:confirmation' — see the correction
+  -- below.
   dedupe_key text not null,
 
   status          public.outbox_status not null default 'PENDING',
@@ -287,10 +317,29 @@ create table public.outbox_messages (
   external_id     text,   -- the wamid Meta returns once it accepts the send
   created_at      timestamptz not null default now(),
   sent_at         timestamptz,
+  pruned_at       timestamptz,
 
   constraint outbox_messages_dedupe_unique unique (provider, dedupe_key)
 );
 ```
+
+**`dedupe_key` is keyed on the MESSAGE, not on the participation, and this spec
+said the wrong one.** Written as `'<participation_id>:confirmation'` (here and in
+§4.3 step 7) the promise above is false: reprocessing an event writes a *new*
+participation, therefore a new key, therefore a second reply, and the unique
+constraint never fires. Corrected during execution to
+`'<sha256 of the wamid>:confirmation'` — the same value for every decision of the
+same message — which also matches how the inbound side keys idempotency. Two
+comments arguing the retired version survived to the branch head and were removed
+in the final fix wave; this is the third copy.
+
+`prune_outbox_messages(p_older_than interval default '30 days')` ships with this
+table, mirroring `prune_webhook_payloads`: on rows that are terminal (`SENT` or
+`FAILED`) and past the cut it nulls `to_phone` and `external_id` and stamps
+`pruned_at`, keeping the row so `dedupe_key` goes on refusing a second
+confirmation. It exists because this table would otherwise be a permanent,
+un-erasable store of listener phone numbers that `anonymize_member` cannot reach
+(D9's correction). Not scheduled here either — Block 11 turns both prunes on.
 
 ### 3.4 RLS
 
@@ -348,9 +397,16 @@ one minute if it is older. It does two things and knows nothing about promotions
   roll back a batch.
 - Drain up to **50** `outbox_messages` through the transport (§6).
 
-The batch caps keep a tick inside a serverless function timeout. A backlog
+The batch caps bound how much work one tick does. A backlog
 larger than 50 simply takes more ticks; nothing is dropped, because the tick
 selects from the table rather than being handed a list.
+
+*(This line originally said the caps "keep a tick inside a serverless function
+timeout". There is no such limit: the app is a long-running Next.js server
+deployed through EasyPanel. What the caps bound is what an unfinished tick
+leaves behind for `reclaim_stale_whatsapp_claims` to recover, and they keep a
+tick inside the timeout the `pg_cron` job records its result against. Corrected
+in the fix wave, in all four places the wrong reason was stated.)*
 
 That the worker holds no rule is what makes the master spec's promise real —
 swapping polling for `pgmq` later changes the trigger and nothing else.
@@ -388,7 +444,9 @@ swapping polling for `pgmq` later changes the trigger and nothing else.
    Block 3 designed.
 6. `apply_participation(promotion, member, message_timestamp, 'WHATSAPP', '[]')`.
 7. Insert the reply into `outbox_messages` with
-   `dedupe_key = participation_id || ':confirmation'`.
+   `dedupe_key = external_id || ':confirmation'` — keyed on the **message**, not
+   on the participation; this step originally said the latter, and §3.3 records
+   why that was wrong.
 8. Write this function's **own** audit row — action `ingest_whatsapp_event`,
    `actor_id` NULL, detail carrying `integration_id`, `wamid`, `promotion_id`,
    `member_id` and `outcome`, and **no phone number** (D2).
@@ -475,7 +533,7 @@ since 0007) — not the server's, and not the listener's, which we do not know.
 | Situation | Outcome |
 |---|---|
 | Invalid signature | 401, nothing written |
-| Malformed payload, valid signature | stored, `FAILED` + `last_error`; it really came from Meta and the evidence matters |
+| Malformed payload, valid signature | **Deviated in execution: 200, nothing stored.** `external_id` is NOT NULL with a format `CHECK`, so a payload that does not yield a message id has no key to file a row under. See the block report's deviations section. |
 | Unknown number | `DONE`, `no_integration`, silent |
 | No hashtag in the message | `DONE`, `no_hashtag`, silent |
 | Hashtag matches nothing / cancelled / outside window | `DONE`, `no_promotion` \| `promotion_cancelled` \| `outside_window`, silent |
@@ -485,7 +543,18 @@ since 0007) — not the server's, and not the listener's, which we do not know.
 
 Reprocessing a parked event is safe by structure: `webhook_events_external_id_unique`
 stops a second row, `apply_participation` returns `DUPLICATE` rather than a
-second entry, and `outbox_messages_dedupe_unique` stops a second confirmation.
+second entry, and `outbox_messages_dedupe_unique` stops a second confirmation —
+which it can only do because the key is the **message**'s and not the
+participation's (§3.3).
+
+**It is also bounded in time, and that is a consequence of D9 rather than a
+limitation of the reprocessing.** `prune_webhook_payloads` reaches parked rows
+(they are rows nothing will look at again automatically, and they hold a phone
+number), so past the retention window a parked event has no payload left to be
+decided from. `ingest_whatsapp_event` **raises** on an empty payload rather than
+reporting `no_integration`, so the operator is told the cause instead of being
+handed a verdict about a message that no longer exists. The runbook §6 states the
+window and how to un-park a row inside it.
 
 ### 6.4 Bringing a number online
 

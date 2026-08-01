@@ -158,6 +158,50 @@ revoke truncate on public.webhook_events from service_role;
 -- key has to survive this function, and a raw wamid would have been personal
 -- data surviving it. This block ships the function; Block 11 schedules it
 -- alongside the rest of N7.
+--
+-- WHICH ROWS, AND WHY AGE ALONE IS NOT THE ANSWER. Two properties have to hold
+-- together, and neither may be bought with the other:
+--
+--   1. AN EVENT STILL AWAITING PROCESSING OR RETRY KEEPS ITS PAYLOAD. A row
+--      sitting RECEIVED for thirty-one days because the tick was down, or
+--      FAILED and waiting on its next rung, is work this system still intends
+--      to do, and ingest_whatsapp_event (0062) reads five paths out of the
+--      payload to do it. Emptied, that event finds no
+--      metadata->>phone_number_id, misses the integration lookup and finishes
+--      DONE with outcome no_integration -- a plausible-looking reason recorded
+--      against a row that was destroyed rather than routed, filed in the one
+--      pile nobody searches. That is precisely the failure the missing-
+--      timestamp RAISE further down 0062 exists to prevent, and a prune that
+--      could reach such a row would make design spec §6.3's "reprocessing a
+--      parked event is safe by structure" false.
+--
+--   2. PERSONAL DATA DOES NOT SURVIVE INDEFINITELY ON A ROW THAT IS FINISHED,
+--      whichever way it finished. DONE is the ordinary case. A PARKED row is
+--      the one a narrower `status = 'DONE'` predicate would keep for ever, and
+--      it holds a phone number and a WhatsApp profile name exactly as a DONE
+--      row does: retention is not conditional on the outcome having been a
+--      happy one, and the listener whose number it is did not consent to it
+--      being kept longer because the bot failed to answer them.
+--
+-- So: DONE, or FAILED and PARKED. Parked means next_attempt_at = infinity,
+-- which is what the worker writes when the ladder is spent
+-- (src/services/whatsapp.ts, PARKED_AT) and what puts a row beyond
+-- due_whatsapp_events' index condition permanently (0063). The definition is
+-- READ FROM THE QUEUE'S OWN COLUMN rather than re-invented here, so the two
+-- cannot drift into disagreeing about which rows are still live.
+--
+-- Everything else is excluded on the same test. PROCESSING is a claim in
+-- flight, and a claim that dies is returned to RECEIVED by
+-- reclaim_stale_whatsapp_claims (0063), so it is still awaiting processing.
+-- FAILED with any other next_attempt_at is awaiting retry -- including NULL,
+-- which coalesces to received_at and is therefore due right now.
+--
+-- THE COST, stated rather than discovered: MANUAL REPROCESSING HAS A BOUNDED
+-- WINDOW. An operator un-parking a row older than the cut finds its payload
+-- already gone, and ingest_whatsapp_event RAISES on an empty payload rather
+-- than reporting a routing outcome it cannot have decided. That is the loud
+-- half of property 1, and docs/block-5a-runbook.md §6 states both the window
+-- and how to un-park.
 create or replace function public.prune_webhook_payloads(
   p_older_than interval default '30 days')
 returns integer
@@ -171,7 +215,9 @@ begin
   update public.webhook_events
      set payload = null
    where payload is not null
-     and received_at < now() - p_older_than;
+     and received_at < now() - p_older_than
+     and (status = 'DONE'
+          or (status = 'FAILED' and next_attempt_at = 'infinity'));
   get diagnostics v_count = row_count;
   return v_count;
 end;
@@ -181,8 +227,8 @@ revoke execute on function public.prune_webhook_payloads(interval) from public;
 grant execute on function public.prune_webhook_payloads(interval) to service_role;
 
 comment on table public.webhook_events is
-  'One row per inbound message, written before anything is decided about it. (provider, external_id) unique is the idempotency guarantee the master spec asks for, held structurally — over the HASH of the provider message id, since idempotency is equality and a hash preserves equality exactly. payload is nullable because prune_webhook_payloads (design spec D9) clears it after 30 days while keeping the row, which is the whole reason external_id may not hold anything personal.';
+  'One row per inbound message, written before anything is decided about it. (provider, external_id) unique is the idempotency guarantee the master spec asks for, held structurally — over the HASH of the provider message id, since idempotency is equality and a hash preserves equality exactly. payload is nullable because prune_webhook_payloads (design spec D9) clears it after 30 days while keeping the row, which is the whole reason external_id may not hold anything personal. The prune reaches only rows nothing will look at again automatically — DONE, or FAILED and parked at next_attempt_at = infinity — because an event still awaiting processing or retry needs its payload to be decided at all, and because a parked row holds a phone number exactly as a DONE one does.';
 comment on column public.webhook_events.external_id is
-  'SHA-256 of the WhatsApp message id (wamid...), hex, hashed in Node before it reaches the database — NOT the id itself, and never the HTTP request id: Meta packs several messages into one POST and idempotency is per message. Hashed because a wamid decodes to bytes containing the counterparty phone number, so the raw value is not anonymous: it would put a recoverable phone into audit_logs, which design spec D2 forbids, and into a column that deliberately outlives the payload prune_webhook_payloads clears at thirty days. Hashed in Node rather than here for the reason members.cpf_hash gives (0031) — an argument passed to an RPC lands in query logs and in backups. The format CHECK refuses a raw id outright, so the guarantee does not rest on the route remembering. The raw id lives in payload, and expires with it.';
+  'SHA-256 of the WhatsApp message id (wamid...), hex, hashed in Node before it reaches the database — NOT the id itself, and never the HTTP request id: Meta packs several messages into one POST and idempotency is per message. Hashed because a wamid decodes to bytes containing the counterparty phone number, so the raw value is not anonymous: it would put a recoverable phone into audit_logs, which design spec D2 forbids, and into a column that deliberately outlives the payload prune_webhook_payloads clears at thirty days. Hashed in Node rather than here for the reason members.cpf_hash gives (0031) — an argument passed to an RPC lands in query logs and in backups. The format CHECK refuses a raw id outright, so the guarantee does not rest on the route remembering. The raw id of the INBOUND message lives in payload and expires with it; the raw id Meta returns for the reply we send back lives in outbox_messages.external_id (0059) and expires with prune_outbox_messages. Design spec D9 originally said the raw provider id lived in one column and expired with it, which was true of the inbound half and false of the outbox this block also created — both halves now expire, and the statement is corrected in the spec, in the report and here.';
 comment on column public.webhook_events.outcome is
   'Why this event finished. With status DONE it distinguishes recorded from no_integration, no_hashtag, no_promotion, promotion_cancelled and outside_window — all of which are silent to the listener (design spec D4) and all of which somebody will eventually have to explain.';

@@ -22,13 +22,23 @@
 -- `true` is missing_ok, which is what lets this migration apply cleanly to a
 -- database where neither has been set yet, rather than raising. The runbook
 -- sets both as DATABASE SETTINGS, which is where a value a SQL function needs
--- to read belongs (a Vercel environment variable is not visible inside
--- Postgres):
+-- to read belongs (this project deploys through EasyPanel, and an EasyPanel
+-- environment variable is not visible inside Postgres -- no more than a Vercel
+-- one would be, and this project has never deployed to Vercel):
 --   alter database postgres set app.worker_tick_url = 'https://<host>/api/worker/tick';
 --   alter database postgres set app.worker_tick_secret = '<the same value as WORKER_TICK_SECRET>';
 -- Until both are set, the job exists and fires every ten seconds, and the
 -- WHERE clause below makes each firing a no-op rather than a call to a null
 -- URL -- schedule-then-configure is safe in either order.
+--
+-- NULLIF ON THE GUARD, AND IT IS NOT DECORATION. current_setting(name, true)
+-- returns NULL for a setting that has never been set and the EMPTY STRING for
+-- one that exists and is blank -- which is what
+-- `alter database postgres set app.worker_tick_url = ''` leaves behind, and
+-- what a half-finished configuration step looks like. An `is not null` guard
+-- alone passes on the empty string, and the job then POSTs to an empty URL
+-- every ten seconds for ever, filling net._http_response with failures that
+-- describe the configuration rather than the worker.
 
 create extension if not exists pg_cron with schema cron;
 create extension if not exists pg_net with schema extensions;
@@ -40,6 +50,26 @@ create extension if not exists pg_net with schema extensions;
 select cron.unschedule('whatsapp-worker-tick')
 where exists (select 1 from cron.job where jobname = 'whatsapp-worker-tick');
 
+-- timeout_milliseconds is SET EXPLICITLY, and 90 seconds is not a guess about
+-- how long the app may take -- nothing here waits for the answer. pg_net is
+-- fire-and-forget: this statement returns a request id, the tick runs to
+-- completion on the server whatever happens to the connection, and no code
+-- anywhere reads the response. What the timeout decides is the ROW pg_net
+-- leaves behind in net._http_response, which is the only trace of a tick an
+-- operator has from the database side and which docs/block-5a-runbook.md sends
+-- them to.
+--
+-- At pg_net's default of 5 seconds that row is a TIMEOUT on every busy tick: a
+-- full batch is up to fifty ingest transactions plus fifty sequential HTTPS
+-- calls to Meta, which routinely outlasts five seconds and is the case the
+-- batch caps in src/services/whatsapp.ts are sized for. A table of timeouts
+-- recording ticks that in fact succeeded is worse than no record: it trains
+-- whoever reads it to ignore the one place a real failure would appear.
+--
+-- 90 seconds is comfortably past a full batch and still bounded, so a genuinely
+-- hung request is released rather than held open by a pg_net worker. Ticks
+-- overlapping is normal and by design (0063), so a long-running one does not
+-- delay the next.
 select cron.schedule(
   'whatsapp-worker-tick',
   '10 seconds',
@@ -49,9 +79,10 @@ select cron.schedule(
     headers := jsonb_build_object(
       'content-type', 'application/json',
       'x-worker-secret', current_setting('app.worker_tick_secret', true)),
-    body    := '{}'::jsonb
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 90000
   )
-  where current_setting('app.worker_tick_url', true) is not null;
+  where nullif(current_setting('app.worker_tick_url', true), '') is not null;
   $$
 );
 

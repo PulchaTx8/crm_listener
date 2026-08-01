@@ -35,6 +35,14 @@
 -- a twelve-digit foreign number that happens to begin 55 is stripped when it
 -- should not be. Block 9's ETL reconciliation (L1) faces the same problem
 -- against legacy data and is where a general answer belongs.
+--
+-- What this function CANNOT do, and what ingest_whatsapp_event does instead:
+-- normalise what an OPERATOR typed. members.phone_normalized is generated from
+-- members.phone as entered (0031), so a listener registered with the country
+-- code is stored WITH it and the local form produced here will never match
+-- them. That is handled at the lookup, by asking for both shapes, and not by
+-- widening this function -- the value it returns is the one a NEW listener is
+-- registered under, and that must stay the single canonical local form.
 -- ---------------------------------------------------------------------------
 create or replace function public.whatsapp_local_phone(p_wa_phone text)
 returns text
@@ -195,8 +203,10 @@ comment on function public.whatsapp_reply_body(uuid, uuid, text) is
 --
 -- The promotion and the member are DERIVED from the participation rather than
 -- passed in. That keeps this signature to the four things a caller actually
--- has at every one of its six call sites, and it cannot disagree with the row
--- it describes. The cost, stated: on the silent outcomes there is no
+-- has at every one of its FOUR call sites -- which carry SIX outcomes between
+-- them, because the diagnostic branch chooses among no_promotion,
+-- promotion_cancelled and outside_window and then calls once -- and it cannot
+-- disagree with the row it describes. The cost, stated: on the silent outcomes there is no
 -- participation, so promotion_id and member_id are null even where the
 -- diagnostic lookup identified a promotion. webhook_events.outcome carries the
 -- reason for those, and the payload carries the message.
@@ -296,11 +306,21 @@ begin
   -- blocking: a blocked worker holds its transaction open for no gain, and the
   -- event will still be there next tick.
   --
-  -- The status predicate is also what makes reprocessing safe. A DONE event is
-  -- not picked up at all, which is the real reason a confirmation cannot be
-  -- sent twice -- the unique dedupe_key below is a structural backstop, but it
-  -- is keyed on the participation and a genuinely re-run event would produce a
-  -- new one, so it is this line that holds the promise.
+  -- The status predicate is also the first of the two things that make
+  -- reprocessing safe: a DONE event is not picked up at all, so the ordinary
+  -- automatic path never decides one twice.
+  --
+  -- IT IS NOT THE ONLY ONE, and an earlier version of this comment said so --
+  -- claiming the unique dedupe_key below could not help because it was "keyed
+  -- on the participation". It is not. It is keyed on the MESSAGE
+  -- (v_event.external_id || ':confirmation', further down this function), which
+  -- is the same for every decision of the same event, so the ON CONFLICT below
+  -- fires exactly when one message is decided twice. That is the case this line
+  -- cannot cover: an operator putting a finished row back by hand walks
+  -- straight past the status predicate, gets a second participation (the row is
+  -- a fact about the attempt), and must not get a second reply. Reading the
+  -- retired sentence, a reader would conclude the ON CONFLICT is unreachable
+  -- and free to delete.
   select * into v_event
   from public.webhook_events
   where id = p_event_id and status in ('RECEIVED', 'FAILED')
@@ -320,6 +340,27 @@ begin
   update public.webhook_events
      set status = 'PROCESSING', claimed_at = now()
    where id = v_event.id;
+
+  -- AN EMPTY PAYLOAD IS A PRUNED ROW, NOT A QUIET MESSAGE. payload is nullable
+  -- for one reason only -- prune_webhook_payloads (0058) empties it once the row
+  -- is finished and past the retention cut -- and every decision below reads out
+  -- of it. Left unguarded, a pruned row finds no metadata->>phone_number_id,
+  -- misses the integration lookup and finishes DONE with outcome
+  -- no_integration: a routing verdict recorded against a message whose content
+  -- no longer exists, indistinguishable from a real one and filed in the pile
+  -- nobody searches.
+  --
+  -- The prune's own predicate keeps this off the AUTOMATIC path -- it reaches
+  -- only DONE and parked rows, and the claim above declines a DONE one. What is
+  -- left is an operator un-parking a row older than the window, and they get an
+  -- error naming the cause rather than a plausible-looking outcome. Same answer,
+  -- and the same reason, as the missing-timestamp raise below.
+  if v_event.payload is null then
+    raise log 'ingest_whatsapp_event: payload already pruned on event % (wamid sha256 %)',
+      v_event.id, v_event.external_id;
+    raise exception 'whatsapp payload has been pruned and this event can no longer be decided'
+      using errcode = '22023';
+  end if;
 
   -- The payload is the FLATTENED message the route writes, not Meta's envelope:
   -- one webhook_events row is one message (0058), and `from`, `text`,
@@ -363,23 +404,51 @@ begin
     return public.finish_whatsapp_event(v_event.id, 'no_hashtag', null, null);
   end if;
 
-  -- A message that names a promotion and carries no timestamp cannot be decided
-  -- at all: every rule from here down is measured against it, and a NULL does
-  -- not fail those comparisons, it makes them UNKNOWN. Nothing matches, the
-  -- diagnostic below then reports 'outside_window', and a malformed payload is
-  -- filed in the DONE pile wearing a plausible reason -- the one place nobody
-  -- will look for it.
+  -- A message that names a promotion and carries no SENDER, or no TIMESTAMP,
+  -- cannot be decided at all, and each absence fails silently in its own way if
+  -- it is not stopped here.
   --
-  -- Raised instead, so it lands in FAILED with something an operator can find.
-  -- That is the same answer a missing `from` already gets, and the two must not
-  -- be told apart by which one happens to survive as far as a silent outcome.
+  -- NO TIMESTAMP: every rule from here down is measured against it, and a NULL
+  -- does not fail those comparisons, it makes them UNKNOWN. Nothing matches,
+  -- the diagnostic below then reports 'outside_window', and a malformed payload
+  -- is filed in the DONE pile wearing a plausible reason -- the one place
+  -- nobody will look for it.
   --
-  -- Placed HERE rather than beside the payload read, and for the same reason
-  -- `from` is not checked there either: a delivery receipt carries neither a
-  -- timestamp nor any text, and it must go on leaving quietly through
-  -- no_hashtag above rather than filling the retry queue. The contract is
-  -- "whenever `text` is present, `from` and `timestamp` are too"; the check
-  -- sits at the point of use, which is the first line below that reads v_when.
+  -- NO SENDER: whatsapp_local_phone returns null for an absent `from` AND for
+  -- one that carries no digits at all ("abc"), because normalize_phone (0031)
+  -- keeps digits and nothing else. Unstopped, apply_member_lookup below matches
+  -- nothing -- it requires a non-null normalised phone -- and
+  -- apply_member_creation then REGISTERS A LISTENER WITH A NULL PHONE. That row
+  -- is real, is counted, is entered into the draw, and no later message from
+  -- the same person can ever dedupe against it, because members_phone_unique
+  -- (0031) does not constrain nulls: one broken payload becomes a permanent
+  -- extra person. It fails at write time in NEITHER direction, which is why it
+  -- has to be refused here.
+  --
+  -- Both RAISE, so 0058's payload contract -- "whenever `text` is present,
+  -- `from` and `timestamp` are too" -- is held by the same mechanism on both
+  -- limbs rather than one being enforced and the other merely stated. An
+  -- unparseable timestamp already raises out of the cast above as 22P02; these
+  -- two are 22023.
+  --
+  -- Placed HERE, below the hashtag, rather than beside the payload read: a
+  -- delivery receipt carries neither a sender nor a timestamp nor any text, and
+  -- it must go on leaving quietly through no_hashtag above rather than filling
+  -- the retry queue. The check belongs at the point of use, and the first use of
+  -- either value is below this line.
+  --
+  -- THE LIMIT, since a guard invites the belief that the thing is now
+  -- validated: this refuses ABSENCE, not nonsense. A `from` of "abc123"
+  -- normalises to "123", which is a usable-looking phone and is not caught
+  -- here. Meta does not send such a payload; a defective route could, and would
+  -- register one listener rather than an unbounded number of them.
+  if v_local is null then
+    raise log 'ingest_whatsapp_event: no usable sender on event % (wamid sha256 %)',
+      v_event.id, v_event.external_id;
+    raise exception 'whatsapp payload carries no usable sender phone'
+      using errcode = '22023';
+  end if;
+
   if v_when is null then
     raise log 'ingest_whatsapp_event: no timestamp on event % (wamid sha256 %)',
       v_event.id, v_event.external_id;
@@ -489,6 +558,36 @@ begin
   -- (0061). That is correct for dedup and is why the link below is idempotent.
   v_member := public.apply_member_lookup(
     v_integ.organization_id, v_local, null, null, null);
+
+  -- BOTH SHAPES THE NUMBER MAY ALREADY BE STORED IN, and this second lookup is
+  -- not defensive breadth -- it is the likeliest way this block produces a
+  -- duplicate listener in production.
+  --
+  -- whatsapp_local_phone normalises what META sent. Nothing normalises what an
+  -- OPERATOR typed: members.phone_normalized is generated from whatever went
+  -- into members.phone (0031), so a listener registered as "+55 11 99999-8888"
+  -- is stored as thirteen digits, the lookup above asks for eleven, misses, and
+  -- the bot registers a second record for somebody Block 3 already knows -- on
+  -- that listener's FIRST message, and on every first message of every listener
+  -- entered that way. It needs no unusual number and no ninth-digit change; it
+  -- needs an operator who typed the country code, which the app has never asked
+  -- them not to do.
+  --
+  -- So the unstripped form is asked for too, and only when the stripped one
+  -- found nobody: the local form is what this database is supposed to hold, so
+  -- it stays the preference, and a listener stored both ways (which
+  -- members_phone_unique permits, since the two strings differ) resolves to the
+  -- local row exactly as before. Skipped entirely when the two forms are equal,
+  -- which is every number outside the +55 range -- one query, not two, on the
+  -- ordinary path.
+  --
+  -- Registration below still uses v_local. This reads the shapes that exist; it
+  -- does not add a new one, and Block 9's reconciliation (L1) is still where the
+  -- general answer to phone shapes belongs.
+  if v_member is null and v_from is distinct from v_local then
+    v_member := public.apply_member_lookup(
+      v_integ.organization_id, v_from, null, null, null);
+  end if;
 
   if v_member is null then
     -- first_contact_at / first_contact_origin are write-once and are, in
@@ -623,13 +722,13 @@ revoke execute on function public.ingest_whatsapp_event(uuid) from public;
 grant execute on function public.ingest_whatsapp_event(uuid) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid) is
-  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp RAISES rather than finishing, because a NULL there makes every rule below it UNKNOWN and the event would otherwise be filed as DONE with a plausible-looking reason. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one; the loser also links itself to its own Station in that same branch, since the winner''s apply_member_creation only linked its. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
+  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp, or no usable sender phone, RAISES rather than finishing: a NULL timestamp makes every rule below it UNKNOWN and the event would be filed as DONE with a plausible-looking reason, and a NULL sender would be registered as a listener with no phone that no later message could ever dedupe against. A row whose payload has already been pruned raises for the same reason -- it cannot be decided, and reporting no_integration for it would be a verdict about a message that no longer exists. The listener is looked up on the LOCAL form of the sender first and, only if that finds nobody, on the form Meta delivered: members.phone_normalized is generated from whatever an operator typed, so a listener registered as "+55 11 9..." is stored with the country code the local-form lookup has just stripped, and without the second lookup the bot registers a duplicate on that listener''s first message every time. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one; the loser also links itself to its own Station in that same branch, since the winner''s apply_member_creation only linked its. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
 
 -- THE PAYLOAD CONTRACT, stated on the column that holds it, because the task
 -- that BUILDS a payload (Task 11's webhook route) is the one that has to keep
 -- it and this is where its author will look.
 comment on column public.webhook_events.payload is
-  'The inbound message, FLATTENED by the route -- not Meta''s envelope. ingest_whatsapp_event (0062) reads exactly five paths and no others: metadata->>phone_number_id, from, text, profile_name, and timestamp as EPOCH SECONDS IN A STRING. The route must ALSO write the RAW provider message id here, as `wamid`: the function never reads it, and it is stored here rather than in external_id -- which holds only its SHA-256 (0058) -- because a wamid decodes to bytes containing the counterparty phone, and this is the column that expires. It is the only place the raw id exists, and after thirty days it exists nowhere. One row is one message: Meta packs several into a single POST and idempotency is per message, so the route unpacks entry[].changes[].value.messages[] into one row each, hashing each id in NODE for the reason members.cpf_hash gives (0031). WHENEVER `text` IS PRESENT, `from` AND `timestamp` MUST BE TOO -- all three come out of the same flattening step, and a payload carrying one without the others is the route describing its own defect rather than a real message. Both absences RAISE, which parks the event as FAILED with a reason an operator can find, and that is deliberate: without a timestamp every rule after the integration lookup goes UNKNOWN rather than false, nothing matches, and the message would otherwise finish DONE reporting outside_window -- a plausible-looking reason for a malformed payload, filed in the one pile nobody searches. An unparseable timestamp raises out of the cast as 22P02; an absent one as 22023. A non-message event (a delivery receipt) is safe to store: it has no text, so it finishes as no_hashtag before either check is reached. Holds a phone number, a WhatsApp profile name and the raw provider message id, which is why this table has RLS on with no policy and why prune_webhook_payloads (design spec D9) nulls this column after thirty days while keeping the row -- and why external_id, which survives that, may hold only a hash.';
+  'The inbound message, FLATTENED by the route -- not Meta''s envelope. ingest_whatsapp_event (0062) reads exactly five paths and no others: metadata->>phone_number_id, from, text, profile_name, and timestamp as EPOCH SECONDS IN A STRING. The route must ALSO write the RAW provider message id here, as `wamid`: the function never reads it, and it is stored here rather than in external_id -- which holds only its SHA-256 (0058) -- because a wamid decodes to bytes containing the counterparty phone, and this is the column that expires. It is the only place the raw id of an INBOUND message exists, and after thirty days it exists nowhere; the raw id Meta returns for the reply we send is a different value in a different column (outbox_messages.external_id, 0059) and expires on its own prune. One row is one message: Meta packs several into a single POST and idempotency is per message, so the route unpacks entry[].changes[].value.messages[] into one row each, hashing each id in NODE for the reason members.cpf_hash gives (0031). WHENEVER `text` IS PRESENT, `from` AND `timestamp` MUST BE TOO -- all three come out of the same flattening step, and a payload carrying one without the others is the route describing its own defect rather than a real message. BOTH ABSENCES RAISE, each with its own guard beside the other, and neither is left to be caught incidentally by a downstream lookup: an absent (or digitless) `from` would otherwise register a listener with a NULL phone that no later message can dedupe against, and an absent timestamp would make every rule after the integration lookup UNKNOWN rather than false, so the message would finish DONE reporting outside_window -- a plausible-looking reason for a malformed payload, filed in the one pile nobody searches. Both raise 22023; an unparseable timestamp raises out of the cast as 22P02 before either. A non-message event (a delivery receipt) is safe to store: it has no text, so it finishes as no_hashtag before any of the three checks is reached. A NULL payload raises too, and means one thing only -- prune_webhook_payloads has already emptied this row -- so a re-run past the retention window says so instead of reporting no_integration. Holds a phone number, a WhatsApp profile name and the raw provider message id, which is why this table has RLS on with no policy and why prune_webhook_payloads (design spec D9) nulls this column after thirty days on rows that are finished, while keeping the row -- and why external_id, which survives that, may hold only a hash.';
 
 -- The outcome vocabulary, restated now that all six values have a call site.
 -- 0058 named them before this function existed; nothing here adds to the list.
