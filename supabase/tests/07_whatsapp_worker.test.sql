@@ -151,8 +151,20 @@ values
   ('00000000-0000-0000-0000-0000000007e3', 'WHATSAPP', pg_temp.hash64('e3'),
    'RECEIVED', 0, now() - interval '2 minutes', null);
 
+-- Scoped to this fixture's own three ids, with the limit raised well past any
+-- plausible pollution from another writer: due_whatsapp_events takes only
+-- p_limit and has no tenant scope, so an unscoped array comparison breaks the
+-- moment anything else -- another test file, an isolation-suite race left
+-- running against the same local stack -- adds a due row of its own. The
+-- large limit is what stops such rows crowding e1/e2/e3 out of the function's
+-- own internal LIMIT before this filter ever gets to see them; the id filter
+-- is what makes this the ORDERING assertion it claims to be, rather than an
+-- assertion about whoever else wrote to the table first.
 select is(
-  (select array_agg(d.id) from public.due_whatsapp_events(10) d),
+  (select array_agg(d.id) from public.due_whatsapp_events(10000) d
+    where d.id in ('00000000-0000-0000-0000-0000000007e1',
+                   '00000000-0000-0000-0000-0000000007e2',
+                   '00000000-0000-0000-0000-0000000007e3')),
   array['00000000-0000-0000-0000-0000000007e2',
         '00000000-0000-0000-0000-0000000007e3',
         '00000000-0000-0000-0000-0000000007e1']::uuid[],
@@ -210,6 +222,16 @@ select is(
     where d.id = '00000000-0000-0000-0000-0000000007e7'),
   0, 'and a parked event is never due again, however old it is');
 
+-- Deliberately NOT id-scoped like its neighbours, and that is not the same
+-- omission being fixed elsewhere in this file. This one tests the CAP itself:
+-- a small p_limit clamps the row count, and that property holds regardless of
+-- WHOSE rows fill the two slots -- e1/e2/e3 above alone already guarantee at
+-- least two rows are due, so this count can only ever be min(total_due, 2),
+-- which is 2 whether the two returned are this fixture's or another writer's.
+-- Scoping it by id would make it FRAGILE instead of robust: with a small
+-- limit, another writer's older due rows could crowd e1/e2/e3 out of the top
+-- two entirely, and an id-filtered count would then read 0 rather than 2 -- a
+-- false failure the unscoped version cannot produce.
 select is((select count(*)::int from public.due_whatsapp_events(2) d), 2,
           'the batch cap is the caller''s and is honoured');
 
@@ -244,13 +266,27 @@ values
    '00000000-0000-0000-0000-0000000007c1', '5511900000004', 'dead',
    'b4:confirmation', 'FAILED', 6, now() - interval '1 day');
 
+-- The limit is raised well past any plausible pollution, for the same reason
+-- as the inbound ordering assertion above -- claim_outbox_batch takes only
+-- p_limit and has no tenant scope either -- and it matters MORE here: this
+-- function does not just read, it CLAIMS (marks SENDING) whatever it selects,
+-- so a crowded-out b1/b2 would not merely be missing from an array, it would
+-- be left un-claimed while some other writer's rows were claimed in their
+-- place. Nothing claimed here outlives this file's own transaction (rollback
+-- at the very end), so sweeping up rows this fixture does not own is harmless.
 create temporary table claimed_first as
-  select * from public.claim_outbox_batch(10);
+  select * from public.claim_outbox_batch(10000);
 
-select is((select array_agg(c.id) from claimed_first c),
-          array['00000000-0000-0000-0000-0000000007b1',
-                '00000000-0000-0000-0000-0000000007b2']::uuid[],
-          'the claim takes the sendable rows, oldest first, and leaves the rest');
+-- Scoped to this fixture's own two ids: an unscoped array comparison breaks
+-- the moment another writer leaves a PENDING row behind -- exactly what the
+-- isolation suite's own race does, dozens of rows at a time.
+select is(
+  (select array_agg(c.id) from claimed_first c
+    where c.id in ('00000000-0000-0000-0000-0000000007b1',
+                   '00000000-0000-0000-0000-0000000007b2')),
+  array['00000000-0000-0000-0000-0000000007b1',
+        '00000000-0000-0000-0000-0000000007b2']::uuid[],
+  'the claim takes the sendable rows, oldest first, and leaves the rest');
 
 select is((select c.attempts from claimed_first c
             where c.id = '00000000-0000-0000-0000-0000000007b1'),
@@ -269,12 +305,20 @@ select is(
   2, 'the claimed rows are marked SENDING with the moment they were taken');
 
 -- THE ASSERTION THIS SECTION EXISTS FOR. A second tick, arriving while the
--- first still has the batch in flight, must find nothing to send. Without the
--- claim both ticks see the same PENDING rows in the same order and the listener
--- is answered twice -- and dedupe_key cannot stop it, because it prevents a
--- second ROW, not a second SEND of one row.
-select is((select count(*)::int from public.claim_outbox_batch(10)), 0,
-          'and an overlapping tick claims nothing, because the batch is no longer PENDING');
+-- first still has the batch in flight, must find nothing to send from THIS
+-- FIXTURE'S OWN BATCH. Without the claim both ticks see the same PENDING rows
+-- in the same order and the listener is answered twice -- and dedupe_key
+-- cannot stop it, because it prevents a second ROW, not a second SEND of one
+-- row. Scoped to b1/b2 rather than a bare global count: claim_outbox_batch has
+-- no tenant scope, and an unscoped zero breaks the instant another writer left
+-- an unrelated PENDING row behind for this call to legitimately (and
+-- correctly) claim in b1/b2's place.
+select is(
+  (select count(*)::int from public.claim_outbox_batch(10000) c
+    where c.id in ('00000000-0000-0000-0000-0000000007b1',
+                   '00000000-0000-0000-0000-0000000007b2')),
+  0,
+  'and an overlapping tick claims nothing, because the batch is no longer PENDING');
 
 select is(
   (select count(*)::int from public.outbox_messages

@@ -504,10 +504,32 @@ begin
     -- what an operator later has to explain, so the WhatsApp profile name is
     -- used when the sender published one and a neutral placeholder when they
     -- did not -- WhatsApp profile names are optional and frequently withheld.
-    v_member := public.apply_member_creation(
-      v_integ.company_id, coalesce(v_profile, 'Ouvinte WhatsApp'), v_local,
-      null, null, null, null, null, null, null, null, null, null, null, null,
-      null, v_when, 'WHATSAPP', null);
+    --
+    -- CAUGHT, NOT LEFT TO RAISE. Two overlapping ticks meeting the same
+    -- unknown number at once is not a contrived case -- 0063 calls exactly
+    -- this "the NORMAL case under load" for the outbound side, and the same
+    -- is true here. apply_member_creation has no ON CONFLICT of its own
+    -- (0061): unlike apply_member_link, it is a plain INSERT wrapped in a
+    -- handler that turns a genuine unique_violation into a raised 23505 --
+    -- the right answer for create_member, an operator's door taking one row
+    -- at a time, and the wrong one for two bot messages that met a stranger
+    -- at the same instant. The loser here re-reads rather than re-raising:
+    -- by the time this exception fires the winner has already COMMITTED (a
+    -- second inserter blocks on the conflicting value until the first
+    -- transaction resolves, and only raises once it has), so the same lookup
+    -- that returned null a moment ago now finds the row. Only phone was
+    -- supplied to apply_member_creation above, so the collision can only be
+    -- phone_normalized, and the re-lookup is guaranteed to find it.
+    begin
+      v_member := public.apply_member_creation(
+        v_integ.company_id, coalesce(v_profile, 'Ouvinte WhatsApp'), v_local,
+        null, null, null, null, null, null, null, null, null, null, null, null,
+        null, v_when, 'WHATSAPP', null);
+    exception
+      when unique_violation then
+        v_member := public.apply_member_lookup(
+          v_integ.organization_id, v_local, null, null, null);
+    end;
   else
     -- Design spec D8: known to the Organization but not to this Station. Link
     -- and let them enter. Duplicating would defeat the dedup; refusing would
@@ -563,7 +585,7 @@ revoke execute on function public.ingest_whatsapp_event(uuid) from public;
 grant execute on function public.ingest_whatsapp_event(uuid) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid) is
-  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp RAISES rather than finishing, because a NULL there makes every rule below it UNKNOWN and the event would otherwise be filed as DONE with a plausible-looking reason. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Any raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
+  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp RAISES rather than finishing, because a NULL there makes every rule below it UNKNOWN and the event would otherwise be filed as DONE with a plausible-looking reason. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
 
 -- THE PAYLOAD CONTRACT, stated on the column that holds it, because the task
 -- that BUILDS a payload (Task 11's webhook route) is the one that has to keep

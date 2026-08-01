@@ -20,6 +20,9 @@ function sha256Hex(value: string): string {
 
 interface MessageFixture {
   promotionId: string;
+  organizationId: string;
+  /** Digits-only, no country code — the shape members.phone_normalized stores. */
+  localPhone: string;
   eventA: string;
   eventB: string;
   /** (provider, external_id) — the SHA-256 hash webhook_events actually stores. */
@@ -28,31 +31,37 @@ interface MessageFixture {
 }
 
 /**
- * A Station with a live WhatsApp integration, a listener already registered
- * and linked to it, and a once-only promotion open right now — plus two
- * DIFFERENT inbound messages from that same listener, at the same instant,
- * both naming the promotion's hashtag.
+ * A Station with a live WhatsApp integration and a once-only promotion open
+ * right now, plus two DIFFERENT inbound messages from the same phone, at the
+ * same instant, both naming the promotion's hashtag.
  *
- * The listener is pre-registered rather than left for the bot to create,
- * deliberately: apply_member_creation (0061) has no ON CONFLICT of its own —
- * unlike apply_member_link, it is a plain INSERT wrapped in a handler that
- * turns a unique_violation into a raised 23505 — so two concurrent FIRST
- * messages from an unknown number would race each OTHER, on member creation,
- * before either ever reached apply_participation. That is a real property of
- * ingest_whatsapp_event, but it is not what this file is about: PART ONE of
- * this task names the invariant under test as "same person, same promotion",
- * which only holds when the person already exists before the race starts.
- * With the listener seeded up front, apply_member_lookup (a plain SELECT) and
- * apply_member_link (ON CONFLICT DO NOTHING) are both race-safe, and the only
- * contested resource left is apply_participation's advisory lock over
- * (promotion, member) — which is the one this task exists to prove.
+ * `preRegisterListener` (default true) decides whether the listener already
+ * exists before the two messages arrive:
  *
- * The two message ids differ on purpose. Idempotency — (provider,
+ * - true — the pair this file's advisory-lock race uses. The listener is
+ *   registered up front so that apply_member_lookup (a plain SELECT) and
+ *   apply_member_link (ON CONFLICT DO NOTHING) are both race-safe on the way
+ *   in, leaving apply_participation's advisory lock over (promotion, member)
+ *   as the only contested resource — which is what PART ONE names as the
+ *   invariant under test ("same person, same promotion" only holds when the
+ *   person already exists before the race starts).
+ * - false — the pair the NEW-listener race below uses, exercising the window
+ *   apply_member_creation (0061) itself opens: two concurrent FIRST messages
+ *   from an unknown number, both reaching `INSERT ... members`, is the "two
+ *   overlapping ticks" case 0063 calls the ordinary case under load. Fixed at
+ *   the call site in ingest_whatsapp_event (0062): the loser's 23505 is caught
+ *   and re-resolved through apply_member_lookup rather than raised.
+ *
+ * The two message ids differ on purpose either way. Idempotency — (provider,
  * external_id) unique on webhook_events (0058) — would already make a
- * REPEATED id safe, and would prove nothing about the lock; only two
- * DIFFERENT ids reach apply_participation as two genuinely separate attempts.
+ * REPEATED id safe, and would prove nothing about either race; only two
+ * DIFFERENT ids reach the contested code as two genuinely separate attempts.
  */
-async function seedPromotionWithIntegration(label: string): Promise<MessageFixture> {
+async function seedPromotionWithIntegration(
+  label: string,
+  options: { preRegisterListener?: boolean } = {},
+): Promise<MessageFixture> {
+  const { preRegisterListener = true } = options;
   const customer = await provisionCustomer(label);
 
   const phoneNumberId = `pnid-${label}`;
@@ -62,12 +71,15 @@ async function seedPromotionWithIntegration(label: string): Promise<MessageFixtu
   // (11) 99999-0000, stored as 11999990000); WhatsApp delivers the sender
   // WITH the country code. whatsapp_local_phone (0062) strips it, so the two
   // must be the same number in the two different shapes for apply_member_lookup
-  // to find the listener seeded here.
+  // to find (or apply_member_creation to register) the listener this label
+  // stands in for.
   const localPhone = '11999990000';
-  await createMemberAs(customer, customer.companyId, {
-    fullName: `Race Listener ${label}`,
-    phone: localPhone,
-  });
+  if (preRegisterListener) {
+    await createMemberAs(customer, customer.companyId, {
+      fullName: `Race Listener ${label}`,
+      phone: localPhone,
+    });
+  }
 
   // A hashtag unique to this label — stripped to what promotions_hashtag_shape
   // (0040) accepts (`^#[^[:space:]#]{1,39}$`) — so the message text below
@@ -129,7 +141,15 @@ async function seedPromotionWithIntegration(label: string): Promise<MessageFixtu
     throw new Error('seedPromotionWithIntegration: could not resolve both inserted event ids');
   }
 
-  return { promotionId: promotionId as string, eventA, eventB, externalIdA, externalIdB };
+  return {
+    promotionId: promotionId as string,
+    organizationId: customer.organizationId,
+    localPhone,
+    eventA,
+    eventB,
+    externalIdA,
+    externalIdB,
+  };
 }
 
 describe('the WhatsApp door', () => {
@@ -155,15 +175,24 @@ describe('the WhatsApp door', () => {
   });
 
   /**
-   * Twelve, matching participations.test.ts:661 exactly, and for the reason
-   * given there: one green round is a weak detector of a missing lock — 4c
-   * measured about one miss in three from a single round — so twelve rounds
-   * bring the miss probability under one run in a hundred while five would
-   * leave one run in eight. If this number ever drifts, re-measure it there,
-   * never here in isolation.
+   * Twelve. Inherited from participations.test.ts:661 as a starting point,
+   * then RE-MEASURED here rather than trusted, because that file's own number
+   * came from the detection rate of a DIFFERENT path (record_participation)
+   * and its own comment insists the number moves from a measurement, never
+   * the other way round. This path runs an integration lookup, a hashtag
+   * regex, a member lookup and a link before ever reaching the lock, so nine
+   * is not the same nine.
    *
-   * Do NOT re-run a red result. A round reporting 2 VALID rows is the exact
-   * failure the twelve rounds exist to catch.
+   * Measured against this stack, with the lock removed (the same mutation
+   * fix round 1's review verifies below): three independent runs, each
+   * recording the FIRST round it went red — round 1, round 0, round 1.
+   * Never later than round 1 across three runs, so twelve rounds is not
+   * merely inherited here either; it is roughly six times what was ever
+   * observed needed on this path, and stays at twelve rather than lowered.
+   *
+   * Do NOT re-run a red result. A round reporting anything other than one
+   * VALID and one DUPLICATE is the exact failure the twelve rounds exist to
+   * catch.
    */
   const RACE_ROUNDS = 12;
 
@@ -182,13 +211,102 @@ describe('the WhatsApp door', () => {
         expect(a.error, `round ${round}, event A`).toBeNull();
         expect(b.error, `round ${round}, event B`).toBeNull();
 
-        const { count } = await admin
+        // Asserted on outcome and status, not a bare count. A count cannot
+        // tell the invariant apart from the one failure mode it exists to
+        // catch: without the lock, both calls read "no VALID row", both
+        // insert, and participations_one_per_member (0052) refuses the loser
+        // with a raw 23505 -- which surfaces as a.error/b.error, not as a
+        // count of 2, so a count-only assertion would still have passed.
+        // participations.test.ts:717-721 settled this same point for the
+        // manual door and gives the reason in those words: only the status
+        // pair can tell "the lock worked" apart from "the index caught a
+        // race the lock should have prevented".
+        //
+        // Both outcomes must also be 'recorded': ingest_whatsapp_event
+        // returns error: null for six non-participating outcomes too
+        // (no_integration, no_hashtag, no_promotion, promotion_cancelled,
+        // outside_window, and the door's own "skipped"), so a fixture that
+        // drifted -- a hashtag regex miss, a window judged against the wrong
+        // clock, whatsapp_local_phone's country-code stripping, a
+        // phone_number_id typo -- would leave one or both messages exiting
+        // through one of those with error: null, and the count below would
+        // read 1 from event A alone: a non-race staying green for ever.
+        // Asserting outcome is what stops that.
+        const results = [a.data, b.data] as Array<{ outcome: string; status: string }>;
+        for (const result of results) {
+          expect(result.outcome, `round ${round}`).toBe('recorded');
+        }
+        expect(results.map((result) => result.status).sort(), `round ${round}`).toEqual([
+          'DUPLICATE',
+          'VALID',
+        ]);
+
+        // Belt-and-braces: the row count agrees with the status pair above.
+        const { count, error: countError } = await admin
           .from('participations')
           .select('id', { count: 'exact', head: true })
           .eq('promotion_id', fixture.promotionId)
           .eq('status', 'VALID');
-
+        expect(countError, `round ${round} count query`).toBeNull();
         expect(count, `round ${round} produced ${count} valid entries`).toBe(1);
+      }
+    },
+    180_000,
+  );
+
+  /**
+   * The race the first fixture deliberately avoids: two concurrent FIRST
+   * messages from an UNKNOWN phone. Before the fix in 0062 (Fix round 1),
+   * apply_member_creation had no ON CONFLICT of its own -- unlike
+   * apply_member_link, a plain INSERT wrapped in a handler that turned a
+   * unique_violation into a raised 23505 -- so the loser's admin.rpc call came
+   * back with an error unrelated to the lock this file is otherwise about.
+   * Two overlapping ticks meeting the same new number at once is not a
+   * contrived case: 0063 calls exactly this "the NORMAL case under load".
+   *
+   * With the fix in place both calls succeed, exactly one members row exists
+   * for the phone afterward, and the pair still resolves to one VALID and one
+   * DUPLICATE -- the SAME invariant as the race above, now proven reachable
+   * from an unknown number too. Same round count as the pre-registered race;
+   * mutation-proved by reverting the catch in 0062 (task-13-report.md carries
+   * the output).
+   */
+  it(
+    'lets exactly one of two simultaneous messages from an unknown number register the listener once',
+    async () => {
+      const stamp = Date.now();
+      for (let round = 0; round < RACE_ROUNDS; round += 1) {
+        const fixture = await seedPromotionWithIntegration(`wa-newlistener-${stamp}-${round}`, {
+          preRegisterListener: false,
+        });
+
+        const [a, b] = await Promise.all([
+          admin.rpc('ingest_whatsapp_event', { p_event_id: fixture.eventA }),
+          admin.rpc('ingest_whatsapp_event', { p_event_id: fixture.eventB }),
+        ]);
+
+        expect(a.error, `round ${round}, event A`).toBeNull();
+        expect(b.error, `round ${round}, event B`).toBeNull();
+
+        const results = [a.data, b.data] as Array<{ outcome: string; status: string }>;
+        for (const result of results) {
+          expect(result.outcome, `round ${round}`).toBe('recorded');
+        }
+        expect(results.map((result) => result.status).sort(), `round ${round}`).toEqual([
+          'DUPLICATE',
+          'VALID',
+        ]);
+
+        // Exactly one members row for this phone, in this Organization —
+        // the assertion the fix in 0062 makes true rather than a
+        // characterization of the race it used to lose.
+        const { count, error: countError } = await admin
+          .from('members')
+          .select('id', { count: 'exact', head: true })
+          .eq('organization_id', fixture.organizationId)
+          .eq('phone_normalized', fixture.localPhone);
+        expect(countError, `round ${round} member count query`).toBeNull();
+        expect(count, `round ${round} produced ${count} members`).toBe(1);
       }
     },
     180_000,

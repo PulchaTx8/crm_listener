@@ -134,7 +134,7 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/roles.test.ts', minTests: 17 },
   { path: 'tests/isolation/signup-disabled.test.ts', minTests: 1 },
   { path: 'tests/isolation/tenant.test.ts', minTests: 9 },
-  { path: 'tests/isolation/whatsapp.test.ts', minTests: 6 },
+  { path: 'tests/isolation/whatsapp.test.ts', minTests: 7 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */

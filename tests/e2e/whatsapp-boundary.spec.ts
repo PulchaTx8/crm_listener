@@ -112,6 +112,12 @@ test.describe('the WhatsApp webhook and worker routes, running for real', () => 
         'x-hub-signature-256': `sha256=${'0'.repeat(64)}`,
         'content-type': 'application/json',
       },
+      // Consistent with the signed case above: a 401 is not a redirect status,
+      // so APIRequestContext's default redirect-following cannot launder this
+      // one the way it could a 307 — but pinning maxRedirects: 0 here too
+      // means this assertion does not silently depend on that distinction
+      // holding, if the route's behavior on a bad signature ever changes.
+      maxRedirects: 0,
     });
 
     expect(response.status()).toBe(401);
