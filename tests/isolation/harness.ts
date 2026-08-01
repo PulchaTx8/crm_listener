@@ -12,6 +12,18 @@ export const admin = createClient<Database>(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+/**
+ * An anon-key client holding no session at all — the shape of a caller who
+ * found a URL and has never signed in. Distinct from `signInAs`, which always
+ * returns a client for a real, authenticated user; some doors (the WhatsApp
+ * ingestion RPC, Block 5a) must be checked against BOTH `authenticated` and
+ * `anon`, because a grant given to one and withheld from the other would leave
+ * exactly one of the two checks meaningful.
+ */
+export const anonClient = createClient<Database>(url, anonKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
 const createdUserIds: string[] = [];
 
 export interface ProvisionedCustomer {
@@ -361,11 +373,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * they would corrupt the developer's own database while every assertion around
  * them read the remote one, which is worse than either failing or working.
  */
-async function superuserStatement(
-  label: string,
-  sql: string,
-  params: readonly unknown[],
-): Promise<number> {
+function assertLocalSuperuserTarget(label: string): void {
   if (!/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(url)) {
     throw new Error(
       `${label}: this helper writes Postgres directly on ${LOCAL_SUPABASE_DB_URL} and the suite ` +
@@ -373,6 +381,14 @@ async function superuserStatement(
         'database while the assertions read a remote one would be silently wrong.',
     );
   }
+}
+
+async function superuserStatement(
+  label: string,
+  sql: string,
+  params: readonly unknown[],
+): Promise<number> {
+  assertLocalSuperuserTarget(label);
 
   const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
   await client.connect();
@@ -382,6 +398,66 @@ async function superuserStatement(
   } finally {
     await client.end();
   }
+}
+
+/**
+ * The read-and-return sibling of superuserStatement, for a caller that needs
+ * a generated value back (an id an INSERT ... RETURNING produced) rather than
+ * only a row count. Same connection, same guard, same reasoning.
+ */
+async function superuserQuery<T extends Record<string, unknown>>(
+  label: string,
+  sql: string,
+  params: readonly unknown[],
+): Promise<T[]> {
+  assertLocalSuperuserTarget(label);
+
+  const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+  await client.connect();
+  try {
+    const result = await client.query(sql, params as unknown[]);
+    return result.rows as T[];
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Inserts a live WhatsApp integration row directly against Postgres, as its
+ * superuser — the same escape hatch corruptBalanceDirectly uses just above,
+ * and for the identical reason 0057_integrations.sql states on the table
+ * itself: "service_role reads it" is the sentence that comment exists to
+ * refuse. `integrations` carries NO PostgREST grant for ANY role, service_role
+ * included — confirmed live against this stack:
+ * has_table_privilege('service_role', 'public.integrations', 'INSERT') is
+ * false, alongside SELECT, UPDATE and DELETE. Every reader of this table in
+ * production is INSIDE a SECURITY DEFINER body (ingest_whatsapp_event,
+ * claim_outbox_batch), and nothing under Block 10 — the future configuration
+ * screen — exists yet to create one through the API. A test that needs a live
+ * integration for a Station therefore has no route left but the one a human
+ * operator would have to use too: a direct connection to Postgres, outside
+ * the API entirely.
+ *
+ * Returns the generated id, which every caller needs to build a fixture on
+ * top of: a promotion's hashtag alone does not say which number receives it,
+ * the integration row is what maps one to the other.
+ */
+export async function seedIntegration(
+  customer: ProvisionedCustomer,
+  phoneNumberId: string,
+): Promise<string> {
+  const rows = await superuserQuery<{ id: string }>(
+    'seedIntegration',
+    `insert into public.integrations
+       (organization_id, company_id, provider, phone_number_id, enabled)
+     values ($1, $2, 'WHATSAPP', $3, true)
+     returning id`,
+    [customer.organizationId, customer.companyId, phoneNumberId],
+  );
+  if (rows.length !== 1) {
+    throw new Error(`seedIntegration: expected to insert exactly one row, got ${rows.length}`);
+  }
+  return rows[0]!.id;
 }
 
 /**
