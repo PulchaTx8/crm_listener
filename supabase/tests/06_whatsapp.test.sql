@@ -1,5 +1,5 @@
 begin;
-select plan(108);
+select plan(112);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -888,6 +888,56 @@ select is(pg_temp.ingest('wamid.R2', '5511988883333', '#REPETE',
 select is((pg_temp.confirmation('wamid.R2')).body,
           'Você já participou há pouco. Sua próxima chance é às 15:00.',
           'the next chance is told in the Station''s own timezone, not the server''s');
+
+-- The reply copy: OVER_LIMIT, and the two fallbacks nothing above reaches ----------
+--
+-- VALID, DUPLICATE and TOO_SOON-with-a-known-next-chance are already pinned above,
+-- through the confirmations the door itself produced (wamid.A1, wamid.A2, wamid.R2)
+-- -- including the Station-timezone rendering, which R2 exercises directly. Nothing
+-- above ever reaches OVER_LIMIT, and both fallbacks -- an uncapped promotion, and a
+-- listener with no entry yet to measure an interval from -- are reachable but never
+-- taken. All four are asserted directly against whatsapp_reply_body rather than
+-- through the door: the function has no caller-identity check of its own, only a
+-- revoke on the role, and pgTAP runs as a role the revoke does not bind.
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label,
+   allow_multiple_entries, min_hours_between_entries, max_entries_per_member)
+values
+  ('00000000-0000-0000-0000-00000000059a', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Combo', '2026-06-01Z', '2026-06-30Z',
+   true, '#COMBO', 'Quero!', 'Nao',
+   true, 6, 3);
+
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-00000000059a',
+                             '00000000-0000-0000-0000-0000000005d1', 'OVER_LIMIT'),
+  'Você já usou suas 3 chances nesta promoção.',
+  'the ceiling is named when the promotion has one');
+
+-- Disney (591) sets no ceiling, so the same status renders the fallback rather
+-- than a sentence carrying a null.
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-000000000591',
+                             '00000000-0000-0000-0000-0000000005d1', 'OVER_LIMIT'),
+  'Você já usou todas as suas chances nesta promoção.',
+  'an uncapped promotion falls back rather than saying "suas null chances"');
+
+-- Cinema (592) carries an interval, but 'Ouvinte Cinco' (5d1) has never entered
+-- it, so there is no last participation to add that interval to.
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-000000000592',
+                             '00000000-0000-0000-0000-0000000005d1', 'TOO_SOON'),
+  'Você já participou há pouco. Tente novamente mais tarde.',
+  'an uncomputable next chance falls back rather than rendering a null time');
+
+-- An outcome that is not one of the four is not copy this function owns.
+select is(
+  public.whatsapp_reply_body('00000000-0000-0000-0000-000000000591',
+                             '00000000-0000-0000-0000-0000000005d1', 'SOMETHING'),
+  null,
+  'an unrecognised status renders nothing rather than a sentence');
 
 -- Design spec D8: a listener the Organization already knows ------------------------
 --
