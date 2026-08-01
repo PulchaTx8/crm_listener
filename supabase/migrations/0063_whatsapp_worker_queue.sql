@@ -159,10 +159,21 @@ comment on function public.claim_outbox_batch(integer) is
 --
 -- INBOUND is insurance. No path through ingest_whatsapp_event (0062) commits
 -- a row in PROCESSING: the only RETURN below that write is
--- finish_whatsapp_event(..., 'recorded', ...), which writes DONE, outcome and
--- processed_at together in one statement, and every other exit is an
--- uncaught RAISE that aborts the whole transaction and takes the PROCESSING
--- write down with it.
+-- finish_whatsapp_event(...), and that holds for EVERY outcome it is called
+-- with -- 'no_integration', 'no_hashtag', 'no_promotion',
+-- 'promotion_cancelled', 'outside_window' and 'recorded' all reach it, from
+-- six different call sites, not only the last. finish_whatsapp_event writes
+-- DONE, outcome and processed_at together in one statement whatever outcome
+-- it is handed, so none of the six can strand PROCESSING. Every other exit is
+-- an uncaught RAISE that aborts the whole transaction and takes the
+-- PROCESSING write down with it.
+--
+-- THIS ARGUMENT ALSO APPEARS, generalised over "the only RETURN … writes
+-- DONE" with no outcome named, in this file's own
+-- comment on function public.reclaim_stale_whatsapp_claims below. Two copies
+-- in one file is already how the FIRST version of this argument went wrong
+-- unnoticed through two reviews; whoever edits one of the two must edit the
+-- other.
 --
 -- THIS IS NOT because the function holds no EXCEPTION block -- it does, one,
 -- around apply_member_creation (0062, added for the member-creation race
@@ -267,7 +278,7 @@ revoke execute on function public.reclaim_stale_whatsapp_claims(interval) from p
 grant execute on function public.reclaim_stale_whatsapp_claims(interval) to service_role;
 
 comment on function public.reclaim_stale_whatsapp_claims(interval) is
-  'Returns abandoned claims to their queues, on both sides. The outbound arm is load-bearing: a tick that dies between claim_outbox_batch and the settle write leaves a row committed in SENDING, outside that function''s predicate, so nothing else would ever look at it again -- an ordinary serverless timeout, not a hypothetical. The inbound arm is insurance: nothing here commits a row in PROCESSING -- the only RETURN below that write in ingest_whatsapp_event (0062) writes DONE in the same statement, and every other exit is an uncaught RAISE that aborts the transaction and takes the PROCESSING write with it. That holds even though the function now carries one EXCEPTION block, around apply_member_creation for the member-creation race fix: a PL/pgSQL handler''s implicit savepoint is a SUBtransaction, and a subtransaction cannot commit independently of its parent, so catching an error there cannot leave PROCESSING durably written either. So a dying tick strands nothing; it covers an operator moving a row by hand and any later design that commits a claim separately. Measured against claimed_at and never against received_at or next_attempt_at -- those say when the message arrived and when the row became sendable, neither of which is the age of a CLAIM, and predicated on them a backlogged row would be reclaimable the instant it was claimed. FOR UPDATE SKIP LOCKED so a reclaim can neither steal a row a live worker holds nor block behind its lock, which would turn one wedged row into a wedged queue. Leaves attempts, last_error and next_attempt_at untouched, because a reclaim is not a failure. RESIDUAL, deliberate: returning a SENDING row can re-send a message Meta already accepted, if the tick died between Meta''s 200 and the settle write -- at-least-once, closable only by a provider idempotency key the Cloud API does not offer for text. Parking instead would trade a listener told twice for a listener entered and never told, which design spec D7 exists to prevent.';
+  'Returns abandoned claims to their queues, on both sides. The outbound arm is load-bearing: a tick that dies between claim_outbox_batch and the settle write leaves a row committed in SENDING, outside that function''s predicate, so nothing else would ever look at it again -- an ordinary serverless timeout, not a hypothetical. The inbound arm is insurance: nothing here commits a row in PROCESSING -- the only RETURN below that write in ingest_whatsapp_event (0062) writes DONE in the same statement, and every other exit is an uncaught RAISE that aborts the transaction and takes the PROCESSING write with it. That holds even though the function now carries one EXCEPTION block, around apply_member_creation for the member-creation race fix: a PL/pgSQL handler''s implicit savepoint is a SUBtransaction, and a subtransaction cannot commit independently of its parent, so catching an error there cannot leave PROCESSING durably written either. (This argument also appears, spelled out per outcome, in the inline comment above section 3 of this same file -- edit both together.) So a dying tick strands nothing; it covers an operator moving a row by hand and any later design that commits a claim separately. Measured against claimed_at and never against received_at or next_attempt_at -- those say when the message arrived and when the row became sendable, neither of which is the age of a CLAIM, and predicated on them a backlogged row would be reclaimable the instant it was claimed. FOR UPDATE SKIP LOCKED so a reclaim can neither steal a row a live worker holds nor block behind its lock, which would turn one wedged row into a wedged queue. Leaves attempts, last_error and next_attempt_at untouched, because a reclaim is not a failure. RESIDUAL, deliberate: returning a SENDING row can re-send a message Meta already accepted, if the tick died between Meta''s 200 and the settle write -- at-least-once, closable only by a provider idempotency key the Cloud API does not offer for text. Parking instead would trade a listener told twice for a listener entered and never told, which design spec D7 exists to prevent.';
 
 -- Both reclaim arms scan on a status their table's main index does not cover,
 -- every ten seconds, for ever. Without these that is two sequential scans of
