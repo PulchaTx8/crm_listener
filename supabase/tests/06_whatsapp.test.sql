@@ -1,5 +1,5 @@
 begin;
-select plan(43);
+select plan(47);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -226,23 +226,43 @@ select ok(
 
 -- The private member-resolution cores (0061) -----------------------------------
 -- EXECUTE for nobody is the guarantee: these are reachable only from inside a
--- SECURITY DEFINER body that has already checked its own gate. Asserted against
--- BOTH roles, because service_role is the one the WhatsApp worker holds and a
--- grant to it would turn any of these into an unchecked write path reachable
--- straight from the network.
+-- SECURITY DEFINER body that has already checked its own gate.
+--
+-- All THREE roles, the shape every other private core in this repository is
+-- pinned with (apply_inventory_movement, ensure_inventory_balance_row,
+-- apply_participation and the promotion helpers, all in 02_permissions).
+-- service_role is the role the WhatsApp worker holds; anon is the
+-- UNAUTHENTICATED PostgREST role, and it is on this list because the regression
+-- the convention exists to catch is a hand-written `grant execute ... to anon`
+-- added by somebody debugging the bot's path. Nothing is reachable by anon
+-- today, so this is coverage rather than a live hole -- but such a grant would
+-- leave a two-role version of this block entirely green while exposing
+-- apply_member_creation, an unchecked write, and apply_member_candidates, an
+-- Organization-wide existence oracle with no visibility filter, straight to the
+-- network.
 
+select ok(not has_function_privilege('anon',
+            'public.apply_member_candidates(uuid,text,text,text,text)', 'EXECUTE'),
+          'anon may not call apply_member_candidates');
 select ok(not has_function_privilege('authenticated',
             'public.apply_member_candidates(uuid,text,text,text,text)', 'EXECUTE'),
           'authenticated may not call apply_member_candidates');
 select ok(not has_function_privilege('service_role',
             'public.apply_member_candidates(uuid,text,text,text,text)', 'EXECUTE'),
           'service_role may not call apply_member_candidates either');
+select ok(not has_function_privilege('anon',
+            'public.apply_member_lookup(uuid,text,text,text,text)', 'EXECUTE'),
+          'anon may not call apply_member_lookup');
 select ok(not has_function_privilege('authenticated',
             'public.apply_member_lookup(uuid,text,text,text,text)', 'EXECUTE'),
           'authenticated may not call apply_member_lookup');
 select ok(not has_function_privilege('service_role',
             'public.apply_member_lookup(uuid,text,text,text,text)', 'EXECUTE'),
           'service_role may not call apply_member_lookup either');
+select ok(not has_function_privilege('anon',
+            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
+            'EXECUTE'),
+          'anon may not call apply_member_creation');
 select ok(not has_function_privilege('authenticated',
             'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
             'EXECUTE'),
@@ -251,6 +271,9 @@ select ok(not has_function_privilege('service_role',
             'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
             'EXECUTE'),
           'service_role may not call apply_member_creation either');
+select ok(not has_function_privilege('anon',
+            'public.apply_member_link(uuid,uuid,uuid,uuid)', 'EXECUTE'),
+          'anon may not call apply_member_link');
 select ok(not has_function_privilege('authenticated',
             'public.apply_member_link(uuid,uuid,uuid,uuid)', 'EXECUTE'),
           'authenticated may not call apply_member_link');
@@ -259,9 +282,14 @@ select ok(not has_function_privilege('service_role',
           'service_role may not call apply_member_link either');
 
 -- The public door still finds what it always found.
+--
+-- The fixture is stored in the spelling an operator types and searched for in
+-- digits, so the assertion is about NORMALISATION and not merely about equality:
+-- an implementation comparing m.phone = p_phone raw passes a digits-to-digits
+-- version of this test identically, and fails this one.
 insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-0000000005d1', '00000000-0000-0000-0000-0000000005f1',
-   'Ouvinte Cinco', '11999997777');
+   'Ouvinte Cinco', '(11) 99999-7777');
 select is(
   public.apply_member_lookup('00000000-0000-0000-0000-0000000005f1',
                              '11999997777', null, null, null),
