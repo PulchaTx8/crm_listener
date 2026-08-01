@@ -31,10 +31,10 @@ nothing will tell you a secret is missing except a message that never
 arrives.
 
 This project deploys through EasyPanel, not Vercel (`.env.example`,
-`docs/deploy-supabase-hospedado.md`). `NEXT_PUBLIC_*` variables need both the
-Build args and the Environment tab; these four are runtime secrets and belong
-**only** in Environment — never as a build arg, since build args are baked
-into image layers.
+`docs/deploy-readiness-report.md:4` — "Target: Hostinger VPS + EasyPanel").
+`NEXT_PUBLIC_*` variables need both the Build args and the Environment tab;
+these four are runtime secrets and belong **only** in Environment — never as
+a build arg, since build args are baked into image layers.
 
 ---
 

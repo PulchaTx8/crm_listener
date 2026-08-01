@@ -14,11 +14,13 @@ entered, and told so.* This is the first of two passes — **5a is the spine**
 **5b is the conversation** (art, call to action, buttons, requested fields,
 the promotion's questions), and needs the same spine underneath it.
 
-**34 commits, 39 files, +11,011 / −10** over `04206fe..HEAD` — the thirteen
-reviewed tasks plus this one (three files: the schedule migration, the
-runbook, this report — the report's own size is inside that count).
-Recomputed with `git rev-list --count` and `git diff --shortstat`, not
-carried from any task's own report.
+**35 commits, 39 files, +11,041 / −10** over `04206fe..HEAD` — the thirteen
+reviewed tasks, Task 14, and this task's own fix round (three files total:
+the schedule migration, the runbook, and this report — the report's own size
+is inside that count, and so is this fix round's edit to it). Measured with
+`git rev-list --count` and `git diff --shortstat` as the last action before
+the fix-round commit, on the tree about to be committed, because the figure
+cannot be stable while the file stating it is still being edited.
 
 ---
 
