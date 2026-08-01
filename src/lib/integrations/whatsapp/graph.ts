@@ -5,11 +5,14 @@ const GRAPH_VERSION = 'v21.0';
 /**
  * The real Meta Graph API client.
  *
- * Every reply this block sends is a response to an inbound message, so it falls
- * inside WhatsApp's 24-hour customer service window where free-form text is
- * allowed and no approved template is needed (design spec D5). The first
- * Station-initiated message — a draw result, Block 6 — will need a template,
- * and this method is not it.
+ * This method sends free-form text with no approved template, which the Graph
+ * API only accepts inside WhatsApp's 24-hour customer service window (design
+ * spec D5). It is the caller's job to only invoke this as a reply to an
+ * inbound message — this class has no way to check that and does not try. An
+ * out-of-window call is not rejected here; it comes back from Meta as a 400
+ * and lands in the permanent bucket below, same as any other request Meta
+ * refuses. Block 6's first Station-initiated message — a draw result — will
+ * need a template, and this method is not it.
  */
 export class GraphTransport implements WhatsAppTransport {
   constructor(
@@ -51,10 +54,26 @@ export class GraphTransport implements WhatsAppTransport {
         : { ok: false, retryable: true, error: 'accepted without a message id' };
     }
 
-    // 429 and 5xx are the cases that come back on their own. Everything else —
-    // a malformed number, a revoked token, a number outside the allowed list —
-    // returns the same answer however many times it is asked.
-    const retryable = response.status === 429 || response.status >= 500;
+    // retryable means the same request may succeed later: a rate limit (429),
+    // a server fault (5xx), a timeout (408), or a credential that can be
+    // repaired (401, 403 — ops rotates or restores it and the identical
+    // request then succeeds). Permanent means the request is wrong and will
+    // stay wrong: a malformed number, a body Meta rejects outright.
+    //
+    // A genuinely dead token still resolves: it burns the retry ladder (five
+    // attempts, roughly six minutes per row) and then parks as FAILED, visible
+    // to an operator. That is the right trade against the more likely case —
+    // a rotation or a temporary revocation — recovering on its own with no one
+    // paged. The residual cost is real: a credential outage that outlives the
+    // ladder leaves FAILED rows needing manual reprocessing, and a worker that
+    // sees 401 could in principle abort the whole batch instead of burning the
+    // ladder on every row in it — Task 12 territory, not this module's.
+    const retryable =
+      response.status === 408 ||
+      response.status === 429 ||
+      response.status === 401 ||
+      response.status === 403 ||
+      response.status >= 500;
     return { ok: false, retryable, error: extractError(payload) ?? `HTTP ${response.status}` };
   }
 }

@@ -12,6 +12,17 @@ function stubFetch(status: number, payload: unknown) {
     });
 }
 
+// For bodies that are not `JSON.stringify`-able the normal way: text that
+// isn't JSON at all, or a JSON value that parses but isn't the object shape
+// extractMessageId/extractError expect.
+function stubFetchRaw(status: number, rawBody: string) {
+  return async () =>
+    new Response(rawBody, {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+}
+
 describe('GraphTransport', () => {
   it('returns the wamid Meta accepted', async () => {
     const transport = new GraphTransport(
@@ -29,6 +40,30 @@ describe('GraphTransport', () => {
 
   it('marks a server error retryable', async () => {
     const transport = new GraphTransport('token', stubFetch(503, {}));
+    expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
+  });
+
+  it('marks a timeout retryable', async () => {
+    const transport = new GraphTransport('token', stubFetch(408, { error: { message: 'timeout' } }));
+    expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
+  });
+
+  // A credential problem is not a fact about the message. Ops rotates or
+  // restores the token and the identical request then succeeds, so this must
+  // not be filed next to a malformed number.
+  it('marks an expired credential retryable', async () => {
+    const transport = new GraphTransport(
+      'token',
+      stubFetch(401, { error: { message: 'Invalid OAuth access token' } }),
+    );
+    expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
+  });
+
+  it('marks a forbidden credential retryable', async () => {
+    const transport = new GraphTransport(
+      'token',
+      stubFetch(403, { error: { message: 'Permissions error' } }),
+    );
     expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
   });
 
@@ -65,6 +100,29 @@ describe('GraphTransport', () => {
   it('marks a 200 with an empty messages array retryable rather than a success', async () => {
     const transport = new GraphTransport('token', stubFetch(200, { messages: [] }));
     expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
+  });
+
+  // Every other stub in this file hands back a well-formed object, so none of
+  // them exercises the `.catch(() => ({}))` around response.json() or the
+  // `typeof payload !== 'object'` guards in extractMessageId/extractError. A
+  // regression removing any of those turns a malformed Graph response into a
+  // thrown exception instead of a SendResult.
+  it('returns a SendResult rather than throwing when the body is not valid JSON', async () => {
+    const transport = new GraphTransport('token', stubFetchRaw(500, '{not json'));
+    const result = await transport.sendText(input);
+    expect(result).toMatchObject({ ok: false, retryable: true });
+  });
+
+  it('returns a SendResult rather than throwing when the body is a bare JSON string', async () => {
+    const transport = new GraphTransport('token', stubFetchRaw(500, JSON.stringify('unexpected')));
+    const result = await transport.sendText(input);
+    expect(result).toMatchObject({ ok: false, retryable: true });
+  });
+
+  it('returns a SendResult rather than throwing when the body is JSON null', async () => {
+    const transport = new GraphTransport('token', stubFetchRaw(500, JSON.stringify(null)));
+    const result = await transport.sendText(input);
+    expect(result).toMatchObject({ ok: false, retryable: true });
   });
 });
 
