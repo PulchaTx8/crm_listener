@@ -2059,6 +2059,15 @@ export type Database = {
         }
         Returns: Json
       }
+      finish_whatsapp_event: {
+        Args: {
+          p_event_id: string
+          p_outcome: string
+          p_part: string
+          p_status: string
+        }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -2073,6 +2082,7 @@ export type Database = {
         Args: { p_promotion_id: string; p_rows: Json }
         Returns: Json
       }
+      ingest_whatsapp_event: { Args: { p_event_id: string }; Returns: Json }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_member_blocked: {
         Args: { p_company_id: string; p_member_id: string }
@@ -2377,6 +2387,11 @@ export type Database = {
         Returns: undefined
       }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
+      whatsapp_local_phone: { Args: { p_wa_phone: string }; Returns: string }
+      whatsapp_reply_body: {
+        Args: { p_member_id: string; p_promotion_id: string; p_status: string }
+        Returns: string
+      }
     }
     Enums: {
       company_status: "active" | "suspended"

@@ -1,5 +1,5 @@
 begin;
-select plan(47);
+select plan(91);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -414,6 +414,396 @@ select is(
   'the public door resolves a passport in another case to the listener already registered, rather than inviting a duplicate');
 
 reset request.jwt.claims;
+
+-- ==============================================================================
+-- The bot's door (0062) -- ingest_whatsapp_event and its two helpers
+-- ==============================================================================
+--
+-- Every call below runs with NO jwt claim, which is the bot's own condition:
+-- auth.uid() is null, apply_participation stamps created_by null, and the audit
+-- rows carry actor_id null. That is how a bot-originated write is told from an
+-- operator's, and it is why the door cannot be gated on has_permission.
+
+-- Phone normalisation ----------------------------------------------------------
+
+select is(public.whatsapp_local_phone('5511999998888'), '11999998888',
+          'a Brazilian mobile loses its country code');
+select is(public.whatsapp_local_phone('551133334444'), '1133334444',
+          'a Brazilian landline loses its country code');
+select is(public.whatsapp_local_phone('11999998888'), '11999998888',
+          'a number already local is left alone');
+select is(public.whatsapp_local_phone('351912345678'), '351912345678',
+          'a non-Brazilian number is left whole');
+-- All four arguments above are already digits, so a hand-rolled substr passes
+-- every one of them. This is the case that only passes if the argument goes
+-- through normalize_phone (0031) first -- which is the whole reason an inbound
+-- number can be matched against members.phone_normalized at all.
+select is(public.whatsapp_local_phone('+55 (11) 98888-7777'), '11988887777',
+          'a number spelled the way a person writes it is normalised before the country code is stripped');
+
+-- Who may open the door ---------------------------------------------------------
+-- Three roles apiece, the shape every private core in this repository is pinned
+-- with. The door itself is service_role and nobody else: it holds no
+-- has_permission gate, so a grant to authenticated would be an unchecked write
+-- path into participations. Its two helpers hold EXECUTE for nobody, because
+-- they are reached only from inside its SECURITY DEFINER body -- and
+-- whatsapp_reply_body in particular reads promotion names across every Station
+-- in the installation.
+
+select ok(not has_function_privilege('anon',
+            'public.ingest_whatsapp_event(uuid)', 'EXECUTE'),
+          'anon may not run the bot door');
+select ok(not has_function_privilege('authenticated',
+            'public.ingest_whatsapp_event(uuid)', 'EXECUTE'),
+          'authenticated may not run the bot door');
+select ok(has_function_privilege('service_role',
+            'public.ingest_whatsapp_event(uuid)', 'EXECUTE'),
+          'service_role may run the bot door');
+
+select ok(not has_function_privilege('anon',
+            'public.finish_whatsapp_event(uuid,text,text,uuid)', 'EXECUTE'),
+          'anon may not call finish_whatsapp_event');
+select ok(not has_function_privilege('authenticated',
+            'public.finish_whatsapp_event(uuid,text,text,uuid)', 'EXECUTE'),
+          'authenticated may not call finish_whatsapp_event');
+select ok(not has_function_privilege('service_role',
+            'public.finish_whatsapp_event(uuid,text,text,uuid)', 'EXECUTE'),
+          'service_role may not call finish_whatsapp_event either');
+
+select ok(not has_function_privilege('anon',
+            'public.whatsapp_reply_body(uuid,uuid,text)', 'EXECUTE'),
+          'anon may not call whatsapp_reply_body');
+select ok(not has_function_privilege('authenticated',
+            'public.whatsapp_reply_body(uuid,uuid,text)', 'EXECUTE'),
+          'authenticated may not call whatsapp_reply_body');
+select ok(not has_function_privilege('service_role',
+            'public.whatsapp_reply_body(uuid,uuid,text)', 'EXECUTE'),
+          'service_role may not call whatsapp_reply_body either');
+
+-- Fixtures for the door ----------------------------------------------------------
+--
+-- WHICH STATION EACH NUMBER SERVES, after everything above has run. This is not
+-- the mapping the top of the file set up, and reading it off the first insert
+-- would put every promotion below at a Station no message ever reaches:
+--
+--   '111111111111111' -> Station 5a TWO (5c2)   the original 5c1 row was
+--                                               soft-deleted to prove the
+--                                               unique indexes are partial
+--   '222222222222222' -> Station 5a     (5c1)
+--
+-- The promotions therefore live at 5c2, and '222222222222222' is what the
+-- cross-Station assertion sends to.
+
+-- A number this installation serves but has NOT switched on. `enabled` is half
+-- of what stands in for the permission gate, and without a row like this the
+-- predicate could be deleted with every assertion still green.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000000005c4', '00000000-0000-0000-0000-0000000005f1',
+   'Station 5a Four', 'America/Sao_Paulo');
+insert into public.integrations
+  (organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c4',
+   'WHATSAPP', '333333333333333', false);
+
+-- Every fixed window below is in the PAST, deliberately and permanently.
+--
+-- The defect this block is most afraid of is the promotion being matched on
+-- now() while apply_participation is handed the message timestamp. A promotion
+-- whose window happens to contain the moment the suite runs cannot tell the two
+-- apart -- and a window written as "next month" when the brief was drafted
+-- quietly becomes "this month", which is exactly what happened here. June 2026
+-- is past for good, so `recorded` below can only be produced by judging the
+-- message by its own clock.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+values
+  ('00000000-0000-0000-0000-000000000591', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Disney', '2026-06-01Z', '2026-06-30Z',
+   true, '#EUQUERO', 'Quero!', 'Nao'),
+  ('00000000-0000-0000-0000-000000000594', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Cancelada', '2026-06-01Z', '2026-06-30Z',
+   true, '#CANCELADO', 'Quero!', 'Nao');
+
+update public.promotions
+   set cancelled_at = now(),
+       cancelled_by = '00000000-0000-0000-0000-0000000005b1',
+       cancellation_reason = 'the sponsor withdrew'
+ where id = '00000000-0000-0000-0000-000000000594';
+
+-- Repeatable, so TOO_SOON is reachable and the "next chance" sentence has
+-- something to render.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, min_hours_between_entries,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+values
+  ('00000000-0000-0000-0000-000000000592', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Cinema', '2026-06-01Z', '2026-06-30Z',
+   true, 6, true, '#REPETE', 'Quero!', 'Nao');
+
+-- The one promotion anchored to the clock, and the only one that is: it is open
+-- RIGHT NOW, so a message written a month ago must still be refused by it.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+values
+  ('00000000-0000-0000-0000-000000000593', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Show de Agora',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#AGORA', 'Quero!', 'Nao');
+
+-- A helper so each case below is one insert and one call.
+--
+-- It catches, rather than letting a raise escape, and that is not politeness.
+-- The contradiction this file exists to catch -- the window judged by two
+-- different clocks -- surfaces as apply_participation's 22023 against the very
+-- promotion the match just accepted. A raise inside a bare `select is(...)`
+-- aborts the whole file and reports nothing about which assertion was
+-- responsible; turned into a value it is one named failure carrying the
+-- SQLSTATE. No assertion below expects an outcome beginning 'RAISED', so
+-- nothing is weakened by the catch.
+create table pg_temp.ingest_log (wamid text primary key, result jsonb);
+
+create or replace function pg_temp.ingest(
+  p_wamid text, p_from text, p_text text, p_at timestamptz,
+  p_number text default '111111111111111')
+returns jsonb language plpgsql as $$
+declare v_id uuid; v_result jsonb;
+begin
+  insert into public.webhook_events (provider, external_id, payload)
+  values ('WHATSAPP', p_wamid, jsonb_build_object(
+    'metadata', jsonb_build_object('phone_number_id', p_number),
+    'from', p_from, 'profile_name', 'Ouvinte Bot',
+    'timestamp', extract(epoch from p_at)::bigint::text,
+    'text', p_text))
+  returning id into v_id;
+
+  begin
+    v_result := public.ingest_whatsapp_event(v_id);
+  exception when others then
+    v_result := jsonb_build_object(
+      'outcome', 'RAISED ' || sqlstate || ': ' || sqlerrm,
+      'status', null, 'participation_id', null);
+  end;
+
+  insert into pg_temp.ingest_log (wamid, result) values (p_wamid, v_result);
+  return v_result;
+end $$;
+
+-- The outbox row a given message produced, found through the dedupe_key SHAPE
+-- 0059 documents ('<participation_id>:confirmation'). That indirection is the
+-- assertion: an implementation keying the row on the wamid or the event id
+-- leaves every lookup below empty rather than merely differently named.
+create or replace function pg_temp.confirmation(p_wamid text)
+returns public.outbox_messages language sql as $$
+  select o.*
+  from public.outbox_messages o
+  join pg_temp.ingest_log l
+    on o.dedupe_key = (l.result ->> 'participation_id') || ':confirmation'
+  where l.wamid = p_wamid;
+$$;
+
+-- The door: one message, decided end to end -------------------------------------
+
+select is(pg_temp.ingest('wamid.A1', '5511988887777', 'quero participar #EUQUERO !!',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded', 'a hashtag in a messy sentence is recorded');
+select is(pg_temp.ingest('wamid.A2', '5511988887777', '#EUQUERO',
+                         '2026-06-10T13:00:00Z') ->> 'status',
+          'DUPLICATE', 'the same person twice is a duplicate, not a second entry');
+select is(
+  (select count(*)::int from public.members
+    where organization_id = '00000000-0000-0000-0000-0000000005f1'
+      and phone_normalized = '11988887777'),
+  1, 'the listener was registered once, without the country code');
+
+-- The bot fills in the record Block 3 designed for it rather than inventing a
+-- second one. first_contact_at is the MESSAGE's timestamp for the same reason
+-- everything else here is, and it is write-once evidence behind the owner's
+-- ruling (spec 7) that a listener who messages a Station has authorised the
+-- reply -- so a bot that stamped it "now" would be recording consent on the
+-- wrong date.
+select is(
+  (select jsonb_build_object('name', full_name,
+                             'first_contact_at', first_contact_at,
+                             'origin', first_contact_origin)
+     from public.members
+    where organization_id = '00000000-0000-0000-0000-0000000005f1'
+      and phone_normalized = '11988887777'),
+  jsonb_build_object('name', 'Ouvinte Bot',
+                     'first_contact_at', '2026-06-10T12:00:00Z'::timestamptz,
+                     'origin', 'WHATSAPP'),
+  'a listener the bot registers carries the profile name, the moment of first contact and where it came from');
+
+select is(pg_temp.ingest('wamid.A3', '5511988886666', 'bom dia',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'no_hashtag', 'a message with no hashtag is finished and silent');
+select is(pg_temp.ingest('wamid.A4', '5511988886666', '#NADA',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'no_promotion', 'an unknown hashtag is finished and silent');
+select is(pg_temp.ingest('wamid.A5', '5511988886666', '#EUQUERO',
+                         '2026-07-10T12:00:00Z') ->> 'outcome',
+          'outside_window', 'a message after the promotion closed says so');
+select is(pg_temp.ingest('wamid.A6', '5511988886666', '#EUQUERO',
+                         '2026-06-10T12:00:00Z', '999999999999999') ->> 'outcome',
+          'no_integration', 'a message to a number we do not serve is finished');
+select is(pg_temp.ingest('wamid.A7', '5511988886666', '#EUQUERO',
+                         '2026-06-10T12:00:00Z', '333333333333333') ->> 'outcome',
+          'no_integration', 'a message to a number we serve but have not switched on is finished');
+-- Tenancy. The hashtag is matched within the Station the NUMBER resolved to, so
+-- the same tag arriving at a sister Station is not this message's promotion --
+-- without the company_id predicate this returns 'recorded' and enters a listener
+-- into another Station's draw.
+select is(pg_temp.ingest('wamid.A8', '5511988886666', '#EUQUERO',
+                         '2026-06-10T12:00:00Z', '222222222222222') ->> 'outcome',
+          'no_promotion', 'a hashtag belongs to one Station: the same tag arriving at a sister Station matches nothing');
+select is(pg_temp.ingest('wamid.A9', '5511988886666', '#CANCELADO',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'promotion_cancelled', 'a cancelled promotion is told apart from one that never existed');
+
+-- The message's own clock, not the server's --------------------------------------
+--
+-- '#AGORA' is open at this instant and the message is a month old. Matched on
+-- now() the promotion is found, and apply_participation then refuses -- with
+-- 22023 -- the very window that admitted it. Judged by the message, it is
+-- simply outside_window and nobody is entered.
+
+select is(pg_temp.ingest('wamid.T1', '5511988884444', '#AGORA',
+                         now() - interval '30 days') ->> 'outcome',
+          'outside_window',
+          'a promotion open right now does not take an entry for a message written a month ago');
+
+select is(
+  (select participated_at from public.participations
+    where id = (select (result ->> 'participation_id')::uuid
+                  from pg_temp.ingest_log where wamid = 'wamid.A1')),
+  '2026-06-10T12:00:00Z'::timestamptz,
+  'the entry is stamped with the message timestamp, not the moment it was processed');
+
+-- What the event itself records --------------------------------------------------
+
+select is(
+  (select jsonb_build_object('status', status::text, 'outcome', outcome,
+                             'processed_at_set', processed_at is not null)
+     from public.webhook_events where external_id = 'wamid.A1'),
+  jsonb_build_object('status', 'DONE', 'outcome', 'recorded', 'processed_at_set', true),
+  'a decided event is DONE and says both why and when');
+
+-- '111111111111111' is live at 5c2 and archived at 5c1. An implementation that
+-- ignored deleted_at could pick either row; this says which one is correct.
+select is(
+  (select jsonb_build_object('company', company_id, 'organization', organization_id,
+                             'integration_set', integration_id is not null)
+     from public.webhook_events where external_id = 'wamid.A1'),
+  jsonb_build_object('company', '00000000-0000-0000-0000-0000000005c2'::uuid,
+                     'organization', '00000000-0000-0000-0000-0000000005f1'::uuid,
+                     'integration_set', true),
+  'the event is stamped with the Station its number resolved to, and it is the live row rather than the archived one');
+
+-- The reply, in the same transaction as the entry ---------------------------------
+
+select is((pg_temp.confirmation('wamid.A1')).to_phone, '5511988887777',
+          'the reply is addressed to the number WhatsApp delivered, country code and all -- the local form is how we store a phone, not one WhatsApp can reach');
+select is((pg_temp.confirmation('wamid.A1')).body,
+          'Pronto! Você está participando de Disney. Boa sorte!',
+          'a recorded entry is confirmed by name');
+select is((pg_temp.confirmation('wamid.A2')).body,
+          'Você já está participando de Disney.',
+          'a duplicate is told it is already in, not congratulated a second time');
+select is(
+  (select count(*)::int from public.outbox_messages where to_phone = '5511988886666'),
+  0, 'a silent outcome enqueues nothing at all (design spec D4)');
+
+-- TOO_SOON, and the clock the listener is told about ------------------------------
+--
+-- 12:00Z plus six hours is 18:00Z, which is 15:00 at the Station. The server
+-- renders in UTC, so an implementation that forgets `at time zone` sends
+-- somebody back three hours late and nothing else in this suite notices.
+
+select is(pg_temp.ingest('wamid.R1', '5511988883333', '#REPETE',
+                         '2026-06-10T12:00:00Z') ->> 'status',
+          'VALID', 'a repeatable promotion takes the first entry');
+select is(pg_temp.ingest('wamid.R2', '5511988883333', '#REPETE',
+                         '2026-06-10T13:00:00Z') ->> 'status',
+          'TOO_SOON', 'a second entry inside the interval is recorded with the status that says so');
+select is((pg_temp.confirmation('wamid.R2')).body,
+          'Você já participou há pouco. Sua próxima chance é às 15:00.',
+          'the next chance is told in the Station''s own timezone, not the server''s');
+
+-- Design spec D8: a listener the Organization already knows ------------------------
+--
+-- 'Ouvinte Alcancavel' (5d4) was registered above and linked to Station 5a
+-- ONLY. The message arrives at Station 5a Two. apply_member_lookup is
+-- Organization-scoped with no visibility filter (0061) precisely so the bot
+-- finds them; the idempotent link is what lets them enter here. Registering a
+-- second record instead would defeat the deduplication Block 3 exists for, and
+-- 0031's per-Organization unique index on the phone would refuse it anyway.
+
+select is(pg_temp.ingest('wamid.D1', '5511999995555', '#EUQUERO',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded',
+          'a listener registered at a sister Station is let in rather than turned away');
+select is(
+  (select count(*)::int from public.members
+    where organization_id = '00000000-0000-0000-0000-0000000005f1'
+      and phone_normalized = '11999995555'),
+  1, 'and is not registered a second time');
+select ok(
+  exists (select 1 from public.member_company_links
+           where member_id = '00000000-0000-0000-0000-0000000005d4'
+             and company_id = '00000000-0000-0000-0000-0000000005c2'),
+  'the Station they messaged is added to their reach');
+
+-- Reprocessing ---------------------------------------------------------------------
+--
+-- The status predicate is what actually holds the promise, not the unique
+-- dedupe_key: a genuinely re-run event would produce a NEW participation and so
+-- a new key. An event already DONE is never taken.
+
+select is(
+  (select public.ingest_whatsapp_event(id) ->> 'outcome'
+     from public.webhook_events where external_id = 'wamid.A1'),
+  'skipped',
+  'an event already decided is not decided again');
+select is(
+  (select count(*)::int from public.participations p
+     join public.members m on m.id = p.member_id
+    where p.promotion_id = '00000000-0000-0000-0000-000000000591'
+      and m.phone_normalized = '11988887777'),
+  2, 'and the listener who sent it still has exactly the two entries A1 and A2 wrote');
+
+-- No personal data in the audit trail (design spec D2) ------------------------------
+--
+-- Block 3's rule, and it is absolute. audit_logs is never pruned, whereas
+-- webhook_events.payload -- where the phone and the profile name stay -- is
+-- cleared after thirty days and is unreadable through any user-scoped client.
+-- Every sender above shares the run '98888', and every payload carries the
+-- profile name 'Ouvinte Bot'.
+
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'ingest_whatsapp_event'
+      and (detail::text like '%98888%' or detail::text like '%Ouvinte Bot%')),
+  0, 'no phone number and no WhatsApp profile name reaches audit_logs');
+
+select is(
+  (select detail ->> 'wamid' from public.audit_logs
+    where action = 'ingest_whatsapp_event'
+      and target_id = (select id from public.webhook_events
+                        where external_id = 'wamid.A1')),
+  'wamid.A1',
+  'the audit row names the message it decided, so support can trace one without opening the payload');
+
+select is(
+  (select (detail ->> 'participation_id')::uuid from public.audit_logs
+    where action = 'ingest_whatsapp_event'
+      and target_id = (select id from public.webhook_events
+                        where external_id = 'wamid.A1')),
+  (select (result ->> 'participation_id')::uuid
+     from pg_temp.ingest_log where wamid = 'wamid.A1'),
+  'and ties it to the entry it produced, which is the only link between a message and its participation');
 
 select * from finish();
 rollback;
