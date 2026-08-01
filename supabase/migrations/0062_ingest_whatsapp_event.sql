@@ -315,7 +315,9 @@ begin
   v_profile := nullif(btrim(coalesce(v_event.payload ->> 'profile_name', '')), '');
   v_text    := coalesce(v_event.payload ->> 'text', '');
   v_local   := public.whatsapp_local_phone(v_from);
-  -- WhatsApp sends the message timestamp as epoch seconds, as a string.
+  -- WhatsApp sends the message timestamp as epoch seconds, as a string. An
+  -- UNPARSEABLE one raises here, out of the cast, as 22P02; an ABSENT one
+  -- silently becomes NULL, and is caught below where it is first needed.
   v_when    := to_timestamp((v_event.payload ->> 'timestamp')::bigint);
 
   select * into v_integ
@@ -345,6 +347,30 @@ begin
     return public.finish_whatsapp_event(v_event.id, 'no_hashtag', null, null);
   end if;
 
+  -- A message that names a promotion and carries no timestamp cannot be decided
+  -- at all: every rule from here down is measured against it, and a NULL does
+  -- not fail those comparisons, it makes them UNKNOWN. Nothing matches, the
+  -- diagnostic below then reports 'outside_window', and a malformed payload is
+  -- filed in the DONE pile wearing a plausible reason -- the one place nobody
+  -- will look for it.
+  --
+  -- Raised instead, so it lands in FAILED with something an operator can find.
+  -- That is the same answer a missing `from` already gets, and the two must not
+  -- be told apart by which one happens to survive as far as a silent outcome.
+  --
+  -- Placed HERE rather than beside the payload read, and for the same reason
+  -- `from` is not checked there either: a delivery receipt carries neither a
+  -- timestamp nor any text, and it must go on leaving quietly through
+  -- no_hashtag above rather than filling the retry queue. The contract is
+  -- "whenever `text` is present, `from` and `timestamp` are too"; the check
+  -- sits at the point of use, which is the first line below that reads v_when.
+  if v_when is null then
+    raise log 'ingest_whatsapp_event: no timestamp on event % (wamid %)',
+      v_event.id, v_event.external_id;
+    raise exception 'whatsapp payload carries no message timestamp'
+      using errcode = '22023';
+  end if;
+
   -- "#EUQUERO!!" is not a mistype. It is how somebody writes when they are
   -- excited, which is the state this entire feature exists to produce -- and
   -- the token above swallows the punctuation, because '!' is neither
@@ -354,8 +380,13 @@ begin
   -- So there is a second candidate: the same token with TRAILING characters
   -- that are not a letter, a digit or an underscore removed. Nothing LEADING
   -- is stripped -- the '#' is the token, not decoration -- and nothing
-  -- INTERIOR is, so '#a_b-c...' becomes '#a_b-c' and not '#a'. [[:alnum:]]
-  -- keeps accented letters, so '#PROMOÇÃO!' trims to '#PROMOÇÃO'.
+  -- INTERIOR is, so '#a_b-c...' becomes '#a_b-c' and not '#a'.
+  --
+  -- [[:alnum:]] is expected to be UNICODE-AWARE, which is a property of the
+  -- cluster and not of this file: it must keep an accented letter at the END of
+  -- a tag, so '#CAFÉ!' trims to '#CAFÉ' and not to '#CAF'. Under a C ctype it
+  -- would not, and the bot would quietly stop matching every hashtag ending in
+  -- an accent. Pinned by an assertion in 06_whatsapp rather than assumed.
   --
   -- THE EXACT TOKEN STILL WINS, and the `order by` on both lookups below is
   -- what holds that -- it is load-bearing rather than cosmetic, and must not be
@@ -365,6 +396,19 @@ begin
   -- the first of those; trimming it into the second would enter somebody in a
   -- draw they did not ask for. The trimmed form is a fallback and never a
   -- preference.
+  --
+  -- WHAT THAT ORDERING DOES *NOT* DO, stated because the paragraph above
+  -- reasons only about the case it handles. "Exact wins" is a preference among
+  -- candidates that are BOTH OPEN. It is not a rule that the exact tag's mere
+  -- existence suppresses the fallback. So if '#VAI!' has ENDED and '#VAI' is
+  -- open at the same Station, a listener writing '#VAI!' matches nothing
+  -- exactly, falls through, and is entered into '#VAI' -- a draw they did not
+  -- name, and told so by name in the reply they receive. Deliberate as of this
+  -- writing and pinned by a fixture in 06_whatsapp, not incidental. The
+  -- narrower rule -- suppress the fallback whenever the exact tag is known to
+  -- this Station in ANY state -- was considered and is with the owner; its own
+  -- cost is the mirror case, where a Station that ran '#VAI!' last year would
+  -- answer this year's '#VAI' message with silence.
   v_trim := '#' || regexp_replace(substr(v_tag, 2), '[^[:alnum:]_]+$', '');
   if v_trim = v_tag or v_trim = '#' then
     v_trim := null;
@@ -503,13 +547,13 @@ revoke execute on function public.ingest_whatsapp_event(uuid) from public;
 grant execute on function public.ingest_whatsapp_event(uuid) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid) is
-  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key is the WAMID, so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Any raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
+  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp RAISES rather than finishing, because a NULL there makes every rule below it UNKNOWN and the event would otherwise be filed as DONE with a plausible-looking reason. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key is the WAMID, so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Any raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
 
 -- THE PAYLOAD CONTRACT, stated on the column that holds it, because the task
 -- that BUILDS a payload (Task 11's webhook route) is the one that has to keep
 -- it and this is where its author will look.
 comment on column public.webhook_events.payload is
-  'The inbound message, FLATTENED by the route -- not Meta''s envelope. ingest_whatsapp_event (0062) reads exactly five paths and no others: metadata->>phone_number_id, from, text, profile_name, and timestamp as EPOCH SECONDS IN A STRING. One row is one message: Meta packs several into a single POST and idempotency is per wamid, so the route unpacks entry[].changes[].value.messages[] into one row each. WHENEVER `text` IS PRESENT, `from` MUST BE TOO -- both come out of the same flattening step, and a payload carrying one without the other is the route describing its own defect rather than a real message; ingest_whatsapp_event raises on it, which parks the event as FAILED with the reason, and that is deliberate. A non-message event (a delivery receipt) is safe to store: it has no text, so it finishes as no_hashtag before anything else is read. Holds a phone number and a WhatsApp profile name, which is why this table has RLS on with no policy and why prune_webhook_payloads (design spec D9) nulls this column after thirty days while keeping the row.';
+  'The inbound message, FLATTENED by the route -- not Meta''s envelope. ingest_whatsapp_event (0062) reads exactly five paths and no others: metadata->>phone_number_id, from, text, profile_name, and timestamp as EPOCH SECONDS IN A STRING. One row is one message: Meta packs several into a single POST and idempotency is per wamid, so the route unpacks entry[].changes[].value.messages[] into one row each. WHENEVER `text` IS PRESENT, `from` AND `timestamp` MUST BE TOO -- all three come out of the same flattening step, and a payload carrying one without the others is the route describing its own defect rather than a real message. Both absences RAISE, which parks the event as FAILED with a reason an operator can find, and that is deliberate: without a timestamp every rule after the integration lookup goes UNKNOWN rather than false, nothing matches, and the message would otherwise finish DONE reporting outside_window -- a plausible-looking reason for a malformed payload, filed in the one pile nobody searches. An unparseable timestamp raises out of the cast as 22P02; an absent one as 22023. A non-message event (a delivery receipt) is safe to store: it has no text, so it finishes as no_hashtag before either check is reached. Holds a phone number and a WhatsApp profile name, which is why this table has RLS on with no policy and why prune_webhook_payloads (design spec D9) nulls this column after thirty days while keeping the row.';
 
 -- The outcome vocabulary, restated now that all six values have a call site.
 -- 0058 named them before this function existed; nothing here adds to the list.

@@ -1,5 +1,5 @@
 begin;
-select plan(97);
+select plan(106);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -480,6 +480,20 @@ select ok(not has_function_privilege('service_role',
             'public.whatsapp_reply_body(uuid,uuid,text)', 'EXECUTE'),
           'service_role may not call whatsapp_reply_body either');
 
+-- Pinned for the same reason as the other three, though it reads nothing and
+-- leaks nothing: it is the one function in this migration that could be
+-- re-granted without a test going red, and "no exposure today" is a fact about
+-- today rather than a reason to leave a grant untested.
+select ok(not has_function_privilege('anon',
+            'public.whatsapp_local_phone(text)', 'EXECUTE'),
+          'anon may not call whatsapp_local_phone');
+select ok(not has_function_privilege('authenticated',
+            'public.whatsapp_local_phone(text)', 'EXECUTE'),
+          'authenticated may not call whatsapp_local_phone');
+select ok(not has_function_privilege('service_role',
+            'public.whatsapp_local_phone(text)', 'EXECUTE'),
+          'service_role may not call whatsapp_local_phone either');
+
 -- Fixtures for the door ----------------------------------------------------------
 --
 -- WHICH STATION EACH NUMBER SERVES, after everything above has run. This is not
@@ -561,6 +575,37 @@ values
   ('00000000-0000-0000-0000-000000000596', '00000000-0000-0000-0000-0000000005f1',
    '00000000-0000-0000-0000-0000000005c2', 'Sussurro', '2026-06-01Z', '2026-06-30Z',
    true, '#VAI', 'Quero!', 'Nao');
+
+-- The same pair again, but with the punctuated one ALREADY ENDED. This pins
+-- what "the exact token wins" does NOT do: it is a preference among candidates
+-- that are both open, not a rule that the exact tag's existence suppresses the
+-- fallback. A listener writing '#JA!' after Encerrada has closed is entered
+-- into Aberta -- a draw they did not name -- and is told so by name. Deliberate
+-- as of this writing rather than incidental, which is why it is written down
+-- here; the narrower rule is with the owner.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+values
+  ('00000000-0000-0000-0000-000000000597', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Encerrada', '2026-05-01Z', '2026-05-31Z',
+   true, '#JA!', 'Quero!', 'Nao'),
+  ('00000000-0000-0000-0000-000000000598', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Aberta', '2026-06-01Z', '2026-06-30Z',
+   true, '#JA', 'Quero!', 'Nao');
+
+-- A hashtag ending in an ACCENTED LETTER, which is the only shape that can tell
+-- a Unicode-aware [[:alnum:]] from a C one. '#PROMOÇÃO!' cannot: its accents
+-- are interior, so the trailing run is just the '!' under either ctype. '#CAFÉ!'
+-- trims to '#CAFÉ' where the ctype knows É is a letter and to '#CAF' where it
+-- does not, and the second of those matches no promotion at all.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+values
+  ('00000000-0000-0000-0000-000000000599', '00000000-0000-0000-0000-0000000005f1',
+   '00000000-0000-0000-0000-0000000005c2', 'Cafezinho', '2026-06-01Z', '2026-06-30Z',
+   true, '#CAFÉ', 'Quero!', 'Nao');
 
 -- The one promotion anchored to the clock, and the only one that is: it is open
 -- RIGHT NOW, so a message written a month ago must still be refused by it.
@@ -705,6 +750,47 @@ select is(pg_temp.ingest('wamid.P2', '5511988882222', '#VAI!',
 select is((pg_temp.confirmation('wamid.P2')).body,
           'Pronto! Você está participando de Grito. Boa sorte!',
           'and it resolves to the promotion stored with the punctuation, not to the one whose tag is its trimmed form');
+
+-- The limit of "exact wins": it is a preference among OPEN candidates, not a
+-- veto held by the exact tag's existence. Encerrada ('#JA!') closed in May, so
+-- a June message saying '#JA!' falls through to Aberta ('#JA'). This assertion
+-- exists to make that visible and to fail loudly if it is ever changed, in
+-- either direction.
+select is(pg_temp.ingest('wamid.P3', '5511988882222', '#JA!',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded', 'a message naming a promotion that has ended is not refused if the trimmed tag is open');
+select is((pg_temp.confirmation('wamid.P3')).body,
+          'Pronto! Você está participando de Aberta. Boa sorte!',
+          'it enters the OTHER promotion, and the reply names it -- the exact token wins only among candidates that are open');
+
+-- The cluster's ctype, pinned rather than assumed. If this goes red,
+-- [[:alnum:]] has stopped knowing that É is a letter, '#CAFÉ!' is trimming to
+-- '#CAF', and the bot has quietly stopped matching every hashtag that ends in
+-- an accent. That is the test doing its job, not a flake.
+select is(pg_temp.ingest('wamid.P4', '5511988882222', 'bora #CAFÉ!',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded', 'a hashtag ending in an accented letter still resolves once its trailing punctuation is trimmed');
+select is((pg_temp.confirmation('wamid.P4')).body,
+          'Pronto! Você está participando de Cafezinho. Boa sorte!',
+          'and it is the accented promotion it resolves to, so [[:alnum:]] on this cluster knows a letter with an accent is a letter');
+
+-- A malformed payload is loud, not plausible -------------------------------------
+--
+-- `timestamp` absent (pg_temp.ingest with a null p_at writes a JSON null, which
+-- ->> reads exactly as an absent key does). Left to itself v_when is NULL, every
+-- comparison below it goes UNKNOWN rather than false, nothing matches, and the
+-- diagnostic reports outside_window -- a malformed payload filed under DONE
+-- wearing a reason an operator would believe. It raises instead, the same answer
+-- a missing `from` gets, so the two kinds of route defect are not told apart by
+-- which happens to survive to a silent outcome.
+
+select is(pg_temp.ingest('wamid.X1', '5511988881111', '#EUQUERO', null) ->> 'outcome',
+          'RAISED 22023: whatsapp payload carries no message timestamp',
+          'a message that names a promotion and carries no timestamp raises rather than finishing with a plausible reason');
+select is(
+  (select status::text from public.webhook_events where external_id = 'wamid.X1'),
+  'RECEIVED',
+  'and nothing about it is half-written: the event is left for the worker to park, not filed as decided');
 
 -- The message's own clock, not the server's --------------------------------------
 --
