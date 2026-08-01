@@ -31,9 +31,25 @@ create table public.outbox_messages (
   constraint outbox_messages_company_org_fk
     foreign key (company_id, organization_id)
     references public.companies (id, organization_id),
-  constraint outbox_messages_dedupe_unique unique (provider, dedupe_key)
+  constraint outbox_messages_dedupe_unique unique (provider, dedupe_key),
+
+  -- SENT is a claim about two other columns, so it states them structurally
+  -- rather than trusting whoever wrote the row. The transport never reports a
+  -- send as accepted without a wamid -- it returns a retryable failure instead
+  -- -- so this is satisfiable by every path that reaches it.
+  constraint outbox_messages_sent_shape check (
+    (status = 'SENT' and sent_at is not null and external_id is not null)
+    or (status <> 'SENT' and sent_at is null and external_id is null)
+  )
 );
 
+-- FAILED is excluded here but not from webhook_events_pending (0058), and
+-- that asymmetry is deliberate rather than an oversight. On the outbound
+-- side a retryable failure is written back as PENDING with a future
+-- next_attempt_at, so FAILED here means permanent or the retry ladder is
+-- spent -- terminal, and rightly excluded from the sendable scan. On the
+-- inbound side FAILED is transient: it means "try again", and
+-- webhook_events_pending scans it back in for exactly that reason.
 create index outbox_messages_sendable
   on public.outbox_messages (next_attempt_at)
   where status in ('PENDING', 'SENDING');

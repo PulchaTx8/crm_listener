@@ -1,5 +1,5 @@
 begin;
-select plan(24);
+select plan(28);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -143,6 +143,22 @@ select lives_ok($$
   values ('WHATSAPP', 'wamid.TEST-BOTHNULL', null, null)
 $$, 'company_id and organization_id may both be null before a number resolves');
 
+-- Shape guard: webhook_events_done_shape ---------------------------------------
+-- DONE is a claim about outcome and processed_at: finishing a decision means
+-- recording why and when, held structurally rather than trusted. RECEIVED,
+-- PROCESSING and FAILED alike have decided nothing yet, so a plain row with
+-- neither must stay legal.
+
+select throws_ok($$
+  insert into public.webhook_events (provider, external_id, status)
+  values ('WHATSAPP', 'wamid.TEST-DONE-BARE', 'DONE')
+$$, '23514', null, 'DONE with no outcome and no processed_at is not a legal webhook_events row');
+
+select lives_ok($$
+  insert into public.webhook_events (provider, external_id)
+  values ('WHATSAPP', 'wamid.TEST-RECEIVED-PLAIN')
+$$, 'a plain RECEIVED row with no outcome or processed_at is legal');
+
 -- outbox_messages -------------------------------------------------------------
 
 select has_type('public', 'outbox_status', 'the outbox status enum exists');
@@ -180,6 +196,29 @@ select throws_ok($$
      '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c3',
      '11999998888', 'ok', 'p1:mismatch')
 $$, '23503', null, 'a Station cannot be paired with a foreign Organization on outbox_messages');
+
+-- Shape guard: outbox_messages_sent_shape --------------------------------------
+-- SENT is a claim about sent_at and external_id: the transport never reports
+-- a send as accepted without a wamid, so a plain row with neither must stay
+-- legal on every status but SENT.
+
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body, dedupe_key, status)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     '11999998888', 'ok', 'p1:sent-bare', 'SENT')
+$$, '23514', null, 'SENT with no sent_at and no external_id is not a legal outbox_messages row');
+
+select lives_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body, dedupe_key)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     '11999998888', 'ok', 'p1:pending-plain')
+$$, 'a plain PENDING row with no sent_at or external_id is legal');
 
 select * from finish();
 rollback;

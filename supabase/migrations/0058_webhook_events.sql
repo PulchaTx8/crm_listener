@@ -46,7 +46,21 @@ create table public.webhook_events (
 
   constraint webhook_events_company_org_fk
     foreign key (company_id, organization_id)
-    references public.companies (id, organization_id)
+    references public.companies (id, organization_id),
+
+  -- DONE is a claim about two other columns, the same pattern
+  -- outbox_messages_sent_shape (0059) states for SENT: finishing a decision
+  -- means recording why (outcome) and when (processed_at), held structurally
+  -- rather than trusted. Every other status has decided nothing yet, so both
+  -- stay null -- RECEIVED and PROCESSING because they have not reached a
+  -- decision, and FAILED for the same reason: the type comment above says
+  -- FAILED means try again, and webhook_events_pending below scans FAILED
+  -- rows back in for exactly that reason. A FAILED row that carried an
+  -- outcome or a processed_at would look finished while still being retried.
+  constraint webhook_events_done_shape check (
+    (status = 'DONE' and outcome is not null and processed_at is not null)
+    or (status <> 'DONE' and outcome is null and processed_at is null)
+  )
 );
 
 create index webhook_events_pending
