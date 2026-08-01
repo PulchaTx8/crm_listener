@@ -71,13 +71,22 @@ screen configures beyond the hashtag is 5b.
 origin; the audit detail carries `integration_id`, `wamid`, `promotion_id`,
 `member_id` and `outcome`.
 
-**The sender's phone number is deliberately NOT in the audit detail.** Block 3
-keeps personal data out of `audit_logs` as a rule — `update_member`'s comment
-states that a Member diff *"would be exactly the name/phone/e-mail/CPF/address
-this whole block exists to keep out of `audit_logs`"* — and a raw phone in an
-ingestion audit row would be the same leak by another door. Traceability is not
-lost: `wamid` joins the audit row to `webhook_events`, whose payload holds the
-phone under a table no user-scoped client can read (§3.4).
+**No personal data is in the audit detail — and the `wamid` counts as personal
+data.** Block 3 keeps personal data out of `audit_logs` as a rule;
+`update_member`'s comment states that a Member diff *"would be exactly the
+name/phone/e-mail/CPF/address this whole block exists to keep out of
+`audit_logs`"*.
+
+A first draft of this block satisfied that rule by keeping the raw phone out and
+writing the `wamid` instead. That was wrong, and the review that caught it is
+worth recording: **a Meta message id is not opaque.** It is `wamid.` followed by
+base64 whose decoded bytes carry the counterparty's number as literal ASCII, so
+storing one stores a recoverable phone. Every fixture in the suite used a
+synthetic id (`wamid.A1`), which is exactly why no assertion could ever have
+caught it.
+
+So the audit detail carries **`sha256(wamid)`**, and §3.2 explains why the same
+hash — not the id — is what `webhook_events` keeps forever.
 
 The rejected alternative was a synthetic "bot" `auth.users` row per Organization
 with a Block 1c role: it would have reused every existing gate unchanged, but it
@@ -128,15 +137,27 @@ dedup this project spent Block 3 building; refusing would tell a real listener
 they cannot enter. **Flagged for the owner** — it is the one decision in this
 spec taken by reasoning rather than asked (§10).
 
-**D9 — A stored payload is pruned after 30 days; the row is not.**
-`webhook_events.payload` holds a phone number and a WhatsApp profile name, which
-is personal data at rest in a table Block 3's `anonymize_member` does not reach.
-Retention (master spec N7, validated in Block 11) nulls `payload` after 30 days
-and keeps the row: `external_id` is what idempotency needs, and it is not
-personal. So a replayed message is still refused a year later, while the content
-that made it personal is gone. Until the retention cron exists in Block 11, this
-block ships the column comment stating the rule and the pruning function; the
-schedule is Block 11's to turn on.
+**D9 — A stored payload is pruned after 30 days; the row is not, and what the
+row keeps is a hash.** `webhook_events.payload` holds a phone number and a
+WhatsApp profile name — personal data at rest in a table Block 3's
+`anonymize_member` does not reach. Retention (master spec N7, validated in
+Block 11) nulls `payload` after 30 days and keeps the row.
+
+The row survives because idempotency must, and **idempotency is equality**, so it
+does not need the message id itself. `external_id` therefore holds
+`sha256(wamid)`, hex, and the raw id lives only inside `payload`, where the prune
+reaches it. A replayed message is still refused a year later; the value that made
+it personal is gone.
+
+This was a correction, not the original design, and the original is why the
+correction matters: keeping the raw id would have left a recoverable phone in the
+one column the retention rule deliberately never touches (D2). **The hash is
+computed in Node before the insert**, never passed to an RPC — the reasoning
+`0031_members.sql` already gives for `cpf_hash`, that an argument passed to an
+RPC lands in query logs and in backups.
+
+Until the retention cron exists in Block 11, this block ships the column comment
+stating the rule and the pruning function; the schedule is Block 11's to turn on.
 
 ---
 
