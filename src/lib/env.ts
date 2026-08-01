@@ -9,6 +9,14 @@ const envSchema = z.object({
   MAIL_FROM: z.string().email().optional(),
   // Public base URL, used to build the password-reset callback link.
   NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
+  // WhatsApp Cloud API. Optional so CI and `next build` run without them; the
+  // webhook route refuses to serve when they are missing rather than the whole
+  // app refusing to boot (design spec D6 — no secret lives in the database).
+  WHATSAPP_APP_SECRET: z.string().min(1).optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().min(1).optional(),
+  WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
+  // Shared secret pg_cron presents to the worker tick.
+  WORKER_TICK_SECRET: z.string().min(1).optional(),
 });
 
 // Loose schema used ONLY under `SKIP_ENV_VALIDATION=1` (that is, during
