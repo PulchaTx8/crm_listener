@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(16);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -78,6 +78,43 @@ select lives_ok($$
     ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
      'WHATSAPP', '222222222222222', true)
 $$, 'a Station can take a new number once its old one is archived');
+
+-- webhook_events --------------------------------------------------------------
+
+select has_type('public', 'webhook_event_status', 'the event status enum exists');
+select is(relrowsecurity, true, 'RLS enabled on webhook_events')
+  from pg_class where oid = 'public.webhook_events'::regclass;
+select ok(not has_table_privilege('authenticated', 'public.webhook_events', 'SELECT'),
+          'authenticated may not read webhook_events');
+
+insert into public.webhook_events (provider, external_id, payload) values
+  ('WHATSAPP', 'wamid.TEST1', '{"hello":"world"}');
+
+select throws_ok($$
+  insert into public.webhook_events (provider, external_id, payload)
+  values ('WHATSAPP', 'wamid.TEST1', '{"hello":"again"}')
+$$, '23505', null, 'the same message id cannot be stored twice');
+
+-- A second event, left at its natural (recent) received_at. Without it, a
+-- prune_webhook_payloads that nulled every payload regardless of age would
+-- pass the assertion below just as well as a correct one.
+insert into public.webhook_events (provider, external_id, payload) values
+  ('WHATSAPP', 'wamid.TEST2', '{"still":"here"}');
+
+-- The row survives pruning; only the payload goes. external_id is what
+-- idempotency needs and it is not personal data.
+update public.webhook_events
+   set received_at = now() - interval '40 days'
+ where external_id = 'wamid.TEST1';
+select public.prune_webhook_payloads('30 days');
+select is(
+  (select payload is null and external_id = 'wamid.TEST1'
+     from public.webhook_events where external_id = 'wamid.TEST1'),
+  true, 'pruning clears the payload and keeps the row');
+select is(
+  (select payload is not null from public.webhook_events
+    where external_id = 'wamid.TEST2'),
+  true, 'a recent event keeps its payload after pruning');
 
 select * from finish();
 rollback;

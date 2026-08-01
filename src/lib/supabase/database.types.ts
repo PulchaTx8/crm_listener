@@ -1662,6 +1662,72 @@ export type Database = {
           },
         ]
       }
+      webhook_events: {
+        Row: {
+          attempts: number
+          company_id: string | null
+          external_id: string
+          id: string
+          integration_id: string | null
+          last_error: string | null
+          next_attempt_at: string | null
+          organization_id: string | null
+          outcome: string | null
+          payload: Json | null
+          processed_at: string | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          received_at: string
+          status: Database["public"]["Enums"]["webhook_event_status"]
+        }
+        Insert: {
+          attempts?: number
+          company_id?: string | null
+          external_id: string
+          id?: string
+          integration_id?: string | null
+          last_error?: string | null
+          next_attempt_at?: string | null
+          organization_id?: string | null
+          outcome?: string | null
+          payload?: Json | null
+          processed_at?: string | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          received_at?: string
+          status?: Database["public"]["Enums"]["webhook_event_status"]
+        }
+        Update: {
+          attempts?: number
+          company_id?: string | null
+          external_id?: string
+          id?: string
+          integration_id?: string | null
+          last_error?: string | null
+          next_attempt_at?: string | null
+          organization_id?: string | null
+          outcome?: string | null
+          payload?: Json | null
+          processed_at?: string | null
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          received_at?: string
+          status?: Database["public"]["Enums"]["webhook_event_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_events_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webhook_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1962,6 +2028,10 @@ export type Database = {
         }
         Returns: Json
       }
+      prune_webhook_payloads: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: {
@@ -2222,6 +2292,7 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+      webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2405,6 +2476,7 @@ export const Constants = {
         "passport",
         "discovery_source",
       ],
+      webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
     },
   },
 } as const

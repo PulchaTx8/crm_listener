@@ -1,0 +1,81 @@
+-- Every inbound event, stored before anything is decided about it. The unique
+-- index on (provider, external_id) is what makes the master spec's own "a
+-- repeated event does not duplicate a participation" true by structure rather
+-- than by the worker checking: Meta re-delivers anything it does not see a 200
+-- for, so a duplicate is normal traffic and not an attack.
+
+create type public.webhook_event_status as enum
+  ('RECEIVED', 'PROCESSING', 'DONE', 'FAILED');
+
+comment on type public.webhook_event_status is
+  'DONE means "finished deciding about this", NOT "a participation happened" — it covers a recorded entry, an unknown number, and a hashtag matching nothing, with the reason in outcome. FAILED means try again. Conflating the two is how a permanently unroutable message gets retried forever.';
+
+create table public.webhook_events (
+  id       uuid primary key default gen_random_uuid(),
+  provider public.integration_provider not null,
+
+  -- The WhatsApp MESSAGE id (wamid...), never the request id: Meta packs
+  -- several messages into one POST, so one HTTP request becomes N rows here and
+  -- idempotency is per message.
+  external_id text not null check (length(btrim(external_id)) > 0),
+
+  integration_id  uuid references public.integrations (id),
+  -- Null until the number resolves. A message sent to a number this
+  -- installation does not serve belongs to no Station, and saying so with null
+  -- is honester than inventing one.
+  organization_id uuid references public.organizations (id),
+  company_id      uuid,
+
+  payload jsonb,
+  status  public.webhook_event_status not null default 'RECEIVED',
+  outcome text,
+  attempts        integer not null default 0 check (attempts >= 0),
+  last_error      text,
+  received_at     timestamptz not null default now(),
+  next_attempt_at timestamptz,
+  processed_at    timestamptz,
+
+  constraint webhook_events_external_id_unique unique (provider, external_id)
+);
+
+create index webhook_events_pending
+  on public.webhook_events (coalesce(next_attempt_at, received_at))
+  where status in ('RECEIVED', 'FAILED');
+
+alter table public.webhook_events enable row level security;
+-- No policy. See integrations (0057) for why that is the deny and not an
+-- oversight.
+
+-- Design spec D9. The payload holds a phone number and a WhatsApp profile name
+-- — personal data at rest in a table Block 3's anonymize_member does not reach.
+-- Nulling it keeps the row, so a replayed message is still refused a year
+-- later while the content that made it personal is gone. This block ships the
+-- function; Block 11 schedules it alongside the rest of N7.
+create or replace function public.prune_webhook_payloads(
+  p_older_than interval default '30 days')
+returns integer
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_count integer;
+begin
+  update public.webhook_events
+     set payload = null
+   where payload is not null
+     and received_at < now() - p_older_than;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+
+revoke execute on function public.prune_webhook_payloads(interval) from public;
+grant execute on function public.prune_webhook_payloads(interval) to service_role;
+
+comment on table public.webhook_events is
+  'One row per inbound message, written before anything is decided about it. (provider, external_id) unique is the idempotency guarantee the master spec asks for, held structurally. payload is nullable because prune_webhook_payloads (design spec D9) clears it after 30 days while keeping the row.';
+comment on column public.webhook_events.external_id is
+  'The WhatsApp message id (wamid...), never the HTTP request id: Meta packs several messages into one POST and idempotency is per message.';
+comment on column public.webhook_events.outcome is
+  'Why this event finished. With status DONE it distinguishes recorded from no_integration, no_hashtag, no_promotion, promotion_cancelled and outside_window — all of which are silent to the listener (design spec D4) and all of which somebody will eventually have to explain.';
