@@ -20,9 +20,16 @@ create table public.webhook_events (
   external_id text not null check (length(btrim(external_id)) > 0),
 
   integration_id  uuid references public.integrations (id),
-  -- Null until the number resolves. A message sent to a number this
-  -- installation does not serve belongs to no Station, and saying so with null
-  -- is honester than inventing one.
+  -- Null until the number resolves: a message sent to a number this
+  -- installation does not serve belongs to no Station, and saying so with
+  -- null is honester than inventing one. When the pair IS populated it is
+  -- checked: webhook_events_company_org_fk below pins (company_id,
+  -- organization_id) to companies (id, organization_id), the same tenancy
+  -- guard integrations (0057) uses. A composite foreign key defaults to
+  -- MATCH SIMPLE, under which the constraint is satisfied whenever any
+  -- referencing column is null — so (null, null) passes untouched here,
+  -- while a populated pair must name a real Station/Organization
+  -- combination.
   organization_id uuid references public.organizations (id),
   company_id      uuid,
 
@@ -35,7 +42,11 @@ create table public.webhook_events (
   next_attempt_at timestamptz,
   processed_at    timestamptz,
 
-  constraint webhook_events_external_id_unique unique (provider, external_id)
+  constraint webhook_events_external_id_unique unique (provider, external_id),
+
+  constraint webhook_events_company_org_fk
+    foreign key (company_id, organization_id)
+    references public.companies (id, organization_id)
 );
 
 create index webhook_events_pending

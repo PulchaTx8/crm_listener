@@ -1713,6 +1713,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "webhook_events_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
             foreignKeyName: "webhook_events_integration_id_fkey"
             columns: ["integration_id"]
             isOneToOne: false

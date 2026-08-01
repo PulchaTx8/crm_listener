@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(19);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -108,13 +108,40 @@ update public.webhook_events
  where external_id = 'wamid.TEST1';
 select public.prune_webhook_payloads('30 days');
 select is(
-  (select payload is null and external_id = 'wamid.TEST1'
-     from public.webhook_events where external_id = 'wamid.TEST1'),
-  true, 'pruning clears the payload and keeps the row');
+  (select payload from public.webhook_events where external_id = 'wamid.TEST1'),
+  null, 'pruning clears the payload');
+select is(
+  (select count(*)::int from public.webhook_events where external_id = 'wamid.TEST1'),
+  1, 'the pruned row is still present');
 select is(
   (select payload is not null from public.webhook_events
     where external_id = 'wamid.TEST2'),
   true, 'a recent event keeps its payload after pruning');
+
+-- Tenancy guard: webhook_events_company_org_fk -------------------------------
+-- A composite FK defaults to MATCH SIMPLE: it is satisfied whenever any
+-- referencing column is null, so (null, null) must keep passing — that is
+-- the state a message is in before its number resolves. But once both
+-- columns are populated, the pair must be a real Station/Organization
+-- combination, the same guard integrations (0057) already has.
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-0000000005f2', 'Org 5a Two');
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000000005c3', '00000000-0000-0000-0000-0000000005f2',
+   'Station 5a Three', 'America/Sao_Paulo');
+
+select throws_ok($$
+  insert into public.webhook_events (provider, external_id, company_id, organization_id)
+  values ('WHATSAPP', 'wamid.TEST-MISMATCH',
+          '00000000-0000-0000-0000-0000000005c3',
+          '00000000-0000-0000-0000-0000000005f1')
+$$, '23503', null, 'a Station cannot be paired with a foreign Organization on webhook_events');
+
+select lives_ok($$
+  insert into public.webhook_events (provider, external_id, company_id, organization_id)
+  values ('WHATSAPP', 'wamid.TEST-BOTHNULL', null, null)
+$$, 'company_id and organization_id may both be null before a number resolves');
 
 select * from finish();
 rollback;
