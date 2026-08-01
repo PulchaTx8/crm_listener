@@ -107,6 +107,41 @@ to any unmatched text turns the Station's number into a paid loudspeaker for
 whoever wants to point traffic at it. The cost, stated plainly: someone who
 mistypes the hashtag gets nothing back and will not know why.
 
+> **The hashtag match, reversed by the owner on 2026-08-01: exact only, case
+> aside.** D4's cost above — silence for a mistyped hashtag — was, during
+> execution, read to cover *punctuation stuck to an otherwise-correct hashtag*
+> as well, on the reasoning that `"#EUQUERO!!"` is how somebody writes when
+> they are excited, which is the state this whole feature exists to produce,
+> and D4's silence leaves that listener with nothing and no way to learn why.
+> `ingest_whatsapp_event` (`0062`) shipped matching the token as written and
+> then, only if that matched nothing, the same token with trailing punctuation
+> stripped, with the exact form preferred whenever both candidates were open.
+> A controller ruling — recorded in the block report §7.2 as *"mine, not the
+> owner's"* and flagged as the item most likely to need revisiting — went
+> further and kept the fallback active even when the exact tag had its own
+> history at the Station, so that a `"#VAI!"` promotion that had already ended
+> would still fall through to a live `"#VAI"`.
+>
+> The owner reversed both: the hashtag must be **exact**, differing only in
+> upper/lower case. A message carrying any extra character does not enter the
+> promotion, full stop — there is no second candidate, and no history-aware
+> exception for one. The reasoning that was on the other side is real and was
+> weighed rather than overlooked: an excited listener typing `"#EUQUERO!!"` now
+> gets the same silence as a mistyped hashtag, which is exactly the cost D4
+> always named as its price. The owner's judgment was that a stored hashtag
+> ending in punctuation becoming two ways to spell one promotion in a
+> listener's head — `"#VAI!"` sometimes silently meaning `"#VAI"` — was the
+> worse failure mode, and that the fix for the excited listener belongs in
+> operator guidance (register hashtags without terminal punctuation) rather
+> than in the matching rule. `promotions_hashtag_shape` (`0040`) is untouched
+> and still permits a stored hashtag to end in punctuation; it is simply no
+> longer forgiving of a listener who does not type it back exactly. Losing the
+> fallback also drops a dependency the block never actually verified: the trim
+> leaned on `[[:alnum:]]` being Unicode-aware, a property of the production
+> cluster's ctype that was pinned by a test rather than confirmed against the
+> real cluster. Exact match compares a lowercased string byte-for-byte and has
+> no such dependency.
+
 **D5 — Replies are free-form text, not templates.** Every reply is a response to
 an inbound message, so it falls inside the WhatsApp 24-hour customer service
 window, where free-form text is permitted and no approved template is required.

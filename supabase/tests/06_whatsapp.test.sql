@@ -1,5 +1,5 @@
 begin;
-select plan(141);
+select plan(142);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -792,11 +792,10 @@ values
 -- Two promotions whose hashtags differ only by a trailing '!'. Both are legal:
 -- promotions_hashtag_shape (0040) permits punctuation inside a stored hashtag,
 -- and promotions_hashtag_no_overlap compares lower(hashtag), so '#vai!' and
--- '#vai' are different tags and do not overlap. They exist so that "the exact
--- token wins over the trimmed one" is a testable claim rather than a comment:
--- a message saying '#VAI!' means Grito, and an implementation that trimmed
--- first would enter the listener into Sussurro instead -- a draw they never
--- asked for, confirmed by name in the reply they receive.
+-- '#vai' are different tags and do not overlap. They exist so that "the
+-- hashtag is matched exactly" is a testable claim rather than a comment: a
+-- message saying '#VAI!' means Grito and only Grito -- there is no fallback
+-- left that could enter the listener into Sussurro instead.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
    whatsapp_enabled, hashtag, yes_button_label, no_button_label)
@@ -809,12 +808,13 @@ values
    true, '#VAI', 'Quero!', 'Nao');
 
 -- The same pair again, but with the punctuated one ALREADY ENDED. This pins
--- what "the exact token wins" does NOT do: it is a preference among candidates
--- that are both open, not a rule that the exact tag's existence suppresses the
--- fallback. A listener writing '#JA!' after Encerrada has closed is entered
--- into Aberta -- a draw they did not name -- and is told so by name. Deliberate
--- as of this writing rather than incidental, which is why it is written down
--- here; the narrower rule is with the owner.
+-- what an exact match costs: a listener writing '#JA!' after Encerrada has
+-- closed is refused outright, even though '#JA' (Aberta) is a live promotion
+-- at the same Station right now -- '#JA' is simply a different tag, never
+-- consulted, because there is no fallback left to consult it with. An earlier
+-- version of this function entered that listener into Aberta instead; the
+-- owner reversed it on 2026-08-01 (see the migration's own comment and the
+-- design spec).
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
    whatsapp_enabled, hashtag, yes_button_label, no_button_label)
@@ -826,11 +826,12 @@ values
    '00000000-0000-0000-0000-0000000005c2', 'Aberta', '2026-06-01Z', '2026-06-30Z',
    true, '#JA', 'Quero!', 'Nao');
 
--- A hashtag ending in an ACCENTED LETTER, which is the only shape that can tell
--- a Unicode-aware [[:alnum:]] from a C one. '#PROMOÇÃO!' cannot: its accents
--- are interior, so the trailing run is just the '!' under either ctype. '#CAFÉ!'
--- trims to '#CAFÉ' where the ctype knows É is a letter and to '#CAF' where it
--- does not, and the second of those matches no promotion at all.
+-- A hashtag ending in an ACCENTED LETTER. It used to be the only shape that
+-- could tell a Unicode-aware [[:alnum:]] from a C one, back when this function
+-- trimmed trailing punctuation before matching. That dependency is gone along
+-- with the trim -- exact match lowercases and compares as a plain string, so
+-- this fixture now pins only that an accented hashtag matches when written
+-- exactly, and stays silent (like any other) when it is not.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
    whatsapp_enabled, hashtag, yes_button_label, no_button_label)
@@ -963,53 +964,72 @@ select is(pg_temp.ingest('wamid.A9', '5511988886666', '#CANCELADO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
           'promotion_cancelled', 'a cancelled promotion is told apart from one that never existed');
 
--- Punctuation stuck to the tag ---------------------------------------------------
+-- The hashtag, matched exactly -----------------------------------------------
 --
--- '#EUQUERO!!' is how somebody writes when they are excited, which is the state
--- this feature is designed to produce. '!' is neither whitespace nor '#', so the
--- token swallows it and matches nothing -- and under D4 that listener gets
--- silence and never learns why. The trimmed form is tried second.
+-- Owner's ruling, 2026-08-01, reversing an earlier version of this function
+-- (and of this file): the hashtag must be EXACT, differing only in upper/lower
+-- case. A message carrying any extra character -- '!', '?', '.', anything --
+-- does not enter the promotion. There is no second, punctuation-stripped
+-- candidate tried when the exact one matches nothing.
 --
--- The second case is why it must be SECOND and not instead: '#VAI!' is a stored
--- hashtag in its own right. Trimming before matching would answer 'Sussurro' to
--- somebody who asked for 'Grito', and the reply naming the promotion is what
--- makes the difference visible.
+-- THE REASONING ON THE OTHER SIDE, so this does not read as though the rule
+-- was always exact: '#EUQUERO!!' is how somebody writes when they are
+-- excited, which is the state this whole feature exists to produce, and D4's
+-- silence leaves that listener with nothing and no way to learn why. An
+-- earlier version of ingest_whatsapp_event answered that by retrying the same
+-- token with trailing punctuation stripped, and a controller ruling -- not the
+-- owner's, see the design spec and the block report -- kept that fallback
+-- active even when the exact tag had a history of its own at the Station. The
+-- owner weighed that against a stored hashtag ending in punctuation becoming
+-- two ways to spell one promotion in a listener's head, and reversed it.
 
 select is(pg_temp.ingest('wamid.P1', '5511988882222', 'AAAA quero!! #EUQUERO!!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded',
-          'a hashtag with punctuation stuck to it still resolves, rather than answering silence');
+          'no_promotion',
+          'a hashtag with punctuation stuck to it now matches nothing -- the extracted tag is #euquero!!, which no promotion is stored as -- and that silence is the owner''s rule, not an accident');
 
 select is(pg_temp.ingest('wamid.P2', '5511988882222', '#VAI!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded', 'a hashtag that legitimately ends in punctuation is recorded');
+          'recorded', 'a hashtag that legitimately ends in punctuation is recorded when written exactly');
 
 select is((pg_temp.confirmation('wamid.P2')).body,
           'Pronto! Você está participando de Grito. Boa sorte!',
-          'and it resolves to the promotion stored with the punctuation, not to the one whose tag is its trimmed form');
+          'it resolves to the promotion stored with the punctuation -- an exact match, and the only kind there is now');
 
--- The limit of "exact wins": it is a preference among OPEN candidates, not a
--- veto held by the exact tag's existence. Encerrada ('#JA!') closed in May, so
--- a June message saying '#JA!' falls through to Aberta ('#JA'). This assertion
--- exists to make that visible and to fail loudly if it is ever changed, in
--- either direction.
+-- What "exact" costs: a match against a promotion that has since ended is
+-- refused, even though a differently-punctuated sibling is open right now.
+-- '#JA!' (Encerrada) closed in May; '#JA' (Aberta) is a DIFFERENT tag and is
+-- never consulted, because there is no fallback left to consult it with.
 select is(pg_temp.ingest('wamid.P3', '5511988882222', '#JA!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded', 'a message naming a promotion that has ended is not refused if the trimmed tag is open');
-select is((pg_temp.confirmation('wamid.P3')).body,
-          'Pronto! Você está participando de Aberta. Boa sorte!',
-          'it enters the OTHER promotion, and the reply names it -- the exact token wins only among candidates that are open');
+          'outside_window',
+          'a message naming a promotion exactly, after that promotion has ended, is refused -- it is not offered a live sibling spelled without the punctuation');
 
--- The cluster's ctype, pinned rather than assumed. If this goes red,
--- [[:alnum:]] has stopped knowing that É is a letter, '#CAFÉ!' is trimming to
--- '#CAF', and the bot has quietly stopped matching every hashtag that ends in
--- an accent. That is the test doing its job, not a flake.
+-- The accented hashtag: silent when punctuated, matched when exact. Trimming
+-- used to depend on [[:alnum:]] being UNICODE-AWARE, a property of the
+-- cluster's ctype that was never actually tested against production -- that
+-- dependency is gone along with the trim. An exact match compares a
+-- lowercased string byte-for-byte and does not care what the ctype thinks a
+-- letter is.
 select is(pg_temp.ingest('wamid.P4', '5511988882222', 'bora #CAFÉ!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded', 'a hashtag ending in an accented letter still resolves once its trailing punctuation is trimmed');
-select is((pg_temp.confirmation('wamid.P4')).body,
+          'no_promotion', 'an accented hashtag with punctuation stuck to it is silent too, same as any other');
+
+select is(pg_temp.ingest('wamid.P4A', '5511988882222', 'bora #CAFÉ',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded',
+          'written exactly, the accented hashtag still matches -- the property worth pinning now that no ctype assumption is behind it');
+select is((pg_temp.confirmation('wamid.P4A')).body,
           'Pronto! Você está participando de Cafezinho. Boa sorte!',
-          'and it is the accented promotion it resolves to, so [[:alnum:]] on this cluster knows a letter with an accent is a letter');
+          'and it resolves to the accented promotion');
+
+-- Case is the one permitted variation, named by the owner explicitly, so it is
+-- pinned by its own assertion rather than left implied by every case above
+-- happening to match the case the fixture itself was stored in.
+select is(pg_temp.ingest('wamid.P5', '5511988885555', '#euquero',
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'recorded',
+          'a hashtag in a different case from how it is stored still matches -- upper/lower is the one variation the exact rule permits');
 
 -- A malformed payload is loud, not plausible -------------------------------------
 --

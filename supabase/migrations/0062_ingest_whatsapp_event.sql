@@ -291,8 +291,6 @@ declare
   v_text    text;
   v_when    timestamptz;
   v_tag     text;
-  v_trim    text;
-  v_tags    text[];
   v_promo   public.promotions%rowtype;
   v_diag    public.promotions%rowtype;
   v_member  uuid;
@@ -456,49 +454,50 @@ begin
       using errcode = '22023';
   end if;
 
-  -- "#EUQUERO!!" is not a mistype. It is how somebody writes when they are
-  -- excited, which is the state this entire feature exists to produce -- and
-  -- the token above swallows the punctuation, because '!' is neither
-  -- whitespace nor '#'. Under design spec D4 that listener gets SILENCE and
-  -- never learns why, on the block's headline path.
+  -- EXACT MATCH ONLY, differing solely in upper/lower case. "#EUQUERO!!" and
+  -- "#EUQUERO" are different tokens, and a message carrying the first matches
+  -- nothing. Owner's ruling, 2026-08-01, reversing an earlier version of this
+  -- function that -- when the exact token matched nothing -- retried a second
+  -- candidate with trailing punctuation stripped.
   --
-  -- So there is a second candidate: the same token with TRAILING characters
-  -- that are not a letter, a digit or an underscore removed. Nothing LEADING
-  -- is stripped -- the '#' is the token, not decoration -- and nothing
-  -- INTERIOR is, so '#a_b-c...' becomes '#a_b-c' and not '#a'.
+  -- THE REGEX ABOVE STILL GRABS THE WHOLE TOKEN, TRAILING PUNCTUATION AND ALL,
+  -- and that is deliberate rather than left over from the fallback: it is what
+  -- makes "#EUQUERO!!" fail to match at all, instead of matching some narrower
+  -- prefix of itself. Narrowing the regex to stop at punctuation would silently
+  -- restore the old behaviour by a different route -- the excited listener
+  -- would reach a plain "#EUQUERO" again, just without ever having typed it.
   --
-  -- [[:alnum:]] is expected to be UNICODE-AWARE, which is a property of the
-  -- cluster and not of this file: it must keep an accented letter at the END of
-  -- a tag, so '#CAFÉ!' trims to '#CAFÉ' and not to '#CAF'. Under a C ctype it
-  -- would not, and the bot would quietly stop matching every hashtag ending in
-  -- an accent. Pinned by an assertion in 06_whatsapp rather than assumed.
+  -- CASE STILL DOES NOT MATTER. v_tag was lowercased at extraction, above, and
+  -- the predicate below compares lower(hashtag) to it, so "#euquero",
+  -- "#EuQuero" and "#EUQUERO" all reach a promotion stored as "#EUQUERO" --
+  -- the one variation the owner named as permitted.
   --
-  -- THE EXACT TOKEN STILL WINS, and the `order by` on both lookups below is
-  -- what holds that -- it is load-bearing rather than cosmetic, and must not be
-  -- dropped as redundant. promotions_hashtag_shape (0040) is UNTOUCHED and goes
-  -- on permitting punctuation inside a stored hashtag, so '#VAI!' and '#VAI'
-  -- can both be live promotions in one Station. A message saying '#VAI!' means
-  -- the first of those; trimming it into the second would enter somebody in a
-  -- draw they did not ask for. The trimmed form is a fallback and never a
-  -- preference.
+  -- promotions_hashtag_shape (0040) is UNTOUCHED and still permits a stored
+  -- hashtag to end in punctuation, so a Station may still name a promotion
+  -- "#VAI!". It stays reachable -- but only by a listener who writes "#VAI!"
+  -- exactly. Nothing here makes that harder; it only stops offering the
+  -- unpunctuated "#VAI" as a consolation prize to somebody who typed the
+  -- punctuated form and matched nothing.
   --
-  -- WHAT THAT ORDERING DOES *NOT* DO, stated because the paragraph above
-  -- reasons only about the case it handles. "Exact wins" is a preference among
-  -- candidates that are BOTH OPEN. It is not a rule that the exact tag's mere
-  -- existence suppresses the fallback. So if '#VAI!' has ENDED and '#VAI' is
-  -- open at the same Station, a listener writing '#VAI!' matches nothing
-  -- exactly, falls through, and is entered into '#VAI' -- a draw they did not
-  -- name, and told so by name in the reply they receive. Deliberate as of this
-  -- writing and pinned by a fixture in 06_whatsapp, not incidental. The
-  -- narrower rule -- suppress the fallback whenever the exact tag is known to
-  -- this Station in ANY state -- was considered and is with the owner; its own
-  -- cost is the mirror case, where a Station that ran '#VAI!' last year would
-  -- answer this year's '#VAI' message with silence.
-  v_trim := '#' || regexp_replace(substr(v_tag, 2), '[^[:alnum:]_]+$', '');
-  if v_trim = v_tag or v_trim = '#' then
-    v_trim := null;
-  end if;
-  v_tags := case when v_trim is null then array[v_tag] else array[v_tag, v_trim] end;
+  -- THE REASONING ON THE OTHER SIDE, so a future reader does not mistake this
+  -- for having always been the rule. "#EUQUERO!!" is how somebody writes when
+  -- they are excited, which is the state this whole feature exists to produce,
+  -- and design spec D4's silence leaves that listener with nothing and no way
+  -- to learn why. The reversed version traded exactness for that listener: it
+  -- retried a trailing-punctuation-stripped candidate when the exact one
+  -- matched nothing, and it went on doing so even when the exact tag itself
+  -- had a history of its own at the Station (that widening was a controller's
+  -- ruling, never the owner's -- see the design spec and the block report).
+  -- The owner weighed the excited listener against a stored hashtag ending in
+  -- punctuation becoming two ways to spell one promotion in a listener's head,
+  -- and reversed it in favour of exactness.
+  --
+  -- A SIMPLIFICATION THAT FOLLOWS FOR FREE. The trim this used to do leaned on
+  -- [[:alnum:]] being UNICODE-AWARE -- a property of the cluster's ctype that
+  -- was never actually tested against production, needed only so "#CAFÉ!"
+  -- trimmed to "#CAFÉ" and not "#CAF". That dependency is gone with the trim:
+  -- an exact match lowercases and compares as a plain string, so "#CAFÉ"
+  -- written exactly matches "#CAFÉ" stored on any cluster, ctype notwithstanding.
 
   -- EVERYTHING from here judges the message by ITS OWN timestamp, never by
   -- now(). An event reprocessed an hour later has to be decided as of when the
@@ -509,37 +508,35 @@ begin
   -- apply_participation then raises 22023 against the very window that
   -- admitted it.
   --
-  -- promotions_hashtag_no_overlap (0040) guarantees at most one row per EXACT
-  -- hashtag here at any instant, including a past one; the limit and the order
-  -- are what pick between the exact token and its trimmed fallback.
-  -- whatsapp_enabled needs no predicate: promotions_whatsapp_shape makes a
-  -- non-null hashtag imply it. company_id is the tenancy boundary -- a hashtag
-  -- belongs to a Station, so the same tag at a sister Station is not this
-  -- message's promotion.
+  -- promotions_hashtag_no_overlap (0040) guarantees at most one row can match
+  -- here at any instant, including a past one, for the EXACT hashtag matched
+  -- below -- limit 1 is defensive, not a tie-breaker among candidates, because
+  -- there is only ever the one candidate now. whatsapp_enabled needs no
+  -- predicate: promotions_whatsapp_shape makes a non-null hashtag imply it.
+  -- company_id is the tenancy boundary -- a hashtag belongs to a Station, so
+  -- the same tag at a sister Station is not this message's promotion.
   select * into v_promo
   from public.promotions
   where company_id = v_integ.company_id
-    and lower(hashtag) = any(v_tags)
+    and lower(hashtag) = v_tag
     and deleted_at is null
     and cancelled_at is null
     and v_when >= starts_at and v_when < ends_at
-  order by (lower(hashtag) = v_tag) desc
   limit 1;
 
   if not found then
     -- One diagnostic lookup, ignoring window and cancellation, so an operator
     -- asked "why didn't it work?" gets three answers instead of one. All three
     -- are silent to the listener (design spec D4); the distinction is for the
-    -- person who has to explain it. It considers both candidates for the same
-    -- reason the match above does: a listener who wrote "#EUQUERO!!" against a
-    -- closed promotion is outside_window, not no_promotion, and the operator
-    -- explaining it deserves the true answer.
+    -- person who has to explain it. Matched on the same exact tag as above --
+    -- there is no second candidate here either, only the most recent row of
+    -- however many the Station has used this exact hashtag for over time.
     select * into v_diag
     from public.promotions
     where company_id = v_integ.company_id
-      and lower(hashtag) = any(v_tags)
+      and lower(hashtag) = v_tag
       and deleted_at is null
-    order by (lower(hashtag) = v_tag) desc, starts_at desc
+    order by starts_at desc
     limit 1;
 
     if not found then
@@ -722,7 +719,7 @@ revoke execute on function public.ingest_whatsapp_event(uuid) from public;
 grant execute on function public.ingest_whatsapp_event(uuid) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid) is
-  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp, or no usable sender phone, RAISES rather than finishing: a NULL timestamp makes every rule below it UNKNOWN and the event would be filed as DONE with a plausible-looking reason, and a NULL sender would be registered as a listener with no phone that no later message could ever dedupe against. A row whose payload has already been pruned raises for the same reason -- it cannot be decided, and reporting no_integration for it would be a verdict about a message that no longer exists. The listener is looked up on the LOCAL form of the sender first and, only if that finds nobody, on the form Meta delivered: members.phone_normalized is generated from whatever an operator typed, so a listener registered as "+55 11 9..." is stored with the country code the local-form lookup has just stripped, and without the second lookup the bot registers a duplicate on that listener''s first message every time. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one; the loser also links itself to its own Station in that same branch, since the winner''s apply_member_creation only linked its. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
+  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched EXACTLY, differing only in upper/lower case -- "#EUQUERO!!" matches nothing, even though a stored hashtag may legitimately end in punctuation and so remain reachable by writing it exactly ("#VAI!" stays a live promotion in its own right). Owner''s ruling, 2026-08-01, reversing an earlier version of this function that retried the same token with trailing punctuation stripped whenever the exact form matched nothing, and that kept doing so even when the exact tag had ended (so an ENDED "#VAI!" used to fall through into an open "#VAI"); the reasoning weighed on both sides is in the body comment above the match. A message that names a promotion and carries no usable timestamp, or no usable sender phone, RAISES rather than finishing: a NULL timestamp makes every rule below it UNKNOWN and the event would be filed as DONE with a plausible-looking reason, and a NULL sender would be registered as a listener with no phone that no later message could ever dedupe against. A row whose payload has already been pruned raises for the same reason -- it cannot be decided, and reporting no_integration for it would be a verdict about a message that no longer exists. The listener is looked up on the LOCAL form of the sender first and, only if that finds nobody, on the form Meta delivered: members.phone_normalized is generated from whatever an operator typed, so a listener registered as "+55 11 9..." is stored with the country code the local-form lookup has just stripped, and without the second lookup the bot registers a duplicate on that listener''s first message every time. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one; the loser also links itself to its own Station in that same branch, since the winner''s apply_member_creation only linked its. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
 
 -- THE PAYLOAD CONTRACT, stated on the column that holds it, because the task
 -- that BUILDS a payload (Task 11's webhook route) is the one that has to keep

@@ -311,8 +311,11 @@ of which appears in spec §3.3. Both follow from `prune_outbox_messages`, which
   `anonymize_member` reaches neither. 5b must not add a column holding a phone
   number, a name or a raw provider id to either table without extending the
   matching prune — and neither is scheduled yet, which is Block 11's.
-- **D8 and the punctuation-fallback ruling (§7) are still open.** 5b should
-  not assume either is settled.
+- **D8 (§7.1) is still open.** 5b should not assume it is settled.
+- **The hashtag match is exact, decided (§7.2).** The owner reversed the
+  punctuation-stripping fallback on 2026-08-01: a hashtag matches only when
+  written exactly, case aside. 5b's own hashtag-adjacent surfaces (if any)
+  should assume exactness, not forgiveness of trailing punctuation.
 
 ---
 
@@ -480,9 +483,11 @@ is unknown. Reported to the owner both times.
 
 ---
 
-## 7. Decisions left for the owner
+## 7. Decisions revisited
 
-Two items, both flagged as reversible in the ledger rather than settled.
+One item confirmed still open, one decided since the last revision of this
+report. Both were flagged as reversible in the ledger rather than settled;
+§7.2 is where that reversal happened.
 
 ### 7.1 D8 — a listener elsewhere in the Organization is linked, not duplicated
 
@@ -494,33 +499,65 @@ listener they cannot enter a promotion they are eligible for). Implemented
 in `apply_member_lookup`/`apply_member_link` (`0061`) and never put to the
 owner during this block's thirteen tasks. Confirm or overturn on review.
 
-### 7.2 The punctuation-fallback ruling (mine, not the owner's)
+### 7.2 The punctuation-fallback ruling — decided by the owner, reversed, 2026-08-01
 
-`0062:390-427`. A hashtag is matched first as written, then — only if that
-matches nothing among **open** promotions — with trailing punctuation
-stripped (`"#EUQUERO!!"` → `"#EUQUERO"`), so an excited listener is not
-answered with silence. The narrower question this ruling settles: if
-`"#VAI!"` was itself once a real, now-ended hashtag at a Station, and
-`"#VAI"` is a *different*, currently live promotion at the same Station,
-should a message reading `"#VAI!"` fall back and enter `"#VAI"`, or should
-the exact tag's own history suppress the fallback?
+`0062` used to match a hashtag first as written, then — only if that matched
+nothing among **open** promotions — with trailing punctuation stripped
+(`"#EUQUERO!!"` → `"#EUQUERO"`), so an excited listener was not answered with
+silence. A controller ruling, recorded in the previous revision of this
+section as *"mine, not the owner's"* and flagged as *"the ruling most likely
+to be worth revisiting with the owner directly"*, had gone further still and
+kept the fallback active regardless of the exact tag's own history — so a
+now-ended `"#VAI!"` fell through to a currently live `"#VAI"`, on the
+reasoning that the mirror case (a Station retyping last year's `"#VAI!"`
+verbatim into permanent silence) was worse than the rare case of two hashtags
+differing only in trailing punctuation.
 
-**Ruled: the fallback stays active regardless of the exact tag's history.**
-The implementer argued for suppressing it whenever the exact tag is known to
-the Station in any state, to avoid entering someone in a draw they did not
-name. The controller's ruling went the other way, on the mirror case: a
-Station that ran `"#VAI!"` last year would, under the suppressed version,
-answer this year's identical `"#VAI!"` message with **permanent silence**,
-because the exact tag's past existence would block the fallback to this
-year's live `"#VAI"`. The scenario that makes the chosen behaviour wrong — an
-operator having created two hashtags at the same Station differing only in
-trailing punctuation — is rare; the scenario that makes the rejected
-alternative wrong — someone retyping last year's tag verbatim — is the
-ordinary case this whole feature exists for. Pinned by a fixture in
-`06_whatsapp.test.sql` and stated in the migration's own comment as *"with
-the owner"* (`0062:424-427`). **This is the ruling most likely to be worth
-revisiting with the owner directly**, since it trades one rare collision for
-one common one and either choice is defensible.
+**The owner reversed it, in his own words:** *"the hashtag must be exact,
+differing only in upper/lower case. A message carrying any extra character —
+`!`, `?`, `.`, anything — must not enter the promotion."* There is no second
+candidate any more, and no history-aware exception. `0062` now matches
+`lower(hashtag) = v_tag` and nothing else, in both the live match and the
+diagnostic lookup an operator's "why didn't it work?" runs against; the
+`v_trim`/`v_tags` machinery, the trimming expression, and the `order by` that
+used to pick the exact form among open candidates are all removed.
+
+The reasoning that was on the other side is real and is recorded here rather
+than erased, per the standing rule of this block: `"#EUQUERO!!"` is how
+somebody writes when they are excited, which is the state this whole feature
+exists to produce, and D4's silence leaves that listener with nothing and no
+way to learn why. The owner weighed that against a stored hashtag ending in
+punctuation becoming two ways to spell one promotion in a listener's head —
+`"#VAI!"` sometimes silently meaning `"#VAI"` — and judged the second the
+worse failure mode, better solved by operator guidance (register a hashtag
+without terminal punctuation) than by a matching rule that quietly forgives
+one listener's typing and not another's.
+
+A simplification came free with the reversal: the trim leaned on
+`[[:alnum:]]` being Unicode-aware, a property of the production cluster's
+ctype that this block had pinned by an assertion (§6.3's sibling risk, never
+actually resolved against the real cluster) rather than confirmed. Exact
+match compares a lowercased string byte-for-byte and carries no such
+dependency. `promotions_hashtag_shape` (`0040`) is untouched — a Station may
+still name a promotion `#VAI!` — and it stays reachable, just only by a
+listener who writes `#VAI!` exactly.
+
+**Pinned in `06_whatsapp.test.sql`.** The four assertions built for the
+fallback (`P1`–`P4`) are rewritten as assertions of the exact rule rather
+than deleted: `P1` and `P4` now expect the *silent* outcome, where they used
+to expect a match, because their extracted tags (`#euquero!!`, `#café!`)
+match no stored hashtag under exact comparison; `P3` now expects
+`outside_window` rather than a fall-through entry into `Aberta`, since
+`"#JA!"` and `"#JA"` are simply different tags and the second is never
+consulted; `P2` keeps its outcome but is re-reasoned as a plain exact match
+rather than "the exact form winning a tie." Two additions pin what survives
+the reversal on their own terms: a new `P4A` fixture proves `"#CAFÉ"` written
+exactly still matches — the accented case, no longer resting on any ctype
+assumption — and a new `P5` case proves a hashtag in a different case
+(`"#euquero"` against a promotion stored `"#EUQUERO"`) still matches, since
+case-insensitivity is the one variation the owner named as permitted.
+Mutation-proved: the fallback was restored, the assertions expected to have
+gone silent were confirmed red, and the file was restored byte-identically.
 
 ---
 
