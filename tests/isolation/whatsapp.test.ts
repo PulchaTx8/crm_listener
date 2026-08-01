@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  addCompany,
   admin,
   anonClient,
   cleanupUsers,
@@ -152,6 +153,105 @@ async function seedPromotionWithIntegration(
   };
 }
 
+interface CrossStationFixture {
+  organizationId: string;
+  localPhone: string;
+  eventA: string;
+  eventB: string;
+}
+
+/**
+ * The race neither fixture above can see: one phone, TWO Stations of the
+ * same Organization, each with its own integration, both meeting the number
+ * for the first time at once. Fix round 2's own item 1 -- the catch path in
+ * ingest_whatsapp_event (0062) resolves the member through apply_member_lookup
+ * but, before that fix, never linked it to the LOSER's Station; the winner's
+ * apply_member_creation had linked only its own. Unlike the same-Station race,
+ * this one is not self-healing within a single admin.rpc call: there is no
+ * retry wrapper here the way there is inside the worker, so a missing link
+ * surfaces directly as apply_participation's P0002 ("listener not found in
+ * this station").
+ *
+ * Two DIFFERENT promotions, one per Station, sharing a hashtag -- not the same
+ * (promotion, member) pair apply_participation's lock arbitrates, so both
+ * entries are first entries and both must resolve VALID, not one VALID and
+ * one DUPLICATE.
+ */
+async function seedCrossStationRace(label: string): Promise<CrossStationFixture> {
+  const customer = await provisionCustomer(label);
+  const companyIdB = await addCompany(customer, `Station B ${label}`);
+
+  const phoneNumberIdA = `pnid-xa-${label}`;
+  const phoneNumberIdB = `pnid-xb-${label}`;
+  await seedIntegration(customer, phoneNumberIdA);
+  await seedIntegration(customer, phoneNumberIdB, companyIdB);
+
+  const localPhone = '11999990003';
+  const hashtag = `#${label.replace(/[^a-zA-Z0-9]/g, '')}`.slice(0, 40);
+
+  const owner = await signInAs(customer.email, customer.password);
+
+  const { data: promotionIdA, error: promoAError } = await owner.rpc('create_promotion', {
+    p_company_id: customer.companyId,
+    p_name: `Cross A ${label}`,
+    p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+    p_ends_at: new Date(Date.now() + HOUR).toISOString(),
+    p_whatsapp_enabled: true,
+    p_hashtag: hashtag,
+  });
+  if (promoAError || !promotionIdA) {
+    throw new Error(`create_promotion (Station A) failed: ${promoAError?.message}`);
+  }
+
+  const { data: promotionIdB, error: promoBError } = await owner.rpc('create_promotion', {
+    p_company_id: companyIdB,
+    p_name: `Cross B ${label}`,
+    p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+    p_ends_at: new Date(Date.now() + HOUR).toISOString(),
+    p_whatsapp_enabled: true,
+    p_hashtag: hashtag,
+  });
+  if (promoBError || !promotionIdB) {
+    throw new Error(`create_promotion (Station B) failed: ${promoBError?.message}`);
+  }
+
+  const waFrom = `55${localPhone}`;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const wamidA = `wamid.${label}-crossA`;
+  const wamidB = `wamid.${label}-crossB`;
+
+  const payloadFor = (wamid: string, phoneNumberId: string) => ({
+    wamid,
+    metadata: { phone_number_id: phoneNumberId },
+    from: waFrom,
+    profile_name: null,
+    text: `quero participar ${hashtag}`,
+    timestamp,
+  });
+
+  const externalIdA = sha256Hex(wamidA);
+  const externalIdB = sha256Hex(wamidB);
+
+  const { data: rows, error: eventsError } = await admin
+    .from('webhook_events')
+    .insert([
+      { provider: 'WHATSAPP', external_id: externalIdA, payload: payloadFor(wamidA, phoneNumberIdA) },
+      { provider: 'WHATSAPP', external_id: externalIdB, payload: payloadFor(wamidB, phoneNumberIdB) },
+    ])
+    .select('id, external_id');
+  if (eventsError || !rows) {
+    throw new Error(`could not seed webhook_events: ${eventsError?.message}`);
+  }
+
+  const eventA = rows.find((row) => row.external_id === externalIdA)?.id;
+  const eventB = rows.find((row) => row.external_id === externalIdB)?.id;
+  if (!eventA || !eventB) {
+    throw new Error('seedCrossStationRace: could not resolve both inserted event ids');
+  }
+
+  return { organizationId: customer.organizationId, localPhone, eventA, eventB };
+}
+
 describe('the WhatsApp door', () => {
   it('is closed to an ordinary signed-in user', async () => {
     const customer = await provisionCustomer(`wa-gate-${Date.now()}`);
@@ -300,6 +400,55 @@ describe('the WhatsApp door', () => {
         // Exactly one members row for this phone, in this Organization —
         // the assertion the fix in 0062 makes true rather than a
         // characterization of the race it used to lose.
+        const { count, error: countError } = await admin
+          .from('members')
+          .select('id', { count: 'exact', head: true })
+          .eq('organization_id', fixture.organizationId)
+          .eq('phone_normalized', fixture.localPhone);
+        expect(countError, `round ${round} member count query`).toBeNull();
+        expect(count, `round ${round} produced ${count} members`).toBe(1);
+      }
+    },
+    180_000,
+  );
+
+  /**
+   * Fix round 2, item 1: the catch path resolves the member but, before this
+   * fix, never linked them to a Station reached only through the LOSER's
+   * event. Two Stations of one Organization racing on the same unknown phone
+   * is that exact shape -- the winner's apply_member_creation links only its
+   * own Station, so without an explicit link here the loser holds a member id
+   * apply_participation refuses with P0002 for its own Station. There is no
+   * retry wrapper in this test (unlike the worker), so that refusal surfaces
+   * directly as an error rather than self-healing on a second attempt.
+   * Mutation-proved by removing the perform apply_member_link call inside the
+   * catch (task-13-report.md carries the output).
+   */
+  it(
+    'links the same phone to both Stations when they race on it at once',
+    async () => {
+      const stamp = Date.now();
+      for (let round = 0; round < RACE_ROUNDS; round += 1) {
+        const fixture = await seedCrossStationRace(`wa-crossstation-${stamp}-${round}`);
+
+        const [a, b] = await Promise.all([
+          admin.rpc('ingest_whatsapp_event', { p_event_id: fixture.eventA }),
+          admin.rpc('ingest_whatsapp_event', { p_event_id: fixture.eventB }),
+        ]);
+
+        expect(a.error, `round ${round}, event A`).toBeNull();
+        expect(b.error, `round ${round}, event B`).toBeNull();
+
+        // Two DIFFERENT promotions, not a shared (promotion, member) pair, so
+        // both are first entries: both VALID, never one DUPLICATE.
+        const results = [a.data, b.data] as Array<{ outcome: string; status: string }>;
+        for (const result of results) {
+          expect(result.outcome, `round ${round}`).toBe('recorded');
+          expect(result.status, `round ${round}`).toBe('VALID');
+        }
+
+        // Still one members row: cross-Station is still one Organization, and
+        // apply_member_lookup's dedup is Organization-scoped.
         const { count, error: countError } = await admin
           .from('members')
           .select('id', { count: 'exact', head: true })

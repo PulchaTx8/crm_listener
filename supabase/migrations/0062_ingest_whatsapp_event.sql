@@ -520,6 +520,42 @@ begin
     -- that returned null a moment ago now finds the row. Only phone was
     -- supplied to apply_member_creation above, so the collision can only be
     -- phone_normalized, and the re-lookup is guaranteed to find it.
+    --
+    -- DEPENDS ON READ COMMITTED, stated rather than assumed, because the fix
+    -- rests on it. The re-lookup sees the winner's row only because each
+    -- statement inside PL/pgSQL takes a fresh snapshot under this
+    -- repository's isolation level, which nothing here sets and which is
+    -- Postgres' own default -- so this holds today. Under REPEATABLE READ the
+    -- re-lookup would still run on the snapshot from BEFORE the winner
+    -- committed and would return null; v_member would stay null;
+    -- apply_participation would raise P0002 on it (0054, "listener not found
+    -- in this station"); and the whole transaction, catch included, would
+    -- abort and the event would retry. That is a DEGRADATION to the pre-fix
+    -- behaviour, never a wrong write: participations.member_id is NOT NULL
+    -- (0052), so there is no path from a null v_member to a stored row that
+    -- names nobody. A future contributor who raises the isolation level
+    -- inherits this degradation and should know it, which is why it is
+    -- written here rather than left to be rediscovered.
+    --
+    -- Also depends on members_phone_unique (0031) and apply_member_candidates
+    -- (0061, which apply_member_lookup is built on) agreeing EXACTLY on
+    -- `deleted_at is null` -- both filter on it identically today. Were the
+    -- index ever to count a soft-deleted row while the lookup went on
+    -- skipping it, a real collision against a deleted member would raise
+    -- here and the re-lookup would return null for that collision too.
+    --
+    -- LINKED, NOT ONLY LOOKED UP. The re-lookup can land in the SAME state
+    -- the else branch below exists for: known to the Organization, not yet
+    -- to THIS Station (design spec D8) -- reachable when two Stations of one
+    -- Organization, each with its own integration, race on the same phone at
+    -- once. The winner's apply_member_creation linked only its OWN Station;
+    -- without this call the loser would hold a member id with no link here,
+    -- and apply_participation below would raise P0002 for it -- a spurious
+    -- FAILED event whose message does not describe what actually happened,
+    -- self-healing only on the next retry once the lookup (now non-null)
+    -- takes the else branch instead. Idempotent at the table (ON CONFLICT DO
+    -- NOTHING, 0061), so calling it in the same-Station case too -- where the
+    -- winner already holds this exact link -- costs nothing.
     begin
       v_member := public.apply_member_creation(
         v_integ.company_id, coalesce(v_profile, 'Ouvinte WhatsApp'), v_local,
@@ -529,6 +565,8 @@ begin
       when unique_violation then
         v_member := public.apply_member_lookup(
           v_integ.organization_id, v_local, null, null, null);
+        perform public.apply_member_link(
+          v_member, v_integ.company_id, v_integ.organization_id, null);
     end;
   else
     -- Design spec D8: known to the Organization but not to this Station. Link
@@ -585,7 +623,7 @@ revoke execute on function public.ingest_whatsapp_event(uuid) from public;
 grant execute on function public.ingest_whatsapp_event(uuid) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid) is
-  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp RAISES rather than finishing, because a NULL there makes every rule below it UNKNOWN and the event would otherwise be filed as DONE with a plausible-looking reason. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
+  'One inbound message, decided end to end in one transaction: the Station from the number, the promotion from the hashtag, the listener from the phone, the entry through apply_participation, and the reply into the outbox. The third entrance to apply_participation and the only one not gated on has_permission -- the worker is service_role and there is no user to check, so the integrations row stands in for the gate: a message is ingested only if it arrived at a number this installation serves AND has switched on. Everything after that lookup is judged by the MESSAGE timestamp and never by now(), so a reprocessed event is decided as of when the person wrote; matching the promotion on now() instead makes the two clocks disagree and apply_participation then refuses, with 22023, the very window that admitted the message. The hashtag is matched on the token as written and then, only if that matches nothing, on the same token with trailing punctuation removed -- "#EUQUERO!!" is how somebody writes when they are excited, and the exact form still wins because a stored hashtag may legitimately end in punctuation -- though only among candidates that are OPEN, so a message naming an ENDED "#VAI!" is entered into an open "#VAI" rather than refused (see the body comment; the narrower rule is with the owner). A message that names a promotion and carries no usable timestamp RAISES rather than finishing, because a NULL there makes every rule below it UNKNOWN and the event would otherwise be filed as DONE with a plausible-looking reason. The reply commits with the entry (design spec D7), which is why there is no state where a listener is entered and never told; it is addressed to the number WhatsApp delivered rather than to the local form this database stores, and its dedupe_key follows webhook_events.external_id -- the SHA-256 of the wamid, never the raw id -- so a message decided twice is answered once even though the second pass writes a second participation. Takes the event FOR UPDATE SKIP LOCKED and only in status RECEIVED or FAILED: a second tick, or a re-run of a finished event, gets outcome "skipped" and writes nothing. Two concurrent messages from an UNKNOWN phone racing each other on member creation are resolved rather than one of them raising: apply_member_creation''s unique_violation is caught here and the loser re-resolves through apply_member_lookup, which the winner''s now-committed row satisfies -- two overlapping ticks meeting a stranger at once is the ordinary case under load (0063), not an exotic one, and apply_member_creation''s own refusal is correct for create_member''s single-row operator door and wrong for this one; the loser also links itself to its own Station in that same branch, since the winner''s apply_member_creation only linked its. Any OTHER raise leaves the whole transaction rolled back, including the move to PROCESSING, so the event returns to its previous status and is picked up again -- the worker is what decides whether to park it as FAILED. Writes its own audit row with no phone, name or other personal data in it (design spec D2); apply_participation writes its own about the participation, and the two join on participation_id.';
 
 -- THE PAYLOAD CONTRACT, stated on the column that holds it, because the task
 -- that BUILDS a payload (Task 11's webhook route) is the one that has to keep

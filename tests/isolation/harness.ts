@@ -445,6 +445,10 @@ async function superuserQuery<T extends Record<string, unknown>>(
 export async function seedIntegration(
   customer: ProvisionedCustomer,
   phoneNumberId: string,
+  // Defaults to the customer's own Station; a caller exercising a
+  // cross-Station scenario (a second Station added via addCompany) passes
+  // that Station's id explicitly.
+  companyId: string = customer.companyId,
 ): Promise<string> {
   const rows = await superuserQuery<{ id: string }>(
     'seedIntegration',
@@ -452,7 +456,7 @@ export async function seedIntegration(
        (organization_id, company_id, provider, phone_number_id, enabled)
      values ($1, $2, 'WHATSAPP', $3, true)
      returning id`,
-    [customer.organizationId, customer.companyId, phoneNumberId],
+    [customer.organizationId, companyId, phoneNumberId],
   );
   if (rows.length !== 1) {
     throw new Error(`seedIntegration: expected to insert exactly one row, got ${rows.length}`);

@@ -157,18 +157,32 @@ comment on function public.claim_outbox_batch(integer) is
 -- predicate. Nothing else in this system would ever look at that row again.
 -- This is the ordinary consequence of a serverless timeout, not a hypothetical.
 --
--- INBOUND is insurance. Nothing in this repository commits a row in PROCESSING:
--- ingest_whatsapp_event (0062) sets it and then, in the SAME transaction,
--- either finishes the event as DONE or raises -- and a raise rolls the
--- PROCESSING write back with everything else, since that function contains no
--- EXCEPTION block and so no subtransaction that could survive one. A tick that
--- dies mid-batch strands nothing inbound; its transaction aborts and the event
--- is RECEIVED or FAILED again. What this arm covers is an operator moving a row
--- by hand -- 06_whatsapp's closing block does exactly that to re-run a finished
--- event, though it writes FAILED and not PROCESSING, so it is the shape of the
--- case rather than an instance of it -- and any later design that commits the
--- claim in one transaction and does the work in another, which is what a second
--- worker or a pgmq migration would be.
+-- INBOUND is insurance. No path through ingest_whatsapp_event (0062) commits
+-- a row in PROCESSING: the only RETURN below that write is
+-- finish_whatsapp_event(..., 'recorded', ...), which writes DONE, outcome and
+-- processed_at together in one statement, and every other exit is an
+-- uncaught RAISE that aborts the whole transaction and takes the PROCESSING
+-- write down with it.
+--
+-- THIS IS NOT because the function holds no EXCEPTION block -- it does, one,
+-- around apply_member_creation (0062, added for the member-creation race
+-- fix). Two reviews leaned on "no EXCEPTION block" as the reason and both
+-- were wrong even before that fix landed: the hazard the sentence warns
+-- against does not exist regardless. A PL/pgSQL handler's implicit savepoint
+-- is a SUBtransaction, and a subtransaction cannot commit independently of
+-- its parent -- rolling back to it discards the work inside it, it cannot
+-- durably write it out from under an aborting caller. The one caught path
+-- here contains no RETURN and no commit point of its own either, so it does
+-- not change this argument; it only changes what v_member resolves to.
+--
+-- A tick that dies mid-batch strands nothing inbound; its transaction aborts
+-- and the event is RECEIVED or FAILED again. What this arm covers is an
+-- operator moving a row by hand -- 06_whatsapp's closing block does exactly
+-- that to re-run a finished event, though it writes FAILED and not
+-- PROCESSING, so it is the shape of the case rather than an instance of it --
+-- and any later design that commits the claim in one transaction and does
+-- the work in another, which is what a second worker or a pgmq migration
+-- would be.
 --
 -- MEASURED AGAINST claimed_at, NEVER AGAINST received_at OR next_attempt_at,
 -- and those columns (0058, 0059) exist for this line alone. The other two say
@@ -253,7 +267,7 @@ revoke execute on function public.reclaim_stale_whatsapp_claims(interval) from p
 grant execute on function public.reclaim_stale_whatsapp_claims(interval) to service_role;
 
 comment on function public.reclaim_stale_whatsapp_claims(interval) is
-  'Returns abandoned claims to their queues, on both sides. The outbound arm is load-bearing: a tick that dies between claim_outbox_batch and the settle write leaves a row committed in SENDING, outside that function''s predicate, so nothing else would ever look at it again -- an ordinary serverless timeout, not a hypothetical. The inbound arm is insurance: nothing here commits a row in PROCESSING, because ingest_whatsapp_event (0062) sets it and finishes or raises in the same transaction and holds no EXCEPTION block, so a dying tick strands nothing; it covers an operator moving a row by hand and any later design that commits a claim separately. Measured against claimed_at and never against received_at or next_attempt_at -- those say when the message arrived and when the row became sendable, neither of which is the age of a CLAIM, and predicated on them a backlogged row would be reclaimable the instant it was claimed. FOR UPDATE SKIP LOCKED so a reclaim can neither steal a row a live worker holds nor block behind its lock, which would turn one wedged row into a wedged queue. Leaves attempts, last_error and next_attempt_at untouched, because a reclaim is not a failure. RESIDUAL, deliberate: returning a SENDING row can re-send a message Meta already accepted, if the tick died between Meta''s 200 and the settle write -- at-least-once, closable only by a provider idempotency key the Cloud API does not offer for text. Parking instead would trade a listener told twice for a listener entered and never told, which design spec D7 exists to prevent.';
+  'Returns abandoned claims to their queues, on both sides. The outbound arm is load-bearing: a tick that dies between claim_outbox_batch and the settle write leaves a row committed in SENDING, outside that function''s predicate, so nothing else would ever look at it again -- an ordinary serverless timeout, not a hypothetical. The inbound arm is insurance: nothing here commits a row in PROCESSING -- the only RETURN below that write in ingest_whatsapp_event (0062) writes DONE in the same statement, and every other exit is an uncaught RAISE that aborts the transaction and takes the PROCESSING write with it. That holds even though the function now carries one EXCEPTION block, around apply_member_creation for the member-creation race fix: a PL/pgSQL handler''s implicit savepoint is a SUBtransaction, and a subtransaction cannot commit independently of its parent, so catching an error there cannot leave PROCESSING durably written either. So a dying tick strands nothing; it covers an operator moving a row by hand and any later design that commits a claim separately. Measured against claimed_at and never against received_at or next_attempt_at -- those say when the message arrived and when the row became sendable, neither of which is the age of a CLAIM, and predicated on them a backlogged row would be reclaimable the instant it was claimed. FOR UPDATE SKIP LOCKED so a reclaim can neither steal a row a live worker holds nor block behind its lock, which would turn one wedged row into a wedged queue. Leaves attempts, last_error and next_attempt_at untouched, because a reclaim is not a failure. RESIDUAL, deliberate: returning a SENDING row can re-send a message Meta already accepted, if the tick died between Meta''s 200 and the settle write -- at-least-once, closable only by a provider idempotency key the Cloud API does not offer for text. Parking instead would trade a listener told twice for a listener entered and never told, which design spec D7 exists to prevent.';
 
 -- Both reclaim arms scan on a status their table's main index does not cover,
 -- every ten seconds, for ever. Without these that is two sequential scans of
