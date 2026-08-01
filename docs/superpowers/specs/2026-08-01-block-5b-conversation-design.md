@@ -207,15 +207,28 @@ Station know not to pester them.
 
 Computed once when the hashtag arrives, in this order:
 
-1. **Consent** — the art if `use_art`, then `call_to_action` with the two
-   buttons labelled `yes_button_label` and `no_button_label`.
+1. **Consent — one composed message, not three.** The owner specified its
+   contents on 2026-08-01:
+
+   > **banner → promotion name → call to action → the two buttons**
+
+   That is exactly the Cloud API's interactive-button shape: an image header
+   carrying `art_url` when `use_art` is set, a text body, and the action. The
+   **name and the call to action both live in the body**, the name first,
+   separated by a blank line. It is a single send — the bot does not post the
+   art, then the text, then the buttons.
 
    **Consent is always present**, even when the promotion configures none of
    those three. It is the only step that can produce a NO, and a listener who
    cannot decline is a listener the block has no honest record for. When
-   `call_to_action` is empty the bot uses the promotion's name; when the button
-   labels are empty it uses **Quero!** and **Agora não**. Those defaults are
-   copy, changeable without a migration.
+   `call_to_action` is empty the body is the name alone; when `use_art` is false
+   there is no header and the message begins at the body; when the button labels
+   are empty the bot uses **Quero!** and **Agora não**. Those defaults are copy,
+   changeable without a migration.
+
+   The consequence, stated rather than discovered: **every promotion that exists
+   today takes one more message than it did.** A hashtag no longer enters
+   anybody directly — it opens a conversation whose first step is this message.
 2. **One step per requested field** that is empty, or whose confirmation is
    older than `data_validity_months`, in the enum's own order — the order D6 of
    the 4a spec fixed when the owner said a field would never need settings of
