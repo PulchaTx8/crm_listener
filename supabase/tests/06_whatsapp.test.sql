@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(24);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -142,6 +142,44 @@ select lives_ok($$
   insert into public.webhook_events (provider, external_id, company_id, organization_id)
   values ('WHATSAPP', 'wamid.TEST-BOTHNULL', null, null)
 $$, 'company_id and organization_id may both be null before a number resolves');
+
+-- outbox_messages -------------------------------------------------------------
+
+select has_type('public', 'outbox_status', 'the outbox status enum exists');
+select is(relrowsecurity, true, 'RLS enabled on outbox_messages')
+  from pg_class where oid = 'public.outbox_messages'::regclass;
+select ok(not has_table_privilege('authenticated', 'public.outbox_messages', 'SELECT'),
+          'authenticated may not read outbox_messages');
+
+insert into public.outbox_messages
+  (provider, integration_id, organization_id, company_id, to_phone, body, dedupe_key)
+values
+  ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+   '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+   '11999998888', 'ok', 'p1:confirmation');
+
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body, dedupe_key)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
+     '11999998888', 'ok again', 'p1:confirmation')
+$$, '23505', null, 'reprocessing cannot send the same confirmation twice');
+
+-- Tenancy guard: outbox_messages_company_org_fk -------------------------------
+-- Unlike webhook_events, company_id and organization_id here are NOT NULL, so
+-- there is no null-passes-untouched case to preserve — only the mismatch to
+-- refuse, the same guard integrations (0057) and webhook_events (0058) use.
+
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body, dedupe_key)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000005a1',
+     '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c3',
+     '11999998888', 'ok', 'p1:mismatch')
+$$, '23503', null, 'a Station cannot be paired with a foreign Organization on outbox_messages');
 
 select * from finish();
 rollback;

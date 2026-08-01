@@ -904,6 +904,82 @@ export type Database = {
         }
         Relationships: []
       }
+      outbox_messages: {
+        Row: {
+          attempts: number
+          body: string
+          company_id: string
+          created_at: string
+          dedupe_key: string
+          external_id: string | null
+          id: string
+          integration_id: string
+          last_error: string | null
+          next_attempt_at: string
+          organization_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          sent_at: string | null
+          status: Database["public"]["Enums"]["outbox_status"]
+          to_phone: string
+        }
+        Insert: {
+          attempts?: number
+          body: string
+          company_id: string
+          created_at?: string
+          dedupe_key: string
+          external_id?: string | null
+          id?: string
+          integration_id: string
+          last_error?: string | null
+          next_attempt_at?: string
+          organization_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["outbox_status"]
+          to_phone: string
+        }
+        Update: {
+          attempts?: number
+          body?: string
+          company_id?: string
+          created_at?: string
+          dedupe_key?: string
+          external_id?: string | null
+          id?: string
+          integration_id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          organization_id?: string
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["outbox_status"]
+          to_phone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outbox_messages_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "outbox_messages_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outbox_messages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       participation_answers: {
         Row: {
           answer_text: string | null
@@ -2286,6 +2362,7 @@ export type Database = {
         | "court_order"
         | "internal_policy"
       org_role: "owner" | "member"
+      outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
       participation_source: "MANUAL" | "IMPORT"
       participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
       permission_scope: "organization" | "company"
@@ -2469,6 +2546,7 @@ export const Constants = {
         "internal_policy",
       ],
       org_role: ["owner", "member"],
+      outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
       participation_source: ["MANUAL", "IMPORT"],
       participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
       permission_scope: ["organization", "company"],
