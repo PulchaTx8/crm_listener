@@ -66,6 +66,16 @@ create table public.webhook_events (
   next_attempt_at timestamptz,
   processed_at    timestamptz,
 
+  -- When this event was last CLAIMED, which is not when it arrived and not
+  -- when it is next due. The worker's reclaim (0063) needs the age of the
+  -- CLAIM, and every other timestamp on this row answers a different question:
+  -- an event received an hour ago and claimed one second ago is a healthy tick
+  -- in flight, and a reclaim predicated on received_at cannot tell it from an
+  -- abandoned one. Without this column that distinction is unavailable, so the
+  -- reclaim would take work away from a live worker the moment a backlog
+  -- appeared -- exactly when a backlog is least affordable.
+  claimed_at      timestamptz,
+
   constraint webhook_events_external_id_unique unique (provider, external_id),
 
   constraint webhook_events_company_org_fk
@@ -84,6 +94,18 @@ create table public.webhook_events (
   constraint webhook_events_done_shape check (
     (status = 'DONE' and outcome is not null and processed_at is not null)
     or (status <> 'DONE' and outcome is null and processed_at is null)
+  ),
+
+  -- PROCESSING is a claim, and a claim that cannot say when it was made is not
+  -- one. Held structurally so the reclaim (0063) may predicate on claimed_at
+  -- with no fallback: a coalesce to received_at would quietly restore the very
+  -- bug this column exists to remove, and an `is not null` guard would instead
+  -- make a hand-written PROCESSING row unreclaimable -- the one case the
+  -- reclaim is reachable for today. One direction only: the column stays
+  -- populated after the claim ends, where it reads as "when this was last
+  -- claimed" and costs nothing.
+  constraint webhook_events_claim_shape check (
+    status <> 'PROCESSING' or claimed_at is not null
   )
 );
 
@@ -94,6 +116,29 @@ create index webhook_events_pending
 alter table public.webhook_events enable row level security;
 -- No policy. See integrations (0057) for why that is the deny and not an
 -- oversight.
+
+-- AND service_role STILL NEEDS AN EXPLICIT GRANT, which "RLS on, no policy,
+-- service_role only" above does NOT provide on its own. This schema's default
+-- ACL hands service_role only Dxtm (TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) --
+-- 0006, 0014, 0019 and 0029 all say so and all grant accordingly -- so
+-- bypassing RLS gets a role exactly nowhere without table privileges to bypass
+-- it with. Omitted when this file was written, and the omission was invisible:
+-- every test that exercises this table either runs as postgres (pgTAP) or
+-- mocks the Supabase client (vitest), and neither touches a privilege check.
+--
+-- What it cost: Block 5a Task 11's webhook route is the only writer here, it
+-- writes through PostgREST as service_role, and it was answering
+--   {"code":"42501","message":"permission denied for table webhook_events"}
+-- to every inbound message -- so the route returned 500, Meta re-delivered for
+-- ever, and not one WhatsApp message could ever have been stored.
+--
+-- SELECT is required and not decoration: PostgreSQL demands SELECT on every
+-- column named in an UPDATE's WHERE clause, so `update ... where id = $1`
+-- fails with UPDATE alone. INSERT is the route's; UPDATE is the worker's
+-- (0063), which defers a failed event. No DELETE: nothing in this system
+-- deletes an event, and prune_webhook_payloads below nulls the payload
+-- precisely so it does not have to.
+grant select, insert, update on public.webhook_events to service_role;
 
 -- Design spec D9. The payload holds a phone number, a WhatsApp profile name and
 -- the raw provider message id — personal data at rest in a table Block 3's

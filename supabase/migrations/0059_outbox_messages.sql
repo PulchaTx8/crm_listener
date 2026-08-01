@@ -47,6 +47,14 @@ create table public.outbox_messages (
   created_at      timestamptz not null default now(),
   sent_at         timestamptz,
 
+  -- When a worker took this row to send it. See webhook_events.claimed_at
+  -- (0058) for the reasoning; it matters more here, because on this side the
+  -- claim is real. next_attempt_at is when the row became SENDABLE and says
+  -- nothing about how long the send has been running, so a reclaim measured
+  -- against it would return a row to PENDING while its HTTP call to Meta was
+  -- still open -- and the listener would get the message twice.
+  claimed_at      timestamptz,
+
   constraint outbox_messages_company_org_fk
     foreign key (company_id, organization_id)
     references public.companies (id, organization_id),
@@ -59,6 +67,15 @@ create table public.outbox_messages (
   constraint outbox_messages_sent_shape check (
     (status = 'SENT' and sent_at is not null and external_id is not null)
     or (status <> 'SENT' and sent_at is null and external_id is null)
+  ),
+
+  -- SENDING is a claim, and the same structural rule webhook_events_claim_shape
+  -- (0058) states for PROCESSING. Note it does NOT conflict with the shape
+  -- above: a SENDING row leaves sent_at and external_id null, which is exactly
+  -- what a non-SENT row is required to do, so claiming a row writes one column
+  -- and violates nothing.
+  constraint outbox_messages_claim_shape check (
+    status <> 'SENDING' or claimed_at is not null
   )
 );
 
@@ -75,6 +92,18 @@ create index outbox_messages_sendable
 
 alter table public.outbox_messages enable row level security;
 -- No policy. See integrations (0057).
+
+-- And the explicit grant RLS-with-no-policy does not imply. See the same block
+-- in 0058 for what its absence cost there; here it would have made every
+-- settle write from the worker fail with 42501 after the message had already
+-- reached Meta -- the one failure that is worse than not sending, because the
+-- row stays sendable and the listener is told twice.
+--
+-- SELECT accompanies UPDATE because PostgreSQL requires it for the WHERE
+-- clause. No INSERT: the only writer of a new row is ingest_whatsapp_event
+-- (0062), which is SECURITY DEFINER and runs as the owner. No DELETE: an
+-- outbox row is the record that a reply was owed, and it outlives the reply.
+grant select, update on public.outbox_messages to service_role;
 
 comment on table public.outbox_messages is
   'Outbound messages as rows, so a reply commits in the same transaction as the participation it announces. dedupe_key is unique and is keyed on the MESSAGE (''<sha256 of the wamid>:confirmation''), not on the participation: reprocessing an event by hand writes a new participation, so a participation-keyed value would have produced a second reply and never fired the constraint at all. Keyed on the message the promise is real and matches the inbound side, whose idempotency is already (provider, external_id) on webhook_events; the value is the HASH of the wamid, following external_id, because the raw id is not anonymous and this column is not pruned either. RLS enabled with no policy — service_role only.';

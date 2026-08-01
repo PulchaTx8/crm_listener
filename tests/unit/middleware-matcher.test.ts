@@ -69,4 +69,15 @@ describe('middleware matcher', () => {
   it('still matches /api/health, which opts out via PUBLIC_PATHS instead', () => {
     expect(matcher.test('/api/health')).toBe(true);
   });
+
+  // The negative space, which the assertions above cannot see. Every one of
+  // them names a path that IS excluded, so all of them would still pass if the
+  // exclusions lost their trailing slash and became `api/webhooks` and
+  // `api/worker` — and then any route whose name merely STARTS with those
+  // words would silently lose its session check too. The slash is what makes
+  // the prefixes safe, and these are the only tests that hold it.
+  it('still matches a route that merely begins like the excluded prefixes', () => {
+    expect(matcher.test('/api/webhooksfoo')).toBe(true);
+    expect(matcher.test('/api/workerfoo')).toBe(true);
+  });
 });

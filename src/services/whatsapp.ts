@@ -17,38 +17,58 @@ export const BACKOFF_SECONDS = [1, 4, 16, 64, 256] as const;
 /**
  * Where a row stops. Five rungs means one first attempt plus five retries, so
  * six sends spread over 1 + 4 + 16 + 64 + 256 = 341 seconds — the "roughly six
- * minutes per row" graph.ts already promises for a dead credential. The spec
- * sentence says "parked at 5 attempts", which counts the retries and not the
- * first send; the ladder is the fixed thing and this is derived from it, so
- * the two cannot drift apart.
+ * minutes per row" graph.ts already promises for a dead credential.
+ *
+ * DERIVED, on the controller's ruling, rather than written down as a number.
+ * The plan's "parked at 5 attempts" counts retries and not sends, and was loose
+ * wording rather than a specification; hard-coding either 5 or 6 here would let
+ * the constant and the ladder drift apart silently, and the ladder is the thing
+ * the design actually fixed.
  */
 export const MAX_ATTEMPTS = BACKOFF_SECONDS.length + 1;
 
 /**
- * How long a row may sit in PROCESSING before a tick takes it back.
+ * What a parked event's next_attempt_at becomes.
  *
- * Chosen against both ends. A healthy claim is one ingest_whatsapp_event call
- * — one transaction, one message, milliseconds — so five minutes is thirty
- * ticks and some three orders of magnitude of headroom; nothing that is
- * working is ever near it. At the other end a listener who texted a hashtag is
- * already unhappy at five minutes of silence but has not yet phoned the
- * station, so it is inside the window where recovering by itself still counts
- * as recovering.
+ * Infinity rather than null, and it is load-bearing. Inbound FAILED stays
+ * inside webhook_events_pending on purpose (0058 — inbound FAILED means "try
+ * again"), so a null here would make coalesce(next_attempt_at, received_at)
+ * fall back to a received_at that is always in the past, and the row would be
+ * due on every tick for ever: the "permanently unroutable message gets retried
+ * forever" 0058's own type comment warns about. Infinity puts it beyond
+ * due_whatsapp_events' index condition permanently, and at the FAR end of that
+ * index — where a null would have sorted it FIRST, in front of every real
+ * message, on every tick.
  *
- * Being wrong about it is cheap in one direction only, which is why the number
- * can be a judgement rather than a measurement: too long merely delays a
- * recovery, and too short cannot corrupt anything, because the reclaim skips
- * locked rows (0063) and a live claim is a locked row.
+ * Verified against PostgREST rather than assumed: the JSON string "infinity"
+ * reaches the column as timestamptz infinity.
  */
-export const STALE_PROCESSING = '5 minutes';
+export const PARKED_AT = 'infinity';
+
+/**
+ * How long a claim may stay open before a tick takes it back.
+ *
+ * The age of the CLAIM, not of the row — webhook_events.claimed_at and
+ * outbox_messages.claimed_at exist for this and nothing else. A healthy claim
+ * is one ingest call or one send, so five minutes is thirty ticks of headroom
+ * and nothing that is working comes near it; a listener is unhappy at five
+ * minutes of silence but has not yet phoned the station, so recovering inside
+ * that window still counts as recovering.
+ *
+ * Being wrong is cheap in one direction only, which is why this can be a
+ * judgement rather than a measurement: too long merely delays a recovery, and
+ * too short cannot corrupt anything, because the reclaim skips locked rows
+ * (0063) and a live claim is a locked row.
+ */
+export const STALE_CLAIM = '5 minutes';
 
 /**
  * A whole batch stops after this many retryable send failures in a row.
  *
  * Task 10's operational note, acted on: `retryable` covers a credential that
- * can be repaired (401, 403), and a credential failure is SYSTEM-WIDE. During
- * a token rotation every row in the batch fails identically, and burning one
- * rung of every row's ladder on the same outage — fifty rows, five rungs, six
+ * can be repaired (401, 403), and a credential failure is SYSTEM-WIDE. During a
+ * token rotation every row in the batch fails identically, and burning one rung
+ * of every row's ladder on the same outage — fifty rows, five rungs, six
  * minutes — can park the entire queue over an incident that fixed itself in
  * ninety seconds. Counting consecutive failures rather than reading the status
  * code keeps this on the near side of cheap: it needs nothing added to
@@ -56,8 +76,8 @@ export const STALE_PROCESSING = '5 minutes';
  * bad token, which a 401 test would not.
  *
  * It cannot wedge the queue. The rows already tried carry a future
- * next_attempt_at, so the next tick starts below them, and the untried rows
- * kept their attempts and are simply tried ten seconds later.
+ * next_attempt_at, and the rows never reached are released by the reclaim once
+ * their claim goes stale, so a later tick sees both again.
  */
 export const MAX_CONSECUTIVE_SEND_FAILURES = 3;
 
@@ -68,17 +88,50 @@ export function nextAttemptDelay(attempts: number): number | null {
 
 export interface TickResult {
   /** Events taken back from an abandoned claim. Normally 0. */
-  reclaimed: number;
+  reclaimedEvents: number;
+  /** Messages taken back from an abandoned claim. Normally 0. */
+  reclaimedMessages: number;
   /** Events this tick decided. */
   ingested: number;
   /** Events another tick already held, or that stopped being eligible. */
   skipped: number;
   /** Events whose ingestion raised, now scheduled or parked. */
   eventsFailed: number;
+  /** Messages Meta accepted. */
   sent: number;
   sendFailed: number;
   /** True when the outbound batch stopped early on consecutive failures. */
   sendAborted: boolean;
+  /**
+   * Database calls that came back with an error. Zero is what "nothing to do"
+   * looks like; anything else is what "nothing worked" looks like, and without
+   * this counter both are the same all-zero response.
+   */
+  dbErrors: number;
+}
+
+type MaybeError = { message: string } | null;
+
+/**
+ * supabase-js RESOLVES on a database error rather than throwing, so an
+ * unchecked call is not a call that succeeded — it is a call whose failure was
+ * discarded. A failed select yields `data: null`, the loop after it iterates
+ * zero times, and the tick reports a clean sweep of an empty queue. Every
+ * trigger for that is already in this repository's history: a stale PostgREST
+ * schema cache after types are regenerated, a missing grant, a transient
+ * outage.
+ *
+ * Returns true when the caller should treat the step as not having happened.
+ *
+ * Logs `message` only, never `details`: PostgreSQL puts the constraint name in
+ * the message and the offending ROW VALUES in the detail, and webhook_events
+ * carries a phone number and a WhatsApp profile name (0058).
+ */
+function failed(result: TickResult, where: string, error: MaybeError): boolean {
+  if (error === null) return false;
+  result.dbErrors += 1;
+  console.error(`whatsapp tick: ${where}: ${error.message}`);
+  return true;
 }
 
 /**
@@ -91,6 +144,9 @@ export interface TickResult {
  * roll back a batch. A backlog larger than the cap simply takes more ticks;
  * nothing is dropped, because the selection reads the table rather than being
  * handed a list.
+ *
+ * The two halves are independent on purpose: an inbound failure must not stop
+ * replies going out, and the reverse.
  */
 export async function runTick(deps: {
   supabase: SupabaseClient<Database>;
@@ -98,40 +154,61 @@ export async function runTick(deps: {
 }): Promise<TickResult> {
   const { supabase, transport } = deps;
   const result: TickResult = {
-    reclaimed: 0,
+    reclaimedEvents: 0,
+    reclaimedMessages: 0,
     ingested: 0,
     skipped: 0,
     eventsFailed: 0,
     sent: 0,
     sendFailed: 0,
     sendAborted: false,
+    dbErrors: 0,
   };
 
-  // First, and before anything is selected: a row abandoned in PROCESSING is
-  // in no other query's answer, so if this does not look for it nothing ever
-  // will. See 0063 for how little it can currently find and why it is here
-  // anyway.
-  const { data: reclaimed } = await supabase.rpc('reclaim_stale_whatsapp_events', {
-    p_stale_after: STALE_PROCESSING,
+  // First, and before anything is claimed: a row abandoned mid-claim is in no
+  // other query's answer, so if this does not look for it nothing will.
+  const { data: reclaimed, error } = await supabase.rpc('reclaim_stale_whatsapp_claims', {
+    p_stale_after: STALE_CLAIM,
   });
-  result.reclaimed = reclaimed ?? 0;
+  if (!failed(result, 'reclaim stale claims', error)) {
+    const counts = reclaimed?.[0];
+    result.reclaimedEvents = counts?.events ?? 0;
+    result.reclaimedMessages = counts?.messages ?? 0;
+  }
 
-  // Not a PostgREST select. webhook_events_pending (0058) is an index on an
-  // EXPRESSION and `order` cannot name one, so the query lives in SQL where it
-  // can be ordered the way the index is — which is also the order that does
-  // not starve new messages behind old failures (0063).
-  const { data: events } = await supabase.rpc('due_whatsapp_events', {
+  await drainEvents(supabase, result);
+  await drainOutbox(supabase, transport, result);
+
+  return result;
+}
+
+/**
+ * The inbound half. Selection is an RPC and not a PostgREST query:
+ * webhook_events_pending (0058) is an index on an EXPRESSION and `order` cannot
+ * name one, so the query lives in SQL where it can be ordered the way the index
+ * is — which is also the order that does not starve new messages behind old
+ * failures (0063).
+ *
+ * No claim here, and none needed: ingest_whatsapp_event takes the row FOR
+ * UPDATE SKIP LOCKED inside the transaction that decides it, so an overlapping
+ * tick gets outcome "skipped" and writes nothing.
+ */
+async function drainEvents(
+  supabase: SupabaseClient<Database>,
+  result: TickResult,
+): Promise<void> {
+  const { data: events, error } = await supabase.rpc('due_whatsapp_events', {
     p_limit: EVENT_BATCH,
-    p_max_attempts: MAX_ATTEMPTS,
   });
+  if (failed(result, 'select due events', error)) return;
 
   for (const event of events ?? []) {
-    const { data, error } = await supabase.rpc('ingest_whatsapp_event', {
+    const { data, error: ingestError } = await supabase.rpc('ingest_whatsapp_event', {
       p_event_id: event.id,
     });
 
-    if (error) {
-      await scheduleEventRetry(supabase, event.id, event.attempts, error.message);
+    if (ingestError) {
+      await deferEvent(supabase, result, event.id, event.attempts, ingestError.message);
       result.eventsFailed += 1;
     } else if (outcomeOf(data) === 'skipped') {
       // The door declined it: another tick holds it, or it stopped being
@@ -144,61 +221,84 @@ export async function runTick(deps: {
       result.ingested += 1;
     }
   }
+}
 
-  // This one IS a PostgREST select: outbox_messages_sendable (0059) is an
-  // index on the plain next_attempt_at column, so the filter and the order can
-  // both be written here and both are served by it. SENDING is in that index
-  // and is deliberately not asked for — nothing in this system writes it, and
-  // claiming a row into it before calling the transport would recreate, on the
-  // outbound side, exactly the abandoned-claim problem the reclaim above
-  // exists to answer on the inbound side.
-  const { data: pending } = await supabase
-    .from('outbox_messages')
-    .select('id, to_phone, body, attempts, integrations(phone_number_id)')
-    .eq('status', 'PENDING')
-    .lte('next_attempt_at', new Date().toISOString())
-    .order('next_attempt_at', { ascending: true })
-    .limit(OUTBOX_BATCH);
+/**
+ * The outbound half. The batch is CLAIMED by the statement that selects it
+ * (0063), which is what stops two overlapping ticks sending the same reply
+ * twice — and they do overlap: pg_cron fires every ten seconds whether or not
+ * the previous tick returned, and fifty sequential calls to Meta take longer
+ * than that.
+ */
+async function drainOutbox(
+  supabase: SupabaseClient<Database>,
+  transport: WhatsAppTransport,
+  result: TickResult,
+): Promise<void> {
+  const { data: claimed, error } = await supabase.rpc('claim_outbox_batch', {
+    p_limit: OUTBOX_BATCH,
+  });
+  if (failed(result, 'claim an outbound batch', error)) return;
 
   let consecutiveFailures = 0;
 
-  for (const row of pending ?? []) {
-    const phoneNumberId = row.integrations?.phone_number_id;
-
-    if (!phoneNumberId) {
+  for (const row of claimed ?? []) {
+    if (!row.phone_number_id) {
       // Unreachable through the schema — integration_id is NOT NULL with a
       // foreign key and phone_number_id is NOT NULL (0057, 0059) — and parked
-      // rather than skipped anyway. A `continue` here would leave a row
-      // PENDING with a next_attempt_at in the past, which means it is selected
-      // at the head of every tick from now on and occupies a slot in each of
-      // them, for ever, while looking like an ordinary backlog.
-      await supabase
+      // rather than skipped anyway. Left claimed it would sit until the
+      // reclaim released it and then repeat; left PENDING it would head every
+      // future batch for ever while looking like ordinary backlog.
+      const { error: parkError } = await supabase
         .from('outbox_messages')
         .update({ status: 'FAILED', last_error: 'integration has no phone_number_id' })
         .eq('id', row.id);
+      failed(result, 'park a row with no sender number', parkError);
       result.sendFailed += 1;
       continue;
     }
 
     const send = await transport.sendText({
-      phoneNumberId,
+      phoneNumberId: row.phone_number_id,
       to: row.to_phone,
       body: row.body,
     });
 
     if (send.ok) {
-      // All three together: outbox_messages_sent_shape (0059) makes SENT a
-      // claim about sent_at and external_id, and writing the status without
-      // them raises 23514.
-      await supabase
+      // Meta has accepted it. `sent` counts that fact, and is incremented even
+      // when the write below fails, because the message really did go out.
+      result.sent += 1;
+
+      // status, sent_at and external_id together: outbox_messages_sent_shape
+      // (0059) makes SENT a claim about the other two, and writing the status
+      // alone raises 23514. attempts goes with them so a message that
+      // succeeded on its fourth try does not record three.
+      const { error: sentError } = await supabase
         .from('outbox_messages')
         .update({
           status: 'SENT',
           external_id: send.externalId,
           sent_at: new Date().toISOString(),
+          attempts: row.attempts + 1,
         })
         .eq('id', row.id);
-      result.sent += 1;
+
+      // THE WORST FAILURE IN THIS FILE, called out rather than folded in with
+      // the others: Meta has the message and we could not record it. The row
+      // stays SENDING, which is already better than the PENDING it would have
+      // been without the claim — invisible to the next tick until the reclaim's
+      // stale threshold, rather than re-sent ten seconds later. When the
+      // reclaim does release it, the listener is told twice.
+      //
+      // The row id is ours and safe to log. The external id is NOT: a wamid
+      // decodes to bytes containing the counterparty's phone number (0058), so
+      // it is deliberately absent from this line.
+      if (failed(result, `record an accepted send for row ${row.id}`, sentError)) {
+        console.error(
+          `whatsapp tick: row ${row.id} was accepted by Meta and not recorded; it will be re-sent when its claim goes stale`,
+        );
+      }
+
       consecutiveFailures = 0;
       continue;
     }
@@ -211,7 +311,7 @@ export async function runTick(deps: {
 
     // sent_at and external_id are untouched on both branches. This row is not
     // SENT, and 0059 requires both to be null on any status that is not.
-    await supabase
+    const { error: settleError } = await supabase
       .from('outbox_messages')
       .update(
         delay === null
@@ -224,6 +324,7 @@ export async function runTick(deps: {
             },
       )
       .eq('id', row.id);
+    failed(result, 'settle a failed send', settleError);
     result.sendFailed += 1;
 
     consecutiveFailures = send.retryable ? consecutiveFailures + 1 : 0;
@@ -232,44 +333,39 @@ export async function runTick(deps: {
       break;
     }
   }
-
-  return result;
 }
 
 /**
  * An event whose ingestion raised. FAILED and never DONE: FAILED means "try
- * again" (0058), and webhook_events_done_shape forbids outcome and
- * processed_at on anything but DONE, so writing either here is 23514.
+ * again" (0058), and webhook_events_done_shape forbids outcome and processed_at
+ * on anything but DONE, so writing either here is 23514.
  *
  * `attempts` comes from the selection rather than from a second read. It is
  * this tick's own value, and the only thing that could have changed it in
  * between is another tick taking the row — which would have made this call
  * return "skipped" instead of raising.
- *
- * When the ladder is spent, next_attempt_at goes to null because there is no
- * next attempt. That is only half of parking: coalesce(next_attempt_at,
- * received_at) then falls back to a received_at in the past, so the row stays
- * due for ever unless something also refuses it on attempts. That something is
- * due_whatsapp_events' p_max_attempts (0063), and the two are one mechanism
- * written in two files.
  */
-async function scheduleEventRetry(
+async function deferEvent(
   supabase: SupabaseClient<Database>,
+  result: TickResult,
   id: string,
   attemptsBefore: number,
   message: string,
 ): Promise<void> {
   const delay = nextAttemptDelay(attemptsBefore);
 
-  await supabase
+  const { error } = await supabase
     .from('webhook_events')
     .update({
       status: 'FAILED',
       attempts: attemptsBefore + 1,
       last_error: message,
-      next_attempt_at: delay === null ? null : new Date(Date.now() + delay * 1000).toISOString(),
+      next_attempt_at:
+        delay === null ? PARKED_AT : new Date(Date.now() + delay * 1000).toISOString(),
     })
     .eq('id', id);
+
+  failed(result, 'defer a failed event', error);
 }
 
 /** The outcome ingest_whatsapp_event reported, or null if it reported none. */

@@ -311,7 +311,15 @@ begin
                               'participation_id', null);
   end if;
 
-  update public.webhook_events set status = 'PROCESSING' where id = v_event.id;
+  -- claimed_at goes with the status, because webhook_events_claim_shape (0058)
+  -- makes PROCESSING a claim about it -- the same pattern the DONE branch of
+  -- webhook_events_done_shape takes with outcome and processed_at. It is the
+  -- one timestamp the reclaim (0063) can honestly measure a claim's age
+  -- against, and it is now() for the same reason processed_at is: it records
+  -- when WE acted, not anything about the message.
+  update public.webhook_events
+     set status = 'PROCESSING', claimed_at = now()
+   where id = v_event.id;
 
   -- The payload is the FLATTENED message the route writes, not Meta's envelope:
   -- one webhook_events row is one message (0058), and `from`, `text`,

@@ -18,13 +18,15 @@ process.env.WORKER_TICK_SECRET = SECRET;
 const { POST } = await import('@/app/api/worker/tick/route');
 
 const EMPTY_TICK: TickResult = {
-  reclaimed: 0,
+  reclaimedEvents: 0,
+  reclaimedMessages: 0,
   ingested: 3,
   skipped: 0,
   eventsFailed: 0,
   sent: 2,
   sendFailed: 0,
   sendAborted: false,
+  dbErrors: 0,
 };
 
 const post = (headers: Record<string, string>) =>

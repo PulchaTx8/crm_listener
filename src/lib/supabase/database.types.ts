@@ -908,6 +908,7 @@ export type Database = {
         Row: {
           attempts: number
           body: string
+          claimed_at: string | null
           company_id: string
           created_at: string
           dedupe_key: string
@@ -925,6 +926,7 @@ export type Database = {
         Insert: {
           attempts?: number
           body: string
+          claimed_at?: string | null
           company_id: string
           created_at?: string
           dedupe_key: string
@@ -942,6 +944,7 @@ export type Database = {
         Update: {
           attempts?: number
           body?: string
+          claimed_at?: string | null
           company_id?: string
           created_at?: string
           dedupe_key?: string
@@ -1741,6 +1744,7 @@ export type Database = {
       webhook_events: {
         Row: {
           attempts: number
+          claimed_at: string | null
           company_id: string | null
           external_id: string
           id: string
@@ -1757,6 +1761,7 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          claimed_at?: string | null
           company_id?: string | null
           external_id: string
           id?: string
@@ -1773,6 +1778,7 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          claimed_at?: string | null
           company_id?: string | null
           external_id?: string
           id?: string
@@ -1953,6 +1959,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      claim_outbox_batch: {
+        Args: { p_limit: number }
+        Returns: {
+          attempts: number
+          body: string
+          id: string
+          phone_number_id: string
+          to_phone: string
+        }[]
+      }
       complete_password_change: { Args: never; Returns: undefined }
       create_invitation: {
         Args: {
@@ -2037,7 +2053,7 @@ export type Database = {
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
       due_whatsapp_events: {
-        Args: { p_limit: number; p_max_attempts: number }
+        Args: { p_limit: number }
         Returns: {
           attempts: number
           id: string
@@ -2194,9 +2210,12 @@ export type Database = {
         }[]
       }
       reactivate_company: { Args: { p_company_id: string }; Returns: undefined }
-      reclaim_stale_whatsapp_events: {
+      reclaim_stale_whatsapp_claims: {
         Args: { p_stale_after?: string }
-        Returns: number
+        Returns: {
+          events: number
+          messages: number
+        }[]
       }
       reconcile_inventory: {
         Args: { p_company_id: string }

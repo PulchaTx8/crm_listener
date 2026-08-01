@@ -1,50 +1,110 @@
 begin;
-select plan(20);
+select plan(40);
 
--- The worker's two selection routines (0063). Everything here is about WHICH
--- rows come back and in WHAT ORDER -- there is no promotion, no listener and
--- no entry in this file, which is the point: the drainer knows nothing about
--- them, and 06_whatsapp is where the deciding is tested.
+-- The worker's queue routines (0063), the claim columns they measure (0058,
+-- 0059) and the grants without which none of it can be reached over HTTP.
+-- Everything here is about WHICH rows come back, in WHAT ORDER, and WHO may
+-- ask -- there is no promotion, no listener and no entry in this file, which is
+-- the point: the drainer knows nothing about them, and 06_whatsapp is where the
+-- deciding is tested.
 
 create or replace function pg_temp.hash64(p_text text)
 returns text language sql immutable as $$
   select encode(sha256(convert_to(p_text, 'UTF8')), 'hex');
 $$;
 
-select has_function('public', 'due_whatsapp_events',
-                    array['integer', 'integer'], 'the due-events query exists');
-select has_function('public', 'reclaim_stale_whatsapp_events',
-                    array['interval'], 'the reclaim exists');
+-- Existence and reach ---------------------------------------------------------
 
--- Both read and write a table with RLS on and no policy. EXECUTE is
--- service_role's alone, the shape 0058's prune_webhook_payloads already takes.
+select has_function('public', 'due_whatsapp_events', array['integer'],
+                    'the due-events query exists');
+select has_function('public', 'claim_outbox_batch', array['integer'],
+                    'the outbound claim exists');
+select has_function('public', 'reclaim_stale_whatsapp_claims', array['interval'],
+                    'the reclaim exists');
+
 select ok(not has_function_privilege('authenticated',
-            'public.due_whatsapp_events(integer, integer)', 'EXECUTE'),
+            'public.due_whatsapp_events(integer)', 'EXECUTE'),
           'authenticated may not ask what is due');
 select ok(not has_function_privilege('authenticated',
-            'public.reclaim_stale_whatsapp_events(interval)', 'EXECUTE'),
+            'public.claim_outbox_batch(integer)', 'EXECUTE'),
+          'authenticated may not claim outbound messages');
+select ok(not has_function_privilege('authenticated',
+            'public.reclaim_stale_whatsapp_claims(interval)', 'EXECUTE'),
           'authenticated may not reclaim');
 select ok(has_function_privilege('service_role',
-            'public.due_whatsapp_events(integer, integer)', 'EXECUTE'),
+            'public.due_whatsapp_events(integer)', 'EXECUTE'),
           'the worker may ask what is due');
 select ok(has_function_privilege('service_role',
-            'public.reclaim_stale_whatsapp_events(interval)', 'EXECUTE'),
+            'public.claim_outbox_batch(integer)', 'EXECUTE'),
+          'the worker may claim outbound messages');
+select ok(has_function_privilege('service_role',
+            'public.reclaim_stale_whatsapp_claims(interval)', 'EXECUTE'),
           'the worker may reclaim');
 
--- The reclaim scans on status, which webhook_events_pending (0058) does not
--- cover, and it runs every ten seconds for ever. Without this index that is a
--- sequential scan of a growing table on every tick.
+-- THE GRANTS, and these are not bookkeeping. "RLS enabled, no policy,
+-- service_role only" does NOT give service_role anything: this schema's default
+-- ACL hands it Dxtm alone, so bypassing RLS reaches a table it holds no
+-- privilege on. Their absence is why Task 11's webhook route answered 42501 to
+-- every inbound message while every test in this repository passed -- pgTAP
+-- runs as postgres and the vitest suite mocks the client, so nothing below the
+-- HTTP boundary was ever exercised. These are that boundary, stated where a
+-- migration can be held to it.
+select ok(has_table_privilege('service_role', 'public.webhook_events', 'INSERT'),
+          'the webhook route may store an inbound message');
+select ok(has_table_privilege('service_role', 'public.webhook_events', 'SELECT'),
+          'and may name a row in a WHERE clause, which UPDATE requires');
+select ok(has_table_privilege('service_role', 'public.webhook_events', 'UPDATE'),
+          'and the worker may defer a failed event');
+select ok(has_table_privilege('service_role', 'public.outbox_messages', 'SELECT'),
+          'the worker may name an outbox row');
+select ok(has_table_privilege('service_role', 'public.outbox_messages', 'UPDATE'),
+          'and may settle it once Meta has answered');
+select ok(not has_table_privilege('authenticated', 'public.webhook_events', 'SELECT'),
+          'while authenticated still reaches neither table');
+
 select has_index('public', 'webhook_events', 'webhook_events_processing',
                  'PROCESSING has an index of its own to be found through');
+select has_index('public', 'outbox_messages', 'outbox_messages_sending',
+                 'and so does SENDING, which is the arm that really fires');
 
--- Ordering ------------------------------------------------------------------
+-- A claim that cannot say when it was made ------------------------------------
+
+select throws_ok($$
+  insert into public.webhook_events (provider, external_id, status)
+  values ('WHATSAPP', repeat('a', 64), 'PROCESSING')
+$$, '23514', null, 'PROCESSING without a claimed_at is refused outright');
+
+-- Fixtures --------------------------------------------------------------------
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-0000000007f1', 'Org 5a worker');
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000000007c1', '00000000-0000-0000-0000-0000000007f1',
+   'Station 5a worker', 'America/Sao_Paulo');
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', 'WHATSAPP', '777777777777777', true);
+
+select throws_ok($$
+  insert into public.outbox_messages
+    (provider, integration_id, organization_id, company_id, to_phone, body,
+     dedupe_key, status)
+  values
+    ('WHATSAPP', '00000000-0000-0000-0000-0000000007a1',
+     '00000000-0000-0000-0000-0000000007f1', '00000000-0000-0000-0000-0000000007c1',
+     '5511900000000', 'hi', 'no-claim:confirmation', 'SENDING')
+$$, '23514', null, 'and so is SENDING without one');
+
+-- Inbound ordering ------------------------------------------------------------
 --
 -- THE FIXTURE IS THE ASSERTION. These three rows are laid out so that ordering
--- by received_at -- which is what a PostgREST query can express, and what the
--- brief this task started from actually wrote -- produces a DIFFERENT sequence
--- from ordering by coalesce(next_attempt_at, received_at), the expression
--- webhook_events_pending is built on. Rows whose two columns agree cannot tell
--- the two apart, so a test built from them would pass either way.
+-- by received_at -- which is what a PostgREST query can express, and what this
+-- task's brief actually wrote -- produces a DIFFERENT sequence from ordering by
+-- coalesce(next_attempt_at, received_at), the expression webhook_events_pending
+-- is built on. Rows whose two columns agree cannot tell the two apart, so a
+-- test built from them would pass either way.
 --
 --   E1  received 3h ago, retried at 1 minute ago   -> due -1m   (received FIRST)
 --   E2  received 1h ago, never retried             -> due -1h
@@ -55,138 +115,211 @@ select has_index('public', 'webhook_events', 'webhook_events_processing',
 insert into public.webhook_events
   (id, provider, external_id, status, attempts, received_at, next_attempt_at)
 values
-  ('00000000-0000-0000-0000-0000000006e1', 'WHATSAPP', pg_temp.hash64('e1'),
+  ('00000000-0000-0000-0000-0000000007e1', 'WHATSAPP', pg_temp.hash64('e1'),
    'FAILED', 1, now() - interval '3 hours', now() - interval '1 minute'),
-  ('00000000-0000-0000-0000-0000000006e2', 'WHATSAPP', pg_temp.hash64('e2'),
+  ('00000000-0000-0000-0000-0000000007e2', 'WHATSAPP', pg_temp.hash64('e2'),
    'RECEIVED', 0, now() - interval '1 hour', null),
-  ('00000000-0000-0000-0000-0000000006e3', 'WHATSAPP', pg_temp.hash64('e3'),
+  ('00000000-0000-0000-0000-0000000007e3', 'WHATSAPP', pg_temp.hash64('e3'),
    'RECEIVED', 0, now() - interval '2 minutes', null);
 
 select is(
-  (select array_agg(d.id) from public.due_whatsapp_events(10, 6) d),
-  array['00000000-0000-0000-0000-0000000006e2',
-        '00000000-0000-0000-0000-0000000006e3',
-        '00000000-0000-0000-0000-0000000006e1']::uuid[],
+  (select array_agg(d.id) from public.due_whatsapp_events(10) d),
+  array['00000000-0000-0000-0000-0000000007e2',
+        '00000000-0000-0000-0000-0000000007e3',
+        '00000000-0000-0000-0000-0000000007e1']::uuid[],
   'due events come back in coalesce(next_attempt_at, received_at) order, which is not received_at order');
 
 select is(
-  (select d.attempts from public.due_whatsapp_events(10, 6) d
-    where d.id = '00000000-0000-0000-0000-0000000006e1'),
+  (select d.attempts from public.due_whatsapp_events(10) d
+    where d.id = '00000000-0000-0000-0000-0000000007e1'),
   1,
   'and carry their attempts, so a failure can be scheduled without a second read');
 
--- Eligibility ---------------------------------------------------------------
+-- Inbound eligibility ---------------------------------------------------------
 
 insert into public.webhook_events
-  (id, provider, external_id, status, attempts, received_at, next_attempt_at)
+  (id, provider, external_id, status, attempts, received_at, next_attempt_at, claimed_at)
 values
   -- Backed off into the future: eligible later, not now.
-  ('00000000-0000-0000-0000-0000000006e4', 'WHATSAPP', pg_temp.hash64('e4'),
-   'FAILED', 2, now() - interval '1 day', now() + interval '1 minute'),
-  -- Claimed. Not due, whatever its age.
-  ('00000000-0000-0000-0000-0000000006e5', 'WHATSAPP', pg_temp.hash64('e5'),
-   'PROCESSING', 1, now() - interval '1 day', null);
+  ('00000000-0000-0000-0000-0000000007e4', 'WHATSAPP', pg_temp.hash64('e4'),
+   'FAILED', 2, now() - interval '1 day', now() + interval '1 minute', null),
+  -- Claimed a day ago and never finished. Abandoned, and reclaimed below.
+  ('00000000-0000-0000-0000-0000000007e5', 'WHATSAPP', pg_temp.hash64('e5'),
+   'PROCESSING', 1, now() - interval '1 day', null, now() - interval '1 day'),
+  -- PARKED. next_attempt_at is infinity, which is how a spent ladder leaves the
+  -- queue: beyond the index condition for ever, and at the far end of the index
+  -- rather than sorting first the way a null would.
+  ('00000000-0000-0000-0000-0000000007e7', 'WHATSAPP', pg_temp.hash64('e7'),
+   'FAILED', 6, now() - interval '1 day', 'infinity', null);
 
 insert into public.webhook_events
   (id, provider, external_id, status, attempts, received_at, outcome, processed_at)
 values
-  -- Decided. webhook_events_done_shape (0058) makes DONE carry both of these.
-  ('00000000-0000-0000-0000-0000000006e6', 'WHATSAPP', pg_temp.hash64('e6'),
+  ('00000000-0000-0000-0000-0000000007e6', 'WHATSAPP', pg_temp.hash64('e6'),
    'DONE', 1, now() - interval '1 day', 'recorded', now() - interval '1 day');
 
 select is(
-  (select count(*)::int from public.due_whatsapp_events(10, 6) d
-    where d.id in ('00000000-0000-0000-0000-0000000006e4',
-                   '00000000-0000-0000-0000-0000000006e5',
-                   '00000000-0000-0000-0000-0000000006e6')),
+  (select count(*)::int from public.due_whatsapp_events(10) d
+    where d.id in ('00000000-0000-0000-0000-0000000007e4',
+                   '00000000-0000-0000-0000-0000000007e5',
+                   '00000000-0000-0000-0000-0000000007e6')),
   0,
   'a future next_attempt_at, a claimed row and a decided row are all not due');
 
 select is(
-  (select count(*)::int from public.due_whatsapp_events(2, 6) d),
-  2, 'the batch cap is the caller''s and is honoured');
+  (select count(*)::int from public.due_whatsapp_events(10) d
+    where d.id = '00000000-0000-0000-0000-0000000007e7'),
+  0, 'and a parked event is never due again, however old it is');
 
--- Parking -------------------------------------------------------------------
+select is((select count(*)::int from public.due_whatsapp_events(2) d), 2,
+          'the batch cap is the caller''s and is honoured');
+
+-- Outbound claiming -----------------------------------------------------------
 --
--- The half of parking that lives here. The worker writes next_attempt_at null
--- when the ladder is spent, and on the INBOUND side that is not enough on its
--- own: FAILED stays in webhook_events_pending on purpose (0058 -- inbound
--- FAILED means "try again"), and a null next_attempt_at makes coalesce fall
--- back to a received_at that is always in the past. Without the attempts cap
--- the row below is due on every tick from now until somebody deletes it.
-insert into public.webhook_events
-  (id, provider, external_id, status, attempts, last_error, received_at, next_attempt_at)
+-- The fix for the defect that matters most in this file: two overlapping ticks
+-- sending the same message twice. pg_cron fires every ten seconds whether or
+-- not the last tick returned, and a full batch outlasts that, so overlap is
+-- ordinary rather than exotic. The claim is what makes the second tick find
+-- nothing.
+
+insert into public.outbox_messages
+  (id, provider, integration_id, organization_id, company_id, to_phone, body,
+   dedupe_key, status, attempts, next_attempt_at)
 values
-  ('00000000-0000-0000-0000-0000000006e7', 'WHATSAPP', pg_temp.hash64('e7'),
-   'FAILED', 6, 'ladder spent', now() - interval '1 day', null),
-  ('00000000-0000-0000-0000-0000000006e8', 'WHATSAPP', pg_temp.hash64('e8'),
-   'FAILED', 5, 'one rung left', now() - interval '1 day', null);
+  ('00000000-0000-0000-0000-0000000007b1', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000001', 'first',
+   'b1:confirmation', 'PENDING', 2, now() - interval '10 minutes'),
+  ('00000000-0000-0000-0000-0000000007b2', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000002', 'second',
+   'b2:confirmation', 'PENDING', 0, now() - interval '5 minutes'),
+  -- Not yet sendable.
+  ('00000000-0000-0000-0000-0000000007b3', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000003', 'later',
+   'b3:confirmation', 'PENDING', 0, now() + interval '1 hour'),
+  -- Terminal. outbox_messages_sendable excludes FAILED on purpose (0059).
+  ('00000000-0000-0000-0000-0000000007b4', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000004', 'dead',
+   'b4:confirmation', 'FAILED', 6, now() - interval '1 day');
+
+create temporary table claimed_first as
+  select * from public.claim_outbox_batch(10);
+
+select is((select array_agg(c.id) from claimed_first c),
+          array['00000000-0000-0000-0000-0000000007b1',
+                '00000000-0000-0000-0000-0000000007b2']::uuid[],
+          'the claim takes the sendable rows, oldest first, and leaves the rest');
+
+select is((select c.attempts from claimed_first c
+            where c.id = '00000000-0000-0000-0000-0000000007b1'),
+          2, 'attempts come back unchanged, because claiming is not attempting');
+
+select is((select c.phone_number_id from claimed_first c
+            where c.id = '00000000-0000-0000-0000-0000000007b1'),
+          '777777777777777',
+          'and the number to send FROM is resolved in the same statement');
 
 select is(
-  (select count(*)::int from public.due_whatsapp_events(20, 6) d
-    where d.id = '00000000-0000-0000-0000-0000000006e7'),
-  0, 'an event whose attempts have reached the cap is parked and never due again');
+  (select count(*)::int from public.outbox_messages
+    where id in ('00000000-0000-0000-0000-0000000007b1',
+                 '00000000-0000-0000-0000-0000000007b2')
+      and status = 'SENDING' and claimed_at is not null),
+  2, 'the claimed rows are marked SENDING with the moment they were taken');
+
+-- THE ASSERTION THIS SECTION EXISTS FOR. A second tick, arriving while the
+-- first still has the batch in flight, must find nothing to send. Without the
+-- claim both ticks see the same PENDING rows in the same order and the listener
+-- is answered twice -- and dedupe_key cannot stop it, because it prevents a
+-- second ROW, not a second SEND of one row.
+select is((select count(*)::int from public.claim_outbox_batch(10)), 0,
+          'and an overlapping tick claims nothing, because the batch is no longer PENDING');
 
 select is(
-  (select count(*)::int from public.due_whatsapp_events(20, 6) d
-    where d.id = '00000000-0000-0000-0000-0000000006e8'),
-  1, 'and one attempt short of the cap is still due, so the cap parks rather than truncating the ladder');
+  (select count(*)::int from public.outbox_messages
+    where id in ('00000000-0000-0000-0000-0000000007b3',
+                 '00000000-0000-0000-0000-0000000007b4')
+      and status in ('PENDING', 'FAILED')),
+  2, 'a row not yet due and a parked row are neither of them touched');
 
--- Reclaiming ----------------------------------------------------------------
+-- Reclaiming ------------------------------------------------------------------
 --
--- E5 above has been PROCESSING since yesterday. Nothing in this repository
--- COMMITS a row in that status -- ingest_whatsapp_event sets it and then
--- finishes or raises inside the same transaction (0062) -- so reaching this
--- state takes a hand, or a later design that claims in one transaction and
--- works in another. Either way no other query in the system looks for it.
+-- b1 and b2 were claimed a moment ago: healthy work in flight. The rest of this
+-- section is what separates "old row" from "old claim", which is the whole
+-- reason claimed_at exists.
 
-insert into public.webhook_events
-  (id, provider, external_id, status, attempts, received_at, next_attempt_at)
+insert into public.outbox_messages
+  (id, provider, integration_id, organization_id, company_id, to_phone, body,
+   dedupe_key, status, attempts, next_attempt_at, claimed_at)
 values
-  -- Claimed a moment ago: a healthy tick in flight, and not to be touched.
-  ('00000000-0000-0000-0000-0000000006e9', 'WHATSAPP', pg_temp.hash64('e9'),
-   'PROCESSING', 0, now() - interval '10 seconds', null);
+  -- Claimed yesterday and never settled: a tick died mid-send.
+  ('00000000-0000-0000-0000-0000000007b5', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000005', 'abandoned',
+   'b5:confirmation', 'SENDING', 1, now() - interval '2 days',
+   now() - interval '1 day');
 
-select is(public.reclaim_stale_whatsapp_events('5 minutes'), 1,
+select is((select events from public.reclaim_stale_whatsapp_claims('5 minutes')), 1,
           'exactly one abandoned event is reclaimed');
 
 select is(
   (select status::text from public.webhook_events
-    where id = '00000000-0000-0000-0000-0000000006e5'),
-  'RECEIVED', 'the abandoned one is RECEIVED again, so something will look at it');
+    where id = '00000000-0000-0000-0000-0000000007e5'),
+  'RECEIVED', 'the abandoned event is RECEIVED again, so something will look at it');
 
 select is(
-  (select status::text from public.webhook_events
-    where id = '00000000-0000-0000-0000-0000000006e9'),
-  'PROCESSING', 'and a claim made ten seconds ago is left exactly where it is');
+  (select status::text from public.outbox_messages
+    where id = '00000000-0000-0000-0000-0000000007b5'),
+  'PENDING', 'and the abandoned message is sendable again');
 
--- A reclaim is not a failure. Burning a retry on it, or writing our own
--- bookkeeping over a real error message, would make an abandoned event
--- indistinguishable from a failing one.
+-- I3, AND THE ASSERTION THE OLD PREDICATE COULD NOT HAVE PASSED. b1 and b2 were
+-- enqueued ten and five minutes ago and claimed a moment ago. A reclaim
+-- measured against next_attempt_at or received_at -- the only timestamps
+-- available before claimed_at existed -- calls them stale on sight and hands a
+-- live worker's batch to somebody else, precisely when a backlog has made every
+-- row old. Measured against the CLAIM they are seconds old, and untouched.
 select is(
-  (select attempts from public.webhook_events
-    where id = '00000000-0000-0000-0000-0000000006e5'),
+  (select count(*)::int from public.outbox_messages
+    where id in ('00000000-0000-0000-0000-0000000007b1',
+                 '00000000-0000-0000-0000-0000000007b2')
+      and status = 'SENDING'),
+  2, 'a row enqueued long ago but claimed a moment ago is NOT stale: the claim is what ages');
+
+select is(
+  (select attempts from public.outbox_messages
+    where id = '00000000-0000-0000-0000-0000000007b5'),
   1, 'reclaiming does not burn an attempt');
 
--- The point of all of it: a reclaimed row is picked up again. Without the
+select is(
+  (select last_error is null from public.outbox_messages
+    where id = '00000000-0000-0000-0000-0000000007b5'),
+  true, 'nor writes our own bookkeeping over an error message');
+
+-- The point of all of it: a reclaimed row is looked at again. Without the
 -- reclaim it is in no query's answer at all, which is a message silently lost.
 select is(
-  (select count(*)::int from public.due_whatsapp_events(20, 6) d
-    where d.id = '00000000-0000-0000-0000-0000000006e5'),
-  1, 'and the reclaimed event is due on the next pass');
+  (select count(*)::int from public.due_whatsapp_events(20) d
+    where d.id = '00000000-0000-0000-0000-0000000007e5'),
+  1, 'the reclaimed event is due on the next pass');
+
+select is(
+  (select count(*)::int from public.claim_outbox_batch(20) c
+    where c.id = '00000000-0000-0000-0000-0000000007b5'),
+  1, 'and the reclaimed message is claimable on the next pass');
 
 -- Nothing else moved. Without this the reclaim could be a bare
--- `update webhook_events set status = RECEIVED` and every assertion above
--- would still pass.
+-- `update ... set status = RECEIVED` and every assertion above would pass.
 select is(
   (select count(*)::int from public.webhook_events
     where status::text = 'RECEIVED'
-      and id in ('00000000-0000-0000-0000-0000000006e1',
-                 '00000000-0000-0000-0000-0000000006e6',
-                 '00000000-0000-0000-0000-0000000006e7')),
-  0, 'a FAILED, a DONE and a parked row are none of them reclaimed');
+      and id in ('00000000-0000-0000-0000-0000000007e1',
+                 '00000000-0000-0000-0000-0000000007e6',
+                 '00000000-0000-0000-0000-0000000007e7')),
+  0, 'a FAILED, a DONE and a parked event are none of them reclaimed');
 
-select is(public.reclaim_stale_whatsapp_events('5 minutes'), 0,
+select is((select messages from public.reclaim_stale_whatsapp_claims('5 minutes')), 0,
           'and a second reclaim finds nothing, because the first one finished the job');
 
 select * from finish();
