@@ -48,6 +48,24 @@ describe('GraphTransport', () => {
     });
     expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
   });
+
+  // Meta answering 200 with no id is the case the "accepted without a message
+  // id" branch exists for. Treating this as success would have the worker
+  // mark an outbox row SENT with no external_id to write — exactly the row
+  // the outbox_messages CHECK constraint exists to refuse, but only after the
+  // worker already believed the send had gone through.
+  it('marks a 200 with no messages key retryable rather than a success', async () => {
+    const transport = new GraphTransport('token', stubFetch(200, {}));
+    expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
+  });
+
+  // Same case, different guard: `messages` present but empty. extractMessageId
+  // checks the missing key and the empty array separately, so this needs its
+  // own test or the empty-array guard is never exercised.
+  it('marks a 200 with an empty messages array retryable rather than a success', async () => {
+    const transport = new GraphTransport('token', stubFetch(200, { messages: [] }));
+    expect(await transport.sendText(input)).toMatchObject({ ok: false, retryable: true });
+  });
 });
 
 describe('FakeTransport', () => {
