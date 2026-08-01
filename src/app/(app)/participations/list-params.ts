@@ -60,9 +60,10 @@ export const DEFAULT_PARTICIPATION_STATUS: ParticipationStatusFilter = 'VALID';
 export const SOURCE_LABELS: Record<ParticipationSource, string> = {
   MANUAL: 'Entered by hand',
   IMPORT: 'From a file',
+  WHATSAPP: 'From WhatsApp',
 };
 
-export const SOURCE_ORDER: ParticipationSource[] = ['MANUAL', 'IMPORT'];
+export const SOURCE_ORDER: ParticipationSource[] = ['MANUAL', 'IMPORT', 'WHATSAPP'];
 
 /**
  * The id of the page's explanation of why the listener search is unavailable.

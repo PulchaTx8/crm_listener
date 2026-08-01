@@ -235,6 +235,69 @@ export type Database = {
         }
         Relationships: []
       }
+      integrations: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          display_phone_number: string | null
+          enabled: boolean
+          id: string
+          organization_id: string
+          phone_number_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          updated_at: string
+          waba_id: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          display_phone_number?: string | null
+          enabled?: boolean
+          id?: string
+          organization_id: string
+          phone_number_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          updated_at?: string
+          waba_id?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          display_phone_number?: string | null
+          enabled?: boolean
+          id?: string
+          organization_id?: string
+          phone_number_id?: string
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          updated_at?: string
+          waba_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integrations_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "integrations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_balances: {
         Row: {
           available: number
@@ -840,6 +903,88 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      outbox_messages: {
+        Row: {
+          attempts: number
+          body: string
+          claimed_at: string | null
+          company_id: string
+          created_at: string
+          dedupe_key: string
+          external_id: string | null
+          id: string
+          integration_id: string
+          last_error: string | null
+          next_attempt_at: string
+          organization_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          pruned_at: string | null
+          sent_at: string | null
+          status: Database["public"]["Enums"]["outbox_status"]
+          to_phone: string | null
+        }
+        Insert: {
+          attempts?: number
+          body: string
+          claimed_at?: string | null
+          company_id: string
+          created_at?: string
+          dedupe_key: string
+          external_id?: string | null
+          id?: string
+          integration_id: string
+          last_error?: string | null
+          next_attempt_at?: string
+          organization_id: string
+          provider: Database["public"]["Enums"]["integration_provider"]
+          pruned_at?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["outbox_status"]
+          to_phone?: string | null
+        }
+        Update: {
+          attempts?: number
+          body?: string
+          claimed_at?: string | null
+          company_id?: string
+          created_at?: string
+          dedupe_key?: string
+          external_id?: string | null
+          id?: string
+          integration_id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          organization_id?: string
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          pruned_at?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["outbox_status"]
+          to_phone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outbox_messages_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "outbox_messages_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outbox_messages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       participation_answers: {
         Row: {
@@ -1599,6 +1744,82 @@ export type Database = {
           },
         ]
       }
+      webhook_events: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          company_id: string | null
+          external_id: string
+          id: string
+          integration_id: string | null
+          last_error: string | null
+          next_attempt_at: string | null
+          organization_id: string | null
+          outcome: string | null
+          payload: Json | null
+          processed_at: string | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          received_at: string
+          status: Database["public"]["Enums"]["webhook_event_status"]
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          company_id?: string | null
+          external_id: string
+          id?: string
+          integration_id?: string | null
+          last_error?: string | null
+          next_attempt_at?: string | null
+          organization_id?: string | null
+          outcome?: string | null
+          payload?: Json | null
+          processed_at?: string | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          received_at?: string
+          status?: Database["public"]["Enums"]["webhook_event_status"]
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          company_id?: string | null
+          external_id?: string
+          id?: string
+          integration_id?: string | null
+          last_error?: string | null
+          next_attempt_at?: string | null
+          organization_id?: string | null
+          outcome?: string | null
+          payload?: Json | null
+          processed_at?: string | null
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          received_at?: string
+          status?: Database["public"]["Enums"]["webhook_event_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_events_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "webhook_events_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "webhook_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1647,6 +1868,59 @@ export type Database = {
         }
         Returns: string
       }
+      apply_member_candidates: {
+        Args: {
+          p_cpf_hash: string
+          p_email: string
+          p_org: string
+          p_passport: string
+          p_phone: string
+        }
+        Returns: string[]
+      }
+      apply_member_creation: {
+        Args: {
+          p_actor: string
+          p_address_complement: string
+          p_address_line: string
+          p_address_number: string
+          p_birth_date: string
+          p_city: string
+          p_company_id: string
+          p_cpf_hash: string
+          p_cpf_last_digits: string
+          p_discovery_source: string
+          p_email: string
+          p_first_contact_at: string
+          p_first_contact_origin: string
+          p_full_name: string
+          p_neighbourhood: string
+          p_passport: string
+          p_phone: string
+          p_postal_code: string
+          p_state: string
+        }
+        Returns: string
+      }
+      apply_member_link: {
+        Args: {
+          p_actor: string
+          p_company_id: string
+          p_member_id: string
+          p_org: string
+        }
+        Returns: boolean
+      }
+      apply_member_lookup: {
+        Args: {
+          p_cpf_hash: string
+          p_email: string
+          p_org: string
+          p_passport: string
+          p_phone: string
+        }
+        Returns: string
+      }
       apply_participation: {
         Args: {
           p_answers?: Json
@@ -1687,6 +1961,16 @@ export type Database = {
           p_new_role: Database["public"]["Enums"]["org_role"]
         }
         Returns: undefined
+      }
+      claim_outbox_batch: {
+        Args: { p_limit: number }
+        Returns: {
+          attempts: number
+          body: string
+          id: string
+          phone_number_id: string
+          to_phone: string
+        }[]
       }
       complete_password_change: { Args: never; Returns: undefined }
       create_invitation: {
@@ -1771,6 +2055,13 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      due_whatsapp_events: {
+        Args: { p_limit: number }
+        Returns: {
+          attempts: number
+          id: string
+        }[]
+      }
       ensure_inventory_balance_row: {
         Args: { p_company_id: string; p_org: string; p_prize_id: string }
         Returns: undefined
@@ -1794,6 +2085,15 @@ export type Database = {
         }
         Returns: Json
       }
+      finish_whatsapp_event: {
+        Args: {
+          p_event_id: string
+          p_outcome: string
+          p_part: string
+          p_status: string
+        }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -1808,6 +2108,7 @@ export type Database = {
         Args: { p_promotion_id: string; p_rows: Json }
         Returns: Json
       }
+      ingest_whatsapp_event: { Args: { p_event_id: string }; Returns: Json }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_member_blocked: {
         Args: { p_company_id: string; p_member_id: string }
@@ -1899,6 +2200,14 @@ export type Database = {
         }
         Returns: Json
       }
+      prune_outbox_messages: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
+      prune_webhook_payloads: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: {
@@ -1908,6 +2217,13 @@ export type Database = {
         }[]
       }
       reactivate_company: { Args: { p_company_id: string }; Returns: undefined }
+      reclaim_stale_whatsapp_claims: {
+        Args: { p_stale_after?: string }
+        Returns: {
+          events: number
+          messages: number
+        }[]
+      }
       reconcile_inventory: {
         Args: { p_company_id: string }
         Returns: {
@@ -2108,10 +2424,16 @@ export type Database = {
         Returns: undefined
       }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
+      whatsapp_local_phone: { Args: { p_wa_phone: string }; Returns: string }
+      whatsapp_reply_body: {
+        Args: { p_member_id: string; p_promotion_id: string; p_status: string }
+        Returns: string
+      }
     }
     Enums: {
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      integration_provider: "WHATSAPP"
       inventory_bucket:
         | "available"
         | "reserved"
@@ -2145,7 +2467,8 @@ export type Database = {
         | "court_order"
         | "internal_policy"
       org_role: "owner" | "member"
-      participation_source: "MANUAL" | "IMPORT"
+      outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
+      participation_source: "MANUAL" | "IMPORT" | "WHATSAPP"
       participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
       permission_scope: "organization" | "company"
       promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
@@ -2158,6 +2481,7 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+      webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2290,6 +2614,7 @@ export const Constants = {
     Enums: {
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      integration_provider: ["WHATSAPP"],
       inventory_bucket: [
         "available",
         "reserved",
@@ -2326,7 +2651,8 @@ export const Constants = {
         "internal_policy",
       ],
       org_role: ["owner", "member"],
-      participation_source: ["MANUAL", "IMPORT"],
+      outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
+      participation_source: ["MANUAL", "IMPORT", "WHATSAPP"],
       participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
       permission_scope: ["organization", "company"],
       promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],
@@ -2340,6 +2666,7 @@ export const Constants = {
         "passport",
         "discovery_source",
       ],
+      webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
     },
   },
 } as const

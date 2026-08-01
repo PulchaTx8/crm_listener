@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test';
 import { LOCAL_SUPABASE_ENV } from './tests/local-supabase';
+import { WHATSAPP_TEST_ENV } from './tests/whatsapp-test-env';
 
 const isCI = !!process.env.CI;
 
@@ -37,6 +38,16 @@ export default defineConfig({
     // every request, so without this the suite would exercise production.
     // These reach `next build` too, which is what inlines NEXT_PUBLIC_* into
     // the client bundle.
-    env: { SKIP_ENV_VALIDATION: '1', ...LOCAL_SUPABASE_ENV },
+    //
+    // WHATSAPP_TEST_ENV supplies WHATSAPP_APP_SECRET and WORKER_TICK_SECRET.
+    // Without them the webhook and worker routes both refuse to serve (503,
+    // "not configured" — src/app/api/webhooks/whatsapp/route.ts and
+    // src/app/api/worker/tick/route.ts), which would make
+    // whatsapp-boundary.spec.ts's signed-POST and worker-tick cases fail for
+    // a reason that has nothing to do with what they test. Fixed values, not
+    // secrets: tests/whatsapp-test-env.ts is the one place both this server
+    // and the spec that signs requests against it read them from, so the two
+    // can never disagree about what they are.
+    env: { SKIP_ENV_VALIDATION: '1', ...LOCAL_SUPABASE_ENV, ...WHATSAPP_TEST_ENV },
   },
 });
