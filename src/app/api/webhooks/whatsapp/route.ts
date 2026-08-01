@@ -1,12 +1,19 @@
 import { createHash } from 'node:crypto';
 import { env } from '@/lib/env';
 import { createServiceClient } from '@/lib/supabase/service-client';
-import { flattenWebhookBody } from '@/lib/integrations/whatsapp/payload';
+import { flattenWebhookBody, type FlattenStats } from '@/lib/integrations/whatsapp/payload';
 import { verifyMetaSignature } from '@/lib/integrations/whatsapp/signature';
 
 // The raw body is the signed artefact. Next must not parse it for us.
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+// Meta's payloads are kilobytes. This is headroom, not a proof of anything —
+// a caller that omits Content-Length, or lies about it, is caught by nothing
+// here — but it is a cheap way to stop an unauthenticated caller from making
+// this route read and HMAC a huge body before there is any chance to reject
+// it on signature.
+const MAX_BODY_BYTES = 1_000_000;
 
 /**
  * Meta's one-time verification handshake. It is how the callback URL is
@@ -45,6 +52,15 @@ export async function POST(request: Request): Promise<Response> {
     return new Response('not configured', { status: 503 });
   }
 
+  // Checked ahead of the read, so an oversized body is rejected before it is
+  // ever pulled into memory and HMAC'd. A missing header is let through —
+  // this cannot force a caller to declare one honestly, so it is a guard
+  // against an easy case, not a guarantee.
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return new Response('payload too large', { status: 413 });
+  }
+
   // Read as text, not json(): the signature below is over these exact bytes,
   // and Next's body parser would hand back a re-serialised object whose
   // whitespace and key order Meta never signed.
@@ -65,7 +81,20 @@ export async function POST(request: Request): Promise<Response> {
 
   // One row per MESSAGE, never one per POST: Meta packs several into one
   // request and idempotency (provider, external_id) is per message (0058).
-  const messages = flattenWebhookBody(body);
+  const stats: FlattenStats = { seen: 0, dropped: 0 };
+  const messages = flattenWebhookBody(body, stats);
+
+  if (stats.dropped > 0) {
+    // Counts only, never a field from the payload — this runs after the
+    // signature check above, so it cannot be triggered by an unverified
+    // caller. Without this, an entry a sibling entry's malformation drops
+    // leaves no row, no FAILED status and no log: nothing an operator asked
+    // "why didn't it arrive?" could ever find.
+    console.warn(
+      `whatsapp webhook: dropped ${stats.dropped} of ${stats.seen} entries (malformed structure)`,
+    );
+  }
+
   if (messages.length === 0) {
     // Delivery and read receipts land here. They carry no participation and
     // storing them would make the table mostly noise before anything reads it.

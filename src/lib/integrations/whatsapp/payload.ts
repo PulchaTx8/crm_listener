@@ -53,6 +53,14 @@ const bodySchema = z.object({
   entry: z.array(z.unknown()),
 });
 
+/** Entry-level counts for one POST — never message content. See `flattenWebhookBody`. */
+export interface FlattenStats {
+  /** Top-level entries this POST carried. */
+  seen: number;
+  /** Of those, how many failed structural validation and were skipped. */
+  dropped: number;
+}
+
 /**
  * Meta packs several messages into one POST, so one HTTP request becomes N
  * rows in `webhook_events` and idempotency is per message id.
@@ -61,15 +69,28 @@ const bodySchema = z.object({
  * the signature check, where a 500 on an unexpected shape is a worse answer
  * than an empty list: Meta re-delivers anything it does not see a 200 for, so
  * throwing turns one odd payload into a retry loop.
+ *
+ * `stats`, if passed, is filled in with entry-level COUNTS ONLY — never a
+ * field from the payload — so a caller can log that something was dropped
+ * without this function taking on any logging concern of its own, and
+ * without changing what it returns to existing callers. A malformed entry no
+ * longer costs the valid messages beside it (see `entrySchema` above), but it
+ * still costs itself, silently, unless a caller does something with this.
  */
-export function flattenWebhookBody(body: unknown): InboundMessage[] {
+export function flattenWebhookBody(body: unknown, stats?: FlattenStats): InboundMessage[] {
   const parsedBody = bodySchema.safeParse(body);
   if (!parsedBody.success) return [];
 
   const out: InboundMessage[] = [];
+  let seen = 0;
+  let dropped = 0;
   for (const rawEntry of parsedBody.data.entry) {
+    seen += 1;
     const entry = entrySchema.safeParse(rawEntry);
-    if (!entry.success) continue;
+    if (!entry.success) {
+      dropped += 1;
+      continue;
+    }
 
     for (const change of entry.data.changes) {
       const { metadata, contacts, messages } = change.value;
@@ -92,6 +113,10 @@ export function flattenWebhookBody(body: unknown): InboundMessage[] {
         });
       }
     }
+  }
+  if (stats) {
+    stats.seen = seen;
+    stats.dropped = dropped;
   }
   return out;
 }

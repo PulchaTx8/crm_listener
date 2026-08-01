@@ -89,5 +89,25 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // `/api/webhooks/` is excluded from the matcher itself, not added to
+  // PUBLIC_PATHS. Meta (and any future provider under this prefix) has no
+  // session cookie, so without this exclusion every call hits line ~50 above
+  // and is 307-redirected to /login before the route handler ever runs — the
+  // GET verification handshake can never echo hub.challenge, and the
+  // callback URL cannot even be registered.
+  //
+  // PUBLIC_PATHS would "fix" the redirect but not the cost: getUser() at
+  // line ~41 still runs first, on every request, which means every inbound
+  // WhatsApp message would pay a Supabase Auth round trip before Task 11's
+  // route ever starts — on the one endpoint whose entire design is staying
+  // inside Meta's timeout with no promotion logic in the request path.
+  // Excluding from the matcher skips the middleware function's body
+  // entirely, so neither cost applies.
+  //
+  // Kept as narrow as the existing exclusions: only `/api/webhooks/*`, not
+  // all of `/api`. `/api/health` is unaffected and stays reachable through
+  // PUBLIC_PATHS exactly as before.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };

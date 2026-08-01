@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 interface StoredRow {
   provider: string;
   external_id: string;
-  payload: { wamid: string; from?: string; text?: string; timestamp?: string };
+  payload: {
+    wamid: string;
+    metadata: { phone_number_id: string };
+    from: string;
+    profile_name: string | null;
+    text: string;
+    timestamp: string;
+  };
 }
 
 const inserted: StoredRow[] = [];
@@ -170,24 +177,29 @@ describe('POST /api/webhooks/whatsapp', () => {
     expect(ids).toEqual([sha256Hex('wamid.A'), sha256Hex('wamid.B')].sort());
   });
 
-  // Mutation guard: external_id must be the hash, never the raw provider id.
-  // 0058 carries a CHECK (`^[0-9a-f]{64}$`) that would refuse a raw wamid at
-  // the database, but the route must not rely on that backstop to catch it —
-  // a raw id decodes to bytes containing the counterparty's phone number.
-  it('writes the SHA-256 of the wamid into external_id, never the raw id', async () => {
+  // Whole-row comparison rather than five separate field assertions:
+  // ingest_whatsapp_event (0062) reads exactly metadata.phone_number_id,
+  // from, text, profile_name and timestamp, and the route must additionally
+  // write the raw wamid (it is the only place it lives once the payload is
+  // pruned at 30 days). Deleting any one of the six from route.ts, or adding
+  // a seventh, changes this object and fails the comparison — five separate
+  // .toBe() calls would not have caught a field going missing that nobody
+  // wrote an assertion for.
+  it('writes the full row 0062 requires: hashed external_id and the complete payload contract', async () => {
     const response = await post(payload, sign(payload));
     expect(response.status).toBe(200);
-    expect(inserted[0]?.external_id).toBe(sha256Hex('wamid.A'));
-    expect(inserted[0]?.external_id).not.toBe('wamid.A');
-  });
-
-  // The raw id lives ONLY in payload.wamid — it is what prune_webhook_payloads
-  // (design spec D9) clears after 30 days, and once it is gone this is the
-  // only place it ever existed.
-  it('writes the raw wamid into payload.wamid', async () => {
-    const response = await post(payload, sign(payload));
-    expect(response.status).toBe(200);
-    expect(inserted[0]?.payload.wamid).toBe('wamid.A');
+    expect(inserted[0]).toEqual({
+      provider: 'WHATSAPP',
+      external_id: sha256Hex('wamid.A'),
+      payload: {
+        wamid: 'wamid.A',
+        metadata: { phone_number_id: '1111' },
+        from: '5511988887777',
+        profile_name: null,
+        text: '#EUQUERO',
+        timestamp: '1786000000',
+      },
+    });
   });
 
   // The trap this whole route exists to avoid. Verifying a re-serialised
@@ -201,5 +213,67 @@ describe('POST /api/webhooks/whatsapp', () => {
     const response = await post(pretty, sign(pretty));
     expect(response.status).toBe(200);
     expect(inserted).toHaveLength(1);
+  });
+
+  // A body that is correctly signed but is not valid JSON is a legitimate
+  // payload we have no use for, not an attack: Meta re-delivers anything it
+  // does not see a 200 for, so 500 here would start a retry loop over a
+  // request nothing can ever make parseable.
+  it('answers 200, not 500, to a signed body that is not valid JSON', async () => {
+    const notJson = 'not json';
+    const response = await post(notJson, sign(notJson));
+    expect(response.status).toBe(200);
+    expect(inserted).toHaveLength(0);
+  });
+
+  // M4: rejected on a declared Content-Length alone, before the body is ever
+  // read — this must not depend on the signature (there is nothing to verify
+  // yet) or on the body actually containing that many bytes (Request here
+  // trusts a hand-set header over the real length of the short string body).
+  it('refuses a body whose declared Content-Length exceeds the cap, before reading it', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/webhooks/whatsapp', {
+        method: 'POST',
+        body: payload,
+        headers: { 'x-hub-signature-256': sign(payload), 'content-length': '5000000' },
+      }),
+    );
+    expect(response.status).toBe(413);
+    expect(inserted).toHaveLength(0);
+  });
+
+  // M5: a malformed sibling entry no longer costs the valid entry beside it
+  // (Task 11's payload.ts fix), but it must still leave a signal an operator
+  // can find. Counts only — never any field from the payload, since this
+  // runs after signature verification and must not become a second place
+  // message content can leak to.
+  it('warns with counts only when an entry is dropped, after the signature check', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const twoEntriesOneMalformed = JSON.stringify({
+      object: 'whatsapp_business_account',
+      entry: [
+        ...singleMessageBody().entry,
+        {
+          changes: [
+            {
+              value: {
+                // metadata omitted: this entry cannot resolve a phone_number_id.
+                messages: [textMessage('wamid.LOST', '5511900000000', '#PERDIDA')],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const response = await post(twoEntriesOneMalformed, sign(twoEntriesOneMalformed));
+    expect(response.status).toBe(200);
+    expect(inserted).toHaveLength(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const [message] = warnSpy.mock.calls[0] as [string];
+    expect(message).toContain('dropped 1 of 2');
+    expect(message).not.toContain('wamid');
+    expect(message).not.toContain('5511900000000');
+    expect(message).not.toContain('PERDIDA');
+    warnSpy.mockRestore();
   });
 });
