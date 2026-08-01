@@ -2363,7 +2363,7 @@ export type Database = {
         | "internal_policy"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
-      participation_source: "MANUAL" | "IMPORT"
+      participation_source: "MANUAL" | "IMPORT" | "WHATSAPP"
       participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
       permission_scope: "organization" | "company"
       promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
@@ -2547,7 +2547,7 @@ export const Constants = {
       ],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
-      participation_source: ["MANUAL", "IMPORT"],
+      participation_source: ["MANUAL", "IMPORT", "WHATSAPP"],
       participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
       permission_scope: ["organization", "company"],
       promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],

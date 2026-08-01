@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(29);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -219,6 +219,10 @@ select lives_ok($$
      '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c1',
      '11999998888', 'ok', 'p1:pending-plain')
 $$, 'a plain PENDING row with no sent_at or external_id is legal');
+
+select ok(
+  'WHATSAPP' = any(enum_range(null::public.participation_source)::text[]),
+  'a participation can have arrived by WhatsApp');
 
 select * from finish();
 rollback;
