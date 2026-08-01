@@ -1,5 +1,5 @@
 begin;
-select plan(29);
+select plan(43);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -223,6 +223,169 @@ $$, 'a plain PENDING row with no sent_at or external_id is legal');
 select ok(
   'WHATSAPP' = any(enum_range(null::public.participation_source)::text[]),
   'a participation can have arrived by WhatsApp');
+
+-- The private member-resolution cores (0061) -----------------------------------
+-- EXECUTE for nobody is the guarantee: these are reachable only from inside a
+-- SECURITY DEFINER body that has already checked its own gate. Asserted against
+-- BOTH roles, because service_role is the one the WhatsApp worker holds and a
+-- grant to it would turn any of these into an unchecked write path reachable
+-- straight from the network.
+
+select ok(not has_function_privilege('authenticated',
+            'public.apply_member_candidates(uuid,text,text,text,text)', 'EXECUTE'),
+          'authenticated may not call apply_member_candidates');
+select ok(not has_function_privilege('service_role',
+            'public.apply_member_candidates(uuid,text,text,text,text)', 'EXECUTE'),
+          'service_role may not call apply_member_candidates either');
+select ok(not has_function_privilege('authenticated',
+            'public.apply_member_lookup(uuid,text,text,text,text)', 'EXECUTE'),
+          'authenticated may not call apply_member_lookup');
+select ok(not has_function_privilege('service_role',
+            'public.apply_member_lookup(uuid,text,text,text,text)', 'EXECUTE'),
+          'service_role may not call apply_member_lookup either');
+select ok(not has_function_privilege('authenticated',
+            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
+            'EXECUTE'),
+          'authenticated may not call apply_member_creation');
+select ok(not has_function_privilege('service_role',
+            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
+            'EXECUTE'),
+          'service_role may not call apply_member_creation either');
+select ok(not has_function_privilege('authenticated',
+            'public.apply_member_link(uuid,uuid,uuid,uuid)', 'EXECUTE'),
+          'authenticated may not call apply_member_link');
+select ok(not has_function_privilege('service_role',
+            'public.apply_member_link(uuid,uuid,uuid,uuid)', 'EXECUTE'),
+          'service_role may not call apply_member_link either');
+
+-- The public door still finds what it always found.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000005d1', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Cinco', '11999997777');
+select is(
+  public.apply_member_lookup('00000000-0000-0000-0000-0000000005f1',
+                             '11999997777', null, null, null),
+  '00000000-0000-0000-0000-0000000005d1'::uuid,
+  'the lookup core matches on the normalised phone');
+
+-- Block 3 behaviour this migration preserves ------------------------------------
+--
+-- The three assertions below test 0033/0034, not 0061, and they are here rather
+-- than in 02_permissions for one reason: 0061 is the migration that could have
+-- broken them. Each covers a shipped behaviour that, when Task 5 was written,
+-- had NO test anywhere in this repository -- pgTAP, isolation or unit -- and
+-- each was a behaviour the plan for 0061 would have changed in silence. What
+-- protected them was that one reader happened to look; these assertions are
+-- what protects them next time.
+--
+-- All three were run against a deliberately reverted 0061 (void core, bare
+-- `limit 1`, case-sensitive passport) and all three fail there. See the Task 5
+-- report.
+--
+-- auth.uid() reads request.jwt.claims and does not care which database role is
+-- current, so the claim alone is enough to give these calls a real actor. The
+-- role is deliberately NOT switched to `authenticated`: none of the three is
+-- about RLS, and every function they reach is SECURITY DEFINER and so bypasses
+-- RLS in production anyway.
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000005b2', 'owner-5a@example.test'),
+  ('00000000-0000-0000-0000-0000000005b3', 'delegate-5a@example.test');
+insert into public.organization_memberships (user_id, organization_id, role) values
+  ('00000000-0000-0000-0000-0000000005b2', '00000000-0000-0000-0000-0000000005f1', 'owner');
+
+-- The delegate holds members.view at Station 5a ONLY, never at Station 5a Two.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000005e1', '00000000-0000-0000-0000-0000000005f1',
+   'Station 5a Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000005e1', 'members.view');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000005b3', '00000000-0000-0000-0000-0000000005c1',
+   '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005e1');
+
+-- 1. A pair already linked is REFUSED, not silently succeeded a second time.
+--    src/app/(app)/members/actions.ts calls link_member_to_company
+--    "idempotent-refusing, not idempotent-succeeding" in those words, and the
+--    screen surfaces the 23505. The refusal is decided on whether a row was
+--    actually written, which is why apply_member_link returns boolean and not
+--    void: PERFORM of a void function sets FOUND to TRUE whatever the insert
+--    underneath it did.
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000005d2', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Vinculavel');
+
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000005b2", "role": "authenticated"}';
+
+-- The first link must succeed, or the refusal below would pass for the wrong
+-- reason -- a link that never happened refuses the second call just as loudly.
+select lives_ok($$
+  select public.link_member_to_company(
+    '00000000-0000-0000-0000-0000000005d2', '00000000-0000-0000-0000-0000000005c2')
+$$, 'a listener can be linked to a Station they were not registered at');
+
+select throws_ok($$
+  select public.link_member_to_company(
+    '00000000-0000-0000-0000-0000000005d2', '00000000-0000-0000-0000-0000000005c2')
+$$, '23505', 'this listener is already linked to that station',
+   'linking the same listener to the same Station twice is refused, not silently repeated');
+
+-- 2. The split-identifier case: the phone matches a listener the caller CAN
+--    reach, the e-mail matches a DIFFERENT listener they cannot, and both are
+--    supplied in one call. 0033's `order by reachable desc, c.id` exists for
+--    exactly this and had no test at all.
+--
+--    The unreachable listener is inserted FIRST and carries the LOWER id, so
+--    every wrong pick -- the planner's arbitrary one, or a deliberate `order by
+--    id` -- lands on it and answers 'elsewhere'. Only asking about reachability
+--    can produce the assertion below.
+insert into public.members (id, organization_id, full_name, email) values
+  ('00000000-0000-0000-0000-0000000005d3', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Fora de Alcance', 'split-elsewhere-5a@example.test');
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000005d4', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Alcancavel', '11999995555');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000005d3', '00000000-0000-0000-0000-0000000005c2',
+   '00000000-0000-0000-0000-0000000005f1'),
+  ('00000000-0000-0000-0000-0000000005d4', '00000000-0000-0000-0000-0000000005c1',
+   '00000000-0000-0000-0000-0000000005f1');
+
+-- 3. The passport is matched case-insensitively, agreeing with
+--    members_passport_unique (0031), which is built on
+--    (organization_id, lower(passport)). A dedup narrower than its own unique
+--    index finds nothing and then the index refuses the insert.
+insert into public.members (id, organization_id, full_name, passport) values
+  ('00000000-0000-0000-0000-0000000005d5', '00000000-0000-0000-0000-0000000005f1',
+   'Ouvinte Com Passaporte', 'AB1234567');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000005d5', '00000000-0000-0000-0000-0000000005c1',
+   '00000000-0000-0000-0000-0000000005f1');
+
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000005b3", "role": "authenticated"}';
+
+select is(
+  public.find_member_by_identifier(
+    '00000000-0000-0000-0000-0000000005f1',
+    '11999995555', 'split-elsewhere-5a@example.test'),
+  jsonb_build_object('outcome', 'visible',
+                     'member_id', '00000000-0000-0000-0000-0000000005d4'),
+  'when one identifier matches a reachable listener and another matches an unreachable one, the reachable one is the answer');
+
+select is(
+  public.apply_member_lookup('00000000-0000-0000-0000-0000000005f1',
+                             null, null, null, 'ab1234567'),
+  '00000000-0000-0000-0000-0000000005d5'::uuid,
+  'the lookup core matches a passport regardless of case');
+
+select is(
+  public.find_member_by_identifier(
+    '00000000-0000-0000-0000-0000000005f1', null, null, null, 'ab1234567'),
+  jsonb_build_object('outcome', 'visible',
+                     'member_id', '00000000-0000-0000-0000-0000000005d5'),
+  'the public door resolves a passport in another case to the listener already registered, rather than inviting a duplicate');
+
+reset request.jwt.claims;
 
 select * from finish();
 rollback;

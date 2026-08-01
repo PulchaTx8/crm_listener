@@ -1859,6 +1859,59 @@ export type Database = {
         }
         Returns: string
       }
+      apply_member_candidates: {
+        Args: {
+          p_cpf_hash: string
+          p_email: string
+          p_org: string
+          p_passport: string
+          p_phone: string
+        }
+        Returns: string[]
+      }
+      apply_member_creation: {
+        Args: {
+          p_actor: string
+          p_address_complement: string
+          p_address_line: string
+          p_address_number: string
+          p_birth_date: string
+          p_city: string
+          p_company_id: string
+          p_cpf_hash: string
+          p_cpf_last_digits: string
+          p_discovery_source: string
+          p_email: string
+          p_first_contact_at: string
+          p_first_contact_origin: string
+          p_full_name: string
+          p_neighbourhood: string
+          p_passport: string
+          p_phone: string
+          p_postal_code: string
+          p_state: string
+        }
+        Returns: string
+      }
+      apply_member_link: {
+        Args: {
+          p_actor: string
+          p_company_id: string
+          p_member_id: string
+          p_org: string
+        }
+        Returns: boolean
+      }
+      apply_member_lookup: {
+        Args: {
+          p_cpf_hash: string
+          p_email: string
+          p_org: string
+          p_passport: string
+          p_phone: string
+        }
+        Returns: string
+      }
       apply_participation: {
         Args: {
           p_answers?: Json
