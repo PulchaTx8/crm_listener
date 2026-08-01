@@ -30,5 +30,11 @@ export function verifyMetaSignature(
   // timingSafeEqual throws on a length mismatch, which would leak the length
   // through an exception rather than a comparison.
   if (received.length !== expected.length) return false;
+  // Constant-time comparison is deliberate, not incidental: this compares a
+  // value an unauthenticated caller controls against a secret-derived digest.
+  // A black-box test cannot observe timing, so no test here fails if this is
+  // ever swapped for `received.toString('hex') === expected.toString('hex')`
+  // (or any other `===`) -- both return the identical boolean for every input
+  // in the suite. That swap must be caught by review, not by a test.
   return timingSafeEqual(received, expected);
 }
