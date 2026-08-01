@@ -1,5 +1,5 @@
 begin;
-select plan(106);
+select plan(108);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -87,35 +87,58 @@ select is(relrowsecurity, true, 'RLS enabled on webhook_events')
 select ok(not has_table_privilege('authenticated', 'public.webhook_events', 'SELECT'),
           'authenticated may not read webhook_events');
 
+-- external_id holds the SHA-256 of the provider's message id, never the id
+-- itself (0058): a wamid decodes to bytes containing the counterparty's phone,
+-- and this column deliberately outlives the payload. THE ROUTE HASHES IN NODE
+-- (0058, and 0031's reasoning for cpf_hash). This helper hashes in SQL because
+-- there is no Node in a pgTAP file -- a convenience of the harness, and not a
+-- sanction to hash in SQL on any write path.
+create or replace function pg_temp.wamid_hash(p_wamid text)
+returns text language sql immutable as $$
+  select encode(sha256(convert_to(p_wamid, 'UTF8')), 'hex');
+$$;
+
 insert into public.webhook_events (provider, external_id, payload) values
-  ('WHATSAPP', 'wamid.TEST1', '{"hello":"world"}');
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST1'), '{"hello":"world"}');
 
 select throws_ok($$
   insert into public.webhook_events (provider, external_id, payload)
-  values ('WHATSAPP', 'wamid.TEST1', '{"hello":"again"}')
+  values ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST1'), '{"hello":"again"}')
 $$, '23505', null, 'the same message id cannot be stored twice');
+
+-- The contract Task 11 has to keep, held structurally rather than by comment.
+-- A raw wamid in external_id would be a recoverable phone number in a column
+-- that deliberately survives prune_webhook_payloads -- so the guarantee does
+-- not rest on the route remembering to hash, exactly as members.cpf_hash (0031)
+-- refuses a raw CPF rather than trusting the Node that should have hashed it.
+select throws_ok($$
+  insert into public.webhook_events (provider, external_id, payload)
+  values ('WHATSAPP', 'wamid.HBgNNTUxMTk4ODg4Nzc3NxUCABIYFjNBMEQ3', '{}')
+$$, '23514', null, 'a raw provider message id cannot be stored as external_id');
 
 -- A second event, left at its natural (recent) received_at. Without it, a
 -- prune_webhook_payloads that nulled every payload regardless of age would
 -- pass the assertion below just as well as a correct one.
 insert into public.webhook_events (provider, external_id, payload) values
-  ('WHATSAPP', 'wamid.TEST2', '{"still":"here"}');
+  ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST2'), '{"still":"here"}');
 
 -- The row survives pruning; only the payload goes. external_id is what
--- idempotency needs and it is not personal data.
+-- idempotency needs, and it survives BECAUSE it is a hash: the raw provider id
+-- is personal data, so it lives in the payload and expires with it. That
+-- asymmetry is the whole reason 0058 hashes rather than stores.
 update public.webhook_events
    set received_at = now() - interval '40 days'
- where external_id = 'wamid.TEST1';
+ where external_id = pg_temp.wamid_hash('wamid.TEST1');
 select public.prune_webhook_payloads('30 days');
 select is(
-  (select payload from public.webhook_events where external_id = 'wamid.TEST1'),
+  (select payload from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.TEST1')),
   null, 'pruning clears the payload');
 select is(
-  (select count(*)::int from public.webhook_events where external_id = 'wamid.TEST1'),
+  (select count(*)::int from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.TEST1')),
   1, 'the pruned row is still present');
 select is(
   (select payload is not null from public.webhook_events
-    where external_id = 'wamid.TEST2'),
+    where external_id = pg_temp.wamid_hash('wamid.TEST2')),
   true, 'a recent event keeps its payload after pruning');
 
 -- Tenancy guard: webhook_events_company_org_fk -------------------------------
@@ -133,14 +156,14 @@ insert into public.companies (id, organization_id, name, timezone) values
 
 select throws_ok($$
   insert into public.webhook_events (provider, external_id, company_id, organization_id)
-  values ('WHATSAPP', 'wamid.TEST-MISMATCH',
+  values ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST-MISMATCH'),
           '00000000-0000-0000-0000-0000000005c3',
           '00000000-0000-0000-0000-0000000005f1')
 $$, '23503', null, 'a Station cannot be paired with a foreign Organization on webhook_events');
 
 select lives_ok($$
   insert into public.webhook_events (provider, external_id, company_id, organization_id)
-  values ('WHATSAPP', 'wamid.TEST-BOTHNULL', null, null)
+  values ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST-BOTHNULL'), null, null)
 $$, 'company_id and organization_id may both be null before a number resolves');
 
 -- Shape guard: webhook_events_done_shape ---------------------------------------
@@ -151,12 +174,12 @@ $$, 'company_id and organization_id may both be null before a number resolves');
 
 select throws_ok($$
   insert into public.webhook_events (provider, external_id, status)
-  values ('WHATSAPP', 'wamid.TEST-DONE-BARE', 'DONE')
+  values ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST-DONE-BARE'), 'DONE')
 $$, '23514', null, 'DONE with no outcome and no processed_at is not a legal webhook_events row');
 
 select lives_ok($$
   insert into public.webhook_events (provider, external_id)
-  values ('WHATSAPP', 'wamid.TEST-RECEIVED-PLAIN')
+  values ('WHATSAPP', pg_temp.wamid_hash('wamid.TEST-RECEIVED-PLAIN'))
 $$, 'a plain RECEIVED row with no outcome or processed_at is legal');
 
 -- outbox_messages -------------------------------------------------------------
@@ -636,9 +659,13 @@ create or replace function pg_temp.ingest(
 returns jsonb language plpgsql as $$
 declare v_id uuid; v_result jsonb;
 begin
+  -- external_id is the HASH; the raw provider id goes in the payload, which is
+  -- the column prune_webhook_payloads clears at thirty days. That split is the
+  -- whole of I1: the recoverable value expires, the idempotency key does not.
   insert into public.webhook_events (provider, external_id, payload)
-  values ('WHATSAPP', p_wamid, jsonb_build_object(
+  values ('WHATSAPP', pg_temp.wamid_hash(p_wamid), jsonb_build_object(
     'metadata', jsonb_build_object('phone_number_id', p_number),
+    'wamid', p_wamid,
     'from', p_from, 'profile_name', 'Ouvinte Bot',
     'timestamp', extract(epoch from p_at)::bigint::text,
     'text', p_text))
@@ -657,15 +684,16 @@ begin
 end $$;
 
 -- The outbox row a given message produced, found through the dedupe_key SHAPE
--- 0059 documents ('<wamid>:confirmation'). That indirection is the assertion:
--- an implementation keying the row on the participation or the event id leaves
--- every lookup below empty rather than merely differently named.
+-- 0059 documents ('<sha256 of the wamid>:confirmation'). That indirection is
+-- the assertion: an implementation keying the row on the participation, the
+-- event id, or the RAW provider id leaves every lookup below empty rather than
+-- merely differently named.
 create or replace function pg_temp.confirmation(p_wamid text)
 returns public.outbox_messages language sql as $$
   select o.*
   from public.outbox_messages o
   where o.provider = 'WHATSAPP'
-    and o.dedupe_key = p_wamid || ':confirmation';
+    and o.dedupe_key = pg_temp.wamid_hash(p_wamid) || ':confirmation';
 $$;
 
 -- The door: one message, decided end to end -------------------------------------
@@ -788,7 +816,7 @@ select is(pg_temp.ingest('wamid.X1', '5511988881111', '#EUQUERO', null) ->> 'out
           'RAISED 22023: whatsapp payload carries no message timestamp',
           'a message that names a promotion and carries no timestamp raises rather than finishing with a plausible reason');
 select is(
-  (select status::text from public.webhook_events where external_id = 'wamid.X1'),
+  (select status::text from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.X1')),
   'RECEIVED',
   'and nothing about it is half-written: the event is left for the worker to park, not filed as decided');
 
@@ -816,7 +844,7 @@ select is(
 select is(
   (select jsonb_build_object('status', status::text, 'outcome', outcome,
                              'processed_at_set', processed_at is not null)
-     from public.webhook_events where external_id = 'wamid.A1'),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
   jsonb_build_object('status', 'DONE', 'outcome', 'recorded', 'processed_at_set', true),
   'a decided event is DONE and says both why and when');
 
@@ -825,7 +853,7 @@ select is(
 select is(
   (select jsonb_build_object('company', company_id, 'organization', organization_id,
                              'integration_set', integration_id is not null)
-     from public.webhook_events where external_id = 'wamid.A1'),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
   jsonb_build_object('company', '00000000-0000-0000-0000-0000000005c2'::uuid,
                      'organization', '00000000-0000-0000-0000-0000000005f1'::uuid,
                      'integration_set', true),
@@ -893,7 +921,7 @@ select ok(
 
 select is(
   (select public.ingest_whatsapp_event(id) ->> 'outcome'
-     from public.webhook_events where external_id = 'wamid.A1'),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
   'skipped',
   'an event already decided is not decided again');
 select is(
@@ -928,22 +956,37 @@ select is(
      from public.audit_logs a, jsonb_object_keys(a.detail) k
     where a.action = 'ingest_whatsapp_event'),
   array['integration_id', 'member_id', 'outcome', 'participation_id',
-        'promotion_id', 'wamid'],
-  'across every outcome the audit detail carries exactly these six keys -- ids, the message id and the reason, and nothing that describes a person');
+        'promotion_id', 'wamid_sha256'],
+  'across every outcome the audit detail carries exactly these six keys -- ids, the hashed message id and the reason, and nothing that describes a person');
+
+-- The key set pins NAMES. This pins VALUES, and it is the assertion that
+-- catches the leak the names cannot see: a raw provider message id written
+-- under the honest-looking key 'wamid_sha256'.
+--
+-- A wamid decodes to bytes containing the counterparty's phone number, so a raw
+-- one in audit_logs is a recoverable phone in a table that is never pruned --
+-- the thing design spec D2 forbids in capitals, arriving by the one route D9
+-- assumed was safe. Every wamid in this file begins 'wamid.'; a SHA-256 hex
+-- digest and a uuid can contain neither that letter run nor the dot, so unlike
+-- a digit-substring test this one cannot fire by chance.
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'ingest_whatsapp_event' and detail::text like '%wamid.%'),
+  0, 'no audit row carries a raw provider message id, under any key');
 
 select is(
-  (select detail ->> 'wamid' from public.audit_logs
+  (select detail ->> 'wamid_sha256' from public.audit_logs
     where action = 'ingest_whatsapp_event'
       and target_id = (select id from public.webhook_events
-                        where external_id = 'wamid.A1')),
-  'wamid.A1',
-  'the audit row names the message it decided, so support can trace one without opening the payload');
+                        where external_id = pg_temp.wamid_hash('wamid.A1'))),
+  pg_temp.wamid_hash('wamid.A1'),
+  'the audit row names the message it decided -- by its hash, which is the same value webhook_events carries, so support can trace one without opening the payload and without a recoverable phone being written down');
 
 select is(
   (select (detail ->> 'participation_id')::uuid from public.audit_logs
     where action = 'ingest_whatsapp_event'
       and target_id = (select id from public.webhook_events
-                        where external_id = 'wamid.A1')),
+                        where external_id = pg_temp.wamid_hash('wamid.A1'))),
   (select (result ->> 'participation_id')::uuid
      from pg_temp.ingest_log where wamid = 'wamid.A1'),
   'and ties it to the entry it produced, which is the only link between a message and its participation');
@@ -965,19 +1008,20 @@ select is(
 
 update public.webhook_events
    set status = 'FAILED', outcome = null, processed_at = null
- where external_id = 'wamid.A1';
+ where external_id = pg_temp.wamid_hash('wamid.A1');
 
 -- The re-run must actually happen, or the count below would pass because
 -- nothing ran rather than because nothing was enqueued twice.
 select is(
   (select public.ingest_whatsapp_event(id) ->> 'outcome'
-     from public.webhook_events where external_id = 'wamid.A1'),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
   'recorded',
   'an event put back by hand really is decided again');
 
 select is(
   (select count(*)::int from public.outbox_messages
-    where provider = 'WHATSAPP' and dedupe_key = 'wamid.A1:confirmation'),
+    where provider = 'WHATSAPP'
+      and dedupe_key = pg_temp.wamid_hash('wamid.A1') || ':confirmation'),
   1, 'but the listener is answered once: the reply is keyed on the message, so deciding it twice enqueues one row');
 
 select * from finish();

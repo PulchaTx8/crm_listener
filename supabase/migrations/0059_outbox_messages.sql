@@ -17,7 +17,7 @@ create table public.outbox_messages (
 
   -- Unique, and that is the whole mechanism. Reprocessing a parked event by
   -- hand must not send its confirmation a second time, and this holds it rather
-  -- than the worker being careful. Shape: '<wamid>:confirmation'.
+  -- than the worker being careful. Shape: '<sha256 of the wamid>:confirmation'.
   --
   -- KEYED ON THE MESSAGE, NOT ON THE PARTICIPATION, and the distinction is the
   -- whole promise. An earlier draft of this comment said
@@ -28,10 +28,15 @@ create table public.outbox_messages (
   -- real, but a different mechanism from the one this comment advertises, and
   -- one an operator resetting a row by hand walks straight past.
   --
-  -- The wamid is also the coherent choice: idempotency on the INBOUND side is
-  -- already (provider, external_id) on webhook_events (0058), so the reply to a
-  -- message keys exactly the way the message does. One message, one reply,
-  -- whatever happens downstream.
+  -- The message id is also the coherent choice: idempotency on the INBOUND
+  -- side is already (provider, external_id) on webhook_events (0058), so the
+  -- reply to a message keys exactly the way the message does. One message, one
+  -- reply, whatever happens downstream.
+  --
+  -- It follows external_id, which holds the SHA-256 of the wamid and not the
+  -- wamid itself (0058): the raw id decodes to bytes containing the
+  -- counterparty phone, and this column is not pruned either. So the value
+  -- here is the hash, the same string webhook_events carries.
   dedupe_key text not null check (length(btrim(dedupe_key)) > 0),
 
   status          public.outbox_status not null default 'PENDING',
@@ -72,6 +77,6 @@ alter table public.outbox_messages enable row level security;
 -- No policy. See integrations (0057).
 
 comment on table public.outbox_messages is
-  'Outbound messages as rows, so a reply commits in the same transaction as the participation it announces. dedupe_key is unique and is keyed on the MESSAGE (''<wamid>:confirmation''), not on the participation: reprocessing an event by hand writes a new participation, so a participation-keyed value would have produced a second reply and never fired the constraint at all. Keyed on the wamid the promise is real and matches the inbound side, whose idempotency is already (provider, external_id) on webhook_events. RLS enabled with no policy — service_role only.';
+  'Outbound messages as rows, so a reply commits in the same transaction as the participation it announces. dedupe_key is unique and is keyed on the MESSAGE (''<sha256 of the wamid>:confirmation''), not on the participation: reprocessing an event by hand writes a new participation, so a participation-keyed value would have produced a second reply and never fired the constraint at all. Keyed on the message the promise is real and matches the inbound side, whose idempotency is already (provider, external_id) on webhook_events; the value is the HASH of the wamid, following external_id, because the raw id is not anonymous and this column is not pruned either. RLS enabled with no policy — service_role only.';
 comment on column public.outbox_messages.external_id is
   'The wamid Meta returns once it accepts the send. Null until then, and null forever on a row that never succeeded.';
