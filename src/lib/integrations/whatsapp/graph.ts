@@ -1,4 +1,5 @@
-import type { SendResult, SendTextInput, WhatsAppTransport } from './transport';
+import type { SendInteractiveInput, SendResult, SendTextInput, WhatsAppTransport } from './transport';
+import { buildInteractivePayload } from './interactive';
 
 const GRAPH_VERSION = 'v21.0';
 
@@ -21,6 +22,32 @@ export class GraphTransport implements WhatsAppTransport {
   ) {}
 
   async sendText({ phoneNumberId, to, body }: SendTextInput): Promise<SendResult> {
+    return this.post(phoneNumberId, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'text',
+      text: { body, preview_url: false },
+    });
+  }
+
+  /**
+   * Builds the interactive payload before doing anything else, so a shape
+   * `buildInteractivePayload` refuses (too many buttons, a title too long)
+   * throws here, outside the `post` helper's try/catch, rather than being
+   * folded into a retryable/permanent SendResult it is not.
+   */
+  async sendInteractive({ phoneNumberId, to, interactive }: SendInteractiveInput): Promise<SendResult> {
+    const built = buildInteractivePayload(interactive) as Record<string, unknown>;
+    return this.post(phoneNumberId, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      ...built,
+    });
+  }
+
+  private async post(phoneNumberId: string, body: Record<string, unknown>): Promise<SendResult> {
     let response: Response;
     try {
       response = await this.fetchImpl(
@@ -31,13 +58,7 @@ export class GraphTransport implements WhatsAppTransport {
             authorization: `Bearer ${this.accessToken}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to,
-            type: 'text',
-            text: { body, preview_url: false },
-          }),
+          body: JSON.stringify(body),
         },
       );
     } catch (cause) {

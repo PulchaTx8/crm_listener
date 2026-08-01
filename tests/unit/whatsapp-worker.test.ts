@@ -178,6 +178,12 @@ function scripted(...results: SendResult[]): WhatsAppTransport & { seen: SendTex
       index += 1;
       return Promise.resolve(result ?? { ok: true, externalId: 'wamid.FALLBACK' });
     },
+    // The outbox worker under test here only ever sends text (5a's four
+    // reply strings). No test in this file exercises an interactive send, so
+    // this double does not model one -- it fails loudly instead of pretending.
+    sendInteractive(): Promise<SendResult> {
+      throw new Error('scripted() test double does not model sendInteractive');
+    },
   };
 }
 
