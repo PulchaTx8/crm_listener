@@ -2295,6 +2295,13 @@ export type Database = {
           promotion_prize_id: string
         }[]
       }
+      member_field_value: {
+        Args: {
+          p_field: Database["public"]["Enums"]["promotion_requested_field"]
+          p_member_id: string
+        }
+        Returns: string
+      }
       member_linked_to_company: {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
@@ -2558,6 +2565,10 @@ export type Database = {
         Returns: undefined
       }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
+      whatsapp_conversation_steps: {
+        Args: { p_member_id: string; p_promotion_id: string }
+        Returns: Json
+      }
       whatsapp_local_phone: { Args: { p_wa_phone: string }; Returns: string }
       whatsapp_reply_body: {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }

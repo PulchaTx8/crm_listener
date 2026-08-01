@@ -1,5 +1,5 @@
 begin;
-select plan(15);
+select plan(25);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -109,6 +109,235 @@ select is(
     where member_id = '00000000-0000-0000-0000-0000000008d5' and field = 'full_name'),
   (select created_at from public.members where id = '00000000-0000-0000-0000-0000000008d5'),
   'the backfill dates a confirmation from when the value was created, not from its last edit');
+
+-- Task 2: which steps this listener still has to answer -----------------------
+--
+-- A dedicated Org/Station keeps these fixtures from ever touching the ones
+-- above (member 8d1 already carries a 'city' confirmation from Task 1's own
+-- fixtures) and from ever touching each other: every promotion below gets its
+-- own hashtag, so promotions_hashtag_no_overlap (0040) has nothing to say
+-- about any of them regardless of how their windows overlap.
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-000000000901', 'Org 5b conversation steps');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-000000000902', '00000000-0000-0000-0000-000000000901',
+   'Station 5b conversation steps');
+
+-- A. A promotion that asks for nothing at all gets the one step every
+-- conversation always has, and nothing else.
+insert into public.members (id, organization_id) values
+  ('00000000-0000-0000-0000-000000000910', '00000000-0000-0000-0000-000000000901');
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at, requested_fields)
+values
+  ('00000000-0000-0000-0000-000000000920', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Consent alone',
+   now() - interval '1 day', now() + interval '1 day', '{}');
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000920', '00000000-0000-0000-0000-000000000910'),
+  '[{"kind": "consent"}]'::jsonb,
+  'a promotion with no requested fields and no questions yields consent alone');
+
+-- B. Blank counts as empty, and empty is asked WHATEVER the validity says --
+-- even a confirmation timestamped this instant does not save a field whose
+-- current value is blank.
+insert into public.members (id, organization_id, neighbourhood) values
+  ('00000000-0000-0000-0000-000000000911', '00000000-0000-0000-0000-000000000901', '   ');
+insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at) values
+  ('00000000-0000-0000-0000-000000000911', '00000000-0000-0000-0000-000000000901', 'neighbourhood', now());
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, requested_fields, data_validity_months)
+values
+  ('00000000-0000-0000-0000-000000000921', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Blank counts as empty',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#t2blank', array['neighbourhood']::public.promotion_requested_field[], 12);
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000921', '00000000-0000-0000-0000-000000000911'),
+  '[{"kind": "consent"}, {"kind": "field", "field": "neighbourhood"}]'::jsonb,
+  'a blank field is included even though it was confirmed moments ago -- emptiness never reaches the validity check');
+
+-- C/D/E/F. One promotion, four listeners, walking the freshness boundary for
+-- `address`. The window fixtures are built from the SAME now() and the SAME
+-- make_interval(months => 6) the function itself evaluates -- now() is fixed
+-- for the whole transaction this file runs in, so "one day either side" and
+-- "exactly on it" are exact, not approximate, and a boundary written `<=`
+-- instead of `<` has something in this file to disagree with.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, requested_fields, data_validity_months)
+values
+  ('00000000-0000-0000-0000-000000000922', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Address freshness window',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#t2window', array['address']::public.promotion_requested_field[], 6);
+
+-- C: confirmed one day INSIDE the window (fresher than the cutoff) -- excluded.
+insert into public.members (id, organization_id, address_line) values
+  ('00000000-0000-0000-0000-000000000912', '00000000-0000-0000-0000-000000000901', 'Rua Inside');
+insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at) values
+  ('00000000-0000-0000-0000-000000000912', '00000000-0000-0000-0000-000000000901', 'address',
+   now() - make_interval(months => 6) + interval '1 day');
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000922', '00000000-0000-0000-0000-000000000912'),
+  '[{"kind": "consent"}]'::jsonb,
+  'a field confirmed one day inside the validity window is excluded');
+
+-- D: confirmed EXACTLY on the boundary -- still "within", so still excluded.
+-- This is the assertion a `<=` in place of `<` flips: it is the only one of
+-- the four with no daylight at all between confirmed_at and the cutoff.
+insert into public.members (id, organization_id, address_line) values
+  ('00000000-0000-0000-0000-000000000913', '00000000-0000-0000-0000-000000000901', 'Rua Boundary');
+insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at) values
+  ('00000000-0000-0000-0000-000000000913', '00000000-0000-0000-0000-000000000901', 'address',
+   now() - make_interval(months => 6));
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000922', '00000000-0000-0000-0000-000000000913'),
+  '[{"kind": "consent"}]'::jsonb,
+  'a field confirmed exactly data_validity_months ago is still within the window and is excluded');
+
+-- E: confirmed one day OUTSIDE the window (older than the cutoff) -- included.
+insert into public.members (id, organization_id, address_line) values
+  ('00000000-0000-0000-0000-000000000914', '00000000-0000-0000-0000-000000000901', 'Rua Outside');
+insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at) values
+  ('00000000-0000-0000-0000-000000000914', '00000000-0000-0000-0000-000000000901', 'address',
+   now() - make_interval(months => 6) - interval '1 day');
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000922', '00000000-0000-0000-0000-000000000914'),
+  '[{"kind": "consent"}, {"kind": "field", "field": "address"}]'::jsonb,
+  'a field confirmed one day outside the validity window is included');
+
+-- F: filled but NEVER confirmed at all. No row to coalesce to -infinity from
+-- but the real thing: a listener who has never confirmed reads exactly like
+-- one confirmed infinitely long ago, and is included -- not treated as fresh
+-- for lack of a row to check.
+insert into public.members (id, organization_id, address_line) values
+  ('00000000-0000-0000-0000-000000000915', '00000000-0000-0000-0000-000000000901', 'Rua Never');
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000922', '00000000-0000-0000-0000-000000000915'),
+  '[{"kind": "consent"}, {"kind": "field", "field": "address"}]'::jsonb,
+  'a filled field that was never confirmed is included, not treated as fresh');
+
+-- G. Null validity means no freshness requirement at all -- not even "never
+-- confirmed" reaches the staleness check, because that check is itself gated
+-- on data_validity_months is not null. A filled, never-confirmed field is
+-- excluded here, the opposite of F's outcome under a real window.
+insert into public.members (id, organization_id, full_name, discovery_source) values
+  ('00000000-0000-0000-0000-000000000916', '00000000-0000-0000-0000-000000000901',
+   'G Filled', 'Instagram');
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, requested_fields, data_validity_months)
+values
+  ('00000000-0000-0000-0000-000000000923', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Null validity',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#t2null', array['full_name', 'discovery_source']::public.promotion_requested_field[], null);
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000923', '00000000-0000-0000-0000-000000000916'),
+  '[{"kind": "consent"}]'::jsonb,
+  'a null data_validity_months excludes every filled field even when none was ever confirmed');
+
+-- H. data_validity_months = 0 asks every requested field every time, even one
+-- confirmed a minute ago -- 0 is a real ceiling, not "no ceiling" spelled
+-- differently.
+insert into public.members (id, organization_id, birth_date, cpf_hash, passport) values
+  ('00000000-0000-0000-0000-000000000917', '00000000-0000-0000-0000-000000000901',
+   '1990-01-01', repeat('a', 64), 'H1234567');
+insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at) values
+  ('00000000-0000-0000-0000-000000000917', '00000000-0000-0000-0000-000000000901', 'age', now() - interval '1 minute'),
+  ('00000000-0000-0000-0000-000000000917', '00000000-0000-0000-0000-000000000901', 'cpf', now() - interval '1 minute'),
+  ('00000000-0000-0000-0000-000000000917', '00000000-0000-0000-0000-000000000901', 'passport', now() - interval '1 minute');
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, requested_fields, data_validity_months)
+values
+  ('00000000-0000-0000-0000-000000000924', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Ask every time',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#t2zero', array['age', 'cpf', 'passport']::public.promotion_requested_field[], 0);
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000924', '00000000-0000-0000-0000-000000000917'),
+  '[{"kind": "consent"}, {"kind": "field", "field": "age"}, {"kind": "field", "field": "cpf"}, {"kind": "field", "field": "passport"}]'::jsonb,
+  'data_validity_months = 0 includes every requested field even when confirmed a minute ago');
+
+-- I. Questions come after the fields, in POSITION order. The three below are
+-- inserted out of position order AND their ids deliberately disagree with
+-- both the insertion order and the position order, so an implementation that
+-- (wrongly) followed id or insertion order would produce a different sequence
+-- than one that follows position.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, requested_fields)
+values
+  ('00000000-0000-0000-0000-000000000925', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Fields then questions in position order',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#t2order', array['city']::public.promotion_requested_field[]);
+
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt, menu_title, button_label)
+values
+  ('00000000-0000-0000-0000-000000000931', '00000000-0000-0000-0000-000000000925',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   2, 'ESSAY', 'Second question', null, null),
+  ('00000000-0000-0000-0000-000000000932', '00000000-0000-0000-0000-000000000925',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   3, 'MULTIPLE_CHOICE', 'Third question', 'Menu 3', 'Button 3'),
+  ('00000000-0000-0000-0000-000000000933', '00000000-0000-0000-0000-000000000925',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   1, 'QUIZ', 'First question', 'Menu 1', 'Button 1');
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000925', '00000000-0000-0000-0000-000000000910'),
+  ('[{"kind": "consent"}, {"kind": "field", "field": "city"},'
+   || ' {"kind": "question", "question_id": "00000000-0000-0000-0000-000000000933", "question_kind": "QUIZ"},'
+   || ' {"kind": "question", "question_id": "00000000-0000-0000-0000-000000000931", "question_kind": "ESSAY"},'
+   || ' {"kind": "question", "question_id": "00000000-0000-0000-0000-000000000932", "question_kind": "MULTIPLE_CHOICE"}]')::jsonb,
+  'questions appear in position order after the fields, regardless of insertion or id order');
+
+-- J. Fields come out in the ENUM's own order, not the order an operator
+-- ticked them: ticked discovery_source, city, full_name -- in that order --
+-- and expected back full_name, city, discovery_source, which is
+-- promotion_requested_field's declared order (0040). That is also neither the
+-- ticked order nor alphabetical order, so a sort by either would disagree too.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, requested_fields)
+values
+  ('00000000-0000-0000-0000-000000000926', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Enum order, not tick order',
+   now() - interval '1 day', now() + interval '1 day',
+   true, '#t2enum',
+   array['discovery_source', 'city', 'full_name']::public.promotion_requested_field[]);
+
+select is(
+  public.whatsapp_conversation_steps(
+    '00000000-0000-0000-0000-000000000926', '00000000-0000-0000-0000-000000000910'),
+  '[{"kind": "consent"}, {"kind": "field", "field": "full_name"}, {"kind": "field", "field": "city"}, {"kind": "field", "field": "discovery_source"}]'::jsonb,
+  'requested fields come out in the enum''s own order, regardless of the order they were ticked');
 
 select * from finish();
 rollback;
