@@ -3080,6 +3080,7 @@ export type Database = {
         | "DRAW"
         | "DRAW_CANCEL"
         | "DELIVERY"
+        | "DELIVERY_CANCEL"
         | "RETURN_PENDING"
         | "RETURN_TO_STOCK"
         | "WRITE_OFF"
@@ -3269,6 +3270,7 @@ export const Constants = {
         "DRAW",
         "DRAW_CANCEL",
         "DELIVERY",
+        "DELIVERY_CANCEL",
         "RETURN_PENDING",
         "RETURN_TO_STOCK",
         "WRITE_OFF",

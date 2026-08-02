@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(24);
 
 -- Block 6b: what an operator does deliberately with a prize that has been won.
 --
@@ -168,6 +168,69 @@ select is(
   (select count(*)::int from pg_policies
     where schemaname = 'public' and tablename = 'winner_status_history'),
   1, 'the history carries exactly one policy, and it is a read policy');
+
+-- ---------------------------------------------------------------------------
+-- Task 2: the ledger learns the other five movements.
+--
+-- Each is driven through apply_inventory_movement, the one writer, and the
+-- assertion reads BOTH per-promotion figures as a pair. Asserting only the one
+-- that is supposed to move cannot catch a branch that moves both when it should
+-- move neither -- which is precisely the mistake the four no-op branches exist
+-- to avoid.
+
+select ok('DELIVERY_CANCEL' = any(enum_range(null::public.inventory_movement_type)::text[]),
+          'the ledger has a word for undoing a delivery');
+
+-- A helper, so each assertion below reads as the figures and not as a join.
+create function pg_temp.promo_figures() returns text language sql stable as $$
+  select b.linked || '/' || b.drawn
+  from public.promotion_prize_balances b
+  where b.promotion_prize_id = '00000000-0000-0000-0000-00000000b0a1';
+$$;
+
+create function pg_temp.move(
+  p_type public.inventory_movement_type,
+  p_from public.inventory_bucket,
+  p_to   public.inventory_bucket
+) returns void language sql as $$
+  select public.apply_inventory_movement(
+    '00000000-0000-0000-0000-00000000b0c1'::uuid,
+    '00000000-0000-0000-0000-00000000b0d1'::uuid,
+    p_type, 1, p_from, p_to, null, null,
+    '00000000-0000-0000-0000-00000000b0a1'::uuid);
+$$;
+
+-- The draw itself, so the figures start where a real winner leaves them.
+select pg_temp.move('DRAW', 'linked', 'awaiting_pickup');
+select is(pg_temp.promo_figures(), '2/1', 'the draw leaves two linked and one drawn');
+
+select pg_temp.move('DELIVERY', 'awaiting_pickup', 'delivered');
+select is(pg_temp.promo_figures(), '2/1',
+          'DELIVERY changes neither figure: the unit was spent BY the promotion');
+
+select pg_temp.move('DELIVERY_CANCEL', 'delivered', 'awaiting_pickup');
+select is(pg_temp.promo_figures(), '2/1',
+          'and undoing it changes neither either');
+
+select pg_temp.move('RETURN_PENDING', 'awaiting_pickup', 'pending_return');
+select is(pg_temp.promo_figures(), '2/1',
+          'a unit on its way back is still committed to the promotion');
+
+select pg_temp.move('RETURN_TO_STOCK', 'pending_return', 'available');
+select is(pg_temp.promo_figures(), '1/0',
+          'RETURN_TO_STOCK drops both: the unit left the promotion for general stock');
+
+select is(
+  (select available from public.inventory_balances
+    where company_id = '00000000-0000-0000-0000-00000000b0c1'
+      and prize_id = '00000000-0000-0000-0000-00000000b0d1'),
+  1, 'and it really is back in available, not merely uncounted');
+
+-- Draw the remaining unit so there is something in awaiting_pickup to destroy.
+select pg_temp.move('DRAW', 'linked', 'awaiting_pickup');
+select pg_temp.move('WRITE_OFF', 'awaiting_pickup', 'written_off');
+select is(pg_temp.promo_figures(), '1/1',
+          'a written-off unit stays counted: it was this promotion that consumed it');
 
 select * from finish();
 rollback;
