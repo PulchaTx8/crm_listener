@@ -375,6 +375,40 @@ describe("an operator's save, and the freshness record behind it", () => {
    * drives this same RPC as a non-owner delegate, and that is where the
    * permission question lives.
    */
+  /**
+   * D3, at the door that types a NEW listener.
+   *
+   * The gap this closes was found by the case below it: the backfill covered
+   * every record that existed, update_member covers every save, and
+   * create_member wrote nothing — so a record typed today had the bot asking
+   * that listener for data the operator had entered an hour earlier.
+   */
+  it('confirms what an operator typed when the record is created', async () => {
+    const customer = await provisionCustomer(`conv-create-${Date.now()}`);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Recem Digitado',
+      passport: `PS${String(Date.now()).slice(-8)}`,
+    });
+
+    const { data: rows, error } = await admin
+      .from('member_field_confirmations')
+      .select('field, confirmed_at')
+      .eq('member_id', memberId);
+    expect(error).toBeNull();
+
+    const fields = rows?.map((row) => row.field).sort();
+    expect(fields, 'the two fields the operator filled are confirmed').toEqual([
+      'full_name',
+      'passport',
+    ]);
+    // Nothing else: a field nobody typed is not confirmed by the act of saving
+    // a form that had a box for it.
+    expect(fields).not.toContain('city');
+    expect(Date.parse(rows?.[0]?.confirmed_at ?? ''), 'as of now').toBeGreaterThan(
+      Date.now() - 60_000,
+    );
+  });
+
   it('refreshes only the fields whose value actually moved', async () => {
     const customer = await provisionCustomer(`conv-save-${Date.now()}`);
     const memberId = await createMemberAs(customer, customer.companyId, {

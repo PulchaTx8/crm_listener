@@ -1,8 +1,8 @@
 # Block 5b — The conversation — Verification Report
 
-**Branch:** `block-5b`, 20 commits, not merged and **no PR opened** — the owner
+**Branch:** `block-5b`, 22 commits, not merged and **no PR opened** — the owner
 decides when it opens.
-**Migrations:** `0065`–`0073`.
+**Migrations:** `0065`–`0074`.
 **Diffstat against `main`:** 46 files, +8 619 / −127.
 
 The bot now holds a conversation. A hashtag opens it with one composed message —
@@ -24,11 +24,11 @@ not copied from anywhere.
 | `npm run typecheck` | clean |
 | `npm test` (Vitest) | **506** cases, 33 files |
 | `npm run db:test` (pgTAP) | **675** cases, 9 files |
-| `npm run test:isolation` | **204** cases, 18 files, guard-complete |
+| `npm run test:isolation` | **205** cases, 18 files, guard-complete (floor 205) |
 | `CI=1 npx playwright test` | **23** passed |
 
 Where they were before this block: Vitest 405 → 506, pgTAP 586 → 675, isolation
-192 → 204, Playwright 23 → 23.
+192 → 205, Playwright 23 → 23.
 
 **The isolation suite's worker-death flake did not appear once** in roughly a
 dozen full runs this block. That is not a fix and should not be read as one —
@@ -164,22 +164,23 @@ message outright in the same crash, and a listener whose hashtag was recorded as
 handled and answered by nothing has no way to know. Delay that recovers itself
 beats silence.
 
-### 5.5 `create_member` writes no confirmations
+### 5.5 `create_member` wrote no confirmations — closed in 0074
 
-Found by Task 10's own isolation case, and **not fixed**, because it is outside
-that task's scope and the fix means restating a hundred-line function.
+Found by Task 10's own isolation case, reported as a deferred decision, and then
+closed on the owner's instruction to continue.
 
-The backfill (0065) covered every record that existed at migration time, and
-`update_member` (0073) now covers every save. A record an operator **creates**
-after this deploys has no confirmation for anything, so the bot asks that
-listener for data the operator has just typed — which is the opposite of the
-owner's ruling that typed data counts as confirmed on the day it was typed.
+Three doors write a listener's fields and only two honoured D3: the backfill
+(0065) covered every record that existed when it ran, `update_member` (0073)
+covers every save, and `create_member` wrote nothing — so a record typed today
+had the bot asking that listener for the address the operator had entered an
+hour earlier. It self-heals, which is exactly why it would have survived a long
+time unreported.
 
-Severity is low and it self-heals: the bot asks once, the listener answers, and
-the confirmation exists from then on. But it is a decision to take rather than a
-detail to leave: `create_member` should call
-`apply_member_field_confirmations(member, org, '{}', member_field_values(member))`
-after its write, exactly as `update_member` does.
+`create_member` now makes the same call `update_member` does, against an empty
+"before", so the rule lives in one function rather than two.
+`apply_member_creation` — the core the BOT registers through — was deliberately
+NOT changed: it supplies a phone and a WhatsApp profile name, and a profile name
+is not the listener confirming their name.
 
 ### 5.6 The gap between "the tests pass" and "it works" is still open
 
@@ -192,7 +193,7 @@ What actually catches this class is a test that drives the **real path as the
 real role**: this block's `tests/isolation/conversation.test.ts` opens a
 conversation, presses the button, answers the question and asserts the entry —
 and would have failed on all five. The isolation suite is where that lives and
-it is now 204 cases. The lesson to carry into Block 6: **write the end-to-end
+it is now 205 cases. The lesson to carry into Block 6: **write the end-to-end
 case first**, before the pieces it will exercise, and let it fail for the right
 reason each time a piece lands.
 
@@ -226,6 +227,5 @@ count.**
 
 ## 7. Deferred
 
-- **`create_member`'s confirmations** (§5.5) — owner's call.
 - **The fencing gap** (§5.3) — stated, not closed.
 - Everything the plan's §7 already listed as out of scope.
