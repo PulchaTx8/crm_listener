@@ -1921,6 +1921,35 @@ export type Database = {
           },
         ]
       }
+      whatsapp_conversation_leases: {
+        Row: {
+          claimed_at: string
+          integration_id: string
+          phone: string
+          token: string
+        }
+        Insert: {
+          claimed_at?: string
+          integration_id: string
+          phone: string
+          token?: string
+        }
+        Update: {
+          claimed_at?: string
+          integration_id?: string
+          phone?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversation_leases_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_conversations: {
         Row: {
           created_at: string
@@ -2098,6 +2127,14 @@ export type Database = {
           p_new_role: Database["public"]["Enums"]["org_role"]
         }
         Returns: undefined
+      }
+      claim_conversation_turn: {
+        Args: {
+          p_integration_id: string
+          p_phone: string
+          p_stale_after: string
+        }
+        Returns: string
       }
       claim_outbox_batch: {
         Args: { p_limit: number }
@@ -2422,6 +2459,10 @@ export type Database = {
           p_quantity: number
         }
         Returns: string
+      }
+      release_conversation_turn: {
+        Args: { p_integration_id: string; p_phone: string; p_token: string }
+        Returns: undefined
       }
       release_reservation: {
         Args: {

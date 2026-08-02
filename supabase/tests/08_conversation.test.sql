@@ -1,5 +1,5 @@
 begin;
-select plan(33);
+select plan(45);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -385,6 +385,96 @@ select is(
     '00000000-0000-0000-0000-000000000926', '00000000-0000-0000-0000-000000000910'),
   '[{"kind": "consent"}, {"kind": "field", "field": "full_name"}, {"kind": "field", "field": "city"}, {"kind": "field", "field": "discovery_source"}]'::jsonb,
   'requested fields come out in the enum''s own order, regardless of the order they were ticked');
+
+-- The turn lease (Task 7c) ----------------------------------------------------
+--
+-- What serialises two messages from one phone, and the reason it is a table and
+-- not pg_advisory_xact_lock: the engine is TypeScript. A turn is load, advance,
+-- write, with the middle step in Node, and an advisory lock is released at
+-- commit -- before the state is read and before the write goes back. It would
+-- cover neither end of the read-modify-write it exists to protect. This is the
+-- claim/reclaim shape 0063 already uses, for the same reason it exists there: a
+-- claim that has to outlive its transaction cannot be a lock.
+
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-000000000911', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'WHATSAPP', '911911911911911', true);
+
+select has_table('public', 'whatsapp_conversation_leases', 'the turn lease exists');
+
+select is(relrowsecurity, true, 'RLS enabled on whatsapp_conversation_leases')
+  from pg_class where oid = 'public.whatsapp_conversation_leases'::regclass;
+
+-- NO table grant, and the absence is the design rather than the omission 5a
+-- shipped three times: nothing outside the two SECURITY DEFINER functions below
+-- ever touches this table, so the way to reach it is to be one of them. Stated
+-- here so that adding a PostgREST read of it is a decision somebody makes in
+-- this file rather than a 42501 they meet in production.
+select ok(not has_table_privilege('service_role', 'public.whatsapp_conversation_leases', 'SELECT'),
+          'the lease is reachable only from inside its own functions');
+select ok(not has_table_privilege('authenticated', 'public.whatsapp_conversation_leases', 'SELECT'),
+          'and authenticated cannot see who is mid-conversation');
+
+select ok(not has_function_privilege('anon',
+            'public.claim_conversation_turn(uuid, text, interval)', 'EXECUTE'),
+          'anon may not claim a turn');
+select ok(has_function_privilege('service_role',
+            'public.claim_conversation_turn(uuid, text, interval)', 'EXECUTE'),
+          'the worker may claim a turn');
+
+create temporary table lease_first as
+  select public.claim_conversation_turn(
+    '00000000-0000-0000-0000-000000000911', '5511900009111', '5 minutes') as token;
+
+select isnt((select token from lease_first), null,
+            'a free pair is claimed, and the claim hands back the token that owns it');
+
+select is(
+  public.claim_conversation_turn(
+    '00000000-0000-0000-0000-000000000911', '5511900009111', '5 minutes'),
+  null,
+  'and a second worker gets nothing while that lease is alive -- which is the whole point');
+
+-- Aged past the staleness interval: a worker that died mid-turn must not hold
+-- a phone for ever. The takeover is the same statement as the ordinary claim,
+-- so there is no separate reclaim to forget to run.
+update public.whatsapp_conversation_leases
+   set claimed_at = now() - interval '10 minutes'
+ where integration_id = '00000000-0000-0000-0000-000000000911';
+
+create temporary table lease_second as
+  select public.claim_conversation_turn(
+    '00000000-0000-0000-0000-000000000911', '5511900009111', '5 minutes') as token;
+
+select isnt((select token from lease_second), null,
+            'a stale lease is taken over by the next worker to ask');
+
+select isnt((select token from lease_second), (select token from lease_first),
+            'and the takeover carries a NEW token, so the old holder can no longer release it');
+
+-- THE TOKEN IS WHY RELEASE TAKES ONE. Without it the worker whose lease was
+-- taken over would, on waking, delete the lease of the worker that took it --
+-- freeing a phone somebody is mid-turn on, which is exactly the race the lease
+-- exists to stop, arrived at the long way round.
+select public.release_conversation_turn(
+  '00000000-0000-0000-0000-000000000911', '5511900009111', (select token from lease_first));
+
+select is(
+  (select count(*)::int from public.whatsapp_conversation_leases
+    where integration_id = '00000000-0000-0000-0000-000000000911'),
+  1,
+  'a release carrying the superseded token frees nothing');
+
+select public.release_conversation_turn(
+  '00000000-0000-0000-0000-000000000911', '5511900009111', (select token from lease_second));
+
+select is(
+  (select count(*)::int from public.whatsapp_conversation_leases
+    where integration_id = '00000000-0000-0000-0000-000000000911'),
+  0,
+  'and the holder releasing its own lease frees the phone for the next message');
 
 select * from finish();
 rollback;
