@@ -951,6 +951,7 @@ export type Database = {
           external_id: string | null
           id: string
           integration_id: string
+          interactive: Json | null
           last_error: string | null
           next_attempt_at: string
           organization_id: string
@@ -970,6 +971,7 @@ export type Database = {
           external_id?: string | null
           id?: string
           integration_id: string
+          interactive?: Json | null
           last_error?: string | null
           next_attempt_at?: string
           organization_id: string
@@ -989,6 +991,7 @@ export type Database = {
           external_id?: string | null
           id?: string
           integration_id?: string
+          interactive?: Json | null
           last_error?: string | null
           next_attempt_at?: string
           organization_id?: string
@@ -2102,6 +2105,7 @@ export type Database = {
           attempts: number
           body: string
           id: string
+          interactive: Json
           phone_number_id: string
           to_phone: string
         }[]

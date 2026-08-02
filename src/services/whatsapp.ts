@@ -1,6 +1,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/supabase/database.types';
+import { parseInteractive } from '@/lib/integrations/whatsapp/interactive';
 import type { WhatsAppTransport } from '@/lib/integrations/whatsapp/transport';
 
 /**
@@ -278,11 +279,37 @@ async function drainOutbox(
       continue;
     }
 
-    const send = await transport.sendText({
-      phoneNumberId: row.phone_number_id,
-      to: row.to_phone,
-      body: row.body,
-    });
+    // Block 5b: one queue, two shapes. A null `interactive` is every reply 5a
+    // writes and goes out as text; anything else is a message of the
+    // conversation, and its body column carries the same words for the operator
+    // rather than for Meta.
+    const interactive = row.interactive === null ? null : parseInteractive(row.interactive);
+    if (row.interactive !== null && interactive === null) {
+      // Stored, but not a shape the API would take — a payload written by an
+      // older deploy, or a promotion configured past a Cloud API limit. Meta
+      // answers a 400 to it every time, so the ladder would spend six paid
+      // attempts arriving at the same answer. Parked with the reason on the
+      // row, where the operator asking "why did nobody get it?" will look.
+      const { error: parkError } = await supabase
+        .from('outbox_messages')
+        .update({ status: 'FAILED', last_error: 'stored interactive payload is not sendable' })
+        .eq('id', row.id);
+      failed(result, 'park a row with an unsendable interactive payload', parkError);
+      result.sendFailed += 1;
+      continue;
+    }
+
+    const send = interactive
+      ? await transport.sendInteractive({
+          phoneNumberId: row.phone_number_id,
+          to: row.to_phone,
+          interactive,
+        })
+      : await transport.sendText({
+          phoneNumberId: row.phone_number_id,
+          to: row.to_phone,
+          body: row.body,
+        });
 
     if (send.ok) {
       // Meta has accepted it. `sent` counts that fact, and is incremented even

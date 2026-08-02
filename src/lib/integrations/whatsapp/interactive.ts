@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /**
  * WhatsApp Cloud API interactive messages: reply buttons and lists.
  *
@@ -149,3 +151,38 @@ export function buildConsentInteractive(promotion: ConsentPromotion): Interactiv
     buttons: promotion.buttons,
   };
 }
+
+/**
+ * The same union, read back out of `outbox_messages.interactive`.
+ *
+ * A boundary schema for the same reason the conversation state has one: the
+ * value is written by one process and read by another, possibly a deploy apart,
+ * and `Json` says nothing about its shape. What the column's CHECK guarantees is
+ * that it is an object -- not that it is one of these two.
+ *
+ * Returns null rather than throwing, because the caller is the worker draining
+ * a batch: a row it cannot render must be parked with a reason, not allowed to
+ * take the other forty-nine down with it.
+ */
+export function parseInteractive(value: unknown): Interactive | null {
+  const parsed = interactiveSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+const replyOption = z.object({ id: z.string().min(1), title: z.string().min(1) });
+
+const interactiveSchema: z.ZodType<Interactive> = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('buttons'),
+    body: z.string().min(1),
+    imageUrl: z.string().nullable(),
+    buttons: z.array(replyOption).min(1),
+  }),
+  z.object({
+    kind: z.literal('list'),
+    body: z.string().min(1),
+    menuTitle: z.string().min(1),
+    buttonLabel: z.string().min(1),
+    rows: z.array(replyOption).min(1),
+  }),
+]);

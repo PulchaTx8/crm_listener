@@ -1,5 +1,5 @@
 begin;
-select plan(52);
+select plan(56);
 
 -- The worker's queue routines (0063), the claim columns they measure (0058,
 -- 0059) and the grants without which none of it can be reached over HTTP.
@@ -434,6 +434,65 @@ select is(
 
 select is((select messages from public.reclaim_stale_whatsapp_claims('5 minutes')), 0,
           'and a second reclaim finds nothing, because the first one finished the job');
+
+-- An interactive message in the queue (Block 5b) -------------------------------
+--
+-- The conversation sends buttons and lists, and until this column existed the
+-- queue could only carry text: sendInteractive, built in Task 3, had no way out
+-- of the building. `body` stays NOT NULL and carries the same words the
+-- interactive message shows, so "what were they actually told?" is still
+-- answerable from a row nobody can render.
+
+select has_column('public', 'outbox_messages', 'interactive',
+                  'the outbox can carry an interactive message');
+
+select throws_ok(
+  $$insert into public.outbox_messages
+      (provider, integration_id, organization_id, company_id, to_phone, body,
+       dedupe_key, interactive)
+    values
+      ('WHATSAPP', '00000000-0000-0000-0000-0000000007a1',
+       '00000000-0000-0000-0000-0000000007f1',
+       '00000000-0000-0000-0000-0000000007c1', '5511900000009', 'a body',
+       'b9:consent', '["not", "an", "object"]'::jsonb)$$,
+  '23514',
+  null,
+  'an interactive that is not an object is refused, not stored and sent as a 400');
+
+insert into public.outbox_messages
+  (id, provider, integration_id, organization_id, company_id, to_phone, body,
+   dedupe_key, status, attempts, next_attempt_at, interactive)
+values
+  ('00000000-0000-0000-0000-0000000007b8', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000008', 'Quer participar?',
+   'b8:consent', 'PENDING', 0, now() - interval '1 minute',
+   '{"kind": "buttons", "body": "Quer participar?", "imageUrl": null,
+     "buttons": [{"id": "consent_yes", "title": "Quero!"}]}'::jsonb),
+  -- Beside it, a plain text reply of exactly the shape Block 5a writes.
+  ('00000000-0000-0000-0000-0000000007b7', 'WHATSAPP',
+   '00000000-0000-0000-0000-0000000007a1', '00000000-0000-0000-0000-0000000007f1',
+   '00000000-0000-0000-0000-0000000007c1', '5511900000007', 'Você está participando!',
+   'b7:confirmation', 'PENDING', 0, now() - interval '2 minutes', null);
+
+create temporary table claimed_interactive as
+  select * from public.claim_outbox_batch(10000);
+
+select is(
+  (select c.interactive -> 'buttons' -> 0 ->> 'id' from claimed_interactive c
+    where c.id = '00000000-0000-0000-0000-0000000007b8'),
+  'consent_yes',
+  'the claim hands the worker the interactive message, not only the body');
+
+-- The other half, and it is the one that breaks quietly: every reply Block 5a
+-- sends is plain text, and a claim that stopped returning those rows -- or
+-- returned them with something non-null here -- would send a listener an
+-- interactive message with no buttons in it.
+select is(
+  (select count(*)::int from claimed_interactive c
+    where c.id = '00000000-0000-0000-0000-0000000007b7' and c.interactive is null),
+  1,
+  'and a plain text row still comes back, with nothing interactive on it');
 
 select * from finish();
 rollback;
