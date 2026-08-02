@@ -1,5 +1,5 @@
 begin;
-select plan(74);
+select plan(80);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -765,6 +765,77 @@ select is(
   (select count(*)::int from public.whatsapp_conversation_leases
     where phone = '5511900009974'),
   1, 'and a lease taken a moment ago is not');
+
+-- What an operator's save does to the confirmations (Task 10) ------------------
+--
+-- Spec §9. A save refreshes the confirmation ONLY for fields whose value
+-- actually changed. Refreshing all of them on every save reintroduces D2's
+-- frequent-participant problem at operator scale: somebody who opens a record
+-- and saves it without touching anything would silently mark every field fresh,
+-- and the freshness rule would switch itself off for exactly the records staff
+-- handle most.
+
+select has_function('public', 'member_field_values', array['uuid'],
+                    'the eight fields of a record can be read as one object');
+
+insert into public.members
+  (id, organization_id, full_name, city, neighbourhood)
+values
+  ('00000000-0000-0000-0000-000000000980', '00000000-0000-0000-0000-000000000901',
+   'Ouvinte Operador', 'Canoas', 'Centro');
+
+select is(
+  public.member_field_values('00000000-0000-0000-0000-000000000980') -> 'city',
+  '"Canoas"'::jsonb,
+  'and it reads them through the same mapping the conversation uses');
+
+-- Confirmations as they stand a month ago, so a refresh is visible.
+insert into public.member_field_confirmations (member_id, organization_id, field, confirmed_at)
+values
+  ('00000000-0000-0000-0000-000000000980', '00000000-0000-0000-0000-000000000901',
+   'city', now() - interval '30 days'),
+  ('00000000-0000-0000-0000-000000000980', '00000000-0000-0000-0000-000000000901',
+   'neighbourhood', now() - interval '30 days'),
+  ('00000000-0000-0000-0000-000000000980', '00000000-0000-0000-0000-000000000901',
+   'full_name', now() - interval '30 days');
+
+-- The operator changes the city, clears the neighbourhood, and leaves the name
+-- exactly as it was -- which is what most saves look like.
+update public.members
+   set city = 'Gravatai', neighbourhood = null
+ where id = '00000000-0000-0000-0000-000000000980';
+
+select public.apply_member_field_confirmations(
+  '00000000-0000-0000-0000-000000000980',
+  '00000000-0000-0000-0000-000000000901',
+  jsonb_build_object('city', 'Canoas', 'neighbourhood', 'Centro', 'full_name', 'Ouvinte Operador'),
+  public.member_field_values('00000000-0000-0000-0000-000000000980'));
+
+select ok(
+  (select confirmed_at from public.member_field_confirmations
+    where member_id = '00000000-0000-0000-0000-000000000980' and field = 'city')
+    > now() - interval '1 minute',
+  'the field whose value changed is confirmed again');
+
+-- THE ASSERTION THIS TASK EXISTS FOR. Without it every save marks everything
+-- fresh, and a listener whose address an operator has never asked about would
+-- never be asked by the bot either.
+select ok(
+  (select confirmed_at from public.member_field_confirmations
+    where member_id = '00000000-0000-0000-0000-000000000980' and field = 'full_name')
+    < now() - interval '29 days',
+  'a field the operator did not change keeps the date it already had');
+
+-- Empty is asked whatever the validity says (D1), so a confirmation for a field
+-- that now holds nothing is a claim about nothing.
+select is(
+  (select count(*)::int from public.member_field_confirmations
+    where member_id = '00000000-0000-0000-0000-000000000980' and field = 'neighbourhood'),
+  0, 'and a field cleared to blank loses its confirmation entirely');
+
+select ok(not has_function_privilege('authenticated',
+            'public.apply_member_field_confirmations(uuid, uuid, jsonb, jsonb)', 'EXECUTE'),
+          'the applier is a private core like every other rule body here');
 
 select * from finish();
 rollback;

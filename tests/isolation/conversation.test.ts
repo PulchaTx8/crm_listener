@@ -4,9 +4,17 @@ import { CONSENT_YES_ID } from '@/lib/conversation/engine';
 import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
 import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
 import { parseInboundTurn, runConversationTurn } from '@/services/conversation';
+import { updateMember } from '@/services/members';
 import { runTick } from '@/services/whatsapp';
 import type { Enums } from '@/lib/supabase/database.types';
-import { admin, cleanupUsers, provisionCustomer, seedIntegration, signInAs } from './harness';
+import {
+  admin,
+  cleanupUsers,
+  createMemberAs,
+  provisionCustomer,
+  seedIntegration,
+  signInAs,
+} from './harness';
 
 afterAll(cleanupUsers);
 
@@ -353,5 +361,82 @@ describe('the privilege boundary pgTAP cannot see', () => {
 
     const swept = await admin.rpc('sweep_expired_conversations');
     expect(swept.error).toBeNull();
+  });
+});
+
+describe("an operator's save, and the freshness record behind it", () => {
+  /**
+   * Spec §9, through the real RPC as a real signed-in user.
+   *
+   * The actor here is the OWNER, which this suite otherwise avoids for the
+   * reason Block 1c's report gives — an owner's bypass hides a delegate's
+   * failure. It is right here because what is under test is the comparison
+   * inside update_member and not who may reach it: record.test.ts already
+   * drives this same RPC as a non-owner delegate, and that is where the
+   * permission question lives.
+   */
+  it('refreshes only the fields whose value actually moved', async () => {
+    const customer = await provisionCustomer(`conv-save-${Date.now()}`);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Operador',
+    });
+
+    // The three fields this case is about. createMemberAs takes only the
+    // identifying ones, so they are written the way an earlier save would have
+    // left them -- which is also the state a conversation leaves behind.
+    await admin
+      .from('members')
+      .update({ city: 'Canoas', neighbourhood: 'Centro' })
+      .eq('id', memberId);
+    await admin.from('member_field_confirmations').insert([
+      { member_id: memberId, organization_id: customer.organizationId, field: 'full_name' },
+      { member_id: memberId, organization_id: customer.organizationId, field: 'city' },
+      { member_id: memberId, organization_id: customer.organizationId, field: 'neighbourhood' },
+    ]);
+
+    // Ages every confirmation the creation left behind, so a refresh is
+    // visible as a change of date rather than as a row appearing.
+    await admin
+      .from('member_field_confirmations')
+      .update({ confirmed_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() })
+      .eq('member_id', memberId);
+
+    const owner = await signInAs(customer.email, customer.password);
+    const {
+      data: { session },
+    } = await owner.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('could not read the owner access token');
+
+    // The city moves, the neighbourhood is cleared, the name is retyped exactly
+    // as it was — which is what most saves look like.
+    await updateMember(
+      {
+        memberId,
+        fullName: 'Ouvinte Operador',
+        city: 'Gravatai',
+      },
+      token,
+    );
+
+    const { data: rows, error } = await admin
+      .from('member_field_confirmations')
+      .select('field, confirmed_at')
+      .eq('member_id', memberId);
+    expect(error).toBeNull();
+
+    const byField = new Map(rows?.map((row) => [row.field, Date.parse(row.confirmed_at)]));
+    const aMinuteAgo = Date.now() - 60_000;
+
+    expect(byField.get('city'), 'the changed field is confirmed again').toBeGreaterThan(aMinuteAgo);
+    // THE ONE THIS CASE EXISTS FOR. Retyping a value identically is not
+    // confirming it: refresh everything on every save and the bot stops asking
+    // exactly the listeners staff handle most.
+    expect(byField.get('full_name'), 'an unchanged field keeps its own date').toBeLessThan(
+      aMinuteAgo,
+    );
+    expect(byField.has('neighbourhood'), 'a field cleared to blank loses its confirmation').toBe(
+      false,
+    );
   });
 });

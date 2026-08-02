@@ -121,7 +121,7 @@ const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
  */
 const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/contact-requests.test.ts', minTests: 3 },
-  { path: 'tests/isolation/conversation.test.ts', minTests: 5 },
+  { path: 'tests/isolation/conversation.test.ts', minTests: 6 },
   { path: 'tests/isolation/conversation-store.test.ts', minTests: 5 },
   // One when REDIS_URL is unset -- the case that REPORTS the skip -- and the
   // whole contract when it is set. The floor is the honest one: a file that

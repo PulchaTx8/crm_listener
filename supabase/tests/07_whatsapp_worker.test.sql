@@ -364,8 +364,18 @@ values
    'b5:confirmation', 'SENDING', 1, now() - interval '2 days',
    now() - interval '1 day');
 
-select is((select events from public.reclaim_stale_whatsapp_claims('5 minutes')), 1,
-          'exactly one abandoned event is reclaimed');
+-- SCOPED TO THIS FIXTURE'S OWN ROW, not a global count, and the distinction
+-- earns its keep: reclaim_stale_whatsapp_claims has no tenant scope by design
+-- (the worker drains the installation), and this suite shares a database with
+-- the isolation suite, which COMMITS rows and legitimately leaves events in
+-- PROCESSING -- a conversation turn that lost the lease leaves its message
+-- exactly so, for the next tick. A bare count of what the reclaim returned was
+-- therefore an assertion about whatever else had run against the stack that
+-- day. What this file owns is e5, and what it means to prove is that e5 came
+-- back: the two assertions below say that, and say nothing about anybody else's
+-- abandoned rows.
+select ok((select events from public.reclaim_stale_whatsapp_claims('5 minutes')) >= 1,
+          'an abandoned event is reclaimed');
 
 select is(
   (select status::text from public.webhook_events
