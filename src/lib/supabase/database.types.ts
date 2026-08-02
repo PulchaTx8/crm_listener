@@ -2261,6 +2261,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      apply_draw: {
+        Args: {
+          p_company_id: string
+          p_organization_id: string
+          p_promotion_id: string
+          p_runner_up_count: number
+          p_units: Json
+        }
+        Returns: string
+      }
       apply_inventory_movement: {
         Args: {
           p_company_id: string
@@ -2495,6 +2505,14 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      draw_eligible_participations: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          member_id: string
+          participated_at: string
+          participation_id: string
+        }[]
+      }
       due_whatsapp_events: {
         Args: { p_limit: number }
         Returns: {
@@ -2618,6 +2636,14 @@ export type Database = {
           promotion_prize_id: string
         }[]
       }
+      member_block_active: {
+        Args: {
+          p_company_id: string
+          p_member_id: string
+          p_organization_id: string
+        }
+        Returns: boolean
+      }
       member_field_value: {
         Args: {
           p_field: Database["public"]["Enums"]["promotion_requested_field"]
@@ -2650,6 +2676,14 @@ export type Database = {
       participation_status_for: {
         Args: { p_member_id: string; p_promotion_id: string; p_when: string }
         Returns: Database["public"]["Enums"]["participation_status"]
+      }
+      project_promotion_prize_movement: {
+        Args: {
+          p_promotion_prize_id: string
+          p_quantity: number
+          p_type: Database["public"]["Enums"]["inventory_movement_type"]
+        }
+        Returns: undefined
       }
       promotion_write_error: {
         Args: {
@@ -2816,6 +2850,14 @@ export type Database = {
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
+      }
+      run_draw: {
+        Args: {
+          p_promotion_id: string
+          p_runner_up_count?: number
+          p_units?: Json
+        }
+        Returns: string
       }
       save_promotion_question: {
         Args: {

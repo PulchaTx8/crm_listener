@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(58);
 
 -- Block 6a, Task 1: the four tables the draw needs, the deadline columns it
 -- freezes, and the two permission codes that guard it. Nothing reads or writes
@@ -266,6 +266,275 @@ select ok(not has_function_privilege('authenticated',
 select ok(not has_function_privilege('authenticated',
             'public.member_block_active(uuid, uuid, uuid)', 'EXECUTE'),
           'the block predicate is private: is_member_blocked is the public door and keeps its own guard');
+
+-- ---------------------------------------------------------------------------
+-- Task 4: running the draw.
+--
+-- A seeding helper, because every case below needs the same six-table setup and
+-- six hand-written copies of it would drift. It builds a promotion with
+-- p_listeners eligible listeners holding one VALID participation each, and
+-- p_units of one prize linked THROUGH apply_inventory_movement -- the ledger's
+-- single writer -- so the balances these assertions read were produced the way
+-- production produces them, not typed in.
+
+create function pg_temp.seed_draw_promotion(
+  p_promotion_id uuid,
+  p_name         text,
+  p_listeners    integer,
+  p_units        integer,
+  p_promo_days   integer default null,
+  p_prize_days   integer default null
+)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_org   uuid := '00000000-0000-0000-0000-00000000a0f1';
+  v_co    uuid := '00000000-0000-0000-0000-00000000a0c1';
+  v_prize uuid := gen_random_uuid();
+  v_link  uuid := gen_random_uuid();
+  v_member uuid;
+  i integer;
+begin
+  insert into public.prizes (id, organization_id, company_id, name, default_pickup_deadline_days)
+  values (v_prize, v_org, v_co, p_name || ' prize', p_prize_days);
+
+  insert into public.inventory_balances (company_id, prize_id, organization_id, available)
+  values (v_co, v_prize, v_org, greatest(p_units, 1));
+
+  insert into public.promotions
+    (id, organization_id, company_id, name, starts_at, ends_at,
+     allow_multiple_entries, min_hours_between_entries, pickup_deadline_days)
+  values (p_promotion_id, v_org, v_co, p_name, now() - interval '2 days',
+          now() + interval '1 day', true, 1, p_promo_days);
+
+  insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
+  values (v_link, p_promotion_id, v_prize, v_org, v_co);
+
+  if p_units > 0 then
+    perform public.apply_inventory_movement(
+      v_co, v_prize, 'PROMOTION_LINK'::public.inventory_movement_type, p_units,
+      'available'::public.inventory_bucket, 'linked'::public.inventory_bucket,
+      null, null, v_link);
+  end if;
+
+  for i in 1..p_listeners loop
+    v_member := gen_random_uuid();
+    insert into public.members (id, organization_id, full_name)
+    values (v_member, v_org, p_name || ' listener ' || i);
+    insert into public.member_company_links (member_id, company_id, organization_id)
+    values (v_member, v_co, v_org);
+    insert into public.participations
+      (promotion_id, member_id, organization_id, company_id, allows_multiple,
+       status, source, participated_at)
+    values (p_promotion_id, v_member, v_org, v_co, true, 'VALID', 'MANUAL',
+            now() - make_interval(hours => p_listeners - i + 1));
+  end loop;
+
+  return v_link;
+end;
+$$;
+
+-- The operator who may draw, and the one who may not. Two roles rather than
+-- one, so "refused without draws.execute" is a statement about that code and
+-- not about being a stranger to the Station.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000a201', '00000000-0000-0000-0000-00000000a0f1', 'Draw Operator'),
+  ('00000000-0000-0000-0000-00000000a202', '00000000-0000-0000-0000-00000000a0f1', 'Promotions Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000a201', 'draws.execute'),
+  ('00000000-0000-0000-0000-00000000a201', 'draws.cancel'),
+  ('00000000-0000-0000-0000-00000000a201', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000a202', 'promotions.view');
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000a203', 'draw-operator@example.test'),
+  ('00000000-0000-0000-0000-00000000a204', 'draw-nobody@example.test');
+
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000a203', '00000000-0000-0000-0000-00000000a0c1',
+   '00000000-0000-0000-0000-00000000a0f1', '00000000-0000-0000-0000-00000000a201'),
+  ('00000000-0000-0000-0000-00000000a204', '00000000-0000-0000-0000-00000000a0c1',
+   '00000000-0000-0000-0000-00000000a0f1', '00000000-0000-0000-0000-00000000a202');
+
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e1', 'Happy draw', 3, 1);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+
+create temporary table happy_draw as
+select public.run_draw('00000000-0000-0000-0000-00000000a2e1'::uuid, null, 3) as draw_id;
+
+reset role;
+
+select is(
+  (select count(*)::int from public.winners w join happy_draw h on h.draw_id = w.draw_id),
+  1, 'one unit on offer awards exactly one winner');
+select is(
+  (select count(*)::int from public.draw_entries e join happy_draw h on h.draw_id = e.draw_id),
+  3, 'all three eligible participations were frozen into the hat');
+select ok(
+  (select d.seed ~ '^[0-9a-f]{64}$' from public.draws d join happy_draw h on h.draw_id = d.id),
+  'the seed is 64 hex characters, generated inside the function');
+select is(
+  (select d.entry_count from public.draws d join happy_draw h on h.draw_id = d.id),
+  3, 'entry_count records the size of the hat');
+select is(
+  (select d.algorithm_version from public.draws d join happy_draw h on h.draw_id = d.id),
+  1, 'the draw records which version of the contract produced it');
+select is(
+  (select b.drawn from public.promotion_prize_balances b
+     join public.promotion_prizes l on l.id = b.promotion_prize_id
+    where l.promotion_id = '00000000-0000-0000-0000-00000000a2e1'),
+  1, 'the unit moved from linked to awaiting_pickup through the ledger');
+select is(
+  (select count(*)::int from public.draw_runners_up r join happy_draw h on h.draw_id = r.draw_id),
+  2, 'three asked for, two people left: as many runners-up as there are people');
+select ok(
+  (select w.deadline_at is null from public.winners w join happy_draw h on h.draw_id = w.draw_id),
+  'neither the promotion nor the prize set a deadline, so the winner has none');
+
+-- No personal data in an audit row. Block 3's rule, absolute.
+select ok(
+  (select d.detail ? 'draw_id' and not (d.detail ? 'member_id')
+          and d.detail::text not like '%' || (select w.member_id::text from public.winners w
+                                                join happy_draw h on h.draw_id = w.draw_id) || '%'
+     from public.audit_logs d
+    where d.action = 'run_draw'
+      and d.target_id = (select draw_id from happy_draw)),
+  'the audit row carries ids and counts, and no listener');
+
+-- The deadline, frozen at the draw ------------------------------------------
+
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e2', 'Promo deadline', 2, 1, 7, 30);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e3', 'Prize deadline', 2, 1, null, 15);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+create temporary table promo_deadline_draw as
+select public.run_draw('00000000-0000-0000-0000-00000000a2e2'::uuid, null, 0) as draw_id;
+create temporary table prize_deadline_draw as
+select public.run_draw('00000000-0000-0000-0000-00000000a2e3'::uuid, null, 0) as draw_id;
+reset role;
+
+select ok(
+  (select w.deadline_at = d.drawn_at + make_interval(days => 7)
+     from public.winners w
+     join public.draws d on d.id = w.draw_id
+     join promo_deadline_draw p on p.draw_id = d.id),
+  'the promotion''s days override the prize''s');
+select ok(
+  (select w.deadline_at = d.drawn_at + make_interval(days => 15)
+     from public.winners w
+     join public.draws d on d.id = w.draw_id
+     join prize_deadline_draw p on p.draw_id = d.id),
+  'the prize''s default applies when the promotion sets none');
+
+-- One person, one prize, however many entries they hold ----------------------
+
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e4', 'Weighted', 2, 3);
+-- Two more entries for each of the two listeners: three each, six in the hat.
+insert into public.participations
+  (promotion_id, member_id, organization_id, company_id, allows_multiple, status, source, participated_at)
+select '00000000-0000-0000-0000-00000000a2e4', p.member_id,
+       '00000000-0000-0000-0000-00000000a0f1', '00000000-0000-0000-0000-00000000a0c1',
+       true, 'VALID', 'MANUAL', now() - make_interval(mins => g.n)
+from (select distinct member_id from public.participations
+       where promotion_id = '00000000-0000-0000-0000-00000000a2e4') p
+cross join generate_series(10, 20, 10) as g(n);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+create temporary table weighted_draw as
+select public.run_draw('00000000-0000-0000-0000-00000000a2e4'::uuid, null, 0) as draw_id;
+reset role;
+
+select is(
+  (select count(*)::int from public.draw_entries e join weighted_draw w on w.draw_id = e.draw_id),
+  6, 'six entries went into the hat: two listeners with three each (D1)');
+select is(
+  (select count(*)::int from public.winners w join weighted_draw d on d.draw_id = w.draw_id),
+  2, 'and three units on offer awarded only two prizes, because there are only two people (D2)');
+
+-- The refusals ---------------------------------------------------------------
+
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e5', 'Short stock', 3, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e6', 'Nobody', 0, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e7', 'Cancelled', 2, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e8', 'Archived', 2, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e9', 'Forbidden', 2, 1);
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000a205', 'draw-canceller@example.test');
+update public.promotions
+   set cancelled_at = now(), cancelled_by = '00000000-0000-0000-0000-00000000a205',
+       cancellation_reason = 'called off'
+ where id = '00000000-0000-0000-0000-00000000a2e7';
+update public.promotions
+   set deleted_at = now(), deleted_by = '00000000-0000-0000-0000-00000000a205'
+ where id = '00000000-0000-0000-0000-00000000a2e8';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+
+select throws_ok($$
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e5'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'promotion_prize_id',
+      (select id from public.promotion_prizes where promotion_id = '00000000-0000-0000-0000-00000000a2e5'),
+      'quantity', 5)), 0)
+$$, '22023', null, 'asking for more units than are linked is refused');
+
+select throws_ok($$
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e6'::uuid, null, 0)
+$$, '22023', null, 'a promotion with nobody eligible is refused');
+
+-- Cancelled and archived, which the spec was silent about. A draw over a
+-- cancelled promotion would award prizes for something that is not happening.
+-- The codes follow this schema's existing vocabulary rather than the plan's
+-- suggestion of 22023 for both: link_prize_to_promotion (0049) and
+-- apply_participation (0054) both answer P0002 for a soft-deleted promotion
+-- and 22023 for a cancelled one, and a third dialect here would be the drift
+-- those two exist to prevent.
+select throws_ok($$
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e7'::uuid, null, 0)
+$$, '22023', null, 'a cancelled promotion cannot be drawn');
+
+select throws_ok($$
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e8'::uuid, null, 0)
+$$, 'P0002', null, 'an archived promotion cannot be drawn');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a204", "role": "authenticated"}';
+
+select throws_ok($$
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e9'::uuid, null, 0)
+$$, '42501', null, 'promotions.view is not draws.execute');
+
+reset role;
+
+-- Nothing happened, and a row saying it did is worse than none.
+select is(
+  (select count(*)::int from public.draws
+    where promotion_id in ('00000000-0000-0000-0000-00000000a2e6',
+                           '00000000-0000-0000-0000-00000000a2e7',
+                           '00000000-0000-0000-0000-00000000a2e8',
+                           '00000000-0000-0000-0000-00000000a2e9')),
+  0, 'a refused draw leaves no draws row behind');
+
+select is(
+  (select b.drawn from public.promotion_prize_balances b
+     join public.promotion_prizes l on l.id = b.promotion_prize_id
+    where l.promotion_id = '00000000-0000-0000-0000-00000000a2e5'),
+  0, 'and a refused draw spends no stock');
+
+-- The doors ------------------------------------------------------------------
+
+select ok(has_function_privilege('authenticated', 'public.run_draw(uuid, jsonb, integer)', 'EXECUTE'),
+          'run_draw is the door an operator comes through');
+select ok(not has_function_privilege('authenticated', 'public.apply_draw(uuid, uuid, uuid, jsonb, integer)', 'EXECUTE'),
+          'apply_draw is the private core behind it');
 
 select * from finish();
 rollback;

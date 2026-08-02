@@ -269,19 +269,32 @@ select is(
   3, 'and takes the per-promotion figure back down');
 
 -- The Block 6 tripwire. The branch below is unreachable while
--- inventory_movements_promotion_reference (0045) admits promotion_prize_id on
--- exactly two movement types — so the check is dropped here, inside a
--- transaction that rolls back, which is the only way to reach it. Its whole
--- purpose is that Block 6, which widens that constraint to DRAW and DELIVERY,
--- finds this function refusing rather than silently not projecting.
+-- inventory_movements_promotion_reference (0045, widened in 0077) admits
+-- promotion_prize_id on four movement types — so the check is dropped here,
+-- inside a transaction that rolls back, which is the only way to reach it. Its
+-- whole purpose is that a block widening that constraint finds the projection
+-- refusing rather than silently not projecting.
+--
+-- Block 6a did exactly that and the tripwire fired: DRAW used to be the type
+-- named here, and it now has a rule (project_promotion_prize_movement, 0077),
+-- so it no longer reaches this branch.
+--
+-- MANUAL_ENTRY takes its place, and the choice is not arbitrary. The type has
+-- to be one whose buckets are satisfiable HERE, because the source-sufficiency
+-- check runs before the projection does: DELIVERY would be the truer stand-in
+-- for what 6b is about to add, but it draws from awaiting_pickup, this prize
+-- has nothing in that bucket, and the call would be refused with 23514 several
+-- steps short of the branch this assertion exists to reach. MANUAL_ENTRY takes
+-- from no bucket at all, so it arrives at the projection carrying a promotion
+-- reference it has no rule for — which is exactly the shape of the mistake.
 alter table public.inventory_movements drop constraint inventory_movements_promotion_reference;
 
 select throws_ok(
   $$select public.apply_inventory_movement(
       '00000000-0000-0000-0000-0000000004c1'::uuid,
       '00000000-0000-0000-0000-0000000004a2'::uuid,
-      'DRAW'::public.inventory_movement_type, 1,
-      'linked'::public.inventory_bucket, 'awaiting_pickup'::public.inventory_bucket,
+      'MANUAL_ENTRY'::public.inventory_movement_type, 1,
+      null, 'available'::public.inventory_bucket,
       null, null,
       '00000000-0000-0000-0000-0000000004e2'::uuid)$$,
   'XX000', null,
