@@ -106,12 +106,15 @@ dialect here is the drift those two exist to prevent.
 for `/promotions/[id]/draws`, but the promotion detail is a tabbed record dialog
 with no `[id]` route at all. Put to the owner, who chose the route.
 
-**4.5 The names gate is not in the plan.** `get_draw` is `SECURITY DEFINER` and
-would have handed any listener's name to anyone holding `promotions.view`, which
-`members_select_reachable` (`0035`) refuses. It asks for `members.view`
-separately and returns null names without it, reporting `shows_names` so the
-screen says *nome não visível* rather than rendering a blank. Decided during
-implementation, not by the owner — flagged in §5.4.
+**4.5 The names on the draw screen — raised, and reversed.** The plan said
+nothing about who may read a winner's name. `get_draw` is `SECURITY DEFINER`, so
+it decides for itself: the first version asked for `members.view` separately and
+returned null names without it, on the implementer's reading of Block 3's gate.
+
+The owner reversed that: **whoever may see a draw may see who won it.** Names
+now come back to any caller holding `promotions.view`. The consequence is
+recorded in §5.4 and in the function's own comment, and the comment arguing the
+other way was replaced rather than left sitting beside the new behaviour.
 
 **4.6 pgTAP plan counts.** The plan estimated 18 assertions for Task 1; the file
 carries 84 across the block. The counts were written to match the assertions
@@ -158,14 +161,21 @@ that a count alone cannot tell "the lock worked" from "the constraint caught
 what the lock should have prevented"; that warning was correct and the first
 version of the case was inadequate.
 
-### 5.4 The names gate is a product decision made by the implementer
+### 5.4 `get_draw` is a second door onto audience data, by decision
 
-§4.5. An operator with `draws.execute` and `promotions.view` but not
-`members.view` can run a draw and cannot see who won by name. That is the
-conservative reading of Block 3's gate, and it may not be what a Station wants —
-somebody who is trusted to draw is arguably trusted to read the winner's name.
-It is one `case when` in `get_draw` either way. **Worth the owner's confirmation
-before this ships.**
+Owner's ruling (§4.5): names come back to anyone holding `promotions.view`.
+Since `get_draw` is `SECURITY DEFINER`, that means a caller **without**
+`members.view` reads through it names that `members_select_reachable` (`0035`)
+would refuse them through the ordinary door.
+
+The door is narrow — the winners and the runner-up queue of a draw the caller
+may already see, never the audience at large, and no phone, e-mail or note — but
+it is real, and it is now the one place in the schema where `promotions.view`
+implies a listener's name. Anyone auditing who can read the audience has to
+count this function, not just Block 3's policies. A pgTAP case pins it in the
+direction that matters: an operator holding `promotions.view` and not
+`members.view` **does** get the name, so the term cannot be tightened back by
+accident without a test going red.
 
 ### 5.5 The isolation flake is unchanged and still uncaused
 

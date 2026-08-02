@@ -725,19 +725,26 @@ select ok(
   'and the seed and the algorithm version, plainly: a proof nobody can see is not a proof');
 
 -- The operator holds draws.execute, promotions.view and draws.cancel, and NOT
--- members.view. The draw is theirs to see; the audience is not.
+-- members.view. Whoever may see a draw may see who won it (owner's ruling,
+-- 2026-08-02), so the name comes back anyway -- which is precisely the term
+-- worth pinning, because this function is SECURITY DEFINER and
+-- members_select_reachable (0035) would refuse this same caller this same name
+-- through the ordinary door.
+-- Matched by pattern, not by a fixed name: WHICH of the three listeners wins is
+-- decided by the seed, and asserting one of them would fail two runs in three
+-- for a reason that has nothing to do with what this case is about.
 select ok(
-  (select (body->>'shows_names')::boolean is false from drawn_detail),
-  'a caller without members.view is told the names are not theirs to see');
+  (select body->'winners'->0->>'member_name' like 'Happy draw listener%' from drawn_detail),
+  'a caller with promotions.view and no members.view still gets the winner''s name');
 select ok(
-  (select body->'winners'->0->>'member_name' is null from drawn_detail),
-  'and gets no name, from a SECURITY DEFINER function that could have handed one over');
+  (select body->'runners_up'->0->>'member_name' is not null from drawn_detail),
+  'and the runner-up queue carries names too');
 select ok(
   (select body->'winners'->0->>'member_id' is not null
       and body->'winners'->0->>'deadline_at' is null
       and body->'winners'->0->>'prize_name' is not null
      from drawn_detail),
-  'while everything that is the draw itself still comes back');
+  'along with everything that is the draw itself');
 
 reset role;
 set local role authenticated;

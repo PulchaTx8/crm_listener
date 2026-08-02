@@ -45,7 +45,7 @@ export interface DrawWinner {
   id: string;
   awardedRank: number;
   memberId: string;
-  /** Null when the caller does not hold members.view — see `showsNames`. */
+  /** Null when the listener has no name on record — an erased one, most likely. */
   memberName: string | null;
   participationId: string;
   promotionPrizeId: string;
@@ -72,12 +72,6 @@ export interface DrawDetail {
   drawnAt: string;
   cancelledAt: string | null;
   cancellationReason: string | null;
-  /**
-   * Whether the caller may see listeners' names at all. Carried from the RPC
-   * rather than inferred from a null name, so the screen can say "not visible
-   * to you" instead of rendering a blank that reads as missing data.
-   */
-  showsNames: boolean;
   winners: DrawWinner[];
   runnersUp: DrawRunnerUp[];
 }
@@ -191,7 +185,6 @@ export async function getDraw(accessToken: string, drawId: string): Promise<Draw
     drawnAt: String(body.drawn_at),
     cancelledAt: (body.cancelled_at as string | null) ?? null,
     cancellationReason: (body.cancellation_reason as string | null) ?? null,
-    showsNames: body.shows_names === true,
     winners: winners.map((w) => ({
       id: String(w.id),
       awardedRank: Number(w.awarded_rank),

@@ -237,8 +237,15 @@ There is no un-cancel. Run a new draw.
 was valid at that instant, and the record says when. Entries that arrive
 afterwards are simply not in that draw.
 
-**Names on the draw screen need `members.view`.** An operator who may draw but
-may not read the audience sees the ranks, the prizes, the deadlines, the queue,
-the seed and the algorithm version — everything the draw itself is — and
-*(nome não visível)* where the names would be. That is the audience gate doing
-its job, not a fault.
+**Whoever may see a draw sees who won it.** The names of winners and
+runners-up come back to anybody holding `promotions.view` — no `members.view`
+required, so the operator who runs a draw can tell the winner they won without
+also being given the audience.
+
+Worth knowing when handing out roles: this is the one place where
+`promotions.view` alone reveals a listener's name. It is limited to the winners
+and the queue of a draw that person may already see — never the audience list,
+and never a phone number, an e-mail or a note.
+
+A blank name on the screen means the listener has no name on record — an erased
+one, most likely — and never that you are not allowed to see it.

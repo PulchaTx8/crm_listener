@@ -13,11 +13,14 @@ function formatDeadline(value: string | null): string {
   return new Date(value).toLocaleDateString('pt-BR');
 }
 
-/** A listener the caller may not see by name still has to be distinguishable from the next one. */
-function listenerLabel(name: string | null, memberId: string, showsNames: boolean): string {
-  if (name) return name;
-  if (!showsNames) return `ouvinte ${memberId.slice(0, 8)} (nome não visível)`;
-  return `ouvinte ${memberId.slice(0, 8)}`;
+/**
+ * A listener with no name on record still has to be distinguishable from the
+ * next one. members.full_name is nullable (0031) and an erased listener is the
+ * ordinary way this happens — get_draw returns the name to anybody who may see
+ * the draw at all, so a blank here is never "you are not allowed to know".
+ */
+function listenerLabel(name: string | null, memberId: string): string {
+  return name ?? `ouvinte ${memberId.slice(0, 8)} (sem nome no cadastro)`;
 }
 
 /**
@@ -79,7 +82,7 @@ export function DrawDetailView({
           {draw.winners.map((winner) => (
             <li key={winner.id} className="flex justify-between gap-4 border-b py-1">
               <span>
-                {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId, draw.showsNames)}
+                {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId)}
               </span>
               <span className="text-sm text-muted-foreground">
                 {winner.prizeName} · {formatDeadline(winner.deadlineAt)}
@@ -95,8 +98,7 @@ export function DrawDetailView({
           <ol className="space-y-1" data-testid="draw-runners-up">
             {draw.runnersUp.map((runnerUp) => (
               <li key={runnerUp.participationId} className="py-1">
-                {runnerUp.position}.{' '}
-                {listenerLabel(runnerUp.memberName, runnerUp.memberId, draw.showsNames)}
+                {runnerUp.position}. {listenerLabel(runnerUp.memberName, runnerUp.memberId)}
               </li>
             ))}
           </ol>
