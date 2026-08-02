@@ -127,10 +127,10 @@ const REQUIRED_TEST_FILES = [
   // whole contract when it is set. The floor is the honest one: a file that
   // collected nothing would look identical to one that failed to load.
   { path: 'tests/isolation/conversation-store-redis.test.ts', minTests: 1 },
-  // The three rounds are the floor, and the number is the point: one round
-  // could agree by luck on one seed, and a file that quietly dropped to one
-  // would still report a pass.
-  { path: 'tests/isolation/draw.test.ts', minTests: 3 },
+  // Three reproduction rounds, the boundary case and the concurrency case. The
+  // three is the point: one round could agree by luck on one seed, and a file
+  // that quietly dropped to one would still report a pass.
+  { path: 'tests/isolation/draw.test.ts', minTests: 5 },
   { path: 'tests/isolation/inventory.test.ts', minTests: 19 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },

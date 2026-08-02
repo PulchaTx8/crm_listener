@@ -1,6 +1,13 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { cleanupUsers, createPrizeAs, grantRoleWith, provisionCustomer, signInAs } from './harness';
+import {
+  admin,
+  cleanupUsers,
+  createPrizeAs,
+  grantRoleWith,
+  provisionCustomer,
+  signInAs,
+} from './harness';
 import type { ProvisionedCustomer } from './harness';
 import { runDrawAlgorithm, type DrawEntry, type DrawUnit } from '@/lib/draw/algorithm';
 import type { Database } from '@/lib/supabase/database.types';
@@ -208,4 +215,212 @@ describe('the executor and the verifier agree', () => {
       expect(new Set(people).size).toBe(people.length);
     });
   }
+});
+
+/**
+ * A minimal drawn promotion: two listeners, one entry each, `units` linked.
+ * Small on purpose — the cases below run it a dozen times, and what they are
+ * testing is contention and grants, not the size of the hat.
+ */
+async function seedSmallPromotion(
+  customer: ProvisionedCustomer,
+  label: string,
+  units: number,
+): Promise<{ promotionId: string; promotionPrizeId: string; prizeId: string }> {
+  const owner = await signInAs(customer.email, customer.password);
+  const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+
+  await owner.rpc('record_stock_entry', {
+    p_company_id: customer.companyId,
+    p_prize_id: prizeId,
+    p_type: 'MANUAL_ENTRY',
+    p_quantity: units,
+  });
+
+  const promotion = await owner.rpc('create_promotion', {
+    p_company_id: customer.companyId,
+    p_name: `Promo ${label}`,
+    p_starts_at: new Date(Date.now() - 30 * DAY).toISOString(),
+    p_ends_at: new Date(Date.now() + DAY).toISOString(),
+  });
+  const promotionId = promotion.data as string;
+
+  const link = await owner.rpc('link_prize_to_promotion', {
+    p_promotion_id: promotionId,
+    p_prize_id: prizeId,
+    p_quantity: units,
+  });
+  const promotionPrizeId = link.data as string;
+
+  for (let i = 0; i < 2; i += 1) {
+    const member = await owner.rpc('create_member', {
+      p_company_id: customer.companyId,
+      p_full_name: `Listener ${i + 1} ${label}`,
+    });
+    await owner.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: member.data as string,
+      p_participated_at: new Date(Date.now() - (i + 1) * HOUR).toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [],
+    });
+  }
+
+  return { promotionId, promotionPrizeId, prizeId };
+}
+
+/**
+ * THE BOUNDARY, per Block 5a's hardest lesson.
+ *
+ * That block shipped three tables carrying a comment about who could reach
+ * them and no grant behind it. pgTAP runs as postgres and ignores ACLs
+ * entirely, so every assertion stayed green while every write returned 42501
+ * in production. 09_draws.test.sql asks the catalogue; these cases issue the
+ * actual reads the application issues, over HTTP, as both roles that make them.
+ */
+describe('the four new tables across the HTTP boundary', () => {
+  it('answers the reads the application makes, as service_role and as a signed-in operator', async () => {
+    const label = `boundary-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const { promotionId } = await seedSmallPromotion(customer, label, 1);
+
+    const operator = await grantRoleWith(customer, `boundary-${label}`, [
+      'draws.execute',
+      'draws.cancel',
+      'promotions.view',
+    ]);
+    const operatorClient = await signInAs(operator.email, operator.password);
+
+    const drawn = await operatorClient.rpc('run_draw', {
+      p_promotion_id: promotionId,
+      p_units: null,
+      p_runner_up_count: 1,
+    });
+    expect(drawn.error).toBeNull();
+    const drawId = drawn.data as string;
+
+    // service_role holds no policy exemption it was not granted: BYPASSRLS is
+    // not a grant, and this is the half Block 5a proved by omission.
+    // draws keys on id; the three children key on draw_id. Asked separately
+    // rather than through one loop over a union of table names, because that
+    // union makes every column name legal on every table to the type checker
+    // and a typo in one of them would compile.
+    const adminDraw = await admin.from('draws').select('*').eq('id', drawId);
+    expect(adminDraw.error, 'service_role read of draws').toBeNull();
+    expect(adminDraw.data, 'service_role rows in draws').toHaveLength(1);
+
+    const adminEntries = await admin.from('draw_entries').select('*').eq('draw_id', drawId);
+    expect(adminEntries.error, 'service_role read of draw_entries').toBeNull();
+    expect((adminEntries.data ?? []).length).toBeGreaterThan(0);
+
+    const adminWinners = await admin.from('winners').select('*').eq('draw_id', drawId);
+    expect(adminWinners.error, 'service_role read of winners').toBeNull();
+    expect((adminWinners.data ?? []).length).toBeGreaterThan(0);
+
+    const adminQueue = await admin.from('draw_runners_up').select('*').eq('draw_id', drawId);
+    expect(adminQueue.error, 'service_role read of draw_runners_up').toBeNull();
+    expect((adminQueue.data ?? []).length).toBeGreaterThan(0);
+
+    const operatorDraw = await operatorClient.from('draws').select('*').eq('id', drawId);
+    expect(operatorDraw.error).toBeNull();
+    expect(operatorDraw.data).toHaveLength(1);
+
+    for (const table of ['draw_entries', 'winners', 'draw_runners_up'] as const) {
+      const result = await operatorClient.from(table).select('*').eq('draw_id', drawId);
+      expect(result.error, `operator read of ${table}`).toBeNull();
+      expect((result.data ?? []).length, `operator rows in ${table}`).toBeGreaterThan(0);
+    }
+
+    // And the two reads the screen actually calls.
+    const list = await operatorClient.rpc('list_draws', { p_promotion_id: promotionId });
+    expect(list.error).toBeNull();
+    expect(list.data).toHaveLength(1);
+
+    const detail = await operatorClient.rpc('get_draw', { p_draw_id: drawId });
+    expect(detail.error).toBeNull();
+
+    const cancelled = await operatorClient.rpc('cancel_draw', {
+      p_draw_id: drawId,
+      p_reason: 'proving the write door as well as the read doors',
+    });
+    expect(cancelled.error).toBeNull();
+  });
+});
+
+/**
+ * TWO DRAWS AT ONCE.
+ *
+ * One promotion, one unit, two run_draw calls in flight together. Exactly one
+ * may win. Asserting the count alone could not tell "the lock worked" from
+ * "the constraint caught what the lock should have prevented", so the outcome
+ * PAIR is asserted too — one success and one refusal — the way
+ * participations.test.ts does it.
+ */
+describe('two draws at once', () => {
+  const ROUNDS = 12;
+
+  it(`lets exactly one of two concurrent draws spend the unit, ${ROUNDS} times over`, async () => {
+    const label = `race-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const operator = await grantRoleWith(customer, `race-${label}`, [
+      'draws.execute',
+      'promotions.view',
+    ]);
+    const operatorClient = await signInAs(operator.email, operator.password);
+
+    for (let round = 0; round < ROUNDS; round += 1) {
+      const { promotionId, promotionPrizeId } = await seedSmallPromotion(
+        customer,
+        `${label}-${round}`,
+        1,
+      );
+
+      const [first, second] = await Promise.all([
+        operatorClient.rpc('run_draw', {
+          p_promotion_id: promotionId,
+          p_units: null,
+          p_runner_up_count: 0,
+        }),
+        operatorClient.rpc('run_draw', {
+          p_promotion_id: promotionId,
+          p_units: null,
+          p_runner_up_count: 0,
+        }),
+      ]);
+
+      const succeeded = [first, second].filter((r) => r.error === null);
+      const refused = [first, second].filter((r) => r.error !== null);
+
+      expect(succeeded, `round ${round}: exactly one draw may succeed`).toHaveLength(1);
+      expect(refused, `round ${round}: the other must be refused`).toHaveLength(1);
+
+      // WHICH refusal, and this is the assertion that makes the case reach the
+      // contested code at all. "One succeeded and one failed" holds whether the
+      // FOR UPDATE on the promotion worked or the ledger's own sufficiency
+      // check caught the loser several steps later -- so on its own it cannot
+      // tell the lock working from the constraint cleaning up after it.
+      //
+      // With the lock, the loser is refused by apply_draw itself: it reads
+      // linked - drawn AFTER the winner committed, sees nothing left, and says
+      // so with 22023. Without it, both read the same balance, both pass that
+      // check, and the loser gets 23514 from apply_inventory_movement instead.
+      expect(refused[0]?.error?.code, `round ${round}: refused by the draw, not by the ledger`).toBe(
+        '22023',
+      );
+
+      const balance = await admin
+        .from('promotion_prize_balances')
+        .select('linked, drawn')
+        .eq('promotion_prize_id', promotionPrizeId)
+        .single();
+      expect(balance.data?.drawn, `round ${round}: one unit drawn`).toBe(1);
+      expect(balance.data?.linked, `round ${round}: linked untouched`).toBe(1);
+
+      const winners = await admin
+        .from('winners')
+        .select('id')
+        .eq('draw_id', succeeded[0]?.data as string);
+      expect(winners.data, `round ${round}: one winner`).toHaveLength(1);
+    }
+  });
 });
