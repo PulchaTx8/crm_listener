@@ -1,5 +1,5 @@
 begin;
-select plan(45);
+select plan(51);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -386,6 +386,88 @@ select is(
   '[{"kind": "consent"}, {"kind": "field", "field": "full_name"}, {"kind": "field", "field": "city"}, {"kind": "field", "field": "discovery_source"}]'::jsonb,
   'requested fields come out in the enum''s own order, regardless of the order they were ticked');
 
+-- The entry question, asked twice (Task 7d, D8) -------------------------------
+--
+-- The conversation has to know at the START whether this listener could enter
+-- at all -- answering five questions and being told afterwards that the
+-- chances were already spent is the cruelty D8 exists to avoid -- and again at
+-- the END, where the answer is authoritative. Two readers, and therefore the
+-- rules moved into a function of their own rather than being re-stated in the
+-- second one.
+
+select has_function('public', 'participation_status_for',
+                    array['uuid', 'uuid', 'timestamp with time zone'],
+                    'the entry rules have a home of their own');
+
+-- PRIVATE CORE, the convention this schema holds for every rule body: reachable
+-- only from inside a SECURITY DEFINER caller that has checked its own
+-- permission. All three roles, because a grant handed to any one of them is the
+-- regression this pins.
+select ok(not has_function_privilege('anon',
+            'public.participation_status_for(uuid, uuid, timestamp with time zone)', 'EXECUTE'),
+          'anon may not ask the entry rules anything');
+select ok(not has_function_privilege('authenticated',
+            'public.participation_status_for(uuid, uuid, timestamp with time zone)', 'EXECUTE'),
+          'and neither may authenticated');
+select ok(not has_function_privilege('service_role',
+            'public.participation_status_for(uuid, uuid, timestamp with time zone)', 'EXECUTE'),
+          'and neither may service_role -- it is called from inside, never over HTTP');
+
+insert into public.members (id, organization_id) values
+  ('00000000-0000-0000-0000-000000000951', '00000000-0000-0000-0000-000000000901'),
+  ('00000000-0000-0000-0000-000000000952', '00000000-0000-0000-0000-000000000901');
+
+-- participations_member_link_fk: an entry names a listener THIS Station knows.
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000951', '00000000-0000-0000-0000-000000000902',
+   '00000000-0000-0000-0000-000000000901'),
+  ('00000000-0000-0000-0000-000000000952', '00000000-0000-0000-0000-000000000902',
+   '00000000-0000-0000-0000-000000000901');
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, min_hours_between_entries, max_entries_per_member)
+values
+  ('00000000-0000-0000-0000-000000000950', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Two entries each',
+   now() - interval '1 day', now() + interval '1 day', true, 1, 2);
+
+insert into public.participations
+  (promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-000000000950', '00000000-0000-0000-0000-000000000951',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   true, 'VALID', 'MANUAL', now() - interval '2 hours'),
+  ('00000000-0000-0000-0000-000000000950', '00000000-0000-0000-0000-000000000951',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   true, 'VALID', 'MANUAL', now() - interval '1 hour'),
+  -- TWO refused attempts, which must not count towards anybody's ceiling: they
+  -- are a record that somebody tried, not entries. Two and not one, because the
+  -- ceiling here is two: with a single row a count that wrongly included
+  -- refusals would still come out under the ceiling, and the assertion below
+  -- would pass against the defect it exists to catch.
+  ('00000000-0000-0000-0000-000000000950', '00000000-0000-0000-0000-000000000952',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   true, 'OVER_LIMIT', 'MANUAL', now() - interval '3 hours'),
+  ('00000000-0000-0000-0000-000000000950', '00000000-0000-0000-0000-000000000952',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   true, 'TOO_SOON', 'MANUAL', now() - interval '4 hours');
+
+select is(
+  public.participation_status_for(
+    '00000000-0000-0000-0000-000000000950',
+    '00000000-0000-0000-0000-000000000951', now()),
+  'OVER_LIMIT'::public.participation_status,
+  'a listener already at the ceiling is over it before the conversation starts');
+
+select is(
+  public.participation_status_for(
+    '00000000-0000-0000-0000-000000000950',
+    '00000000-0000-0000-0000-000000000952', now()),
+  'VALID'::public.participation_status,
+  'and somebody whose only row is a refused attempt is let in -- that row is not an entry');
+
 -- The turn lease (Task 7c) ----------------------------------------------------
 --
 -- What serialises two messages from one phone, and the reason it is a table and
@@ -399,8 +481,8 @@ select is(
 insert into public.integrations
   (id, organization_id, company_id, provider, phone_number_id, enabled)
 values
-  ('00000000-0000-0000-0000-000000000911', '00000000-0000-0000-0000-000000000901',
-   '00000000-0000-0000-0000-000000000902', 'WHATSAPP', '911911911911911', true);
+  ('00000000-0000-0000-0000-000000000940', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'WHATSAPP', '940940940940940', true);
 
 select has_table('public', 'whatsapp_conversation_leases', 'the turn lease exists');
 
@@ -426,14 +508,14 @@ select ok(has_function_privilege('service_role',
 
 create temporary table lease_first as
   select public.claim_conversation_turn(
-    '00000000-0000-0000-0000-000000000911', '5511900009111', '5 minutes') as token;
+    '00000000-0000-0000-0000-000000000940', '5511900009111', '5 minutes') as token;
 
 select isnt((select token from lease_first), null,
             'a free pair is claimed, and the claim hands back the token that owns it');
 
 select is(
   public.claim_conversation_turn(
-    '00000000-0000-0000-0000-000000000911', '5511900009111', '5 minutes'),
+    '00000000-0000-0000-0000-000000000940', '5511900009111', '5 minutes'),
   null,
   'and a second worker gets nothing while that lease is alive -- which is the whole point');
 
@@ -442,11 +524,11 @@ select is(
 -- so there is no separate reclaim to forget to run.
 update public.whatsapp_conversation_leases
    set claimed_at = now() - interval '10 minutes'
- where integration_id = '00000000-0000-0000-0000-000000000911';
+ where integration_id = '00000000-0000-0000-0000-000000000940';
 
 create temporary table lease_second as
   select public.claim_conversation_turn(
-    '00000000-0000-0000-0000-000000000911', '5511900009111', '5 minutes') as token;
+    '00000000-0000-0000-0000-000000000940', '5511900009111', '5 minutes') as token;
 
 select isnt((select token from lease_second), null,
             'a stale lease is taken over by the next worker to ask');
@@ -459,20 +541,20 @@ select isnt((select token from lease_second), (select token from lease_first),
 -- freeing a phone somebody is mid-turn on, which is exactly the race the lease
 -- exists to stop, arrived at the long way round.
 select public.release_conversation_turn(
-  '00000000-0000-0000-0000-000000000911', '5511900009111', (select token from lease_first));
+  '00000000-0000-0000-0000-000000000940', '5511900009111', (select token from lease_first));
 
 select is(
   (select count(*)::int from public.whatsapp_conversation_leases
-    where integration_id = '00000000-0000-0000-0000-000000000911'),
+    where integration_id = '00000000-0000-0000-0000-000000000940'),
   1,
   'a release carrying the superseded token frees nothing');
 
 select public.release_conversation_turn(
-  '00000000-0000-0000-0000-000000000911', '5511900009111', (select token from lease_second));
+  '00000000-0000-0000-0000-000000000940', '5511900009111', (select token from lease_second));
 
 select is(
   (select count(*)::int from public.whatsapp_conversation_leases
-    where integration_id = '00000000-0000-0000-0000-000000000911'),
+    where integration_id = '00000000-0000-0000-0000-000000000940'),
   0,
   'and the holder releasing its own lease frees the phone for the next message');
 

@@ -2364,6 +2364,10 @@ export type Database = {
       }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
+      participation_status_for: {
+        Args: { p_member_id: string; p_promotion_id: string; p_when: string }
+        Returns: Database["public"]["Enums"]["participation_status"]
+      }
       promotion_write_error: {
         Args: {
           p_constraint?: string
