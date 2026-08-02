@@ -29,6 +29,24 @@ const textMessage = (id: string, text: string) => ({
   text: { body: text },
 });
 
+/** What Meta posts when a listener presses a reply button. */
+const buttonReply = (id: string, replyId: string, title: string) => ({
+  from: '5511988887777',
+  id,
+  timestamp: '1786000000',
+  type: 'interactive',
+  interactive: { type: 'button_reply', button_reply: { id: replyId, title } },
+});
+
+/** And when they choose a row from a list. */
+const listReply = (id: string, replyId: string, title: string) => ({
+  from: '5511988887777',
+  id,
+  timestamp: '1786000000',
+  type: 'interactive',
+  interactive: { type: 'list_reply', list_reply: { id: replyId, title } },
+});
+
 describe('flattenWebhookBody', () => {
   it('returns one message per wamid, not one per request', () => {
     const result = flattenWebhookBody(
@@ -112,6 +130,54 @@ describe('flattenWebhookBody', () => {
   it('ignores non-text messages', () => {
     const audio = { from: '551199', id: 'wamid.C', timestamp: '1786000000', type: 'audio' };
     expect(flattenWebhookBody(body([audio]))).toEqual([]);
+  });
+
+  // Block 5b. Until this existed the conversation could not be answered at all:
+  // a listener pressing a consent button sends `type: 'interactive'`, which the
+  // schema above dropped, so no webhook_events row was written and the two
+  // InboundAnswer kinds the engine handles had no source.
+  it('reads a button reply, and carries the id the engine matches on', () => {
+    const [message] = flattenWebhookBody(body([buttonReply('wamid.D', 'consent_yes', 'Quero!')]));
+
+    expect(message?.wamid).toBe('wamid.D');
+    expect(message?.reply).toEqual({ kind: 'button', id: 'consent_yes', title: 'Quero!' });
+  });
+
+  it('reads a list reply', () => {
+    const [message] = flattenWebhookBody(body([listReply('wamid.E', 'option-7', 'Sertanejo')]));
+
+    expect(message?.reply).toEqual({ kind: 'list', id: 'option-7', title: 'Sertanejo' });
+  });
+
+  /**
+   * The title is NOT put in `text`, and this is the case that pins it.
+   *
+   * `ingest_whatsapp_event` (0062) reads the first hashtag out of `text`, so a
+   * button whose label an operator wrote as "#EUQUERO" would, if the title
+   * landed there, make pressing a button open a second conversation. The title
+   * is carried beside the id for the operator who has to explain what somebody
+   * pressed; nothing decides anything from it.
+   */
+  it('leaves the text of an interactive reply empty, whatever the button is labelled', () => {
+    const [message] = flattenWebhookBody(body([buttonReply('wamid.F', 'consent_yes', '#EUQUERO')]));
+
+    expect(message?.text).toBe('');
+    expect(message?.reply?.title).toBe('#EUQUERO');
+  });
+
+  it('leaves reply null on an ordinary text message', () => {
+    expect(flattenWebhookBody(body([textMessage('wamid.G', 'oi')]))[0]?.reply).toBeNull();
+  });
+
+  it('ignores an interactive subtype it does not know', () => {
+    const flow = {
+      from: '5511988887777',
+      id: 'wamid.H',
+      timestamp: '1786000000',
+      type: 'interactive',
+      interactive: { type: 'nfm_reply', nfm_reply: { response_json: '{}' } },
+    };
+    expect(flattenWebhookBody(body([flow]))).toEqual([]);
   });
 
   it('returns [] rather than throwing on rubbish', () => {

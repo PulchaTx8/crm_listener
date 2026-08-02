@@ -702,6 +702,42 @@ export type Database = {
           },
         ]
       }
+      member_field_confirmations: {
+        Row: {
+          confirmed_at: string
+          field: Database["public"]["Enums"]["promotion_requested_field"]
+          member_id: string
+          organization_id: string
+        }
+        Insert: {
+          confirmed_at?: string
+          field: Database["public"]["Enums"]["promotion_requested_field"]
+          member_id: string
+          organization_id: string
+        }
+        Update: {
+          confirmed_at?: string
+          field?: Database["public"]["Enums"]["promotion_requested_field"]
+          member_id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_field_confirmations_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "member_field_confirmations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_notes: {
         Row: {
           body: string | null
@@ -915,6 +951,7 @@ export type Database = {
           external_id: string | null
           id: string
           integration_id: string
+          interactive: Json | null
           last_error: string | null
           next_attempt_at: string
           organization_id: string
@@ -934,6 +971,7 @@ export type Database = {
           external_id?: string | null
           id?: string
           integration_id: string
+          interactive?: Json | null
           last_error?: string | null
           next_attempt_at?: string
           organization_id: string
@@ -953,6 +991,7 @@ export type Database = {
           external_id?: string | null
           id?: string
           integration_id?: string
+          interactive?: Json | null
           last_error?: string | null
           next_attempt_at?: string
           organization_id?: string
@@ -1550,6 +1589,65 @@ export type Database = {
           },
         ]
       }
+      promotion_refusals: {
+        Row: {
+          company_id: string
+          id: string
+          member_id: string
+          organization_id: string
+          promotion_id: string
+          refused_at: string
+          source: Database["public"]["Enums"]["participation_source"]
+        }
+        Insert: {
+          company_id: string
+          id?: string
+          member_id: string
+          organization_id: string
+          promotion_id: string
+          refused_at?: string
+          source: Database["public"]["Enums"]["participation_source"]
+        }
+        Update: {
+          company_id?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          promotion_id?: string
+          refused_at?: string
+          source?: Database["public"]["Enums"]["participation_source"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_refusals_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotion_refusals_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "promotion_refusals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_refusals_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       promotions: {
         Row: {
           allow_multiple_entries: boolean
@@ -1561,6 +1659,7 @@ export type Database = {
           company_id: string
           created_at: string
           created_by: string | null
+          data_validity_months: number | null
           deleted_at: string | null
           deleted_by: string | null
           ends_at: string
@@ -1590,6 +1689,7 @@ export type Database = {
           company_id: string
           created_at?: string
           created_by?: string | null
+          data_validity_months?: number | null
           deleted_at?: string | null
           deleted_by?: string | null
           ends_at: string
@@ -1619,6 +1719,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           created_by?: string | null
+          data_validity_months?: number | null
           deleted_at?: string | null
           deleted_by?: string | null
           ends_at?: string
@@ -1820,6 +1921,70 @@ export type Database = {
           },
         ]
       }
+      whatsapp_conversation_leases: {
+        Row: {
+          claimed_at: string
+          integration_id: string
+          phone: string
+          token: string
+        }
+        Insert: {
+          claimed_at?: string
+          integration_id: string
+          phone: string
+          token?: string
+        }
+        Update: {
+          claimed_at?: string
+          integration_id?: string
+          phone?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversation_leases_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_conversations: {
+        Row: {
+          created_at: string
+          expires_at: string
+          integration_id: string
+          phone: string
+          state: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          integration_id: string
+          phone: string
+          state: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          integration_id?: string
+          phone?: string
+          state?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversations_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "integrations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1941,6 +2106,7 @@ export type Database = {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
       }
+      backfill_member_field_confirmations: { Args: never; Returns: undefined }
       block_member: {
         Args: {
           p_company_id?: string
@@ -1962,17 +2128,40 @@ export type Database = {
         }
         Returns: undefined
       }
+      claim_conversation_turn: {
+        Args: {
+          p_integration_id: string
+          p_phone: string
+          p_stale_after: string
+        }
+        Returns: string
+      }
       claim_outbox_batch: {
         Args: { p_limit: number }
         Returns: {
           attempts: number
           body: string
           id: string
+          interactive: Json
           phone_number_id: string
           to_phone: string
         }[]
       }
       complete_password_change: { Args: never; Returns: undefined }
+      complete_whatsapp_conversation: {
+        Args: {
+          p_completed_at: string
+          p_dedupe_key: string
+          p_event_id: string
+          p_fields: Json
+          p_integration_id: string
+          p_member_id: string
+          p_promotion_id: string
+          p_questions: Json
+          p_to_phone: string
+        }
+        Returns: Json
+      }
       create_invitation: {
         Args: {
           p_company_ids: string[]
@@ -2062,6 +2251,16 @@ export type Database = {
           id: string
         }[]
       }
+      enqueue_whatsapp_outbound: {
+        Args: {
+          p_body: string
+          p_dedupe_key: string
+          p_integration_id: string
+          p_interactive: Json
+          p_to_phone: string
+        }
+        Returns: string
+      }
       ensure_inventory_balance_row: {
         Args: { p_company_id: string; p_org: string; p_prize_id: string }
         Returns: undefined
@@ -2094,6 +2293,10 @@ export type Database = {
         }
         Returns: Json
       }
+      finish_whatsapp_turn: {
+        Args: { p_event_id: string; p_outcome: string }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -2108,7 +2311,10 @@ export type Database = {
         Args: { p_promotion_id: string; p_rows: Json }
         Returns: Json
       }
-      ingest_whatsapp_event: { Args: { p_event_id: string }; Returns: Json }
+      ingest_whatsapp_event: {
+        Args: { p_event_id: string; p_window_seconds?: number }
+        Returns: Json
+      }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_member_blocked: {
         Args: { p_company_id: string; p_member_id: string }
@@ -2161,6 +2367,13 @@ export type Database = {
           promotion_prize_id: string
         }[]
       }
+      member_field_value: {
+        Args: {
+          p_field: Database["public"]["Enums"]["promotion_requested_field"]
+          p_member_id: string
+        }
+        Returns: string
+      }
       member_linked_to_company: {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
@@ -2182,6 +2395,10 @@ export type Database = {
       }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
+      participation_status_for: {
+        Args: { p_member_id: string; p_promotion_id: string; p_when: string }
+        Returns: Database["public"]["Enums"]["participation_status"]
+      }
       promotion_write_error: {
         Args: {
           p_constraint?: string
@@ -2278,6 +2495,23 @@ export type Database = {
         }
         Returns: string
       }
+      record_whatsapp_refusal: {
+        Args: {
+          p_body: string
+          p_dedupe_key: string
+          p_event_id: string
+          p_integration_id: string
+          p_member_id: string
+          p_promotion_id: string
+          p_refused_at: string
+          p_to_phone: string
+        }
+        Returns: string
+      }
+      release_conversation_turn: {
+        Args: { p_integration_id: string; p_phone: string; p_token: string }
+        Returns: undefined
+      }
       release_reservation: {
         Args: {
           p_company_id: string
@@ -2347,9 +2581,26 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      start_whatsapp_conversation: {
+        Args: {
+          p_integration_id: string
+          p_member_id: string
+          p_phone: string
+          p_promotion_id: string
+          p_window_seconds: number
+        }
+        Returns: Json
+      }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined
+      }
+      sweep_expired_conversations: {
+        Args: never
+        Returns: {
+          conversations: number
+          leases: number
+        }[]
       }
       unlink_prize_from_promotion: {
         Args: {
@@ -2424,7 +2675,15 @@ export type Database = {
         Returns: undefined
       }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
+      whatsapp_conversation_steps: {
+        Args: { p_member_id: string; p_promotion_id: string }
+        Returns: Json
+      }
       whatsapp_local_phone: { Args: { p_wa_phone: string }; Returns: string }
+      whatsapp_prompt_context: {
+        Args: { p_promotion_id: string }
+        Returns: Json
+      }
       whatsapp_reply_body: {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string

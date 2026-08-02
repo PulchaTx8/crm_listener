@@ -115,16 +115,33 @@ export async function POST(request: Request): Promise<Response> {
         // backstop, not a reason to rely on it here.
         external_id: createHash('sha256').update(message.wamid).digest('hex'),
         payload: {
-          // The RAW id, and the only place it lives once this column is
-          // pruned at 30 days (design spec D9, prune_webhook_payloads). The
-          // ingest function never reads this key — it exists for the
-          // operator debugging against Meta's dashboard before that prune.
+          // The RAW id of an INBOUND message, and the only place THAT lives
+          // until this column is pruned at 30 days (design spec D9,
+          // prune_webhook_payloads). The qualification is the correction: an
+          // earlier version of this comment said "the only place it lives"
+          // unqualified, which is not true of raw provider ids in general —
+          // outbox_messages.external_id holds the raw id Meta returns for every
+          // message we SEND, unhashed (0059). That one has a retention rule of
+          // its own -- prune_outbox_messages nulls it beside to_phone on
+          // terminal rows past the cut -- so it is not unprotected; it is simply
+          // not THIS column, and a reader who took the unqualified sentence at
+          // face value would go looking for the outbound id here and conclude
+          // there wasn't one.
+          //
+          // The ingest function never reads this key — it exists for the
+          // operator debugging against Meta's dashboard before the prune.
           wamid: message.wamid,
           metadata: { phone_number_id: message.phoneNumberId },
           from: message.from,
           profile_name: message.profileName,
           text: message.text,
           timestamp: message.timestamp,
+          // Block 5b. Present only on an answer to something the bot asked, and
+          // it is what makes the conversation answerable at all: the id here is
+          // one the bot itself put in the message it sent. `text` is empty on
+          // these, so the hashtag match in ingest_whatsapp_event cannot see a
+          // button's label.
+          reply: message.reply,
         },
       })),
       { onConflict: 'provider,external_id', ignoreDuplicates: true },
@@ -136,5 +153,43 @@ export async function POST(request: Request): Promise<Response> {
     return new Response('storage failed', { status: 500 });
   }
 
+  // Design spec D9. Without this every turn waits up to a full cron interval,
+  // and a six-step conversation accumulates half a minute of silence between
+  // messages somebody is sitting there watching for.
+  triggerTick();
   return new Response('ok', { status: 200 });
+}
+
+/**
+ * Fires a tick and does not wait for it.
+ *
+ * NOT AWAITED, and safe here for a reason worth naming: this application is a
+ * long-running Node process in a container behind EasyPanel, not a platform
+ * that freezes execution the moment a response is returned. On one of those
+ * this would be a request that never happens; here the process outlives the
+ * response and the tick runs. (An earlier round of Block 5a had to correct
+ * comments in this same area that named the wrong runtime.)
+ *
+ * Every failure is swallowed on purpose. The message is already stored, so the
+ * only thing a failing tick may not do is turn a 200 into an error and make
+ * Meta re-deliver a message we have: pg_cron is still running every ten
+ * seconds, and this is an optimisation on top of it, never the mechanism.
+ */
+function triggerTick(): void {
+  const secret = env.WORKER_TICK_SECRET;
+  const base = env.NEXT_PUBLIC_SITE_URL;
+  // Neither configured means the local stack or a build: the cron job is the
+  // only caller, and there is nothing to fire.
+  if (!secret || !base) return;
+
+  void fetch(`${base}/api/worker/tick`, {
+    method: 'POST',
+    headers: { 'x-worker-secret': secret },
+  }).catch((cause: unknown) => {
+    console.error(
+      `whatsapp webhook: could not trigger a tick (the cron job will pick it up): ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+  });
 }

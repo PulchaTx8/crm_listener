@@ -121,6 +121,12 @@ const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
  */
 const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/contact-requests.test.ts', minTests: 3 },
+  { path: 'tests/isolation/conversation.test.ts', minTests: 7 },
+  { path: 'tests/isolation/conversation-store.test.ts', minTests: 5 },
+  // One when REDIS_URL is unset -- the case that REPORTS the skip -- and the
+  // whole contract when it is set. The floor is the honest one: a file that
+  // collected nothing would look identical to one that failed to load.
+  { path: 'tests/isolation/conversation-store-redis.test.ts', minTests: 1 },
   { path: 'tests/isolation/inventory.test.ts', minTests: 19 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },

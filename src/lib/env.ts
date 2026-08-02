@@ -17,6 +17,11 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
   // Shared secret pg_cron presents to the worker tick.
   WORKER_TICK_SECRET: z.string().min(1).optional(),
+  // Where conversations live (design spec D6). OPTIONAL, and that is the whole
+  // decision: unset means the Postgres driver, so the application boots, CI
+  // runs and a developer works with no new service to install. A Station turns
+  // it on when volume justifies it.
+  REDIS_URL: z.string().url().optional(),
 });
 
 // Loose schema used ONLY under `SKIP_ENV_VALIDATION=1` (that is, during

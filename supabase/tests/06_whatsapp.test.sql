@@ -1,5 +1,5 @@
 begin;
-select plan(142);
+select plan(146);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -683,13 +683,13 @@ select is(public.whatsapp_local_phone('+55 (11) 98888-7777'), '11988887777',
 -- in the installation.
 
 select ok(not has_function_privilege('anon',
-            'public.ingest_whatsapp_event(uuid)', 'EXECUTE'),
+            'public.ingest_whatsapp_event(uuid,integer)', 'EXECUTE'),
           'anon may not run the bot door');
 select ok(not has_function_privilege('authenticated',
-            'public.ingest_whatsapp_event(uuid)', 'EXECUTE'),
+            'public.ingest_whatsapp_event(uuid,integer)', 'EXECUTE'),
           'authenticated may not run the bot door');
 select ok(has_function_privilege('service_role',
-            'public.ingest_whatsapp_event(uuid)', 'EXECUTE'),
+            'public.ingest_whatsapp_event(uuid,integer)', 'EXECUTE'),
           'service_role may run the bot door');
 
 select ok(not has_function_privilege('anon',
@@ -908,9 +908,42 @@ $$;
 
 -- The door: one message, decided end to end -------------------------------------
 
+-- BLOCK 5b CHANGED THIS, and it is the block's headline behaviour: a hashtag no
+-- longer enters anybody. It opens a conversation, because the listener has to be
+-- able to say no and to be asked for whatever the promotion wants. Every
+-- assertion in this section is CONVERTED rather than deleted -- the routing it
+-- proves is unchanged, and only what the door does at the end of it is not.
 select is(pg_temp.ingest('wamid.A1', '5511988887777', 'quero participar #EUQUERO !!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded', 'a hashtag in a messy sentence is recorded');
+          'conversation', 'a hashtag in a messy sentence opens a conversation');
+
+select is(
+  (select count(*)::int from public.participations p
+     join public.members m on m.id = p.member_id
+    where p.promotion_id = '00000000-0000-0000-0000-000000000591'
+      and m.phone_normalized = '11988887777'),
+  0,
+  'and writes NO entry: somebody who never answers has not participated, which is what makes an abandoned conversation cost nothing');
+
+select is(
+  (select result -> 'start' -> 'conversation' -> 'steps' -> 0 ->> 'kind'
+     from pg_temp.ingest_log where wamid = 'wamid.A1'),
+  'consent',
+  'what comes back is a conversation whose first step is the one every conversation has');
+
+-- The listener registered by A1 now finishes that conversation -- or an operator
+-- enters them by hand; the pre-check reads participations and where a row came
+-- from is not its business. Everything below about a SECOND message needs a
+-- first entry to be second to, and A1 no longer writes one.
+insert into public.participations
+  (promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+select '00000000-0000-0000-0000-000000000591', m.id,
+       '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c2',
+       false, 'VALID', 'WHATSAPP', '2026-06-10T12:00:00Z'
+  from public.members m
+ where m.organization_id = '00000000-0000-0000-0000-0000000005f1'
+   and m.phone_normalized = '11988887777';
 select is(pg_temp.ingest('wamid.A2', '5511988887777', '#EUQUERO',
                          '2026-06-10T13:00:00Z') ->> 'status',
           'DUPLICATE', 'the same person twice is a duplicate, not a second entry');
@@ -990,11 +1023,17 @@ select is(pg_temp.ingest('wamid.P1', '5511988882222', 'AAAA quero!! #EUQUERO!!',
 
 select is(pg_temp.ingest('wamid.P2', '5511988882222', '#VAI!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded', 'a hashtag that legitimately ends in punctuation is recorded when written exactly');
+          'conversation', 'a hashtag that legitimately ends in punctuation is matched when written exactly');
 
-select is((pg_temp.confirmation('wamid.P2')).body,
-          'Pronto! Você está participando de Grito. Boa sorte!',
-          'it resolves to the promotion stored with the punctuation -- an exact match, and the only kind there is now');
+-- Which promotion it matched, read off the conversation the door handed back
+-- rather than off a confirmation. More direct than the old assertion, not less:
+-- it names the promotion the listener is about to be asked about, where the
+-- reply only named the one they had already been entered into.
+select is(
+  (select result -> 'start' -> 'promotion' ->> 'name'
+     from pg_temp.ingest_log where wamid = 'wamid.P2'),
+  'Grito',
+  'it resolves to the promotion stored with the punctuation -- an exact match, and the only kind there is now');
 
 -- What "exact" costs: a match against a promotion that has since ended is
 -- refused, even though a differently-punctuated sibling is open right now.
@@ -1017,18 +1056,20 @@ select is(pg_temp.ingest('wamid.P4', '5511988882222', 'bora #CAFÉ!',
 
 select is(pg_temp.ingest('wamid.P4A', '5511988882222', 'bora #CAFÉ',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded',
+          'conversation',
           'written exactly, the accented hashtag still matches -- the property worth pinning now that no ctype assumption is behind it');
-select is((pg_temp.confirmation('wamid.P4A')).body,
-          'Pronto! Você está participando de Cafezinho. Boa sorte!',
-          'and it resolves to the accented promotion');
+select is(
+  (select result -> 'start' -> 'promotion' ->> 'name'
+     from pg_temp.ingest_log where wamid = 'wamid.P4A'),
+  'Cafezinho',
+  'and it resolves to the accented promotion');
 
 -- Case is the one permitted variation, named by the owner explicitly, so it is
 -- pinned by its own assertion rather than left implied by every case above
 -- happening to match the case the fixture itself was stored in.
 select is(pg_temp.ingest('wamid.P5', '5511988885555', '#euquero',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded',
+          'conversation',
           'a hashtag in a different case from how it is stored still matches -- upper/lower is the one variation the exact rule permits');
 
 -- A malformed payload is loud, not plausible -------------------------------------
@@ -1110,21 +1151,40 @@ select is(pg_temp.ingest('wamid.T1', '5511988884444', '#AGORA',
           'outside_window',
           'a promotion open right now does not take an entry for a message written a month ago');
 
+-- Read off A2 rather than A1: A1 opens a conversation and writes no entry, and
+-- A2 is now the message this file has that does. The property is unchanged and
+-- is the one that matters -- an event decided an hour late is still decided as
+-- of when the person wrote.
 select is(
   (select participated_at from public.participations
     where id = (select (result ->> 'participation_id')::uuid
-                  from pg_temp.ingest_log where wamid = 'wamid.A1')),
-  '2026-06-10T12:00:00Z'::timestamptz,
+                  from pg_temp.ingest_log where wamid = 'wamid.A2')),
+  '2026-06-10T13:00:00Z'::timestamptz,
   'the entry is stamped with the message timestamp, not the moment it was processed');
 
 -- What the event itself records --------------------------------------------------
 
+-- A1 IS NOT FINISHED HERE ANY MORE, and that is the change with the sharpest
+-- operational edge in this block. The conversation path leaves the event
+-- PROCESSING and the caller closes it, through finish_whatsapp_turn, once the
+-- state is stored and the consent message is enqueued -- so a worker that dies
+-- in between leaves a claimed row the inbound reclaim frees five minutes later
+-- rather than a message recorded as handled and answered by nothing.
+select is(
+  (select jsonb_build_object('status', status::text, 'outcome', outcome,
+                             'claimed', claimed_at is not null,
+                             'processed_at_set', processed_at is not null)
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
+  jsonb_build_object('status', 'PROCESSING', 'outcome', null,
+                     'claimed', true, 'processed_at_set', false),
+  'a message that opened a conversation is left claimed for the caller to finish, not filed as decided');
+
 select is(
   (select jsonb_build_object('status', status::text, 'outcome', outcome,
                              'processed_at_set', processed_at is not null)
-     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A2')),
   jsonb_build_object('status', 'DONE', 'outcome', 'recorded', 'processed_at_set', true),
-  'a decided event is DONE and says both why and when');
+  'while an entry the door decided on its own is DONE and says both why and when');
 
 -- '111111111111111' is live at 5c2 and archived at 5c1. An implementation that
 -- ignored deleted_at could pick either row; this says which one is correct.
@@ -1139,11 +1199,17 @@ select is(
 
 -- The reply, in the same transaction as the entry ---------------------------------
 
-select is((pg_temp.confirmation('wamid.A1')).to_phone, '5511988887777',
+select is((pg_temp.confirmation('wamid.A2')).to_phone, '5511988887777',
           'the reply is addressed to the number WhatsApp delivered, country code and all -- the local form is how we store a phone, not one WhatsApp can reach');
-select is((pg_temp.confirmation('wamid.A1')).body,
-          'Pronto! Você está participando de Disney. Boa sorte!',
-          'a recorded entry is confirmed by name');
+
+-- THE DOOR MUST NOT CONGRATULATE ANYBODY ANY MORE. 'Pronto! Você está
+-- participando' is now written by complete_whatsapp_conversation, at the end of
+-- a conversation somebody actually finished, and 08_conversation is where it is
+-- pinned. What belongs here is the other half of that sentence: the message
+-- that opened the conversation enqueued NOTHING under the confirmation key, so
+-- nobody is told they are in before they have said yes.
+select is((pg_temp.confirmation('wamid.A1')).id, null,
+          'a message that only opened a conversation confirms no entry -- that reply belongs to the end of it');
 select is((pg_temp.confirmation('wamid.A2')).body,
           'Você já está participando de Disney.',
           'a duplicate is told it is already in, not congratulated a second time');
@@ -1158,8 +1224,21 @@ select is(
 -- somebody back three hours late and nothing else in this suite notices.
 
 select is(pg_temp.ingest('wamid.R1', '5511988883333', '#REPETE',
-                         '2026-06-10T12:00:00Z') ->> 'status',
-          'VALID', 'a repeatable promotion takes the first entry');
+                         '2026-06-10T12:00:00Z') ->> 'outcome',
+          'conversation', 'a repeatable promotion opens a conversation for the first message too');
+
+-- That conversation completing is what used to be R1's entry. Written directly
+-- for the same reason as A1's above: the interval rule below has to have an
+-- earlier entry to measure from, and the door no longer writes one.
+insert into public.participations
+  (promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+select '00000000-0000-0000-0000-000000000592', m.id,
+       '00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c2',
+       true, 'VALID', 'WHATSAPP', '2026-06-10T12:00:00Z'
+  from public.members m
+ where m.organization_id = '00000000-0000-0000-0000-0000000005f1'
+   and m.phone_normalized = '11988883333';
 select is(pg_temp.ingest('wamid.R2', '5511988883333', '#REPETE',
                          '2026-06-10T13:00:00Z') ->> 'status',
           'TOO_SOON', 'a second entry inside the interval is recorded with the status that says so');
@@ -1228,7 +1307,7 @@ select is(
 
 select is(pg_temp.ingest('wamid.D1', '5511999995555', '#EUQUERO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded',
+          'conversation',
           'a listener registered at a sister Station is let in rather than turned away');
 select is(
   (select count(*)::int from public.members
@@ -1264,25 +1343,26 @@ insert into public.members (id, organization_id, full_name, phone) values
 
 select is(pg_temp.ingest('wamid.F1', '5511977772222', '#EUQUERO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded',
+          'conversation',
           'a listener stored in the local form is found from the number Meta delivered');
+-- Read off the conversation rather than off an entry: the conversation names
+-- the listener it belongs to, and that is the same claim the participation's
+-- member_id used to make one step later.
 select is(
-  (select member_id from public.participations
-    where id = (select (result ->> 'participation_id')::uuid
-                  from pg_temp.ingest_log where wamid = 'wamid.F1')),
+  (select (result -> 'start' -> 'conversation' ->> 'memberId')::uuid
+     from pg_temp.ingest_log where wamid = 'wamid.F1'),
   '00000000-0000-0000-0000-0000000005d6'::uuid,
-  'and the entry is that listener''s own, not a new record''s');
+  'and the conversation is that listener''s own, not a new record''s');
 
 select is(pg_temp.ingest('wamid.F2', '5511977771111', '#EUQUERO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'recorded',
+          'conversation',
           'a listener an operator stored WITH the country code is found as well');
 select is(
-  (select member_id from public.participations
-    where id = (select (result ->> 'participation_id')::uuid
-                  from pg_temp.ingest_log where wamid = 'wamid.F2')),
+  (select (result -> 'start' -> 'conversation' ->> 'memberId')::uuid
+     from pg_temp.ingest_log where wamid = 'wamid.F2'),
   '00000000-0000-0000-0000-0000000005d7'::uuid,
-  'and the entry is theirs: without the second lookup this is a brand-new listener with the same phone in a different shape');
+  'and it is theirs: without the second lookup this is a brand-new listener with the same phone in a different shape');
 select is(
   (select count(*)::int from public.members
     where organization_id = '00000000-0000-0000-0000-0000000005f1'
@@ -1301,9 +1381,12 @@ select is(
 -- conclude the ON CONFLICT in 0062 is unreachable and free to delete. The block
 -- at the very end of this file is that case, asserted.
 
+-- A2 is DONE, which is what the claim predicate declines. (A1 would also come
+-- back 'skipped' here, but for the other reason -- it is PROCESSING -- and an
+-- assertion that cannot tell the two apart proves neither.)
 select is(
   (select public.ingest_whatsapp_event(id) ->> 'outcome'
-     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A2')),
   'skipped',
   'an event already decided is not decided again');
 select is(
@@ -1311,7 +1394,7 @@ select is(
      join public.members m on m.id = p.member_id
     where p.promotion_id = '00000000-0000-0000-0000-000000000591'
       and m.phone_normalized = '11988887777'),
-  2, 'and the listener who sent it still has exactly the two entries A1 and A2 wrote');
+  2, 'and the listener who sent it still has exactly two entries: the one that finished their first conversation, and the duplicate A2 recorded');
 
 -- No personal data in the audit trail (design spec D2) ------------------------------
 --
@@ -1356,22 +1439,34 @@ select is(
     where action = 'ingest_whatsapp_event' and detail::text like '%wamid.%'),
   0, 'no audit row carries a raw provider message id, under any key');
 
+-- A2 rather than A1: an audit row is written when an event is FINISHED, and A1
+-- is not finished by this function any more.
 select is(
   (select detail ->> 'wamid_sha256' from public.audit_logs
     where action = 'ingest_whatsapp_event'
       and target_id = (select id from public.webhook_events
-                        where external_id = pg_temp.wamid_hash('wamid.A1'))),
-  pg_temp.wamid_hash('wamid.A1'),
+                        where external_id = pg_temp.wamid_hash('wamid.A2'))),
+  pg_temp.wamid_hash('wamid.A2'),
   'the audit row names the message it decided -- by its hash, which is the same value webhook_events carries, so support can trace one without opening the payload and without a recoverable phone being written down');
 
 select is(
   (select (detail ->> 'participation_id')::uuid from public.audit_logs
     where action = 'ingest_whatsapp_event'
       and target_id = (select id from public.webhook_events
-                        where external_id = pg_temp.wamid_hash('wamid.A1'))),
+                        where external_id = pg_temp.wamid_hash('wamid.A2'))),
   (select (result ->> 'participation_id')::uuid
-     from pg_temp.ingest_log where wamid = 'wamid.A1'),
+     from pg_temp.ingest_log where wamid = 'wamid.A2'),
   'and ties it to the entry it produced, which is the only link between a message and its participation');
+
+-- And the message that opened a conversation has NO audit row at all yet, which
+-- is the same fact as its event still being PROCESSING, asserted from the other
+-- side: nothing has decided it.
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'ingest_whatsapp_event'
+      and target_id = (select id from public.webhook_events
+                        where external_id = pg_temp.wamid_hash('wamid.A1'))),
+  0, 'a message left mid-conversation has not been decided, and writes no trail saying it was');
 
 -- One message, one reply, however many times it is decided --------------------------
 --
@@ -1388,22 +1483,25 @@ select is(
 -- Deliberately LAST in the file. It puts a third participation on the listener
 -- and a second audit row on the event, both of which earlier assertions count.
 
+-- A2 and not A1, because the assertion is about a REPLY being enqueued once and
+-- A1 no longer produces one: the conversation path enqueues its consent message
+-- from the caller, under its own ':consent' key.
 update public.webhook_events
    set status = 'FAILED', outcome = null, processed_at = null
- where external_id = pg_temp.wamid_hash('wamid.A1');
+ where external_id = pg_temp.wamid_hash('wamid.A2');
 
 -- The re-run must actually happen, or the count below would pass because
 -- nothing ran rather than because nothing was enqueued twice.
 select is(
   (select public.ingest_whatsapp_event(id) ->> 'outcome'
-     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
+     from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A2')),
   'recorded',
   'an event put back by hand really is decided again');
 
 select is(
   (select count(*)::int from public.outbox_messages
     where provider = 'WHATSAPP'
-      and dedupe_key = pg_temp.wamid_hash('wamid.A1') || ':confirmation'),
+      and dedupe_key = pg_temp.wamid_hash('wamid.A2') || ':confirmation'),
   1, 'but the listener is answered once: the reply is keyed on the message, so deciding it twice enqueues one row');
 
 select * from finish();

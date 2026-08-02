@@ -1,3 +1,5 @@
+import type { Interactive } from './interactive';
+
 /** What happened to one outbound message. */
 export type SendResult =
   | { ok: true; externalId: string }
@@ -7,6 +9,12 @@ export interface SendTextInput {
   phoneNumberId: string;
   to: string;
   body: string;
+}
+
+export interface SendInteractiveInput {
+  phoneNumberId: string;
+  to: string;
+  interactive: Interactive;
 }
 
 /**
@@ -20,4 +28,6 @@ export interface SendTextInput {
  */
 export interface WhatsAppTransport {
   sendText(input: SendTextInput): Promise<SendResult>;
+  /** Buttons for the consent step, a list for a promotion's multiple-choice questions. */
+  sendInteractive(input: SendInteractiveInput): Promise<SendResult>;
 }

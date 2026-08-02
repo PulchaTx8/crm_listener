@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
 import type {
+  SendInteractiveInput,
   SendResult,
   SendTextInput,
   WhatsAppTransport,
@@ -51,6 +52,8 @@ interface ClaimedRow {
   id: string;
   to_phone: string;
   body: string;
+  /** Block 5b: the conversation's own messages. Null on every reply 5a writes. */
+  interactive: unknown;
   attempts: number;
   phone_number_id: string | null;
   // Only the discarded PostgREST shape uses this. It exists so a worker mutated
@@ -76,6 +79,8 @@ interface RpcReply {
 }
 
 interface Fixture {
+  /** What the conversation sweep removed this tick. */
+  swept?: { conversations: number; leases: number };
   reclaimed?: { events: number; messages: number };
   events?: DueEvent[];
   outbox?: ClaimedRow[];
@@ -103,6 +108,12 @@ class FakeDb {
     if (fn === 'reclaim_stale_whatsapp_claims') {
       return Promise.resolve({
         data: [this.fixture.reclaimed ?? { events: 0, messages: 0 }],
+        error: null,
+      });
+    }
+    if (fn === 'sweep_expired_conversations') {
+      return Promise.resolve({
+        data: [this.fixture.swept ?? { conversations: 0, leases: 0 }],
         error: null,
       });
     }
@@ -167,16 +178,31 @@ function asClient(db: FakeDb): SupabaseClient<Database> {
 }
 
 /** Returns each scripted result in turn, then repeats the last one. */
-function scripted(...results: SendResult[]): WhatsAppTransport & { seen: SendTextInput[] } {
+function scripted(
+  ...results: SendResult[]
+): WhatsAppTransport & { seen: SendTextInput[]; seenInteractive: SendInteractiveInput[] } {
   const seen: SendTextInput[] = [];
+  const seenInteractive: SendInteractiveInput[] = [];
   let index = 0;
+  const next = (): SendResult => {
+    const result = results[Math.min(index, results.length - 1)];
+    index += 1;
+    return result ?? { ok: true, externalId: 'wamid.FALLBACK' };
+  };
   return {
     seen,
+    seenInteractive,
     sendText(input: SendTextInput): Promise<SendResult> {
       seen.push(input);
-      const result = results[Math.min(index, results.length - 1)];
-      index += 1;
-      return Promise.resolve(result ?? { ok: true, externalId: 'wamid.FALLBACK' });
+      return Promise.resolve(next());
+    },
+    // Recorded on the SAME counter as sendText, deliberately: the two are one
+    // queue with one retry ladder, and a double that scripted them separately
+    // would let a mixed batch pass against a worker that had lost count of
+    // which sends failed.
+    sendInteractive(input: SendInteractiveInput): Promise<SendResult> {
+      seenInteractive.push(input);
+      return Promise.resolve(next());
     },
   };
 }
@@ -189,6 +215,7 @@ function outboxRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
     id: 'ob-1',
     to_phone: '5511988887777',
     body: 'Pronto!',
+    interactive: null,
     attempts: 0,
     phone_number_id: '1111',
     integrations: { phone_number_id: '1111' },
@@ -410,6 +437,69 @@ describe('runTick: the inbound half', () => {
 });
 
 describe('runTick: the outbound half', () => {
+  // Block 5b. Every message the conversation is made of is interactive, and
+  // until the worker looked at this column the queue could deliver none of
+  // them: the consent buttons would have gone out as their body text alone,
+  // which is a question with no way to answer it.
+  const consent = {
+    kind: 'buttons',
+    body: 'Quer participar?',
+    imageUrl: null,
+    buttons: [
+      { id: 'consent_yes', title: 'Quero!' },
+      { id: 'consent_no', title: 'Agora não' },
+    ],
+  };
+
+  it('sends an interactive row as an interactive message, not as its body text', async () => {
+    const db = new FakeDb({ outbox: [outboxRow({ interactive: consent })] });
+    const transport = scripted({ ok: true, externalId: 'wamid.BUTTONS' });
+
+    const result = await tick(db, transport);
+
+    expect(transport.seen).toHaveLength(0);
+    expect(transport.seenInteractive).toEqual([
+      { phoneNumberId: '1111', to: '5511988887777', interactive: consent },
+    ]);
+    expect(result.sent).toBe(1);
+    // Settled exactly like a text send: one queue, one ladder, one shape of
+    // write. outbox_messages_sent_shape (0059) does not know about kinds.
+    expect(db.updates.filter((update) => update.patch.status === 'SENT')).toHaveLength(1);
+  });
+
+  it('still sends a row with no interactive as plain text', async () => {
+    const db = new FakeDb({ outbox: [outboxRow()] });
+    const transport = scripted({ ok: true, externalId: 'wamid.TEXT' });
+
+    await tick(db, transport);
+
+    expect(transport.seenInteractive).toHaveLength(0);
+    expect(transport.seen).toHaveLength(1);
+  });
+
+  /**
+   * A stored payload the builder would refuse is a configuration mistake that
+   * has already been committed to the queue, and Meta answers it with a 400
+   * every time. Retrying it six times down the ladder spends six paid attempts
+   * to reach the same answer, so it is PARKED with the reason on the row —
+   * where an operator asked "why did nobody get the message?" can find it.
+   */
+  it('parks a row whose interactive payload is not one the API would accept', async () => {
+    const db = new FakeDb({
+      outbox: [outboxRow({ interactive: { kind: 'buttons', body: 'oi' } })],
+    });
+    const transport = scripted({ ok: true, externalId: 'wamid.NEVER' });
+
+    const result = await tick(db, transport);
+
+    expect(transport.seen).toHaveLength(0);
+    expect(transport.seenInteractive).toHaveLength(0);
+    expect(result.sendFailed).toBe(1);
+    const parked = db.updates.filter((update) => update.patch.status === 'FAILED');
+    expect(parked).toHaveLength(1);
+    expect(String(parked[0]?.patch.last_error)).toContain('interactive');
+  });
+
   it('claims its batch through the function that marks the rows in the same statement', async () => {
     const db = new FakeDb();
     await tick(db);

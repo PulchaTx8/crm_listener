@@ -38,6 +38,11 @@ vi.mock('@/lib/supabase/service-client', () => ({
 const SECRET = 'test-app-secret';
 process.env.WHATSAPP_APP_SECRET = SECRET;
 process.env.WHATSAPP_VERIFY_TOKEN = 'verify-me';
+// Both are needed for the tick trigger (D9) to have anywhere to fire at; the
+// route returns without firing when either is missing, which is the local
+// stack's case and would make the assertions below vacuous.
+process.env.WORKER_TICK_SECRET = 'tick-secret';
+process.env.NEXT_PUBLIC_SITE_URL = 'https://app.example.test';
 
 const { GET, POST } = await import('@/app/api/webhooks/whatsapp/route');
 
@@ -76,6 +81,36 @@ function singleMessageBody() {
   };
 }
 
+/** What Meta posts when the listener presses a button on the consent message. */
+function buttonReplyBody() {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        changes: [
+          {
+            value: {
+              metadata: { phone_number_id: '1111' },
+              messages: [
+                {
+                  id: 'wamid.C',
+                  from: '5511988887777',
+                  timestamp: '1786000000',
+                  type: 'interactive',
+                  interactive: {
+                    type: 'button_reply',
+                    button_reply: { id: 'consent_yes', title: 'Quero!' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function twoMessageBody() {
   return {
     object: 'whatsapp_business_account',
@@ -99,8 +134,18 @@ function twoMessageBody() {
 
 const payload = JSON.stringify(singleMessageBody());
 
+const ticks: Array<{ url: string; init?: RequestInit }> = [];
+
 beforeEach(() => {
   inserted.length = 0;
+  ticks.length = 0;
+  // The tick endpoint, mocked. Resolves rather than rejecting: a tick that
+  // fails is covered by its own case below, and a rejection here would be an
+  // unhandled one in every other.
+  vi.stubGlobal('fetch', (url: string | URL, init?: RequestInit) => {
+    ticks.push({ url: String(url), init });
+    return Promise.resolve(new Response('ok', { status: 200 }));
+  });
 });
 
 describe('GET /api/webhooks/whatsapp', () => {
@@ -177,14 +222,14 @@ describe('POST /api/webhooks/whatsapp', () => {
     expect(ids).toEqual([sha256Hex('wamid.A'), sha256Hex('wamid.B')].sort());
   });
 
-  // Whole-row comparison rather than five separate field assertions:
+  // Whole-row comparison rather than separate field assertions:
   // ingest_whatsapp_event (0062) reads exactly metadata.phone_number_id,
-  // from, text, profile_name and timestamp, and the route must additionally
-  // write the raw wamid (it is the only place it lives once the payload is
-  // pruned at 30 days). Deleting any one of the six from route.ts, or adding
-  // a seventh, changes this object and fails the comparison — five separate
-  // .toBe() calls would not have caught a field going missing that nobody
-  // wrote an assertion for.
+  // from, text, profile_name and timestamp, the conversation turn (Block 5b)
+  // reads `reply`, and the route must additionally write the raw wamid (it is
+  // the only place it lives once the payload is pruned at 30 days). Deleting
+  // any one of the seven from route.ts, or adding an eighth, changes this
+  // object and fails the comparison — separate .toBe() calls would not have
+  // caught a field going missing that nobody wrote an assertion for.
   it('writes the full row 0062 requires: hashed external_id and the complete payload contract', async () => {
     const response = await post(payload, sign(payload));
     expect(response.status).toBe(200);
@@ -198,8 +243,65 @@ describe('POST /api/webhooks/whatsapp', () => {
         profile_name: null,
         text: '#EUQUERO',
         timestamp: '1786000000',
+        reply: null,
       },
     });
+  });
+
+  // Block 5b. The button press has to survive the whole way to the row, or the
+  // conversation stops at the consent message: the flattener may read it and
+  // the engine may match on it, and neither matters if the route drops it
+  // between the two.
+  it('stores the reply a listener pressed, with the id the engine matches on', async () => {
+    const pressed = JSON.stringify(buttonReplyBody());
+    const response = await post(pressed, sign(pressed));
+
+    expect(response.status).toBe(200);
+    expect(inserted[0]?.payload).toEqual({
+      wamid: 'wamid.C',
+      metadata: { phone_number_id: '1111' },
+      from: '5511988887777',
+      profile_name: null,
+      text: '',
+      timestamp: '1786000000',
+      reply: { kind: 'button', id: 'consent_yes', title: 'Quero!' },
+    });
+  });
+
+  // Design spec D9. Without the trigger every turn waits up to a full cron
+  // interval, and a six-step conversation accumulates half a minute of silence
+  // between messages the listener is sitting there watching for.
+  it('fires exactly one tick after storing a message', async () => {
+    const response = await post(payload, sign(payload));
+
+    expect(response.status).toBe(200);
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0]?.url).toBe('https://app.example.test/api/worker/tick');
+    expect(ticks[0]?.init?.method).toBe('POST');
+    expect((ticks[0]?.init?.headers as Record<string, string>)['x-worker-secret']).toBe(
+      'tick-secret',
+    );
+  });
+
+  // A rejected delivery has stored nothing, so there is nothing for a tick to
+  // find — and an unauthenticated caller who could make this route issue a
+  // request would have a free amplifier.
+  it('fires no tick for a delivery it refused', async () => {
+    const response = await post(payload, 'sha256=deadbeef');
+
+    expect(response.status).toBe(401);
+    expect(ticks).toHaveLength(0);
+  });
+
+  // The message is already stored, so the only thing a failing tick may not do
+  // is turn a 200 into an error and make Meta re-deliver a message we have.
+  it('still answers 200 when the tick cannot be reached', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('connection refused')));
+
+    const response = await post(payload, sign(payload));
+
+    expect(response.status).toBe(200);
+    expect(inserted).toHaveLength(1);
   });
 
   // The trap this whole route exists to avoid. Verifying a re-serialised
