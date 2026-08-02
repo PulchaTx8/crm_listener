@@ -79,8 +79,8 @@ as $$
                   '[]'::jsonb)
       || coalesce((select jsonb_agg(jsonb_build_object(
                             'kind', 'question',
-                            'question_id', q.id,
-                            'question_kind', q.kind) order by q.position)
+                            'questionId', q.id,
+                            'questionKind', q.kind) order by q.position)
                      from public.promotion_questions q
                     where q.promotion_id = p_promotion_id), '[]'::jsonb);
 $$;

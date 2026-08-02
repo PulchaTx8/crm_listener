@@ -2269,6 +2269,10 @@ export type Database = {
         }
         Returns: Json
       }
+      finish_whatsapp_turn: {
+        Args: { p_event_id: string; p_outcome: string }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -2283,7 +2287,10 @@ export type Database = {
         Args: { p_promotion_id: string; p_rows: Json }
         Returns: Json
       }
-      ingest_whatsapp_event: { Args: { p_event_id: string }; Returns: Json }
+      ingest_whatsapp_event: {
+        Args: { p_event_id: string; p_window_seconds?: number }
+        Returns: Json
+      }
       is_company_member: { Args: { p_company_id: string }; Returns: boolean }
       is_member_blocked: {
         Args: { p_company_id: string; p_member_id: string }
@@ -2536,6 +2543,16 @@ export type Database = {
       shares_organization_with: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      start_whatsapp_conversation: {
+        Args: {
+          p_integration_id: string
+          p_member_id: string
+          p_phone: string
+          p_promotion_id: string
+          p_window_seconds: number
+        }
+        Returns: Json
       }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }

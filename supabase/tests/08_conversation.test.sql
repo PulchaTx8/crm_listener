@@ -1,5 +1,5 @@
 begin;
-select plan(51);
+select plan(59);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -360,9 +360,9 @@ select is(
   public.whatsapp_conversation_steps(
     '00000000-0000-0000-0000-000000000925', '00000000-0000-0000-0000-000000000910'),
   ('[{"kind": "consent"}, {"kind": "field", "field": "city"},'
-   || ' {"kind": "question", "question_id": "00000000-0000-0000-0000-000000000933", "question_kind": "QUIZ"},'
-   || ' {"kind": "question", "question_id": "00000000-0000-0000-0000-000000000931", "question_kind": "ESSAY"},'
-   || ' {"kind": "question", "question_id": "00000000-0000-0000-0000-000000000932", "question_kind": "MULTIPLE_CHOICE"}]')::jsonb,
+   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000933", "questionKind": "QUIZ"},'
+   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000931", "questionKind": "ESSAY"},'
+   || ' {"kind": "question", "questionId": "00000000-0000-0000-0000-000000000932", "questionKind": "MULTIPLE_CHOICE"}]')::jsonb,
   'questions appear in position order after the fields, regardless of insertion or id order');
 
 -- J. Fields come out in the ENUM's own order, not the order an operator
@@ -557,6 +557,56 @@ select is(
     where integration_id = '00000000-0000-0000-0000-000000000940'),
   0,
   'and the holder releasing its own lease frees the phone for the next message');
+
+-- Starting a conversation, and what it refuses to do (Task 7d) ----------------
+
+select has_function('public', 'start_whatsapp_conversation',
+                    array['uuid', 'uuid', 'uuid', 'text', 'integer'],
+                    'the conversation a hashtag opens is assembled by a function of its own');
+
+select ok(not has_function_privilege('anon',
+            'public.start_whatsapp_conversation(uuid, uuid, uuid, text, integer)', 'EXECUTE'),
+          'anon may not open a conversation');
+select ok(not has_function_privilege('authenticated',
+            'public.start_whatsapp_conversation(uuid, uuid, uuid, text, integer)', 'EXECUTE'),
+          'and neither may authenticated');
+select ok(not has_function_privilege('service_role',
+            'public.start_whatsapp_conversation(uuid, uuid, uuid, text, integer)', 'EXECUTE'),
+          'and neither may service_role -- it is reached from inside the door, never over HTTP');
+
+select is(
+  public.start_whatsapp_conversation(
+    '00000000-0000-0000-0000-000000000921', '00000000-0000-0000-0000-000000000911',
+    '00000000-0000-0000-0000-000000000940', '5511900009999', 1800)
+    -> 'conversation' -> 'steps',
+  '[{"kind": "consent"}, {"kind": "field", "field": "neighbourhood"}]'::jsonb,
+  'it hands back the step list this listener still has to answer');
+
+-- THE ASSERTION THIS FUNCTION EXISTS TO EARN. The state's home is the
+-- ConversationStore, which may be Redis: a version of this that inserted here
+-- would start conversations in one store while every later turn looked for them
+-- in the other, and the bot would go silent after the consent message in
+-- exactly the deployment Redis is turned on for. A test that accepted a row
+-- would pin that defect in place.
+select is(
+  (select count(*)::int from public.whatsapp_conversations
+    where integration_id = '00000000-0000-0000-0000-000000000940'),
+  0,
+  'and stores NOTHING: the state belongs to the store, not to this function');
+
+select ok(has_function_privilege('service_role',
+            'public.finish_whatsapp_turn(uuid, text)', 'EXECUTE'),
+          'the worker may close an event whose turn it decided in Node');
+
+-- The whitelist, which is the whole reason this door exists rather than a grant
+-- on finish_whatsapp_event: an outcome carrying a participation is written by
+-- the transaction that writes the entry, and cannot be claimed from out here.
+select throws_ok(
+  $$select public.finish_whatsapp_turn(
+      '00000000-0000-0000-0000-0000000009ff', 'recorded')$$,
+  '22023',
+  null,
+  'and may not use it to claim an entry happened');
 
 select * from finish();
 rollback;
