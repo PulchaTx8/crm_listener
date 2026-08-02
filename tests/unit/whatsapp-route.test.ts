@@ -76,6 +76,36 @@ function singleMessageBody() {
   };
 }
 
+/** What Meta posts when the listener presses a button on the consent message. */
+function buttonReplyBody() {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        changes: [
+          {
+            value: {
+              metadata: { phone_number_id: '1111' },
+              messages: [
+                {
+                  id: 'wamid.C',
+                  from: '5511988887777',
+                  timestamp: '1786000000',
+                  type: 'interactive',
+                  interactive: {
+                    type: 'button_reply',
+                    button_reply: { id: 'consent_yes', title: 'Quero!' },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function twoMessageBody() {
   return {
     object: 'whatsapp_business_account',
@@ -177,14 +207,14 @@ describe('POST /api/webhooks/whatsapp', () => {
     expect(ids).toEqual([sha256Hex('wamid.A'), sha256Hex('wamid.B')].sort());
   });
 
-  // Whole-row comparison rather than five separate field assertions:
+  // Whole-row comparison rather than separate field assertions:
   // ingest_whatsapp_event (0062) reads exactly metadata.phone_number_id,
-  // from, text, profile_name and timestamp, and the route must additionally
-  // write the raw wamid (it is the only place it lives once the payload is
-  // pruned at 30 days). Deleting any one of the six from route.ts, or adding
-  // a seventh, changes this object and fails the comparison — five separate
-  // .toBe() calls would not have caught a field going missing that nobody
-  // wrote an assertion for.
+  // from, text, profile_name and timestamp, the conversation turn (Block 5b)
+  // reads `reply`, and the route must additionally write the raw wamid (it is
+  // the only place it lives once the payload is pruned at 30 days). Deleting
+  // any one of the seven from route.ts, or adding an eighth, changes this
+  // object and fails the comparison — separate .toBe() calls would not have
+  // caught a field going missing that nobody wrote an assertion for.
   it('writes the full row 0062 requires: hashed external_id and the complete payload contract', async () => {
     const response = await post(payload, sign(payload));
     expect(response.status).toBe(200);
@@ -198,7 +228,28 @@ describe('POST /api/webhooks/whatsapp', () => {
         profile_name: null,
         text: '#EUQUERO',
         timestamp: '1786000000',
+        reply: null,
       },
+    });
+  });
+
+  // Block 5b. The button press has to survive the whole way to the row, or the
+  // conversation stops at the consent message: the flattener may read it and
+  // the engine may match on it, and neither matters if the route drops it
+  // between the two.
+  it('stores the reply a listener pressed, with the id the engine matches on', async () => {
+    const pressed = JSON.stringify(buttonReplyBody());
+    const response = await post(pressed, sign(pressed));
+
+    expect(response.status).toBe(200);
+    expect(inserted[0]?.payload).toEqual({
+      wamid: 'wamid.C',
+      metadata: { phone_number_id: '1111' },
+      from: '5511988887777',
+      profile_name: null,
+      text: '',
+      timestamp: '1786000000',
+      reply: { kind: 'button', id: 'consent_yes', title: 'Quero!' },
     });
   });
 

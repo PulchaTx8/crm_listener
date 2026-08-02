@@ -125,6 +125,12 @@ export async function POST(request: Request): Promise<Response> {
           profile_name: message.profileName,
           text: message.text,
           timestamp: message.timestamp,
+          // Block 5b. Present only on an answer to something the bot asked, and
+          // it is what makes the conversation answerable at all: the id here is
+          // one the bot itself put in the message it sent. `text` is empty on
+          // these, so the hashtag match in ingest_whatsapp_event cannot see a
+          // button's label.
+          reply: message.reply,
         },
       })),
       { onConflict: 'provider,external_id', ignoreDuplicates: true },
