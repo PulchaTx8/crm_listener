@@ -254,7 +254,16 @@ On the final step, **one transaction**:
 3. `apply_participation(promotion, member, final_message_timestamp, 'WHATSAPP',
    answers)` — the answers array it has always accepted
 4. the outbox row carrying the reply
-5. the conversation state cleared
+
+and then, once that transaction has committed, **the conversation state is
+cleared** — outside it, because the state may not live in Postgres at all
+(§4.3, amended 2026-08-02). An earlier version of this list counted the clear as
+a fifth write inside the transaction; it cannot be one for the same reason the
+lock could not be an advisory lock. A clear that fails leaves the state on the
+final step and the listener's next message re-runs the turn, where
+`apply_participation` answers `DUPLICATE` — the at-least-once §4.3 already
+commits to, and the reason the four writes above are the ones that have to be
+atomic.
 
 **Which timestamp, and it matters.** The conversation spans several messages, so
 "the message timestamp" is ambiguous. The entry is judged by the **last** one —
@@ -281,12 +290,38 @@ Two messages from one person arriving close together must not both advance the
 cursor from the same index — one answer would be lost in silence, and people
 double-send constantly.
 
-The turn is processed inside the ingest transaction, so an **advisory lock on
-`(integration, phone)`** taken there serialises turns regardless of where the
-state lives. That matters: the state may be in Redis, which cannot join a
-Postgres transaction. One mechanism, both drivers, and it is the same
-`pg_advisory_xact_lock` shape `apply_participation` already uses for
+**Amended 2026-08-02, on the owner's ruling, before Task 7 was written.** What
+this section used to say: the turn is processed inside the ingest transaction,
+so an advisory lock on `(integration, phone)` taken there serialises turns
+regardless of where the state lives — one mechanism, both drivers, the same
+`pg_advisory_xact_lock` shape `apply_participation` uses for
 `(promotion, member)`.
+
+**It does not serialise them, and the reason is structural: the engine is
+TypeScript.** A turn is `load → advance → write`, and the middle step runs in
+Node. `pg_advisory_xact_lock` is released when the transaction that took it
+commits, which happens *before* the state is read and *before* the write goes
+back — so the lock covers neither end of the read-modify-write it was supposed
+to protect. Two overlapping ticks can read one conversation at the same cursor,
+and one listener's answer is lost. **The ticks overlap by design**: `pg_cron`
+fires every ten seconds whether or not the previous one returned — the comment on
+`drainOutbox` in `src/services/whatsapp.ts` says exactly that about the outbound
+half — and D9 adds a tick fired by the webhook on top of it.
+
+**What replaces it: a lease, in Postgres, held for the whole turn.** One row per
+`(integration, phone)`, claimed before the state is read and released after it is
+written, and taken over by the next claimer once it goes stale. That is the
+claim/reclaim shape `claim_outbox_batch` and `reclaim_stale_whatsapp_claims`
+(0063) already use, adopted here for the same reason they exist: *a claim that
+has to outlive its transaction cannot be a lock.* It keeps the property the
+advisory lock was chosen for — **one mechanism, in Postgres, working whichever
+driver holds the state** — and adds the one it could not have: it spans Node's
+part of the turn.
+
+A turn that cannot claim the lease neither waits nor drops the message: the event
+is left for the next tick, which is what 5a's `deferEvent` already does with an
+event it could not decide. Waiting would hold a worker for the length of somebody
+else's HTTPS call to Meta.
 
 **The state is written after the turn's database work, never before.**
 Non-final turns have no database work, so the state write is the only write. The
@@ -324,11 +359,25 @@ interface ConversationStore {
 }
 ```
 
-No compare-and-set in the interface: the advisory lock in §4.3 is what
-serialises writers, and putting a second concurrency mechanism in the store
-would be two answers to one question. The Postgres implementation is a table
-with an `expires_at` column, swept by the worker that already runs every ten
-seconds; the Redis implementation is `SET` with a TTL and nothing to sweep.
+No compare-and-set in the interface: the lease in §4.3 is what serialises
+writers, and putting a second concurrency mechanism in the store would be two
+answers to one question. The Postgres implementation is a table with an
+`expires_at` column, swept by the worker that already runs every ten seconds;
+the Redis implementation is `SET` with a TTL and nothing to sweep.
+
+**The store is the only writer of the state — amended 2026-08-02.** Not
+`start_whatsapp_conversation`, not `complete_whatsapp_conversation`: SQL
+computes the step list and returns it, and Node writes it through whichever
+driver is configured. An implementation plan that had the two RPCs insert into
+and delete from `whatsapp_conversations` directly would work perfectly with the
+default driver and leave the Redis one **starting conversations in one store and
+looking for them in the other** — the bot going silent after the consent message,
+in precisely the deployment the Station turns Redis on for. A driver that cannot
+be reached is worse than one that does not exist, because it looks like a choice.
+
+**Order of work, on the owner's ruling of 2026-08-02:** the Redis driver is
+built *after* the conversation is wired end to end, so that the first thing it
+does is run against a path that actually uses it.
 
 ---
 

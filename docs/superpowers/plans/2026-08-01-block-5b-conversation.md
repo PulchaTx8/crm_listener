@@ -32,7 +32,7 @@
 |---|---|
 | `supabase/migrations/0065_conversation_tables.sql` | `promotions.data_validity_months`, `member_field_confirmations` + backfill, `promotion_refusals`, `whatsapp_conversations` |
 | `supabase/migrations/0066_conversation_rpcs.sql` | `whatsapp_conversation_steps`, `start_whatsapp_conversation`, `complete_whatsapp_conversation`, `record_whatsapp_refusal` |
-| `supabase/migrations/0067_ingest_starts_conversation.sql` | `ingest_whatsapp_event` diverts: start a conversation instead of entering |
+| `supabase/migrations/0067_conversation_turns.sql` | `whatsapp_conversation_leases` and its claim/release; `ingest_whatsapp_event` diverts: hand back a conversation to start instead of entering |
 
 **New TypeScript**
 
@@ -57,6 +57,42 @@
 | `src/app/api/webhooks/whatsapp/route.ts` | Fires a tick after storing (D9); qualifies the `wamid` comment (spec §8) |
 | `src/lib/env.ts` | `REDIS_URL`, optional |
 | `supabase/tests/06_whatsapp.test.sql` | 5a's single-message assertions become conversation assertions |
+
+---
+
+## Amendment — 2026-08-02, after Task 5, on the owner's ruling
+
+Two defects in this plan were found while Task 5 was being written, and they
+share a cause: the plan had SQL owning the conversation state while TypeScript
+owned the engine.
+
+1. **The Redis driver could not have worked.** Task 7 had
+   `start_whatsapp_conversation` insert into `whatsapp_conversations` and Task 8
+   had `complete_whatsapp_conversation` delete from it. With `REDIS_URL` set the
+   conversation would be started in Postgres and looked for in Redis: the bot
+   goes silent after the consent message, in exactly the deployment Redis is
+   turned on for.
+2. **The advisory lock does not serialise a turn.** `pg_advisory_xact_lock` is
+   released at commit, and `advance` runs in Node between the load and the write,
+   so the lock covers neither end of the read-modify-write. The ticks overlap by
+   design (`pg_cron` every ten seconds regardless of the previous tick, plus D9's
+   webhook-fired tick), so two turns for one phone are the ordinary case under
+   load, not a corner.
+
+**What the owner ruled, and what changes here:**
+
+- **A lease in Postgres, held for the whole turn** (spec §4.3, amended). One row
+  per `(integration, phone)`, claimed before the state is read and released after
+  it is written, taken over when stale — the claim/reclaim shape 0063 already
+  uses. One mechanism, in Postgres, whichever driver holds the state.
+- **The store is the only writer of the state** (spec §4.4, amended). SQL
+  computes and returns; Node writes.
+- **The Redis driver is built after the conversation is wired end to end**, so
+  its first run is against a path that uses it.
+
+**Order of work from here: 7 → 8 → 6 → 9 → 10 → 11 → 12.** Task numbers are not
+renumbered — every cross-reference in this file and in the commits already
+written points at them.
 
 ---
 
@@ -589,6 +625,10 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 6: The Redis driver
 
+> **Runs after Task 8, not before it** (amendment, above). Until the conversation
+> is wired end to end through the store, a Redis driver passes the contract suite
+> and cannot serve a single conversation — which is worse than not having one.
+
 **Files:**
 - Create: `src/lib/conversation/redis-store.ts`
 - Create: `tests/isolation/conversation-store-redis.test.ts`
@@ -631,23 +671,43 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: Starting the conversation
+### Task 7: The lease, and starting the conversation
 
 **Files:**
 - Modify: `supabase/migrations/0066_conversation_rpcs.sql`
-- Create: `supabase/migrations/0067_ingest_starts_conversation.sql`
+- Create: `supabase/migrations/0067_conversation_turns.sql`
 - Modify: `supabase/tests/06_whatsapp.test.sql`, `supabase/tests/08_conversation.test.sql`
 
 **Interfaces:**
-- Produces: `public.start_whatsapp_conversation(...)` and the amended `ingest_whatsapp_event`.
+- Produces: `public.whatsapp_conversation_leases`, `public.claim_conversation_turn(uuid, text, interval) returns boolean`, `public.release_conversation_turn(uuid, text)`, `public.start_whatsapp_conversation(...) returns jsonb`, and the amended `ingest_whatsapp_event`.
+
+**The lease.** `whatsapp_conversation_leases (integration_id, phone, claimed_at)`,
+primary key on the pair. `claim_conversation_turn` inserts and, `on conflict`,
+updates `claimed_at` **only where the existing lease is older than the staleness
+interval**, returning whether it got it — one statement, so two callers cannot
+both win. `release_conversation_turn` deletes the row. Same grants as every other
+table in this block: revoked from `anon` and `authenticated`, and the exact verbs
+to `service_role`.
+
+The staleness interval is the one 0063 already uses for claims. A lease that is
+never released — the process is killed mid-turn — is taken over then, and the
+turn it was holding is re-run by the next tick with its event still `PROCESSING`.
+
+**`start_whatsapp_conversation` COMPUTES AND RETURNS; it does not write the
+state** (spec §4.4, amended). It does the read-only pre-check (D8), builds the
+state from `whatsapp_conversation_steps`, and returns it together with the prompt
+context the consent message needs. Node saves it through the store and only then
+enqueues the consent — in that order, because a consent message with no state
+behind it leaves the listener pressing a button nobody is listening for, while a
+state with no message sent is answered by the re-prompt the engine already has.
 
 **This changes 5a's headline behaviour and its tests.** After this task no hashtag enters directly: every one starts a conversation. `06_whatsapp.test.sql`'s cases that assert `recorded` on a single message must become cases that assert a conversation was started and no participation was written. **Convert them; do not delete them** — three earlier rounds in Block 5a deleted assertions while fixing something else, and each was caught in review.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `08_conversation.test.sql`: a hashtag produces a `whatsapp_conversations` row whose state carries the step list; **no** `participations` row exists yet; and the pre-check (D8) refuses before any conversation is created when the listener is already over the promotion's ceiling.
+In `08_conversation.test.sql`: `claim_conversation_turn` succeeds on a free pair, **refuses the second caller** while the lease is live, and **succeeds** once the lease is older than the staleness interval; `release_conversation_turn` frees it. Then: `start_whatsapp_conversation` returns a state carrying the step list and **writes no `whatsapp_conversations` row at all** — the state is the store's, and a test that accepts a row here would pin the defect this amendment removes. And: the pre-check (D8) refuses before any of that when the listener is already over the promotion's ceiling.
 
-In `06_whatsapp.test.sql`: convert the single-message cases as described above.
+In `06_whatsapp.test.sql`: convert the single-message cases as described above — a hashtag now produces `outcome = 'conversation'` and **no** `participations` row.
 
 - [ ] **Step 2: Run them to make sure they fail**
 
@@ -655,9 +715,18 @@ Run: `npm run db:test`
 
 - [ ] **Step 3: Write the divert**
 
-`start_whatsapp_conversation` builds the state from `whatsapp_conversation_steps` and inserts into `whatsapp_conversations`. In `0067`, `ingest_whatsapp_event` replaces its `apply_participation` call with: the read-only pre-check, then the conversation start, then the consent prompt into the outbox.
+In `0067`: the lease table and its two functions, then `ingest_whatsapp_event`
+replaces its `apply_participation` call with the pre-check and
+`start_whatsapp_conversation`, returning the state in its result rather than
+writing anything. The event is **left `PROCESSING`** on that path: it is Node
+that finishes it, after the state is stored, so a worker killed between the two
+has the event reclaimed and re-run rather than a listener whose hashtag was
+recorded as handled and answered by nothing.
 
-**Take `pg_advisory_xact_lock` on `(integration_id, phone)` at the top**, hashed the way `apply_participation` hashes its pair. This is the lock every later turn depends on and it belongs here, where the conversation begins.
+**No `pg_advisory_xact_lock` on `(integration_id, phone)` here.** It would be
+released at commit, before the state is written, and would protect nothing — the
+defect the amendment above exists to remove. The lease is what serialises, and it
+is taken by the caller, around the whole turn.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -668,7 +737,7 @@ Run: `npm run db:reset && npm run db:test`
 ```bash
 npm run db:types
 npm run lint && npm run typecheck && npm test && npm run test:isolation
-git add supabase/migrations/0066_conversation_rpcs.sql supabase/migrations/0067_ingest_starts_conversation.sql supabase/tests/ src/lib/supabase/database.types.ts
+git add supabase/migrations/0066_conversation_rpcs.sql supabase/migrations/0067_conversation_turns.sql supabase/tests/ src/lib/supabase/database.types.ts
 git commit -m "feat(conversation): a hashtag now opens a conversation, not an entry
 
 This changes Block 5a's headline path deliberately: no message enters
@@ -697,7 +766,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-pgTAP for `complete_whatsapp_conversation`: it writes the member fields, one confirmation row per answered field with `confirmed_at = now()`, the participation through `apply_participation` with the answers array, the outbox reply, and deletes the conversation — **all or nothing**. Force a failure in the middle (an answer naming a question from another promotion, which `apply_participation` already refuses) and assert none of the five landed.
+pgTAP for `complete_whatsapp_conversation`: it writes the member fields, one confirmation row per answered field with `confirmed_at = now()`, the participation through `apply_participation` with the answers array, and the outbox reply — **all or nothing**. Force a failure in the middle (an answer naming a question from another promotion, which `apply_participation` already refuses) and assert none of the four landed.
+
+**Four writes, not five.** Clearing the state is not one of them (spec §4.2, amended): the state belongs to the store, which may not be Postgres. Node clears it after the commit, and a clear that fails is the at-least-once §4.3 already commits to — the next message re-runs the final turn and `apply_participation` answers `DUPLICATE`.
 
 Also: the participation is judged by the **final message's** timestamp, not the opening one. Fixture: a promotion that closes between the two, asserting the entry is refused.
 
@@ -709,9 +780,9 @@ Run: `npm run db:test && npx vitest run tests/unit/conversation-turn.test.ts`
 
 - [ ] **Step 3: Write them**
 
-`complete_whatsapp_conversation` does the five writes in one transaction. `record_whatsapp_refusal` writes the refusal row, deletes the conversation, and enqueues the goodbye.
+`complete_whatsapp_conversation` does the four writes in one transaction. `record_whatsapp_refusal` writes the refusal row and enqueues the goodbye; neither RPC touches the conversation state.
 
-`runConversationTurn` loads the state, calls `advance`, and acts on the `Turn`: `prompt` saves and enqueues; `refused` calls the refusal RPC; `complete` calls the completion RPC; `abandon` clears and enqueues; `ignore` does nothing.
+`runConversationTurn` **claims the lease**, loads the state, calls `advance`, acts on the `Turn` — `prompt` saves and enqueues; `refused` calls the refusal RPC then clears; `complete` calls the completion RPC then clears; `abandon` clears and enqueues; `ignore` does nothing — finishes the event, and **releases the lease in a `finally`**. A turn that cannot claim the lease returns without touching anything and leaves the event for the next tick.
 
 **The state is written after the turn's database work, never before** (spec §4.3). Non-final turns have no database work, so the save is the only write.
 
@@ -822,7 +893,7 @@ Mutation: refresh every field on every save and confirm the untouched-field case
 
 - [ ] **Step 1: Write the failing tests**
 
-**The boundary, per 5a's hardest lesson.** For each of the four new tables, drive the exact write the application issues through the harness's `admin` client — the same service-role construction `createServiceClient()` uses — and assert it succeeds. Three defects in 5a existed only because nothing crossed that seam, and pgTAP cannot see it because it runs as `postgres`.
+**The boundary, per 5a's hardest lesson.** For each of the five new tables — the four of Task 1 plus the lease of Task 7 — drive the exact write the application issues through the harness's `admin` client — the same service-role construction `createServiceClient()` uses — and assert it succeeds. Three defects in 5a existed only because nothing crossed that seam, and pgTAP cannot see it because it runs as `postgres`.
 
 **The double-send race, twelve rounds.** Two messages from one phone fired with `Promise.all` against a live conversation must advance the cursor exactly once and store exactly one answer. Twelve rounds because one green run does not prove a probabilistic detector — 4c's lesson.
 
@@ -832,9 +903,9 @@ Mutation: refresh every field on every save and confirm the untouched-field case
 
 - [ ] **Step 3: Make them pass**
 
-- [ ] **Step 4: Mutation-prove the lock**
+- [ ] **Step 4: Mutation-prove the lease**
 
-Remove `pg_advisory_xact_lock` from the turn path and confirm the race goes red. Report which round. Restore byte-identical.
+Remove the `claim_conversation_turn` call from the turn path and confirm the race goes red. Report which round. Restore byte-identical. **A round that stays green here means the race is not reaching the turn at all** — check that before concluding the lease is unnecessary, because this is the exact shape of a test that passes for the wrong reason.
 
 - [ ] **Step 5: Raise the isolation floor, run the gate, commit**
 
