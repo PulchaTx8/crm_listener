@@ -235,6 +235,171 @@ export type Database = {
         }
         Relationships: []
       }
+      draw_entries: {
+        Row: {
+          company_id: string
+          draw_id: string
+          member_id: string
+          participation_id: string
+          position: number
+        }
+        Insert: {
+          company_id: string
+          draw_id: string
+          member_id: string
+          participation_id: string
+          position: number
+        }
+        Update: {
+          company_id?: string
+          draw_id?: string
+          member_id?: string
+          participation_id?: string
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draw_entries_draw_fk"
+            columns: ["draw_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "draws"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "draw_entries_member_link_fk"
+            columns: ["member_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "member_company_links"
+            referencedColumns: ["member_id", "company_id"]
+          },
+          {
+            foreignKeyName: "draw_entries_participation_fk"
+            columns: ["participation_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "participations"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      draw_runners_up: {
+        Row: {
+          company_id: string
+          draw_id: string
+          member_id: string
+          participation_id: string
+          position: number
+        }
+        Insert: {
+          company_id: string
+          draw_id: string
+          member_id: string
+          participation_id: string
+          position: number
+        }
+        Update: {
+          company_id?: string
+          draw_id?: string
+          member_id?: string
+          participation_id?: string
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draw_runners_up_draw_fk"
+            columns: ["draw_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "draws"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "draw_runners_up_member_link_fk"
+            columns: ["member_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "member_company_links"
+            referencedColumns: ["member_id", "company_id"]
+          },
+          {
+            foreignKeyName: "draw_runners_up_participation_fk"
+            columns: ["participation_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "participations"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      draws: {
+        Row: {
+          algorithm_version: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          company_id: string
+          drawn_at: string
+          drawn_by: string | null
+          entry_count: number
+          id: string
+          organization_id: string
+          promotion_id: string
+          runner_up_count: number
+          seed: string
+          status: Database["public"]["Enums"]["draw_status"]
+        }
+        Insert: {
+          algorithm_version: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id: string
+          drawn_at?: string
+          drawn_by?: string | null
+          entry_count: number
+          id?: string
+          organization_id: string
+          promotion_id: string
+          runner_up_count: number
+          seed: string
+          status?: Database["public"]["Enums"]["draw_status"]
+        }
+        Update: {
+          algorithm_version?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id?: string
+          drawn_at?: string
+          drawn_by?: string | null
+          entry_count?: number
+          id?: string
+          organization_id?: string
+          promotion_id?: string
+          runner_up_count?: number
+          seed?: string
+          status?: Database["public"]["Enums"]["draw_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draws_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "draws_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "draws_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           company_id: string
@@ -1271,6 +1436,7 @@ export type Database = {
           company_id: string
           created_at: string
           created_by: string | null
+          default_pickup_deadline_days: number | null
           deleted_at: string | null
           description: string | null
           id: string
@@ -1285,6 +1451,7 @@ export type Database = {
           company_id: string
           created_at?: string
           created_by?: string | null
+          default_pickup_deadline_days?: number | null
           deleted_at?: string | null
           description?: string | null
           id?: string
@@ -1299,6 +1466,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           created_by?: string | null
+          default_pickup_deadline_days?: number | null
           deleted_at?: string | null
           description?: string | null
           id?: string
@@ -1670,6 +1838,7 @@ export type Database = {
           name: string
           no_button_label: string | null
           organization_id: string
+          pickup_deadline_days: number | null
           requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer: boolean
           site_integration_code: number | null
@@ -1700,6 +1869,7 @@ export type Database = {
           name: string
           no_button_label?: string | null
           organization_id: string
+          pickup_deadline_days?: number | null
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           site_integration_code?: number | null
@@ -1730,6 +1900,7 @@ export type Database = {
           name?: string
           no_button_label?: string | null
           organization_id?: string
+          pickup_deadline_days?: number | null
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           site_integration_code?: number | null
@@ -1985,6 +2156,77 @@ export type Database = {
           },
         ]
       }
+      winners: {
+        Row: {
+          awarded_rank: number
+          company_id: string
+          created_at: string
+          deadline_at: string | null
+          draw_id: string
+          id: string
+          member_id: string
+          participation_id: string
+          promotion_prize_id: string
+          status: Database["public"]["Enums"]["winner_status"]
+          updated_at: string
+        }
+        Insert: {
+          awarded_rank: number
+          company_id: string
+          created_at?: string
+          deadline_at?: string | null
+          draw_id: string
+          id?: string
+          member_id: string
+          participation_id: string
+          promotion_prize_id: string
+          status?: Database["public"]["Enums"]["winner_status"]
+          updated_at?: string
+        }
+        Update: {
+          awarded_rank?: number
+          company_id?: string
+          created_at?: string
+          deadline_at?: string | null
+          draw_id?: string
+          id?: string
+          member_id?: string
+          participation_id?: string
+          promotion_prize_id?: string
+          status?: Database["public"]["Enums"]["winner_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winners_draw_fk"
+            columns: ["draw_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "draws"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "winners_member_link_fk"
+            columns: ["member_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "member_company_links"
+            referencedColumns: ["member_id", "company_id"]
+          },
+          {
+            foreignKeyName: "winners_participation_fk"
+            columns: ["participation_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "participations"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "winners_promotion_prize_fk"
+            columns: ["promotion_prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_prizes"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -2066,6 +2308,15 @@ export type Database = {
           p_state: string
         }
         Returns: string
+      }
+      apply_member_field_confirmations: {
+        Args: {
+          p_after: Json
+          p_before: Json
+          p_member_id: string
+          p_organization_id: string
+        }
+        Returns: undefined
       }
       apply_member_link: {
         Args: {
@@ -2374,6 +2625,7 @@ export type Database = {
         }
         Returns: string
       }
+      member_field_values: { Args: { p_member_id: string }; Returns: Json }
       member_linked_to_company: {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
@@ -2692,6 +2944,7 @@ export type Database = {
     Enums: {
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      draw_status: "COMPLETED" | "CANCELLED"
       integration_provider: "WHATSAPP"
       inventory_bucket:
         | "available"
@@ -2741,6 +2994,12 @@ export type Database = {
         | "passport"
         | "discovery_source"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
+      winner_status:
+        | "AWAITING_PICKUP"
+        | "DELIVERED"
+        | "RETURNED"
+        | "WRITTEN_OFF"
+        | "SUPERSEDED"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2873,6 +3132,7 @@ export const Constants = {
     Enums: {
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      draw_status: ["COMPLETED", "CANCELLED"],
       integration_provider: ["WHATSAPP"],
       inventory_bucket: [
         "available",
@@ -2926,6 +3186,13 @@ export const Constants = {
         "discovery_source",
       ],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
+      winner_status: [
+        "AWAITING_PICKUP",
+        "DELIVERED",
+        "RETURNED",
+        "WRITTEN_OFF",
+        "SUPERSEDED",
+      ],
     },
   },
 } as const
