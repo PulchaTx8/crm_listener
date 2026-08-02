@@ -2156,6 +2156,47 @@ export type Database = {
           },
         ]
       }
+      winner_status_history: {
+        Row: {
+          changed_at: string
+          changed_by: string | null
+          company_id: string
+          from_status: Database["public"]["Enums"]["winner_status"]
+          id: string
+          reason: string | null
+          to_status: Database["public"]["Enums"]["winner_status"]
+          winner_id: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by?: string | null
+          company_id: string
+          from_status: Database["public"]["Enums"]["winner_status"]
+          id?: string
+          reason?: string | null
+          to_status: Database["public"]["Enums"]["winner_status"]
+          winner_id: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string | null
+          company_id?: string
+          from_status?: Database["public"]["Enums"]["winner_status"]
+          id?: string
+          reason?: string | null
+          to_status?: Database["public"]["Enums"]["winner_status"]
+          winner_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winner_status_history_winner_fk"
+            columns: ["winner_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "winners"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       winners: {
         Row: {
           awarded_rank: number
@@ -2167,6 +2208,9 @@ export type Database = {
           member_id: string
           participation_id: string
           promotion_prize_id: string
+          receipt_erased_at: string | null
+          receipt_path: string | null
+          receipt_uploaded_at: string | null
           status: Database["public"]["Enums"]["winner_status"]
           updated_at: string
         }
@@ -2180,6 +2224,9 @@ export type Database = {
           member_id: string
           participation_id: string
           promotion_prize_id: string
+          receipt_erased_at?: string | null
+          receipt_path?: string | null
+          receipt_uploaded_at?: string | null
           status?: Database["public"]["Enums"]["winner_status"]
           updated_at?: string
         }
@@ -2193,6 +2240,9 @@ export type Database = {
           member_id?: string
           participation_id?: string
           promotion_prize_id?: string
+          receipt_erased_at?: string | null
+          receipt_path?: string | null
+          receipt_uploaded_at?: string | null
           status?: Database["public"]["Enums"]["winner_status"]
           updated_at?: string
         }
