@@ -1,5 +1,5 @@
 begin;
-select plan(80);
+select plan(81);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -744,9 +744,20 @@ insert into public.whatsapp_conversation_leases (integration_id, phone, claimed_
   ('00000000-0000-0000-0000-000000000940', '5511900009973', now() - interval '2 hours'),
   ('00000000-0000-0000-0000-000000000940', '5511900009974', now());
 
+-- Scoped to this fixture's own rows, never a global count. The sweep has no
+-- tenant scope by design (the worker cleans up the installation), and this
+-- database is shared with the isolation suite, which COMMITS conversations and
+-- legitimately leaves expired ones behind. A count of what the sweep returned
+-- was an assertion about whatever else had run against the stack that day --
+-- the same flaw this block had to fix in 07's reclaim assertion, found the same
+-- way: it went red for a reason that had nothing to do with the code.
+select lives_ok($$select public.sweep_expired_conversations()$$,
+                'the sweep runs');
+
 select is(
-  (select conversations from public.sweep_expired_conversations()),
-  1, 'the sweep takes the conversation whose window has passed');
+  (select count(*)::int from public.whatsapp_conversations
+    where phone = '5511900009971'),
+  0, 'and takes the conversation whose window has passed');
 
 select is(
   (select count(*)::int from public.whatsapp_conversations

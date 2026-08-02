@@ -115,10 +115,21 @@ export async function POST(request: Request): Promise<Response> {
         // backstop, not a reason to rely on it here.
         external_id: createHash('sha256').update(message.wamid).digest('hex'),
         payload: {
-          // The RAW id, and the only place it lives once this column is
-          // pruned at 30 days (design spec D9, prune_webhook_payloads). The
-          // ingest function never reads this key — it exists for the
-          // operator debugging against Meta's dashboard before that prune.
+          // The RAW id of an INBOUND message, and the only place THAT lives
+          // until this column is pruned at 30 days (design spec D9,
+          // prune_webhook_payloads). The qualification is the correction: an
+          // earlier version of this comment said "the only place it lives"
+          // unqualified, which is not true of raw provider ids in general —
+          // outbox_messages.external_id holds the raw id Meta returns for every
+          // message we SEND, unhashed (0059). That one has a retention rule of
+          // its own -- prune_outbox_messages nulls it beside to_phone on
+          // terminal rows past the cut -- so it is not unprotected; it is simply
+          // not THIS column, and a reader who took the unqualified sentence at
+          // face value would go looking for the outbound id here and conclude
+          // there wasn't one.
+          //
+          // The ingest function never reads this key — it exists for the
+          // operator debugging against Meta's dashboard before the prune.
           wamid: message.wamid,
           metadata: { phone_number_id: message.phoneNumberId },
           from: message.from,
