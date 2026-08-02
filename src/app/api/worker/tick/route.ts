@@ -3,6 +3,9 @@ import { env } from '@/lib/env';
 import { createServiceClient } from '@/lib/supabase/service-client';
 import { GraphTransport } from '@/lib/integrations/whatsapp/graph';
 import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
+import type { RedisClientType } from 'redis';
+import type { ConversationStore } from '@/lib/conversation/store';
+import { RedisConversationStore, connectRedis } from '@/lib/conversation/redis-store';
 import { runTick } from '@/services/whatsapp';
 
 export const dynamic = 'force-dynamic';
@@ -37,11 +40,50 @@ export async function POST(request: Request): Promise<Response> {
   // ingestion half working in a local stack rather than failing the tick.
   const transport = token ? new GraphTransport(token) : new FakeTransport();
 
-  const result = await runTick({ supabase: createServiceClient(), transport });
+  const result = await runTick({
+    supabase: createServiceClient(),
+    transport,
+    store: await conversationStore(),
+  });
 
   // pg_net stores the response in net._http_response, so these counters are
   // the only account of a tick anybody can read afterwards.
   return Response.json(result);
+}
+
+/**
+ * Where conversations live for this process (design spec D6).
+ *
+ * The connection is opened ONCE and kept, not per tick: pg_cron fires every ten
+ * seconds, and a socket per tick would be a socket per ten seconds for the life
+ * of the container. The store itself is cheap and made per call.
+ *
+ * A Redis that cannot be reached does NOT take the tick with it. It falls back
+ * to the default driver and says so, because a Station whose Redis is down
+ * should have a slower bot rather than no bot -- and because the fallback is
+ * safe: the two drivers hold the same shape, and the only cost of switching
+ * mid-flight is that conversations in the other store look expired, which is a
+ * state the design already handles (D5, D10).
+ */
+let redis: Promise<RedisClientType> | null = null;
+
+async function conversationStore(): Promise<ConversationStore | undefined> {
+  const url = env.REDIS_URL;
+  if (!url) return undefined;
+  try {
+    redis ??= connectRedis(url);
+    return new RedisConversationStore(await redis);
+  } catch (cause) {
+    // Cleared so the next tick tries again rather than holding a rejected
+    // promise for the life of the process.
+    redis = null;
+    console.error(
+      `worker tick: REDIS_URL is set but unreachable, falling back to the Postgres store: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    return undefined;
+  }
 }
 
 /**
