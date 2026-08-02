@@ -70,6 +70,21 @@ export function PrizesTab({
       */}
       <Link
         href={`/promotions/${promotionId}/draws` as Route}
+        // prefetch={false}, and it is load-bearing twice over.
+        //
+        // Next prefetches a Link in the viewport by fetching its RSC payload,
+        // and that request's path starts with /promotions — which is exactly
+        // what promotion-prizes.spec.ts counts to prove the list behind the
+        // dialog is never re-queried. Merely rendering this link turned that
+        // assertion red, which is the guard doing its job rather than a false
+        // alarm: the tab really had started causing a fetch it did not need.
+        //
+        // And the fetch is not cheap. Rendering the draws route runs
+        // getPromotionPowers (twelve has_permission calls), list_draws and
+        // get_draw — real work, for every operator who opens the Prizes tab
+        // and never follows the link. Reaching the draws is a decision, not
+        // something to speculate on.
+        prefetch={false}
         className="self-start text-sm underline"
         data-testid="open-draws"
       >
