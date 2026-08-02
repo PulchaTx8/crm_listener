@@ -36,6 +36,14 @@ export interface PromotionPowers {
    * narrower for the manual form, where only registering somebody new needs it.
    */
   membersCreate: boolean;
+  /** draws.execute. Running a draw moves stock and starts a deadline, so it is its own code. */
+  drawsExecute: boolean;
+  /**
+   * draws.cancel, and deliberately NOT implied by drawsExecute (spec 4.3):
+   * cancelling un-awards prizes somebody has already been told they won, and
+   * whoever may run a draw is not thereby somebody who may undo one.
+   */
+  drawsCancel: boolean;
   /** True for the platform admin and the Organization owner — the only callers whose reads return archived rows (0044). */
   seesArchived: boolean;
 }
@@ -69,6 +77,8 @@ const WRITE_CODES = [
   'participations.import',
   'members.view',
   'members.create',
+  'draws.execute',
+  'draws.cancel',
 ] as const;
 
 /**
@@ -125,6 +135,8 @@ export async function getPromotionPowers(
     participationsImport: writes[7]?.data === true,
     membersView: writes[8]?.data === true,
     membersCreate: writes[9]?.data === true,
+    drawsExecute: writes[10]?.data === true,
+    drawsCancel: writes[11]?.data === true,
     seesArchived: archived.data === true,
   };
 }

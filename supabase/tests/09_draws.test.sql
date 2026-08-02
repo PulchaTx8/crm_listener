@@ -1,5 +1,5 @@
 begin;
-select plan(75);
+select plan(84);
 
 -- Block 6a, Task 1: the four tables the draw needs, the deadline columns it
 -- freezes, and the two permission codes that guard it. Nothing reads or writes
@@ -679,6 +679,75 @@ select is(
 
 select ok(has_function_privilege('authenticated', 'public.cancel_draw(uuid, text)', 'EXECUTE'),
           'cancel_draw is the door, and it checks draws.cancel behind it');
+
+-- ---------------------------------------------------------------------------
+-- Task 7: the two reads.
+
+-- A Station in another Organization entirely, and an operator who holds
+-- promotions.view THERE. Everything about them is real except their reach.
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-00000000a3f1', 'Org 6a elsewhere');
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000a3c1', '00000000-0000-0000-0000-00000000a3f1',
+   'Station 6a elsewhere', 'America/Sao_Paulo');
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000a3a1', '00000000-0000-0000-0000-00000000a3f1', 'Elsewhere Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000a3a1', 'promotions.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000a3a2', 'draw-elsewhere@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000a3a2', '00000000-0000-0000-0000-00000000a3c1',
+   '00000000-0000-0000-0000-00000000a3f1', '00000000-0000-0000-0000-00000000a3a1');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+
+select is(
+  (select count(*)::int from public.list_draws('00000000-0000-0000-0000-00000000a2e1')),
+  1, 'the promotion''s one draw is listed for somebody who may see the promotion');
+select is(
+  (select winner_count from public.list_draws('00000000-0000-0000-0000-00000000a2e1')),
+  1, 'and the list carries the winner count already computed');
+
+create temporary table drawn_detail as
+select public.get_draw((select draw_id from happy_draw)) as body;
+
+select is(
+  (select jsonb_array_length(body->'winners') from drawn_detail),
+  1, 'get_draw returns the winners');
+select is(
+  (select jsonb_array_length(body->'runners_up') from drawn_detail),
+  2, 'and the runner-up queue in order');
+select ok(
+  (select (body->>'seed') ~ '^[0-9a-f]{64}$' and (body->>'algorithm_version') = '1'
+     from drawn_detail),
+  'and the seed and the algorithm version, plainly: a proof nobody can see is not a proof');
+
+-- The operator holds draws.execute, promotions.view and draws.cancel, and NOT
+-- members.view. The draw is theirs to see; the audience is not.
+select ok(
+  (select (body->>'shows_names')::boolean is false from drawn_detail),
+  'a caller without members.view is told the names are not theirs to see');
+select ok(
+  (select body->'winners'->0->>'member_name' is null from drawn_detail),
+  'and gets no name, from a SECURITY DEFINER function that could have handed one over');
+select ok(
+  (select body->'winners'->0->>'member_id' is not null
+      and body->'winners'->0->>'deadline_at' is null
+      and body->'winners'->0->>'prize_name' is not null
+     from drawn_detail),
+  'while everything that is the draw itself still comes back');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a3a2", "role": "authenticated"}';
+
+select throws_ok(
+  format($$select public.get_draw(%L::uuid)$$, (select draw_id from happy_draw)),
+  '42501', null, 'a draw is invisible to an operator at another Station');
+
+reset role;
 
 select * from finish();
 rollback;

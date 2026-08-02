@@ -1,6 +1,8 @@
 'use client';
 
 import { useActionState, useEffect, useState, useTransition } from 'react';
+import Link from 'next/link';
+import type { Route } from 'next';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 // The constant comes from @/lib rather than from @/services/promotions, which
@@ -60,6 +62,20 @@ export function PrizesTab({
 
   return (
     <div className="flex flex-col gap-5">
+      {/*
+        The way into the draws, which are their own route rather than a sixth
+        tab (owner's ruling, 2026-08-02). Here rather than on the tab strip
+        because this tab is where the units live, and "Sorteados" in the table
+        below is the number this link explains.
+      */}
+      <Link
+        href={`/promotions/${promotionId}/draws` as Route}
+        className="self-start text-sm underline"
+        data-testid="open-draws"
+      >
+        Sorteios desta promoção →
+      </Link>
+
       {prizes.length === 0 && !linking && (
         <p className="text-sm text-muted-foreground">
           No prize is linked to this promotion yet. A promotion can run without one, but nothing can

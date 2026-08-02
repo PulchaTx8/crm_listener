@@ -2570,6 +2570,7 @@ export type Database = {
         Args: { p_event_id: string; p_outcome: string }
         Returns: Json
       }
+      get_draw: { Args: { p_draw_id: string }; Returns: Json }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -2613,6 +2614,21 @@ export type Database = {
           p_quantity: number
         }
         Returns: string
+      }
+      list_draws: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          algorithm_version: number
+          cancellation_reason: string
+          cancelled_at: string
+          drawn_at: string
+          entry_count: number
+          id: string
+          runner_up_count: number
+          seed: string
+          status: Database["public"]["Enums"]["draw_status"]
+          winner_count: number
+        }[]
       }
       list_linkable_prizes: {
         Args: { p_company_id: string; p_search?: string }
