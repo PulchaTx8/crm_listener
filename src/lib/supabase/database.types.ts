@@ -2378,6 +2378,10 @@ export type Database = {
         }
         Returns: string
       }
+      cancel_draw: {
+        Args: { p_draw_id: string; p_reason: string }
+        Returns: undefined
+      }
       cancel_promotion: {
         Args: { p_promotion_id: string; p_reason: string }
         Returns: undefined

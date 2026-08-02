@@ -1,5 +1,5 @@
 begin;
-select plan(58);
+select plan(75);
 
 -- Block 6a, Task 1: the four tables the draw needs, the deadline columns it
 -- freezes, and the two permission codes that guard it. Nothing reads or writes
@@ -535,6 +535,150 @@ select ok(has_function_privilege('authenticated', 'public.run_draw(uuid, jsonb, 
           'run_draw is the door an operator comes through');
 select ok(not has_function_privilege('authenticated', 'public.apply_draw(uuid, uuid, uuid, jsonb, integer)', 'EXECUTE'),
           'apply_draw is the private core behind it');
+
+-- ---------------------------------------------------------------------------
+-- Task 6: cancelling a draw.
+--
+-- D7: cancelling reverses the inventory and marks the draw, and deletes
+-- nothing. The hat, the seed and the winners stay, because the record of a
+-- cancelled draw is the evidence that it was cancelled and who cancelled it.
+
+-- An operator who may draw and may NOT undo one, which is the whole reason
+-- 4.3 asks for two codes rather than one.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000a206', '00000000-0000-0000-0000-00000000a0f1', 'Draw Only');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000a206', 'draws.execute'),
+  ('00000000-0000-0000-0000-00000000a206', 'promotions.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000a207', 'draw-no-cancel@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000a207', '00000000-0000-0000-0000-00000000a0c1',
+   '00000000-0000-0000-0000-00000000a0f1', '00000000-0000-0000-0000-00000000a206');
+
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2ea', 'Cancel me', 3, 2);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2eb', 'Cancel twice', 2, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2ec', 'Blank reason', 2, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2ed', 'Already delivered', 2, 1);
+select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2ee', 'Forbidden cancel', 2, 1);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+create temporary table cancel_draws as
+select 'a2ea' as tag, public.run_draw('00000000-0000-0000-0000-00000000a2ea'::uuid, null, 1) as draw_id
+union all
+select 'a2eb', public.run_draw('00000000-0000-0000-0000-00000000a2eb'::uuid, null, 0)
+union all
+select 'a2ec', public.run_draw('00000000-0000-0000-0000-00000000a2ec'::uuid, null, 0)
+union all
+select 'a2ed', public.run_draw('00000000-0000-0000-0000-00000000a2ed'::uuid, null, 0)
+union all
+select 'a2ee', public.run_draw('00000000-0000-0000-0000-00000000a2ee'::uuid, null, 0);
+reset role;
+
+-- One winner of a2ed has already collected, which is the guard 6b needs from
+-- the start so it cannot introduce the hole by forgetting it.
+update public.winners set status = 'DELIVERED'
+ where draw_id = (select draw_id from cancel_draws where tag = 'a2ed');
+
+select is(
+  (select count(*)::int from public.winners
+    where draw_id = (select draw_id from cancel_draws where tag = 'a2ea')),
+  2, 'the draw about to be cancelled awarded two units');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
+
+select lives_ok($$
+  select public.cancel_draw(
+    (select draw_id from cancel_draws where tag = 'a2ea'),
+    'drawn against the wrong promotion')
+$$, 'a draw can be cancelled with a reason');
+
+select throws_ok($$
+  select public.cancel_draw(
+    (select draw_id from cancel_draws where tag = 'a2ea'),
+    'again')
+$$, '22023', null, 'cancelling a cancelled draw is refused');
+
+select throws_ok($$
+  select public.cancel_draw(
+    (select draw_id from cancel_draws where tag = 'a2ec'), '   ')
+$$, '22023', null, 'a blank reason is refused');
+
+select throws_ok($$
+  select public.cancel_draw(
+    (select draw_id from cancel_draws where tag = 'a2ed'), 'too late')
+$$, '22023', null, 'a draw whose prize has already been handed over cannot be cancelled');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a207", "role": "authenticated"}';
+
+select throws_ok($$
+  select public.cancel_draw(
+    (select draw_id from cancel_draws where tag = 'a2ee'), 'not mine to undo')
+$$, '42501', null, 'draws.execute is not draws.cancel');
+
+reset role;
+
+-- The inventory went back -----------------------------------------------------
+
+select is(
+  (select b.drawn from public.promotion_prize_balances b
+     join public.promotion_prizes l on l.id = b.promotion_prize_id
+    where l.promotion_id = '00000000-0000-0000-0000-00000000a2ea'),
+  0, 'every unit went back from awaiting_pickup to linked');
+select is(
+  (select b.linked from public.promotion_prize_balances b
+     join public.promotion_prizes l on l.id = b.promotion_prize_id
+    where l.promotion_id = '00000000-0000-0000-0000-00000000a2ea'),
+  2, 'and linked is untouched: the units are still committed to the promotion');
+select is(
+  (select count(*)::int from public.inventory_movements m
+     join public.promotion_prizes l on l.id = m.promotion_prize_id
+    where l.promotion_id = '00000000-0000-0000-0000-00000000a2ea'
+      and m.movement_type = 'DRAW_CANCEL'),
+  2, 'one DRAW_CANCEL movement per winner, through the one writer');
+
+-- The record survives whole (D7) ----------------------------------------------
+
+select is(
+  (select status::text from public.draws
+    where id = (select draw_id from cancel_draws where tag = 'a2ea')),
+  'CANCELLED', 'the draw says it was cancelled');
+select ok(
+  (select cancelled_at is not null and cancelled_by is not null
+      and length(btrim(cancellation_reason)) > 0
+     from public.draws
+    where id = (select draw_id from cancel_draws where tag = 'a2ea')),
+  'and says when, by whom and why');
+select is(
+  (select count(*)::int from public.winners
+    where draw_id = (select draw_id from cancel_draws where tag = 'a2ea')),
+  2, 'the winners are still there: they are the evidence of what was undone');
+select is(
+  (select count(*)::int from public.draw_entries
+    where draw_id = (select draw_id from cancel_draws where tag = 'a2ea')),
+  3, 'the hat is still there');
+select ok(
+  (select seed ~ '^[0-9a-f]{64}$' from public.draws
+    where id = (select draw_id from cancel_draws where tag = 'a2ea')),
+  'and so is the seed, so a cancelled draw stays reproducible');
+
+-- A refused cancellation changed nothing.
+select is(
+  (select b.drawn from public.promotion_prize_balances b
+     join public.promotion_prizes l on l.id = b.promotion_prize_id
+    where l.promotion_id = '00000000-0000-0000-0000-00000000a2ed'),
+  1, 'the draw that could not be cancelled still holds its unit');
+select is(
+  (select status::text from public.draws
+    where id = (select draw_id from cancel_draws where tag = 'a2ee')),
+  'COMPLETED', 'and the one the caller could not touch is untouched');
+
+select ok(has_function_privilege('authenticated', 'public.cancel_draw(uuid, text)', 'EXECUTE'),
+          'cancel_draw is the door, and it checks draws.cancel behind it');
 
 select * from finish();
 rollback;
