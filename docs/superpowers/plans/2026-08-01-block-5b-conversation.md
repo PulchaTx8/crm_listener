@@ -94,6 +94,40 @@ owned the engine.
 renumbered — every cross-reference in this file and in the commits already
 written points at them.
 
+### Three more gaps, found while Task 7 was being read out
+
+None of these is a refinement. Each one on its own means the conversation cannot
+happen at all, and all three are invisible to every suite this block has: the
+same shape as 5a's missing grants.
+
+1. **An interactive reply never arrives.** `flattenWebhookBody`
+   (`src/lib/integrations/whatsapp/payload.ts`) validates against
+   `type: 'text'` and silently drops everything else. A listener pressing
+   **Quero!** produces no `webhook_events` row at all, so the consent step can
+   never be answered. The `InboundAnswer` kinds `button` and `list` that Task 4's
+   engine already handles have no source.
+2. **The outbox cannot carry an interactive message.** `outbox_messages` has
+   `body text not null` and nothing else; `claim_outbox_batch` (0063) returns
+   `body`; `drainOutbox` calls `sendText`. `sendInteractive`, built in Task 3,
+   has no way out of the building.
+3. **A conversation turn leaves its event `PROCESSING` across Node's work**, which
+   makes the INBOUND arm of `reclaim_stale_whatsapp_claims` load-bearing for the
+   first time. 0063's own comment says "no path through `ingest_whatsapp_event`
+   commits a row in PROCESSING" and calls that arm insurance. It stops being
+   insurance here, and both the migration and the runbook have to say so.
+
+**Task 7 therefore splits into four**, each with one migration and one job:
+
+| | What | Migration |
+|---|---|---|
+| **7a** | The inbound half of interactive messages: the flattener, the route's payload, 0058's payload contract | — |
+| **7b** | The outbox carries an interactive message | `0067_outbox_interactive.sql` |
+| **7c** | The turn lease | `0068_conversation_leases.sql` |
+| **7d** | `start_whatsapp_conversation`, and `ingest_whatsapp_event` diverted | `0069_start_conversation.sql` |
+
+The `0067_conversation_turns.sql` named in the file-structure table above is
+superseded by these three.
+
 ---
 
 ### Task 1: The three tables and the column

@@ -390,7 +390,7 @@ does is run against a path that actually uses it.
 | A different valid hashtag mid-conversation | The old conversation is discarded and the new one starts. That is what the person meant. |
 | The promotion closes mid-conversation | The final write refuses and the reply says so. The listener answered in good faith and deserves the reason. |
 | The listener is over the limit at the end but was not at the start | The final write is the truth (D8); the reply carries the real status. |
-| Two messages at once | Serialised by the advisory lock (§4.3). |
+| Two messages at once | Serialised by the turn lease (§4.3). The one that cannot claim it is left for the next tick, not dropped. |
 | A field answered with something unusable for its type (a date, a CPF) | Validated per field kind before it is stored; a bad value is a re-prompt, not a stored value. |
 
 ---
