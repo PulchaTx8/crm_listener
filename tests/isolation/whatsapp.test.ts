@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
 import type { Json } from '@/lib/supabase/database.types';
+import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
+import { parseInboundTurn, runConversationTurn } from '@/services/conversation';
 import { runTick } from '@/services/whatsapp';
 import {
   addCompany,
@@ -300,7 +302,7 @@ describe('the WhatsApp door', () => {
   const RACE_ROUNDS = 12;
 
   it(
-    'lets exactly one of two simultaneous messages become the entry',
+    'lets two simultaneous messages open the conversation and enter nobody',
     async () => {
       const stamp = Date.now();
       for (let round = 0; round < RACE_ROUNDS; round += 1) {
@@ -335,23 +337,28 @@ describe('the WhatsApp door', () => {
         // through one of those with error: null, and the count below would
         // read 1 from event A alone: a non-race staying green for ever.
         // Asserting outcome is what stops that.
-        const results = [a.data, b.data] as Array<{ outcome: string; status: string }>;
+        // CONVERTED FOR BLOCK 5b, not weakened. The door no longer writes an
+        // entry, so "one VALID and one DUPLICATE" is no longer a fact about
+        // this path -- the entry is written at the END of a conversation, and
+        // the double-send race that used to live here is now a race between two
+        // TURNS, serialised by the lease and proved in the conversation suite.
+        //
+        // What this fixture still proves, and what still fails loudly if the
+        // fixture drifts: both messages are decided, both by the conversation
+        // path rather than by one of the six silent outcomes that also return
+        // error: null, and NOBODY is entered by a message nobody has answered
+        // yet. That last one is the block's central promise.
+        const results = [a.data, b.data] as Array<{ outcome: string }>;
         for (const result of results) {
-          expect(result.outcome, `round ${round}`).toBe('recorded');
+          expect(result.outcome, `round ${round}`).toBe('conversation');
         }
-        expect(results.map((result) => result.status).sort(), `round ${round}`).toEqual([
-          'DUPLICATE',
-          'VALID',
-        ]);
 
-        // Belt-and-braces: the row count agrees with the status pair above.
         const { count, error: countError } = await admin
           .from('participations')
           .select('id', { count: 'exact', head: true })
-          .eq('promotion_id', fixture.promotionId)
-          .eq('status', 'VALID');
+          .eq('promotion_id', fixture.promotionId);
         expect(countError, `round ${round} count query`).toBeNull();
-        expect(count, `round ${round} produced ${count} valid entries`).toBe(1);
+        expect(count, `round ${round} wrote ${count} entries for an unanswered question`).toBe(0);
       }
     },
     180_000,
@@ -375,7 +382,7 @@ describe('the WhatsApp door', () => {
    * the output).
    */
   it(
-    'lets exactly one of two simultaneous messages from an unknown number register the listener once',
+    'registers an unknown listener exactly once when two of their messages arrive at once',
     async () => {
       const stamp = Date.now();
       for (let round = 0; round < RACE_ROUNDS; round += 1) {
@@ -391,14 +398,14 @@ describe('the WhatsApp door', () => {
         expect(a.error, `round ${round}, event A`).toBeNull();
         expect(b.error, `round ${round}, event B`).toBeNull();
 
-        const results = [a.data, b.data] as Array<{ outcome: string; status: string }>;
+        // The registration is what this fixture is for, and it is untouched by
+        // Block 5b: the listener is resolved or created BEFORE the conversation
+        // is assembled, so two first messages from one stranger still meet
+        // inside apply_member_creation.
+        const results = [a.data, b.data] as Array<{ outcome: string }>;
         for (const result of results) {
-          expect(result.outcome, `round ${round}`).toBe('recorded');
+          expect(result.outcome, `round ${round}`).toBe('conversation');
         }
-        expect(results.map((result) => result.status).sort(), `round ${round}`).toEqual([
-          'DUPLICATE',
-          'VALID',
-        ]);
 
         // Exactly one members row for this phone, in this Organization —
         // the assertion the fix in 0062 makes true rather than a
@@ -442,12 +449,11 @@ describe('the WhatsApp door', () => {
         expect(a.error, `round ${round}, event A`).toBeNull();
         expect(b.error, `round ${round}, event B`).toBeNull();
 
-        // Two DIFFERENT promotions, not a shared (promotion, member) pair, so
-        // both are first entries: both VALID, never one DUPLICATE.
-        const results = [a.data, b.data] as Array<{ outcome: string; status: string }>;
+        // Two DIFFERENT promotions at two Stations of one Organization, so
+        // both messages open a conversation of their own.
+        const results = [a.data, b.data] as Array<{ outcome: string }>;
         for (const result of results) {
-          expect(result.outcome, `round ${round}`).toBe('recorded');
-          expect(result.status, `round ${round}`).toBe('VALID');
+          expect(result.outcome, `round ${round}`).toBe('conversation');
         }
 
         // Still one members row: cross-Station is still one Organization, and
@@ -509,23 +515,36 @@ describe('the privilege boundary pgTAP cannot see', () => {
   it("lets the worker's exact writes against outbox_messages succeed for service_role", async () => {
     // outbox_messages holds NO insert grant for service_role — confirmed
     // live: has_table_privilege('service_role', 'public.outbox_messages',
-    // 'INSERT') is false. ingest_whatsapp_event (SECURITY DEFINER) is the
-    // table's only writer of a new row (0059's own comment), so the two real
-    // rows this case needs are produced by actually ingesting two messages
-    // from the same listener against a promotion that does not allow repeat
-    // entries: the first is recorded VALID, the second DUPLICATE, and both
-    // statuses carry a non-null reply (whatsapp_reply_body), so both enqueue
-    // a row. Sequential, not concurrent — this case is not the race, it only
-    // needs two real rows to update.
+    // 'INSERT') is false. Every row in it is written from inside a SECURITY
+    // DEFINER body, so the two real rows this case needs are produced by
+    // driving two real ticks: each opens a conversation and enqueues its
+    // consent message through enqueue_whatsapp_outbound — a door added in
+    // Block 5b with a grant of its own, and therefore exactly the kind of thing
+    // that was missing three times in 5a. Sequential, not concurrent; this case
+    // is not the race, it only needs two real rows to update.
     const fixture = await seedPromotionWithIntegration(`wa-outbox-priv-${Date.now()}`);
 
-    const first = await admin.rpc('ingest_whatsapp_event', { p_event_id: fixture.eventA });
-    if (first.error) throw new Error(`seed ingestion (A) failed: ${first.error.message}`);
-    const second = await admin.rpc('ingest_whatsapp_event', { p_event_id: fixture.eventB });
-    if (second.error) throw new Error(`seed ingestion (B) failed: ${second.error.message}`);
+    // The door, then the turn — the two halves of the real path, driven
+    // directly rather than through runTick so that this fixture's own two
+    // messages are the ones that produce the rows, whatever else the local
+    // stack happens to be holding.
+    const store = new PostgresConversationStore(admin);
+    for (const eventId of [fixture.eventA, fixture.eventB]) {
+      const opened = await admin.rpc('ingest_whatsapp_event', {
+        p_event_id: eventId,
+        p_window_seconds: 1800,
+      });
+      if (opened.error) throw new Error(`seed ingestion failed: ${opened.error.message}`);
+      await runConversationTurn({ supabase: admin, store }, parseInboundTurn(opened.data));
+    }
 
-    const dedupeKeyA = `${fixture.externalIdA}:confirmation`;
-    const dedupeKeyB = `${fixture.externalIdB}:confirmation`;
+    // ':consent' for the first and ':prompt' for the second, and that pairing
+    // is itself a fact worth pinning: both messages come from the SAME phone,
+    // so the second one finds a live conversation and is answered as a bad
+    // reply to the consent question rather than opening a second conversation.
+    // A live conversation wins over a new hashtag.
+    const dedupeKeyA = `${fixture.externalIdA}:consent`;
+    const dedupeKeyB = `${fixture.externalIdB}:prompt`;
     const { data: outboxRows, error: outboxSelectError } = await admin
       .from('outbox_messages')
       .select('id, dedupe_key')
@@ -659,16 +678,25 @@ describe('a whole tick, over the wire', () => {
     // rather than as "ingested 0".
     expect(result.dbErrors, 'every database call the tick made succeeded').toBe(0);
 
-    expect(result.ingested).toBe(1);
+    // `turns`, not `ingested`: since Block 5b the door hands a hashtag back as
+    // a conversation and the TURN decides it, so a tick that reported an
+    // ingestion here would be reporting a decision nobody made.
+    expect(result.turns).toBe(1);
+    expect(result.turnsBusy).toBe(0);
     expect(result.eventsFailed).toBe(0);
     expect(result.skipped).toBe(0);
     expect(result.sent).toBe(1);
     expect(result.sendFailed).toBe(0);
 
-    // The recipient is the number WhatsApp delivered, country code and all —
-    // not the local form this database stores, which Meta cannot route to.
-    expect(transport.sent).toHaveLength(1);
-    expect(transport.sent[0]?.to).toBe(`55${fixture.localPhone}`);
+    // AND IT WENT OUT AS AN INTERACTIVE MESSAGE. This is the one assertion in
+    // the repository that crosses the whole new path end to end: the engine
+    // chose the consent message, the enqueue door stored it, claim_outbox_batch
+    // handed the payload back, and the transport sent it as buttons rather than
+    // as its body text — a question the listener could not otherwise answer.
+    expect(transport.sent).toHaveLength(0);
+    expect(transport.sentInteractive).toHaveLength(1);
+    expect(transport.sentInteractive[0]?.to).toBe(`55${fixture.localPhone}`);
+    expect(transport.sentInteractive[0]?.interactive.kind).toBe('buttons');
 
     // The settle write, read back. outbox_messages_sent_shape (0059) makes SENT
     // a claim about sent_at and external_id together, so this is the assertion
@@ -677,7 +705,7 @@ describe('a whole tick, over the wire', () => {
     const { data: row, error } = await admin
       .from('outbox_messages')
       .select('status, external_id, sent_at, attempts')
-      .eq('dedupe_key', `${fixture.externalIdA}:confirmation`)
+      .eq('dedupe_key', `${fixture.externalIdA}:consent`)
       .single();
     expect(error).toBeNull();
     expect(row?.status).toBe('SENT');
@@ -723,7 +751,8 @@ describe('a whole tick, over the wire', () => {
     const result = await runTick({ supabase: admin, transport });
 
     expect(result.dbErrors, 'every database call the tick made succeeded').toBe(0);
-    expect(result.ingested).toBe(1);
+    // The good message is a conversation turn now, not an ingestion.
+    expect(result.turns).toBe(1);
     expect(result.eventsFailed).toBe(1);
     expect(result.sent).toBe(0);
     expect(result.sendFailed).toBe(1);
@@ -747,7 +776,10 @@ describe('a whole tick, over the wire', () => {
     const { data: settled, error: settledError } = await admin
       .from('outbox_messages')
       .select('status, attempts, last_error, external_id, sent_at')
-      .eq('dedupe_key', `${fixture.externalIdB}:confirmation`)
+      // ':consent', because what event B produced is the message that OPENS
+      // the conversation. The ladder does not care which kind of message it is
+      // retrying, and that is the point of asserting it on this one.
+      .eq('dedupe_key', `${fixture.externalIdB}:consent`)
       .single();
     expect(settledError).toBeNull();
     // Retryable, so PENDING with a future next_attempt_at — never FAILED, which

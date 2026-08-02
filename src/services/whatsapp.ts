@@ -1,7 +1,10 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/supabase/database.types';
+import { CONVERSATION_WINDOW_SECONDS, type ConversationStore } from '@/lib/conversation/store';
+import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
 import { parseInteractive } from '@/lib/integrations/whatsapp/interactive';
+import { parseInboundTurn, runConversationTurn } from '@/services/conversation';
 import type { WhatsAppTransport } from '@/lib/integrations/whatsapp/transport';
 
 /**
@@ -116,6 +119,10 @@ export interface TickResult {
   ingested: number;
   /** Events another tick already held, or that stopped being eligible. */
   skipped: number;
+  /** Conversation turns taken: a conversation opened, advanced, refused or ended. */
+  turns: number;
+  /** Turns left for the next tick because another worker held the phone's lease. */
+  turnsBusy: number;
   /** Events whose ingestion raised, now scheduled or parked. */
   eventsFailed: number;
   /** Messages Meta accepted. */
@@ -172,13 +179,22 @@ function failed(result: TickResult, where: string, error: MaybeError): boolean {
 export async function runTick(deps: {
   supabase: SupabaseClient<Database>;
   transport: WhatsAppTransport;
+  /**
+   * Where conversations live. Defaults to the Postgres driver; the Redis one is
+   * selected by environment (design spec D6) and is passed in here rather than
+   * chosen in this file, so the worker holds no opinion about which is live.
+   */
+  store?: ConversationStore;
 }): Promise<TickResult> {
   const { supabase, transport } = deps;
+  const store = deps.store ?? new PostgresConversationStore(supabase);
   const result: TickResult = {
     reclaimedEvents: 0,
     reclaimedMessages: 0,
     ingested: 0,
     skipped: 0,
+    turns: 0,
+    turnsBusy: 0,
     eventsFailed: 0,
     sent: 0,
     sendFailed: 0,
@@ -197,7 +213,7 @@ export async function runTick(deps: {
     result.reclaimedMessages = counts?.messages ?? 0;
   }
 
-  await drainEvents(supabase, result);
+  await drainEvents(supabase, store, result);
   await drainOutbox(supabase, transport, result);
 
   return result;
@@ -216,6 +232,7 @@ export async function runTick(deps: {
  */
 async function drainEvents(
   supabase: SupabaseClient<Database>,
+  store: ConversationStore,
   result: TickResult,
 ): Promise<void> {
   const { data: events, error } = await supabase.rpc('due_whatsapp_events', {
@@ -226,12 +243,20 @@ async function drainEvents(
   for (const event of events ?? []) {
     const { data, error: ingestError } = await supabase.rpc('ingest_whatsapp_event', {
       p_event_id: event.id,
+      p_window_seconds: CONVERSATION_WINDOW_SECONDS,
     });
+
+    const outcome = outcomeOf(data);
 
     if (ingestError) {
       await deferEvent(supabase, result, event.id, event.attempts, ingestError.message);
       result.eventsFailed += 1;
-    } else if (outcomeOf(data) === 'skipped') {
+    } else if (outcome === 'conversation' || outcome === 'no_hashtag') {
+      // The door resolved the message and left the event PROCESSING, because
+      // whether this is an answer depends on a conversation store this database
+      // may not hold (Block 5b). The turn decides, and closes the event.
+      await runTurn(supabase, store, result, event, data);
+    } else if (outcome === 'skipped') {
       // The door declined it: another tick holds it, or it stopped being
       // RECEIVED or FAILED between the selection and the call (0062). Counted
       // apart from ingested, because a tick that reports fifty ingestions it
@@ -241,6 +266,41 @@ async function drainEvents(
     } else {
       result.ingested += 1;
     }
+  }
+}
+
+/**
+ * One conversation turn, run against the state store rather than inside a
+ * transaction — the engine is a pure function in TypeScript, which is what
+ * makes every branch of the conversation testable with nothing running.
+ *
+ * FAILURES ARE DEFERRED, NOT SWALLOWED. The event is still PROCESSING when this
+ * is called, so a throw that was merely logged would leave it claimed until the
+ * reclaim released it five minutes later. deferEvent puts it back on the ladder
+ * where the next tick sees it in a second, and the message is not lost.
+ *
+ * A `busy` turn is NOT a failure and is not deferred: another worker holds this
+ * phone's lease and is about to finish it. The event is left exactly as it is
+ * and the reclaim brings it back if that worker dies.
+ */
+async function runTurn(
+  supabase: SupabaseClient<Database>,
+  store: ConversationStore,
+  result: TickResult,
+  event: { id: string; attempts: number },
+  data: Json,
+): Promise<void> {
+  try {
+    const outcome = await runConversationTurn({ supabase, store }, parseInboundTurn(data));
+    if (outcome.kind === 'busy') {
+      result.turnsBusy += 1;
+      return;
+    }
+    result.turns += 1;
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    await deferEvent(supabase, result, event.id, event.attempts, message);
+    result.eventsFailed += 1;
   }
 }
 

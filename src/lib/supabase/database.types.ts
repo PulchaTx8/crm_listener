@@ -2148,6 +2148,20 @@ export type Database = {
         }[]
       }
       complete_password_change: { Args: never; Returns: undefined }
+      complete_whatsapp_conversation: {
+        Args: {
+          p_completed_at: string
+          p_dedupe_key: string
+          p_event_id: string
+          p_fields: Json
+          p_integration_id: string
+          p_member_id: string
+          p_promotion_id: string
+          p_questions: Json
+          p_to_phone: string
+        }
+        Returns: Json
+      }
       create_invitation: {
         Args: {
           p_company_ids: string[]
@@ -2236,6 +2250,16 @@ export type Database = {
           attempts: number
           id: string
         }[]
+      }
+      enqueue_whatsapp_outbound: {
+        Args: {
+          p_body: string
+          p_dedupe_key: string
+          p_integration_id: string
+          p_interactive: Json
+          p_to_phone: string
+        }
+        Returns: string
       }
       ensure_inventory_balance_row: {
         Args: { p_company_id: string; p_org: string; p_prize_id: string }
@@ -2471,6 +2495,19 @@ export type Database = {
         }
         Returns: string
       }
+      record_whatsapp_refusal: {
+        Args: {
+          p_body: string
+          p_dedupe_key: string
+          p_event_id: string
+          p_integration_id: string
+          p_member_id: string
+          p_promotion_id: string
+          p_refused_at: string
+          p_to_phone: string
+        }
+        Returns: string
+      }
       release_conversation_turn: {
         Args: { p_integration_id: string; p_phone: string; p_token: string }
         Returns: undefined
@@ -2636,6 +2673,10 @@ export type Database = {
         Returns: Json
       }
       whatsapp_local_phone: { Args: { p_wa_phone: string }; Returns: string }
+      whatsapp_prompt_context: {
+        Args: { p_promotion_id: string }
+        Returns: Json
+      }
       whatsapp_reply_body: {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string

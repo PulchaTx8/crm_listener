@@ -49,6 +49,28 @@ export const CONSENT_NO_ID = 'consent_no';
 export const DEFAULT_YES_BUTTON_LABEL = 'Quero!';
 export const DEFAULT_NO_BUTTON_LABEL = 'Agora não';
 export const REFUSAL_MESSAGE = 'Tudo bem! Não vamos te inscrever nesta promoção. Obrigado!';
+
+/**
+ * What the bot asks for each field, and the whole message rather than a column
+ * heading -- somebody reading "cidade" on WhatsApp has no form around it to
+ * explain what is wanted.
+ *
+ * Copy, so it lives here with the rest of it and not in a column: a promotion
+ * has no per-field wording to override, and D6 of the 4a spec settled that a
+ * requested field would never carry settings of its own. A TOTAL record, so the
+ * compiler refuses a ninth field that nobody wrote a question for -- the failure
+ * mode a lookup table would turn into a listener receiving an empty message.
+ */
+export const FIELD_PROMPTS: Record<RequestedField, string> = {
+  full_name: 'Qual é o seu nome completo?',
+  address: 'Qual é o seu endereço? (rua, número e complemento)',
+  city: 'Em qual cidade você mora?',
+  neighbourhood: 'Em qual bairro você mora?',
+  age: 'Qual é a sua data de nascimento? (dia/mês/ano)',
+  cpf: 'Qual é o seu CPF? (só os números)',
+  passport: 'Qual é o número do seu passaporte?',
+  discovery_source: 'Como você conheceu a nossa rádio?',
+};
 export const ABANDON_MESSAGE =
   'Não consegui entender a resposta. Vamos parar por aqui — é só mandar a hashtag de novo quando quiser tentar outra vez.';
 

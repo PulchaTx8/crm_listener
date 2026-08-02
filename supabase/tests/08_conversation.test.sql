@@ -1,5 +1,5 @@
 begin;
-select plan(59);
+select plan(70);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -607,6 +607,131 @@ select throws_ok(
   '22023',
   null,
   'and may not use it to claim an entry happened');
+
+-- The end of the conversation (Task 8) ----------------------------------------
+
+select ok(has_function_privilege('service_role',
+            'public.complete_whatsapp_conversation(uuid, uuid, uuid, uuid, text, jsonb, jsonb, timestamp with time zone, text)',
+            'EXECUTE'),
+          'the worker may write the end of a conversation');
+select ok(not has_function_privilege('authenticated',
+            'public.complete_whatsapp_conversation(uuid, uuid, uuid, uuid, text, jsonb, jsonb, timestamp with time zone, text)',
+            'EXECUTE'),
+          'and a signed-in operator may not: this door belongs to the bot');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-000000000960', '00000000-0000-0000-0000-000000000901', 'Ouvinte Fim');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000960', '00000000-0000-0000-0000-000000000902',
+   '00000000-0000-0000-0000-000000000901');
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at, requested_fields,
+   whatsapp_enabled, hashtag)
+values
+  ('00000000-0000-0000-0000-000000000961', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Fim da conversa',
+   now() - interval '1 day', now() + interval '1 day',
+   array['city', 'cpf']::public.promotion_requested_field[], true, '#t8fim'),
+  ('00000000-0000-0000-0000-000000000964', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'Outra promocao',
+   now() - interval '1 day', now() + interval '1 day', '{}', false, null);
+
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt, menu_title, button_label)
+values
+  ('00000000-0000-0000-0000-000000000962', '00000000-0000-0000-0000-000000000961',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   1, 'QUIZ', 'Qual estilo?', 'Estilos', 'Escolher'),
+  ('00000000-0000-0000-0000-000000000965', '00000000-0000-0000-0000-000000000964',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   1, 'ESSAY', 'Fale de voce', null, null);
+
+insert into public.promotion_question_options
+  (id, question_id, kind, organization_id, company_id, position, label, is_correct)
+values
+  ('00000000-0000-0000-0000-000000000963', '00000000-0000-0000-0000-000000000962', 'QUIZ',
+   '00000000-0000-0000-0000-000000000901', '00000000-0000-0000-0000-000000000902',
+   1, 'Sertanejo', true);
+
+insert into public.webhook_events (id, provider, external_id, payload, status, claimed_at) values
+  ('00000000-0000-0000-0000-000000000966', 'WHATSAPP', repeat('c', 64),
+   '{}'::jsonb, 'PROCESSING', now()),
+  ('00000000-0000-0000-0000-000000000967', 'WHATSAPP', repeat('d', 64),
+   '{}'::jsonb, 'PROCESSING', now());
+
+-- ALL OR NOTHING, and this is the case the transaction exists for. The answer
+-- names a question belonging to another promotion, which apply_participation
+-- refuses with P0002 -- and it refuses AFTER the record has already been
+-- updated and the confirmations written, which is exactly the ordering that
+-- makes a non-transactional version leave a listener's record changed for an
+-- entry that was never created.
+select throws_ok(
+  $$select public.complete_whatsapp_conversation(
+      '00000000-0000-0000-0000-000000000966',
+      '00000000-0000-0000-0000-000000000940',
+      '00000000-0000-0000-0000-000000000961',
+      '00000000-0000-0000-0000-000000000960',
+      '5511900009600',
+      '{"city": "Canoas"}'::jsonb,
+      '[{"questionId": "00000000-0000-0000-0000-000000000965", "optionId": null, "answerText": "oi"}]'::jsonb,
+      now(), 'cccc:confirmation')$$,
+  'P0002',
+  null,
+  'an answer naming another promotion''s question is refused');
+
+select is(
+  (select city from public.members where id = '00000000-0000-0000-0000-000000000960'),
+  null,
+  'and the record is NOT left updated for an entry that was never written');
+select is(
+  (select count(*)::int from public.member_field_confirmations
+    where member_id = '00000000-0000-0000-0000-000000000960'),
+  0, 'nor the confirmations');
+select is(
+  (select status::text from public.webhook_events
+    where id = '00000000-0000-0000-0000-000000000966'),
+  'PROCESSING',
+  'and the message is not filed as decided, so the next tick tries it again');
+
+-- The whole thing, once it works.
+select is(
+  public.complete_whatsapp_conversation(
+    '00000000-0000-0000-0000-000000000967',
+    '00000000-0000-0000-0000-000000000940',
+    '00000000-0000-0000-0000-000000000961',
+    '00000000-0000-0000-0000-000000000960',
+    '5511900009600',
+    ('{"city": "Canoas", "cpf": "' || repeat('8b', 32) || '"}')::jsonb,
+    '[{"questionId": "00000000-0000-0000-0000-000000000962",
+       "optionId": "00000000-0000-0000-0000-000000000963", "answerText": null}]'::jsonb,
+    now(), 'dddd:confirmation') ->> 'status',
+  'VALID',
+  'a conversation that finishes writes the entry');
+
+select is(
+  (select city from public.members where id = '00000000-0000-0000-0000-000000000960'),
+  'Canoas',
+  'the answers land on the listener''s record');
+
+-- One row per field the listener ANSWERED, and stamped now rather than with the
+-- message's own time: the confirmation records when we were told.
+select is(
+  (select array_agg(field::text order by field::text)
+     from public.member_field_confirmations
+    where member_id = '00000000-0000-0000-0000-000000000960'),
+  array['city', 'cpf'],
+  'with a confirmation for each of them, and none for anything else');
+
+select is(
+  (select count(*)::int from public.outbox_messages where dedupe_key = 'dddd:confirmation'),
+  1, 'the reply is enqueued in the same transaction as the entry it announces');
+
+select is(
+  (select jsonb_build_object('status', status::text, 'outcome', outcome)
+     from public.webhook_events where id = '00000000-0000-0000-0000-000000000967'),
+  jsonb_build_object('status', 'DONE', 'outcome', 'recorded'),
+  'and the message that completed it is closed by the same transaction, so the two cannot disagree');
 
 select * from finish();
 rollback;

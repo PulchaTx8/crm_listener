@@ -239,6 +239,7 @@ begin
       'status',           null,
       'participation_id', null,
       'event_id',         v_event.id,
+      'external_id',      v_event.external_id,
       'integration_id',   v_integ.id,
       'phone',            v_from,
       'reply',            v_event.payload -> 'reply',
@@ -354,13 +355,15 @@ begin
     'status',           null,
     'participation_id', null,
     'event_id',         v_event.id,
+    -- The hashed message id, which is what every dedupe key in this block is
+    -- built from: '<sha256 of the wamid>:<what it is>' (0059). Keyed on the
+    -- MESSAGE, so a turn re-run after a crash enqueues one message and not two.
+    -- The HASH and never the raw id -- a wamid decodes to bytes carrying the
+    -- counterparty's phone.
+    'external_id',      v_event.external_id,
     'integration_id',   v_integ.id,
     'phone',            v_from,
     'received_at',      v_when,
-    -- The consent message is one send with its own dedupe key, in the shape
-    -- 0059 fixed: '<sha256 of the wamid>:<what it is>'. Keyed on the MESSAGE, so
-    -- an event decided twice enqueues one consent rather than two.
-    'dedupe_key',       v_event.external_id || ':consent',
     'start',            public.start_whatsapp_conversation(
                           v_promo.id, v_member, v_integ.id, v_from, p_window_seconds));
 end;
