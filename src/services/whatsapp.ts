@@ -125,6 +125,8 @@ export interface TickResult {
   turnsBusy: number;
   /** Events whose ingestion raised, now scheduled or parked. */
   eventsFailed: number;
+  /** Conversations and leases the sweep removed. */
+  swept: number;
   /** Messages Meta accepted. */
   sent: number;
   sendFailed: number;
@@ -195,6 +197,7 @@ export async function runTick(deps: {
     skipped: 0,
     turns: 0,
     turnsBusy: 0,
+    swept: 0,
     eventsFailed: 0,
     sent: 0,
     sendFailed: 0,
@@ -211,6 +214,16 @@ export async function runTick(deps: {
     const counts = reclaimed?.[0];
     result.reclaimedEvents = counts?.events ?? 0;
     result.reclaimedMessages = counts?.messages ?? 0;
+  }
+
+  // Beside the reclaim and before the queues, because both are cleanup of the
+  // same kind: what a tick that did not finish left behind. A conversation is
+  // already over the moment its window passes -- the store filters on load --
+  // so this bounds how long the dead row, which holds a phone number, survives.
+  const { data: swept, error: sweepError } = await supabase.rpc('sweep_expired_conversations');
+  if (!failed(result, 'sweep expired conversations', sweepError)) {
+    const counts = swept?.[0];
+    result.swept = (counts?.conversations ?? 0) + (counts?.leases ?? 0);
   }
 
   await drainEvents(supabase, store, result);

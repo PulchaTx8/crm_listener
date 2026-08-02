@@ -1,5 +1,5 @@
 begin;
-select plan(70);
+select plan(74);
 
 -- Block 5b, Task 1: the freshness rule on promotions, and the three tables the
 -- conversation needs to run -- member_field_confirmations (D2/D3),
@@ -732,6 +732,39 @@ select is(
      from public.webhook_events where id = '00000000-0000-0000-0000-000000000967'),
   jsonb_build_object('status', 'DONE', 'outcome', 'recorded'),
   'and the message that completed it is closed by the same transaction, so the two cannot disagree');
+
+-- The sweep (Task 9) -----------------------------------------------------------
+
+insert into public.whatsapp_conversations (integration_id, phone, state, expires_at) values
+  ('00000000-0000-0000-0000-000000000940', '5511900009971', '{}'::jsonb, now() - interval '1 minute'),
+  ('00000000-0000-0000-0000-000000000940', '5511900009972', '{}'::jsonb, now() + interval '20 minutes');
+
+-- A lease older than the sweep's cut, and one taken a moment ago.
+insert into public.whatsapp_conversation_leases (integration_id, phone, claimed_at) values
+  ('00000000-0000-0000-0000-000000000940', '5511900009973', now() - interval '2 hours'),
+  ('00000000-0000-0000-0000-000000000940', '5511900009974', now());
+
+select is(
+  (select conversations from public.sweep_expired_conversations()),
+  1, 'the sweep takes the conversation whose window has passed');
+
+select is(
+  (select count(*)::int from public.whatsapp_conversations
+    where phone = '5511900009972'),
+  1, 'and leaves the live one alone');
+
+select is(
+  (select count(*)::int from public.whatsapp_conversation_leases
+    where phone = '5511900009973'),
+  0, 'a lease no live worker can be holding is freed');
+
+-- THE ONE THAT MATTERS MOST HERE. Deleting a lease somebody is holding hands
+-- that phone to a second worker mid-turn -- the exact race the lease exists to
+-- prevent, arrived at through its own cleanup.
+select is(
+  (select count(*)::int from public.whatsapp_conversation_leases
+    where phone = '5511900009974'),
+  1, 'and a lease taken a moment ago is not');
 
 select * from finish();
 rollback;

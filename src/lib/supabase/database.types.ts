@@ -2595,6 +2595,13 @@ export type Database = {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined
       }
+      sweep_expired_conversations: {
+        Args: never
+        Returns: {
+          conversations: number
+          leases: number
+        }[]
+      }
       unlink_prize_from_promotion: {
         Args: {
           p_note?: string

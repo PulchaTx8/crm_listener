@@ -142,5 +142,43 @@ export async function POST(request: Request): Promise<Response> {
     return new Response('storage failed', { status: 500 });
   }
 
+  // Design spec D9. Without this every turn waits up to a full cron interval,
+  // and a six-step conversation accumulates half a minute of silence between
+  // messages somebody is sitting there watching for.
+  triggerTick();
   return new Response('ok', { status: 200 });
+}
+
+/**
+ * Fires a tick and does not wait for it.
+ *
+ * NOT AWAITED, and safe here for a reason worth naming: this application is a
+ * long-running Node process in a container behind EasyPanel, not a platform
+ * that freezes execution the moment a response is returned. On one of those
+ * this would be a request that never happens; here the process outlives the
+ * response and the tick runs. (An earlier round of Block 5a had to correct
+ * comments in this same area that named the wrong runtime.)
+ *
+ * Every failure is swallowed on purpose. The message is already stored, so the
+ * only thing a failing tick may not do is turn a 200 into an error and make
+ * Meta re-deliver a message we have: pg_cron is still running every ten
+ * seconds, and this is an optimisation on top of it, never the mechanism.
+ */
+function triggerTick(): void {
+  const secret = env.WORKER_TICK_SECRET;
+  const base = env.NEXT_PUBLIC_SITE_URL;
+  // Neither configured means the local stack or a build: the cron job is the
+  // only caller, and there is nothing to fire.
+  if (!secret || !base) return;
+
+  void fetch(`${base}/api/worker/tick`, {
+    method: 'POST',
+    headers: { 'x-worker-secret': secret },
+  }).catch((cause: unknown) => {
+    console.error(
+      `whatsapp webhook: could not trigger a tick (the cron job will pick it up): ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+  });
 }

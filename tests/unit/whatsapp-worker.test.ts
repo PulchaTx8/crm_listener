@@ -79,6 +79,8 @@ interface RpcReply {
 }
 
 interface Fixture {
+  /** What the conversation sweep removed this tick. */
+  swept?: { conversations: number; leases: number };
   reclaimed?: { events: number; messages: number };
   events?: DueEvent[];
   outbox?: ClaimedRow[];
@@ -106,6 +108,12 @@ class FakeDb {
     if (fn === 'reclaim_stale_whatsapp_claims') {
       return Promise.resolve({
         data: [this.fixture.reclaimed ?? { events: 0, messages: 0 }],
+        error: null,
+      });
+    }
+    if (fn === 'sweep_expired_conversations') {
+      return Promise.resolve({
+        data: [this.fixture.swept ?? { conversations: 0, leases: 0 }],
         error: null,
       });
     }

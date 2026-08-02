@@ -24,6 +24,7 @@ const EMPTY_TICK: TickResult = {
   skipped: 0,
   turns: 0,
   turnsBusy: 0,
+  swept: 0,
   eventsFailed: 0,
   sent: 2,
   sendFailed: 0,

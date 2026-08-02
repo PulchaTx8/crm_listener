@@ -38,6 +38,11 @@ vi.mock('@/lib/supabase/service-client', () => ({
 const SECRET = 'test-app-secret';
 process.env.WHATSAPP_APP_SECRET = SECRET;
 process.env.WHATSAPP_VERIFY_TOKEN = 'verify-me';
+// Both are needed for the tick trigger (D9) to have anywhere to fire at; the
+// route returns without firing when either is missing, which is the local
+// stack's case and would make the assertions below vacuous.
+process.env.WORKER_TICK_SECRET = 'tick-secret';
+process.env.NEXT_PUBLIC_SITE_URL = 'https://app.example.test';
 
 const { GET, POST } = await import('@/app/api/webhooks/whatsapp/route');
 
@@ -129,8 +134,18 @@ function twoMessageBody() {
 
 const payload = JSON.stringify(singleMessageBody());
 
+const ticks: Array<{ url: string; init?: RequestInit }> = [];
+
 beforeEach(() => {
   inserted.length = 0;
+  ticks.length = 0;
+  // The tick endpoint, mocked. Resolves rather than rejecting: a tick that
+  // fails is covered by its own case below, and a rejection here would be an
+  // unhandled one in every other.
+  vi.stubGlobal('fetch', (url: string | URL, init?: RequestInit) => {
+    ticks.push({ url: String(url), init });
+    return Promise.resolve(new Response('ok', { status: 200 }));
+  });
 });
 
 describe('GET /api/webhooks/whatsapp', () => {
@@ -251,6 +266,42 @@ describe('POST /api/webhooks/whatsapp', () => {
       timestamp: '1786000000',
       reply: { kind: 'button', id: 'consent_yes', title: 'Quero!' },
     });
+  });
+
+  // Design spec D9. Without the trigger every turn waits up to a full cron
+  // interval, and a six-step conversation accumulates half a minute of silence
+  // between messages the listener is sitting there watching for.
+  it('fires exactly one tick after storing a message', async () => {
+    const response = await post(payload, sign(payload));
+
+    expect(response.status).toBe(200);
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0]?.url).toBe('https://app.example.test/api/worker/tick');
+    expect(ticks[0]?.init?.method).toBe('POST');
+    expect((ticks[0]?.init?.headers as Record<string, string>)['x-worker-secret']).toBe(
+      'tick-secret',
+    );
+  });
+
+  // A rejected delivery has stored nothing, so there is nothing for a tick to
+  // find — and an unauthenticated caller who could make this route issue a
+  // request would have a free amplifier.
+  it('fires no tick for a delivery it refused', async () => {
+    const response = await post(payload, 'sha256=deadbeef');
+
+    expect(response.status).toBe(401);
+    expect(ticks).toHaveLength(0);
+  });
+
+  // The message is already stored, so the only thing a failing tick may not do
+  // is turn a 200 into an error and make Meta re-deliver a message we have.
+  it('still answers 200 when the tick cannot be reached', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('connection refused')));
+
+    const response = await post(payload, sign(payload));
+
+    expect(response.status).toBe(200);
+    expect(inserted).toHaveLength(1);
   });
 
   // The trap this whole route exists to avoid. Verifying a re-serialised
