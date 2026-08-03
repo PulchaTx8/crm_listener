@@ -17,11 +17,13 @@ select is(enum_range(null::public.draw_status)::text[],
           array['COMPLETED', 'CANCELLED'],
           'draw_status carries exactly the two states a draw can be in');
 
--- winner_status carries five values: the four that 6b established
--- (AWAITING_PICKUP, DELIVERED, RETURNED, WRITTEN_OFF) plus RETURN_PENDING,
--- added by Block 6d to name the state a prize enters when its pickup deadline
--- expires — it rests there until an operator finishes. The assertion prevents a
--- later block re-shaping a column that already holds rows.
+-- winner_status was declared by Block 6a with four labels
+-- (AWAITING_PICKUP, DELIVERED, RETURNED, WRITTEN_OFF) declared all at once so a
+-- later block would not have to re-shape a column that already held rows. Block 6c
+-- withdrew SUPERSEDED; the four remain. Block 6d adds a fifth, RETURN_PENDING, to
+-- name the state a prize enters when its pickup deadline expires. The exact-array
+-- assertion still serves the original purpose: it stops a later block quietly
+-- re-shaping the column.
 select has_type('public', 'winner_status', 'the winner status enum exists');
 select is(enum_range(null::public.winner_status)::text[],
           array['AWAITING_PICKUP', 'RETURN_PENDING', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF'],
