@@ -28,15 +28,16 @@ begin
   -- DELIBERATELY NOT SHAPED LIKE ITS 6b SIBLINGS. return_prize and
   -- write_off_prize read the winner, raise P0002 when it is missing, and only
   -- then ask about the permission -- which tells an unauthorised caller
-  -- whether an id exists. That leak stands at eight migrations and Block 6d
-  -- promised not to make it nine.
+  -- whether an id exists. Several older doors in this schema carry that same
+  -- pattern; this one declines to join them.
   --
   -- The winner id is this function's only input, so the Station cannot be
   -- named by the caller the way list_participations (0090) has it named. One
   -- gated query resolves it instead: an unknown id and a Station the caller
   -- holds nothing in are indistinguishable from out here, both 42501. The
   -- cost is that an operator who mistypes an id is told "permission denied";
-  -- it is smaller than the alternative. This does not fix the eight before it.
+  -- it is smaller than the alternative. This fixes none of the older doors --
+  -- it only declines to add one more.
   select company_id into v_company
     from public.winners
    where id = p_winner_id
