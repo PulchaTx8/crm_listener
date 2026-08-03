@@ -37,15 +37,30 @@
 -- actor_id (0026) is nullable too, and for the identical reason
 -- sweep_pickup_deadlines (0094) records none: pg_cron carries no auth.uid(),
 -- so a movement the clock made carries no actor. actor_name resolves through
--- public.profiles -- the application record for a panel operator, an
--- Organization member -- and NEVER public.members, the audience table this
--- schema keeps deliberately separate (company_memberships' own comment,
--- 0003). Coalesced with the profile's email, which is NOT NULL (0003), so
--- the one and only actor_name null means exactly one thing: actor_id itself
--- is null. Without that coalesce, an operator who never set a display name
--- would read as indistinguishable from the clock -- the identical class of
--- ambiguity this function is built to close on the promotion side, left open
--- on the actor side if the fallback were skipped.
+-- public.profiles.full_name -- the application record for a panel operator,
+-- an Organization member -- and NEVER public.members, the audience table
+-- this schema keeps deliberately separate (company_memberships' own
+-- comment, 0003).
+--
+-- full_name is ITSELF nullable in production (0003; 0013/0018's
+-- invitation-accept RPCs default it to null), so actor_name null does NOT by
+-- itself mean "the clock did it" -- it can also mean a real operator who
+-- never set a display name. THE TWO ARE TOLD APART BY actor_id, which ships
+-- on the SAME row regardless of actor_name: actor_id null is the clock
+-- (0094, pg_cron, no auth.uid()); actor_id non-null with actor_name null is
+-- a human with no name on record. A CONSUMER MUST KEY ITS "(deadline)" LABEL
+-- OFF actor_id, NEVER OFF actor_name.
+--
+-- A coalesce onto the profile's NOT NULL email was written here once and
+-- removed in review: actor_id already lets a consumer draw the distinction
+-- at no cost, so the coalesce bought nothing but put a colleague's email in
+-- front of anyone holding inventory.view alone -- no permission of its own,
+-- no owner ruling behind it, unlike every comparable identity decision in
+-- this schema (get_draw, 0080, names itself "a second door onto audience
+-- data" with the owner's own date attached; list_pickups/list_participations
+-- gate the audience's OWN name and phone behind members.view specifically).
+-- This function names no such permission for a colleague's email and earns
+-- no such exception.
 --
 -- Ordering is created_at desc, movement_id desc -- newest first, tie-broken
 -- by id. created_at is NOT NULL (0026), so unlike list_pickups' deadline_at
@@ -126,10 +141,14 @@ begin
            -- movement naming no promotion has no such null to explain.
            (pp.promotion_id is not null and pr.deleted_at is not null) as promotion_archived,
            m.actor_id,
-           -- profiles.email is NOT NULL (0003); coalescing onto it means the
-           -- ONLY null actor_name is the one actor_id is null already
-           -- explains, never an operator who simply never set a full_name.
-           coalesce(pf.full_name, pf.email) as actor_name,
+           -- Plain full_name, nullable (0003). A null here does NOT by
+           -- itself mean "the clock did it": it can also be a real operator
+           -- with no display name on record. actor_id, above, is what tells
+           -- the two apart -- null there is the clock (0094); non-null there
+           -- with a null name here is a human with none set. A consumer
+           -- keys its "(deadline)" label off actor_id, never off this
+           -- column.
+           pf.full_name as actor_name,
            m.note
       from public.inventory_movements m
       join public.prizes pz
@@ -190,7 +209,7 @@ end;
 $$;
 
 comment on function public.list_movements(uuid, public.inventory_movement_type, uuid, uuid, timestamptz, timestamptz, timestamptz, uuid, boolean, integer) is
-  'One keyset page of a Station''s whole inventory ledger, newest first (created_at desc, movement_id desc -- created_at is NOT NULL, so unlike list_pickups there is no terminal null region to reach). Gated on inventory.view alone, the same single permission inventory_movements_select_inventory_view (0029) already required for the row -- this function exists only because the PROMOTION NAME needs more than that policy gives: promotion_prize_id is nullable with meaning (null is a purchase entry or a stock adjustment, belonging to no promotion at all), and a plain embed would additionally require promotions.view, whose absence would make a withheld name indistinguishable from that same null. So promotion_name comes back to anyone holding inventory.view. Separately, an ARCHIVED promotion (0044:47) hides its NAME, not its row -- a movement is the Station''s own stock history and hiding it would delete that history from an inventory screen -- and promotion_archived says which of the two nulls this is, through the same is_owner_of_company() helper 0044''s own policy names. actor_name is coalesced from profiles.full_name and its NOT NULL email, so the ONLY actor_name null means actor_id itself is null -- the deadline sweep (0094) running under pg_cron with no auth.uid() -- which the screen renders as "(deadline)". total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
+  'One keyset page of a Station''s whole inventory ledger, newest first (created_at desc, movement_id desc -- created_at is NOT NULL, so unlike list_pickups there is no terminal null region to reach). Gated on inventory.view alone, the same single permission inventory_movements_select_inventory_view (0029) already required for the row -- this function exists only because the PROMOTION NAME needs more than that policy gives: promotion_prize_id is nullable with meaning (null is a purchase entry or a stock adjustment, belonging to no promotion at all), and a plain embed would additionally require promotions.view, whose absence would make a withheld name indistinguishable from that same null. So promotion_name comes back to anyone holding inventory.view. Separately, an ARCHIVED promotion (0044:47) hides its NAME, not its row -- a movement is the Station''s own stock history and hiding it would delete that history from an inventory screen -- and promotion_archived says which of the two nulls this is, through the same is_owner_of_company() helper 0044''s own policy names. actor_name is plain profiles.full_name, which is itself nullable, so actor_name null does NOT by itself mean "the clock did it": actor_id is what distinguishes the two, and it ships on the same row regardless of actor_name -- actor_id null is the deadline sweep (0094, pg_cron, no auth.uid()); actor_id non-null with actor_name null is a human with no display name on record. A consumer must key its "(deadline)" label off actor_id, never off actor_name -- a coalesce onto the profile''s email was tried and removed in review: actor_id already draws the distinction for free, so the coalesce bought nothing and put a colleague''s email in front of anyone holding inventory.view alone, with no permission or owner ruling behind that disclosure the way get_draw (0080) and list_pickups/list_participations both have for the audience''s own name and phone. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
 
 revoke execute on function public.list_movements(uuid, public.inventory_movement_type, uuid, uuid, timestamptz, timestamptz, timestamptz, uuid, boolean, integer) from public;
 grant execute on function public.list_movements(uuid, public.inventory_movement_type, uuid, uuid, timestamptz, timestamptz, timestamptz, uuid, boolean, integer) to authenticated;

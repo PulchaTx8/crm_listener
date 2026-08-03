@@ -235,10 +235,12 @@ insert into public.profiles (id, email, full_name) values
   ('00000000-0000-0000-0000-00000000d291', 'movements-operator@example.test', 'Operator Six D');
 
 -- A second real actor who never set a display name: full_name is nullable in
--- production (0003, 0013, 0018), so actor_name has to fall back to the NOT
--- NULL email -- otherwise this caller reads as indistinguishable from the
--- clock, the exact ambiguity promotion_archived exists to close on the other
--- side of this same function.
+-- production (0003, 0013, 0018), so actor_name comes back null here too --
+-- the SAME null the clock leaves, told apart only by actor_id, which is
+-- non-null for this one and null for the clock's own movement (d277 below).
+-- A coalesce onto this profile's email was tried and removed in review: it
+-- would put a colleague's email in front of anyone holding inventory.view
+-- alone, for a distinction actor_id already draws at no cost.
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000d292', 'movements-noname@example.test');
 insert into public.profiles (id, email, full_name) values
@@ -650,14 +652,16 @@ select ok(
      from lm_all where movement_id = '00000000-0000-0000-0000-00000000d274'),
   'a movement with a real actor resolves actor_name from their profile');
 
--- Case 26. A genuine actor who never set a display name falls back to their
--- NOT NULL email rather than surfacing as actor_name null -- which would
--- otherwise be indistinguishable from the clock's own null.
+-- Case 26. A genuine actor who never set a display name: actor_name is null,
+-- the SAME value the clock's own movement carries (Case 24) -- but actor_id
+-- is NOT null, which is the one fact a consumer keys its "(deadline)" label
+-- off, never actor_name. This is the state a coalesce-to-email fallback
+-- existed for, and the one this case pins instead of that removed fallback.
 select ok(
   (select actor_id = '00000000-0000-0000-0000-00000000d292'::uuid
-      and actor_name = 'movements-noname@example.test'
+      and actor_name is null
      from lm_all where movement_id = '00000000-0000-0000-0000-00000000d278'),
-  'an actor with no full_name set resolves actor_name to their profile email instead of null');
+  'an actor with no full_name set returns actor_name null but actor_id non-null -- not the clock''s own row');
 
 reset role;
 
