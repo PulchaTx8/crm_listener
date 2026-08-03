@@ -205,6 +205,34 @@ When supplied, before anything is drawn:
 
 ## 5. The screen
 
+**The list becomes an RPC.** Owner's ruling, 2026-08-02, taken after the
+implementation found what this section originally glossed over: the participants
+list is not a function with parameters, it is a PostgREST query with an embed
+(`member_company_links.members`), a keyset cursor and a search over the
+listener's name and phone. "It gains two filters" is not a small change to it.
+
+Neither of the cheaper routes survives contact:
+
+- a **view** carrying `answered_correctly` and `already_won` would be the right
+  instrument, except that PostgREST cannot infer the foreign key to the embedded
+  members through a view — and that embed is what makes the name and phone
+  search work at all;
+- **two round trips** (an RPC returning the matching ids, then `.in('id', …)`)
+  keeps the screen intact and puts a promotion's whole participation list into a
+  URL, which the gateway will refuse long before the operator does.
+
+So `list_participations` becomes a `SECURITY DEFINER` function carrying every
+filter the screen has today — Station, promotion, status, source, search, date
+range — plus the two new ones and the `already_won` column, with the keyset and
+its direction as parameters.
+
+**The risk this creates, and what pays for it:** the keyset and the search are
+re-expressed in SQL, and both work today. Their behaviour is what the screen's
+paging and its "find this listener" depend on, so the pgTAP for this function
+tests them directly — a page boundary walked forwards and backwards, and a
+search matching on name, on phone and on the digits of a document — rather than
+only testing the two filters this block is adding.
+
 **`/participations` moves from the sidebar's Promotions section to Audience**,
 beside Members. It is the listing of people taking part, and that is where the
 owner looks for it.
