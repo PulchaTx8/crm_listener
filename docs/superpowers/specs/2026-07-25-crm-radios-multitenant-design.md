@@ -199,7 +199,14 @@ Every operation runs in a **PL/pgSQL function (RPC)** with a **lock** (`SELECT .
 - **Referential chain (M4):** `draw → winner → delivery` carries `promotion_prize_id` (and `draw_id`/`winner_id`) so that **the delivery decrements the correct promotion's counter**. `deliveries` references `winners`; `winners` references `draw_entries`/`promotion_prizes`.
 - **Pickup deadline** (§18): **frozen at the moment of the draw**. A prize may have a default deadline; a promotion may override it.
 - **Deadline cron** (`pg_cron` + Edge Function, idempotent): processes expired deadlines → `RETURN_PENDING` + notifies; allows extending/returning/writing off. A cron failure raises an alert (§31).
-- **Runners-up (N8):** when the winner does not collect the prize (return/write-off), there is an explicit **promote runner-up** flow: it creates a new `winner` from the runner-up, **recomputes/rearms the deadline**, generates a coherent inventory movement (the prize moves back from `pending_return`/`awaiting_pickup` to the new winner) and records it in `winner_status_history`.
+- ~~**Runners-up (N8):** when the winner does not collect the prize (return/write-off), there is an explicit **promote runner-up** flow: it creates a new `winner` from the runner-up, **recomputes/rearms the deadline**, generates a coherent inventory movement (the prize moves back from `pending_return`/`awaiting_pickup` to the new winner) and records it in `winner_status_history`.~~
+  **WITHDRAWN on 2026-08-02 by the owner.** There are no runners-up in this
+  product. A draw is a shuffle over a list the operator filtered, and each prize
+  goes to one person in it; a prize that is not collected follows the pickup
+  deadline and is returned to stock or written off by an operator (Block 6b),
+  with nothing promoted because there is no queue to promote from. Struck rather
+  than deleted so that a reader who remembers N8 finds out what happened to it.
+  See `docs/superpowers/specs/2026-08-02-block-6c-filtered-hat-design.md` D1.
 - **"Allows return" flag (N11):** the return flow honours the `prizes.allows_return_to_stock` field: if **true**, it offers `RETURN_TO_STOCK`; if **false**, the outcome is `WRITE_OFF` (with a mandatory reason). The UI does not offer a return when the prize does not allow it.
 - **Delivery** (§13.4): idempotent transactional flow — locate Member → verify → responsible party/masked document → **receipt in a private bucket** → confirm → `DELIVERY` movement → audit → receipt.
 
@@ -290,8 +297,11 @@ Promotion/quiz/participation tables; tabs; **transactional prize linking** (RPC,
 **Done when:** a repeated event does not duplicate a participation; an invalid signature is rejected; the worker processes pending events and allows reprocessing.
 
 ### Block 6 — Draws & deliveries
-Draw/delivery/return tables with the `promotion_prize_id` chain (M4); eligibility; auditable CSPRNG draw; **frozen deadline**; **runner-up promotion (N8)**; **allows-return flag (N11)**; idempotent transactional delivery; private receipt; return to stock; **deadline cron** + notification.
-**Done when:** a prize is not delivered twice; a delivery decrements the correct promotion; an expired deadline automatically becomes a pending return; a runner-up can be promoted with coherent stock/deadline; the return honours the prize's flag.
+Draw/delivery/return tables with the `promotion_prize_id` chain (M4); eligibility; auditable CSPRNG draw; **frozen deadline**; ~~runner-up promotion (N8)~~ (withdrawn 2026-08-02, see §6); **allows-return flag (N11)**; idempotent transactional delivery; private receipt; return to stock; **deadline cron** + notification.
+
+Split into four on the owner's rulings of 2026-08-02, because five subsystems in one pass produce a diff nobody reviews: **6a** the draw and the frozen deadline; **6b** delivery, undoing a delivery, return and write-off; **6c** the filtered hat, which corrects 6a and withdraws N8; **6d** the deadline cron and its notification.
+
+**Done when:** a prize is not delivered twice; a delivery decrements the correct promotion; an expired deadline is surfaced and notified; the return honours the prize's flag; and the draw is a shuffle over a list the operator filtered and can see, in which nobody wins twice in one promotion.
 
 ### Block 7 — Music
 Model the Music domain (§4.2); UI (dashboard, catalogs, categories, requests, maintenance); legacy migration.
@@ -376,7 +386,7 @@ End-to-end flow with multi-tenant security: create account → Organization → 
   - **N5:** **partial** unique indexes (`WHERE deleted_at IS NULL`). §4.4.
   - **N6:** rate limiting with a shared store (`rate_limit_counters` in Postgres / Upstash). §3.1, §9, Block 0.
   - **N7:** LGPD **retention cron**. §9, Block 11.
-  - **N8:** **runner-up promotion** to winner flow. §6, Block 6.
+  - ~~**N8:** **runner-up promotion** to winner flow. §6, Block 6.~~ **Withdrawn 2026-08-02** — there are no runners-up. See §6.
   - **N9:** test stack defined (Vitest + Playwright + pgTAP/harness). §3.1, §11, Block 0.
   - **N10:** app e-mail provider (`mailer` SMTP/Resend). §3.1, §4.1.
   - **N11:** the `allows_return_to_stock` flag gates `RETURN_TO_STOCK` vs `WRITE_OFF`. §6.
