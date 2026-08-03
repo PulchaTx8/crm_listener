@@ -3,22 +3,31 @@
 **Audience:** whoever operates a Station, and whoever has to answer a listener
 asking what happened to their prize.
 
+> **Corrected by Block 6c (2026-08-03), in place.** Runners-up were withdrawn
+> from the product, and the screens named here are now in English. Both changes
+> are carried through below rather than noted and left.
+
 Block 6a ends at the moment somebody has won. This is everything an operator
-does deliberately from there. What the **clock** does — a deadline expiring, a
-runner-up being promoted — is Block 6c and does not exist yet.
+does deliberately from there. What the **clock** does — a deadline expiring, and
+what follows from it — is Block 6d and does not exist yet.
+
+What it will NOT do is pass the prize to a runner-up: there are no runners-up in
+this product (owner's ruling, 2026-08-02, withdrawing requirement N8 of the
+master spec). A prize nobody collects is returned to stock or written off by an
+operator, which is exactly what this runbook describes.
 
 ---
 
 ## 1. The four actions, and when each is offered
 
-A winner's row on **Promotions → the promotion → Prizes tab → "Sorteios desta
-promoção"** offers only what its current state allows:
+A winner's row on **Promotions → the promotion → Prizes tab → "Draws of this
+promotion"** offers only what its current state allows:
 
 | The prize is | You may | You may not |
 |---|---|---|
-| **Aguardando retirada** (`AWAITING_PICKUP`) | Entregar · Devolver ao estoque · Dar baixa | Desfazer — there is nothing to undo |
-| **Entregue** (`DELIVERED`) | Desfazer entrega | Devolver or dar baixa — undo the delivery first |
-| **Devolvido** / **Baixado** | nothing | this is the end of the line |
+| **Awaiting pickup** (`AWAITING_PICKUP`) | Hand over · Return to stock · Write off | Undo the handover — there is nothing to undo |
+| **Delivered** (`DELIVERED`) | Undo the handover | Return or write off — undo the handover first |
+| **Returned** / **Written off** | nothing | this is the end of the line |
 
 Each needs its own permission: `winners.deliver`, `winners.deliver_cancel`,
 `winners.return`, `winners.write_off`. Holding one grants none of the others —
@@ -31,19 +40,19 @@ was supposed to happen.
 
 ---
 
-## 2. Devolver ao estoque, or dar baixa?
+## 2. Return to stock, or write off?
 
-- **Devolver ao estoque** puts the unit back in `available`, where it can be
-  linked to another promotion. The promotion's own figures drop by one:
-  a returned unit is no longer *Vinculado* or *Sorteado* for it.
-- **Dar baixa** takes the unit out of stock for good. The promotion keeps
+- **Return to stock** puts the unit back in `available`, where it can be linked
+  to another promotion. The promotion's own figures drop by one: a returned unit
+  is no longer *Linked* or *Drawn* for it.
+- **Write off** takes the unit out of stock for good. The promotion keeps
   counting it, because it was that promotion that consumed it.
 
-**Some prizes offer only the write-off.** A prize registered with *"não volta ao
-estoque"* — a personalised item, something perishable, a ticket to a date that
-has passed — has its Devolver button hidden, and the system refuses it by name
-if asked anyway. That flag is set when the prize is registered, by whoever knows
-the answer.
+**Some prizes offer only the write-off.** A prize registered as one that does
+not go back to stock — a personalised item, something perishable, a ticket to a
+date that has passed — has its Return button hidden, and the system refuses it
+by name if asked anyway. That flag is set when the prize is registered, by
+whoever knows the answer.
 
 ---
 
@@ -51,14 +60,14 @@ the answer.
 
 For the ordinary mistake: the operator clicked the wrong winner.
 
-The unit goes back from *entregue* to *aguardando retirada*, the reason is
+The unit goes back from *delivered* to *awaiting pickup*, the reason is
 recorded with who gave it, and the winner is waiting again.
 
 **Two things it deliberately does not do:**
 
 - **It does not move the deadline.** The deadline was fixed at the draw. If it
   passed while the delivery stood, the winner comes back **already overdue** —
-  which is true, and is what Block 6c will act on.
+  which is true, and is what Block 6d will act on.
 - **It does not delete the receipt.** A receipt is a photograph of a real
   handover; deleting it because somebody corrected a record would destroy
   evidence. It stays on the winner.
@@ -80,9 +89,9 @@ The file lives in a **private bucket**. It is never a public link — the screen
 shows it through a short-lived signed URL, and reading one needs
 `promotions.view` at that Station.
 
-**"sem recibo"** means none was attached. **"recibo apagado a pedido"** means
-there was one and the listener asked to be erased. Those are different facts and
-the screen says which.
+**"no receipt"** means none was attached. **"receipt erased at the listener's
+request"** means there was one and the listener asked to be erased. Those are
+different facts and the screen says which.
 
 ---
 

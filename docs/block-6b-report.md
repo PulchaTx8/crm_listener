@@ -142,14 +142,25 @@ eight migrations. Neither is this block's to fix and both are still open.
 
 ---
 
-## 6. Deferred to Block 6c
+## 6. Deferred to Block 6d
 
-The deadline expiring; promoting a runner-up and re-arming its deadline;
-`SUPERSEDED`, which `winner_status` already carries and nothing writes; the cron
-that finds overdue winners; the notification through `outbox_messages`.
+> Renumbered by Block 6c (2026-08-03). What this section deferred "to 6c" is now
+> 6d's: 6c turned out to be the filtered hat, and the clock is what is left.
 
-`availableWinnerActions` already returns nothing for `SUPERSEDED`, so 6c adds a
-transition rather than re-shaping the screen.
+The deadline expiring, the cron that finds overdue winners, and the notification
+through `outbox_messages`.
+
+**Not** promoting a runner-up. Block 6c withdrew runners-up from the product on
+the owner's ruling, and `winner_status.SUPERSEDED` went with them — it existed
+for exactly that one thing, and `0075` was edited in place to declare four
+values rather than five. What happens to an overdue prize is already built here:
+an operator returns it to stock or writes it off, and the clock's job is to find
+the winner and say so rather than to hand the prize on.
+
+This report's own sentence that `availableWinnerActions` "already returns
+nothing for `SUPERSEDED`, so 6c adds a transition rather than re-shaping the
+screen" is therefore withdrawn: there is no such status to return nothing for,
+and the branch was deleted.
 
 ---
 

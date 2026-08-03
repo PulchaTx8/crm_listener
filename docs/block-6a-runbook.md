@@ -3,22 +3,29 @@
 **Audience:** whoever operates a Station, and whoever has to answer a listener
 who did not win.
 
+> **Corrected by Block 6c (2026-08-03), in place.** Runners-up were withdrawn
+> from the product, "one person, one prize" became per PROMOTION rather than per
+> draw, and the screens named here are now in English. A draw can also be run
+> from the participants list, over a set the operator filtered — see
+> `docs/block-6c-runbook.md`, which is the one to read for that. This file still
+> describes running a draw over a whole promotion, which is still a thing you
+> can do.
+
 ---
 
 ## 1. What the operator is choosing
 
 The draws of a promotion live at **Promotions → open the promotion → Prizes tab
-→ "Sorteios desta promoção"**, or directly at
+→ "Draws of this promotion"**, or directly at
 `/promotions/<promotion id>/draws`.
 
-Running a draw asks two questions and nothing else:
+Running a draw asks one question and nothing else:
 
 | Choice | Default | What it means |
 |---|---|---|
 | How many units of each prize | everything still available | `linked − drawn` for each live link. A Station with ten units may draw three now and seven next month (D8). |
-| How many runners-up | 3 | One ordered queue for the whole draw, not one per prize (D4). |
 
-Pressing **Sortear** does all of this in a single transaction: the eligible
+Pressing **Draw** does all of this in a single transaction: the eligible
 entries are frozen, the winners are picked, one unit per winner moves from
 `linked` to `awaiting_pickup` in the inventory, and each winner's deadline is
 written. If any part of it fails, none of it happened.
@@ -41,9 +48,13 @@ A participation is in the hat when all of these hold:
 - the listener is **not blocked** — both a `draw_ban` and a `suspension`
   exclude (D6).
 
-A person wins **at most one prize per draw** (D2). Once they win, their
-remaining entries leave the hat, and they cannot also appear in the runner-up
-queue.
+A person wins **at most one prize per promotion**. Once they win, their
+remaining entries leave the hat, and they are gone from the list for every
+later round of the same promotion — which is why a name can disappear between
+rounds, and why the participants list carries a "Won here" column saying so.
+
+Corrected on 2026-08-03: 6a shipped this rule as one prize per DRAW, which let
+two rounds award the same listener twice. Block 6c moved it into eligibility.
 
 **If nobody is eligible, the draw is refused** rather than recorded as an empty
 draw. Nothing happened, and a row saying it did is worse than none.
@@ -82,7 +93,7 @@ screen and in the database.
 
 ```sql
 -- The seed and the contract version.
-select seed, algorithm_version, entry_count, runner_up_count, drawn_at
+select seed, algorithm_version, entry_count, offered_count, drawn_at
 from public.draws
 where id = '<draw id>';
 
@@ -97,11 +108,6 @@ select awarded_rank, participation_id, member_id, promotion_prize_id
 from public.winners
 where draw_id = '<draw id>'
 order by awarded_rank;
-
-select position, participation_id, member_id
-from public.draw_runners_up
-where draw_id = '<draw id>'
-order by position;
 ```
 
 ### 4.2 The recipe (algorithm version 1)
@@ -129,10 +135,7 @@ order by position;
    entry whose **listener has not already been awarded** in this draw. Stop when
    the entries run out.
 
-5. Keep walking, same skip rule, for `runner_up_count` more entries. Those are
-   the runners-up, in order.
-
-The names you get must match `winners` and `draw_runners_up` exactly, in order.
+The names you get must match `winners` exactly, in order.
 
 ### 4.3 Doing it in SQL, against the live record
 
@@ -159,8 +162,9 @@ from best
 order by place;
 ```
 
-`place` 1..N are the winners in `awarded_rank` order, and the places after them
-are the runner-up queue in order.
+`place` 1..N are the winners in `awarded_rank` order. Places past the number of
+units drawn are simply the people who did not win — they are nobody, and
+nothing in this product promotes them.
 
 ### 4.4 Doing it in any language
 
@@ -237,10 +241,10 @@ There is no un-cancel. Run a new draw.
 was valid at that instant, and the record says when. Entries that arrive
 afterwards are simply not in that draw.
 
-**Whoever may see a draw sees who won it.** The names of winners and
-runners-up come back to anybody holding `promotions.view` — no `members.view`
-required, so the operator who runs a draw can tell the winner they won without
-also being given the audience.
+**Whoever may see a draw sees who won it.** The winners' names come back to
+anybody holding `promotions.view` — no `members.view` required, so the operator
+who runs a draw can tell the winner they won without also being given the
+audience.
 
 Worth knowing when handing out roles: this is the one place where
 `promotions.view` alone reveals a listener's name. It is limited to the winners

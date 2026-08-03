@@ -1,5 +1,16 @@
 # Block 6a — The draw, and the deadline it freezes — Implementation Plan
 
+> **PARTLY UNDONE BY BLOCK 6C (2026-08-02/03). Do not implement this plan as
+> written.** It is kept as the record of what 6a was asked to build, not as a
+> description of what exists. Three of its instructions were reversed:
+> **runners-up** — `draw_runners_up`, `draws.runner_up_count`,
+> `winner_status.SUPERSEDED`, the second walk in the algorithm and the verifier,
+> and the dialog's second field — were withdrawn from the product on the owner's
+> ruling; **one prize per person** moved from per-draw to per-PROMOTION; and the
+> hat stopped being computed by `run_draw` and started being **supplied** to it
+> as participation ids. Everything below that names a runner-up is false of the
+> code. See `docs/superpowers/plans/2026-08-02-block-6c-filtered-hat.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A promotion's winners are picked, the prize moves in the inventory, a deadline starts running — and anybody holding the record can recompute the same winners.

@@ -1,5 +1,16 @@
 # Block 6a — The draw — Verification Report
 
+> **Superseded in part by Block 6c (2026-08-02/03).** This report records what
+> 6a delivered and is left standing rather than rewritten, but three of its
+> claims no longer describe the product: **runners-up were withdrawn entirely**
+> (D4 below, and requirement N8 in the master spec); **one person, one prize**
+> now holds per PROMOTION rather than per draw; and the hat is now **supplied by
+> the operator** rather than computed, so a draw runs over a list somebody
+> filtered and looked at. The draw also ignored whether anybody answered the
+> quiz — an instruction `0052` had left for Block 6 — which 6c corrects, gating
+> a hat holding wrong answers on `draws.include_wrong_answers`. See
+> `docs/block-6c-report.md` and `docs/block-6c-runbook.md`.
+
 **Date:** 2026-08-02
 **Branch:** `block-6a` (cut from `main` after PR #19)
 **Spec:** `docs/superpowers/specs/2026-08-02-block-6a-draw-design.md`
@@ -36,7 +47,7 @@ cases across `draw-algorithm` and `run-draw-dialog`, 5 isolation cases in
 
 | Migration | What |
 |---|---|
-| `0075_draw_tables.sql` | `draw_status`, `winner_status`; `draws`, `draw_entries`, `winners`, `draw_runners_up`; the two deadline columns; `draws.execute` and `draws.cancel` |
+| `0075_draw_tables.sql` | `draw_status`, `winner_status`; `draws`, `draw_entries`, `winners`, `draw_runners_up`; the two deadline columns; `draws.execute` and `draws.cancel` — *`draw_runners_up`, `draws.runner_up_count` and `winner_status.SUPERSEDED` were cut back out of this same file by Block 6c, which also added `draws.offered_count`, `draws.included_wrong_answers` and `draws.include_wrong_answers`* |
 | `0076_draw_eligibility.sql` | `member_block_active`; `draw_eligible_participations`; `is_member_blocked` and `members_blocked_bulk` refactored onto the new core |
 | `0077_draw_ledger.sql` | the movement-reference constraint widened to `DRAW`/`DRAW_CANCEL`; `project_promotion_prize_movement`; `apply_inventory_movement` replaced to call it |
 | `0078_run_draw.sql` | `apply_draw` (private) and `run_draw` |
@@ -53,9 +64,9 @@ the `/promotions/[id]/draws` route with its screen, and the two components.
 | Decision | Where it is enforced |
 |---|---|
 | D1 — one entry per VALID participation | `draw_eligible_participations`; pgTAP "two participations by one listener are two entries"; the 30-entry isolation fixture |
-| D2 — one prize per person per draw | the walk's `distinct on (member_id)`, **and** `winners_one_prize_per_member` as a constraint, so a future edit to the walk cannot break it quietly |
+| D2 — one prize per person per draw | the walk's `distinct on (member_id)`, **and** `winners_one_prize_per_member` as a constraint, so a future edit to the walk cannot break it quietly — *superseded by 6c's D4: the rule is now per PROMOTION and lives in `draw_eligible_participations`, because per-draw let a second round award the same listener again* |
 | D3 — reproducible from a stored seed | seed generated inside `apply_draw`, `CHECK` on its shape, `algorithm_version` per draw, and `tests/isolation/draw.test.ts` |
-| D4 — one ordered runner-up queue | the same walk continued, `unique (draw_id, member_id)` on the queue |
+| D4 — one ordered runner-up queue | ~~the same walk continued, `unique (draw_id, member_id)` on the queue~~ — **withdrawn by Block 6c** on the owner's ruling, with requirement N8 of the master spec. Struck rather than deleted, because a decision that was made and then unmade is part of the record |
 | D5 — the deadline is frozen at the draw | `winners.deadline_at` written once; pgTAP proves promotion-overrides-prize and null-means-none |
 | D6 — both kinds of block exclude | `member_block_active`, mutation-proven |
 | D7 — a cancelled draw is kept whole | `cancel_draw` deletes nothing; pgTAP asserts hat, winners and seed survive |
@@ -168,8 +179,9 @@ Since `get_draw` is `SECURITY DEFINER`, that means a caller **without**
 `members.view` reads through it names that `members_select_reachable` (`0035`)
 would refuse them through the ordinary door.
 
-The door is narrow — the winners and the runner-up queue of a draw the caller
-may already see, never the audience at large, and no phone, e-mail or note — but
+The door is narrow — the winners of a draw the caller may already see (and, in
+6a, its runner-up queue, which no longer exists), never the audience at large,
+and no phone, e-mail or note — but
 it is real, and it is now the one place in the schema where `promotions.view`
 implies a listener's name. Anyone auditing who can read the audience has to
 count this function, not just Block 3's policies. A pgTAP case pins it in the
@@ -216,11 +228,15 @@ Delivery and its receipt; the `DELIVERY` movement and the return types — the
 ledger constraint and `project_promotion_prize_movement` deliberately still
 refuse them, and `04_promotion_prizes.test.sql`'s tripwire is waiting for
 whichever block widens them next. Return to stock honouring
-`prizes.allows_return_to_stock`; promoting a runner-up and re-arming its
-deadline; `winner_status_history`; the deadline cron and its notification.
+`prizes.allows_return_to_stock`; ~~promoting a runner-up and re-arming its
+deadline~~ (withdrawn — see D4 above); `winner_status_history`; the deadline
+cron and its notification.
 
 `winners.status` already carries the full five-value vocabulary, so 6b adds
-behaviour rather than re-shaping a column that holds rows.
+behaviour rather than re-shaping a column that holds rows. *That argument did
+not survive: 6c deleted `SUPERSEDED` from the vocabulary because the one thing
+it existed for was promoting a runner-up. Declaring an enum value early is not
+free — it costs whatever has to be unpicked when the feature is withdrawn.*
 
 ---
 
