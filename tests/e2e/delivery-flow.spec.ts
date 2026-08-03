@@ -112,7 +112,6 @@ test.beforeAll(async () => {
   const drawn = await owner.rpc('run_draw', {
     p_promotion_id: promotionId,
     p_units: null,
-    p_runner_up_count: 0,
   });
   if (drawn.error) throw new Error(`run_draw failed: ${drawn.error.message}`);
 });

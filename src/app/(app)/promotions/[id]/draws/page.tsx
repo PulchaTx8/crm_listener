@@ -4,7 +4,7 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { getPromotionRecord, getPromotionStationId } from '@/services/promotions';
-import { DEFAULT_RUNNER_UP_COUNT, getDraw, listDraws } from '@/services/draws';
+import { getDraw, listDraws } from '@/services/draws';
 import { signReceiptUrl } from '@/services/winners';
 import type { DrawDetail, DrawSummary } from '@/services/draws';
 import { getPromotionPowers } from '../../access';
@@ -102,7 +102,6 @@ export default async function PromotionDrawsPage({
               draws={draws}
               detail={detail}
               linked={linked}
-              defaultRunnerUpCount={DEFAULT_RUNNER_UP_COUNT}
               companyId={companyId}
               canDraw={powers.drawsExecute}
               canCancel={powers.drawsCancel}

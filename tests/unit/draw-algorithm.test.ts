@@ -45,14 +45,11 @@ describe('runDrawAlgorithm', () => {
 
   it('gives the same winners for the same seed and the same hat', () => {
     const hat = entries(50);
-    const first = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3), runnerUpCount: 3 });
-    const second = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3), runnerUpCount: 3 });
+    const first = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3) });
+    const second = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3) });
 
     expect(first.winners.map((w) => w.entry.participationId)).toEqual(
       second.winners.map((w) => w.entry.participationId),
-    );
-    expect(first.runnersUp.map((r) => r.entry.participationId)).toEqual(
-      second.runnersUp.map((r) => r.entry.participationId),
     );
   });
 
@@ -60,8 +57,8 @@ describe('runDrawAlgorithm', () => {
     // 50 entries, 3 units: the chance the two seeds agree on all three winners
     // by accident is about 1 in 117,600.
     const hat = entries(50);
-    const a = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3), runnerUpCount: 0 });
-    const b = runDrawAlgorithm({ seed: SEED_B, entries: hat, units: units(3), runnerUpCount: 0 });
+    const a = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3) });
+    const b = runDrawAlgorithm({ seed: SEED_B, entries: hat, units: units(3) });
 
     expect(a.winners.map((w) => w.entry.participationId)).not.toEqual(
       b.winners.map((w) => w.entry.participationId),
@@ -76,17 +73,15 @@ describe('runDrawAlgorithm', () => {
       { participationId: 'p-3', memberId: 'm-1', position: 3 },
     ];
 
-    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3), runnerUpCount: 2 });
+    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3) });
 
     expect(outcome.winners).toHaveLength(1);
     expect(outcome.winners[0]?.entry.memberId).toBe('m-1');
-    // And the same rule empties the runner-up queue: there is nobody else.
-    expect(outcome.runnersUp).toHaveLength(0);
   });
 
   it('awards what it can when the hat is smaller than the units asked for', () => {
     const hat = entries(2, 2);
-    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3), runnerUpCount: 0 });
+    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3) });
 
     expect(outcome.winners).toHaveLength(2);
     expect(outcome.winners.map((w) => w.awardedRank)).toEqual([1, 2]);
@@ -100,64 +95,17 @@ describe('runDrawAlgorithm', () => {
       { promotionPrizeId: 'bbbbbbbb-0000-0000-0000-000000000002', unitIndex: 2 },
     ];
 
-    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: twoPrizes, runnerUpCount: 0 });
+    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: twoPrizes });
 
     expect(outcome.winners.map((w) => w.awardedRank)).toEqual([1, 2, 3]);
     expect(outcome.winners.map((w) => w.unit)).toEqual(twoPrizes);
-  });
-
-  it('continues the same walk for the runners-up, without repeating a listener', () => {
-    const hat = entries(20, 20);
-    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(2), runnerUpCount: 3 });
-
-    expect(outcome.runnersUp.map((r) => r.position)).toEqual([1, 2, 3]);
-
-    const awarded = outcome.winners.map((w) => w.entry.memberId);
-    const queued = outcome.runnersUp.map((r) => r.entry.memberId);
-    expect(new Set([...awarded, ...queued]).size).toBe(awarded.length + queued.length);
-  });
-
-  it('runs the runners-up off the same ordering the winners came from', () => {
-    // The queue is the CONTINUATION of the walk: drawing 2 winners + 3
-    // runners-up must give the same five names, in the same order, as drawing
-    // 5 winners would. This is what "one queue for the draw" (D4) means.
-    const hat = entries(20, 20);
-    const withQueue = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(2), runnerUpCount: 3 });
-    const asWinners = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(5), runnerUpCount: 0 });
-
-    expect([
-      ...withQueue.winners.map((w) => w.entry.participationId),
-      ...withQueue.runnersUp.map((r) => r.entry.participationId),
-    ]).toEqual(asWinners.winners.map((w) => w.entry.participationId));
-  });
-
-  it('yields no runners-up when none were asked for', () => {
-    const outcome = runDrawAlgorithm({
-      seed: SEED_A,
-      entries: entries(10, 10),
-      units: units(1),
-      runnerUpCount: 0,
-    });
-
-    expect(outcome.runnersUp).toEqual([]);
-  });
-
-  it('stops the queue when the hat runs out rather than padding it', () => {
-    const outcome = runDrawAlgorithm({
-      seed: SEED_A,
-      entries: entries(3, 3),
-      units: units(1),
-      runnerUpCount: 10,
-    });
-
-    expect(outcome.runnersUp).toHaveLength(2);
   });
 
   it('does not mutate the caller’s array', () => {
     const hat = entries(10, 10);
     const before = hat.map((e) => e.participationId);
 
-    runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3), runnerUpCount: 2 });
+    runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(3) });
 
     expect(hat.map((e) => e.participationId)).toEqual(before);
   });
@@ -175,10 +123,9 @@ describe('runDrawAlgorithm', () => {
       { participationId: 'same', memberId: 'm-1', position: 4 },
     ];
 
-    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: tied, units: units(1), runnerUpCount: 1 });
+    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: tied, units: units(1) });
 
     expect(outcome.winners[0]?.entry.position).toBe(4);
-    expect(outcome.runnersUp[0]?.entry.position).toBe(7);
   });
 
   it('ranks by sha256(seed:participation_id) ascending, as the spec states it', () => {
@@ -187,7 +134,7 @@ describe('runDrawAlgorithm', () => {
     // separator and the input encoding, which is where the SQL side is most
     // likely to drift (isolation test, Task 5).
     const hat = entries(25, 25);
-    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(1), runnerUpCount: 0 });
+    const outcome = runDrawAlgorithm({ seed: SEED_A, entries: hat, units: units(1) });
 
     const smallest = hat
       .map((e) => ({
@@ -204,10 +151,8 @@ describe('runDrawAlgorithm', () => {
       seed: SEED_A,
       entries: entries(10, 10),
       units: [],
-      runnerUpCount: 2,
     });
 
     expect(outcome.winners).toEqual([]);
-    expect(outcome.runnersUp).toHaveLength(2);
   });
 });

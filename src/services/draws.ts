@@ -25,15 +25,11 @@ function asCaller(accessToken: string) {
   });
 }
 
-/** The default the button offers, and the default run_draw itself carries (D4). */
-export const DEFAULT_RUNNER_UP_COUNT = 3;
-
 export interface DrawSummary {
   id: string;
   drawnAt: string;
   status: 'COMPLETED' | 'CANCELLED';
   entryCount: number;
-  runnerUpCount: number;
   algorithmVersion: number;
   seed: string;
   winnerCount: number;
@@ -58,26 +54,17 @@ export interface DrawWinner {
   status: string;
 }
 
-export interface DrawRunnerUp {
-  position: number;
-  memberId: string;
-  memberName: string | null;
-  participationId: string;
-}
-
 export interface DrawDetail {
   id: string;
   promotionId: string;
   seed: string;
   algorithmVersion: number;
   entryCount: number;
-  runnerUpCount: number;
   status: 'COMPLETED' | 'CANCELLED';
   drawnAt: string;
   cancelledAt: string | null;
   cancellationReason: string | null;
   winners: DrawWinner[];
-  runnersUp: DrawRunnerUp[];
 }
 
 export interface DrawUnitRequest {
@@ -107,7 +94,6 @@ export async function runDraw(
   input: {
     promotionId: string;
     units: DrawUnitRequest[] | null;
-    runnerUpCount: number;
   },
 ): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('run_draw', {
@@ -116,13 +102,13 @@ export async function runDraw(
     // available on every live link (D8) — and the screen sends null for it, so
     // an empty array from a form that rendered no rows cannot read as "draw
     // everything" by accident somewhere else later.
-    p_units: input.units && input.units.length > 0
-      ? input.units.map((unit) => ({
-          promotion_prize_id: unit.promotionPrizeId,
-          quantity: unit.quantity,
-        }))
-      : null,
-    p_runner_up_count: input.runnerUpCount,
+    p_units:
+      input.units && input.units.length > 0
+        ? input.units.map((unit) => ({
+            promotion_prize_id: unit.promotionPrizeId,
+            quantity: unit.quantity,
+          }))
+        : null,
   });
 
   if (error) throw mapDrawError(error.code, error.message);
@@ -142,10 +128,7 @@ export async function cancelDraw(
   if (error) throw mapDrawError(error.code, error.message);
 }
 
-export async function listDraws(
-  accessToken: string,
-  promotionId: string,
-): Promise<DrawSummary[]> {
+export async function listDraws(accessToken: string, promotionId: string): Promise<DrawSummary[]> {
   const { data, error } = await asCaller(accessToken).rpc('list_draws', {
     p_promotion_id: promotionId,
   });
@@ -157,7 +140,6 @@ export async function listDraws(
     drawnAt: row.drawn_at,
     status: row.status,
     entryCount: row.entry_count,
-    runnerUpCount: row.runner_up_count,
     algorithmVersion: row.algorithm_version,
     seed: row.seed,
     winnerCount: row.winner_count,
@@ -176,7 +158,6 @@ export async function getDraw(accessToken: string, drawId: string): Promise<Draw
 
   const body = data as Record<string, unknown>;
   const winners = (body.winners ?? []) as Record<string, unknown>[];
-  const runnersUp = (body.runners_up ?? []) as Record<string, unknown>[];
 
   return {
     id: String(body.id),
@@ -184,7 +165,6 @@ export async function getDraw(accessToken: string, drawId: string): Promise<Draw
     seed: String(body.seed),
     algorithmVersion: Number(body.algorithm_version),
     entryCount: Number(body.entry_count),
-    runnerUpCount: Number(body.runner_up_count),
     status: body.status as 'COMPLETED' | 'CANCELLED',
     drawnAt: String(body.drawn_at),
     cancelledAt: (body.cancelled_at as string | null) ?? null,
@@ -202,12 +182,6 @@ export async function getDraw(accessToken: string, drawId: string): Promise<Draw
       receiptErasedAt: (w.receipt_erased_at as string | null) ?? null,
       deadlineAt: (w.deadline_at as string | null) ?? null,
       status: String(w.status),
-    })),
-    runnersUp: runnersUp.map((r) => ({
-      position: Number(r.position),
-      memberId: String(r.member_id),
-      memberName: (r.member_name as string | null) ?? null,
-      participationId: String(r.participation_id),
     })),
   };
 }

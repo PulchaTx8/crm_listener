@@ -19,17 +19,7 @@ export interface DrawUnitRequest {
 }
 
 export type DrawRequestResult =
-  | { ok: true; units: DrawUnitRequest[] | null }
-  | { ok: false; message: string };
-
-/**
- * A ceiling on the runner-up count, so a mistyped number cannot ask for a queue
- * longer than any hat this system will ever hold. Arbitrary and deliberate, the
- * way promotions_repetition_shape's 8760 hours is: without one, a stray digit
- * turns a queue of three into a queue of three hundred and the draw quietly
- * writes every remaining listener into it.
- */
-export const DRAW_RUNNER_UP_MAX = 50;
+  { ok: true; units: DrawUnitRequest[] | null } | { ok: false; message: string };
 
 /**
  * What the dialog will and will not send.
@@ -47,17 +37,9 @@ export const DRAW_RUNNER_UP_MAX = 50;
  */
 export function validateDrawRequest(input: {
   units: DrawUnitChoice[];
-  runnerUpCount: number;
   allTaken?: boolean;
 }): DrawRequestResult {
-  const { units, runnerUpCount, allTaken = false } = input;
-
-  if (!Number.isInteger(runnerUpCount) || runnerUpCount < 0) {
-    return { ok: false, message: 'O número de suplentes não pode ser negativo.' };
-  }
-  if (runnerUpCount > DRAW_RUNNER_UP_MAX) {
-    return { ok: false, message: `No máximo ${DRAW_RUNNER_UP_MAX} suplentes.` };
-  }
+  const { units, allTaken = false } = input;
 
   for (const unit of units) {
     if (!Number.isInteger(unit.requested) || unit.requested < 0) {
@@ -94,38 +76,35 @@ export function validateDrawRequest(input: {
 }
 
 /**
- * How many of each prize, how many runners-up, and the button.
+ * How many of each prize, and the button.
  *
  * The counts it offers come from the balances the page read; the refusal that
  * matters comes from the database. Both are shown to the operator.
  */
 export function RunDrawDialog({
   linked,
-  defaultRunnerUpCount,
   onRun,
   disabled,
 }: {
   linked: DrawUnitChoice[];
-  defaultRunnerUpCount: number;
-  onRun: (units: DrawUnitRequest[] | null, runnerUpCount: number) => Promise<string | null>;
+  onRun: (units: DrawUnitRequest[] | null) => Promise<string | null>;
   disabled?: boolean;
 }) {
   const [choices, setChoices] = useState<DrawUnitChoice[]>(linked);
-  const [runnerUpCount, setRunnerUpCount] = useState(defaultRunnerUpCount);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const allTaken = choices.every((unit) => unit.requested === unit.available);
 
   function submit() {
-    const validated = validateDrawRequest({ units: choices, runnerUpCount, allTaken });
+    const validated = validateDrawRequest({ units: choices, allTaken });
     if (!validated.ok) {
       setMessage(validated.message);
       return;
     }
     setMessage(null);
     startTransition(async () => {
-      const failure = await onRun(validated.units, runnerUpCount);
+      const failure = await onRun(validated.units);
       if (failure) setMessage(failure);
     });
   }
@@ -159,19 +138,6 @@ export function RunDrawDialog({
           </label>
         ))}
       </div>
-
-      <label className="flex items-center justify-between gap-3">
-        <span>Suplentes</span>
-        <Input
-          type="number"
-          min={0}
-          max={DRAW_RUNNER_UP_MAX}
-          value={runnerUpCount}
-          aria-label="Número de suplentes"
-          onChange={(event) => setRunnerUpCount(Number(event.target.value))}
-          className="w-24"
-        />
-      </label>
 
       {message ? (
         <p role="alert" className="text-sm text-destructive">

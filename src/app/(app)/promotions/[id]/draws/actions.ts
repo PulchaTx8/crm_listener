@@ -34,11 +34,10 @@ async function requireAccessToken(): Promise<string> {
 export async function runDrawAction(
   promotionId: string,
   units: DrawUnitRequest[] | null,
-  runnerUpCount: number,
 ): Promise<string | null> {
   try {
     const token = await requireAccessToken();
-    await runDraw(token, { promotionId, units, runnerUpCount });
+    await runDraw(token, { promotionId, units });
     revalidatePath(`/promotions/${promotionId}/draws`);
     return null;
   } catch (cause) {

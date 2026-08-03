@@ -3,21 +3,20 @@
 -- Both are gated on promotions.view, because reading a draw is reading a
 -- promotion. The four tables carry select policies saying the same thing
 -- (0075), and these functions exist alongside them rather than instead of
--- them: the screen wants a draw and its winners and its queue in ONE round
+-- them: the screen wants a draw and its winners in ONE round
 -- trip with the counts already computed, and four PostgREST reads plus a
 -- client-side join is not that.
 --
 -- THE NAMES, AND WHAT RETURNING THEM COSTS. Owner's ruling, 2026-08-02:
--- whoever may see a draw may see who won it. get_draw returns winners' and
--- runners-up's names to any caller holding promotions.view, and asks nothing
--- further.
+-- whoever may see a draw may see who won it. get_draw returns the winners'
+-- names to any caller holding promotions.view, and asks nothing further.
 --
 -- The consequence, written down rather than left to be discovered: this makes
 -- get_draw a SECOND door onto audience data. members_select_reachable (0035)
 -- refuses a listener's name to a caller without members.view, and this function
 -- is SECURITY DEFINER, so it hands over what that policy would have withheld.
--- The door is narrow -- only the winners and the runner-up queue of a draw the
--- caller may already see, never the audience at large, never a phone number or
+-- The door is narrow -- only the winners of a draw the caller may already
+-- see, never the audience at large, never a phone number or
 -- an e-mail or a note -- but it is a door, and "promotions.view implies the
 -- names of a few listeners" is now true where it was not before.
 --
@@ -33,7 +32,6 @@ returns table (
   drawn_at            timestamptz,
   status              public.draw_status,
   entry_count         integer,
-  runner_up_count     integer,
   algorithm_version   integer,
   seed                text,
   winner_count        integer,
@@ -62,7 +60,7 @@ begin
   end if;
 
   return query
-  select d.id, d.drawn_at, d.status, d.entry_count, d.runner_up_count,
+  select d.id, d.drawn_at, d.status, d.entry_count,
          d.algorithm_version, d.seed,
          (select count(*)::integer from public.winners w where w.draw_id = d.id),
          d.cancelled_at, d.cancellation_reason
@@ -108,7 +106,6 @@ begin
     'seed', d.seed,
     'algorithm_version', d.algorithm_version,
     'entry_count', d.entry_count,
-    'runner_up_count', d.runner_up_count,
     'status', d.status,
     'drawn_at', d.drawn_at,
     'cancelled_at', d.cancelled_at,
@@ -132,17 +129,7 @@ begin
       join public.promotion_prizes l on l.id = w.promotion_prize_id
       join public.prizes pz on pz.id = l.prize_id
       join public.members m on m.id = w.member_id
-      where w.draw_id = d.id), '[]'::jsonb),
-    'runners_up', coalesce((
-      select jsonb_agg(jsonb_build_object(
-               'position', r.position,
-               'member_id', r.member_id,
-               'member_name', m.full_name,
-               'participation_id', r.participation_id)
-             order by r.position)
-      from public.draw_runners_up r
-      join public.members m on m.id = r.member_id
-      where r.draw_id = d.id), '[]'::jsonb))
+      where w.draw_id = d.id), '[]'::jsonb))
   into v_draw
   from public.draws d
   where d.id = p_draw_id;
@@ -152,7 +139,7 @@ end;
 $$;
 
 comment on function public.get_draw(uuid) is
-  'One draw with its winners and its runner-up queue, in one round trip. Gated on promotions.view and nothing else: whoever may see a draw may see who won it (owner''s ruling, 2026-08-02). This DOES make the function a second, narrow door onto audience data — it is SECURITY DEFINER, so a caller holding promotions.view without members.view reads names here that members_select_reachable (0035) would refuse them, limited to the winners and the runner-up queue of a draw they may already see. A null member_name means the listener has no name on record (members.full_name is nullable, 0031), never that the caller may not see it. The seed and the algorithm version are returned to everyone who may see the draw at all — a proof nobody can see is not a proof.';
+  'One draw with its winners, in one round trip. Gated on promotions.view and nothing else: whoever may see a draw may see who won it (owner''s ruling, 2026-08-02). This DOES make the function a second, narrow door onto audience data — it is SECURITY DEFINER, so a caller holding promotions.view without members.view reads names here that members_select_reachable (0035) would refuse them, limited to the winners of a draw they may already see. A null member_name means the listener has no name on record (members.full_name is nullable, 0031), never that the caller may not see it. The seed and the algorithm version are returned to everyone who may see the draw at all — a proof nobody can see is not a proof.';
 
 revoke execute on function public.get_draw(uuid) from public;
 grant execute on function public.get_draw(uuid) to authenticated;

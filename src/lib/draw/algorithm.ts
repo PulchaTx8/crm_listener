@@ -34,7 +34,6 @@ export interface DrawUnit {
 
 export interface DrawOutcome {
   winners: { unit: DrawUnit; entry: DrawEntry; awardedRank: number }[];
-  runnersUp: { entry: DrawEntry; position: number }[];
 }
 
 /**
@@ -53,9 +52,8 @@ export function runDrawAlgorithm(input: {
   seed: string;
   entries: DrawEntry[];
   units: DrawUnit[];
-  runnerUpCount: number;
 }): DrawOutcome {
-  const { seed, entries, units, runnerUpCount } = input;
+  const { seed, entries, units } = input;
 
   // Sort a COPY. Mutating the caller's array would reorder the hat that the
   // caller is about to compare against, which is the one thing this function
@@ -66,12 +64,10 @@ export function runDrawAlgorithm(input: {
     .map(({ entry }) => entry);
 
   const winners: DrawOutcome['winners'] = [];
-  const runnersUp: DrawOutcome['runnersUp'] = [];
 
-  // One walk, taken twice: the units first, then the queue. The awarded set is
-  // what makes "one person, one prize" (D2) fall out of the walk rather than
-  // being enforced beside it — and it is why the runner-up queue is a
-  // continuation, not a second draw.
+  // One walk. The awarded set is what makes "one person, one prize" fall out of
+  // it rather than being enforced beside it: the first time a listener appears
+  // in rank order is the only time they can be taken.
   const awarded = new Set<string>();
   let cursor = 0;
 
@@ -95,11 +91,5 @@ export function runDrawAlgorithm(input: {
     winners.push({ unit, entry, awardedRank: winners.length + 1 });
   }
 
-  for (let i = 0; i < runnerUpCount; i += 1) {
-    const entry = takeNext();
-    if (!entry) break;
-    runnersUp.push({ entry, position: runnersUp.length + 1 });
-  }
-
-  return { winners, runnersUp };
+  return { winners };
 }

@@ -13,10 +13,10 @@ comment on type public.draw_status is
 -- AWAITING_PICKUP. Declaring them all now costs nothing and means 6b adds
 -- behaviour rather than re-shaping a column other rows already hold.
 create type public.winner_status as enum (
-  'AWAITING_PICKUP', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF', 'SUPERSEDED');
+  'AWAITING_PICKUP', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF');
 
 comment on type public.winner_status is
-  'What happened to an awarded prize. Block 6a writes only AWAITING_PICKUP; DELIVERED, RETURNED, WRITTEN_OFF and SUPERSEDED are 6b''s vocabulary, declared here so 6b adds behaviour rather than re-shaping a column that already holds rows.';
+  'What happened to an awarded prize. 6a writes only AWAITING_PICKUP; DELIVERED, RETURNED and WRITTEN_OFF are 6b''s vocabulary. There is deliberately NO value for "superseded by a runner-up". 6a declared one, arguing that declaring every value early cost nothing and spared 6b from re-shaping a column that already held rows; Block 6c withdrew runners-up from the product (owner''s ruling 2026-08-02, retiring requirement N8 from the master spec), so what it actually cost was a value carried through three blocks that never meant anything. A prize nobody collects is returned to stock or written off by an operator, and nothing takes its place.';
 
 -- The composite keys the child tables below need. Both are the same one-line
 -- addition prizes (0025:77) and promotions (0040:177) already carry, and for
@@ -41,7 +41,6 @@ create table public.draws (
   -- a seed a caller could choose is a seed a caller could shop for.
   seed              text not null check (seed ~ '^[0-9a-f]{64}$'),
   algorithm_version integer not null,
-  runner_up_count   integer not null check (runner_up_count >= 0),
   entry_count       integer not null check (entry_count > 0),
 
   status      public.draw_status not null default 'COMPLETED',
@@ -174,36 +173,6 @@ comment on column public.winners.deadline_at is
   'Frozen at the draw (D5). Null means this winner has NO deadline, because neither the promotion nor the prize set one -- 6b''s cron skips a null rather than inventing a rule the Station never agreed to.';
 
 -- ---------------------------------------------------------------------------
--- draw_runners_up: the queue 6b walks.
---
--- ONE queue for the draw, not one per prize (D4). With one-prize-per-person in
--- force, per-prize queues would cross and the same listener would sit in
--- several of them.
-
-create table public.draw_runners_up (
-  draw_id          uuid not null,
-  company_id       uuid not null,
-  position         integer not null check (position > 0),
-  member_id        uuid not null,
-  participation_id uuid not null,
-
-  primary key (draw_id, position),
-  constraint draw_runners_up_member_unique unique (draw_id, member_id),
-
-  constraint draw_runners_up_draw_fk
-    foreign key (draw_id, company_id)
-    references public.draws (id, company_id),
-  constraint draw_runners_up_participation_fk
-    foreign key (participation_id, company_id)
-    references public.participations (id, company_id),
-  constraint draw_runners_up_member_link_fk
-    foreign key (member_id, company_id)
-    references public.member_company_links (member_id, company_id)
-);
-
-comment on table public.draw_runners_up is
-  'The runner-up queue, in order, for the whole draw. Drawn in the same pass from the same hat under the same one-prize-per-person rule (D4).';
-
 -- ---------------------------------------------------------------------------
 -- The deadline, in days, at both levels (spec 6).
 
@@ -232,7 +201,6 @@ comment on column public.promotions.pickup_deadline_days is
 alter table public.draws            enable row level security;
 alter table public.draw_entries     enable row level security;
 alter table public.winners          enable row level security;
-alter table public.draw_runners_up  enable row level security;
 
 create policy draws_select_by_promotion_view
   on public.draws for select to authenticated
@@ -246,10 +214,6 @@ create policy winners_select_by_promotion_view
   on public.winners for select to authenticated
   using (public.has_permission('promotions.view', company_id));
 
-create policy draw_runners_up_select_by_promotion_view
-  on public.draw_runners_up for select to authenticated
-  using (public.has_permission('promotions.view', company_id));
-
 -- This schema revokes Supabase's default ACL and grants back by hand. Block 5a
 -- shipped three tables with the comment and without the grant and was
 -- non-functional end to end; Task 8 drives each of these across the real HTTP
@@ -257,22 +221,18 @@ create policy draw_runners_up_select_by_promotion_view
 revoke all on public.draws           from anon, authenticated;
 revoke all on public.draw_entries    from anon, authenticated;
 revoke all on public.winners         from anon, authenticated;
-revoke all on public.draw_runners_up from anon, authenticated;
 
 revoke truncate on public.draws           from service_role;
 revoke truncate on public.draw_entries    from service_role;
 revoke truncate on public.winners         from service_role;
-revoke truncate on public.draw_runners_up from service_role;
 
 grant select on public.draws           to authenticated;
 grant select on public.draw_entries    to authenticated;
 grant select on public.winners         to authenticated;
-grant select on public.draw_runners_up to authenticated;
 
 grant select, insert on public.draws           to service_role;
 grant select, insert on public.draw_entries    to service_role;
 grant select, insert on public.winners         to service_role;
-grant select, insert on public.draw_runners_up to service_role;
 
 -- ---------------------------------------------------------------------------
 -- The permissions. Two codes, not one (spec 4.3), separate for the reason

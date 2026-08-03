@@ -168,12 +168,10 @@ test('an operator runs a draw on a closed promotion and sees the winner and the 
 
   await page.getByTestId('run-draw').click();
 
-  // One unit, three eligible listeners: one winner and, at the default of
-  // three runners-up, the two people who are left.
+  // One unit, three eligible listeners: one winner.
   const winners = page.getByTestId('draw-winners');
   await expect(winners).toBeVisible({ timeout: 15_000 });
   await expect(winners.locator('li')).toHaveCount(1);
-  await expect(page.getByTestId('draw-runners-up').locator('li')).toHaveCount(2);
 
   // The proof, on the same screen as the names rather than in an export.
   await expect(page.getByTestId('draw-seed')).toHaveText(/^[0-9a-f]{64}$/);

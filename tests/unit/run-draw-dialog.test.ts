@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DRAW_RUNNER_UP_MAX,
-  validateDrawRequest,
-  type DrawUnitChoice,
-} from '@/components/draws/run-draw-dialog';
+import { validateDrawRequest, type DrawUnitChoice } from '@/components/draws/run-draw-dialog';
 
 /**
  * The run-draw dialog's own rules, tested as a pure function rather than
@@ -29,7 +25,7 @@ function choice(over: Partial<DrawUnitChoice> = {}): DrawUnitChoice {
 
 describe('validateDrawRequest', () => {
   it('accepts a request for everything that is available', () => {
-    const result = validateDrawRequest({ units: [choice()], runnerUpCount: 3 });
+    const result = validateDrawRequest({ units: [choice()] });
 
     expect(result.ok).toBe(true);
     expect(result.ok && result.units).toEqual([
@@ -40,7 +36,6 @@ describe('validateDrawRequest', () => {
   it('refuses more units than are available', () => {
     const result = validateDrawRequest({
       units: [choice({ available: 2, requested: 3 })],
-      runnerUpCount: 3,
     });
 
     expect(result.ok).toBe(false);
@@ -51,13 +46,15 @@ describe('validateDrawRequest', () => {
     // run_draw would refuse quantity 0 with 22023. A row left at zero is the
     // operator declining that prize, not asking for none of it.
     const result = validateDrawRequest({
-      units: [choice({ requested: 0 }), choice({
-        promotionPrizeId: '22222222-0000-0000-0000-000000000002',
-        prizeName: 'Ticket',
-        available: 2,
-        requested: 1,
-      })],
-      runnerUpCount: 0,
+      units: [
+        choice({ requested: 0 }),
+        choice({
+          promotionPrizeId: '22222222-0000-0000-0000-000000000002',
+          prizeName: 'Ticket',
+          available: 2,
+          requested: 1,
+        }),
+      ],
     });
 
     expect(result.ok).toBe(true);
@@ -69,39 +66,15 @@ describe('validateDrawRequest', () => {
   it('refuses a draw of nothing at all', () => {
     const result = validateDrawRequest({
       units: [choice({ requested: 0 })],
-      runnerUpCount: 3,
     });
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.message).toMatch(/pelo menos/i);
   });
 
-  it('refuses a negative runner-up count', () => {
-    const result = validateDrawRequest({ units: [choice()], runnerUpCount: -1 });
-
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.message).toMatch(/suplentes/i);
-  });
-
-  it('accepts zero runners-up, which is a real choice and not an empty field', () => {
-    const result = validateDrawRequest({ units: [choice()], runnerUpCount: 0 });
-
-    expect(result.ok).toBe(true);
-  });
-
-  it('refuses a runner-up count above the ceiling', () => {
-    const result = validateDrawRequest({
-      units: [choice()],
-      runnerUpCount: DRAW_RUNNER_UP_MAX + 1,
-    });
-
-    expect(result.ok).toBe(false);
-  });
-
   it('refuses a fractional quantity rather than letting Postgres round it', () => {
     const result = validateDrawRequest({
       units: [choice({ requested: 1.5 })],
-      runnerUpCount: 3,
     });
 
     expect(result.ok).toBe(false);
@@ -112,13 +85,15 @@ describe('validateDrawRequest', () => {
     // dialog sends when the operator has not narrowed anything: the default
     // must not depend on the screen having read the balances correctly.
     const result = validateDrawRequest({
-      units: [choice({ available: 3, requested: 3 }), choice({
-        promotionPrizeId: '22222222-0000-0000-0000-000000000002',
-        prizeName: 'Ticket',
-        available: 2,
-        requested: 2,
-      })],
-      runnerUpCount: 3,
+      units: [
+        choice({ available: 3, requested: 3 }),
+        choice({
+          promotionPrizeId: '22222222-0000-0000-0000-000000000002',
+          prizeName: 'Ticket',
+          available: 2,
+          requested: 2,
+        }),
+      ],
       allTaken: true,
     });
 

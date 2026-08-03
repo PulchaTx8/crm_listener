@@ -47,9 +47,8 @@ export function availableWinnerActions(input: {
     return powers.deliverCancel ? ['cancel_delivery'] : [];
   }
 
-  // RETURNED, WRITTEN_OFF and SUPERSEDED are the end of the line in this block.
-  // SUPERSEDED is Block 6c's word for a winner whose deadline passed and whose
-  // prize went to a runner-up, and nothing here may act on one.
+  // RETURNED and WRITTEN_OFF are the end of the line: the prize left this
+  // winner and there is nothing further to do to it here.
   return [];
 }
 
@@ -115,7 +114,9 @@ export function WinnerActions({
             variant={action === 'write_off' ? 'destructive' : 'outline'}
             disabled={pending}
             data-testid={`winner-${action}`}
-            onClick={() => (NEEDS_REASON[action] && open !== action ? setOpen(action) : run(action))}
+            onClick={() =>
+              NEEDS_REASON[action] && open !== action ? setOpen(action) : run(action)
+            }
           >
             {LABELS[action]}
           </Button>

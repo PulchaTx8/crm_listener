@@ -20,8 +20,7 @@ create function public.apply_draw(
   p_promotion_id    uuid,
   p_organization_id uuid,
   p_company_id      uuid,
-  p_units           jsonb,
-  p_runner_up_count integer
+  p_units           jsonb
 )
 returns uuid
 language plpgsql
@@ -38,7 +37,6 @@ declare
   v_hat         jsonb;
   v_walk        jsonb;
   v_entry_count integer;
-  v_awarded     integer;
   v_short       uuid;
   r             record;
 begin
@@ -116,10 +114,10 @@ begin
 
   insert into public.draws
     (promotion_id, organization_id, company_id, seed, algorithm_version,
-     runner_up_count, entry_count, drawn_at, drawn_by)
+     entry_count, drawn_at, drawn_by)
   values
     (p_promotion_id, p_organization_id, p_company_id, v_seed, 1,
-     p_runner_up_count, v_entry_count, v_now, v_actor)
+     v_entry_count, v_now, v_actor)
   returning id into v_draw;
 
   insert into public.draw_entries (draw_id, company_id, participation_id, member_id, position)
@@ -180,19 +178,7 @@ begin
   join public.promotion_prizes l on l.id = s.promotion_prize_id
   join public.prizes pz on pz.id = l.prize_id;
 
-  get diagnostics v_awarded = row_count;
-
-  -- 6. The runners-up: the SAME walk, continued. Not a second draw -- with one
-  --    prize per person in force, a per-prize queue would cross the winners
-  --    and seat the same listener twice (D4).
-  insert into public.draw_runners_up (draw_id, company_id, position, member_id, participation_id)
-  select v_draw, p_company_id, (wk.ord - v_awarded)::integer,
-         (wk.e->>'member_id')::uuid, (wk.e->>'participation_id')::uuid
-  from jsonb_array_elements(v_walk) with ordinality as wk(e, ord)
-  where wk.ord > v_awarded
-    and wk.ord <= v_awarded + p_runner_up_count;
-
-  -- 7. The stock, one unit at a time, through the ledger's single writer. The
+  -- 6. The stock, one unit at a time, through the ledger's single writer. The
   --    idempotency key is the draw and the rank, which is unique by
   --    construction and replays safely if this transaction is retried.
   for r in
@@ -213,18 +199,17 @@ begin
 end;
 $$;
 
-comment on function public.apply_draw(uuid, uuid, uuid, jsonb, integer) is
+comment on function public.apply_draw(uuid, uuid, uuid, jsonb) is
   'The draw mechanics: resolve the units, freeze the hat, rank it by sha256(seed || '':'' || participation_id), walk it once skipping anybody already awarded, write the winners and the runner-up queue, and move one unit per winner through apply_inventory_movement. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from run_draw, which checks draws.execute beside its own operation. ASSUMES its caller already holds FOR UPDATE on the promotion and has already refused a cancelled or archived one -- nothing here re-reads either, so calling it without the lock reopens the race the lock exists to close. The hat is read into a value ONCE rather than counted and re-read, so entry_count is a claim about the same list draw_entries holds.';
 
-revoke execute on function public.apply_draw(uuid, uuid, uuid, jsonb, integer) from public;
+revoke execute on function public.apply_draw(uuid, uuid, uuid, jsonb) from public;
 
 -- ---------------------------------------------------------------------------
 -- The door.
 
 create function public.run_draw(
   p_promotion_id    uuid,
-  p_units           jsonb default null,
-  p_runner_up_count integer default 3
+  p_units           jsonb default null
 )
 returns uuid
 language plpgsql
@@ -264,11 +249,7 @@ begin
     raise exception 'this promotion is cancelled and cannot be drawn' using errcode = '22023';
   end if;
 
-  if p_runner_up_count is null or p_runner_up_count < 0 then
-    raise exception 'the number of runners-up cannot be negative' using errcode = '22023';
-  end if;
-
-  v_draw := public.apply_draw(p_promotion_id, v_org, v_company, p_units, p_runner_up_count);
+  v_draw := public.apply_draw(p_promotion_id, v_org, v_company, p_units);
 
   -- Ids and counts. No member id and no name: Block 3's rule, absolute.
   insert into public.audit_logs
@@ -280,15 +261,14 @@ begin
        'promotion_id', p_promotion_id,
        'algorithm_version', (select algorithm_version from public.draws where id = v_draw),
        'entry_count', (select entry_count from public.draws where id = v_draw),
-       'winner_count', (select count(*) from public.winners where draw_id = v_draw),
-       'runner_up_count', (select count(*) from public.draw_runners_up where draw_id = v_draw)));
+       'winner_count', (select count(*) from public.winners where draw_id = v_draw)));
 
   return v_draw;
 end;
 $$;
 
-comment on function public.run_draw(uuid, jsonb, integer) is
+comment on function public.run_draw(uuid, jsonb) is
   'Runs a draw of one promotion and returns its id. Takes FOR UPDATE on the promotion first (the shape link_prize_to_promotion, 0049, established), then checks draws.execute, then refuses a cancelled promotion (22023) or an archived one (P0002) -- the same two codes apply_participation (0054) answers with, rather than a third dialect. p_units is [{"promotion_prize_id": ..., "quantity": N}]; null or empty means every unit still available on every live link, which is linked - drawn (D8). The audit row carries ids and counts and no listener.';
 
-revoke execute on function public.run_draw(uuid, jsonb, integer) from public;
-grant execute on function public.run_draw(uuid, jsonb, integer) to authenticated;
+revoke execute on function public.run_draw(uuid, jsonb) from public;
+grant execute on function public.run_draw(uuid, jsonb) to authenticated;

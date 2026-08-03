@@ -1,5 +1,5 @@
 begin;
-select plan(84);
+select plan(81);
 
 -- Block 6a, Task 1: the four tables the draw needs, the deadline columns it
 -- freezes, and the two permission codes that guard it. Nothing reads or writes
@@ -22,15 +22,25 @@ select is(enum_range(null::public.draw_status)::text[],
 -- re-shaping a column that other rows already hold.
 select has_type('public', 'winner_status', 'the winner status enum exists');
 select is(enum_range(null::public.winner_status)::text[],
-          array['AWAITING_PICKUP', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF', 'SUPERSEDED'],
-          'winner_status carries the full set 6b will use, declared now rather than added later');
+          array['AWAITING_PICKUP', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF'],
+          'winner_status carries what a prize can become, and SUPERSEDED is not among them');
 
 -- Existence ------------------------------------------------------------------
 
 select has_table('public', 'draws', 'draws exists');
 select has_table('public', 'draw_entries', 'draw_entries exists');
 select has_table('public', 'winners', 'winners exists');
-select has_table('public', 'draw_runners_up', 'draw_runners_up exists');
+-- Block 6c, D1: there are no runners-up. A removal nothing asserts is a
+-- removal somebody re-adds, so the absence is tested rather than assumed.
+select ok(not exists (select 1 from pg_class
+                       where relname = 'draw_runners_up' and relnamespace = 'public'::regnamespace),
+          'there is no runner-up queue: a draw awards prizes and nothing waits behind them');
+select ok(not exists (select 1 from information_schema.columns
+                       where table_schema = 'public' and table_name = 'draws'
+                         and column_name = 'runner_up_count'),
+          'and a draw does not record how many runners-up were asked for');
+select ok('SUPERSEDED' <> all(enum_range(null::public.winner_status)::text[]),
+          'SUPERSEDED is gone: it existed only for a winner whose prize went to a runner-up');
 
 -- RLS ------------------------------------------------------------------------
 
@@ -40,8 +50,6 @@ select is(relrowsecurity, true, 'RLS enabled on draw_entries')
   from pg_class where oid = 'public.draw_entries'::regclass;
 select is(relrowsecurity, true, 'RLS enabled on winners')
   from pg_class where oid = 'public.winners'::regclass;
-select is(relrowsecurity, true, 'RLS enabled on draw_runners_up')
-  from pg_class where oid = 'public.draw_runners_up'::regclass;
 
 -- The grants -----------------------------------------------------------------
 --
@@ -67,9 +75,6 @@ select ok(not has_table_privilege('anon', 'public.draw_entries', 'TRUNCATE')
 select ok(not has_table_privilege('anon', 'public.winners', 'TRUNCATE')
       and not has_table_privilege('authenticated', 'public.winners', 'TRUNCATE'),
           'nobody at the PostgREST roles may truncate winners');
-select ok(not has_table_privilege('anon', 'public.draw_runners_up', 'TRUNCATE')
-      and not has_table_privilege('authenticated', 'public.draw_runners_up', 'TRUNCATE'),
-          'nobody at the PostgREST roles may truncate the runner-up queue');
 
 select ok(has_table_privilege('service_role', 'public.draws', 'SELECT')
       and has_table_privilege('service_role', 'public.draws', 'INSERT'),
@@ -112,13 +117,13 @@ values
 select throws_ok($$
   insert into public.draws
     (id, promotion_id, organization_id, company_id,
-     seed, algorithm_version, runner_up_count, entry_count, status, cancelled_at)
+     seed, algorithm_version, entry_count, status, cancelled_at)
   values
     ('00000000-0000-0000-0000-00000000a0b1',
      '00000000-0000-0000-0000-00000000a0e1',
      '00000000-0000-0000-0000-00000000a0f1',
      '00000000-0000-0000-0000-00000000a0c1',
-     repeat('a', 64), 1, 3, 5, 'CANCELLED', now())
+     repeat('a', 64), 1, 5, 'CANCELLED', now())
 $$, '23514', null, 'a draw cancelled without a reason or a canceller is refused');
 
 -- ---------------------------------------------------------------------------
@@ -363,7 +368,7 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
 
 create temporary table happy_draw as
-select public.run_draw('00000000-0000-0000-0000-00000000a2e1'::uuid, null, 3) as draw_id;
+select public.run_draw('00000000-0000-0000-0000-00000000a2e1'::uuid, null) as draw_id;
 
 reset role;
 
@@ -387,9 +392,6 @@ select is(
      join public.promotion_prizes l on l.id = b.promotion_prize_id
     where l.promotion_id = '00000000-0000-0000-0000-00000000a2e1'),
   1, 'the unit moved from linked to awaiting_pickup through the ledger');
-select is(
-  (select count(*)::int from public.draw_runners_up r join happy_draw h on h.draw_id = r.draw_id),
-  2, 'three asked for, two people left: as many runners-up as there are people');
 select ok(
   (select w.deadline_at is null from public.winners w join happy_draw h on h.draw_id = w.draw_id),
   'neither the promotion nor the prize set a deadline, so the winner has none');
@@ -412,9 +414,9 @@ select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2e3', 'Priz
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
 create temporary table promo_deadline_draw as
-select public.run_draw('00000000-0000-0000-0000-00000000a2e2'::uuid, null, 0) as draw_id;
+select public.run_draw('00000000-0000-0000-0000-00000000a2e2'::uuid, null) as draw_id;
 create temporary table prize_deadline_draw as
-select public.run_draw('00000000-0000-0000-0000-00000000a2e3'::uuid, null, 0) as draw_id;
+select public.run_draw('00000000-0000-0000-0000-00000000a2e3'::uuid, null) as draw_id;
 reset role;
 
 select ok(
@@ -446,7 +448,7 @@ cross join generate_series(10, 20, 10) as g(n);
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
 create temporary table weighted_draw as
-select public.run_draw('00000000-0000-0000-0000-00000000a2e4'::uuid, null, 0) as draw_id;
+select public.run_draw('00000000-0000-0000-0000-00000000a2e4'::uuid, null) as draw_id;
 reset role;
 
 select is(
@@ -482,11 +484,11 @@ select throws_ok($$
     jsonb_build_array(jsonb_build_object(
       'promotion_prize_id',
       (select id from public.promotion_prizes where promotion_id = '00000000-0000-0000-0000-00000000a2e5'),
-      'quantity', 5)), 0)
+      'quantity', 5)))
 $$, '22023', null, 'asking for more units than are linked is refused');
 
 select throws_ok($$
-  select public.run_draw('00000000-0000-0000-0000-00000000a2e6'::uuid, null, 0)
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e6'::uuid, null)
 $$, '22023', null, 'a promotion with nobody eligible is refused');
 
 -- Cancelled and archived, which the spec was silent about. A draw over a
@@ -497,11 +499,11 @@ $$, '22023', null, 'a promotion with nobody eligible is refused');
 -- and 22023 for a cancelled one, and a third dialect here would be the drift
 -- those two exist to prevent.
 select throws_ok($$
-  select public.run_draw('00000000-0000-0000-0000-00000000a2e7'::uuid, null, 0)
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e7'::uuid, null)
 $$, '22023', null, 'a cancelled promotion cannot be drawn');
 
 select throws_ok($$
-  select public.run_draw('00000000-0000-0000-0000-00000000a2e8'::uuid, null, 0)
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e8'::uuid, null)
 $$, 'P0002', null, 'an archived promotion cannot be drawn');
 
 reset role;
@@ -509,7 +511,7 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a204", "role": "authenticated"}';
 
 select throws_ok($$
-  select public.run_draw('00000000-0000-0000-0000-00000000a2e9'::uuid, null, 0)
+  select public.run_draw('00000000-0000-0000-0000-00000000a2e9'::uuid, null)
 $$, '42501', null, 'promotions.view is not draws.execute');
 
 reset role;
@@ -531,9 +533,9 @@ select is(
 
 -- The doors ------------------------------------------------------------------
 
-select ok(has_function_privilege('authenticated', 'public.run_draw(uuid, jsonb, integer)', 'EXECUTE'),
+select ok(has_function_privilege('authenticated', 'public.run_draw(uuid, jsonb)', 'EXECUTE'),
           'run_draw is the door an operator comes through');
-select ok(not has_function_privilege('authenticated', 'public.apply_draw(uuid, uuid, uuid, jsonb, integer)', 'EXECUTE'),
+select ok(not has_function_privilege('authenticated', 'public.apply_draw(uuid, uuid, uuid, jsonb)', 'EXECUTE'),
           'apply_draw is the private core behind it');
 
 -- ---------------------------------------------------------------------------
@@ -565,15 +567,15 @@ select pg_temp.seed_draw_promotion('00000000-0000-0000-0000-00000000a2ee', 'Forb
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000a203", "role": "authenticated"}';
 create temporary table cancel_draws as
-select 'a2ea' as tag, public.run_draw('00000000-0000-0000-0000-00000000a2ea'::uuid, null, 1) as draw_id
+select 'a2ea' as tag, public.run_draw('00000000-0000-0000-0000-00000000a2ea'::uuid, null) as draw_id
 union all
-select 'a2eb', public.run_draw('00000000-0000-0000-0000-00000000a2eb'::uuid, null, 0)
+select 'a2eb', public.run_draw('00000000-0000-0000-0000-00000000a2eb'::uuid, null)
 union all
-select 'a2ec', public.run_draw('00000000-0000-0000-0000-00000000a2ec'::uuid, null, 0)
+select 'a2ec', public.run_draw('00000000-0000-0000-0000-00000000a2ec'::uuid, null)
 union all
-select 'a2ed', public.run_draw('00000000-0000-0000-0000-00000000a2ed'::uuid, null, 0)
+select 'a2ed', public.run_draw('00000000-0000-0000-0000-00000000a2ed'::uuid, null)
 union all
-select 'a2ee', public.run_draw('00000000-0000-0000-0000-00000000a2ee'::uuid, null, 0);
+select 'a2ee', public.run_draw('00000000-0000-0000-0000-00000000a2ee'::uuid, null);
 reset role;
 
 -- One winner of a2ed has already collected, which is the guard 6b needs from
@@ -716,9 +718,6 @@ select public.get_draw((select draw_id from happy_draw)) as body;
 select is(
   (select jsonb_array_length(body->'winners') from drawn_detail),
   1, 'get_draw returns the winners');
-select is(
-  (select jsonb_array_length(body->'runners_up') from drawn_detail),
-  2, 'and the runner-up queue in order');
 select ok(
   (select (body->>'seed') ~ '^[0-9a-f]{64}$' and (body->>'algorithm_version') = '1'
      from drawn_detail),
@@ -736,9 +735,6 @@ select ok(
 select ok(
   (select body->'winners'->0->>'member_name' like 'Happy draw listener%' from drawn_detail),
   'a caller with promotions.view and no members.view still gets the winner''s name');
-select ok(
-  (select body->'runners_up'->0->>'member_name' is not null from drawn_detail),
-  'and the runner-up queue carries names too');
 select ok(
   (select body->'winners'->0->>'member_id' is not null
       and body->'winners'->0->>'deadline_at' is null

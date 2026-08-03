@@ -25,8 +25,8 @@ function listenerLabel(name: string | null, memberId: string): string {
 }
 
 /**
- * The winners with their deadlines, the runner-up queue in order, and — plainly,
- * not behind a toggle — the seed and the algorithm version.
+ * The winners with their deadlines and — plainly, not behind a toggle — the seed
+ * and the algorithm version.
  *
  * That last part is the block's whole claim: a draw is checkable because
  * anybody holding the record can recompute it. A proof nobody can see is not a
@@ -79,12 +79,12 @@ export function DrawDetailView({
           Sorteio de {new Date(draw.drawnAt).toLocaleString('pt-BR')}
         </h2>
         <p className="text-sm text-muted-foreground">
-          {draw.entryCount} entrada(s) no chapéu · {draw.winners.length} prêmio(s) ·{' '}
-          {draw.runnersUp.length} suplente(s)
+          {draw.entryCount} entrada(s) no chapéu · {draw.winners.length} prêmio(s)
         </p>
         {cancelled ? (
           <p className="text-sm font-medium text-destructive" data-testid="draw-cancelled">
-            Cancelado em {draw.cancelledAt ? new Date(draw.cancelledAt).toLocaleString('pt-BR') : ''}
+            Cancelado em{' '}
+            {draw.cancelledAt ? new Date(draw.cancelledAt).toLocaleString('pt-BR') : ''}
             {draw.cancellationReason ? ` — ${draw.cancellationReason}` : ''}
           </p>
         ) : null}
@@ -152,19 +152,6 @@ export function DrawDetailView({
           ))}
         </ol>
       </div>
-
-      {draw.runnersUp.length > 0 ? (
-        <div>
-          <h3 className="mb-2 font-medium">Suplentes, na ordem</h3>
-          <ol className="space-y-1" data-testid="draw-runners-up">
-            {draw.runnersUp.map((runnerUp) => (
-              <li key={runnerUp.participationId} className="py-1">
-                {runnerUp.position}. {listenerLabel(runnerUp.memberName, runnerUp.memberId)}
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
 
       <div className="rounded border p-3 text-sm">
         <h3 className="mb-1 font-medium">Como conferir este sorteio</h3>
@@ -254,7 +241,13 @@ function ReceiptForm({
         data-testid="receipt-input"
         className="text-sm"
       />
-      <Button type="submit" size="sm" variant="outline" disabled={pending} data-testid="receipt-attach">
+      <Button
+        type="submit"
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        data-testid="receipt-attach"
+      >
         {pending ? 'Enviando…' : 'Anexar recibo'}
       </Button>
       {message ? (

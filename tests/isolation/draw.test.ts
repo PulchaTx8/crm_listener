@@ -40,7 +40,6 @@ const LISTENERS = 12;
 /** 6 listeners x 3 entries + 6 x 2 = 30 entries. Enough that agreement by chance is not plausible. */
 const ENTRIES_BY_LISTENER = [3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2];
 const UNITS = 3;
-const RUNNER_UPS = 4;
 
 interface SeededDraw {
   drawId: string;
@@ -124,7 +123,6 @@ async function seedAndDraw(customer: ProvisionedCustomer, label: string): Promis
   const drawn = await operatorClient.rpc('run_draw', {
     p_promotion_id: promotionId,
     p_units: null,
-    p_runner_up_count: RUNNER_UPS,
   });
   expect(drawn.error).toBeNull();
 
@@ -142,7 +140,7 @@ describe('the executor and the verifier agree', () => {
       // Everything the verifier is allowed to know: the seed and the frozen hat.
       const draw = await operatorClient
         .from('draws')
-        .select('seed, algorithm_version, entry_count, runner_up_count')
+        .select('seed, algorithm_version, entry_count')
         .eq('id', drawId)
         .single();
       expect(draw.error).toBeNull();
@@ -178,7 +176,6 @@ describe('the executor and the verifier agree', () => {
         seed: draw.data?.seed ?? '',
         entries,
         units,
-        runnerUpCount: RUNNER_UPS,
       });
 
       const winnerRows = await operatorClient
@@ -188,31 +185,16 @@ describe('the executor and the verifier agree', () => {
         .order('awarded_rank');
       expect(winnerRows.error).toBeNull();
 
-      const queueRows = await operatorClient
-        .from('draw_runners_up')
-        .select('participation_id, member_id, position')
-        .eq('draw_id', drawId)
-        .order('position');
-      expect(queueRows.error).toBeNull();
-
       // In ORDER, by participation_id. A set comparison would pass while the
       // two implementations disagreed about which unit went to whom.
       expect((winnerRows.data ?? []).map((w) => w.participation_id)).toEqual(
         recomputed.winners.map((w) => w.entry.participationId),
       );
-      expect((queueRows.data ?? []).map((r) => r.participation_id)).toEqual(
-        recomputed.runnersUp.map((r) => r.entry.participationId),
-      );
-
-      // And the outcome is the shape the rules require: three units awarded to
-      // three different people (D2), a queue of four more, none of them
-      // repeating a winner (D4).
+      // And the outcome is the shape the rule requires: three units awarded to
+      // three DIFFERENT people, which is one person one prize falling out of
+      // the walk rather than being enforced beside it.
       expect(winnerRows.data).toHaveLength(UNITS);
-      expect(queueRows.data).toHaveLength(RUNNER_UPS);
-      const people = [
-        ...(winnerRows.data ?? []).map((w) => w.member_id),
-        ...(queueRows.data ?? []).map((r) => r.member_id),
-      ];
+      const people = (winnerRows.data ?? []).map((w) => w.member_id);
       expect(new Set(people).size).toBe(people.length);
     });
   }
@@ -295,7 +277,6 @@ describe('the four new tables across the HTTP boundary', () => {
     const drawn = await operatorClient.rpc('run_draw', {
       p_promotion_id: promotionId,
       p_units: null,
-      p_runner_up_count: 1,
     });
     expect(drawn.error).toBeNull();
     const drawId = drawn.data as string;
@@ -318,15 +299,11 @@ describe('the four new tables across the HTTP boundary', () => {
     expect(adminWinners.error, 'service_role read of winners').toBeNull();
     expect((adminWinners.data ?? []).length).toBeGreaterThan(0);
 
-    const adminQueue = await admin.from('draw_runners_up').select('*').eq('draw_id', drawId);
-    expect(adminQueue.error, 'service_role read of draw_runners_up').toBeNull();
-    expect((adminQueue.data ?? []).length).toBeGreaterThan(0);
-
     const operatorDraw = await operatorClient.from('draws').select('*').eq('id', drawId);
     expect(operatorDraw.error).toBeNull();
     expect(operatorDraw.data).toHaveLength(1);
 
-    for (const table of ['draw_entries', 'winners', 'draw_runners_up'] as const) {
+    for (const table of ['draw_entries', 'winners'] as const) {
       const result = await operatorClient.from(table).select('*').eq('draw_id', drawId);
       expect(result.error, `operator read of ${table}`).toBeNull();
       expect((result.data ?? []).length, `operator rows in ${table}`).toBeGreaterThan(0);
@@ -380,12 +357,10 @@ describe('two draws at once', () => {
         operatorClient.rpc('run_draw', {
           p_promotion_id: promotionId,
           p_units: null,
-          p_runner_up_count: 0,
         }),
         operatorClient.rpc('run_draw', {
           p_promotion_id: promotionId,
           p_units: null,
-          p_runner_up_count: 0,
         }),
       ]);
 
@@ -405,9 +380,10 @@ describe('two draws at once', () => {
       // linked - drawn AFTER the winner committed, sees nothing left, and says
       // so with 22023. Without it, both read the same balance, both pass that
       // check, and the loser gets 23514 from apply_inventory_movement instead.
-      expect(refused[0]?.error?.code, `round ${round}: refused by the draw, not by the ledger`).toBe(
-        '22023',
-      );
+      expect(
+        refused[0]?.error?.code,
+        `round ${round}: refused by the draw, not by the ledger`,
+      ).toBe('22023');
 
       const balance = await admin
         .from('promotion_prize_balances')
@@ -451,7 +427,6 @@ describe('erasing a listener reaches their delivery receipt', () => {
     const drawn = await operatorClient.rpc('run_draw', {
       p_promotion_id: promotionId,
       p_units: null,
-      p_runner_up_count: 0,
     });
     expect(drawn.error).toBeNull();
 
@@ -538,7 +513,6 @@ describe('block 6b across the HTTP boundary', () => {
     const drawn = await operatorClient.rpc('run_draw', {
       p_promotion_id: promotionId,
       p_units: null,
-      p_runner_up_count: 0,
     });
     expect(drawn.error).toBeNull();
 
@@ -614,7 +588,6 @@ describe('two operators delivering one prize', () => {
       const drawn = await operatorClient.rpc('run_draw', {
         p_promotion_id: promotionId,
         p_units: null,
-        p_runner_up_count: 0,
       });
       const winner = await admin
         .from('winners')

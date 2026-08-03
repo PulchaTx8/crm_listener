@@ -22,7 +22,6 @@ export function DrawsScreen({
   draws,
   detail,
   linked,
-  defaultRunnerUpCount,
   canDraw,
   canCancel,
   winnerPowers,
@@ -34,7 +33,6 @@ export function DrawsScreen({
   draws: DrawSummary[];
   detail: DrawDetail | null;
   linked: DrawUnitChoice[];
-  defaultRunnerUpCount: number;
   canDraw: boolean;
   canCancel: boolean;
   winnerPowers: WinnerPowers;
@@ -75,10 +73,7 @@ export function DrawsScreen({
               <h3 className="mb-2 font-medium">Novo sorteio</h3>
               <RunDrawDialog
                 linked={linked}
-                defaultRunnerUpCount={defaultRunnerUpCount}
-                onRun={(units: DrawUnitRequest[] | null, runnerUpCount: number) =>
-                  runDrawAction(promotionId, units, runnerUpCount)
-                }
+                onRun={(units: DrawUnitRequest[] | null) => runDrawAction(promotionId, units)}
               />
             </div>
           ) : (

@@ -64,11 +64,11 @@ values
 
 insert into public.draws
   (id, promotion_id, organization_id, company_id, seed, algorithm_version,
-   runner_up_count, entry_count)
+   entry_count)
 values
   ('00000000-0000-0000-0000-00000000b201', '00000000-0000-0000-0000-00000000b0e1',
    '00000000-0000-0000-0000-00000000b0f1', '00000000-0000-0000-0000-00000000b0c1',
-   repeat('b', 64), 1, 0, 1);
+   repeat('b', 64), 1, 1);
 
 insert into public.draw_entries (draw_id, company_id, participation_id, member_id, position)
 values ('00000000-0000-0000-0000-00000000b201', '00000000-0000-0000-0000-00000000b0c1',
@@ -287,8 +287,8 @@ begin
 
   insert into public.draws
     (id, promotion_id, organization_id, company_id, seed, algorithm_version,
-     runner_up_count, entry_count)
-  values (v_draw, v_promo, v_org, v_co, repeat('c', 64), 1, 0, 1);
+     entry_count)
+  values (v_draw, v_promo, v_org, v_co, repeat('c', 64), 1, 1);
 
   insert into public.draw_entries (draw_id, company_id, participation_id, member_id, position)
   values (v_draw, v_co, v_part, v_member, 1);
