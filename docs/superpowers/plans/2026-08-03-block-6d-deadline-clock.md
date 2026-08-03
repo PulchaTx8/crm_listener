@@ -698,7 +698,7 @@ git commit -m "feat(deadline): reopening is its own power, and its own refusal"
 
 **Interfaces:**
 - Consumes: `apply_winner_transition` from Task 2.
-- Produces: `public.sweep_pickup_deadlines()` — a **procedure**, called as `CALL public.sweep_pickup_deadlines()`. Task 11's e2e calls it directly rather than waiting an hour.
+- Produces: `public.sweep_pickup_deadlines()` — a **procedure**, called as `CALL public.sweep_pickup_deadlines()`. EXECUTE is granted to nobody but the owner: the procedure is `SECURITY INVOKER` (a procedure carrying `security definer` or any function-level `SET` clause cannot `commit` at all), so a grantee without EXECUTE on `apply_winner_transition` would fail every winner silently. Anything calling it — including Task 11 — needs a direct connection as the owner, not a PostgREST client.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1610,6 +1610,10 @@ Columns: date, type, prize, quantity, `from → to`, promotion, actor, note. New
 
 The actor column renders `(deadline)` when `actor_id` is null, because the only thing that writes movements without an actor is the sweep.
 
+**Key it off `actor_id`, never off `actor_name`.** The two nulls mean different things and only one of them is the clock: `actor_name` null with `actor_id` present is a real person who has no display name on record, and rendering them as "(deadline)" credits a machine for something somebody did. Show that case as the row's actor being unnamed, not absent.
+
+Task 6 briefly dodged this by coalescing the name to the operator's email address; review had it removed, because the row already carries the bit that settles it and the coalesce leaked a colleague's email to everyone holding `inventory.view`.
+
 - [ ] **Step 4: Split the Inventory nav**
 
 In `src/lib/auth/shell.ts`, the Inventory section — keeping the long comment above it, which is still true of both items:
@@ -1652,7 +1656,11 @@ Create `tests/e2e/deadline.spec.ts`, following `tests/e2e/`'s existing setup. On
 
 1. Seed a Station, a promotion, a prize with stock, a listener, a participation and a draw, through the service-role client as the other e2e specs do.
 2. Set the winner's `deadline_at` to an hour ago.
-3. `CALL public.sweep_pickup_deadlines()` directly through the service-role client. **Do not wait for the schedule** — the test asserts the procedure's effect, and `pg_cron` firing is verified once, by hand, in Task 4 Step 5.
+3. Run the sweep. **Do not wait for the schedule** — the test asserts the procedure's effect, and `pg_cron` firing is verified separately in Task 4.
+
+   **Not through the service-role client, which cannot do it — twice over.** Task 4 revoked EXECUTE, leaving the procedure owner-only, precisely because a `service_role` call would fail every winner (it holds no EXECUTE on `apply_winner_transition`), have the failures swallowed by the sweep's broad catch, and return success having done nothing. And separately: a supabase-js/PostgREST client cannot invoke a transaction-controlling PROCEDURE at all, at any privilege.
+
+   Open a direct Postgres connection as the migration-owning role and `CALL public.sweep_pickup_deadlines();` there. The local connection string comes from `supabase status`. If the e2e harness has no direct-pg dependency available, do not add one for this — assert the pre-sweep and post-sweep screen states around a sweep triggered from a SQL-level test instead, and say plainly in the report that the browser test covers the screens while `12b_deadline_sweep.test.sql` covers the procedure.
 4. Sign in as an operator holding `promotions.view`, `winners.reopen_deadline` and `winners.deliver`.
 5. Open `/pickups`, filter to `Return pending`, and assert the listener's row is there.
 6. Reopen the deadline with a reason and a date three days out; assert the row moves to `Awaiting pickup`.
@@ -1702,6 +1710,124 @@ It must state, because they are true and a reader will otherwise assume otherwis
 ```bash
 git add tests/e2e/deadline.spec.ts docs/block-6d-report.md docs/block-6d-runbook.md
 git commit -m "test(deadline): the whole journey, and the documents that record it"
+```
+
+---
+
+## Task 12: The third door — a cancelled draw awards nothing
+
+**Added mid-execution**, on the owner's ruling of 2026-08-03, after Task 5's review reproduced a stock theft this block had only half closed.
+
+**Files:**
+- Create: `supabase/migrations/0097_cancelled_draw_awards_nothing.sql`
+- Modify: `supabase/tests/12_deadline_clock.test.sql`
+- Read for reference: `supabase/migrations/0079_cancel_draw.sql`, `supabase/migrations/0092_return_pending_transitions.sql`, `supabase/migrations/0084_deliver_prize.sql`
+
+**Interfaces:**
+- Consumes: `apply_winner_transition(uuid, public.winner_status, text, timestamptz)` from Task 2.
+- Produces: no new signature. The same function, refusing one more thing.
+
+**Why this exists.** `cancel_draw` (`0079`) returns a draw's units from `awaiting_pickup` to `linked` and marks `draws.status = 'CANCELLED'`, but **deliberately leaves its winners at `AWAITING_PICKUP`** — 6a had no vocabulary for "un-awarded" and said so in the migration. Nothing read those rows as live, so the hole was inert.
+
+Block 6d added two readers that do — `list_pickups` and `sweep_pickup_deadlines` — and Task 5 shut both. But a third door was already open before this block and is still open: **`deliver_prize` and `apply_winner_transition` never consult `draws.status`**, and `get_draw` still lists a cancelled draw's winners on the draw-detail screen. Task 5's reviewer reproduced the theft with Task 5's fix in place: delivering the phantom moved the balance to `delivered`, after which the genuinely live winner's delivery failed with `only 0 unit(s) are in awaiting_pickup`.
+
+The two Task 5 exclusions stay. They keep the sweep from ever attempting a doomed movement, which is what stops the hourly job going permanently red. This task closes the boundary underneath them.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `supabase/tests/12_deadline_clock.test.sql`, raising the plan by the number you add. Build a draw for one listener, cancel it through `public.cancel_draw`, then assert every transition is refused:
+
+```sql
+-- A cancelled draw awards nothing. 0079 leaves its winners AWAITING_PICKUP on
+-- purpose -- it had no vocabulary for "un-awarded" -- and returns their units
+-- to `linked`. So every one of these would move a unit that is not there:
+-- either failing on the balance CHECK, or SUCCEEDING against a unit that
+-- belongs to a different, live winner of the same prize. The second is silent,
+-- and is what Task 5's review reproduced.
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'DELIVERED'::public.winner_status, 'walk-in')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'a cancelled draw''s winner cannot be handed the prize');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'RETURN_PENDING'::public.winner_status, 'pickup deadline expired')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'and cannot have its deadline expire');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'RETURNED'::public.winner_status, 'tidying up')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'and cannot be returned to stock, because it never left it');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'WRITTEN_OFF'::public.winner_status, 'tidying up')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'and cannot be written off');
+```
+
+**Pin the message on all four.** `22023` is shared by every guard in this function, so an unpinned `throws_ok` would pass on the wrong refusal — the exact defect this block shipped once already in Task 2.
+
+Define `pg_temp.cancelled_winner()` alongside the file's existing `pg_temp.winner_of(text)` helper, returning the winner id of the cancelled draw's listener.
+
+Then the case that proves the guard is not too wide:
+
+```sql
+select lives_ok($$
+  select public.apply_winner_transition(
+    pg_temp.winner_of('Maria 6d'), 'RETURN_PENDING'::public.winner_status, 'pickup deadline expired')
+$$, 'a winner whose draw still stands is unaffected');
+```
+
+- [ ] **Step 2: Run and watch them fail**
+
+Run: `npm run db:test`
+Expected: the four `throws_ok` fail — currently these transitions all succeed, which is the defect.
+
+- [ ] **Step 3: Write the migration**
+
+`supabase/migrations/0097_cancelled_draw_awards_nothing.sql`. `apply_winner_transition` gains one lookup and one refusal. Its signature does not change, so `create or replace` is enough — no drop, and the ACL and comment survive.
+
+The function already joins `public.draws d on d.id = w.draw_id` to reach `organization_id`. Select `d.status` in that same query into a new `v_draw_status` variable, and refuse immediately after the not-found check, **before** the `p_to = v_from` check and before any branch:
+
+```sql
+  -- 0079 cancels a draw by returning its units to `linked` and marking the
+  -- draw CANCELLED, while deliberately leaving its winners AWAITING_PICKUP.
+  -- Those rows are a record of what was cancelled, not a claim on stock, and
+  -- every transition below would move a unit that is no longer there --
+  -- failing on the balance CHECK when no other winner holds one, and
+  -- SUCCEEDING against somebody else's unit when one does. The second is
+  -- silent, and is the reason this refusal is in the core rather than in the
+  -- doors: a screen that forgets to ask is then merely inconvenient.
+  if v_draw_status = 'CANCELLED' then
+    raise exception 'this prize was un-awarded when its draw was cancelled'
+      using errcode = '22023';
+  end if;
+```
+
+Re-issue nothing else. Update the `comment on function` to name the new refusal alongside the others.
+
+- [ ] **Step 4: Run and watch them pass**
+
+Run: `npm run db:reset && npm run db:test`
+Expected: PASS, every file. `10_delivery.test.sql` and `09_draws.test.sql` must be unaffected — their winners belong to draws that stand.
+
+- [ ] **Step 5: Prove it by mutation**
+
+Remove the new refusal, re-run, and confirm the four new assertions go red and the `lives_ok` stays green. Restore. Record the real output in the report — this block has repeatedly shipped assertions that passed without exercising anything, and the mutation is the only thing that settles it.
+
+- [ ] **Step 6: Check whether the screen still offers the button**
+
+`src/components/draws/winner-actions.tsx` decides which actions a winner's row offers, as a courtesy — the RPC is the boundary and now refuses. Find out whether the draw-detail screen has the draw's status available to it (`get_draw`, `0080`, returns the draw). If it does, make `availableWinnerActions` return `[]` for a cancelled draw and add the unit test. If it does not, do NOT plumb it through here — write the finding in your report and it becomes a note for Task 9, which is already building a screen over these actions.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add supabase/migrations/0097_cancelled_draw_awards_nothing.sql supabase/tests/12_deadline_clock.test.sql
+git commit -m "fix(draw): a cancelled draw awards nothing, and the core says so"
 ```
 
 ---
