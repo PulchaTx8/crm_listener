@@ -767,13 +767,17 @@ export async function importParticipations(
  *
  * - `22P02` is a value that does not parse as the type it is compared or cast
  *   against, and unlike the two above it has a live path that needs no bypass
- *   at all: decodeCursor accepts any non-empty string as a cursor's id, so a
- *   hand-edited `?after=` on the list read reaches Postgres as
- *   `id.lt."abc"` and comes back with this code (reproduced against the running
- *   stack). The RPCs reach it too, through `(v_answer ->> 'option_id')::uuid`
- *   and `(v_row ->> 'line')::integer`. ValidationError, for the reason
- *   mapMemberError gives its own 22P02: the value is wrong, not the request,
- *   and not a server fault.
+ *   at all: the RPCs reach it through `(v_answer ->> 'option_id')::uuid` and
+ *   `(v_row ->> 'line')::integer`, and the list read reaches it through
+ *   `list_participations`'s own `p_promotion_id`/`p_option_id` (0090, both
+ *   uuid), neither checked before the call. Until Block 6d this code also had
+ *   a door through decodeCursor, which accepted any non-empty string as a
+ *   cursor's id and let a hand-edited `?after=` reach Postgres as
+ *   `id.lt."abc"` (reproduced against the running stack); decodeCursor
+ *   (@/lib/keyset) now rejects an id that is not a uuid before any query runs,
+ *   closing that door for every keyset screen at once. ValidationError, for
+ *   the reason mapMemberError gives its own 22P02: the value is wrong, not the
+ *   request, and not a server fault.
  * - `22007` is the same verdict for the one datetime cast, `(v_row ->>
  *   'participated_at')::timestamptz`. importRowSchema refuses an unreadable
  *   instant before a request is sent, so this is the forward-looking half of the
