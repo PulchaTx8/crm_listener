@@ -1,5 +1,5 @@
 begin;
-select plan(11);
+select plan(28);
 
 -- Block 6d, Task 5: the pickups list, as one function.
 --
@@ -204,6 +204,100 @@ values
    1, 'AWAITING_PICKUP', now() + interval '1 day');
 
 -- ---------------------------------------------------------------------------
+-- Block 6d, Task 6: list_movements fixtures. Reuses the org, the Station, the
+-- two prizes above (d2d1, d2d2) and List promo A's own live link (d2a1) --
+-- promo A's name is exercised by data that already exists here rather than a
+-- fourth copy of it. Adds exactly one further promotion, ALREADY ARCHIVED by
+-- direct insert -- the identical reasoning the winners/draws fixtures above
+-- give for building state by hand: what is under test is the READ.
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at, deleted_at, deleted_by)
+values
+  ('00000000-0000-0000-0000-00000000d2e4', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', 'List promo D (archived)',
+   now() - interval '30 days', now() - interval '20 days',
+   now() - interval '10 days', '00000000-0000-0000-0000-00000000d2aa');
+
+insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
+values
+  ('00000000-0000-0000-0000-00000000d2a4', '00000000-0000-0000-0000-00000000d2e4',
+   '00000000-0000-0000-0000-00000000d2d1', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1');
+
+-- The one caller whose display name list_movements has to resolve. Never
+-- signed in through this suite -- actor_id only has to reference a real
+-- auth.users row, exactly as pickup-list-canceller@example.test above proves
+-- for cancelled_by.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000d291', 'movements-operator@example.test');
+insert into public.profiles (id, email, full_name) values
+  ('00000000-0000-0000-0000-00000000d291', 'movements-operator@example.test', 'Operator Six D');
+
+-- A second real actor who never set a display name: full_name is nullable in
+-- production (0003, 0013, 0018), so actor_name has to fall back to the NOT
+-- NULL email -- otherwise this caller reads as indistinguishable from the
+-- clock, the exact ambiguity promotion_archived exists to close on the other
+-- side of this same function.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000d292', 'movements-noname@example.test');
+insert into public.profiles (id, email, full_name) values
+  ('00000000-0000-0000-0000-00000000d292', 'movements-noname@example.test', null);
+
+-- Seven movements over both prizes, a live promotion and an archived one, a
+-- real actor and a genuinely absent one, and one TIED created_at -- every
+-- fact list_movements' own header claims about ordering, the two nullable
+-- identities and the three promotion states has to be provable from ROWS.
+insert into public.inventory_movements
+  (id, organization_id, company_id, prize_id, movement_type, quantity,
+   from_bucket, to_bucket, note, actor_id, promotion_prize_id, created_at)
+values
+  -- No promotion, no actor: an ordinary opening entry.
+  ('00000000-0000-0000-0000-00000000d271', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d1',
+   'MANUAL_ENTRY', 10, null, 'available', 'opening stock', null, null,
+   now() - interval '5 hours'),
+  -- Promo A -- LIVE. promotion_name must come back even though the caller
+  -- below never holds promotions.view.
+  ('00000000-0000-0000-0000-00000000d272', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d1',
+   'PROMOTION_LINK', 3, 'available', 'linked', null, null,
+   '00000000-0000-0000-0000-00000000d2a1', now() - interval '4 hours'),
+  -- Promo D -- ARCHIVED. The tri-state case: the row lists, the name does
+  -- not, and promotion_archived says which null this is.
+  ('00000000-0000-0000-0000-00000000d273', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d1',
+   'PROMOTION_LINK', 2, 'available', 'linked', null, null,
+   '00000000-0000-0000-0000-00000000d2a4', now() - interval '3 hours'),
+  -- A genuine actor -- resolved to a name, not left null beside the clock's.
+  ('00000000-0000-0000-0000-00000000d274', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d1',
+   'MANUAL_EXIT', 1, 'available', null, 'shrinkage',
+   '00000000-0000-0000-0000-00000000d291', null, now() - interval '2 hours'),
+  -- The OTHER prize, and a TIE with the row below: identical created_at, so
+  -- only movement_id desc can be what puts one ahead of the other.
+  ('00000000-0000-0000-0000-00000000d275', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d2',
+   'MANUAL_ENTRY', 4, null, 'available', null, null, null,
+   now() - interval '1 hour'),
+  ('00000000-0000-0000-0000-00000000d276', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d2',
+   'MANUAL_ENTRY', 6, null, 'available', null, null, null,
+   now() - interval '1 hour'),
+  -- No actor at all: the clock's own shape (0094), for the read this task
+  -- adds rather than the write that one already has.
+  ('00000000-0000-0000-0000-00000000d277', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d1',
+   'ADJUSTMENT_POSITIVE', 1, null, 'available', 'reconciliation', null, null,
+   now() - interval '30 minutes'),
+  -- The nameless actor, oldest of all eight so it cannot disturb the
+  -- ordering/tie-break cases above, which are pinned to the seven newest.
+  ('00000000-0000-0000-0000-00000000d278', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2d1',
+   'MANUAL_EXIT', 1, 'available', null, 'shrinkage 2',
+   '00000000-0000-0000-0000-00000000d292', null, now() - interval '6 hours');
+
+-- ---------------------------------------------------------------------------
 -- Case 1: the permission, first, and a refusal rather than an empty page.
 --
 -- No jwt claims set at all here -- the same "nobody is authenticated in
@@ -215,6 +309,13 @@ select throws_ok($$
   select * from public.list_pickups('00000000-0000-0000-0000-00000000d2c1'::uuid)
 $$, '42501', null, 'a caller holding no session at all is refused, not shown an empty page');
 
+-- The identical invariant, for list_movements: no jwt claims exist yet in
+-- this transaction, so has_permission is false and the function must raise
+-- rather than hand back rows from the seven movements just inserted above.
+select throws_ok($$
+  select * from public.list_movements('00000000-0000-0000-0000-00000000d2c1'::uuid)
+$$, '42501', null, 'a caller holding no session at all is refused list_movements too, not shown an empty page');
+
 -- ---------------------------------------------------------------------------
 -- The operator for every case below: promotions.view only. members.view is
 -- deliberately withheld here too -- names and the search-without-names oracle
@@ -225,7 +326,15 @@ $$, '42501', null, 'a caller holding no session at all is refused, not shown an 
 insert into public.roles (id, organization_id, name) values
   ('00000000-0000-0000-0000-00000000d241', '00000000-0000-0000-0000-00000000d2f1', 'Pickups reader');
 insert into public.role_permissions (role_id, permission_code) values
-  ('00000000-0000-0000-0000-00000000d241', 'promotions.view');
+  ('00000000-0000-0000-0000-00000000d241', 'promotions.view'),
+  -- Block 6d, Task 6: this same delegate drives every list_movements
+  -- mechanics case below too, holding BOTH permissions. Proving list_movements
+  -- needs ONLY inventory.view is tests/isolation/pickups.test.ts's job, with a
+  -- caller who holds inventory.view and NOT promotions.view -- pgTAP reuses
+  -- this role purely for the keyset/filter/total_count mechanics, the same
+  -- division 13's own header draws for list_pickups' four RLS-replacement
+  -- rules.
+  ('00000000-0000-0000-0000-00000000d241', 'inventory.view');
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000d242', 'pickups-reader@example.test');
 insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
@@ -379,6 +488,176 @@ select is(
      '00000000-0000-0000-0000-00000000d2c1', null, '00000000-0000-0000-0000-00000000d2e3',
      null, null, null, false, 50)),
   0, 'a winner whose draw was cancelled does not list, whatever winners.status still says');
+
+-- ---------------------------------------------------------------------------
+-- Block 6d, Task 6: list_movements. The same delegate as every case above
+-- (242, now also holding inventory.view) drives every case below -- what
+-- pgTAP proves here is the mechanics list_movements shares with list_pickups
+-- and list_participations (the keyset, the filters, total_count) plus two
+-- facts a single role CAN settle on its own: the tie-break on movement_id,
+-- and the promotion tri-state against a caller who is provably not this
+-- Organization's owner (this fixture never inserts an owner membership at
+-- all, so is_owner_of_company is false for every user here). Whether the
+-- OWNER sees the name this same caller cannot is tests/isolation's job --
+-- the identical reasoning 0095's own header gives for deferring the
+-- archived-promotion CONTRAST there rather than one side of it.
+
+-- Case 13. The first page, newest first, limit 2: d277 (-30min) is
+-- unambiguous, but d276 and d275 TIE on created_at (-1h) -- only
+-- movement_id desc can be what keeps d276 on this page and d275 off it.
+create temporary table lm_page_one as
+select * from public.list_movements(
+  '00000000-0000-0000-0000-00000000d2c1', null, null, null, null, null, null, null, false, 2);
+
+select ok(
+  (select count(*)::int from lm_page_one) = 2
+  and exists (select 1 from lm_page_one where movement_id = '00000000-0000-0000-0000-00000000d277')
+  and exists (select 1 from lm_page_one where movement_id = '00000000-0000-0000-0000-00000000d276')
+  and not exists (select 1 from lm_page_one where movement_id = '00000000-0000-0000-0000-00000000d275'),
+  'the first page (newest first) holds the two most recent movements, the created_at tie broken by movement_id desc');
+
+select is(
+  (select distinct total_count from lm_page_one), 8,
+  'total_count is the whole filtered set (8), not the page (2)');
+
+-- Case 14. The next page, continuing from d276: the tied d275 belongs HERE,
+-- not on page one -- the cursor's own tuple comparison has to resolve the
+-- identical tie the base ordering did.
+create temporary table lm_page_two as
+select * from public.list_movements(
+  '00000000-0000-0000-0000-00000000d2c1', null, null, null, null, null,
+  (select created_at from lm_page_one where movement_id = '00000000-0000-0000-0000-00000000d276'),
+  '00000000-0000-0000-0000-00000000d276',
+  false, 2);
+
+select ok(
+  (select count(*)::int from lm_page_two) = 2
+  and exists (select 1 from lm_page_two where movement_id = '00000000-0000-0000-0000-00000000d275')
+  and exists (select 1 from lm_page_two where movement_id = '00000000-0000-0000-0000-00000000d274')
+  and not exists (select 1 from lm_page_two where movement_id = '00000000-0000-0000-0000-00000000d276'),
+  'the second page picks up exactly where the first left off, tied row included, no row repeated');
+
+select is(
+  (select distinct total_count from lm_page_two), 8,
+  'total_count agrees with the first page: a page and its count cannot narrow differently');
+
+-- Case 15. Walking back from page two lands on page one again -- exactly,
+-- not merely overlapping it, which is the stronger claim a tie makes worth
+-- checking: a walk-back that mishandled it could easily land on the right
+-- COUNT while holding the wrong row.
+create temporary table lm_walked_back as
+select * from public.list_movements(
+  '00000000-0000-0000-0000-00000000d2c1', null, null, null, null, null,
+  (select created_at from lm_page_two where movement_id = '00000000-0000-0000-0000-00000000d275'),
+  '00000000-0000-0000-0000-00000000d275',
+  true, 2);
+
+select ok(
+  (select count(*)::int from lm_walked_back) = 2
+  and exists (select 1 from lm_walked_back where movement_id = '00000000-0000-0000-0000-00000000d277')
+  and exists (select 1 from lm_walked_back where movement_id = '00000000-0000-0000-0000-00000000d276'),
+  'walking back from page two lands exactly on page one again');
+
+-- Case 16. The type filter: exactly the two PROMOTION_LINK movements, live
+-- and archived promotion alike.
+select ok(
+  (select count(*)::int from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', 'PROMOTION_LINK'::public.inventory_movement_type,
+     null, null, null, null, null, null, false, 50)) = 2
+  and exists (select 1 from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', 'PROMOTION_LINK'::public.inventory_movement_type,
+     null, null, null, null, null, null, false, 50)
+    where movement_id = '00000000-0000-0000-0000-00000000d272')
+  and exists (select 1 from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', 'PROMOTION_LINK'::public.inventory_movement_type,
+     null, null, null, null, null, null, false, 50)
+    where movement_id = '00000000-0000-0000-0000-00000000d273'),
+  'filtering to PROMOTION_LINK returns exactly the two link movements, live and archived promotion alike');
+
+-- Case 17. The prize filter -- the OTHER prize, exclusive to d275/d276.
+select is(
+  (select count(*)::int from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', null, '00000000-0000-0000-0000-00000000d2d2'::uuid,
+     null, null, null, null, null, false, 50)),
+  2, 'filtering to the other prize returns exactly its two movements');
+
+-- Case 18. The promotion filter -- promo A, named by exactly one movement
+-- across the whole Station.
+select ok(
+  (select count(*)::int from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', null, null, '00000000-0000-0000-0000-00000000d2e1'::uuid,
+     null, null, null, null, false, 50)) = 1
+  and exists (select 1 from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', null, null, '00000000-0000-0000-0000-00000000d2e1'::uuid,
+     null, null, null, null, false, 50)
+    where movement_id = '00000000-0000-0000-0000-00000000d272'),
+  'filtering to promo A returns exactly its one movement');
+
+-- Case 19. The date range, spanning exactly d273 (-3h) and d274 (-2h).
+select is(
+  (select count(*)::int from public.list_movements(
+     '00000000-0000-0000-0000-00000000d2c1', null, null, null,
+     now() - interval '3 hours 30 minutes', now() - interval '1 hour 30 minutes',
+     null, null, false, 50)),
+  2, 'the date range returns exactly the two movements inside it');
+
+-- Case 20. No filter at all spans the whole Station: eight movements, not
+-- seven or nine -- the product requirement itself, mirroring list_pickups'
+-- own Case 10.
+create temporary table lm_all as
+select * from public.list_movements(
+  '00000000-0000-0000-0000-00000000d2c1', null, null, null, null, null, null, null, false, 50);
+
+select is(
+  (select count(*)::int from lm_all), 8, 'with no filter at all, the list spans every movement of the Station');
+
+-- Case 21. The tri-state, first branch: no promotion at all.
+select ok(
+  (select promotion_id is null and promotion_name is null and promotion_archived = false
+     from lm_all where movement_id = '00000000-0000-0000-0000-00000000d271'),
+  'a movement naming no promotion returns promotion_id null, promotion_name null, promotion_archived false');
+
+-- Case 22. The tri-state, second branch: a LIVE promotion, named in full.
+select ok(
+  (select promotion_id = '00000000-0000-0000-0000-00000000d2e1'::uuid
+      and promotion_name = 'List promo A'
+      and promotion_archived = false
+     from lm_all where movement_id = '00000000-0000-0000-0000-00000000d272'),
+  'a movement under a live promotion returns its id and its name, promotion_archived false');
+
+-- Case 23. The tri-state, third branch: an ARCHIVED promotion. The id is NOT
+-- withheld -- only the name is -- and promotion_archived says why it is
+-- missing rather than leaving a blank cell indistinguishable from Case 21.
+select ok(
+  (select promotion_id = '00000000-0000-0000-0000-00000000d2e4'::uuid
+      and promotion_name is null
+      and promotion_archived = true
+     from lm_all where movement_id = '00000000-0000-0000-0000-00000000d273'),
+  'a movement under an archived promotion still lists with its id, names nothing, and says promotion_archived true');
+
+-- Case 24. actor_id null means exactly one thing: nobody recorded this by
+-- hand, the same shape sweep_pickup_deadlines (0094) leaves under pg_cron.
+select ok(
+  (select actor_id is null and actor_name is null
+     from lm_all where movement_id = '00000000-0000-0000-0000-00000000d277'),
+  'a movement with no actor at all returns actor_name null, the clock''s own shape');
+
+-- Case 25. A genuine actor resolves to a genuine name, not left null beside
+-- the clock's -- the two nulls this function is built not to conflate.
+select ok(
+  (select actor_id = '00000000-0000-0000-0000-00000000d291'::uuid
+      and actor_name = 'Operator Six D'
+     from lm_all where movement_id = '00000000-0000-0000-0000-00000000d274'),
+  'a movement with a real actor resolves actor_name from their profile');
+
+-- Case 26. A genuine actor who never set a display name falls back to their
+-- NOT NULL email rather than surfacing as actor_name null -- which would
+-- otherwise be indistinguishable from the clock's own null.
+select ok(
+  (select actor_id = '00000000-0000-0000-0000-00000000d292'::uuid
+      and actor_name = 'movements-noname@example.test'
+     from lm_all where movement_id = '00000000-0000-0000-0000-00000000d278'),
+  'an actor with no full_name set resolves actor_name to their profile email instead of null');
 
 reset role;
 
