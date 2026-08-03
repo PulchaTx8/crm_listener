@@ -31,7 +31,7 @@ Block 6c's own arithmetic, because two of those totals went **down** as well as
 up: 43 pgTAP assertions in the new `11_filtered_hat.test.sql` against 3 removed
 from `09_draws.test.sql` (+40); 10 new Vitest cases in `answer-filter.test.ts`
 against 7 deleted from `draw-algorithm` and `run-draw-dialog` (+3); 3 isolation
-cases in `draw.test.ts`; 1 Playwright journey. 16 commits.
+cases in `draw.test.ts`; 1 Playwright journey. 18 commits.
 
 ---
 
