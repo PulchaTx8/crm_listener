@@ -161,8 +161,8 @@ test('an operator hands a prize over, files the receipt, and undoes the delivery
   // Undoing keeps the receipt: clearing it would delete a photograph of a real
   // handover because somebody corrected a record.
   await page.getByTestId('winner-cancel_delivery').click();
-  await page.getByLabel('Motivo').fill('recorded against the wrong winner');
-  await page.getByRole('button', { name: 'Confirmar' }).click();
+  await page.getByLabel('Reason').fill('recorded against the wrong winner');
+  await page.getByRole('button', { name: 'Confirm' }).click();
 
   await expect(page.getByTestId('winner-status-1')).toHaveText('AWAITING_PICKUP', {
     timeout: 15_000,

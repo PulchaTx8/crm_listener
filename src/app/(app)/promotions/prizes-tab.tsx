@@ -33,7 +33,7 @@ const INITIAL: PrizeLinkState = { status: 'idle' };
 const SEARCH_DEBOUNCE_MS = 350;
 
 /**
- * Vinculados / Sorteados / Resto, one row per linked prize, plus the two
+ * Linked / Drawn / Left, one row per linked prize, plus the two
  * controls that move units in and out.
  *
  * Resto is computed here and stored nowhere: a stored total is one more thing
@@ -65,7 +65,7 @@ export function PrizesTab({
       {/*
         The way into the draws, which are their own route rather than a sixth
         tab (owner's ruling, 2026-08-02). Here rather than on the tab strip
-        because this tab is where the units live, and "Sorteados" in the table
+        because this tab is where the units live, and "Drawn" in the table
         below is the number this link explains.
       */}
       <Link
@@ -88,7 +88,7 @@ export function PrizesTab({
         className="self-start text-sm underline"
         data-testid="open-draws"
       >
-        Sorteios desta promoção →
+        Draws of this promotion →
       </Link>
 
       {prizes.length === 0 && !linking && (
@@ -191,7 +191,7 @@ export function PrizesTab({
 }
 
 /**
- * Bounded by Resto rather than by Vinculados: the drawn units belong to a
+ * Bounded by Left rather than by Linked: the drawn units belong to a
  * winner. The RPC refuses the same thing and names both figures, so this is the
  * verdict without a round trip and not the boundary.
  *

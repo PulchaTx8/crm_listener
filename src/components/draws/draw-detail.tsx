@@ -4,14 +4,20 @@ import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { DrawDetail } from '@/services/draws';
+// The Station-zone instant formatter, shared with every other screen rather
+// than re-derived. 6a rendered these with toLocaleString('pt-BR') and no zone
+// at all, which is both halves of what this task is fixing: the language, and
+// an operator in another state reading a draw as having happened an hour from
+// when the Station ran it (spec L2).
+import { formatInstant } from '@/app/(app)/promotions/format';
 import { WinnerActions, type WinnerAction, type WinnerPowers } from './winner-actions';
 
-function formatDeadline(value: string | null): string {
+function formatDeadline(value: string | null, timeZone: string): string {
   // Null is not missing data: it means this winner has NO deadline, because
-  // neither the promotion nor the prize set one (spec 6). Saying "sem prazo"
+  // neither the promotion nor the prize set one (spec 6). Saying "no deadline"
   // is the whole point — a blank would read as a value nobody filled in.
-  if (!value) return 'sem prazo';
-  return new Date(value).toLocaleDateString('pt-BR');
+  if (!value) return 'no deadline';
+  return formatInstant(value, timeZone);
 }
 
 /**
@@ -21,7 +27,7 @@ function formatDeadline(value: string | null): string {
  * the draw at all, so a blank here is never "you are not allowed to know".
  */
 function listenerLabel(name: string | null, memberId: string): string {
-  return name ?? `ouvinte ${memberId.slice(0, 8)} (sem nome no cadastro)`;
+  return name ?? `listener ${memberId.slice(0, 8)} (no name on record)`;
 }
 
 /**
@@ -35,6 +41,7 @@ function listenerLabel(name: string | null, memberId: string): string {
  */
 export function DrawDetailView({
   draw,
+  timeZone,
   canCancel,
   onCancel,
   winnerPowers,
@@ -43,6 +50,8 @@ export function DrawDetailView({
   onAttachReceipt,
 }: {
   draw: DrawDetail;
+  /** The Station's zone, so every instant here is the one the Station ran on. */
+  timeZone: string;
   canCancel: boolean;
   onCancel: (reason: string) => Promise<string | null>;
   winnerPowers: WinnerPowers;
@@ -62,7 +71,7 @@ export function DrawDetailView({
 
   function submitCancel() {
     if (reason.trim().length === 0) {
-      setMessage('Informe o motivo do cancelamento.');
+      setMessage('Give a reason for the cancellation.');
       return;
     }
     setMessage(null);
@@ -75,23 +84,21 @@ export function DrawDetailView({
   return (
     <section className="space-y-6" data-testid="draw-detail">
       <header className="space-y-1">
-        <h2 className="text-lg font-semibold">
-          Sorteio de {new Date(draw.drawnAt).toLocaleString('pt-BR')}
-        </h2>
+        <h2 className="text-lg font-semibold">Draw of {formatInstant(draw.drawnAt, timeZone)}</h2>
         <p className="text-sm text-muted-foreground">
-          {draw.entryCount} entrada(s) no chapéu · {draw.winners.length} prêmio(s)
+          {draw.entryCount} entr{draw.entryCount === 1 ? 'y' : 'ies'} in the hat ·{' '}
+          {draw.winners.length} prize{draw.winners.length === 1 ? '' : 's'}
         </p>
         {cancelled ? (
           <p className="text-sm font-medium text-destructive" data-testid="draw-cancelled">
-            Cancelado em{' '}
-            {draw.cancelledAt ? new Date(draw.cancelledAt).toLocaleString('pt-BR') : ''}
+            Cancelled on {draw.cancelledAt ? formatInstant(draw.cancelledAt, timeZone) : ''}
             {draw.cancellationReason ? ` — ${draw.cancellationReason}` : ''}
           </p>
         ) : null}
       </header>
 
       <div>
-        <h3 className="mb-2 font-medium">Ganhadores</h3>
+        <h3 className="mb-2 font-medium">Winners</h3>
         <ol className="space-y-1" data-testid="draw-winners">
           {draw.winners.map((winner) => (
             <li key={winner.id} className="border-b py-2">
@@ -100,7 +107,7 @@ export function DrawDetailView({
                   {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId)}
                 </span>
                 <span className="text-sm text-muted-foreground">
-                  {winner.prizeName} · {formatDeadline(winner.deadlineAt)} ·{' '}
+                  {winner.prizeName} · {formatDeadline(winner.deadlineAt, timeZone)} ·{' '}
                   <span data-testid={`winner-status-${winner.awardedRank}`}>{winner.status}</span>
                 </span>
               </div>
@@ -114,14 +121,16 @@ export function DrawDetailView({
                     className="underline"
                     data-testid="winner-receipt"
                   >
-                    Ver recibo
+                    View receipt
                   </a>
                 ) : winner.receiptErasedAt ? (
                   // Not the same as never having had one, and the screen says so:
                   // the listener asked to be erased and the object is gone.
-                  <span data-testid="winner-receipt-erased">recibo apagado a pedido</span>
+                  <span data-testid="winner-receipt-erased">
+                    receipt erased at the listener&apos;s request
+                  </span>
                 ) : (
-                  <span data-testid="winner-no-receipt">sem recibo</span>
+                  <span data-testid="winner-no-receipt">no receipt</span>
                 )}
               </p>
 
@@ -154,14 +163,14 @@ export function DrawDetailView({
       </div>
 
       <div className="rounded border p-3 text-sm">
-        <h3 className="mb-1 font-medium">Como conferir este sorteio</h3>
+        <h3 className="mb-1 font-medium">How to check this draw</h3>
         <p className="text-muted-foreground">
-          Ordene as entradas por <code>sha256(semente + &quot;:&quot; + id da participação)</code> e
-          percorra a lista, pulando quem já ganhou. O runbook traz a receita completa.
+          Rank the entries by <code>sha256(seed + &quot;:&quot; + participation id)</code> and walk
+          the list, skipping anybody already awarded. The runbook has the whole recipe.
         </p>
         <dl className="mt-2 space-y-1">
           <div className="flex gap-2">
-            <dt className="font-medium">Semente</dt>
+            <dt className="font-medium">Seed</dt>
             <dd>
               <code data-testid="draw-seed" className="break-all">
                 {draw.seed}
@@ -169,7 +178,7 @@ export function DrawDetailView({
             </dd>
           </div>
           <div className="flex gap-2">
-            <dt className="font-medium">Algoritmo</dt>
+            <dt className="font-medium">Algorithm</dt>
             <dd data-testid="draw-algorithm-version">v{draw.algorithmVersion}</dd>
           </div>
         </dl>
@@ -178,12 +187,12 @@ export function DrawDetailView({
       {canCancel && !cancelled ? (
         <div className="space-y-2 border-t pt-4">
           <label className="block text-sm font-medium" htmlFor="cancel-reason">
-            Cancelar este sorteio
+            Cancel this draw
           </label>
           <Input
             id="cancel-reason"
             value={reason}
-            placeholder="Motivo do cancelamento"
+            placeholder="Why it is being cancelled"
             onChange={(event) => setReason(event.target.value)}
           />
           <Button
@@ -193,7 +202,7 @@ export function DrawDetailView({
             disabled={pending}
             data-testid="cancel-draw"
           >
-            {pending ? 'Cancelando…' : 'Cancelar sorteio'}
+            {pending ? 'Cancelling…' : 'Cancel this draw'}
           </Button>
         </div>
       ) : null}
@@ -237,7 +246,7 @@ function ReceiptForm({
       <input
         type="file"
         name="receipt"
-        aria-label="Recibo da entrega"
+        aria-label="Receipt of the handover"
         data-testid="receipt-input"
         className="text-sm"
       />
@@ -248,7 +257,7 @@ function ReceiptForm({
         disabled={pending}
         data-testid="receipt-attach"
       >
-        {pending ? 'Enviando…' : 'Anexar recibo'}
+        {pending ? 'Uploading…' : 'Attach receipt'}
       </Button>
       {message ? (
         <span role="alert" className="text-sm text-destructive">

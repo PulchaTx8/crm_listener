@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { DrawDetailView } from '@/components/draws/draw-detail';
+import { formatInstant } from '../../format';
 import { RunDrawDialog, type DrawUnitChoice } from '@/components/draws/run-draw-dialog';
 import type { DrawUnitRequest } from '@/components/draws/run-draw-dialog';
 import type { DrawDetail, DrawSummary } from '@/services/draws';
@@ -22,6 +23,7 @@ export function DrawsScreen({
   draws,
   detail,
   linked,
+  timeZone,
   canDraw,
   canCancel,
   winnerPowers,
@@ -30,6 +32,8 @@ export function DrawsScreen({
 }: {
   promotionId: string;
   companyId: string;
+  /** The Station's zone: every instant on this screen is the one the Station ran on. */
+  timeZone: string;
   draws: DrawSummary[];
   detail: DrawDetail | null;
   linked: DrawUnitChoice[];
@@ -41,10 +45,10 @@ export function DrawsScreen({
   return (
     <div className="grid gap-6 md:grid-cols-[16rem_1fr]">
       <aside className="space-y-3">
-        <h2 className="font-medium">Sorteios</h2>
+        <h2 className="font-medium">Draws</h2>
         {draws.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="no-draws">
-            Esta promoção ainda não foi sorteada.
+            This promotion has not been drawn yet.
           </p>
         ) : (
           <ul className="space-y-1" data-testid="draw-list">
@@ -56,10 +60,10 @@ export function DrawsScreen({
                     detail?.id === draw.id ? 'border-primary font-medium' : ''
                   }`}
                 >
-                  {new Date(draw.drawnAt).toLocaleString('pt-BR')}
+                  {formatInstant(draw.drawnAt, timeZone)}
                   <span className="ml-1 text-muted-foreground">
-                    · {draw.winnerCount} prêmio(s)
-                    {draw.status === 'CANCELLED' ? ' · cancelado' : ''}
+                    · {draw.winnerCount} prize{draw.winnerCount === 1 ? '' : 's'}
+                    {draw.status === 'CANCELLED' ? ' · cancelled' : ''}
                   </span>
                 </Link>
               </li>
@@ -70,7 +74,7 @@ export function DrawsScreen({
         {canDraw ? (
           linked.length > 0 ? (
             <div className="border-t pt-3">
-              <h3 className="mb-2 font-medium">Novo sorteio</h3>
+              <h3 className="mb-2 font-medium">New draw</h3>
               <RunDrawDialog
                 linked={linked}
                 onRun={(units: DrawUnitRequest[] | null) => runDrawAction(promotionId, units)}
@@ -78,7 +82,7 @@ export function DrawsScreen({
             </div>
           ) : (
             <p className="border-t pt-3 text-sm text-muted-foreground" data-testid="nothing-to-draw">
-              Não há unidades vinculadas para sortear.
+              There are no linked units left to draw.
             </p>
           )
         ) : null}
@@ -88,6 +92,7 @@ export function DrawsScreen({
         {detail ? (
           <DrawDetailView
             draw={detail}
+            timeZone={timeZone}
             canCancel={canCancel}
             onCancel={(reason: string) => cancelDrawAction(promotionId, detail.id, reason)}
             winnerPowers={winnerPowers}
@@ -100,7 +105,7 @@ export function DrawsScreen({
             }
           />
         ) : (
-          <p className="text-sm text-muted-foreground">Nenhum sorteio selecionado.</p>
+          <p className="text-sm text-muted-foreground">No draw selected.</p>
         )}
       </div>
     </div>

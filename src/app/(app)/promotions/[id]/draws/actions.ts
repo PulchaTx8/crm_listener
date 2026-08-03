@@ -101,7 +101,7 @@ export async function attachReceiptAction(
   formData: FormData,
 ): Promise<string | null> {
   const file = formData.get('receipt');
-  if (!(file instanceof File) || file.size === 0) return 'Escolha um arquivo.';
+  if (!(file instanceof File) || file.size === 0) return 'Choose a file.';
 
   try {
     const token = await requireAccessToken();

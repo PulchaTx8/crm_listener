@@ -45,13 +45,13 @@ export function validateDrawRequest(input: {
     if (!Number.isInteger(unit.requested) || unit.requested < 0) {
       return {
         ok: false,
-        message: `A quantidade de "${unit.prizeName}" tem de ser um número inteiro.`,
+        message: `The number of “${unit.prizeName}” has to be a whole number.`,
       };
     }
     if (unit.requested > unit.available) {
       return {
         ok: false,
-        message: `"${unit.prizeName}" tem ${unit.available} unidade(s) para sortear.`,
+        message: `“${unit.prizeName}” has ${unit.available} unit(s) left to draw.`,
       };
     }
   }
@@ -61,7 +61,7 @@ export function validateDrawRequest(input: {
   // rather than sent.
   const asked = units.filter((unit) => unit.requested > 0);
   if (asked.length === 0) {
-    return { ok: false, message: 'Escolha pelo menos uma unidade para sortear.' };
+    return { ok: false, message: 'Choose at least one unit to draw.' };
   }
 
   if (allTaken) return { ok: true, units: null };
@@ -117,7 +117,7 @@ export function RunDrawDialog({
             <span>
               {unit.prizeName}
               <span className="ml-2 text-sm text-muted-foreground">
-                {unit.available} para sortear
+                {unit.available} left to draw
               </span>
             </span>
             <Input
@@ -125,7 +125,7 @@ export function RunDrawDialog({
               min={0}
               max={unit.available}
               value={unit.requested}
-              aria-label={`Unidades de ${unit.prizeName}`}
+              aria-label={`Units of ${unit.prizeName}`}
               onChange={(event) =>
                 setChoices((current) =>
                   current.map((row, i) =>
@@ -146,7 +146,7 @@ export function RunDrawDialog({
       ) : null}
 
       <Button type="button" onClick={submit} disabled={disabled || pending} data-testid="run-draw">
-        {pending ? 'Sorteando…' : 'Sortear'}
+        {pending ? 'Drawing…' : 'Draw'}
       </Button>
     </div>
   );

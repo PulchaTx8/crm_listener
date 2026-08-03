@@ -69,7 +69,7 @@ describe('validateDrawRequest', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.message).toMatch(/pelo menos/i);
+    expect(result.ok === false && result.message).toMatch(/at least one unit/i);
   });
 
   it('refuses a fractional quantity rather than letting Postgres round it', () => {

@@ -53,10 +53,10 @@ export function availableWinnerActions(input: {
 }
 
 const LABELS: Record<WinnerAction, string> = {
-  deliver: 'Entregar',
-  cancel_delivery: 'Desfazer entrega',
-  return: 'Devolver ao estoque',
-  write_off: 'Dar baixa',
+  deliver: 'Hand over',
+  cancel_delivery: 'Undo the handover',
+  return: 'Return to stock',
+  write_off: 'Write off',
 };
 
 /** The three that undo or destroy need a reason; handing over does not. */
@@ -89,7 +89,7 @@ export function WinnerActions({
   function run(action: WinnerAction) {
     if (NEEDS_REASON[action] && reason.trim().length === 0) {
       setOpen(action);
-      setMessage('Informe o motivo.');
+      setMessage('Give a reason.');
       return;
     }
     setMessage(null);
@@ -127,12 +127,12 @@ export function WinnerActions({
         <div className="flex gap-2">
           <Input
             value={reason}
-            placeholder={`Motivo — ${LABELS[open].toLowerCase()}`}
-            aria-label="Motivo"
+            placeholder={`Reason — ${LABELS[open].toLowerCase()}`}
+            aria-label="Reason"
             onChange={(event) => setReason(event.target.value)}
           />
           <Button type="button" size="sm" disabled={pending} onClick={() => run(open)}>
-            {pending ? 'Salvando…' : 'Confirmar'}
+            {pending ? 'Saving…' : 'Confirm'}
           </Button>
         </div>
       ) : null}
