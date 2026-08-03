@@ -148,10 +148,34 @@ in `members`, behind `members.view`, and a plain join would return null for a
 caller holding `promotions.view` without it — indistinguishable from
 `members.full_name` being null, which is a real and different thing.
 
-Block 6a solved exactly this for one draw, in `get_draw`, and ruled: *whoever
-may see a draw may see who won it*. `list_pickups` is the same door made wider —
-from the winners of one draw to every open pickup in the Station. Recorded here
-as a decision rather than inherited silently, because the width is new.
+Two shipped decisions disagree about what to do next, and this block follows the
+newer and stricter one.
+
+Block 6a's `get_draw` returns the name to anyone holding `promotions.view` —
+*whoever may see a draw may see who won it* — and calls itself a narrow door:
+the winners of one draw the caller may already see.
+
+Block 6c's `list_participations` ruled the opposite way for a wide list, and
+argued it in the migration: name, phone and document **only** to a caller
+holding `members.view`; without it the list still lists, with those columns
+null; and **a search without `members.view` returns nothing at all**, because
+searching a field you may not read is an oracle.
+
+Pickups is a wide list with a search box, so it takes 6c's rule:
+
+- gated on `promotions.view` at the Station, or `42501` — never an empty page;
+- the listener's name and phone only with `members.view`, and the list still
+  lists without it;
+- a search term with no `members.view` returns nothing.
+
+Recorded rather than inherited, because the two precedents point in opposite
+directions and picking the looser one by accident would have widened audience
+exposure across every promotion in the Station.
+
+**Left open:** `get_draw` is now the odd one out. It is narrow, it shipped, the
+owner ruled on it, and nothing here changes it — but a reader comparing the two
+functions will find them disagreeing, and the disagreement is real rather than
+an oversight.
 
 `list_movements` is `SECURITY DEFINER` for the mirror-image reason:
 `inventory_movements.promotion_prize_id` is nullable **with meaning** (a
@@ -283,9 +307,30 @@ it is a fact about the prize, not about the caller.
 reopen_pickup_deadline(p_winner_id uuid, p_deadline_at timestamptz, p_reason text)
 ```
 
-`SECURITY DEFINER`, mirroring `0085`'s doors. It checks
-`winners.reopen_deadline` on the winner's Station **before** it says whether the
-winner exists (§6), then refuses with `22023`, naming the case:
+`SECURITY DEFINER`, and it **deliberately does not mirror its 6b siblings.**
+`return_prize` and `write_off_prize` read the winner, raise `P0002` if it is
+missing, and only then check the permission — which is the existence leak this
+block promised not to extend (§7.2). Since the winner id is the function's only
+input, the Station cannot be named by the caller the way `list_participations`
+has it named, so the resolution is one query that is already gated:
+
+```sql
+select company_id into v_company
+  from public.winners
+ where id = p_winner_id
+   and public.has_permission('winners.reopen_deadline', company_id);
+if not found then
+  raise exception 'permission denied: winners.reopen_deadline required'
+    using errcode = '42501';
+end if;
+```
+
+An unknown id and an unauthorised Station answer identically. A legitimate
+operator with a mistyped id is told "permission denied", which is the cost, and
+it is smaller than the alternative. This does not fix the eight that came
+before; it declines to become the ninth.
+
+Then it refuses with `22023`, naming the case:
 
 - a source status that is not `RETURN_PENDING`
 - `p_deadline_at` at or before `now()` — granting an already-expired deadline
@@ -452,10 +497,20 @@ reopen giving the prize back, and delivery working afterwards.
 ```
 0091  the two enum values, and nothing else
 0092  the ledger arm + apply_winner_transition with the four new arcs
-      + the winners.reopen_deadline permission + reopen_pickup_deadline
-0093  sweep_pickup_deadlines() + cron.schedule
-0094  list_pickups + list_movements
+0093  the winners.reopen_deadline permission + reopen_pickup_deadline
+0094  sweep_pickup_deadlines() + cron.schedule
+0095  list_pickups
+0096  list_movements
 ```
+
+One migration per reviewable unit rather than per theme: `0092` rewrites a
+function every delivery already depends on, and `0095`/`0096` each carry the
+`SECURITY DEFINER` re-statement of D7. Bundling them would make the diff that
+matters unreadable.
+
+`0092` also corrects a comment that is already wrong: the `RETURNED` branch says
+the traversal is what *"lets `winner_status` keep the **five** values 6a froze"*.
+The enum has had four since 6c withdrew `SUPERSEDED`.
 
 ### 7.2 Inherited, unchanged
 
