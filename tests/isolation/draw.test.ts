@@ -511,3 +511,138 @@ describe('erasing a listener reaches their delivery receipt', () => {
     expect(afterwards.error, 'the object is gone from the bucket').not.toBeNull();
   });
 });
+
+/**
+ * THE BOUNDARY, for Block 6b's two tables and its bucket.
+ *
+ * 10_delivery.test.sql asks the catalogue whether the grants are there; this
+ * issues the reads and writes the application issues, over HTTP, as both roles
+ * that make them. pgTAP runs as postgres and cannot see a missing grant — and
+ * on storage.objects it is blind twice over, because the policies are the only
+ * thing standing between a private bucket and everybody.
+ */
+describe('block 6b across the HTTP boundary', () => {
+  it('answers the delivery reads and writes as service_role and as a signed-in operator', async () => {
+    const label = `deliv-boundary-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const { promotionId } = await seedSmallPromotion(customer, label, 1);
+
+    const operator = await grantRoleWith(customer, `deliv-${label}`, [
+      'draws.execute',
+      'promotions.view',
+      'winners.deliver',
+      'winners.deliver_cancel',
+    ]);
+    const operatorClient = await signInAs(operator.email, operator.password);
+
+    const drawn = await operatorClient.rpc('run_draw', {
+      p_promotion_id: promotionId,
+      p_units: null,
+      p_runner_up_count: 0,
+    });
+    expect(drawn.error).toBeNull();
+
+    const winner = await admin
+      .from('winners')
+      .select('id')
+      .eq('draw_id', drawn.data as string)
+      .single();
+    const winnerId = winner.data?.id as string;
+
+    expect((await operatorClient.rpc('deliver_prize', { p_winner_id: winnerId })).error).toBeNull();
+
+    // The operator writes a receipt through the bucket's own policy, on their
+    // own token. The service key would bypass the policy and prove nothing.
+    const path = `${customer.companyId}/${winnerId}/boundary.txt`;
+    const uploaded = await operatorClient.storage
+      .from('delivery-receipts')
+      .upload(path, new Blob(['ok']), { contentType: 'text/plain' });
+    expect(uploaded.error, 'an operator holding winners.deliver may write a receipt').toBeNull();
+
+    expect(
+      (await operatorClient.rpc('attach_delivery_receipt', { p_winner_id: winnerId, p_path: path }))
+        .error,
+    ).toBeNull();
+
+    const signed = await operatorClient.storage.from('delivery-receipts').createSignedUrl(path, 60);
+    expect(signed.error, 'and may read it back through a signed URL').toBeNull();
+
+    // The history is what the screen shows; the queue is service_role's alone.
+    const historyAsOperator = await operatorClient
+      .from('winner_status_history')
+      .select('from_status, to_status')
+      .eq('winner_id', winnerId);
+    expect(historyAsOperator.error).toBeNull();
+    expect((historyAsOperator.data ?? []).length).toBeGreaterThan(0);
+
+    const queueAsAdmin = await admin.from('storage_erasure_queue').select('id').limit(1);
+    expect(queueAsAdmin.error, 'service_role may drain the erasure queue').toBeNull();
+
+    const queueAsOperator = await operatorClient.from('storage_erasure_queue').select('id');
+    // RLS on with no policy: an authenticated caller reads nothing, and that is
+    // the whole design. Asserting emptiness rather than an error, because
+    // PostgREST answers a policy-less table with zero rows, not a 403.
+    expect(queueAsOperator.data ?? []).toHaveLength(0);
+  });
+});
+
+/**
+ * TWO OPERATORS, ONE WINNER.
+ *
+ * Same shape as the two-draws case above, and the same lesson: asserting that
+ * one call failed is not enough. With the FOR UPDATE in apply_winner_transition
+ * the loser is refused by the transition check with 22023; without it, both
+ * read AWAITING_PICKUP, both pass, and the loser is caught by the ledger's own
+ * sufficiency check with 23514 several steps later. Only the code tells those
+ * apart.
+ */
+describe('two operators delivering one prize', () => {
+  const ROUNDS = 12;
+
+  it(`lets exactly one delivery win, ${ROUNDS} times over`, async () => {
+    const label = `deliv-race-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const operator = await grantRoleWith(customer, `deliv-race-${label}`, [
+      'draws.execute',
+      'promotions.view',
+      'winners.deliver',
+    ]);
+    const operatorClient = await signInAs(operator.email, operator.password);
+
+    for (let round = 0; round < ROUNDS; round += 1) {
+      const { promotionId } = await seedSmallPromotion(customer, `${label}-${round}`, 1);
+      const drawn = await operatorClient.rpc('run_draw', {
+        p_promotion_id: promotionId,
+        p_units: null,
+        p_runner_up_count: 0,
+      });
+      const winner = await admin
+        .from('winners')
+        .select('id')
+        .eq('draw_id', drawn.data as string)
+        .single();
+      const winnerId = winner.data?.id as string;
+
+      const [first, second] = await Promise.all([
+        operatorClient.rpc('deliver_prize', { p_winner_id: winnerId }),
+        operatorClient.rpc('deliver_prize', { p_winner_id: winnerId }),
+      ]);
+
+      const succeeded = [first, second].filter((r) => r.error === null);
+      const refused = [first, second].filter((r) => r.error !== null);
+
+      expect(succeeded, `round ${round}: exactly one delivery may win`).toHaveLength(1);
+      expect(refused, `round ${round}: the other must be refused`).toHaveLength(1);
+      expect(
+        refused[0]?.error?.code,
+        `round ${round}: refused by the transition check, not by the ledger`,
+      ).toBe('22023');
+
+      const history = await admin
+        .from('winner_status_history')
+        .select('id')
+        .eq('winner_id', winnerId);
+      expect(history.data, `round ${round}: one transition, one history row`).toHaveLength(1);
+    }
+  });
+});
