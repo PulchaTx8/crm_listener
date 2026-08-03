@@ -2407,6 +2407,14 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_winner_transition: {
+        Args: {
+          p_reason: string
+          p_to: Database["public"]["Enums"]["winner_status"]
+          p_winner_id: string
+        }
+        Returns: undefined
+      }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       archive_promotion: {
@@ -2427,6 +2435,10 @@ export type Database = {
           p_reason: string
         }
         Returns: string
+      }
+      cancel_delivery: {
+        Args: { p_reason: string; p_winner_id: string }
+        Returns: undefined
       }
       cancel_draw: {
         Args: { p_draw_id: string; p_reason: string }
@@ -2559,6 +2571,10 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      deliver_prize: {
+        Args: { p_note?: string; p_winner_id: string }
+        Returns: undefined
+      }
       draw_eligible_participations: {
         Args: { p_promotion_id: string }
         Returns: {
