@@ -37,7 +37,30 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // themselves regardless of that redirect. Hiding a link is a courtesy;
       // the boundary is in the database.
       label: 'Inventory',
-      items: [{ href: '/inventory', label: 'Inventory', icon: ICONS.box }],
+      items: [
+        // Same route as before Block 6d, Task 10 — only the label changed,
+        // from 'Inventory' to 'Stock', so no existing link anywhere breaks.
+        // 'Inventory' is now the SECTION name, one level up, and having both
+        // the section and its first item spell the same word read as one
+        // link rendered twice; 'Stock' is what this item actually lists.
+        { href: '/inventory', label: 'Stock', icon: ICONS.box },
+        // Block 6d, Task 10. /inventory/movements redirects nobody by
+        // itself — it opens on whichever Station listCompanyAccess resolves
+        // inventory.view in, the same courtesy the item above already
+        // extends — and list_movements (0096) re-checks that permission
+        // itself regardless. ICONS.inbox rather than ICONS.box: this Record
+        // has no dedicated ledger/list glyph, so the choice is among what
+        // already exists, and reusing box here — the ROW DIRECTLY ABOVE, in
+        // this SAME section — is exactly the case the Audience section's own
+        // ticket/megaphone comment warns against (one icon on two adjacent
+        // rows reads as one link rendered twice). inbox's tray-with-a-flow
+        // shape is otherwise idle in this section (its only other use is
+        // Platform > Contact requests, a different section entirely, the
+        // same non-adjacency that already lets box itself serve both
+        // Inventory and Pickups) and reads reasonably as things moving in
+        // and out, which a stock ledger is.
+        { href: '/inventory/movements', label: 'Movements', icon: ICONS.inbox },
+      ],
     },
     {
       // Visible to every member, including those holding members.view
