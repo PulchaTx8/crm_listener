@@ -1,5 +1,5 @@
 begin;
-select plan(24);
+select plan(29);
 
 -- Block 6d: the clock, the pile it makes, and the way back.
 --
@@ -361,6 +361,36 @@ select is(
   (select deadline_at from public.winners where id = pg_temp.winner_of('Joao 6d')),
   (select at from deadline_before),
   'expiring and returning left deadline_at exactly where the draw froze it');
+
+-- ---------------------------------------------------------------------------
+-- The permission and the door that reopens: its own code, and a door shaped
+-- differently from its 6b siblings on purpose (see 0093's own comments).
+
+select is(
+  (select count(*)::integer from public.permissions where code = 'winners.reopen_deadline'),
+  1, 'the permission exists');
+
+select is(
+  (select scope::text from public.permissions where code = 'winners.reopen_deadline'),
+  'company', 'it is a per-Station power, like every other winners.* code');
+
+select has_function('public', 'reopen_pickup_deadline',
+  array['uuid', 'timestamptz', 'text'], 'the door exists');
+
+-- Nobody is authenticated in pgTAP, so has_permission is false and the
+-- function must refuse. 42501 and NOT P0002 is the point: an unknown id and
+-- an unauthorised Station answer identically (design spec §4.1).
+select throws_ok($$
+  select public.reopen_pickup_deadline(
+    pg_temp.winner_of('Maria 6d'), now() + interval '3 days', 'because')
+$$, '42501', null,
+  'the door refuses without the permission');
+
+select throws_ok($$
+  select public.reopen_pickup_deadline(
+    '00000000-0000-0000-0000-0000000000ff'::uuid, now() + interval '3 days', 'because')
+$$, '42501', null,
+  'an id that does not exist answers 42501 too, never P0002');
 
 select * from finish();
 rollback;
