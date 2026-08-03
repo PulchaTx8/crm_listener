@@ -43,6 +43,19 @@ create table public.draws (
   algorithm_version integer not null,
   entry_count       integer not null check (entry_count > 0),
 
+  -- Block 6c. How many participations the operator OFFERED, which is not the
+  -- same as how many went into the hat: entry_count is the hat, and these two
+  -- differing is the only sign in the database that a draw was filtered rather
+  -- than run over everybody. NOT NULL and no default: there is always an
+  -- answer, and a default would let a write that forgot the column record a
+  -- lie instead of failing.
+  offered_count     integer not null check (offered_count > 0),
+
+  -- Whether the hat held anybody who answered a QUIZ question wrongly. Derived
+  -- from the hat at draw time and stored so that a reader six months later
+  -- knows which kind of draw this was without recomputing it.
+  included_wrong_answers boolean not null default false,
+
   status      public.draw_status not null default 'COMPLETED',
   drawn_at    timestamptz not null default now(),
   drawn_by    uuid references auth.users (id),
@@ -244,4 +257,8 @@ insert into public.permissions
   (code, description, introduced_by_block, module, label, scope, display_order)
 values
   ('draws.execute', 'Run a promotion''s draw',              '6a', 'promotions', 'Run a draw',    'company', 70),
-  ('draws.cancel',  'Cancel a draw that has already run',   '6a', 'promotions', 'Cancel a draw', 'company', 80);
+  ('draws.cancel',  'Cancel a draw that has already run',   '6a', 'promotions', 'Cancel a draw', 'company', 80),
+  -- Block 6c. Guards drawing a hat that contains somebody who answered the
+  -- quiz wrongly -- derived from the hat's own contents, never from a label the
+  -- caller sends, because a label the server cannot verify is not a gate.
+  ('draws.include_wrong_answers', 'Draw among listeners who answered the quiz wrongly', '6c', 'promotions', 'Draw among wrong answers', 'company', 130);

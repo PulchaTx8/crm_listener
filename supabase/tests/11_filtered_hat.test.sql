@@ -1,5 +1,5 @@
 begin;
-select plan(13);
+select plan(23);
 
 -- Block 6c: the filtered hat.
 --
@@ -204,16 +204,16 @@ insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id
    '00000000-0000-0000-0000-00000000c0c1');
 
 insert into public.draws
-  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count)
+  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count, offered_count)
 values
   -- A completed draw of THIS promotion.
   ('00000000-0000-0000-0000-00000000c301', '00000000-0000-0000-0000-00000000c0e1',
    '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
-   repeat('c', 64), 1, 4),
+   repeat('c', 64), 1, 4, 4),
   -- A completed draw of a DIFFERENT promotion.
   ('00000000-0000-0000-0000-00000000c302', '00000000-0000-0000-0000-00000000c0e2',
    '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
-   repeat('d', 64), 1, 1);
+   repeat('d', 64), 1, 1, 1);
 
 -- And one of this promotion that was cancelled. Its columns are set by hand
 -- rather than through cancel_draw (0079), which needs a signed-in caller
@@ -227,11 +227,11 @@ insert into auth.users (id, email) values
 
 insert into public.draws
   (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count,
-   status, cancelled_at, cancelled_by, cancellation_reason)
+   offered_count, status, cancelled_at, cancelled_by, cancellation_reason)
 values
   ('00000000-0000-0000-0000-00000000c303', '00000000-0000-0000-0000-00000000c0e1',
    '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
-   repeat('e', 64), 1, 4, 'CANCELLED', now(),
+   repeat('e', 64), 1, 4, 4, 'CANCELLED', now(),
    '00000000-0000-0000-0000-00000000c0aa', 'drawn by mistake');
 
 insert into public.winners
@@ -272,6 +272,187 @@ select ok(exists (select 1 from still_eligible
 select ok(not exists (select 1 from still_eligible
                        where member_id = '00000000-0000-0000-0000-00000000c014'),
           'a prize returned to stock does not un-win it: they won, and what happened next is another fact');
+
+-- ---------------------------------------------------------------------------
+-- Task 4: the hat comes from the screen.
+--
+-- A fresh promotion per case, because the one above now has winners in it and
+-- a failure here should name one rule.
+
+create function pg_temp.seed_quiz_promotion(
+  p_label   text,
+  p_right   integer,
+  p_wrong   integer,
+  p_units   integer default 1,
+  p_quiz    boolean default true
+)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_org    uuid := '00000000-0000-0000-0000-00000000c0f1';
+  v_co     uuid := '00000000-0000-0000-0000-00000000c0c1';
+  v_prize  uuid := gen_random_uuid();
+  v_promo  uuid := gen_random_uuid();
+  v_link   uuid := gen_random_uuid();
+  v_q      uuid := gen_random_uuid();
+  v_ok     uuid := gen_random_uuid();
+  v_bad    uuid := gen_random_uuid();
+  v_member uuid;
+  v_part   uuid;
+  i integer;
+begin
+  insert into public.prizes (id, organization_id, company_id, name)
+  values (v_prize, v_org, v_co, p_label || ' prize');
+  insert into public.inventory_balances (company_id, prize_id, organization_id, available)
+  values (v_co, v_prize, v_org, greatest(p_units, 1));
+  insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at)
+  values (v_promo, v_org, v_co, p_label, now() - interval '2 days', now() + interval '1 day');
+  insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
+  values (v_link, v_promo, v_prize, v_org, v_co);
+  perform public.apply_inventory_movement(
+    v_co, v_prize, 'PROMOTION_LINK'::public.inventory_movement_type, p_units,
+    'available'::public.inventory_bucket, 'linked'::public.inventory_bucket, null, null, v_link);
+
+  if p_quiz then
+    insert into public.promotion_questions
+      (id, promotion_id, organization_id, company_id, position, kind, prompt, menu_title, button_label)
+    values (v_q, v_promo, v_org, v_co, 1, 'QUIZ', p_label || '?', 'Pick', 'Answer');
+    insert into public.promotion_question_options
+      (id, question_id, kind, organization_id, company_id, position, label, is_correct)
+    values (v_ok,  v_q, 'QUIZ', v_org, v_co, 1, 'Right', true),
+           (v_bad, v_q, 'QUIZ', v_org, v_co, 2, 'Wrong', false);
+  end if;
+
+  for i in 1..(p_right + p_wrong) loop
+    v_member := gen_random_uuid();
+    v_part   := gen_random_uuid();
+    insert into public.members (id, organization_id, full_name)
+    values (v_member, v_org, p_label || ' listener ' || i);
+    insert into public.member_company_links (member_id, company_id, organization_id)
+    values (v_member, v_co, v_org);
+    insert into public.participations
+      (id, promotion_id, member_id, organization_id, company_id, allows_multiple,
+       status, source, participated_at)
+    values (v_part, v_promo, v_member, v_org, v_co, false, 'VALID', 'MANUAL',
+            now() - make_interval(hours => i));
+    if p_quiz then
+      insert into public.participation_answers
+        (participation_id, promotion_id, question_id, kind, option_id, organization_id, company_id)
+      values (v_part, v_promo, v_q, 'QUIZ',
+              case when i <= p_right then v_ok else v_bad end, v_org, v_co);
+    end if;
+  end loop;
+
+  return v_promo;
+end;
+$$;
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000c401', '00000000-0000-0000-0000-00000000c0f1', 'Draw plain'),
+  ('00000000-0000-0000-0000-00000000c402', '00000000-0000-0000-0000-00000000c0f1', 'Draw chief');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000c401', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000c401', 'draws.execute'),
+  ('00000000-0000-0000-0000-00000000c402', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000c402', 'draws.execute'),
+  ('00000000-0000-0000-0000-00000000c402', 'draws.include_wrong_answers');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000c403', 'hat-plain@example.test'),
+  ('00000000-0000-0000-0000-00000000c404', 'hat-chief@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000c403', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c401'),
+  ('00000000-0000-0000-0000-00000000c404', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c402');
+
+select is(
+  (select count(*)::int from public.permissions where code = 'draws.include_wrong_answers'),
+  1, 'the wrong-answer permission is in the catalogue');
+
+create temporary table hat_promos as
+select pg_temp.seed_quiz_promotion('Subset', 3, 2)          as subset,
+       pg_temp.seed_quiz_promotion('Everybody', 2, 0)       as everybody,
+       pg_temp.seed_quiz_promotion('Stranger', 2, 0)        as stranger,
+       pg_temp.seed_quiz_promotion('Wrong hat', 1, 2)       as wrong_hat,
+       pg_temp.seed_quiz_promotion('Wrong allowed', 1, 2)   as wrong_allowed,
+       pg_temp.seed_quiz_promotion('No quiz', 2, 0, 1, false) as no_quiz;
+grant select on hat_promos to authenticated;
+
+-- Handy views of who is who, computed the way the screen would.
+create temporary table correct_of as
+select h.subset as promo, c.participation_id
+from hat_promos h, public.promotion_participation_correctness(h.subset) c
+where c.answered_correctly;
+grant select on correct_of to authenticated;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c403", "role": "authenticated"}';
+
+-- A hat of the three correct answerers out of five participants.
+create temporary table subset_draw as
+select public.run_draw(
+  (select subset from hat_promos), null,
+  (select array_agg(participation_id) from correct_of)) as draw_id;
+
+select is(
+  (select count(*)::int from public.draw_entries e join subset_draw d on d.draw_id = e.draw_id),
+  3, 'the hat is exactly the list the operator sent, not everybody eligible');
+
+select is(
+  (select offered_count from public.draws d join subset_draw s on s.draw_id = d.id),
+  3, 'and offered_count records how many were on the list');
+
+select ok(
+  (select not included_wrong_answers from public.draws d join subset_draw s on s.draw_id = d.id),
+  'a hat of only correct answerers is recorded as one');
+
+-- No list at all: everybody eligible, and offered_count says so.
+create temporary table everybody_draw as
+select public.run_draw((select everybody from hat_promos), null, null) as draw_id;
+
+select is(
+  (select offered_count from public.draws d join everybody_draw e on e.draw_id = d.id),
+  (select entry_count from public.draws d join everybody_draw e on e.draw_id = d.id),
+  'drawing without a list offers everybody, and the two counts agree');
+
+-- The refusals -----------------------------------------------------------------
+
+select throws_ok(
+  format($$select public.run_draw(%L::uuid, null, array[%L::uuid])$$,
+         (select stranger from hat_promos),
+         (select participation_id from correct_of limit 1)),
+  '22023', null, 'a participation from another promotion refuses the whole draw');
+
+select throws_ok(
+  format($$select public.run_draw(%L::uuid, null, array[%L::uuid])$$,
+         '00000000-0000-0000-0000-00000000c0e1',
+         '00000000-0000-0000-0000-00000000c201'),
+  '22023', null, 'and so does one belonging to somebody who already won here');
+
+-- The permission, derived from the hat rather than from any label -------------
+
+select throws_ok(
+  format($$select public.run_draw(%L::uuid, null, null)$$, (select wrong_hat from hat_promos)),
+  '42501', null,
+  'a hat holding somebody who answered wrongly needs the chief, even with no filter at all');
+
+select lives_ok(
+  format($$select public.run_draw(%L::uuid, null, null)$$, (select no_quiz from hat_promos)),
+  'a promotion with no quiz never asks for it: there is nothing to get wrong');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c404", "role": "authenticated"}';
+
+create temporary table wrong_draw as
+select public.run_draw((select wrong_allowed from hat_promos), null, null) as draw_id;
+
+select ok(
+  (select included_wrong_answers from public.draws d join wrong_draw w on w.draw_id = d.id),
+  'the chief may draw it, and the draw records that the hat held wrong answers');
+
+reset role;
 
 select * from finish();
 rollback;

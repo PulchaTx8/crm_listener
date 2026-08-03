@@ -281,52 +281,6 @@ export type Database = {
           },
         ]
       }
-      draw_runners_up: {
-        Row: {
-          company_id: string
-          draw_id: string
-          member_id: string
-          participation_id: string
-          position: number
-        }
-        Insert: {
-          company_id: string
-          draw_id: string
-          member_id: string
-          participation_id: string
-          position: number
-        }
-        Update: {
-          company_id?: string
-          draw_id?: string
-          member_id?: string
-          participation_id?: string
-          position?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "draw_runners_up_draw_fk"
-            columns: ["draw_id", "company_id"]
-            isOneToOne: false
-            referencedRelation: "draws"
-            referencedColumns: ["id", "company_id"]
-          },
-          {
-            foreignKeyName: "draw_runners_up_member_link_fk"
-            columns: ["member_id", "company_id"]
-            isOneToOne: false
-            referencedRelation: "member_company_links"
-            referencedColumns: ["member_id", "company_id"]
-          },
-          {
-            foreignKeyName: "draw_runners_up_participation_fk"
-            columns: ["participation_id", "company_id"]
-            isOneToOne: false
-            referencedRelation: "participations"
-            referencedColumns: ["id", "company_id"]
-          },
-        ]
-      }
       draws: {
         Row: {
           algorithm_version: number
@@ -338,9 +292,10 @@ export type Database = {
           drawn_by: string | null
           entry_count: number
           id: string
+          included_wrong_answers: boolean
+          offered_count: number
           organization_id: string
           promotion_id: string
-          runner_up_count: number
           seed: string
           status: Database["public"]["Enums"]["draw_status"]
         }
@@ -354,9 +309,10 @@ export type Database = {
           drawn_by?: string | null
           entry_count: number
           id?: string
+          included_wrong_answers?: boolean
+          offered_count: number
           organization_id: string
           promotion_id: string
-          runner_up_count: number
           seed: string
           status?: Database["public"]["Enums"]["draw_status"]
         }
@@ -370,9 +326,10 @@ export type Database = {
           drawn_by?: string | null
           entry_count?: number
           id?: string
+          included_wrong_answers?: boolean
+          offered_count?: number
           organization_id?: string
           promotion_id?: string
-          runner_up_count?: number
           seed?: string
           status?: Database["public"]["Enums"]["draw_status"]
         }
@@ -2345,8 +2302,8 @@ export type Database = {
         Args: {
           p_company_id: string
           p_organization_id: string
+          p_participation_ids: string[]
           p_promotion_id: string
-          p_runner_up_count: number
           p_units: Json
         }
         Returns: string
@@ -2617,6 +2574,10 @@ export type Database = {
           participation_id: string
         }[]
       }
+      draw_hat_has_wrong_answers: {
+        Args: { p_participation_ids: string[]; p_promotion_id: string }
+        Returns: boolean
+      }
       due_whatsapp_events: {
         Args: { p_limit: number }
         Returns: {
@@ -2724,7 +2685,6 @@ export type Database = {
           drawn_at: string
           entry_count: number
           id: string
-          runner_up_count: number
           seed: string
           status: Database["public"]["Enums"]["draw_status"]
           winner_count: number
@@ -2804,6 +2764,13 @@ export type Database = {
           p_type: Database["public"]["Enums"]["inventory_movement_type"]
         }
         Returns: undefined
+      }
+      promotion_participation_correctness: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          answered_correctly: boolean
+          participation_id: string
+        }[]
       }
       promotion_write_error: {
         Args: {
@@ -2977,8 +2944,8 @@ export type Database = {
       }
       run_draw: {
         Args: {
+          p_participation_ids?: string[]
           p_promotion_id: string
-          p_runner_up_count?: number
           p_units?: Json
         }
         Returns: string
@@ -3170,7 +3137,6 @@ export type Database = {
         | "DELIVERED"
         | "RETURNED"
         | "WRITTEN_OFF"
-        | "SUPERSEDED"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3363,7 +3329,6 @@ export const Constants = {
         "DELIVERED",
         "RETURNED",
         "WRITTEN_OFF",
-        "SUPERSEDED",
       ],
     },
   },

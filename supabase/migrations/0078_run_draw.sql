@@ -20,7 +20,8 @@ create function public.apply_draw(
   p_promotion_id    uuid,
   p_organization_id uuid,
   p_company_id      uuid,
-  p_units           jsonb
+  p_units           jsonb,
+  p_participation_ids uuid[]
 )
 returns uuid
 language plpgsql
@@ -37,6 +38,9 @@ declare
   v_hat         jsonb;
   v_walk        jsonb;
   v_entry_count integer;
+  v_offered     integer;
+  v_rejected    integer;
+  v_wrong       boolean;
   v_short       uuid;
   r             record;
 begin
@@ -90,17 +94,47 @@ begin
     raise exception 'this promotion has no units left to draw' using errcode = '22023';
   end if;
 
-  -- 2. The hat, read ONCE into a value. Counting it and then re-reading it to
-  --    insert would be two reads of a table other transactions are still
-  --    writing to, and entry_count would then be a claim about a hat that is
-  --    not the one in draw_entries.
+  -- 2. The hat.
+  --
+  --    Block 6c, D2: when the caller supplies a list, THAT is the hat. The
+  --    browser proposes it, so nothing here trusts it -- every id must be in
+  --    the eligible set, and one that is not REFUSES THE WHOLE DRAW rather
+  --    than being dropped (D3). Dropping would draw over a set the operator
+  --    never approved while they went on saying they drew among the forty-two
+  --    they saw.
+  if p_participation_ids is not null and array_length(p_participation_ids, 1) is not null then
+    select count(*) into v_rejected
+    from unnest(p_participation_ids) as supplied(id)
+    where not exists (
+      select 1 from public.draw_eligible_participations(p_promotion_id) e
+      where e.participation_id = supplied.id
+    );
+
+    if v_rejected > 0 then
+      raise exception
+        '% of the % listed participations can no longer be drawn; the list has moved, open it again',
+        v_rejected, array_length(p_participation_ids, 1)
+        using errcode = '22023';
+    end if;
+  end if;
+
+  --    Read ONCE into a value. Counting it and then re-reading it to insert
+  --    would be two reads of a table other transactions are still writing to,
+  --    and entry_count would then be a claim about a hat that is not the one in
+  --    draw_entries.
   select coalesce(jsonb_agg(
            jsonb_build_object('participation_id', e.participation_id, 'member_id', e.member_id)
            order by e.participated_at, e.participation_id), '[]'::jsonb)
     into v_hat
-  from public.draw_eligible_participations(p_promotion_id) e;
+  from public.draw_eligible_participations(p_promotion_id) e
+  where p_participation_ids is null
+     or array_length(p_participation_ids, 1) is null
+     or e.participation_id = any(p_participation_ids);
 
   v_entry_count := jsonb_array_length(v_hat);
+  -- When no list was supplied the operator offered everybody, so the two agree.
+  v_offered := coalesce(array_length(p_participation_ids, 1), v_entry_count);
+  v_wrong := public.draw_hat_has_wrong_answers(p_promotion_id, p_participation_ids);
 
   -- Nothing happened, and a row saying it did is worse than none (spec 7).
   if v_entry_count = 0 then
@@ -114,10 +148,10 @@ begin
 
   insert into public.draws
     (promotion_id, organization_id, company_id, seed, algorithm_version,
-     entry_count, drawn_at, drawn_by)
+     entry_count, offered_count, included_wrong_answers, drawn_at, drawn_by)
   values
     (p_promotion_id, p_organization_id, p_company_id, v_seed, 1,
-     v_entry_count, v_now, v_actor)
+     v_entry_count, v_offered, v_wrong, v_now, v_actor)
   returning id into v_draw;
 
   insert into public.draw_entries (draw_id, company_id, participation_id, member_id, position)
@@ -199,17 +233,18 @@ begin
 end;
 $$;
 
-comment on function public.apply_draw(uuid, uuid, uuid, jsonb) is
+comment on function public.apply_draw(uuid, uuid, uuid, jsonb, uuid[]) is
   'The draw mechanics: resolve the units, freeze the hat, rank it by sha256(seed || '':'' || participation_id), walk it once skipping anybody already awarded, write the winners and the runner-up queue, and move one unit per winner through apply_inventory_movement. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody, called only from run_draw, which checks draws.execute beside its own operation. ASSUMES its caller already holds FOR UPDATE on the promotion and has already refused a cancelled or archived one -- nothing here re-reads either, so calling it without the lock reopens the race the lock exists to close. The hat is read into a value ONCE rather than counted and re-read, so entry_count is a claim about the same list draw_entries holds.';
 
-revoke execute on function public.apply_draw(uuid, uuid, uuid, jsonb) from public;
+revoke execute on function public.apply_draw(uuid, uuid, uuid, jsonb, uuid[]) from public;
 
 -- ---------------------------------------------------------------------------
 -- The door.
 
 create function public.run_draw(
   p_promotion_id    uuid,
-  p_units           jsonb default null
+  p_units           jsonb default null,
+  p_participation_ids uuid[] default null
 )
 returns uuid
 language plpgsql
@@ -249,7 +284,19 @@ begin
     raise exception 'this promotion is cancelled and cannot be drawn' using errcode = '22023';
   end if;
 
-  v_draw := public.apply_draw(p_promotion_id, v_org, v_company, p_units);
+  -- D7. Derived from the hat, never from a label: the browser sends the ids,
+  -- so there is nothing on the wire that states intent and could be trusted.
+  -- Checked here, beside this operation, rather than inside apply_draw, for the
+  -- reason apply_participation (0054) gives about gates in shared bodies.
+  if public.draw_hat_has_wrong_answers(p_promotion_id, p_participation_ids)
+     and not public.has_permission('draws.include_wrong_answers', v_company) then
+    raise log 'run_draw denied (wrong answers): actor=% promotion=%', v_actor, p_promotion_id;
+    raise exception
+      'this list includes listeners who answered the quiz wrongly; that needs draws.include_wrong_answers'
+      using errcode = '42501';
+  end if;
+
+  v_draw := public.apply_draw(p_promotion_id, v_org, v_company, p_units, p_participation_ids);
 
   -- Ids and counts. No member id and no name: Block 3's rule, absolute.
   insert into public.audit_logs
@@ -267,8 +314,8 @@ begin
 end;
 $$;
 
-comment on function public.run_draw(uuid, jsonb) is
+comment on function public.run_draw(uuid, jsonb, uuid[]) is
   'Runs a draw of one promotion and returns its id. Takes FOR UPDATE on the promotion first (the shape link_prize_to_promotion, 0049, established), then checks draws.execute, then refuses a cancelled promotion (22023) or an archived one (P0002) -- the same two codes apply_participation (0054) answers with, rather than a third dialect. p_units is [{"promotion_prize_id": ..., "quantity": N}]; null or empty means every unit still available on every live link, which is linked - drawn (D8). The audit row carries ids and counts and no listener.';
 
-revoke execute on function public.run_draw(uuid, jsonb) from public;
-grant execute on function public.run_draw(uuid, jsonb) to authenticated;
+revoke execute on function public.run_draw(uuid, jsonb, uuid[]) from public;
+grant execute on function public.run_draw(uuid, jsonb, uuid[]) to authenticated;

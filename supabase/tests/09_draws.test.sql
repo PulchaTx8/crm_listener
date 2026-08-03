@@ -117,13 +117,13 @@ values
 select throws_ok($$
   insert into public.draws
     (id, promotion_id, organization_id, company_id,
-     seed, algorithm_version, entry_count, status, cancelled_at)
+     seed, algorithm_version, entry_count, offered_count, status, cancelled_at)
   values
     ('00000000-0000-0000-0000-00000000a0b1',
      '00000000-0000-0000-0000-00000000a0e1',
      '00000000-0000-0000-0000-00000000a0f1',
      '00000000-0000-0000-0000-00000000a0c1',
-     repeat('a', 64), 1, 5, 'CANCELLED', now())
+     repeat('a', 64), 1, 5, 5, 'CANCELLED', now())
 $$, '23514', null, 'a draw cancelled without a reason or a canceller is refused');
 
 -- ---------------------------------------------------------------------------
@@ -533,9 +533,9 @@ select is(
 
 -- The doors ------------------------------------------------------------------
 
-select ok(has_function_privilege('authenticated', 'public.run_draw(uuid, jsonb)', 'EXECUTE'),
+select ok(has_function_privilege('authenticated', 'public.run_draw(uuid, jsonb, uuid[])', 'EXECUTE'),
           'run_draw is the door an operator comes through');
-select ok(not has_function_privilege('authenticated', 'public.apply_draw(uuid, uuid, uuid, jsonb)', 'EXECUTE'),
+select ok(not has_function_privilege('authenticated', 'public.apply_draw(uuid, uuid, uuid, jsonb, uuid[])', 'EXECUTE'),
           'apply_draw is the private core behind it');
 
 -- ---------------------------------------------------------------------------
