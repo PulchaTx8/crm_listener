@@ -8,6 +8,11 @@ import type { TickResult } from '@/services/whatsapp';
 const { runTick } = vi.hoisted(() => ({ runTick: vi.fn() }));
 vi.mock('@/services/whatsapp', () => ({ runTick }));
 
+// Block 6b's erasure drain rides the same tick. Mocked for the same reason
+// runTick is: this file is about the gate in front of both, not about either.
+const { drainStorageErasures } = vi.hoisted(() => ({ drainStorageErasures: vi.fn() }));
+vi.mock('@/lib/storage/erasure', () => ({ drainStorageErasures }));
+
 // The real client would need a service-role key and a URL. Neither is what is
 // under test here.
 vi.mock('@/lib/supabase/service-client', () => ({ createServiceClient: () => ({}) }));
@@ -35,9 +40,13 @@ const EMPTY_TICK: TickResult = {
 const post = (headers: Record<string, string>) =>
   POST(new Request('http://localhost/api/worker/tick', { method: 'POST', headers }));
 
+const NO_ERASURES = { deleted: 0, failed: 0 };
+
 beforeEach(() => {
   runTick.mockReset();
   runTick.mockResolvedValue(EMPTY_TICK);
+  drainStorageErasures.mockReset();
+  drainStorageErasures.mockResolvedValue(NO_ERASURES);
 });
 
 describe('POST /api/worker/tick', () => {
@@ -47,8 +56,24 @@ describe('POST /api/worker/tick', () => {
     expect(response.status).toBe(200);
     // pg_net stores the response in net._http_response, and these numbers are
     // the only account of a tick anybody can read afterwards.
-    expect(await response.json()).toEqual(EMPTY_TICK);
+    expect(await response.json()).toEqual({ ...EMPTY_TICK, erasures: NO_ERASURES });
     expect(runTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failing erasure drain instead of losing the tick with it', async () => {
+    // The drain is an LGPD obligation riding a WhatsApp tick. If it throws, the
+    // conversation counters are already computed and must still be reported --
+    // a 500 here would hide a working tick behind a broken queue, and pg_net's
+    // stored response is the only account anybody reads afterwards.
+    drainStorageErasures.mockRejectedValue(new Error('storage is unreachable'));
+
+    const response = await post({ 'x-worker-secret': SECRET });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ...EMPTY_TICK,
+      erasures: { error: 'storage is unreachable' },
+    });
   });
 
   // M1. This endpoint drains both queues and its authentication is one header.

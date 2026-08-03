@@ -36,6 +36,7 @@ export const MOVEMENT_TYPE_LABELS: Record<InventoryMovementType, string> = {
   DRAW: 'Draw',
   DRAW_CANCEL: 'Draw cancelled',
   DELIVERY: 'Delivered to winner',
+  DELIVERY_CANCEL: 'Delivery undone',
   RETURN_PENDING: 'Pending return',
   RETURN_TO_STOCK: 'Returned to stock',
   WRITE_OFF: 'Written off',

@@ -1517,15 +1517,24 @@ describe('the participations list read', () => {
     expect(atA.rows[0]?.status).toBe('VALID');
     expect(atA.rows[0]?.source).toBe('MANUAL');
 
-    // The same Organization, a Station this delegate holds no role in. Asking is
-    // allowed; the answer is empty, and the TOTAL is empty too — a count taken
-    // outside the policy would have reported one row the page could not show.
-    const atB = await listParticipationsPage(
-      { companyId: stationB, cursor: null, cursorSide: 'after' },
-      token,
-    );
-    expect(atB.rows).toHaveLength(0);
-    expect(atB.total).toBe(0);
+    // The same Organization, a Station this delegate holds no role in. It is
+    // REFUSED rather than answered empty, and that changed in Block 6c.
+    //
+    // Under 0053's policies the read was legal and returned nothing, because
+    // RLS filters rows and has no way to say why. list_participations (0090) is
+    // SECURITY DEFINER, so it asks the two permissions itself — and a function
+    // that has to ask can afford to answer. An empty page here would be
+    // indistinguishable from "nobody has entered at that Station", which is the
+    // one wrong idea this screen must not leave anybody with.
+    //
+    // Nothing leaks by refusing: the caller named the Station, so the refusal
+    // tells them only what they already supplied. And the screen never asks
+    // this question — listCompanyAccess offers only Stations the caller can
+    // view, and a stale companyId falls back to the first of those — so this is
+    // the boundary being proved directly rather than a path an operator walks.
+    await expect(
+      listParticipationsPage({ companyId: stationB, cursor: null, cursorSide: 'after' }, token),
+    ).rejects.toThrow(/participations.view and promotions.view required/);
   });
 
   /**

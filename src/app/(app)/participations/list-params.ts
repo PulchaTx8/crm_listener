@@ -28,6 +28,10 @@ export interface ParticipationSearchParams {
   from?: string;
   to?: string;
   q?: string;
+  /** Block 6c: 'yes' or 'no'. Absent means both, which is not the same as either. */
+  answered?: string;
+  /** Block 6c: the option somebody chose. ANDs with the above. */
+  option?: string;
   after?: string;
   before?: string;
 }
@@ -96,6 +100,14 @@ export interface ParticipationListState {
   from?: string;
   to?: string;
   /**
+   * Block 6c. Undefined means both, which is a third state and not a default:
+   * a promotion with a quiz drawn without narrowing contains wrong answerers,
+   * and that is what needs draws.include_wrong_answers.
+   */
+  answeredCorrectly?: boolean;
+  /** Block 6c. One option somebody chose; ANDs with everything else. */
+  optionId?: string;
+  /**
    * By listener name, phone or CPF digits. Unlike every other filter here, this
    * one needs a permission the rest of the screen does not — see ./access.ts.
    */
@@ -153,6 +165,11 @@ export function parseParticipationListState(
     from: parseInstant(raw.from),
     to: parseInstant(raw.to),
     search: raw.q?.trim() || undefined,
+    // Only the two words mean anything; a third value in the URL is not a
+    // filter this screen has, so it narrows nothing rather than erroring.
+    answeredCorrectly:
+      raw.answered === 'yes' ? true : raw.answered === 'no' ? false : undefined,
+    optionId: raw.option?.trim() || undefined,
   };
 }
 
@@ -177,7 +194,16 @@ export function hasActiveParticipationFilters(state: ParticipationListState): bo
       state.source ||
       state.from ||
       state.to ||
-      state.search,
+      state.search ||
+      // Block 6c's two. `!== undefined` rather than truthy, because `false` is a
+      // filter here — "answered wrongly" — and reading it as "not set" would
+      // leave the one narrowing that hides the most rows with no control that
+      // undoes it. Both need a promotion, so in practice the first term is
+      // already true whenever these are; they are named anyway, because a
+      // clearing rule that depends on another filter's presence is a rule that
+      // breaks the day the promotion requirement moves.
+      state.answeredCorrectly !== undefined ||
+      state.optionId,
   );
 }
 
@@ -203,6 +229,10 @@ export function participationsHref(
   if (state.from) query.set('from', state.from);
   if (state.to) query.set('to', state.to);
   if (state.search) query.set('q', state.search);
+  if (state.answeredCorrectly !== undefined) {
+    query.set('answered', state.answeredCorrectly ? 'yes' : 'no');
+  }
+  if (state.optionId) query.set('option', state.optionId);
   if (cursor) query.set(cursor.side, cursor.value);
   return `/participations?${query.toString()}`;
 }

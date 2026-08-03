@@ -235,6 +235,128 @@ export type Database = {
         }
         Relationships: []
       }
+      draw_entries: {
+        Row: {
+          company_id: string
+          draw_id: string
+          member_id: string
+          participation_id: string
+          position: number
+        }
+        Insert: {
+          company_id: string
+          draw_id: string
+          member_id: string
+          participation_id: string
+          position: number
+        }
+        Update: {
+          company_id?: string
+          draw_id?: string
+          member_id?: string
+          participation_id?: string
+          position?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draw_entries_draw_fk"
+            columns: ["draw_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "draws"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "draw_entries_member_link_fk"
+            columns: ["member_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "member_company_links"
+            referencedColumns: ["member_id", "company_id"]
+          },
+          {
+            foreignKeyName: "draw_entries_participation_fk"
+            columns: ["participation_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "participations"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      draws: {
+        Row: {
+          algorithm_version: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          company_id: string
+          drawn_at: string
+          drawn_by: string | null
+          entry_count: number
+          id: string
+          included_wrong_answers: boolean
+          offered_count: number
+          organization_id: string
+          promotion_id: string
+          seed: string
+          status: Database["public"]["Enums"]["draw_status"]
+        }
+        Insert: {
+          algorithm_version: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id: string
+          drawn_at?: string
+          drawn_by?: string | null
+          entry_count: number
+          id?: string
+          included_wrong_answers?: boolean
+          offered_count: number
+          organization_id: string
+          promotion_id: string
+          seed: string
+          status?: Database["public"]["Enums"]["draw_status"]
+        }
+        Update: {
+          algorithm_version?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          company_id?: string
+          drawn_at?: string
+          drawn_by?: string | null
+          entry_count?: number
+          id?: string
+          included_wrong_answers?: boolean
+          offered_count?: number
+          organization_id?: string
+          promotion_id?: string
+          seed?: string
+          status?: Database["public"]["Enums"]["draw_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draws_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "draws_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "draws_promotion_fk"
+            columns: ["promotion_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           company_id: string
@@ -1271,6 +1393,7 @@ export type Database = {
           company_id: string
           created_at: string
           created_by: string | null
+          default_pickup_deadline_days: number | null
           deleted_at: string | null
           description: string | null
           id: string
@@ -1285,6 +1408,7 @@ export type Database = {
           company_id: string
           created_at?: string
           created_by?: string | null
+          default_pickup_deadline_days?: number | null
           deleted_at?: string | null
           description?: string | null
           id?: string
@@ -1299,6 +1423,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           created_by?: string | null
+          default_pickup_deadline_days?: number | null
           deleted_at?: string | null
           description?: string | null
           id?: string
@@ -1670,6 +1795,7 @@ export type Database = {
           name: string
           no_button_label: string | null
           organization_id: string
+          pickup_deadline_days: number | null
           requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer: boolean
           site_integration_code: number | null
@@ -1700,6 +1826,7 @@ export type Database = {
           name: string
           no_button_label?: string | null
           organization_id: string
+          pickup_deadline_days?: number | null
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           site_integration_code?: number | null
@@ -1730,6 +1857,7 @@ export type Database = {
           name?: string
           no_button_label?: string | null
           organization_id?: string
+          pickup_deadline_days?: number | null
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           site_integration_code?: number | null
@@ -1844,6 +1972,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      storage_erasure_queue: {
+        Row: {
+          attempts: number
+          bucket: string
+          enqueued_at: string
+          id: string
+          last_error: string | null
+          path: string
+          processed_at: string | null
+        }
+        Insert: {
+          attempts?: number
+          bucket: string
+          enqueued_at?: string
+          id?: string
+          last_error?: string | null
+          path: string
+          processed_at?: string | null
+        }
+        Update: {
+          attempts?: number
+          bucket?: string
+          enqueued_at?: string
+          id?: string
+          last_error?: string | null
+          path?: string
+          processed_at?: string | null
+        }
+        Relationships: []
       }
       webhook_events: {
         Row: {
@@ -1985,6 +2143,127 @@ export type Database = {
           },
         ]
       }
+      winner_status_history: {
+        Row: {
+          changed_at: string
+          changed_by: string | null
+          company_id: string
+          from_status: Database["public"]["Enums"]["winner_status"]
+          id: string
+          reason: string | null
+          to_status: Database["public"]["Enums"]["winner_status"]
+          winner_id: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by?: string | null
+          company_id: string
+          from_status: Database["public"]["Enums"]["winner_status"]
+          id?: string
+          reason?: string | null
+          to_status: Database["public"]["Enums"]["winner_status"]
+          winner_id: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string | null
+          company_id?: string
+          from_status?: Database["public"]["Enums"]["winner_status"]
+          id?: string
+          reason?: string | null
+          to_status?: Database["public"]["Enums"]["winner_status"]
+          winner_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winner_status_history_winner_fk"
+            columns: ["winner_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "winners"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      winners: {
+        Row: {
+          awarded_rank: number
+          company_id: string
+          created_at: string
+          deadline_at: string | null
+          draw_id: string
+          id: string
+          member_id: string
+          participation_id: string
+          promotion_prize_id: string
+          receipt_erased_at: string | null
+          receipt_path: string | null
+          receipt_uploaded_at: string | null
+          status: Database["public"]["Enums"]["winner_status"]
+          updated_at: string
+        }
+        Insert: {
+          awarded_rank: number
+          company_id: string
+          created_at?: string
+          deadline_at?: string | null
+          draw_id: string
+          id?: string
+          member_id: string
+          participation_id: string
+          promotion_prize_id: string
+          receipt_erased_at?: string | null
+          receipt_path?: string | null
+          receipt_uploaded_at?: string | null
+          status?: Database["public"]["Enums"]["winner_status"]
+          updated_at?: string
+        }
+        Update: {
+          awarded_rank?: number
+          company_id?: string
+          created_at?: string
+          deadline_at?: string | null
+          draw_id?: string
+          id?: string
+          member_id?: string
+          participation_id?: string
+          promotion_prize_id?: string
+          receipt_erased_at?: string | null
+          receipt_path?: string | null
+          receipt_uploaded_at?: string | null
+          status?: Database["public"]["Enums"]["winner_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winners_draw_fk"
+            columns: ["draw_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "draws"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "winners_member_link_fk"
+            columns: ["member_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "member_company_links"
+            referencedColumns: ["member_id", "company_id"]
+          },
+          {
+            foreignKeyName: "winners_participation_fk"
+            columns: ["participation_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "participations"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "winners_promotion_prize_fk"
+            columns: ["promotion_prize_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "promotion_prizes"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -2018,6 +2297,16 @@ export type Database = {
           p_reason: Database["public"]["Enums"]["member_erasure_reason"]
         }
         Returns: undefined
+      }
+      apply_draw: {
+        Args: {
+          p_company_id: string
+          p_organization_id: string
+          p_participation_ids: string[]
+          p_promotion_id: string
+          p_units: Json
+        }
+        Returns: string
       }
       apply_inventory_movement: {
         Args: {
@@ -2067,6 +2356,15 @@ export type Database = {
         }
         Returns: string
       }
+      apply_member_field_confirmations: {
+        Args: {
+          p_after: Json
+          p_before: Json
+          p_member_id: string
+          p_organization_id: string
+        }
+        Returns: undefined
+      }
       apply_member_link: {
         Args: {
           p_actor: string
@@ -2096,6 +2394,14 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_winner_transition: {
+        Args: {
+          p_reason: string
+          p_to: Database["public"]["Enums"]["winner_status"]
+          p_winner_id: string
+        }
+        Returns: undefined
+      }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       archive_promotion: {
@@ -2105,6 +2411,10 @@ export type Database = {
       assign_company_role: {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
+      }
+      attach_delivery_receipt: {
+        Args: { p_path: string; p_winner_id: string }
+        Returns: undefined
       }
       backfill_member_field_confirmations: { Args: never; Returns: undefined }
       block_member: {
@@ -2116,6 +2426,14 @@ export type Database = {
           p_reason: string
         }
         Returns: string
+      }
+      cancel_delivery: {
+        Args: { p_reason: string; p_winner_id: string }
+        Returns: undefined
+      }
+      cancel_draw: {
+        Args: { p_draw_id: string; p_reason: string }
+        Returns: undefined
       }
       cancel_promotion: {
         Args: { p_promotion_id: string; p_reason: string }
@@ -2244,6 +2562,22 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      deliver_prize: {
+        Args: { p_note?: string; p_winner_id: string }
+        Returns: undefined
+      }
+      draw_eligible_participations: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          member_id: string
+          participated_at: string
+          participation_id: string
+        }[]
+      }
+      draw_hat_has_wrong_answers: {
+        Args: { p_participation_ids: string[]; p_promotion_id: string }
+        Returns: boolean
+      }
       due_whatsapp_events: {
         Args: { p_limit: number }
         Returns: {
@@ -2297,6 +2631,7 @@ export type Database = {
         Args: { p_event_id: string; p_outcome: string }
         Returns: Json
       }
+      get_draw: { Args: { p_draw_id: string }; Returns: Json }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -2341,6 +2676,20 @@ export type Database = {
         }
         Returns: string
       }
+      list_draws: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          algorithm_version: number
+          cancellation_reason: string
+          cancelled_at: string
+          drawn_at: string
+          entry_count: number
+          id: string
+          seed: string
+          status: Database["public"]["Enums"]["draw_status"]
+          winner_count: number
+        }[]
+      }
       list_linkable_prizes: {
         Args: { p_company_id: string; p_search?: string }
         Returns: {
@@ -2357,6 +2706,37 @@ export type Database = {
           status: Database["public"]["Enums"]["company_status"]
         }[]
       }
+      list_participations: {
+        Args: {
+          p_answered_correctly?: boolean
+          p_company_id: string
+          p_cursor_at?: string
+          p_cursor_id?: string
+          p_from?: string
+          p_limit?: number
+          p_option_id?: string
+          p_promotion_id?: string
+          p_search?: string
+          p_source?: Database["public"]["Enums"]["participation_source"]
+          p_status?: Database["public"]["Enums"]["participation_status"]
+          p_to?: string
+          p_walking_back?: boolean
+        }
+        Returns: {
+          already_won: boolean
+          id: string
+          listener_cpf_last_digits: string
+          listener_name: string
+          listener_phone: string
+          member_id: string
+          participated_at: string
+          promotion_id: string
+          promotion_name: string
+          source: Database["public"]["Enums"]["participation_source"]
+          status: Database["public"]["Enums"]["participation_status"]
+          total_count: number
+        }[]
+      }
       list_promotion_prizes: {
         Args: { p_promotion_id: string }
         Returns: {
@@ -2367,6 +2747,14 @@ export type Database = {
           promotion_prize_id: string
         }[]
       }
+      member_block_active: {
+        Args: {
+          p_company_id: string
+          p_member_id: string
+          p_organization_id: string
+        }
+        Returns: boolean
+      }
       member_field_value: {
         Args: {
           p_field: Database["public"]["Enums"]["promotion_requested_field"]
@@ -2374,6 +2762,7 @@ export type Database = {
         }
         Returns: string
       }
+      member_field_values: { Args: { p_member_id: string }; Returns: Json }
       member_linked_to_company: {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
@@ -2398,6 +2787,21 @@ export type Database = {
       participation_status_for: {
         Args: { p_member_id: string; p_promotion_id: string; p_when: string }
         Returns: Database["public"]["Enums"]["participation_status"]
+      }
+      project_promotion_prize_movement: {
+        Args: {
+          p_promotion_prize_id: string
+          p_quantity: number
+          p_type: Database["public"]["Enums"]["inventory_movement_type"]
+        }
+        Returns: undefined
+      }
+      promotion_participation_correctness: {
+        Args: { p_promotion_id: string }
+        Returns: {
+          answered_correctly: boolean
+          participation_id: string
+        }[]
       }
       promotion_write_error: {
         Args: {
@@ -2557,6 +2961,10 @@ export type Database = {
         }
         Returns: Json
       }
+      return_prize: {
+        Args: { p_reason: string; p_winner_id: string }
+        Returns: undefined
+      }
       return_promotion_prizes: {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
         Returns: number
@@ -2564,6 +2972,14 @@ export type Database = {
       revoke_invitation: {
         Args: { p_invitation_id: string }
         Returns: undefined
+      }
+      run_draw: {
+        Args: {
+          p_participation_ids?: string[]
+          p_promotion_id: string
+          p_units?: Json
+        }
+        Returns: string
       }
       save_promotion_question: {
         Args: {
@@ -2688,10 +3104,15 @@ export type Database = {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string
       }
+      write_off_prize: {
+        Args: { p_reason: string; p_winner_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      draw_status: "COMPLETED" | "CANCELLED"
       integration_provider: "WHATSAPP"
       inventory_bucket:
         | "available"
@@ -2715,6 +3136,7 @@ export type Database = {
         | "DRAW"
         | "DRAW_CANCEL"
         | "DELIVERY"
+        | "DELIVERY_CANCEL"
         | "RETURN_PENDING"
         | "RETURN_TO_STOCK"
         | "WRITE_OFF"
@@ -2741,6 +3163,11 @@ export type Database = {
         | "passport"
         | "discovery_source"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
+      winner_status:
+        | "AWAITING_PICKUP"
+        | "DELIVERED"
+        | "RETURNED"
+        | "WRITTEN_OFF"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2873,6 +3300,7 @@ export const Constants = {
     Enums: {
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      draw_status: ["COMPLETED", "CANCELLED"],
       integration_provider: ["WHATSAPP"],
       inventory_bucket: [
         "available",
@@ -2897,6 +3325,7 @@ export const Constants = {
         "DRAW",
         "DRAW_CANCEL",
         "DELIVERY",
+        "DELIVERY_CANCEL",
         "RETURN_PENDING",
         "RETURN_TO_STOCK",
         "WRITE_OFF",
@@ -2926,6 +3355,12 @@ export const Constants = {
         "discovery_source",
       ],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
+      winner_status: [
+        "AWAITING_PICKUP",
+        "DELIVERED",
+        "RETURNED",
+        "WRITTEN_OFF",
+      ],
     },
   },
 } as const

@@ -53,3 +53,30 @@ export async function canSearchByListener(
   }
   return data === true;
 }
+
+/**
+ * Whether this caller may run a draw at this one Station — Block 6c, because the
+ * Draw button lives on this screen now.
+ *
+ * One `has_permission` and not `getPromotionPowers`, which asks sixteen: this
+ * screen needs exactly one of them, and borrowing that helper would put fifteen
+ * more round trips on every render of a list that never opens a promotion
+ * record.
+ *
+ * A courtesy gate for whether the button renders, never the boundary —
+ * `run_draw` (0078) re-checks `draws.execute` inside its own SECURITY DEFINER
+ * body — and a failed check throws rather than folding into "not granted", for
+ * the reason canSearchByListener gives just above.
+ */
+export async function canRunDraw(supabase: UserClient, companyId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('has_permission', {
+    p_permission: 'draws.execute',
+    p_company_id: companyId,
+  });
+  if (error) {
+    throw new InternalError(
+      `Could not check whether this caller may run a draw here: ${error.message}`,
+    );
+  }
+  return data === true;
+}

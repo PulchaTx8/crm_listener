@@ -10,11 +10,13 @@ import {
   PARTICIPATION_SEARCH_MAX_LENGTH,
 } from '@/services/participations';
 import type { ParticipationListPage } from '@/services/participations';
-import { listPromotionsPage } from '@/services/promotions';
+import { getPromotionRecord, listPromotionsPage } from '@/services/promotions';
+import type { PromotionDetail } from '@/services/promotions';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { StationSearchForm } from '../inventory/station-search-form';
-import { canSearchByListener } from './access';
+import { canRunDraw, canSearchByListener } from './access';
+import { DrawPanel } from './draw-panel';
 import { describeParticipationsReadError } from './errors';
 import {
   ANY_STATUS,
@@ -26,7 +28,7 @@ import {
 } from './list-params';
 import type { ParticipationSearchParams } from './list-params';
 import { ParticipationsFilters } from './participations-filters';
-import type { PromotionOption } from './participations-filters';
+import type { PromotionOption, QuestionFilterGroup } from './participations-filters';
 import { ParticipationsGrid } from './participations-grid';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -116,13 +118,22 @@ export default async function ParticipationsPage({
   const searchTerm = state.search?.slice(0, PARTICIPATION_SEARCH_MAX_LENGTH);
 
   let canSearch: boolean;
+  let canDraw: boolean;
   let page: ParticipationListPage;
   try {
     // Resolved BEFORE the list read, because its answer decides whether the
     // search term is sent at all. See ./access.ts: without members.view the
     // searched select returns nothing, and an empty page reads as "no listener
     // matched" rather than as a permission this caller does not hold.
-    canSearch = await canSearchByListener(supabase, selected.id);
+    //
+    // draws.execute goes out beside it rather than after, because unlike the
+    // search it decides nothing about the read — it only decides whether the
+    // Draw button renders — and two single-predicate calls in flight together
+    // cost one round trip rather than two.
+    [canSearch, canDraw] = await Promise.all([
+      canSearchByListener(supabase, selected.id),
+      canRunDraw(supabase, selected.id),
+    ]);
 
     page = await listParticipationsPage(
       {
@@ -140,6 +151,10 @@ export default async function ParticipationsPage({
         // alternative — send it anyway and render whatever comes back — is
         // precisely the empty list the notice below exists to prevent.
         search: canSearch ? searchTerm : undefined,
+        // Block 6c. Forwarded as they are: undefined is a third state, not a
+        // default, and list_participations reads it as "both".
+        answeredCorrectly: state.answeredCorrectly,
+        optionId: state.optionId,
         cursor,
         cursorSide: cursorParam?.side ?? 'after',
       },
@@ -180,6 +195,7 @@ export default async function ParticipationsPage({
     promotionOptions = promotions.rows.map((promotion) => ({
       id: promotion.id,
       name: promotion.name,
+      hasQuiz: promotion.quizQuestionCount > 0,
     }));
     // The extra row read past the page, surfaced rather than dropped.
     promotionsCapped = promotions.nextCursor !== null;
@@ -198,10 +214,66 @@ export default async function ParticipationsPage({
   // operator came here for. Its name comes off the rows already fetched, which
   // costs nothing; when the filter matches no row there is no name to be had, so
   // the option says what it is instead of inventing one.
+  // The chosen promotion's own record, read only when there is one chosen. It
+  // carries the two things this screen needs beyond the list: the options
+  // somebody could have picked, for D5's second filter, and the prize links,
+  // for the draw. One read for both rather than two, because getPromotionRecord
+  // already fetches both and a second narrower read would be a second query for
+  // rows that were on the wire anyway.
+  //
+  // Its own try/catch, and DELIBERATELY quieter than the list's: a promotion
+  // record that will not load costs the operator a filter and a button, not the
+  // list they came here for. Logged rather than swallowed, and the controls it
+  // feeds simply do not render.
+  let record: PromotionDetail | null = null;
+  if (state.promotionId) {
+    try {
+      record = await getPromotionRecord(state.promotionId, accessToken);
+    } catch (cause) {
+      logger.error(
+        { err: cause, promotionId: state.promotionId },
+        'could not read the promotion behind the participations filter',
+      );
+    }
+  }
+  // A promotion at ANOTHER Station, reachable by this caller and named in the
+  // URL, would otherwise dress this screen's filters with its questions and
+  // offer its prizes to a draw the list cannot be about — the list is narrowed
+  // by companyId as well, so the two halves would disagree. Dropped rather than
+  // corrected: the promotion picker below already says which promotion this is.
+  if (record && record.companyId !== selected.id) record = null;
+
+  const questions: QuestionFilterGroup[] = (record?.questions ?? [])
+    .filter((question) => question.options.length > 0)
+    .map((question) => ({
+      id: question.id,
+      prompt: question.prompt,
+      options: question.options.map((option) => ({ id: option.id, label: option.label })),
+    }));
+
+  // What is left to draw, on the links that still have something — the same
+  // shape and the same subtraction the promotion's own draws screen makes.
+  const linked = (record?.prizes ?? [])
+    .map((prize) => ({
+      promotionPrizeId: prize.promotionPrizeId,
+      prizeName: prize.prizeName,
+      available: prize.linked - prize.drawn,
+      requested: prize.linked - prize.drawn,
+    }))
+    .filter((prize) => prize.available > 0);
+
   if (state.promotionId && !promotionOptions.some((p) => p.id === state.promotionId)) {
     promotionOptions.unshift({
       id: state.promotionId,
-      name: page.rows[0]?.promotionName ?? 'The promotion this list is filtered to',
+      name: record?.name ?? page.rows[0]?.promotionName ?? 'The promotion this list is filtered to',
+      // Read off the record when there is one, and false when there is not.
+      // The picker not listing a promotion says nothing about whether it asks a
+      // quiz — it says the picker was cut, or the promotion is archived — so
+      // the answer comes from the promotion itself, and only falls back to "no"
+      // when the record could not be read at all. False is the safe fallback:
+      // the correct/wrong filter stays hidden rather than being offered for a
+      // promotion that may have nothing to be right about.
+      hasQuiz: (record?.questions ?? []).some((question) => question.kind === 'QUIZ'),
     });
   }
 
@@ -268,8 +340,25 @@ export default async function ParticipationsPage({
         currentHref={participationsHref(state, cursorParam)}
         timeZone={selected.timezone}
         promotions={promotionOptions}
+        questions={questions}
         canSearchByListener={canSearch}
       />
+
+      {/* Block 6c: the draw lives beside the list it draws from.
+          Rendered only with a promotion chosen and draws.execute in hand — a
+          draw belongs to one promotion, and run_draw (0078) refuses without the
+          code anyway, so offering the button to somebody who does not hold it
+          would only be a longer road to the same refusal. */}
+      {canDraw && state.promotionId && record && (
+        <div className="mt-4" data-testid="participations-draw">
+          <DrawPanel
+            state={state}
+            promotionId={state.promotionId}
+            promotionName={record.name}
+            linked={linked}
+          />
+        </div>
+      )}
 
       {/* Rendered only when it has something to say, so the list does not sit
           three millimetres lower for a container that turned out to be empty. */}

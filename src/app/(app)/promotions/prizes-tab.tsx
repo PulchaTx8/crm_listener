@@ -1,6 +1,8 @@
 'use client';
 
 import { useActionState, useEffect, useState, useTransition } from 'react';
+import Link from 'next/link';
+import type { Route } from 'next';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 // The constant comes from @/lib rather than from @/services/promotions, which
@@ -31,7 +33,7 @@ const INITIAL: PrizeLinkState = { status: 'idle' };
 const SEARCH_DEBOUNCE_MS = 350;
 
 /**
- * Vinculados / Sorteados / Resto, one row per linked prize, plus the two
+ * Linked / Drawn / Left, one row per linked prize, plus the two
  * controls that move units in and out.
  *
  * Resto is computed here and stored nowhere: a stored total is one more thing
@@ -60,6 +62,35 @@ export function PrizesTab({
 
   return (
     <div className="flex flex-col gap-5">
+      {/*
+        The way into the draws, which are their own route rather than a sixth
+        tab (owner's ruling, 2026-08-02). Here rather than on the tab strip
+        because this tab is where the units live, and "Drawn" in the table
+        below is the number this link explains.
+      */}
+      <Link
+        href={`/promotions/${promotionId}/draws` as Route}
+        // prefetch={false}, and it is load-bearing twice over.
+        //
+        // Next prefetches a Link in the viewport by fetching its RSC payload,
+        // and that request's path starts with /promotions — which is exactly
+        // what promotion-prizes.spec.ts counts to prove the list behind the
+        // dialog is never re-queried. Merely rendering this link turned that
+        // assertion red, which is the guard doing its job rather than a false
+        // alarm: the tab really had started causing a fetch it did not need.
+        //
+        // And the fetch is not cheap. Rendering the draws route runs
+        // getPromotionPowers (twelve has_permission calls), list_draws and
+        // get_draw — real work, for every operator who opens the Prizes tab
+        // and never follows the link. Reaching the draws is a decision, not
+        // something to speculate on.
+        prefetch={false}
+        className="self-start text-sm underline"
+        data-testid="open-draws"
+      >
+        Draws of this promotion →
+      </Link>
+
       {prizes.length === 0 && !linking && (
         <p className="text-sm text-muted-foreground">
           No prize is linked to this promotion yet. A promotion can run without one, but nothing can
@@ -160,7 +191,7 @@ export function PrizesTab({
 }
 
 /**
- * Bounded by Resto rather than by Vinculados: the drawn units belong to a
+ * Bounded by Left rather than by Linked: the drawn units belong to a
  * winner. The RPC refuses the same thing and names both figures, so this is the
  * verdict without a round trip and not the boundary.
  *

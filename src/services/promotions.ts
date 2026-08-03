@@ -75,6 +75,14 @@ export interface PromotionSummary {
   hashtag: string | null;
   siteIntegrationCode: number | null;
   questionCount: number;
+  /**
+   * Of those, how many are of kind QUIZ — the only kind with a right answer
+   * (0041 refuses is_correct on the others). Block 6c needs it apart from the
+   * total: the participants screen offers a correct/wrong filter only where
+   * there is something to be right about, and a poll-only promotion has
+   * questions but no gabarito.
+   */
+  quizQuestionCount: number;
   /** Non-null only for the owner and the platform admin: nobody else's read returns an archived row (0044). */
   deletedAt: string | null;
 }
@@ -218,7 +226,11 @@ async function withQuestionCounts(
   supabase: Awaited<ReturnType<typeof createUserClient>>,
   rows: PromotionRow[],
 ): Promise<PromotionSummary[]> {
-  const shape = (row: PromotionRow, questionCount: number): PromotionSummary => ({
+  const shape = (
+    row: PromotionRow,
+    questionCount: number,
+    quizQuestionCount: number,
+  ): PromotionSummary => ({
     id: row.id,
     name: row.name,
     startsAt: row.starts_at,
@@ -228,6 +240,7 @@ async function withQuestionCounts(
     hashtag: row.hashtag,
     siteIntegrationCode: row.site_integration_code,
     questionCount,
+    quizQuestionCount,
     deletedAt: row.deleted_at,
   });
 
@@ -235,7 +248,9 @@ async function withQuestionCounts(
 
   const { data, error } = await supabase
     .from('promotion_questions')
-    .select('promotion_id')
+    // kind comes back so the two counts can be taken in one read rather than
+    // two: the screen shows the total, and Block 6c needs the quiz-only figure.
+    .select('promotion_id, kind')
     .in(
       'promotion_id',
       rows.map((r) => r.id),
@@ -244,11 +259,13 @@ async function withQuestionCounts(
   if (error) throw new InternalError(`Could not count quiz questions: ${error.message}`);
 
   const counts = new Map<string, number>();
-  for (const { promotion_id } of data ?? []) {
+  const quizCounts = new Map<string, number>();
+  for (const { promotion_id, kind } of data ?? []) {
     counts.set(promotion_id, (counts.get(promotion_id) ?? 0) + 1);
+    if (kind === 'QUIZ') quizCounts.set(promotion_id, (quizCounts.get(promotion_id) ?? 0) + 1);
   }
 
-  return rows.map((row) => shape(row, counts.get(row.id) ?? 0));
+  return rows.map((row) => shape(row, counts.get(row.id) ?? 0, quizCounts.get(row.id) ?? 0));
 }
 
 export interface PromotionQuestionOption {
