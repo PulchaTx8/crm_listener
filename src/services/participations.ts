@@ -9,8 +9,8 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
-import { keysetFilter, keysetPage } from '@/lib/keyset';
-import type { Cursor, SortDirection } from '@/lib/keyset';
+import { keysetPage } from '@/lib/keyset';
+import type { Cursor } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import { PARTICIPATION_STATUSES } from '@/lib/participation-status';
 import type { ParticipationStatus } from '@/lib/participation-status';
@@ -63,8 +63,9 @@ export interface ParticipationSummary {
   /**
    * Null in two different situations, and the grid must not tell them apart:
    * an anonymised listener (0034 scrubs full_name), and a caller who holds
-   * participations.view but not members.view — see the note on the two selects
-   * below.
+   * participations.view but not members.view. That second case used to fall out
+   * of an embed under RLS; since 6c it is a branch inside list_participations
+   * (0090), which withholds the three listener fields and still lists the rows.
    */
   listenerName: string | null;
   listenerPhone: string | null;
@@ -72,6 +73,12 @@ export interface ParticipationSummary {
   status: ParticipationStatus;
   source: ParticipationSource;
   participatedAt: string;
+  /**
+   * Whether this listener has already won in this promotion — which is why they
+   * will not be in the next round's hat (0076). Shown so that a row
+   * disappearing between rounds is accounted for rather than merely missing.
+   */
+  alreadyWon: boolean;
 }
 
 export interface ParticipationListParams {
@@ -83,8 +90,17 @@ export interface ParticipationListParams {
   /** Instants. Narrow by when the person entered, never by when the row was written. */
   from?: string;
   to?: string;
-  /** By listener name, phone or CPF. Requires members.view — see the note below. */
+  /** By listener name, phone or CPF. Requires members.view, and returns nothing without it. */
   search?: string;
+  /**
+   * Block 6c. True lists only those who answered every QUIZ question correctly,
+   * false only the others, undefined both. Undefined rather than null because
+   * PostgREST omits an undefined argument and the function's own default is
+   * null — sending null explicitly would mean the same thing by a longer road.
+   */
+  answeredCorrectly?: boolean;
+  /** Block 6c. Only participations that chose this option. ANDs with the above. */
+  optionId?: string;
   cursor: Cursor | null;
   cursorSide: 'after' | 'before';
 }
@@ -97,151 +113,59 @@ export interface ParticipationListPage {
 }
 
 /**
- * The columns the grid renders, plus the two embeds it needs to name a
- * promotion and a listener.
+ * One keyset page of the participants list.
  *
- * `promotions!participations_promotion_fk` is disambiguated on purpose, not out
- * of habit: participations carries TWO foreign keys to promotions — the
- * composite (promotion_id, company_id) and 0052's (promotion_id,
- * allows_multiple), which exists to make the partial unique index possible — and
- * PostgREST answers a bare `promotions(...)` with PGRST201 rather than picking
- * one (probed against the running stack).
+ * It reads ONE function rather than composing a PostgREST query, and that is
+ * Block 6c: "did they answer correctly" and "did they choose this option" are
+ * not conditions over an embed, and the two cheaper routes each lose something
+ * — a view cannot carry the foreign key to the embedded listener, which is what
+ * the name search is, and sending the matching ids back as a filter puts a
+ * promotion's whole participation list into a URL.
  *
- * The listener is reached THROUGH member_company_links because there is no
- * foreign key from participations to members: 0052 keys on the link table
- * instead, deliberately, so that one constraint proves both that the listener
- * exists and that this Station has them. The nested embed is the join that
- * follows from that choice.
+ * The ordering is FIXED, newest first tie-broken by id, because that is what
+ * participations_listing_idx (0052) carries and a keyset cursor must compare
+ * precisely what it orders by (Block 3b).
  *
- * A single string literal, never assembled by concatenation: supabase-js infers
- * the returned row's shape by parsing this argument's literal TYPE at compile
- * time, so a runtime-built string collapses every field to GenericStringError
- * (services/members.ts states the same rule for its own select).
- */
-const PARTICIPATION_COLUMNS =
-  'id,promotion_id,member_id,status,source,participated_at,promotions!participations_promotion_fk(name),member_company_links(members(full_name,phone,cpf_last_digits))' as const;
-
-/**
- * The same read with both embeds made inner, used ONLY when a search term is
- * present, because a search has to be a condition Postgres evaluates rather
- * than a filter applied to a page that has already been fetched.
+ * The total arrives on every row, computed inside the function from the same
+ * filtered set the rows come from, so a page and its count can no longer narrow
+ * differently — the old code got that from building both reads with one
+ * builder; there is now only one read.
  *
- * The cost of `!inner`, stated rather than discovered later: member_company_links
- * and members are behind 0035's policies, which need members.view. A caller who
- * holds participations.view and not members.view therefore gets NOTHING from
- * this variant, where the plain one above still lists every participation with
- * the listener's name left null. That is why the two exist rather than one: the
- * list must not empty itself for a caller who is allowed to see it, and a caller
- * who may not read a listener's name cannot search by it either. The same shape
- * listOrganizationMembers uses for its blocked-only filter.
- */
-const PARTICIPATION_COLUMNS_SEARCHED =
-  'id,promotion_id,member_id,status,source,participated_at,promotions!participations_promotion_fk(name),member_company_links!inner(members!inner(full_name,phone,cpf_last_digits))' as const;
-
-/** The row shape both selects share; the searched variant carries no extra keys. */
-interface ParticipationRecord {
-  id: string;
-  promotion_id: string;
-  member_id: string;
-  status: ParticipationStatus;
-  source: ParticipationSource;
-  participated_at: string;
-  promotions: { name: string } | null;
-  member_company_links: {
-    members: { full_name: string | null; phone: string | null; cpf_last_digits: string | null } | null;
-  } | null;
-}
-
-/**
- * One keyset page, ordered by when the person entered — newest first, tie-broken
- * by id, which is exactly what participations_listing_idx (0052) carries. A
- * keyset cursor must compare precisely the columns it orders by (Block 3b), and
- * that is the whole reason the ordering here is FIXED rather than a sort key the
- * operator chooses: there is one index, and an ordering it does not serve would
- * scan the Station.
- *
- * Every filter is a condition on the query. Nothing is fetched here in order to
- * be thrown away, and the count read is built from the same builder as the row
- * read, so the two cannot narrow differently — the defect listOrganizationMembers'
- * own comment describes for its blocked-only join.
- *
- * Takes the caller's token and reads through asCaller, as listOrganizationMembers
- * does and unlike listPromotionsPage's createUserClient(). Both reach the
- * database as the same user and RLS decides identically either way; the
- * difference is that createUserClient() reads `cookies()` from next/headers, so
- * a function built on it can only ever run inside a request and CANNOT be driven
- * from tests/isolation. This read is the participations screen — its two selects,
- * its cursor and the permission boundary between them — and proving it by hand
- * against a running stack proves it only until somebody stops typing.
+ * Reads through asCaller rather than createUserClient(), so this can be driven
+ * from tests/isolation: the same reasoning the previous version carried, and
+ * more load-bearing now that list_participations is SECURITY DEFINER and its
+ * permission boundary is written in SQL rather than enforced by RLS.
  */
 export async function listParticipationsPage(
   params: ParticipationListParams,
   accessToken: string,
 ): Promise<ParticipationListPage> {
-  const supabase = asCaller(accessToken);
-
   const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
-  // The display direction is always descending, so the ascending read is
-  // precisely the backward one — this is listPromotionsPage's
-  // `walkingBack ? direction === 'desc' : direction === 'asc'` with the
-  // direction fixed, and the rows keysetPage turns back around afterwards.
-  const ascending = walkingBack;
-  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
+  const term = params.search?.trim().slice(0, PARTICIPATION_SEARCH_MAX_LENGTH) || undefined;
 
-  const term = params.search?.trim().slice(0, PARTICIPATION_SEARCH_MAX_LENGTH);
-  const select = term ? PARTICIPATION_COLUMNS_SEARCHED : PARTICIPATION_COLUMNS;
+  const { data, error } = await asCaller(accessToken).rpc('list_participations', {
+    p_company_id: params.companyId,
+    p_promotion_id: params.promotionId,
+    p_status: params.status,
+    p_source: params.source,
+    p_from: params.from,
+    p_to: params.to,
+    p_search: term,
+    p_answered_correctly: params.answeredCorrectly,
+    p_option_id: params.optionId,
+    // Cursor.value is nullable because other screens sort by a nullable column;
+    // participated_at is not null (0052), so a null here can only mean "no
+    // cursor", which is what undefined says to the function's default.
+    p_cursor_at: params.cursor?.value ?? undefined,
+    p_cursor_id: params.cursor?.id,
+    p_walking_back: walkingBack,
+    // One past the page, which is how keysetPage knows there is a next one.
+    p_limit: PARTICIPATION_PAGE_SIZE + 1,
+  });
 
-  const build = (options?: { count: 'exact'; head: true }) => {
-    let q = supabase
-      .from('participations')
-      .select(select, options)
-      .eq('company_id', params.companyId);
-
-    if (params.promotionId) q = q.eq('promotion_id', params.promotionId);
-    if (params.status) q = q.eq('status', params.status);
-    if (params.source) q = q.eq('source', params.source);
-    if (params.from) q = q.gte('participated_at', params.from);
-    if (params.to) q = q.lte('participated_at', params.to);
-
-    if (term) {
-      // escapeLikePattern runs BEFORE the wildcards are added, so it only ever
-      // escapes what the operator typed and never the markers added here. The
-      // digit-only clauses mirror listOrganizationMembers exactly: cpf_last_digits
-      // is always three digits and phone_normalized is 0031's generated
-      // digits-only column, so a term carrying no digit has nothing to compare
-      // against either, and a digit-only term can contain no % or _ to escape.
-      const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
-      const clauses = [`full_name.ilike.${wildcard}`, `phone.ilike.${wildcard}`];
-      const digits = term.replace(/[^0-9]/g, '');
-      if (digits) {
-        clauses.push(`cpf_last_digits.ilike.${quoteForOrFilter(`%${digits}%`)}`);
-        clauses.push(`phone_normalized.ilike.${quoteForOrFilter(`%${digits}%`)}`);
-      }
-      // Two `or=` parameters on one request are ANDed by PostgREST, and this one
-      // is scoped to the embedded table rather than to participations — verified
-      // against the running stack, together with the keyset `or` below, which
-      // narrows alongside it instead of replacing it.
-      q = q.or(clauses.join(','), { referencedTable: 'member_company_links.members' });
-    }
-
-    return q;
-  };
-
-  let query = build().order('participated_at', { ascending });
-  if (params.cursor) {
-    // nullsLast is false because participated_at is not null (0052): there is
-    // no null region for a cursor to cross into, unlike the audience list where
-    // full_name is nullable.
-    query = query.or(keysetFilter('participated_at', readDirection, params.cursor, false));
-  }
-  query = query.order('id', { ascending });
-
-  const { data, error } = await query.limit(PARTICIPATION_PAGE_SIZE + 1);
   if (error) throw mapParticipationError(error.code, error.message);
 
-  // One cast, because `select` is chosen between two constants above and
-  // PostgREST cannot type a runtime choice.
-  const fetched = (data ?? []) as unknown as ParticipationRecord[];
+  const fetched = data ?? [];
 
   const { rows: page, nextCursor, previousCursor } = keysetPage(fetched, {
     pageSize: PARTICIPATION_PAGE_SIZE,
@@ -250,28 +174,25 @@ export async function listParticipationsPage(
     cursorFor: (row) => ({ value: row.participated_at, id: row.id }),
   });
 
-  const { count, error: countError } = await build({ count: 'exact', head: true });
-  if (countError) throw mapParticipationError(countError.code, countError.message);
-
   return {
-    rows: page.map((row) => {
-      const member = row.member_company_links?.members ?? null;
-      return {
-        id: row.id,
-        promotionId: row.promotion_id,
-        promotionName: row.promotions?.name ?? null,
-        memberId: row.member_id,
-        listenerName: member?.full_name ?? null,
-        listenerPhone: member?.phone ?? null,
-        listenerCpfLastDigits: member?.cpf_last_digits ?? null,
-        status: row.status,
-        source: row.source,
-        participatedAt: row.participated_at,
-      };
-    }),
+    rows: page.map((row) => ({
+      id: row.id,
+      promotionId: row.promotion_id,
+      promotionName: row.promotion_name,
+      memberId: row.member_id,
+      listenerName: row.listener_name,
+      listenerPhone: row.listener_phone,
+      listenerCpfLastDigits: row.listener_cpf_last_digits,
+      status: row.status,
+      source: row.source,
+      participatedAt: row.participated_at,
+      alreadyWon: row.already_won,
+    })),
     nextCursor,
     previousCursor,
-    total: count ?? 0,
+    // Every row carries the same figure; an empty page carries none, and an
+    // empty page is a total of zero.
+    total: Number(fetched[0]?.total_count ?? 0),
   };
 }
 
