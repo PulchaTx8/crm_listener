@@ -83,15 +83,29 @@ begin
   -- locks each row and refuses any source that is not AWAITING_PICKUP, so a
   -- prize delivered in between raises and is counted, not silently skipped.
   --
-  -- `deadline_at is not null` does not earn its place by enforcing 0075's
-  -- rule -- SQL's own null semantics already do that with or without it:
-  -- `null <= now()` is NULL, not true, so a null deadline is excluded from
-  -- this WHERE clause regardless. What the predicate actually does is make
-  -- this WHERE clause match the partial index winners_deadline_idx (0075)
-  -- exactly, which is what lets the planner use that index at all; without
-  -- it, the same correct rows come back off a full scan instead. And even
-  -- with the index used, this is an ORDINARY index scan with a heap fetch per
-  -- row, not an index-only one -- id is not a column the index carries.
+  -- `deadline_at is not null` buys no PLAN. Measured directly (a 250k-row
+  -- replica, winners_deadline_idx's exact definition): the plan is IDENTICAL
+  -- with and without this predicate -- Index Scan using winners_deadline_idx,
+  -- Index Cond: (deadline_at <= now()) -- because Postgres proves the strict
+  -- `<=` already implies `IS NOT NULL` on its own. (Control: dropping the
+  -- STATUS predicate instead, which nothing implies, does fall back to a Seq
+  -- Scan -- confirming this is real implication analysis and not the planner
+  -- merely being indifferent to what a comment claims.) So the predicate is
+  -- redundant to the planner and is not load-bearing for anything about the
+  -- plan -- a second performance claim in this comment turned out to be
+  -- false the first time it was measured, so this one is stated only as far
+  -- as it was actually checked.
+  --
+  -- What it IS for: it is harmless, it mirrors the partial index's own
+  -- definition (0075) exactly, and it states 0075's rule in the query for a
+  -- reader -- null means this winner has NO deadline at all, not a deadline
+  -- of zero days.
+  --
+  -- Separately, and true regardless of this predicate: this is an ORDINARY
+  -- index scan with a heap fetch per row, not an index-only one -- id, which
+  -- the select list needs, is not a column the index carries. (The plan
+  -- above, quoted from the measurement, says "Index Scan," not "Index Only
+  -- Scan," which is the same fact independently.)
   select array_agg(id order by deadline_at)
     into v_ids
     from public.winners

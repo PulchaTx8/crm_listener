@@ -6,7 +6,7 @@
 --   ERROR: invalid transaction termination
 -- So this file builds its fixture, runs, asserts, and deletes what it made.
 
-select plan(9);
+select plan(10);
 
 -- ---------------------------------------------------------------------------
 -- SELF-HEALING: the same cleanup this file runs at the bottom, run again here
@@ -58,6 +58,16 @@ delete from public.members where organization_id = '00000000-0000-0000-0000-0000
 delete from public.audit_logs where company_id = '00000000-0000-0000-0000-00000000d1c2';
 delete from public.companies where id = '00000000-0000-0000-0000-00000000d1c2';
 delete from public.organizations where id = '00000000-0000-0000-0000-00000000d1f2';
+
+-- Pinned so a future migration cannot quietly re-grant EXECUTE to
+-- service_role and reintroduce the silent no-op finding 1 of the first
+-- review round caught (a service_role CALL would fail every winner --
+-- service_role holds nothing on apply_winner_transition or
+-- apply_inventory_movement -- and still report success). 09/10/11's own
+-- test files pin their writers' ACLs the same way.
+select ok(not has_function_privilege('service_role',
+            'public.sweep_pickup_deadlines()', 'EXECUTE'),
+          'the sweep is owner-only: a service_role CALL would fail every winner and report success');
 
 -- ---------------------------------------------------------------------------
 -- THE FIRST FIXTURE: a Station, one prize with four units, four listeners and
@@ -237,12 +247,13 @@ select is(
 -- finding below). Poisoned 6d's failure means v_failed > 0, so the procedure
 -- raises after the loop -- but by then, with real per-iteration commits,
 -- Neighbour 6d's success is already durable, and the raise costs it nothing.
--- Delete BOTH `commit;` statements and rerun this fixture and the raise still
--- fires (Poisoned still fails), but now there was never a commit checkpoint
+-- Delete the `commit;` statement (there is exactly one, inside the loop) and
+-- rerun this fixture and the raise still fires (Poisoned still fails), but
+-- now there was never a commit checkpoint
 -- to protect Neighbour 6d's own success from it: the raise aborts the WHOLE
 -- transaction the loop has been running in, and Neighbour 6d's transition is
 -- rolled back right along with Poisoned 6d's -- measured, and it is exactly
--- assertions 8 and 9 below, and only those, that go red. That is what "commit
+-- assertions 9 and 10 below, and only those, that go red. That is what "commit
 -- per winner" (D6) actually buys: not merely that one winner's OWN exception
 -- cannot corrupt its neighbour (the exception block already guarantees that,
 -- commit or not) but that a LATER winner's failure -- or, as here, the
@@ -380,9 +391,21 @@ update public.inventory_balances
 -- comment) -- a procedure with internal transaction control must be invoked
 -- as a bare top-level CALL and nothing else, so the only way to tolerate its
 -- expected failure here is to tell psql itself not to stop.
+--
+-- Saved and restored rather than hard-coded back to "on": this file does not
+-- own the harness's own default (pg_prove sets ON_ERROR_STOP=1, but a bare
+-- `psql -f` defaults it off), so hard-coding "on" here would silently change
+-- that default for the rest of the file under a plain `psql -f` run -- any
+-- later error would then abort before this file's own teardown runs, instead
+-- of behaving the way the rest of the file already assumed. Verified the
+-- save/restore round-trips correctly both ways: invoked without
+-- `-v ON_ERROR_STOP=1`, a later error after the restore still does not abort
+-- the script; invoked with it (pg_prove's own default), a later error after
+-- the restore does.
+\set saved_on_error_stop :ON_ERROR_STOP
 \set ON_ERROR_STOP off
 call public.sweep_pickup_deadlines();
-\set ON_ERROR_STOP on
+\set ON_ERROR_STOP :saved_on_error_stop
 
 select is(
   (select status::text from public.winners w join public.members m on m.id = w.member_id
