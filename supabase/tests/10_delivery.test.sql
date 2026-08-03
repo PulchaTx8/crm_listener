@@ -1,5 +1,5 @@
 begin;
-select plan(42);
+select plan(57);
 
 -- Block 6b: what an operator does deliberately with a prize that has been won.
 --
@@ -449,6 +449,132 @@ select ok(has_function_privilege('authenticated', 'public.deliver_prize(uuid, te
 select ok(not has_function_privilege('authenticated',
             'public.apply_winner_transition(uuid, public.winner_status, text)', 'EXECUTE'),
           'and the transition core behind it is private, like every rule body here');
+
+-- ---------------------------------------------------------------------------
+-- Task 4: back to stock, or written off, and the prize decides which.
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000b405', '00000000-0000-0000-0000-00000000b0f1', 'Return Only'),
+  ('00000000-0000-0000-0000-00000000b406', '00000000-0000-0000-0000-00000000b0f1', 'Write Off Only');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000b405', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000b405', 'winners.return'),
+  ('00000000-0000-0000-0000-00000000b406', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000b406', 'winners.write_off');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000b407', 'return-only@example.test'),
+  ('00000000-0000-0000-0000-00000000b408', 'writeoff-only@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000b407', '00000000-0000-0000-0000-00000000b0c1',
+   '00000000-0000-0000-0000-00000000b0f1', '00000000-0000-0000-0000-00000000b405'),
+  ('00000000-0000-0000-0000-00000000b408', '00000000-0000-0000-0000-00000000b0c1',
+   '00000000-0000-0000-0000-00000000b0f1', '00000000-0000-0000-0000-00000000b406');
+
+-- The claims from the last assertion above are still set -- `set local` lasts
+-- the transaction, not the statement -- and they name a user who does not exist
+-- in auth.users. The seeding below writes ledger movements, which stamp
+-- actor_id from auth.uid(), so without this the fixture fails on a foreign key
+-- that has nothing to do with what is being tested.
+select set_config('request.jwt.claims', null, true);
+
+create temporary table return_cases as
+select pg_temp.seed_winner('Goes back')             as back,
+       pg_temp.seed_winner('No return', false)      as no_return,
+       pg_temp.seed_winner('Written off')           as scrapped,
+       pg_temp.seed_winner('Already delivered')     as delivered,
+       pg_temp.seed_winner('Return forbidden')      as return_forbidden,
+       pg_temp.seed_winner('Write off forbidden')   as writeoff_forbidden;
+
+grant select on return_cases to authenticated;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b403", "role": "authenticated"}';
+
+select lives_ok(
+  format($$select public.return_prize(%L::uuid, 'nobody came to collect it')$$,
+         (select back from return_cases)),
+  'an uncollected prize can go back to stock');
+
+select is(
+  (select status::text from public.winners where id = (select back from return_cases)),
+  'RETURNED', 'and the winner says so');
+
+-- allows_return_to_stock's first reader in the whole schema. 0025 registered it
+-- as deliberate debt and nothing has read it since.
+select throws_ok(
+  format($$select public.return_prize(%L::uuid, 'trying anyway')$$,
+         (select no_return from return_cases)),
+  '22023', null, 'a prize marked as one that cannot go back to stock is refused');
+
+select lives_ok(
+  format($$select public.write_off_prize(%L::uuid, 'cannot go back, so it is written off')$$,
+         (select no_return from return_cases)),
+  'and writing it off is the exit that remains');
+
+select is(
+  (select status::text from public.winners where id = (select no_return from return_cases)),
+  'WRITTEN_OFF', 'the winner says it was written off');
+
+select lives_ok(
+  format($$select public.write_off_prize(%L::uuid, 'damaged in the cupboard')$$,
+         (select scrapped from return_cases)),
+  'a prize that could have gone back may still be written off, if that is what happened');
+
+-- A delivered prize is out of reach of both. Undo the delivery first, which is
+-- a decision somebody has to make on the record.
+select lives_ok(
+  format($$select public.deliver_prize(%L::uuid)$$, (select delivered from return_cases)),
+  'a prize is handed over');
+select throws_ok(
+  format($$select public.return_prize(%L::uuid, 'too late')$$, (select delivered from return_cases)),
+  '22023', null, 'a delivered prize cannot be returned to stock');
+select throws_ok(
+  format($$select public.write_off_prize(%L::uuid, 'too late')$$, (select delivered from return_cases)),
+  '22023', null, 'nor written off');
+
+select throws_ok(
+  format($$select public.return_prize(%L::uuid, '  ')$$, (select return_forbidden from return_cases)),
+  '22023', null, 'a return with a blank reason is refused');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b407", "role": "authenticated"}';
+
+select throws_ok(
+  format($$select public.write_off_prize(%L::uuid, 'not mine to destroy')$$,
+         (select writeoff_forbidden from return_cases)),
+  '42501', null, 'winners.return does not grant winners.write_off');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b408", "role": "authenticated"}';
+
+select throws_ok(
+  format($$select public.return_prize(%L::uuid, 'not mine to recover')$$,
+         (select return_forbidden from return_cases)),
+  '42501', null, 'and winners.write_off does not grant winners.return');
+
+reset role;
+
+-- The stock, read as postgres for the reason the Task 3 block gives.
+select is(
+  (select b.linked || '/' || b.drawn from public.promotion_prize_balances b
+    where b.promotion_prize_id = (select w.promotion_prize_id from public.winners w
+                                   where w.id = (select back from return_cases))),
+  '0/0', 'a returned unit leaves the promotion entirely');
+
+select is(
+  (select i.available from public.inventory_balances i
+     join public.promotion_prizes l on l.prize_id = i.prize_id and l.company_id = i.company_id
+    where l.id = (select w.promotion_prize_id from public.winners w
+                   where w.id = (select back from return_cases))),
+  1, 'and is really back in available, not merely uncounted');
+
+select is(
+  (select b.linked || '/' || b.drawn from public.promotion_prize_balances b
+    where b.promotion_prize_id = (select w.promotion_prize_id from public.winners w
+                                   where w.id = (select scrapped from return_cases))),
+  '1/1', 'a written-off unit stays counted against the promotion that consumed it');
 
 select * from finish();
 rollback;
