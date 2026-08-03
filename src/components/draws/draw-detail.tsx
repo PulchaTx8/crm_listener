@@ -154,6 +154,7 @@ export function DrawDetailView({
                   status={winner.status}
                   allowsReturnToStock={winner.allowsReturnToStock}
                   powers={winnerPowers}
+                  drawStatus={draw.status}
                   onAct={(action, reason) => onWinnerAction(winner.id, action, reason)}
                 />
               ) : null}

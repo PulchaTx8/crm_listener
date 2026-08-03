@@ -1,5 +1,5 @@
 begin;
-select plan(29);
+select plan(34);
 
 -- Block 6d: the clock, the pile it makes, and the way back.
 --
@@ -391,6 +391,123 @@ select throws_ok($$
     '00000000-0000-0000-0000-0000000000ff'::uuid, now() + interval '3 days', 'because')
 $$, '42501', null,
   'an id that does not exist answers 42501 too, never P0002');
+
+-- ---------------------------------------------------------------------------
+-- Task 12: a cancelled draw awards nothing. Built as a draw of its own --
+-- Maria's, Joao's and Ana's draws cannot be cancelled by this point: cancel_draw
+-- (0079) refuses any draw holding a winner that is not AWAITING_PICKUP, and all
+-- three have moved on above.
+
+insert into public.prizes (id, organization_id, company_id, name, allows_return_to_stock)
+values ('00000000-0000-0000-0000-00000000d0d4', '00000000-0000-0000-0000-00000000d0f1',
+        '00000000-0000-0000-0000-00000000d0c1', 'Cancelled prize 6d', true);
+
+insert into public.inventory_balances (company_id, prize_id, organization_id, available)
+values ('00000000-0000-0000-0000-00000000d0c1', '00000000-0000-0000-0000-00000000d0d4',
+        '00000000-0000-0000-0000-00000000d0f1', 1);
+
+insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
+values ('00000000-0000-0000-0000-00000000d0a4', '00000000-0000-0000-0000-00000000d0e1',
+        '00000000-0000-0000-0000-00000000d0d4', '00000000-0000-0000-0000-00000000d0f1',
+        '00000000-0000-0000-0000-00000000d0c1');
+
+select public.apply_inventory_movement(
+  '00000000-0000-0000-0000-00000000d0c1'::uuid, '00000000-0000-0000-0000-00000000d0d4'::uuid,
+  'PROMOTION_LINK'::public.inventory_movement_type, 1,
+  'available'::public.inventory_bucket, 'linked'::public.inventory_bucket,
+  null, null, '00000000-0000-0000-0000-00000000d0a4'::uuid);
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-00000000d014', '00000000-0000-0000-0000-00000000d0f1', 'Pedro 6d');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-00000000d014', '00000000-0000-0000-0000-00000000d0c1',
+   '00000000-0000-0000-0000-00000000d0f1');
+
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-00000000d201', '00000000-0000-0000-0000-00000000d0e1',
+   '00000000-0000-0000-0000-00000000d014', '00000000-0000-0000-0000-00000000d0f1',
+   '00000000-0000-0000-0000-00000000d0c1', false, 'VALID', 'MANUAL', now() - interval '1 hour');
+
+-- apply_draw, not run_draw, for the same reason the shared fixture above uses
+-- it: through the ledger's single writer, without a permission door to stand
+-- up around it.
+create temp table cancelled_draw_id as
+  select public.apply_draw(
+    '00000000-0000-0000-0000-00000000d0e1'::uuid,
+    '00000000-0000-0000-0000-00000000d0f1'::uuid,
+    '00000000-0000-0000-0000-00000000d0c1'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'promotion_prize_id', '00000000-0000-0000-0000-00000000d0a4', 'quantity', 1)),
+    array['00000000-0000-0000-0000-00000000d201']::uuid[]) as id;
+
+-- Owned by whatever role created it, and the role switch below is not that
+-- role: a temp table grants nothing to anybody else by default.
+grant select on cancelled_draw_id to authenticated;
+
+-- cancel_draw IS a door: SECURITY DEFINER, checking draws.cancel beside its own
+-- operation (0079). Unlike apply_draw above, this one call needs an operator
+-- who actually holds the permission.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000d206', '00000000-0000-0000-0000-00000000d0f1', 'Draw Canceller 6d');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000d206', 'draws.cancel');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000d207', 'draw-canceller-6d@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000d207', '00000000-0000-0000-0000-00000000d0c1',
+   '00000000-0000-0000-0000-00000000d0f1', '00000000-0000-0000-0000-00000000d206');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000d207", "role": "authenticated"}';
+select public.cancel_draw((select id from cancelled_draw_id), 'testing the third door');
+reset role;
+
+-- NO WINNER ID CARRIED FORWARD, same reason pg_temp.winner_of exists above.
+create function pg_temp.cancelled_winner() returns uuid language sql stable as $$
+  select w.id
+    from public.winners w
+   where w.draw_id = (select id from cancelled_draw_id);
+$$;
+
+-- A cancelled draw awards nothing. 0079 leaves its winners AWAITING_PICKUP on
+-- purpose -- it had no vocabulary for "un-awarded" -- and returns their units
+-- to `linked`. So every one of these would move a unit that is not there:
+-- either failing on the balance CHECK, or SUCCEEDING against a unit that
+-- belongs to a different, live winner of the same prize. The second is silent,
+-- and is what Task 5's review reproduced.
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'DELIVERED'::public.winner_status, 'walk-in')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'a cancelled draw''s winner cannot be handed the prize');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'RETURN_PENDING'::public.winner_status, 'pickup deadline expired')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'and cannot have its deadline expire');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'RETURNED'::public.winner_status, 'tidying up')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'and cannot be returned to stock, because it never left it');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.cancelled_winner(), 'WRITTEN_OFF'::public.winner_status, 'tidying up')
+$$, '22023', 'this prize was un-awarded when its draw was cancelled',
+  'and cannot be written off');
+
+-- The guard is not too wide: a winner whose draw still stands is unaffected.
+select lives_ok($$
+  select public.apply_winner_transition(
+    pg_temp.winner_of('Maria 6d'), 'RETURN_PENDING'::public.winner_status, 'pickup deadline expired')
+$$, 'a winner whose draw still stands is unaffected');
 
 select * from finish();
 rollback;

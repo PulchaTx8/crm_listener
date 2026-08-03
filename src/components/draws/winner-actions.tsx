@@ -29,8 +29,20 @@ export function availableWinnerActions(input: {
   status: string;
   allowsReturnToStock: boolean;
   powers: WinnerPowers;
+  /**
+   * The draw's OWN status, not the winner's. get_draw (0080) returns it
+   * already, and cancel_draw (0079) deliberately leaves a cancelled draw's
+   * winners AWAITING_PICKUP -- it has no vocabulary for "un-awarded" -- so a
+   * winner's own status alone cannot tell this apart from a live one.
+   * apply_winner_transition (Block 6d Task 12) refuses every transition on a
+   * cancelled draw's winner with 22023; this is the courtesy that keeps the
+   * button from being there to press, never the boundary.
+   */
+  drawStatus: 'COMPLETED' | 'CANCELLED';
 }): WinnerAction[] {
-  const { status, allowsReturnToStock, powers } = input;
+  const { status, allowsReturnToStock, powers, drawStatus } = input;
+
+  if (drawStatus === 'CANCELLED') return [];
 
   if (status === 'AWAITING_PICKUP') {
     const actions: WinnerAction[] = [];
@@ -71,11 +83,13 @@ export function WinnerActions({
   status,
   allowsReturnToStock,
   powers,
+  drawStatus,
   onAct,
 }: {
   status: string;
   allowsReturnToStock: boolean;
   powers: WinnerPowers;
+  drawStatus: 'COMPLETED' | 'CANCELLED';
   onAct: (action: WinnerAction, reason: string) => Promise<string | null>;
 }) {
   const [open, setOpen] = useState<WinnerAction | null>(null);
@@ -83,7 +97,7 @@ export function WinnerActions({
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const actions = availableWinnerActions({ status, allowsReturnToStock, powers });
+  const actions = availableWinnerActions({ status, allowsReturnToStock, powers, drawStatus });
   if (actions.length === 0) return null;
 
   function run(action: WinnerAction) {
