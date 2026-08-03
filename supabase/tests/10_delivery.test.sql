@@ -1,5 +1,5 @@
 begin;
-select plan(57);
+select plan(66);
 
 -- Block 6b: what an operator does deliberately with a prize that has been won.
 --
@@ -575,6 +575,81 @@ select is(
     where b.promotion_prize_id = (select w.promotion_prize_id from public.winners w
                                    where w.id = (select scrapped from return_cases))),
   '1/1', 'a written-off unit stays counted against the promotion that consumed it');
+
+-- ---------------------------------------------------------------------------
+-- Task 5: the receipt.
+
+select is(
+  (select public from storage.buckets where id = 'delivery-receipts'),
+  false, 'the receipts bucket exists and is private');
+
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname like 'delivery_receipts_%'),
+  2, 'and carries a read policy and a write policy');
+
+select set_config('request.jwt.claims', null, true);
+
+create temporary table receipt_cases as
+select pg_temp.seed_winner('Receipt happy')   as happy,
+       pg_temp.seed_winner('Receipt twice')   as twice,
+       pg_temp.seed_winner('Receipt undelivered') as undelivered,
+       pg_temp.seed_winner('Receipt elsewhere')   as elsewhere;
+
+grant select on receipt_cases to authenticated;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b403", "role": "authenticated"}';
+
+select lives_ok(
+  format($$select public.deliver_prize(%L::uuid)$$, (select happy from receipt_cases)),
+  'a prize is handed over, so a receipt has something to attach to');
+
+select lives_ok(
+  format($$select public.attach_delivery_receipt(%L::uuid, %L)$$,
+         (select happy from receipt_cases),
+         '00000000-0000-0000-0000-00000000b0c1/' || (select happy from receipt_cases) || '/r.png'),
+  'and the receipt is filed against it');
+
+select ok(
+  (select receipt_path is not null and receipt_uploaded_at is not null
+     from public.winners where id = (select happy from receipt_cases)),
+  'the winner carries the path and when it arrived');
+
+-- One slot (spec 3.1). Replacing silently would overwrite evidence of a real
+-- handover; the only thing that clears this is erasure.
+select throws_ok(
+  format($$select public.attach_delivery_receipt(%L::uuid, %L)$$,
+         (select happy from receipt_cases),
+         '00000000-0000-0000-0000-00000000b0c1/' || (select happy from receipt_cases) || '/second.png'),
+  '22023', null, 'a winner may not be given a second receipt');
+
+select throws_ok(
+  format($$select public.attach_delivery_receipt(%L::uuid, %L)$$,
+         (select undelivered from receipt_cases),
+         '00000000-0000-0000-0000-00000000b0c1/x/r.png'),
+  '22023', null, 'a prize that was never handed over has no receipt to file');
+
+-- The path names the Station, and the policies read it. A caller who could
+-- write into another Station's folder would defeat both of them.
+select throws_ok(
+  format($$select public.attach_delivery_receipt(%L::uuid, %L)$$,
+         (select elsewhere from receipt_cases),
+         '00000000-0000-0000-0000-00000000a0c1/x/r.png'),
+  '22023', null, 'a receipt cannot be filed into another Station''s folder');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b407", "role": "authenticated"}';
+
+select throws_ok(
+  format($$select public.attach_delivery_receipt(%L::uuid, %L)$$,
+         (select twice from receipt_cases),
+         '00000000-0000-0000-0000-00000000b0c1/x/r.png'),
+  '42501', null, 'filing a receipt needs winners.deliver');
+
+reset role;
 
 select * from finish();
 rollback;
