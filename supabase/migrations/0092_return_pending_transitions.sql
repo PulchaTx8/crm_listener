@@ -204,6 +204,16 @@ begin
     raise exception 'winner not found: %', p_winner_id using errcode = 'P0002';
   end if;
 
+  -- The reopen is the only transition allowed to touch deadline_at (D3). A
+  -- caller passing p_deadline_at to any other transition used to have it
+  -- silently ignored -- which this function's own comment overclaimed as
+  -- refused. Enforced here, before p_to is ever dispatched to a branch that
+  -- would not so much as look at the argument.
+  if p_deadline_at is not null and not (p_to = 'AWAITING_PICKUP' and v_from = 'RETURN_PENDING') then
+    raise exception 'p_deadline_at is accepted only when reopening RETURN_PENDING to AWAITING_PICKUP'
+      using errcode = '22023';
+  end if;
+
   if p_to <> 'DELIVERED' and v_reason is null then
     raise exception 'this change needs a reason' using errcode = '22023';
   end if;
@@ -356,4 +366,4 @@ revoke execute on function
 
 comment on function
   public.apply_winner_transition(uuid, public.winner_status, text, timestamptz) is
-  'Moves a winner from one status to the next: locks the row, refuses a transition that is not in its table, writes the history row, emits the ledger movements through apply_inventory_movement and writes the new status -- all in one transaction. It touches deadline_at in exactly ONE case, the reopen from RETURN_PENDING, which is the only caller permitted to pass p_deadline_at; every other transition leaves the column frozen where the draw put it (6a D5, Block 6d D3). The history row''s id is the movements'' idempotency key, because a key built from the winner and the status would collide with itself on a second delivery of the same prize, and apply_inventory_movement treats a repeated key as a replay -- so the collision would not raise, it would silently fail to move the stock. A return from AWAITING_PICKUP emits TWO movements because the ledger has no shortcut from awaiting_pickup to available; a return from RETURN_PENDING emits one, because the clock already moved the unit halfway. The allows_return_to_stock refusal lives here rather than in the door because it is a fact about the prize, not about the caller. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody.';
+  'Moves a winner from one status to the next: locks the row, refuses a transition that is not in its table, writes the history row, emits the ledger movements through apply_inventory_movement and writes the new status -- all in one transaction. It touches deadline_at in exactly ONE case, the reopen from RETURN_PENDING, which is the only transition permitted to pass p_deadline_at -- passing one to any other transition is refused with 22023 rather than silently accepted and ignored; every other transition leaves the column frozen where the draw put it (6a D5, Block 6d D3). The history row''s id is the movements'' idempotency key, because a key built from the winner and the status would collide with itself on a second delivery of the same prize, and apply_inventory_movement treats a repeated key as a replay -- so the collision would not raise, it would silently fail to move the stock. A return from AWAITING_PICKUP emits TWO movements because the ledger has no shortcut from awaiting_pickup to available; a return from RETURN_PENDING emits one, because the clock already moved the unit halfway. The allows_return_to_stock refusal lives here rather than in the door because it is a fact about the prize, not about the caller. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody.';

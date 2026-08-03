@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(24);
 
 -- Block 6d: the clock, the pile it makes, and the way back.
 --
@@ -227,7 +227,7 @@ select is(
 
 select is(
   (select count(*)::integer from public.inventory_movements
-    where idempotency_key like '%' and movement_type = 'RETURN_PENDING'
+    where movement_type = 'RETURN_PENDING'
       and from_bucket = 'awaiting_pickup' and to_bucket = 'pending_return'
       and prize_id = '00000000-0000-0000-0000-00000000d0d1'),
   1, 'exactly ONE movement -- the clock does not emit the pair a return does');
@@ -239,7 +239,27 @@ $$, '22023', null,
   'a winner already in RETURN_PENDING cannot expire twice');
 
 -- ---------------------------------------------------------------------------
--- The way back. It is the ONLY transition that writes deadline_at.
+-- The way back. It is the ONLY transition that writes deadline_at, and the
+-- two guards below are what make that true. Both run HERE, while Maria is
+-- still RETURN_PENDING: a version of either that ran after her real reopen
+-- (below) would find p_to = v_from = 'AWAITING_PICKUP' and raise 'this prize
+-- is already AWAITING_PICKUP' at 0092's own-status check, before the
+-- AWAITING_PICKUP branch -- let alone the p_deadline_at guards inside it -- is
+-- ever reached, and would pass on entirely the wrong exception without
+-- exercising either guard at all.
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.winner_of('Maria 6d'), 'AWAITING_PICKUP'::public.winner_status, 'no date given')
+$$, '22023', 'reopening a deadline needs the new deadline',
+  'reopening without a new deadline is refused');
+
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.winner_of('Maria 6d'), 'AWAITING_PICKUP'::public.winner_status,
+    'trying to backdate it', now() - interval '1 day')
+$$, '22023', 'the new deadline must be in the future',
+  'reopening with a deadline already in the past is refused');
 
 select lives_ok($$
   select public.apply_winner_transition(
@@ -247,9 +267,25 @@ select lives_ok($$
     'listener called, coming Friday', now() + interval '5 days')
 $$, 'RETURN_PENDING reopens to AWAITING_PICKUP');
 
+-- Bounded above as well as below: the draw's own freeze already put
+-- deadline_at at now() + 7 days (pickup_deadline_days on the fixture's
+-- promotion), which alone would satisfy a lower bound of + 4 days whether or
+-- not the reopen wrote anything. Only the reopen's own now() + 5 days sits
+-- inside (+4 days, +6 days).
 select ok(
-  (select deadline_at from public.winners where id = pg_temp.winner_of('Maria 6d')) > now() + interval '4 days',
-  'the reopen wrote the new deadline');
+  (select deadline_at from public.winners where id = pg_temp.winner_of('Maria 6d'))
+    between now() + interval '4 days' and now() + interval '6 days',
+  'the reopen wrote the new deadline, not merely left the draw''s own freeze in place');
+
+-- The comment above apply_winner_transition says the reopen is the only
+-- transition permitted to pass p_deadline_at. Proving that means proving the
+-- opposite fails: Maria is freshly AWAITING_PICKUP again, so DELIVERED is a
+-- transition she could legally make -- just not with a deadline riding along.
+select throws_ok($$
+  select public.apply_winner_transition(
+    pg_temp.winner_of('Maria 6d'), 'DELIVERED'::public.winner_status, null, now() + interval '3 days')
+$$, '22023', 'p_deadline_at is accepted only when reopening RETURN_PENDING to AWAITING_PICKUP',
+  'p_deadline_at is refused on every transition but the reopen');
 
 -- 2, not 1: Joao's own unit of this same prize has been sitting in
 -- awaiting_pickup, untouched, since the draw -- he does not expire until the
@@ -269,12 +305,6 @@ create temp table deadline_before as
   select (select deadline_at from public.winners
            where id = pg_temp.winner_of('Joao 6d')) as at;
 
-select throws_ok($$
-  select public.apply_winner_transition(
-    pg_temp.winner_of('Maria 6d'), 'AWAITING_PICKUP'::public.winner_status, 'no date given')
-$$, '22023', null,
-  'reopening without a new deadline is refused');
-
 -- ---------------------------------------------------------------------------
 -- Out of RETURN_PENDING the operator's two ways.
 
@@ -288,12 +318,19 @@ select lives_ok($$
     pg_temp.winner_of('Joao 6d'), 'RETURNED'::public.winner_status, 'nobody came')
 $$, 'RETURN_PENDING returns to stock');
 
+-- Counting RETURN_PENDING here, not RETURN_TO_STOCK: the two-step pair a
+-- return-from-AWAITING_PICKUP emits contains exactly one RETURN_TO_STOCK
+-- movement too, so that count is 1 under the right implementation AND the
+-- wrong one -- it does not discriminate. RETURN_PENDING does: Maria's own
+-- expiry and Joao's own expiry have already put 2 on this prize; the correct,
+-- resting-bucket path Joao's RETURNED just took (v_from = RETURN_PENDING)
+-- adds no third, where the two-step pair would.
 select is(
   (select count(*)::integer from public.inventory_movements
-    where movement_type = 'RETURN_TO_STOCK'
-      and from_bucket = 'pending_return' and to_bucket = 'available'
+    where movement_type = 'RETURN_PENDING'
+      and from_bucket = 'awaiting_pickup' and to_bucket = 'pending_return'
       and prize_id = '00000000-0000-0000-0000-00000000d0d1'),
-  1, 'ONE movement out of the resting bucket, not the two-step pair');
+  2, 'the resting-bucket path adds no extra RETURN_PENDING movement, unlike the two-step pair');
 
 -- Ana holds the Concert pass, registered as one that cannot go back to stock.
 select lives_ok($$
