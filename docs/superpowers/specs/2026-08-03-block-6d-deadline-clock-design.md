@@ -349,6 +349,26 @@ It is the only caller permitted to pass a new `deadline_at` through
 sweep_pickup_deadlines()   -- procedure, SECURITY DEFINER
 ```
 
+> **Amended during execution (Task 4).** The shipped procedure is
+> deliberately **not** `SECURITY DEFINER`, and cannot be: Postgres refuses
+> `COMMIT` inside a procedure carrying either `security definer` or any
+> function-level `SET` clause — both raise `ERROR: invalid transaction
+> termination` on the first `COMMIT`, independent of what the loop body does.
+> Proved by bisecting the two attributes in isolated, disposable probe
+> procedures before this file was written that way; the full argument is
+> written out in `supabase/migrations/0094_sweep_pickup_deadlines.sql`'s own
+> header comment. Dropping both is safe here for two independent reasons: the
+> whole call chain below it (`apply_winner_transition`, then
+> `apply_inventory_movement`) is already `SECURITY INVOKER` and checks no
+> permission of its own, and `pg_cron` runs a scheduled job as the role that
+> called `cron.schedule()` — the migration-owning role, already the owner of
+> that chain — so `SECURITY INVOKER` carries exactly the privilege the loop
+> body needs. The procedure ships `SECURITY INVOKER`, with `EXECUTE` revoked
+> from `public` and granted to nobody else. See `docs/block-6d-report.md`
+> §5.7 and the runbook §4 for the operational condition (a hosted deploy
+> applying migrations as some role other than the owner) that argument
+> depends on.
+
 scheduled by `cron.schedule('pickup-deadline-sweep', '0 * * * *', 'CALL ...')`,
 unscheduled-if-exists first, exactly as `0064` does, so `db:reset` and a hosted
 redeploy can both re-run the migration.
@@ -512,11 +532,39 @@ matters unreadable.
 the traversal is what *"lets `winner_status` keep the **five** values 6a froze"*.
 The enum has had four since 6c withdrew `SUPERSEDED`.
 
+> **Amended during execution (Task 5, Task 12).** A seventh migration,
+> `0097_cancelled_draw_awards_nothing.sql`, was added mid-block, after this
+> spec was approved — this list was never updated to include it. It was added
+> on the owner's ruling of 2026-08-03, after a review reproduced a live stock
+> theft: `cancel_draw` (0079) leaves a cancelled draw's winners
+> `AWAITING_PICKUP` on purpose while returning their unit to `linked`, and
+> `apply_winner_transition` never consulted `draws.status` — so a cancelled
+> draw's phantom winner could be delivered (or expired, or returned) and
+> silently consume a genuinely live winner's unit of the same prize, with no
+> error anywhere. `0097` makes `apply_winner_transition` refuse every
+> transition on a cancelled draw's winner, in the core function rather than in
+> any one door, so a screen or caller that forgets to check `draws.status` is
+> merely inconvenienced rather than able to move somebody else's prize. See
+> `docs/block-6d-report.md` §4 and `0097`'s own header for the reproduction.
+
 ### 7.2 Inherited, unchanged
 
 The error-code existence leak (`P0002`/`42501` answered before the permission
 gate) stands at eight migrations. This block's four add no ninth instance: every
 new function checks permission before it reveals whether a row exists.
+
+> **Amended during execution (Task 3, Task 11).** "Eight migrations" was never
+> a counted figure — it originated in the 6c report and was repeated here
+> unchecked. This block counted it properly, twice, independently (once per
+> task, matching exactly): **45** currently-defined functions raise `P0002`
+> for a missing row before any permission check in the same body; **5** check
+> permission first; **9** raise `P0002` with no permission check in the same
+> body at all (private helpers called from an already-gated caller, or
+> self-scoped operations with no caller-supplied target). See
+> `docs/block-6d-report.md` §5.3 for the method and the full per-function
+> lists. Neither "eight" nor this block's own rough interim guess of "twenty"
+> survived being counted; this block's own four new functions add no new
+> instance either way.
 
 The Block 4b isolation flake remains live and uncaused. It did not appear in 6c.
 

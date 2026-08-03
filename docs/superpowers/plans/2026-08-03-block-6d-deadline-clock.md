@@ -15,7 +15,7 @@
 - **Language:** every identifier, comment, migration, test name, UI string and commit message is in **English**. Listener-facing WhatsApp copy stays Portuguese — this block writes none.
 - **Migrations are append-only and never edited once merged.** `0091`–`0096` are new files. Nothing in `0001`–`0090` is edited in place; functions are changed by `create or replace` in a new file.
 - **`ALTER TYPE ... ADD VALUE` cannot be used in the transaction that creates it.** `0091` contains the two `alter type` statements and nothing else. Anything naming those literals goes in `0092` or later.
-- **Every new `SECURITY DEFINER` function checks its permission before revealing whether a row exists.** The existing `P0002`-before-permission leak stands at eight migrations; this block adds no ninth.
+- **Every new `SECURITY DEFINER` function checks its permission before revealing whether a row exists.** The existing `P0002`-before-permission leak was quoted as "eight migrations" when this plan was written; that figure was never counted and did not survive being counted (Task 3, Task 11 — see `docs/block-6d-report.md` §5.3 for the method: **45** functions leak, **5** check permission first, **9** raise `P0002` with no permission check in the same body at all). This block adds no new instance either way.
 - **Every new `SECURITY DEFINER` function re-states the rules RLS used to apply**: Station scope by permission, the archived-promotion rule, and the `members.view` gate on listener identity. `npm run test:isolation` runs in the same task that writes each function, never deferred to the end.
 - **Permission checks in the UI are a courtesy, never the boundary.** Every RPC re-checks.
 - **Gates, all of which must pass before the block is called done:** `npm run lint`, `npm run typecheck`, `npm run build`, `npm test`, `npm run db:test`, `npm run test:isolation`, `npm run test:e2e`.
@@ -636,8 +636,11 @@ begin
   -- DELIBERATELY NOT SHAPED LIKE ITS 6b SIBLINGS. return_prize and
   -- write_off_prize read the winner, raise P0002 when it is missing, and only
   -- then ask about the permission -- which tells an unauthorised caller
-  -- whether an id exists. That leak stands at eight migrations and Block 6d
-  -- promised not to make it nine.
+  -- whether an id exists. That leak was quoted as "eight migrations" when this
+  -- brief was written; counted properly during the block it turned out to be
+  -- 45 functions leaking, 5 checking permission first, 9 raising P0002 with no
+  -- permission check in the same body at all (docs/block-6d-report.md §5.3).
+  -- Block 6d promised not to add a new instance, and did not.
   --
   -- The winner id is this function's only input, so the Station cannot be
   -- named by the caller the way list_participations (0090) has it named. One

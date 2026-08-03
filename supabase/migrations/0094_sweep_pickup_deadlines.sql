@@ -55,6 +55,17 @@
 -- already carries the privilege the loop body needs, because that owning role
 -- is the one actually calling it in production.
 --
+-- STANDING HAZARD, not a defect today: every table this routine touches --
+-- winners included -- has relforcerowsecurity = false, so as SECURITY INVOKER
+-- it already sees every row regardless of what RLS policies exist, because
+-- FORCE ROW LEVEL SECURITY is what would make RLS apply even to a table's own
+-- owner and nothing here has that set. If `alter table public.winners force
+-- row level security` is ever added in a later block, this sweep would start
+-- seeing ZERO candidate rows -- no error, no warning, anywhere. Deadlines
+-- would simply stop expiring. Nothing today does this; anyone adding FORCE
+-- ROW LEVEL SECURITY to winners needs to know this routine depends on its
+-- absence. (docs/block-6d-report.md's deferred list carries this too.)
+--
 -- EXECUTE below is owner-only: revoked from public and granted to nobody
 -- else, the convention this schema uses for every other SECURITY INVOKER
 -- writer (apply_inventory_movement, apply_winner_transition, apply_draw). An
@@ -83,29 +94,38 @@ begin
   -- locks each row and refuses any source that is not AWAITING_PICKUP, so a
   -- prize delivered in between raises and is counted, not silently skipped.
   --
-  -- `deadline_at is not null` buys no PLAN. Measured directly (a 250k-row
-  -- replica, winners_deadline_idx's exact definition): the plan is IDENTICAL
-  -- with and without this predicate -- Index Scan using winners_deadline_idx,
-  -- Index Cond: (deadline_at <= now()) -- because Postgres proves the strict
-  -- `<=` already implies `IS NOT NULL` on its own. (Control: dropping the
-  -- STATUS predicate instead, which nothing implies, does fall back to a Seq
-  -- Scan -- confirming this is real implication analysis and not the planner
-  -- merely being indifferent to what a comment claims.) So the predicate is
-  -- redundant to the planner and is not load-bearing for anything about the
-  -- plan -- a second performance claim in this comment turned out to be
-  -- false the first time it was measured, so this one is stated only as far
-  -- as it was actually checked.
+  -- `deadline_at is not null` buys no PLAN -- MEASURED IN TASK 4, AGAINST THE
+  -- QUERY AS IT STOOD THEN: `winners` alone, before the join to `draws` below
+  -- existed. That join was added afterwards, in the review for Task 5 (see the
+  -- paragraph below on the join), so what follows describes the winners side
+  -- of what is now a join, not a plan for the joined query as it runs today --
+  -- it has not been re-measured since the join was added, and no plan for the
+  -- joined form is asserted here.
   --
-  -- What it IS for: it is harmless, it mirrors the partial index's own
-  -- definition (0075) exactly, and it states 0075's rule in the query for a
-  -- reader -- null means this winner has NO deadline at all, not a deadline
-  -- of zero days.
+  -- As measured then (a 250k-row replica, winners_deadline_idx's exact
+  -- definition): the plan was IDENTICAL with and without this predicate --
+  -- Index Scan using winners_deadline_idx, Index Cond: (deadline_at <= now())
+  -- -- because Postgres proves the strict `<=` already implies `IS NOT NULL`
+  -- on its own. (Control: dropping the STATUS predicate instead, which
+  -- nothing implies, did fall back to a Seq Scan -- confirming this was real
+  -- implication analysis and not the planner merely being indifferent to what
+  -- a comment claims.) So the predicate was redundant to the planner and not
+  -- load-bearing for anything about that plan -- a second performance claim
+  -- in this comment turned out to be false the first time it was measured, so
+  -- this one is stated only as far as it was actually checked, for the query
+  -- shape it was checked against.
   --
-  -- Separately, and true regardless of this predicate: this is an ORDINARY
-  -- index scan with a heap fetch per row, not an index-only one -- id, which
-  -- the select list needs, is not a column the index carries. (The plan
-  -- above, quoted from the measurement, says "Index Scan," not "Index Only
-  -- Scan," which is the same fact independently.)
+  -- What it IS for, regardless of the join: it is harmless, it mirrors the
+  -- partial index's own definition (0075) exactly, and it states 0075's rule
+  -- in the query for a reader -- null means this winner has NO deadline at
+  -- all, not a deadline of zero days.
+  --
+  -- Separately, and as measured in that same Task 4 run against the
+  -- winners-only form: it was an ORDINARY index scan with a heap fetch per
+  -- row, not an index-only one -- id, which the select list needs, is not a
+  -- column the index carries. (The plan above, quoted from that measurement,
+  -- said "Index Scan," not "Index Only Scan," which was the same fact
+  -- independently.) Not re-checked against the joined query below.
   --
   -- THE JOIN TO draws AND `d.status <> 'CANCELLED'` ARE NOT OPTIONAL, and were
   -- added after this sweep shipped once already, in review. cancel_draw
@@ -210,9 +230,22 @@ comment on procedure public.sweep_pickup_deadlines() is
 -- wrong.
 revoke execute on procedure public.sweep_pickup_deadlines() from public;
 
--- Idempotent, exactly as 0064: db:reset runs every migration from empty
--- locally, and a hosted redeploy must re-run this file without cron raising
--- "job already exists".
+-- Only THIS PAIR is idempotent, not the whole file. Re-running the file
+-- against a database where it has already applied fails first, at the
+-- `create procedure` statement above --
+--   ERROR: function "sweep_pickup_deadlines" already exists with same
+--   argument types
+-- -- measured directly against this project's own local container, twice
+-- during review (report §5.9, runbook §2). `create procedure`, unlike
+-- `create or replace procedure`, cannot be re-run once the procedure exists.
+-- That failure does not corrupt anything and does not stop what follows: the
+-- unschedule/schedule pair below, alone, IS written to be safely re-run --
+-- unschedule-if-exists, then schedule, exactly as 0064 does -- so db:reset
+-- (which only ever runs this file once, from empty) and a hosted redeploy
+-- re-running it both leave the schedule correctly configured regardless of
+-- the earlier error. What re-running this file can NOT do is change the
+-- procedure's own body: that needs a NEW migration written as `create or
+-- replace procedure`.
 select cron.unschedule('pickup-deadline-sweep')
 where exists (select 1 from cron.job where jobname = 'pickup-deadline-sweep');
 

@@ -361,6 +361,20 @@ cursor id) and it is not this block's function to fix — `list_participations`
 belongs to Block 6c. Recorded here, next to `decodeCursor`'s own history, so
 it does not have to be rediscovered a third time.
 
+**This block added two more instances of the same class, itself.**
+`src/app/(app)/pickups/list-params.ts` passes `?promotion=` straight through
+(`raw.promotion?.trim() || undefined`) into `list_pickups`'s `p_promotion_id
+uuid` parameter (0095), and `src/app/(app)/inventory/movements/list-params.ts`
+does the same for both `?prize=` and `?promotion=` into `list_movements`'s
+`p_prize_id`/`p_promotion_id uuid` parameters (0096) — verified against the
+current files. Milder in effect than the instance above: `mapPickupError` and
+`mapMovementError` (`src/services/pickups.ts`, `src/services/movements.ts`)
+have no `22P02` branch, so a malformed value falls to `InternalError` and the
+generic "Could not load…" sentence (`describePickupsReadError`/
+`describeMovementsReadError`), rather than `mapParticipationError`'s
+`ValidationError`, which renders the raw database text verbatim. Same class of
+defect nonetheless.
+
 ### 5.11 The e2e suite's concurrency behaviour, confirmed again
 
 Task 10 diagnosed, and this task's own two full `--workers=4` runs confirm:
@@ -413,11 +427,23 @@ the code being tested.
 - A follow-up migration rewriting `0094`'s procedure as `create or replace
   procedure` before a hosted redeploy ever needs to change
   `sweep_pickup_deadlines`'s body (§5.9).
-- `list_participations`'s unvalidated uuid parameters (§5.10) — Block 6c's to
-  fix.
+- `list_participations`'s unvalidated uuid parameters (§5.10), and this
+  block's own two milder instances of the same class in `list-params.ts` for
+  Pickups and Movements (§5.10) — none fixed here.
 - The advisory-lock overlap question Task 4 raised for the owner (no guard
   against two sweep runs overlapping on an hourly schedule) — noise, not
   corruption, per Task 4's own review, but still open.
+- Standing hazard, not a regression: adding `force row level security` to
+  `public.winners` later would silently empty this sweep to zero candidate
+  rows — no error, no warning anywhere, deadlines simply stop expiring. Named
+  in `0094`'s own header for the reader most likely to look there.
+- The reopen overwrites `winners.deadline_at` in place; neither
+  `winner_status_history` nor the `audit_logs` detail records the old or new
+  value, so the extension granted is not itself recoverable from the audit
+  trail — a real gap in a block whose subject is deadline provenance. Written
+  up in full in the runbook (`docs/block-6d-runbook.md` §6, "What it records,
+  and what it does not"); the owner has not yet ruled on whether it is worth
+  closing.
 
 ---
 
