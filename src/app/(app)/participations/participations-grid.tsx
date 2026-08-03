@@ -21,7 +21,7 @@ import { formatInstant } from '../promotions/format';
 import { SOURCE_LABELS } from './list-params';
 
 /** How many columns the empty-state row has to span. */
-const COLUMN_COUNT = 5;
+const COLUMN_COUNT = 6;
 
 /**
  * The list itself. It holds no state today, and it is still a client component
@@ -69,6 +69,11 @@ export function ParticipationsGrid({
             <TableHead>Status</TableHead>
             <TableHead>Source</TableHead>
             <TableHead aria-sort="descending">Entered</TableHead>
+            {/* Block 6c. Somebody who has already won here is not in the next
+                round's hat (0076), so their row vanishes between rounds. This
+                column is what turns that into something an operator can see
+                coming rather than something they notice afterwards. */}
+            <TableHead>Won here</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -119,6 +124,9 @@ export function ParticipationsGrid({
                 <TableCell className="text-sm">{SOURCE_LABELS[entry.source]}</TableCell>
                 <TableCell className="whitespace-nowrap text-sm">
                   {formatInstant(entry.participatedAt, timeZone)}
+                </TableCell>
+                <TableCell className="text-sm" data-testid="participation-already-won">
+                  {entry.alreadyWon ? 'Yes' : '—'}
                 </TableCell>
               </TableRow>
             ))

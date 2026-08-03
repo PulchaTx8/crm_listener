@@ -140,6 +140,10 @@ export default async function ParticipationsPage({
         // alternative — send it anyway and render whatever comes back — is
         // precisely the empty list the notice below exists to prevent.
         search: canSearch ? searchTerm : undefined,
+        // Block 6c. Forwarded as they are: undefined is a third state, not a
+        // default, and list_participations reads it as "both".
+        answeredCorrectly: state.answeredCorrectly,
+        optionId: state.optionId,
         cursor,
         cursorSide: cursorParam?.side ?? 'after',
       },
