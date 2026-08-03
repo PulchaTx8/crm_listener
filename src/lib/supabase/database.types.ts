@@ -2016,6 +2016,36 @@ export type Database = {
           },
         ]
       }
+      storage_erasure_queue: {
+        Row: {
+          attempts: number
+          bucket: string
+          enqueued_at: string
+          id: string
+          last_error: string | null
+          path: string
+          processed_at: string | null
+        }
+        Insert: {
+          attempts?: number
+          bucket: string
+          enqueued_at?: string
+          id?: string
+          last_error?: string | null
+          path: string
+          processed_at?: string | null
+        }
+        Update: {
+          attempts?: number
+          bucket?: string
+          enqueued_at?: string
+          id?: string
+          last_error?: string | null
+          path?: string
+          processed_at?: string | null
+        }
+        Relationships: []
+      }
       webhook_events: {
         Row: {
           attempts: number
@@ -2424,6 +2454,10 @@ export type Database = {
       assign_company_role: {
         Args: { p_company_id: string; p_role_id: string; p_user_id: string }
         Returns: string
+      }
+      attach_delivery_receipt: {
+        Args: { p_path: string; p_winner_id: string }
+        Returns: undefined
       }
       backfill_member_field_confirmations: { Args: never; Returns: undefined }
       block_member: {
@@ -2929,6 +2963,10 @@ export type Database = {
         }
         Returns: Json
       }
+      return_prize: {
+        Args: { p_reason: string; p_winner_id: string }
+        Returns: undefined
+      }
       return_promotion_prizes: {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
         Returns: number
@@ -3067,6 +3105,10 @@ export type Database = {
       whatsapp_reply_body: {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string
+      }
+      write_off_prize: {
+        Args: { p_reason: string; p_winner_id: string }
+        Returns: undefined
       }
     }
     Enums: {

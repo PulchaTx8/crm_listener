@@ -10,6 +10,7 @@ import {
 } from './harness';
 import type { ProvisionedCustomer } from './harness';
 import { runDrawAlgorithm, type DrawEntry, type DrawUnit } from '@/lib/draw/algorithm';
+import { drainStorageErasures } from '@/lib/storage/erasure';
 import type { Database } from '@/lib/supabase/database.types';
 
 afterAll(cleanupUsers);
@@ -422,5 +423,91 @@ describe('two draws at once', () => {
         .eq('draw_id', succeeded[0]?.data as string);
       expect(winners.data, `round ${round}: one winner`).toHaveLength(1);
     }
+  });
+});
+
+/**
+ * THE ERASURE, END TO END.
+ *
+ * anonymize_member clears the reference and queues the object; only the storage
+ * API can delete the bytes, because removing a row from storage.objects takes
+ * the metadata and leaves the file. So the claim this case makes is about the
+ * FILE — asserting that a queue row was written would prove the mechanism ran
+ * and say nothing about whether the promise was kept.
+ */
+describe('erasing a listener reaches their delivery receipt', () => {
+  it('deletes the object from the bucket, not merely the row that points at it', async () => {
+    const label = `erasure-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const { promotionId } = await seedSmallPromotion(customer, label, 1);
+
+    const operator = await grantRoleWith(customer, `erasure-${label}`, [
+      'draws.execute',
+      'promotions.view',
+      'winners.deliver',
+    ]);
+    const operatorClient = await signInAs(operator.email, operator.password);
+
+    const drawn = await operatorClient.rpc('run_draw', {
+      p_promotion_id: promotionId,
+      p_units: null,
+      p_runner_up_count: 0,
+    });
+    expect(drawn.error).toBeNull();
+
+    const winner = await admin
+      .from('winners')
+      .select('id, member_id')
+      .eq('draw_id', drawn.data as string)
+      .single();
+    expect(winner.error).toBeNull();
+    const winnerId = winner.data?.id as string;
+
+    const delivered = await operatorClient.rpc('deliver_prize', { p_winner_id: winnerId });
+    expect(delivered.error).toBeNull();
+
+    // A real object, in the real bucket, at the path the policies expect.
+    const path = `${customer.companyId}/${winnerId}/receipt.txt`;
+    const uploaded = await admin.storage
+      .from('delivery-receipts')
+      .upload(path, new Blob(['a signature']), { contentType: 'text/plain' });
+    expect(uploaded.error).toBeNull();
+
+    const attached = await operatorClient.rpc('attach_delivery_receipt', {
+      p_winner_id: winnerId,
+      p_path: path,
+    });
+    expect(attached.error).toBeNull();
+
+    // It is really there before the erasure, so "gone" afterwards means something.
+    const before = await admin.storage.from('delivery-receipts').download(path);
+    expect(before.error).toBeNull();
+
+    const owner = await signInAs(customer.email, customer.password);
+    const erased = await owner.rpc('anonymize_member', {
+      p_member_id: winner.data?.member_id as string,
+      p_reason: 'subject_request',
+    });
+    expect(erased.error).toBeNull();
+
+    // The reference is gone immediately; the file is not, and that gap is
+    // exactly why the queue exists.
+    const cleared = await admin
+      .from('winners')
+      .select('receipt_path, receipt_erased_at')
+      .eq('id', winnerId)
+      .single();
+    expect(cleared.data?.receipt_path).toBeNull();
+    expect(cleared.data?.receipt_erased_at).not.toBeNull();
+
+    const stillThere = await admin.storage.from('delivery-receipts').download(path);
+    expect(stillThere.error, 'the file outlives the SQL, which is the whole point').toBeNull();
+
+    const drained = await drainStorageErasures(admin);
+    expect(drained.deleted).toBeGreaterThanOrEqual(1);
+    expect(drained.failed).toBe(0);
+
+    const afterwards = await admin.storage.from('delivery-receipts').download(path);
+    expect(afterwards.error, 'the object is gone from the bucket').not.toBeNull();
   });
 });

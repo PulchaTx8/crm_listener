@@ -1,5 +1,5 @@
 begin;
-select plan(66);
+select plan(76);
 
 -- Block 6b: what an operator does deliberately with a prize that has been won.
 --
@@ -650,6 +650,84 @@ select throws_ok(
   '42501', null, 'filing a receipt needs winners.deliver');
 
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- Task 6: making the erasure true.
+
+select has_table('public', 'storage_erasure_queue', 'the erasure queue exists');
+select is(relrowsecurity, true, 'RLS enabled on the erasure queue')
+  from pg_class where oid = 'public.storage_erasure_queue'::regclass;
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'storage_erasure_queue'),
+  0, 'and carries no policy at all: a system table, like whatsapp_conversations');
+select ok(has_table_privilege('service_role', 'public.storage_erasure_queue', 'SELECT')
+      and has_table_privilege('service_role', 'public.storage_erasure_queue', 'UPDATE')
+      and not has_table_privilege('service_role', 'public.storage_erasure_queue', 'TRUNCATE'),
+          'service_role may drain it and may not wipe it');
+
+select set_config('request.jwt.claims', null, true);
+
+-- An operator who may erase. anonymize_member is gated on members.erase and
+-- reaches the listener through member_reachable, so members.view comes too.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000b409', '00000000-0000-0000-0000-00000000b0f1', 'Eraser');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000b409', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000b409', 'members.view'),
+  ('00000000-0000-0000-0000-00000000b409', 'members.erase'),
+  ('00000000-0000-0000-0000-00000000b409', 'winners.deliver');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000b40a', 'eraser@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000b40a', '00000000-0000-0000-0000-00000000b0c1',
+   '00000000-0000-0000-0000-00000000b0f1', '00000000-0000-0000-0000-00000000b409');
+
+create temporary table erasure_case as
+select pg_temp.seed_winner('Erasure') as winner;
+grant select on erasure_case to authenticated;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b40a", "role": "authenticated"}';
+
+select lives_ok(
+  format($$select public.deliver_prize(%L::uuid)$$, (select winner from erasure_case)),
+  'the prize is handed over');
+select lives_ok(
+  format($$select public.attach_delivery_receipt(%L::uuid, %L)$$,
+         (select winner from erasure_case),
+         '00000000-0000-0000-0000-00000000b0c1/' || (select winner from erasure_case) || '/face.png'),
+  'and a receipt with somebody''s face in it is filed');
+
+select lives_ok(
+  format($$select public.anonymize_member(
+    (select member_id from public.winners where id = %L::uuid), 'subject_request')$$,
+    (select winner from erasure_case)),
+  'the listener asks to be erased');
+
+reset role;
+
+select ok(
+  (select receipt_path is null and receipt_erased_at is not null
+     from public.winners where id = (select winner from erasure_case)),
+  'the receipt is gone from the winner, and the row says it was erased rather than absent');
+
+-- The queue is what makes the promise true. Deleting a storage.objects row in
+-- SQL takes the metadata and leaves the file in the backing store, so an
+-- erasure written in SQL alone would be half an erasure that looked whole.
+select is(
+  (select count(*)::int from public.storage_erasure_queue
+    where bucket = 'delivery-receipts' and processed_at is null),
+  1, 'and exactly one object is queued for the worker to actually delete');
+
+-- What an erasure must NOT take: the movement, its actor and its date are facts
+-- about stock, not about a person.
+select is(
+  (select count(*)::int from public.inventory_movements m
+    where m.movement_type = 'DELIVERY'
+      and m.promotion_prize_id = (select w.promotion_prize_id from public.winners w
+                                   where w.id = (select winner from erasure_case))),
+  1, 'the delivery itself survives the erasure');
 
 select * from finish();
 rollback;

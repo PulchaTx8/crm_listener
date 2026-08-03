@@ -7,6 +7,8 @@ import type { RedisClientType } from 'redis';
 import type { ConversationStore } from '@/lib/conversation/store';
 import { RedisConversationStore, connectRedis } from '@/lib/conversation/redis-store';
 import { runTick } from '@/services/whatsapp';
+import { drainStorageErasures } from '@/lib/storage/erasure';
+import type { ErasureDrainResult } from '@/lib/storage/erasure';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -40,15 +42,31 @@ export async function POST(request: Request): Promise<Response> {
   // ingestion half working in a local stack rather than failing the tick.
   const transport = token ? new GraphTransport(token) : new FakeTransport();
 
+  const supabase = createServiceClient();
+
   const result = await runTick({
-    supabase: createServiceClient(),
+    supabase,
     transport,
     store: await conversationStore(),
   });
 
+  // Block 6b. Beside the conversation tick rather than inside it: this drains a
+  // queue that anonymize_member writes and has nothing to do with WhatsApp, and
+  // folding it into runTick would tie an LGPD obligation to whether the bot is
+  // configured. A failure here must not lose the conversation tick's own
+  // counters, which are already computed above -- so it is caught and reported
+  // rather than thrown, and a queue that cannot be drained shows up as a
+  // standing `failed` count in every tick instead of a 500 nobody reads.
+  let erasures: ErasureDrainResult | { error: string };
+  try {
+    erasures = await drainStorageErasures(supabase);
+  } catch (cause) {
+    erasures = { error: cause instanceof Error ? cause.message : 'unknown' };
+  }
+
   // pg_net stores the response in net._http_response, so these counters are
   // the only account of a tick anybody can read afterwards.
-  return Response.json(result);
+  return Response.json({ ...result, erasures });
 }
 
 /**
