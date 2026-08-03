@@ -48,10 +48,28 @@ A healthy install returns exactly one row:
 
 No row at all means the migration that schedules it (`0094`) has not been
 applied against this database, or something has since called
-`cron.unschedule('pickup-deadline-sweep')`. Re-applying `0094` is idempotent —
-it unschedules-if-exists before scheduling, the same shape Block 5a's own
-tick job uses, specifically so a hosted redeploy or a local `db:reset` can
-run it more than once without `cron` raising "job already exists."
+`cron.unschedule('pickup-deadline-sweep')`.
+
+**Only part of `0094` is idempotent, and it matters which part.** The
+trailing `cron.unschedule(...)`/`cron.schedule(...)` pair *is* written to be
+re-run safely — unschedule-if-exists, then schedule, the same shape Block
+5a's own tick job uses — specifically so a redeploy or a local `db:reset` can
+run it more than once without `cron` raising "job already exists." The
+`create procedure public.sweep_pickup_deadlines()` statement earlier in the
+same file is **not**: it is `create procedure`, not `create or replace
+procedure`, and re-running the file against an already-migrated database
+fails there —
+
+```
+ERROR:  function "sweep_pickup_deadlines" already exists with same argument types
+```
+
+— verified directly against this project's own local container. That error
+does not corrupt anything (the existing procedure is untouched, and the
+schedule re-applies regardless), but it does mean **this file cannot be used
+to change the procedure's own body** on a database where it has already run.
+Doing that on a hosted deployment needs a *new* migration written as
+`create or replace procedure`, not a re-run of `0094` itself.
 
 ---
 
