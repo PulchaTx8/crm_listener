@@ -129,8 +129,10 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/conversation-store-redis.test.ts', minTests: 1 },
   // Three reproduction rounds, the boundary case and the concurrency case. The
   // three is the point: one round could agree by luck on one seed, and a file
-  // that quietly dropped to one would still report a pass.
-  { path: 'tests/isolation/draw.test.ts', minTests: 8 },
+  // that quietly dropped to one would still report a pass. Block 6c adds three:
+  // the filtered round drawn twice, and the wrong-answer permission from both
+  // sides of the grant.
+  { path: 'tests/isolation/draw.test.ts', minTests: 11 },
   { path: 'tests/isolation/inventory.test.ts', minTests: 19 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },

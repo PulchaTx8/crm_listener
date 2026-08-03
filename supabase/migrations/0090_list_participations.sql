@@ -17,7 +17,16 @@
 --   * a SEARCH without members.view returns NOTHING. That is not an oversight
 --     carried over: a caller who may not read a listener's name cannot search
 --     by it either, and the old `!inner` variant produced exactly this. The
---     alternative -- searching a field the caller cannot see -- is an oracle.
+--     alternative -- searching a field the caller cannot see -- is an oracle;
+--   * an ARCHIVED promotion's entries are hidden from everybody except the
+--     platform admin and the Organization's owner. That one was MISSED on the
+--     first writing of this file and found by tests/isolation, which is the
+--     whole argument for the suite: 0044's promotions policy reads
+--     `deleted_at is null or is_owner_of_company(company_id)`, and 0053's
+--     participations policy inherited it for free through the
+--     `promotion_id in (select id from public.promotions)` sub-select. A
+--     SECURITY DEFINER function inherits nothing, so a rule that used to cost
+--     no words now costs these.
 --
 -- The keyset and the search both worked before this file existed, so
 -- 11_filtered_hat.test.sql walks a page boundary forwards and backwards and
@@ -122,6 +131,13 @@ begin
       on pr.id = p.promotion_id and pr.company_id = p.company_id
     join public.members m on m.id = p.member_id
     where p.company_id = p_company_id
+      -- 0044's rule, restated because SECURITY DEFINER inherits none of it: an
+      -- archived promotion is visible to the platform admin and the
+      -- Organization's owner and to nobody else, so its entries are not in this
+      -- Station's list either. Same predicate the policy names, through the same
+      -- function, rather than a second expression of "who may see an archived
+      -- row".
+      and (pr.deleted_at is null or public.is_owner_of_company(pr.company_id))
       and (p_promotion_id is null or p.promotion_id = p_promotion_id)
       and (p_status is null or p.status = p_status)
       and (p_source is null or p.source = p_source)
@@ -192,7 +208,7 @@ end;
 $$;
 
 comment on function public.list_participations(uuid, uuid, public.participation_status, public.participation_source, timestamptz, timestamptz, text, boolean, uuid, timestamptz, uuid, boolean, integer) is
-  'One keyset page of the participants list, with every filter the screen carries: Station, promotion, status, source, date range, listener search, and Block 6c''s two -- answered correctly, and chose a given option -- which AND with each other and with the rest. Also returns already_won, which is what explains a listener vanishing between draw rounds. SECURITY DEFINER, so what RLS used to do is done here by hand: participations.view or nothing; the listener''s name, phone and document only to a caller holding members.view, and the list still lists without it; and a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle -- which is precisely what the old query''s !inner embed produced. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
+  'One keyset page of the participants list, with every filter the screen carries: Station, promotion, status, source, date range, listener search, and Block 6c''s two -- answered correctly, and chose a given option -- which AND with each other and with the rest. Also returns already_won, which is what explains a listener vanishing between draw rounds. SECURITY DEFINER, so what RLS used to do is done here by hand: participations.view AND promotions.view or a 42501 rather than an empty page; an archived promotion''s entries only to the platform admin and the Organization''s owner (0044''s rule, which 0053 used to inherit through a sub-select); the listener''s name, phone and document only to a caller holding members.view, and the list still lists without it; and a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle -- which is precisely what the old query''s !inner embed produced. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
 
 revoke execute on function public.list_participations(uuid, uuid, public.participation_status, public.participation_source, timestamptz, timestamptz, text, boolean, uuid, timestamptz, uuid, boolean, integer) from public;
 grant execute on function public.list_participations(uuid, uuid, public.participation_status, public.participation_source, timestamptz, timestamptz, text, boolean, uuid, timestamptz, uuid, boolean, integer) to authenticated;

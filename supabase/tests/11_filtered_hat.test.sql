@@ -1,5 +1,5 @@
 begin;
-select plan(40);
+select plan(43);
 
 -- Block 6c: the filtered hat.
 --
@@ -658,6 +658,79 @@ select throws_ok($$
   select * from public.list_participations('00000000-0000-0000-0000-00000000c0c1')
 $$, '42501', null,
   'participations.view without promotions.view reads nothing, exactly as 0053''s policy already refused');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- The OTHER term the rewrite lost, found by tests/isolation rather than here.
+--
+-- 0044's promotions policy is `deleted_at is null or is_owner_of_company(...)`,
+-- and 0053's participations policy inherited it for nothing through the
+-- `promotion_id in (select id from public.promotions)` sub-select. A SECURITY
+-- DEFINER function inherits nothing, so an archived promotion's entries listed
+-- for everybody until 0090 restated the rule.
+--
+-- Both halves, because the exclusion alone would be satisfied by hiding an
+-- archived promotion from the owner too -- and the owner is precisely who 0044
+-- keeps it visible for.
+
+-- The owner of the Organization, inserted first because an archived promotion
+-- has to name who archived it (promotions_archival_shape, 0040) and because the
+-- second half of this section reads as them.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000c40b', 'hat-owner@example.test');
+insert into public.organization_memberships (organization_id, user_id, role) values
+  ('00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c40b', 'owner');
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at, deleted_at, deleted_by)
+values
+  ('00000000-0000-0000-0000-00000000c0e9', '00000000-0000-0000-0000-00000000c0f1',
+   '00000000-0000-0000-0000-00000000c0c1', 'Archived promo', now() - interval '9 days',
+   now() - interval '1 day', now(), '00000000-0000-0000-0000-00000000c40b');
+
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-00000000c309', '00000000-0000-0000-0000-00000000c0e9',
+   '00000000-0000-0000-0000-00000000c021', '00000000-0000-0000-0000-00000000c0f1',
+   -- false, matching this promotion's own allow_multiple_entries: the composite
+   -- foreign key participations_allows_multiple_fk carries the flag so the
+   -- one-per-member unique index can be partial on it (0052).
+   '00000000-0000-0000-0000-00000000c0c1', false, 'VALID', 'MANUAL', now() - interval '6 hours');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c407", "role": "authenticated"}';
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e9',
+     null, null, null, null, null, null, null, null, null, false, 50)),
+  0,
+  'a delegate reads no entry of an archived promotion, however directly they ask for it');
+
+select ok(
+  not exists (
+    select 1 from public.list_participations(
+      '00000000-0000-0000-0000-00000000c0c1',
+      null, null, null, null, null, null, null, null, null, null, false, 200) r
+    where r.id = '00000000-0000-0000-0000-00000000c309'),
+  'and it is absent from the Station''s list as a whole, not merely un-navigable');
+
+reset role;
+
+-- And the owner, for whom an archived row is still readable: they are the one
+-- who resolves discrepancies, and cannot do it blind (0044).
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c40b", "role": "authenticated"}';
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e9',
+     null, null, null, null, null, null, null, null, null, false, 50)),
+  1,
+  'the Organization''s owner still reads it, which is what 0044 keeps the row visible for');
 
 reset role;
 

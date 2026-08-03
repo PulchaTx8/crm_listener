@@ -619,3 +619,341 @@ describe('two operators delivering one prize', () => {
     }
   });
 });
+
+/**
+ * THE ROUND, END TO END — Block 6c.
+ *
+ * Everything the participants screen does, over HTTP, as the operator who does
+ * it: read the list filtered to the people who answered the quiz correctly,
+ * hand those ids to `run_draw`, and then do it again — proving that the winner
+ * of the first round is gone from the second, and that naming them anyway is
+ * refused rather than quietly dropped.
+ *
+ * The two halves have to be one case. Proving the list excludes a past winner
+ * and separately proving `run_draw` refuses one would leave the thing that
+ * matters untested: that they are the SAME definition (0076), so the set the
+ * operator sees and the set the database accepts cannot drift.
+ *
+ * The operator holds participations.view, promotions.view and draws.execute,
+ * and NOT members.view — which is how this also pins the branch inside
+ * `list_participations` (0090) that lists every row while withholding the three
+ * listener fields.
+ */
+interface QuizPromotion {
+  promotionId: string;
+  promotionPrizeId: string;
+  questionId: string;
+  rightOptionId: string;
+  wrongOptionId: string;
+  /** The participation ids of the listeners who got it right, and of those who did not. */
+  right: string[];
+  wrong: string[];
+}
+
+/**
+ * A promotion asking ONE quiz question, with `right` listeners answering it
+ * correctly and `wrong` listeners not, one entry each, and `units` linked.
+ */
+async function seedQuizPromotion(
+  customer: ProvisionedCustomer,
+  label: string,
+  counts: { right: number; wrong: number; units: number },
+): Promise<QuizPromotion> {
+  const owner = await signInAs(customer.email, customer.password);
+  const prizeId = await createPrizeAs(customer, `Prize ${label}`);
+
+  expect(
+    (
+      await owner.rpc('record_stock_entry', {
+        p_company_id: customer.companyId,
+        p_prize_id: prizeId,
+        p_type: 'MANUAL_ENTRY',
+        p_quantity: counts.units,
+      })
+    ).error,
+  ).toBeNull();
+
+  const promotion = await owner.rpc('create_promotion', {
+    p_company_id: customer.companyId,
+    p_name: `Promo ${label}`,
+    p_starts_at: new Date(Date.now() - 30 * DAY).toISOString(),
+    p_ends_at: new Date(Date.now() + DAY).toISOString(),
+  });
+  expect(promotion.error).toBeNull();
+  const promotionId = promotion.data as string;
+
+  const link = await owner.rpc('link_prize_to_promotion', {
+    p_promotion_id: promotionId,
+    p_prize_id: prizeId,
+    p_quantity: counts.units,
+  });
+  expect(link.error).toBeNull();
+  const promotionPrizeId = link.data as string;
+
+  // A QUIZ, because that is the only kind with a right answer:
+  // promotion_participation_correctness (0089) answers true for everybody on a
+  // poll, and the difference between the two is the whole of these cases.
+  // menu_title and button_label are not decoration — promotion_questions_list_fields
+  // (0041) refuses anything carrying options without them.
+  const question = await owner.rpc('save_promotion_question', {
+    p_promotion_id: promotionId,
+    p_kind: 'QUIZ',
+    p_prompt: `Which one, ${label}?`,
+    p_menu_title: 'Answer',
+    p_button_label: 'Choose',
+    p_options: [
+      { label: 'The right one', is_correct: true },
+      { label: 'The other one', is_correct: false },
+    ],
+  });
+  expect(question.error).toBeNull();
+  const questionId = question.data as string;
+
+  const options = await owner
+    .from('promotion_question_options')
+    .select('id, is_correct')
+    .eq('question_id', questionId);
+  expect(options.error).toBeNull();
+  const rightOptionId = (options.data ?? []).find((o) => o.is_correct)?.id as string;
+  const wrongOptionId = (options.data ?? []).find((o) => !o.is_correct)?.id as string;
+  expect(rightOptionId).toBeTruthy();
+  expect(wrongOptionId).toBeTruthy();
+
+  const right: string[] = [];
+  const wrong: string[] = [];
+  const people = [
+    ...Array.from({ length: counts.right }, (_, i) => ({ correct: true, i })),
+    ...Array.from({ length: counts.wrong }, (_, i) => ({ correct: false, i: counts.right + i })),
+  ];
+
+  for (const person of people) {
+    const member = await owner.rpc('create_member', {
+      p_company_id: customer.companyId,
+      p_full_name: `${person.correct ? 'Right' : 'Wrong'} ${person.i + 1} ${label}`,
+    });
+    expect(member.error).toBeNull();
+
+    const recorded = await owner.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: member.data as string,
+      p_participated_at: new Date(Date.now() - (person.i + 1) * HOUR).toISOString(),
+      p_source: 'MANUAL',
+      p_answers: [
+        { question_id: questionId, option_id: person.correct ? rightOptionId : wrongOptionId },
+      ],
+    });
+    expect(recorded.error).toBeNull();
+    const participationId = (recorded.data as { participation_id: string }).participation_id;
+    (person.correct ? right : wrong).push(participationId);
+  }
+
+  return { promotionId, promotionPrizeId, questionId, rightOptionId, wrongOptionId, right, wrong };
+}
+
+describe('a whole round, filtered and drawn from the list', () => {
+  it('draws the ids the list gave, and refuses them again in the next round', async () => {
+    const label = `round-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const promotion = await seedQuizPromotion(customer, label, { right: 3, wrong: 2, units: 2 });
+
+    const operator = await grantRoleWith(customer, `round-${label}`, [
+      'draws.execute',
+      'promotions.view',
+      'participations.view',
+    ]);
+    const client = await signInAs(operator.email, operator.password);
+
+    // ---- the list, filtered the way the screen filters it -------------------
+    const listed = await client.rpc('list_participations', {
+      p_company_id: customer.companyId,
+      p_promotion_id: promotion.promotionId,
+      p_status: 'VALID',
+      p_answered_correctly: true,
+      p_limit: 50,
+    });
+    expect(listed.error).toBeNull();
+    const firstHat = (listed.data ?? []).map((row) => row.id);
+    expect([...firstHat].sort()).toEqual([...promotion.right].sort());
+    expect((listed.data ?? []).every((row) => row.already_won === false)).toBe(true);
+    // The rows list and the listener fields are withheld: this operator holds
+    // participations.view and not members.view.
+    expect((listed.data ?? []).every((row) => row.listener_name === null)).toBe(true);
+
+    // ---- round one ----------------------------------------------------------
+    // ONE of the two linked units, because the point of this case is the second
+    // round: a null p_units means every unit still available (D8), which would
+    // spend both here and leave nothing to draw again.
+    const oneUnit = [{ promotion_prize_id: promotion.promotionPrizeId, quantity: 1 }];
+    const first = await client.rpc('run_draw', {
+      p_promotion_id: promotion.promotionId,
+      p_units: oneUnit,
+      p_participation_ids: firstHat,
+    });
+    expect(first.error).toBeNull();
+
+    const firstDraw = await admin
+      .from('draws')
+      .select('entry_count, offered_count, included_wrong_answers')
+      .eq('id', first.data as string)
+      .single();
+    // Three offered, three in the hat, nothing wrong among them — which is why
+    // draws.execute alone got this far.
+    expect(firstDraw.data?.offered_count).toBe(3);
+    expect(firstDraw.data?.entry_count).toBe(3);
+    expect(firstDraw.data?.included_wrong_answers).toBe(false);
+
+    const firstWinner = await admin
+      .from('winners')
+      .select('participation_id')
+      .eq('draw_id', first.data as string)
+      .single();
+    expect(firstWinner.error).toBeNull();
+    const wonParticipation = firstWinner.data?.participation_id as string;
+    expect(firstHat).toContain(wonParticipation);
+
+    // ---- the list has moved, and says so -------------------------------------
+    const relisted = await client.rpc('list_participations', {
+      p_company_id: customer.companyId,
+      p_promotion_id: promotion.promotionId,
+      p_status: 'VALID',
+      p_answered_correctly: true,
+      p_limit: 50,
+    });
+    expect(relisted.error).toBeNull();
+    const wonRow = (relisted.data ?? []).find((row) => row.id === wonParticipation);
+    expect(wonRow?.already_won, 'the winner is marked, not hidden').toBe(true);
+    expect(
+      (relisted.data ?? []).filter((row) => row.already_won).length,
+      'and nobody else moved',
+    ).toBe(1);
+
+    // ---- naming them again is REFUSED, not silently dropped ------------------
+    const stale = await client.rpc('run_draw', {
+      p_promotion_id: promotion.promotionId,
+      p_units: oneUnit,
+      p_participation_ids: firstHat,
+    });
+    expect(stale.error?.code, 'a hat holding a past winner refuses the draw').toBe('22023');
+    expect(stale.error?.message).toMatch(/1 of the 3/);
+
+    // ---- round two, over what is left ----------------------------------------
+    const secondHat = firstHat.filter((id) => id !== wonParticipation);
+    const second = await client.rpc('run_draw', {
+      p_promotion_id: promotion.promotionId,
+      p_units: oneUnit,
+      p_participation_ids: secondHat,
+    });
+    expect(second.error).toBeNull();
+
+    const secondWinner = await admin
+      .from('winners')
+      .select('participation_id')
+      .eq('draw_id', second.data as string)
+      .single();
+    expect(secondHat).toContain(secondWinner.data?.participation_id);
+    expect(secondWinner.data?.participation_id).not.toBe(wonParticipation);
+  });
+});
+
+/**
+ * THE PERMISSION, DERIVED FROM THE HAT RATHER THAN CLAIMED BY THE CALLER.
+ *
+ * `run_draw` takes no "include wrong answers" flag: it looks at what is in the
+ * hat and asks for the permission when the hat needs it (D7). So the two calls
+ * below send the SAME ids and differ only in what the operator holds, which is
+ * the only shape that can tell a real gate from a decorative one.
+ */
+describe('drawing among people who answered wrongly', () => {
+  it('refuses without draws.include_wrong_answers and allows with it', async () => {
+    const label = `wrong-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const promotion = await seedQuizPromotion(customer, label, { right: 2, wrong: 2, units: 2 });
+    // Everybody, which on a promotion with a quiz is exactly the hat that needs
+    // the permission.
+    const everybody = [...promotion.right, ...promotion.wrong];
+
+    const plain = await grantRoleWith(customer, `plain-${label}`, [
+      'draws.execute',
+      'promotions.view',
+    ]);
+    const plainClient = await signInAs(plain.email, plain.password);
+
+    const refused = await plainClient.rpc('run_draw', {
+      p_promotion_id: promotion.promotionId,
+      p_units: null,
+      p_participation_ids: everybody,
+    });
+    expect(refused.error?.code, 'draws.execute alone is not enough for this hat').toBe('42501');
+
+    // Nothing was drawn, which is what makes the refusal a refusal rather than
+    // a message printed after the fact.
+    const nothing = await admin
+      .from('draws')
+      .select('id')
+      .eq('promotion_id', promotion.promotionId);
+    expect(nothing.data ?? []).toHaveLength(0);
+
+    const empowered = await grantRoleWith(customer, `wide-${label}`, [
+      'draws.execute',
+      'promotions.view',
+      'draws.include_wrong_answers',
+    ]);
+    const empoweredClient = await signInAs(empowered.email, empowered.password);
+
+    const allowed = await empoweredClient.rpc('run_draw', {
+      p_promotion_id: promotion.promotionId,
+      p_units: null,
+      p_participation_ids: everybody,
+    });
+    expect(allowed.error, 'the same hat, drawn by somebody who may').toBeNull();
+
+    const drawn = await admin
+      .from('draws')
+      .select('entry_count, offered_count, included_wrong_answers')
+      .eq('id', allowed.data as string)
+      .single();
+    expect(drawn.data?.entry_count).toBe(4);
+    expect(drawn.data?.offered_count).toBe(4);
+    expect(
+      drawn.data?.included_wrong_answers,
+      'the draw records that it reached past the right answers',
+    ).toBe(true);
+  });
+
+  it('needs no such permission where there is nothing to be right about', async () => {
+    const label = `noquiz-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const { promotionId } = await seedSmallPromotion(customer, label, 1);
+
+    const plain = await grantRoleWith(customer, `noquiz-${label}`, [
+      'draws.execute',
+      'promotions.view',
+      'participations.view',
+    ]);
+    const client = await signInAs(plain.email, plain.password);
+
+    const listed = await client.rpc('list_participations', {
+      p_company_id: customer.companyId,
+      p_promotion_id: promotionId,
+      p_status: 'VALID',
+      p_limit: 50,
+    });
+    expect(listed.error).toBeNull();
+    const hat = (listed.data ?? []).map((row) => row.id);
+    expect(hat).toHaveLength(2);
+
+    const drawn = await client.rpc('run_draw', {
+      p_promotion_id: promotionId,
+      p_units: null,
+      p_participation_ids: hat,
+    });
+    expect(drawn.error, 'a promotion with no quiz asks nothing extra of anybody').toBeNull();
+
+    const record = await admin
+      .from('draws')
+      .select('included_wrong_answers')
+      .eq('id', drawn.data as string)
+      .single();
+    expect(record.data?.included_wrong_answers).toBe(false);
+  });
+});
