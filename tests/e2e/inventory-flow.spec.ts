@@ -212,7 +212,13 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   ).toBeVisible();
 
   // --- the delegate registers a prize ---------------------------------------
-  await delegatePage.getByRole('link', { name: 'Inventory' }).click();
+  // 'Stock', not 'Inventory': Block 6d, Task 10 renamed this nav item (the
+  // href is unchanged, still /inventory) when a second item, Movements,
+  // joined it under a section now itself labelled 'Inventory' — this
+  // assertion is about reaching the stock screen, not about the section
+  // heading above it (which renders as a plain <p> in sidebar-nav.tsx and was
+  // never a link this could have selected anyway).
+  await delegatePage.getByRole('link', { name: 'Stock' }).click();
   await expect(delegatePage).toHaveURL(/\/inventory$/);
 
   // The button is rendered only because the delegate holds inventory.catalogue

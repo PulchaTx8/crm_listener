@@ -38,11 +38,15 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // the boundary is in the database.
       label: 'Inventory',
       items: [
-        // Same route as before Block 6d, Task 10 — only the label changed,
-        // from 'Inventory' to 'Stock', so no existing link anywhere breaks.
-        // 'Inventory' is now the SECTION name, one level up, and having both
-        // the section and its first item spell the same word read as one
-        // link rendered twice; 'Stock' is what this item actually lists.
+        // Same href as before Block 6d, Task 10 — only the label changed,
+        // from 'Inventory' to 'Stock', so no existing href anywhere breaks.
+        // The accessible name DID change, and did break one thing that
+        // selected on it: tests/e2e/inventory-flow.spec.ts's own
+        // getByRole('link', { name: ... }) had to be updated from 'Inventory'
+        // to 'Stock' alongside this rename. 'Inventory' is now the SECTION
+        // name, one level up, and having both the section and its first item
+        // spell the same word read as one link rendered twice; 'Stock' is
+        // what this item actually lists.
         { href: '/inventory', label: 'Stock', icon: ICONS.box },
         // Block 6d, Task 10. /inventory/movements redirects nobody by
         // itself — it opens on whichever Station listCompanyAccess resolves

@@ -73,7 +73,9 @@ export function MovementsGrid({
                 </TableCell>
                 <TableCell className="text-sm">{MOVEMENT_TYPE_LABELS[row.movementType]}</TableCell>
                 <TableCell className="text-sm">{row.prizeName}</TableCell>
-                <TableCell className="text-sm">{row.quantity} unit(s)</TableCell>
+                <TableCell className="text-sm">
+                  {row.quantity} {row.quantity === 1 ? 'unit' : 'units'}
+                </TableCell>
                 <TableCell className="whitespace-nowrap text-sm">
                   {formatBucket(row.fromBucket)} → {formatBucket(row.toBucket)}
                 </TableCell>
