@@ -135,6 +135,29 @@ than swallowed, and that `cron.job_run_details` keeps it — which is where Bloc
 11's §31 alert will read from, alongside the retention cron's (N7). Building
 that alerting here would be building it twice.
 
+> **Amended during execution (Task 4).** Measured directly against this
+> project's own `pg_cron`, not assumed: `cron.job_run_details` does not
+> capture a `WARNING` at all — a disposable job that only raises a warning
+> and a notice still records `status=succeeded, return_message='CALL'`. So
+> the per-winner detail this paragraph describes — the winner id and the
+> `SQLERRM`, raised as a warning inside the loop — reaches the Postgres
+> server log and nothing else; it never reaches `cron.job_run_details`. What
+> does reach `cron.job_run_details` is only the run's own aggregate outcome,
+> and only because Task 4 added an end-of-loop `raise exception` whenever
+> any winner failed, after every succeeding winner is already committed:
+> without that raise, a run in which every winner failed still recorded
+> `succeeded`; with it, such a run now records `failed`. So the aggregate
+> failure fact does survive to where the scheduler can see it — the detail
+> does not. Block 11's §31 alert will have to read the run-failed-or-not fact
+> from `cron.job_run_details` and the per-winner detail — which winner,
+> which error — from the server log; it is not all in one place, the way
+> this paragraph as first written implied. See `docs/block-6d-report.md`
+> §5.5 and §5.6, and `0094_sweep_pickup_deadlines.sql`'s own header and
+> exception-handler comments, for the measurement. The broad `exception when
+> others` remains justified regardless: the aggregate failure is now visible
+> to the scheduler and the detail is recoverable from the server log, which
+> is what a sweep that must not stop needs.
+
 Collecting the ids before acting leaves the list microseconds stale, and that is
 safe by construction rather than by care: `apply_winner_transition` re-reads and
 locks the row and refuses any source that is not `AWAITING_PICKUP`. A winner
@@ -563,8 +586,12 @@ new function checks permission before it reveals whether a row exists.
 > self-scoped operations with no caller-supplied target). See
 > `docs/block-6d-report.md` §5.3 for the method and the full per-function
 > lists. Neither "eight" nor this block's own rough interim guess of "twenty"
-> survived being counted; this block's own four new functions add no new
-> instance either way.
+> survived being counted; the new functions this block added to that
+> census — `list_pickups`, `list_movements` and `reopen_pickup_deadline` —
+> add no new instance either way. `apply_winner_transition` (0092, superseded
+> by 0097) and `sweep_pickup_deadlines` (0094) are both `SECURITY INVOKER`
+> and check no permission of their own, so neither is a permission-gated door
+> and neither belongs to this count in the first place.
 
 The Block 4b isolation flake remains live and uncaused. It did not appear in 6c.
 
