@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(13);
 
 -- Block 6c: the filtered hat.
 --
@@ -184,6 +184,94 @@ select ok(
            where n.nspname = 'public' and p.proname = 'promotion_participation_correctness'
              and p.provolatile = 's'),
   'and it is stable: it reads rows and returns the same answer within a statement');
+
+-- ---------------------------------------------------------------------------
+-- Task 3: nobody wins twice in one promotion (D4, revising 6a's D2).
+--
+-- Winners are inserted by hand rather than through run_draw: what is under test
+-- is who eligibility lets through, and driving the whole RPC would make a
+-- failure here mean four different things.
+
+insert into public.prizes (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000c0d1', '00000000-0000-0000-0000-00000000c0f1',
+   '00000000-0000-0000-0000-00000000c0c1', 'Bicycle 6c');
+insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id) values
+  ('00000000-0000-0000-0000-00000000c0b1', '00000000-0000-0000-0000-00000000c0e1',
+   '00000000-0000-0000-0000-00000000c0d1', '00000000-0000-0000-0000-00000000c0f1',
+   '00000000-0000-0000-0000-00000000c0c1'),
+  ('00000000-0000-0000-0000-00000000c0b2', '00000000-0000-0000-0000-00000000c0e2',
+   '00000000-0000-0000-0000-00000000c0d1', '00000000-0000-0000-0000-00000000c0f1',
+   '00000000-0000-0000-0000-00000000c0c1');
+
+insert into public.draws
+  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count)
+values
+  -- A completed draw of THIS promotion.
+  ('00000000-0000-0000-0000-00000000c301', '00000000-0000-0000-0000-00000000c0e1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
+   repeat('c', 64), 1, 4),
+  -- A completed draw of a DIFFERENT promotion.
+  ('00000000-0000-0000-0000-00000000c302', '00000000-0000-0000-0000-00000000c0e2',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
+   repeat('d', 64), 1, 1);
+
+-- And one of this promotion that was cancelled. Its columns are set by hand
+-- rather than through cancel_draw (0079), which needs a signed-in caller
+-- holding draws.cancel -- and this case is about eligibility, not about who
+-- may cancel.
+-- draws_cancellation_shape wants all three facts or none, so the canceller has
+-- to be a real user: a cancelled draw that cannot say who cancelled it is the
+-- one thing that constraint exists to refuse.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000c0aa', 'hat-canceller@example.test');
+
+insert into public.draws
+  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count,
+   status, cancelled_at, cancelled_by, cancellation_reason)
+values
+  ('00000000-0000-0000-0000-00000000c303', '00000000-0000-0000-0000-00000000c0e1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
+   repeat('e', 64), 1, 4, 'CANCELLED', now(),
+   '00000000-0000-0000-0000-00000000c0aa', 'drawn by mistake');
+
+insert into public.winners
+  (draw_id, company_id, promotion_prize_id, member_id, participation_id, awarded_rank, status)
+values
+  -- Won here, still awaiting pickup.
+  ('00000000-0000-0000-0000-00000000c301', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0b1', '00000000-0000-0000-0000-00000000c011',
+   '00000000-0000-0000-0000-00000000c201', 1, 'AWAITING_PICKUP'),
+  -- Won here, and the prize came back to stock afterwards. They still won.
+  ('00000000-0000-0000-0000-00000000c301', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0b1', '00000000-0000-0000-0000-00000000c014',
+   '00000000-0000-0000-0000-00000000c204', 2, 'RETURNED'),
+  -- Won a DIFFERENT promotion.
+  ('00000000-0000-0000-0000-00000000c302', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0b2', '00000000-0000-0000-0000-00000000c012',
+   '00000000-0000-0000-0000-00000000c205', 1, 'AWAITING_PICKUP'),
+  -- Won a draw that was then cancelled: nothing was won.
+  ('00000000-0000-0000-0000-00000000c303', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0b1', '00000000-0000-0000-0000-00000000c013',
+   '00000000-0000-0000-0000-00000000c203', 1, 'AWAITING_PICKUP');
+
+create temporary table still_eligible as
+select * from public.draw_eligible_participations('00000000-0000-0000-0000-00000000c0e1');
+
+select ok(not exists (select 1 from still_eligible
+                       where member_id = '00000000-0000-0000-0000-00000000c011'),
+          'somebody who already won in this promotion is out of the next round');
+
+select ok(exists (select 1 from still_eligible
+                   where member_id = '00000000-0000-0000-0000-00000000c012'),
+          'winning a DIFFERENT promotion takes nothing away here: the rule is per promotion');
+
+select ok(exists (select 1 from still_eligible
+                   where member_id = '00000000-0000-0000-0000-00000000c013'),
+          'a cancelled draw undid itself, so its winner is eligible again');
+
+select ok(not exists (select 1 from still_eligible
+                       where member_id = '00000000-0000-0000-0000-00000000c014'),
+          'a prize returned to stock does not un-win it: they won, and what happened next is another fact');
 
 select * from finish();
 rollback;

@@ -177,6 +177,29 @@ as $$
     -- somebody suspended is not eligible for anything. member_block_active is
     -- the one thing that answers this; what a block IS is not re-expressed here.
     and not public.member_block_active(m.id, p.organization_id, p.company_id)
+    -- Block 6c, D4, revising 6a's D2: one person, one prize is per PROMOTION,
+    -- not per draw. 6a enforced it inside the walk and with unique (draw_id,
+    -- member_id), both of which stop at the edge of one draw -- so a second
+    -- round could award the same listener again, which is not what "keep
+    -- drawing over the others" means.
+    --
+    -- It lives HERE rather than in run_draw so that the list the operator sees
+    -- and the hat the database accepts are the same set. Building only the
+    -- first would need two definitions of who is eligible, which is the
+    -- duplication this schema refuses everywhere else.
+    --
+    -- A CANCELLED draw's winner is eligible again: the draw was undone, so
+    -- nothing was won. A winner whose prize was returned to stock or written
+    -- off is NOT: they won, and what happened to the prize afterwards is a
+    -- different fact about a different thing.
+    and not exists (
+      select 1
+      from public.winners w
+      join public.draws d2 on d2.id = w.draw_id
+      where w.member_id = m.id
+        and d2.promotion_id = p_promotion_id
+        and d2.status <> 'CANCELLED'
+    )
   -- The order Task 4 freezes as draw_entries.position (spec 4.1 step 1).
   order by p.participated_at, p.id;
 $$;
