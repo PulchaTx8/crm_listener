@@ -9,6 +9,57 @@
 select plan(9);
 
 -- ---------------------------------------------------------------------------
+-- SELF-HEALING: the same cleanup this file runs at the bottom, run again here
+-- first. A file that does not roll back and dies mid-script (a bad assertion,
+-- a typo in a fixture statement) never reaches its own bottom-of-file
+-- cleanup, and the NEXT run then collides on organizations_pkey instead of
+-- reporting whatever actually broke -- measured, twice, while writing this
+-- file. Every DELETE below is a no-op on a genuinely fresh database, so
+-- running it unconditionally here costs nothing.
+
+delete from public.winner_status_history
+ where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.winners where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.draw_entries where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.draws where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.inventory_movements
+ where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.inventory_balances
+ where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.participations where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.promotion_prize_balances
+ where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.promotion_prizes where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.promotions where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.prizes where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.member_company_links where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.members where organization_id = '00000000-0000-0000-0000-00000000d1f1';
+delete from public.audit_logs where company_id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.companies where id = '00000000-0000-0000-0000-00000000d1c1';
+delete from public.organizations where id = '00000000-0000-0000-0000-00000000d1f1';
+
+delete from public.winner_status_history
+ where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.winners where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.draw_entries where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.draws where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.inventory_movements
+ where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.inventory_balances
+ where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.participations where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.promotion_prize_balances
+ where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.promotion_prizes where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.promotions where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.prizes where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.member_company_links where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.members where organization_id = '00000000-0000-0000-0000-00000000d1f2';
+delete from public.audit_logs where company_id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.companies where id = '00000000-0000-0000-0000-00000000d1c2';
+delete from public.organizations where id = '00000000-0000-0000-0000-00000000d1f2';
+
+-- ---------------------------------------------------------------------------
 -- THE FIRST FIXTURE: a Station, one prize with four units, four listeners and
 -- one draw that awards all four. Built through apply_inventory_movement and
 -- apply_draw, the way 10_delivery.test.sql:1-120 builds its own, so the
@@ -156,8 +207,50 @@ select is(
 -- 6d' (...00d1d3), one unit each, held by listeners 'Poisoned 6d' and
 -- 'Neighbour 6d'.
 --
+-- An earlier version of this file tried to prove D6 more directly, by giving
+-- a SECOND winner the same overdue deadline as Overdue 6d above (both
+-- succeeding, no poisoning) and asserting count(distinct xmin) = 2 across the
+-- pair -- xmin being the id of the transaction that last wrote a row.
+-- Measured, and it does not discriminate: xmin is type xid, which has no
+-- ordering operator class (count(distinct xmin) itself fails to plan --
+-- `could not identify an ordering operator for type xid` -- before the more
+-- important problem is even reached), and once cast to text for the
+-- comparison, TWO ROWS WRITTEN IN SEPARATE begin...exception...end BLOCKS,
+-- WITH NO COMMIT BETWEEN THEM, ALREADY CARRY DIFFERENT xmin VALUES. Verified
+-- directly: two INSERTs inside two separate exception blocks in one DO block,
+-- same top-level transaction, no explicit commit anywhere, produced xmin
+-- 2422 and 2423. The mandated `begin ... exception when others` around every
+-- iteration is itself an implicit SAVEPOINT, and Postgres assigns a
+-- subtransaction its own transaction id lazily, on its first write, whether
+-- or not that subtransaction is ever rolled back. So two winners processed in
+-- two loop iterations get two different xmins purely from the exception
+-- block every iteration already has -- which is mandated and pre-existing --
+-- with or without the `commit;` this task adds. xmin cannot tell "committed
+-- separately" apart from "merely handled in separate exception blocks," and
+-- the mutation this file's assertions are all meant to survive (removing
+-- `commit;` and confirming the RIGHT ones go red) proved it: with `commit;`
+-- deleted, that xmin assertion stayed green.
+--
+-- What DOES discriminate, found by taking the mutation seriously rather than
+-- trusting the assertion's own name: THIS fixture, together with the
+-- procedure's own raise-if-any-failed (added for the cron.job_run_details
+-- finding below). Poisoned 6d's failure means v_failed > 0, so the procedure
+-- raises after the loop -- but by then, with real per-iteration commits,
+-- Neighbour 6d's success is already durable, and the raise costs it nothing.
+-- Delete BOTH `commit;` statements and rerun this fixture and the raise still
+-- fires (Poisoned still fails), but now there was never a commit checkpoint
+-- to protect Neighbour 6d's own success from it: the raise aborts the WHOLE
+-- transaction the loop has been running in, and Neighbour 6d's transition is
+-- rolled back right along with Poisoned 6d's -- measured, and it is exactly
+-- assertions 8 and 9 below, and only those, that go red. That is what "commit
+-- per winner" (D6) actually buys: not merely that one winner's OWN exception
+-- cannot corrupt its neighbour (the exception block already guarantees that,
+-- commit or not) but that a LATER winner's failure -- or, as here, the
+-- summary raise after the whole batch -- cannot reach back and undo an
+-- EARLIER winner's already-finished success.
+--
 -- Its own Station rather than a second link in the first, so that poisoning
--- one balance below cannot bleed into the six assertions already read.
+-- one balance below cannot bleed into the assertions already read.
 --
 -- Two prizes and not one, deliberately: apply_inventory_movement locks and
 -- reads the balance of the prize it is moving, so a single zeroed balance
@@ -265,13 +358,31 @@ update public.winners w
 
 -- The balance is driven to an impossible figure behind the ledger's back --
 -- the only way to make one movement fail while its neighbour succeeds. Without
--- this test, "commit per winner" (D6) is an intention living in a comment.
+-- this test, "commit per winner" (D6) is an intention living in a comment --
+-- see this fixture's own header comment for what actually makes it discriminate
+-- (the interaction with the procedure's raise-if-any-failed, not merely the
+-- per-iteration exception handling on its own).
 update public.inventory_balances
    set awaiting_pickup = 0
  where company_id = '00000000-0000-0000-0000-00000000d1c2'
    and prize_id = '00000000-0000-0000-0000-00000000d1d2';
 
+-- This CALL is now expected to raise: the procedure raises an exception when
+-- v_failed > 0 (fix for the finding that cron.job_run_details could not
+-- otherwise tell a clean run from a total failure), and Poisoned 6d above is
+-- built to fail. Every successful winner -- Neighbour 6d included -- is
+-- already committed by the time that final raise happens, so the exception
+-- costs nothing already done; it only means this plain script, which has no
+-- exception handler of its own, must be told not to abort on it. Nesting the
+-- CALL inside a DO block to catch it does not work: that reproduces `invalid
+-- transaction termination` at the procedure's own COMMIT, the same restriction
+-- that rules out SECURITY DEFINER and search_path pinning (0094's header
+-- comment) -- a procedure with internal transaction control must be invoked
+-- as a bare top-level CALL and nothing else, so the only way to tolerate its
+-- expected failure here is to tell psql itself not to stop.
+\set ON_ERROR_STOP off
 call public.sweep_pickup_deadlines();
+\set ON_ERROR_STOP on
 
 select is(
   (select status::text from public.winners w join public.members m on m.id = w.member_id
