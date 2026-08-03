@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { answerFilterState } from '@/lib/participations/answer-filter';
 import { PARTICIPATION_STATUSES, STATUS_LABELS } from '@/lib/participation-status';
 import type { ParticipationSource } from '@/services/participations';
 // The Station-zone conversions come from the promotions screen's module rather
@@ -30,6 +31,13 @@ const ANY_SOURCE = '';
 export interface PromotionOption {
   id: string;
   name: string;
+  /**
+   * Whether this promotion asks anything of kind QUIZ. NOT whether it asks
+   * anything at all: a poll has questions and no right answer, and offering a
+   * correct/wrong filter there would be a choice with one outcome, because
+   * promotion_participation_correctness (0089) answers true for everybody.
+   */
+  hasQuiz: boolean;
 }
 
 /**
@@ -371,6 +379,42 @@ export function ParticipationsFilters({
           ))}
         </Select>
       </label>
+
+      {/*
+        Block 6c. Rendered only where there is something to be right about:
+        answerFilterState needs a promotion (a right answer belongs to one) and
+        needs that promotion to ask a QUIZ. A poll has questions and no gabarito,
+        and a correct/wrong control there would offer a choice with one outcome.
+
+        'Any' is a third state rather than a default, and it matters: on a
+        promotion with a quiz, drawing without narrowing is exactly the case that
+        needs draws.include_wrong_answers (0078).
+      */}
+      {answerFilterState({
+        promotionId: state.promotionId,
+        promotionHasQuiz: promotions.some((p) => p.id === state.promotionId && p.hasQuiz),
+        promotionHasOptions: false,
+      }).correctnessAvailable ? (
+        <label className="flex w-44 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Quiz answer</span>
+          <Select
+            value={
+              state.answeredCorrectly === undefined ? '' : state.answeredCorrectly ? 'yes' : 'no'
+            }
+            onChange={(e) =>
+              navigate({
+                answeredCorrectly:
+                  e.target.value === 'yes' ? true : e.target.value === 'no' ? false : undefined,
+              })
+            }
+            data-testid="participation-answered-filter"
+          >
+            <option value="">Any answer</option>
+            <option value="yes">Answered correctly</option>
+            <option value="no">Answered wrongly</option>
+          </Select>
+        </label>
+      ) : null}
 
       {/*
         Rendered with the others, never behind a disclosure, and that placement is

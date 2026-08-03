@@ -71,6 +71,10 @@ function toSummary(record: PromotionDetail): PromotionSummary {
     hashtag: record.hashtag,
     siteIntegrationCode: record.siteIntegrationCode,
     questionCount: record.questions.length,
+    // Counted off the record the dialog already holds, so a patched row and a
+    // freshly listed one agree on this too. QUIZ is the only kind with a right
+    // answer (0041), which is what Block 6c filters by.
+    quizQuestionCount: record.questions.filter((q) => q.kind === 'QUIZ').length,
     deletedAt: record.deletedAt,
   };
 }

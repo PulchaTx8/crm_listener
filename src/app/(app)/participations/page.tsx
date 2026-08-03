@@ -184,6 +184,7 @@ export default async function ParticipationsPage({
     promotionOptions = promotions.rows.map((promotion) => ({
       id: promotion.id,
       name: promotion.name,
+      hasQuiz: promotion.quizQuestionCount > 0,
     }));
     // The extra row read past the page, surfaced rather than dropped.
     promotionsCapped = promotions.nextCursor !== null;
@@ -206,6 +207,10 @@ export default async function ParticipationsPage({
     promotionOptions.unshift({
       id: state.promotionId,
       name: page.rows[0]?.promotionName ?? 'The promotion this list is filtered to',
+      // Not known for a promotion the picker never listed, and false is the
+      // safe answer: the correct/wrong filter stays hidden rather than being
+      // offered for a promotion that may have nothing to be right about.
+      hasQuiz: false,
     });
   }
 
