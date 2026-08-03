@@ -2783,6 +2783,7 @@ export type Database = {
         Returns: {
           allows_return_to_stock: boolean
           deadline_at: string
+          draw_status: Database["public"]["Enums"]["draw_status"]
           member_id: string
           member_name: string
           member_phone: string

@@ -74,6 +74,17 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       label: 'Promotions',
       items: [
         { href: '/promotions', label: 'Promotions', icon: ICONS.megaphone },
+        // Block 6d, Task 9. /pickups redirects nobody by itself — it opens on
+        // whichever Station listCompanyAccess resolves promotions.view in,
+        // the same courtesy every item in this section already extends — and
+        // list_pickups (0095) re-checks that permission itself regardless.
+        // ICONS.box rather than a new path: it is the box/package shape
+        // ICONS already declares for Inventory, and reusing it here is
+        // unlike the ticket/megaphone case just above — those two sit on
+        // adjacent ROWS OF THIS SAME SECTION, where one icon on both would
+        // read as one link rendered twice, while Inventory is a different
+        // section entirely, so the two never appear side by side.
+        { href: '/pickups', label: 'Pickups', icon: ICONS.box },
       ],
     },
     {

@@ -53,6 +53,26 @@
 -- sweep_pickup_deadlines (0094) carries the identical exclusion for the
 -- identical reason, and its own header spells out what happens without it.
 --
+-- EDITED IN PLACE, Task 9, to add draw_status to the return table. Migrations
+-- are append-only across merges, not within an unmerged branch -- this one
+-- still is, and 0045_promotion_prizes.sql's own comment states the same rule
+-- for the same reason ("this branch already amends its own"). The column was
+-- deliberately left out when this function was first written, on the
+-- reasoning that the fifth predicate above already excludes every CANCELLED
+-- draw, so no row this function returns could ever need one. Task 12 then
+-- added a second, independent guard -- apply_winner_transition itself now
+-- refuses every transition on a cancelled draw's winner -- and
+-- availableWinnerActions (src/components/draws/winner-actions.tsx) was
+-- widened to require a drawStatus argument as the courtesy half of that same
+-- guard. A screen built on this function has nothing to pass it without this
+-- column. The alternative -- the screen passing a hard-coded 'COMPLETED',
+-- true only because the predicate above happens to exclude every other case
+-- -- was rejected: it would encode an assumption about this function's own
+-- filtering into a caller three files away, true only until somebody edited
+-- the filter and forgot the assumption, which is exactly the failure mode
+-- this block was burned by more than once. Reading the real column keeps the
+-- two in sync by construction rather than by memory.
+--
 -- Nulls last, and the ordering and the cursor filter agree on it in as many
 -- words as keysetFilter's own contract (src/lib/keyset.ts) uses: deadline_at
 -- is nullable and the null means a winner with no deadline at all (0075), so
@@ -86,6 +106,7 @@ returns table (
   promotion_name text,
   status         public.winner_status,
   deadline_at    timestamptz,
+  draw_status    public.draw_status,
   total_count    integer
 )
 language plpgsql
@@ -116,7 +137,7 @@ begin
 
   return query
   with visible as (
-    select w.id, w.member_id, w.status, w.deadline_at,
+    select w.id, w.member_id, w.status, w.deadline_at, d.status as draw_status,
            pz.id as prize_id, pz.name as prize_name, pz.allows_return_to_stock,
            pr.id as promotion_id, pr.name as promotion_name,
            m.full_name, m.phone
@@ -153,6 +174,7 @@ begin
          f.promotion_name,
          f.status,
          f.deadline_at,
+         f.draw_status,
          -- The total of the FILTERED set, computed from the SAME CTE the rows
          -- come from, so a page and its count cannot narrow differently
          -- (0090's rule, restated here).
@@ -209,7 +231,7 @@ end;
 $$;
 
 comment on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) is
-  'One keyset page of the pickups list: every winner across every promotion of a Station, soonest deadline first (nulls -- no deadline at all -- last), with the status and promotion filters and a listener search the screen carries. SECURITY DEFINER, so what RLS used to do is done here by hand, in four rules: (1) promotions.view or a 42501 rather than an empty page (winners_select_by_promotion_view, 0075); (2) the listener''s name and phone returned only to a caller holding members.view -- without it the list still lists, every row, with those two null; (3) a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle (0090 argues this in full for the participants list); (4) an archived promotion''s winners hidden from everybody but the platform admin and the Organization''s owner, through the same is_owner_of_company predicate 0044''s policy names -- the exact rule Block 6c''s list_participations lost for five commits, caught only by tests/isolation. Plus a fifth fact that is not a fifth rule: a winner whose draw was CANCELLED is excluded outright, because cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and RLS never hid that either -- this function is simply the first reader to treat AWAITING_PICKUP as "live" and so the first that has to say so. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
+  'One keyset page of the pickups list: every winner across every promotion of a Station, soonest deadline first (nulls -- no deadline at all -- last), with the status and promotion filters and a listener search the screen carries. SECURITY DEFINER, so what RLS used to do is done here by hand, in four rules: (1) promotions.view or a 42501 rather than an empty page (winners_select_by_promotion_view, 0075); (2) the listener''s name and phone returned only to a caller holding members.view -- without it the list still lists, every row, with those two null; (3) a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle (0090 argues this in full for the participants list); (4) an archived promotion''s winners hidden from everybody but the platform admin and the Organization''s owner, through the same is_owner_of_company predicate 0044''s policy names -- the exact rule Block 6c''s list_participations lost for five commits, caught only by tests/isolation. Plus a fifth fact that is not a fifth rule: a winner whose draw was CANCELLED is excluded outright, because cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and RLS never hid that either -- this function is simply the first reader to treat AWAITING_PICKUP as "live" and so the first that has to say so. draw_status is returned alongside it (Task 9, edited in place) precisely because that fifth fact is a filter and not a promise: availableWinnerActions (src/components/draws/winner-actions.tsx) requires a drawStatus to decide whether a row''s actions may render at all, and a caller reading the real column here stays correct if this function''s own filtering ever changes, where a caller assuming COMPLETED by construction would not. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
 
 revoke execute on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) from public;
 grant execute on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) to authenticated;

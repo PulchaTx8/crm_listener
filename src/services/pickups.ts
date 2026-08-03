@@ -48,6 +48,20 @@ export interface PickupRow {
   status: WinnerStatus;
   /** Null means this winner has no deadline at all (0095's own header, mirroring 0075). */
   deadlineAt: string | null;
+  /**
+   * The draw's OWN status, not the winner's -- read straight off list_pickups
+   * (0095, edited in place for this task) rather than assumed. Every row this
+   * function can return already belongs to a draw that stands, because 0095's
+   * own fifth predicate excludes a CANCELLED draw's winners outright -- so in
+   * practice this is always 'COMPLETED' today. It is carried as a real column
+   * anyway, and read rather than hard-coded, because availableWinnerActions
+   * (@/components/draws/winner-actions) requires it to decide whether a row's
+   * actions may render at all, and a screen that assumed 'COMPLETED' by
+   * construction would stay correct only until somebody edited that
+   * predicate and forgot the assumption -- precisely the failure mode this
+   * block was burned by more than once.
+   */
+  drawStatus: 'COMPLETED' | 'CANCELLED';
 }
 
 export interface PickupListParams {
@@ -71,13 +85,18 @@ export interface PickupListPage {
  * One keyset page of the pickups list: every winner across every promotion of
  * a Station, soonest deadline first.
  *
- * Notably absent from PickupRow: a draw's own status. list_pickups (0095)
- * excludes a winner whose draw was CANCELLED outright (its header's "fifth
- * fact, not a fifth rule"), so every row this function can return already
- * belongs to a draw that stands -- there is no CANCELLED case for a caller of
- * this function to represent. availableWinnerActions (Block 6d Task 12)
- * still requires a drawStatus argument; what value a screen built on this
- * page should pass it is Task 9's decision, not this function's.
+ * `drawStatus` on each row is now read straight off list_pickups (0095,
+ * edited in place for this task to add the column). It was left out when
+ * this function was first written, on the reasoning that 0095's own fifth
+ * predicate already excludes a winner whose draw was CANCELLED outright, so
+ * no row this function returns could ever need one. availableWinnerActions
+ * (Block 6d Task 12) then started requiring a drawStatus argument, and a
+ * screen built on this page had nothing real to pass it -- the alternative,
+ * a hard-coded 'COMPLETED' true only because of that filter, was rejected
+ * (Task 9's own decision): it would encode an assumption about this
+ * function's filtering into a caller three files away, correct only until
+ * somebody edited the filter and forgot the assumption. Reading the real
+ * column keeps the two in sync by construction rather than by memory.
  *
  * `cursor` is a decoded `Cursor`, never a raw string -- decodeCursor
  * (@/lib/keyset) has already rejected a non-uuid id before this function is
@@ -137,6 +156,7 @@ export async function listPickups(
       promotionName: row.promotion_name,
       status: row.status,
       deadlineAt: row.deadline_at,
+      drawStatus: row.draw_status,
     })),
     nextCursor,
     previousCursor,
