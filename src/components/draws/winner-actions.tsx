@@ -4,13 +4,14 @@ import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-export type WinnerAction = 'deliver' | 'cancel_delivery' | 'return' | 'write_off';
+export type WinnerAction = 'deliver' | 'cancel_delivery' | 'return' | 'write_off' | 'reopen';
 
 export interface WinnerPowers {
   deliver: boolean;
   deliverCancel: boolean;
   return: boolean;
   writeOff: boolean;
+  reopenDeadline: boolean;
 }
 
 /**
@@ -59,6 +60,18 @@ export function availableWinnerActions(input: {
     return powers.deliverCancel ? ['cancel_delivery'] : [];
   }
 
+  // The clock put this prize back on the shelf. Three ways out and no fourth:
+  // the ledger has no DELIVERY out of pending_return, so somebody arriving
+  // late is given time again -- deliberately, with a reason -- and handed the
+  // prize through the ordinary path afterwards.
+  if (status === 'RETURN_PENDING') {
+    const actions: WinnerAction[] = [];
+    if (powers.reopenDeadline) actions.push('reopen');
+    if (powers.return && allowsReturnToStock) actions.push('return');
+    if (powers.writeOff) actions.push('write_off');
+    return actions;
+  }
+
   // RETURNED and WRITTEN_OFF are the end of the line: the prize left this
   // winner and there is nothing further to do to it here.
   return [];
@@ -69,14 +82,16 @@ const LABELS: Record<WinnerAction, string> = {
   cancel_delivery: 'Undo the handover',
   return: 'Return to stock',
   write_off: 'Write off',
+  reopen: 'Reopen the deadline',
 };
 
-/** The three that undo or destroy need a reason; handing over does not. */
+/** Every one but handing over needs a reason on the record. */
 const NEEDS_REASON: Record<WinnerAction, boolean> = {
   deliver: false,
   cancel_delivery: true,
   return: true,
   write_off: true,
+  reopen: true,
 };
 
 export function WinnerActions({

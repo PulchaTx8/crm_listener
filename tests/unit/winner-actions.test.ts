@@ -15,7 +15,13 @@ import { availableWinnerActions, type WinnerPowers } from '@/components/draws/wi
  * `node` environment with no DOM (vitest.config.ts).
  */
 
-const ALL: WinnerPowers = { deliver: true, deliverCancel: true, return: true, writeOff: true };
+const ALL: WinnerPowers = {
+  deliver: true,
+  deliverCancel: true,
+  return: true,
+  writeOff: true,
+  reopenDeadline: true,
+};
 
 // Every existing call below names a draw that stands, so the new field
 // changes none of their meaning -- only Task 12's own cases below set it to
@@ -132,7 +138,13 @@ describe('availableWinnerActions', () => {
       availableWinnerActions({
         status: 'AWAITING_PICKUP',
         allowsReturnToStock: true,
-        powers: { deliver: false, deliverCancel: false, return: false, writeOff: false },
+        powers: {
+          deliver: false,
+          deliverCancel: false,
+          return: false,
+          writeOff: false,
+          reopenDeadline: false,
+        },
         drawStatus: LIVE,
       }),
     ).toEqual([]);
@@ -171,6 +183,93 @@ describe('availableWinnerActions', () => {
         status: 'DELIVERED',
         allowsReturnToStock: true,
         powers: ALL,
+        drawStatus: 'CANCELLED',
+      }),
+    ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block 6d, Task 8: the clock's own bucket. RETURN_PENDING is a winner whose
+// deadline already expired and whose unit already rests in pending_return
+// (0091/0092, D1) -- neither delivered nor gone, just parked. Three ways out
+// and no fourth: reopen (give the listener more time), return (close the
+// matter), write off. DELIVERY is deliberately absent -- the ledger has no
+// arm from pending_return to delivered (0092's CHECK constraint), so handing
+// the prize over first requires the reopen to put it back in
+// awaiting_pickup.
+describe('availableWinnerActions, RETURN_PENDING', () => {
+  const all: WinnerPowers = {
+    deliver: true,
+    deliverCancel: true,
+    return: true,
+    writeOff: true,
+    reopenDeadline: true,
+  };
+
+  it('offers reopen, return and write-off, and never a bare handover', () => {
+    expect(
+      availableWinnerActions({
+        status: 'RETURN_PENDING',
+        allowsReturnToStock: true,
+        powers: all,
+        drawStatus: LIVE,
+      }),
+    ).toEqual(['reopen', 'return', 'write_off']);
+  });
+
+  // Handing a prize over from RETURN_PENDING is not a shortcut the ledger has:
+  // DELIVERY leaves awaiting_pickup and nowhere else. The way back is the
+  // reopen, which is a decision with a reason on it.
+  it('never offers deliver from RETURN_PENDING', () => {
+    expect(
+      availableWinnerActions({
+        status: 'RETURN_PENDING',
+        allowsReturnToStock: true,
+        powers: all,
+        drawStatus: LIVE,
+      }),
+    ).not.toContain('deliver');
+  });
+
+  it('drops the return when the prize cannot go back to stock', () => {
+    expect(
+      availableWinnerActions({
+        status: 'RETURN_PENDING',
+        allowsReturnToStock: false,
+        powers: all,
+        drawStatus: LIVE,
+      }),
+    ).toEqual(['reopen', 'write_off']);
+  });
+
+  it('offers nothing to a caller holding none of the powers', () => {
+    expect(
+      availableWinnerActions({
+        status: 'RETURN_PENDING',
+        allowsReturnToStock: true,
+        powers: {
+          deliver: false,
+          deliverCancel: false,
+          return: false,
+          writeOff: false,
+          reopenDeadline: false,
+        },
+        drawStatus: LIVE,
+      }),
+    ).toEqual([]);
+  });
+
+  // The courtesy applies here too: a cancelled draw's RETURN_PENDING winner
+  // (which cannot actually occur once list_pickups excludes cancelled draws,
+  // but the pure function has no way to know that) offers nothing, same as
+  // every other status.
+  it('offers nothing for RETURN_PENDING on a cancelled draw', () => {
+    expect(
+      availableWinnerActions({
+        status: 'RETURN_PENDING',
+        allowsReturnToStock: true,
+        powers: all,
         drawStatus: 'CANCELLED',
       }),
     ).toEqual([]);

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { cancelDraw, runDraw, type DrawUnitRequest } from '@/services/draws';
+import type { WinnerAction } from '@/components/draws/winner-actions';
 import {
   attachDeliveryReceipt,
   cancelDelivery,
@@ -63,16 +64,25 @@ export async function cancelDrawAction(
 }
 
 /**
- * The four transitions, and the receipt.
+ * The four transitions this route can actually finish, and the receipt.
  *
  * Each returns a message or null, the shape the draws screen already uses, and
  * each revalidates this route for the reason runDrawAction gives: the whole
  * content of this page is what the operator just changed.
+ *
+ * `action` is the full `WinnerAction` (Block 6d Task 8 added `'reopen'`) rather
+ * than a narrower type, because that is what `WinnerActions`' `onAct` actually
+ * hands up through `DrawDetailView`/`DrawsScreen` — narrowing the parameter
+ * here would only move the type error one file up. `winnerPowers.reopenDeadline`
+ * is hard-set to `false` on this route (page.tsx), so the branch below is
+ * unreachable through this screen's own UI; it exists so a value the compiler
+ * still considers possible can never fall through to the `write_off` branch by
+ * accident.
  */
 export async function winnerActionAction(
   promotionId: string,
   winnerId: string,
-  action: 'deliver' | 'cancel_delivery' | 'return' | 'write_off',
+  action: WinnerAction,
   reason: string,
 ): Promise<string | null> {
   try {
@@ -83,8 +93,14 @@ export async function winnerActionAction(
       await cancelDelivery(token, { winnerId, reason });
     } else if (action === 'return') {
       await returnPrize(token, { winnerId, reason });
-    } else {
+    } else if (action === 'write_off') {
       await writeOffPrize(token, { winnerId, reason });
+    } else {
+      // 'reopen': this route offers no field for the new deadline
+      // reopen_pickup_deadline (0093) requires. Block 6d Task 9 builds the
+      // Pickups screen, the one place with a date beside the reason, and
+      // reopens through its own action there instead.
+      return 'Reopening a deadline is not available from this screen.';
     }
     revalidatePath(`/promotions/${promotionId}/draws`);
     return null;
