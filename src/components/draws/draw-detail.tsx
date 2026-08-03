@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { DrawDetail } from '@/services/draws';
+import { WinnerActions, type WinnerAction, type WinnerPowers } from './winner-actions';
 
 function formatDeadline(value: string | null): string {
   // Null is not missing data: it means this winner has NO deadline, because
@@ -36,10 +37,23 @@ export function DrawDetailView({
   draw,
   canCancel,
   onCancel,
+  winnerPowers,
+  onWinnerAction,
+  receiptUrls,
+  onAttachReceipt,
 }: {
   draw: DrawDetail;
   canCancel: boolean;
   onCancel: (reason: string) => Promise<string | null>;
+  winnerPowers: WinnerPowers;
+  onWinnerAction: (
+    winnerId: string,
+    action: WinnerAction,
+    reason: string,
+  ) => Promise<string | null>;
+  /** Signed, short-lived, minted server-side: the bucket is private, so a path is not a link. */
+  receiptUrls: Record<string, string>;
+  onAttachReceipt: (winnerId: string, formData: FormData) => Promise<string | null>;
 }) {
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -80,13 +94,60 @@ export function DrawDetailView({
         <h3 className="mb-2 font-medium">Ganhadores</h3>
         <ol className="space-y-1" data-testid="draw-winners">
           {draw.winners.map((winner) => (
-            <li key={winner.id} className="flex justify-between gap-4 border-b py-1">
-              <span>
-                {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId)}
-              </span>
-              <span className="text-sm text-muted-foreground">
-                {winner.prizeName} · {formatDeadline(winner.deadlineAt)}
-              </span>
+            <li key={winner.id} className="border-b py-2">
+              <div className="flex justify-between gap-4">
+                <span>
+                  {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId)}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {winner.prizeName} · {formatDeadline(winner.deadlineAt)} ·{' '}
+                  <span data-testid={`winner-status-${winner.awardedRank}`}>{winner.status}</span>
+                </span>
+              </div>
+
+              <p className="text-sm text-muted-foreground">
+                {receiptUrls[winner.id] ? (
+                  <a
+                    href={receiptUrls[winner.id]}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                    data-testid="winner-receipt"
+                  >
+                    Ver recibo
+                  </a>
+                ) : winner.receiptErasedAt ? (
+                  // Not the same as never having had one, and the screen says so:
+                  // the listener asked to be erased and the object is gone.
+                  <span data-testid="winner-receipt-erased">recibo apagado a pedido</span>
+                ) : (
+                  <span data-testid="winner-no-receipt">sem recibo</span>
+                )}
+              </p>
+
+              {/*
+                The upload comes AFTER the delivery is already recorded, which
+                is D1: this control does not exist until the prize has been
+                handed over, so no failure here can stop a handover being
+                written down. One slot -- once a receipt is filed the form is
+                gone, because attach_delivery_receipt refuses a second.
+              */}
+              {!cancelled &&
+              winner.status === 'DELIVERED' &&
+              !winner.receiptPath &&
+              !winner.receiptErasedAt &&
+              winnerPowers.deliver ? (
+                <ReceiptForm winnerId={winner.id} onAttach={onAttachReceipt} />
+              ) : null}
+
+              {!cancelled ? (
+                <WinnerActions
+                  status={winner.status}
+                  allowsReturnToStock={winner.allowsReturnToStock}
+                  powers={winnerPowers}
+                  onAct={(action, reason) => onWinnerAction(winner.id, action, reason)}
+                />
+              ) : null}
             </li>
           ))}
         </ol>
@@ -156,5 +217,51 @@ export function DrawDetailView({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * The receipt upload, and it only exists once the delivery is on the record.
+ *
+ * That ordering is D1 made visible: deliver_prize has already succeeded by the
+ * time this control is on screen, so a failed upload leaves a delivery with no
+ * receipt rather than a prize that changed hands with nothing written down.
+ */
+function ReceiptForm({
+  winnerId,
+  onAttach,
+}: {
+  winnerId: string;
+  onAttach: (winnerId: string, formData: FormData) => Promise<string | null>;
+}) {
+  const [message, setMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <form
+      className="mt-1 flex items-center gap-2"
+      action={(formData: FormData) => {
+        startTransition(async () => {
+          const failure = await onAttach(winnerId, formData);
+          setMessage(failure);
+        });
+      }}
+    >
+      <input
+        type="file"
+        name="receipt"
+        aria-label="Recibo da entrega"
+        data-testid="receipt-input"
+        className="text-sm"
+      />
+      <Button type="submit" size="sm" variant="outline" disabled={pending} data-testid="receipt-attach">
+        {pending ? 'Enviando…' : 'Anexar recibo'}
+      </Button>
+      {message ? (
+        <span role="alert" className="text-sm text-destructive">
+          {message}
+        </span>
+      ) : null}
+    </form>
   );
 }

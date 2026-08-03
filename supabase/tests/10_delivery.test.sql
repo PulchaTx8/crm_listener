@@ -1,5 +1,5 @@
 begin;
-select plan(76);
+select plan(78);
 
 -- Block 6b: what an operator does deliberately with a prize that has been won.
 --
@@ -728,6 +728,30 @@ select is(
       and m.promotion_prize_id = (select w.promotion_prize_id from public.winners w
                                    where w.id = (select winner from erasure_case))),
   1, 'the delivery itself survives the erasure');
+
+-- ---------------------------------------------------------------------------
+-- Task 7: what the screen needs to decide with.
+--
+-- availableWinnerActions (winner-actions.tsx) hides the return button for a
+-- prize that cannot go back to stock. It can only do that if get_draw says so,
+-- and a screen that guessed would offer a button the RPC then refuses.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000b403", "role": "authenticated"}';
+
+select ok(
+  (select public.get_draw((select draw_id from public.winners
+                            where id = (select happy from receipt_cases)))
+          -> 'winners' -> 0 ? 'allows_return_to_stock'),
+  'get_draw tells the screen whether a prize may go back to stock');
+
+select ok(
+  (select public.get_draw((select draw_id from public.winners
+                            where id = (select happy from receipt_cases)))
+          -> 'winners' -> 0 ->> 'receipt_path' is not null),
+  'and carries the receipt path, so the screen can offer to show it');
+
+reset role;
 
 select * from finish();
 rollback;

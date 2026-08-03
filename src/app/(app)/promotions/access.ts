@@ -44,6 +44,11 @@ export interface PromotionPowers {
    * whoever may run a draw is not thereby somebody who may undo one.
    */
   drawsCancel: boolean;
+  /** Block 6b's four, each its own code for the reasons 0081 records. */
+  winnersDeliver: boolean;
+  winnersDeliverCancel: boolean;
+  winnersReturn: boolean;
+  winnersWriteOff: boolean;
   /** True for the platform admin and the Organization owner — the only callers whose reads return archived rows (0044). */
   seesArchived: boolean;
 }
@@ -79,6 +84,10 @@ const WRITE_CODES = [
   'members.create',
   'draws.execute',
   'draws.cancel',
+  'winners.deliver',
+  'winners.deliver_cancel',
+  'winners.return',
+  'winners.write_off',
 ] as const;
 
 /**
@@ -137,6 +146,10 @@ export async function getPromotionPowers(
     membersCreate: writes[9]?.data === true,
     drawsExecute: writes[10]?.data === true,
     drawsCancel: writes[11]?.data === true,
+    winnersDeliver: writes[12]?.data === true,
+    winnersDeliverCancel: writes[13]?.data === true,
+    winnersReturn: writes[14]?.data === true,
+    winnersWriteOff: writes[15]?.data === true,
     seesArchived: archived.data === true,
   };
 }

@@ -6,7 +6,8 @@ import { DrawDetailView } from '@/components/draws/draw-detail';
 import { RunDrawDialog, type DrawUnitChoice } from '@/components/draws/run-draw-dialog';
 import type { DrawUnitRequest } from '@/components/draws/run-draw-dialog';
 import type { DrawDetail, DrawSummary } from '@/services/draws';
-import { cancelDrawAction, runDrawAction } from './actions';
+import type { WinnerAction, WinnerPowers } from '@/components/draws/winner-actions';
+import { attachReceiptAction, cancelDrawAction, runDrawAction, winnerActionAction } from './actions';
 
 /**
  * The client half of the draws route: the list of draws down one side, the
@@ -24,14 +25,20 @@ export function DrawsScreen({
   defaultRunnerUpCount,
   canDraw,
   canCancel,
+  winnerPowers,
+  receiptUrls,
+  companyId,
 }: {
   promotionId: string;
+  companyId: string;
   draws: DrawSummary[];
   detail: DrawDetail | null;
   linked: DrawUnitChoice[];
   defaultRunnerUpCount: number;
   canDraw: boolean;
   canCancel: boolean;
+  winnerPowers: WinnerPowers;
+  receiptUrls: Record<string, string>;
 }) {
   return (
     <div className="grid gap-6 md:grid-cols-[16rem_1fr]">
@@ -88,6 +95,14 @@ export function DrawsScreen({
             draw={detail}
             canCancel={canCancel}
             onCancel={(reason: string) => cancelDrawAction(promotionId, detail.id, reason)}
+            winnerPowers={winnerPowers}
+            receiptUrls={receiptUrls}
+            onWinnerAction={(winnerId: string, action: WinnerAction, reason: string) =>
+              winnerActionAction(promotionId, winnerId, action, reason)
+            }
+            onAttachReceipt={(winnerId: string, formData: FormData) =>
+              attachReceiptAction(promotionId, winnerId, companyId, formData)
+            }
           />
         ) : (
           <p className="text-sm text-muted-foreground">Nenhum sorteio selecionado.</p>

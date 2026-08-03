@@ -50,6 +50,10 @@ export interface DrawWinner {
   participationId: string;
   promotionPrizeId: string;
   prizeName: string;
+  /** From the prize, so the screen offers a return only where one is possible. */
+  allowsReturnToStock: boolean;
+  receiptPath: string | null;
+  receiptErasedAt: string | null;
   deadlineAt: string | null;
   status: string;
 }
@@ -193,6 +197,9 @@ export async function getDraw(accessToken: string, drawId: string): Promise<Draw
       participationId: String(w.participation_id),
       promotionPrizeId: String(w.promotion_prize_id),
       prizeName: String(w.prize_name),
+      allowsReturnToStock: w.allows_return_to_stock !== false,
+      receiptPath: (w.receipt_path as string | null) ?? null,
+      receiptErasedAt: (w.receipt_erased_at as string | null) ?? null,
       deadlineAt: (w.deadline_at as string | null) ?? null,
       status: String(w.status),
     })),

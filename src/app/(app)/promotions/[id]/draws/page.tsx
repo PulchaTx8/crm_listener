@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { getPromotionRecord, getPromotionStationId } from '@/services/promotions';
 import { DEFAULT_RUNNER_UP_COUNT, getDraw, listDraws } from '@/services/draws';
+import { signReceiptUrl } from '@/services/winners';
 import type { DrawDetail, DrawSummary } from '@/services/draws';
 import { getPromotionPowers } from '../../access';
 import { DrawsScreen } from './draws-screen';
@@ -59,6 +60,17 @@ export default async function PromotionDrawsPage({
     readError = 'Não foi possível ler os sorteios desta promoção.';
   }
 
+  // The bucket is private, so a path is not a link. One short-lived signed URL
+  // per receipt, minted here rather than on the client, which is what keeps it
+  // that way. A receipt that cannot be signed simply shows no link (the service
+  // returns null) rather than failing a screen whose other half still reads.
+  const receiptUrls: Record<string, string> = {};
+  for (const winner of detail?.winners ?? []) {
+    if (!winner.receiptPath) continue;
+    const url = await signReceiptUrl(token, winner.receiptPath);
+    if (url) receiptUrls[winner.id] = url;
+  }
+
   const linked = record.prizes
     .map((prize) => ({
       promotionPrizeId: prize.promotionPrizeId,
@@ -91,8 +103,16 @@ export default async function PromotionDrawsPage({
               detail={detail}
               linked={linked}
               defaultRunnerUpCount={DEFAULT_RUNNER_UP_COUNT}
+              companyId={companyId}
               canDraw={powers.drawsExecute}
               canCancel={powers.drawsCancel}
+              winnerPowers={{
+                deliver: powers.winnersDeliver,
+                deliverCancel: powers.winnersDeliverCancel,
+                return: powers.winnersReturn,
+                writeOff: powers.winnersWriteOff,
+              }}
+              receiptUrls={receiptUrls}
             />
           )}
         </CardContent>
