@@ -2706,6 +2706,37 @@ export type Database = {
           status: Database["public"]["Enums"]["company_status"]
         }[]
       }
+      list_participations: {
+        Args: {
+          p_answered_correctly?: boolean
+          p_company_id: string
+          p_cursor_at?: string
+          p_cursor_id?: string
+          p_from?: string
+          p_limit?: number
+          p_option_id?: string
+          p_promotion_id?: string
+          p_search?: string
+          p_source?: Database["public"]["Enums"]["participation_source"]
+          p_status?: Database["public"]["Enums"]["participation_status"]
+          p_to?: string
+          p_walking_back?: boolean
+        }
+        Returns: {
+          already_won: boolean
+          id: string
+          listener_cpf_last_digits: string
+          listener_name: string
+          listener_phone: string
+          member_id: string
+          participated_at: string
+          promotion_id: string
+          promotion_name: string
+          source: Database["public"]["Enums"]["participation_source"]
+          status: Database["public"]["Enums"]["participation_status"]
+          total_count: number
+        }[]
+      }
       list_promotion_prizes: {
         Args: { p_promotion_id: string }
         Returns: {

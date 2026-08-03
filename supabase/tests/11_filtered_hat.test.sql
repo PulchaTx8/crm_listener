@@ -1,5 +1,5 @@
 begin;
-select plan(23);
+select plan(40);
 
 -- Block 6c: the filtered hat.
 --
@@ -451,6 +451,213 @@ select public.run_draw((select wrong_allowed from hat_promos), null, null) as dr
 select ok(
   (select included_wrong_answers from public.draws d join wrong_draw w on w.draw_id = d.id),
   'the chief may draw it, and the draw records that the hat held wrong answers');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Task 5: the participants list, as one function.
+--
+-- The two new filters are the point of the change, but the keyset and the
+-- search worked BEFORE it and are being re-expressed in SQL. Testing only what
+-- is new would let this rewrite quietly regress the part nobody asked to
+-- change, so both are walked directly.
+
+select set_config('request.jwt.claims', null, true);
+
+-- A listener with a findable name, phone and document, in a promotion of its
+-- own so the paging assertions below count a known number of rows.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, min_hours_between_entries)
+values
+  ('00000000-0000-0000-0000-00000000c0e5', '00000000-0000-0000-0000-00000000c0f1',
+   '00000000-0000-0000-0000-00000000c0c1', 'Listing promo', now() - interval '9 days',
+   now() + interval '1 day', true, 1);
+
+insert into public.members (id, organization_id, full_name, phone, cpf_last_digits) values
+  ('00000000-0000-0000-0000-00000000c021', '00000000-0000-0000-0000-00000000c0f1',
+   'Findable Person', '+55 11 98888-7777', '321');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-00000000c021', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0f1');
+
+-- Five entries, one per day, so a page of two has a boundary to walk.
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+select ('00000000-0000-0000-0000-00000000c3' || lpad(g::text, 2, '0'))::uuid,
+       '00000000-0000-0000-0000-00000000c0e5', '00000000-0000-0000-0000-00000000c021',
+       '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c0c1',
+       true, 'VALID', 'MANUAL', now() - make_interval(days => g)
+from generate_series(1, 5) as g;
+
+-- Two operators: one who may read the audience, one who may not.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000c405', '00000000-0000-0000-0000-00000000c0f1', 'List with names'),
+  ('00000000-0000-0000-0000-00000000c406', '00000000-0000-0000-0000-00000000c0f1', 'List without names');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000c405', 'participations.view'),
+  ('00000000-0000-0000-0000-00000000c405', 'promotions.view'),
+  ('00000000-0000-0000-0000-00000000c405', 'members.view'),
+  ('00000000-0000-0000-0000-00000000c406', 'participations.view'),
+  ('00000000-0000-0000-0000-00000000c406', 'promotions.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000c407', 'list-names@example.test'),
+  ('00000000-0000-0000-0000-00000000c408', 'list-nonames@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000c407', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c405'),
+  ('00000000-0000-0000-0000-00000000c408', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c406');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c407", "role": "authenticated"}';
+
+-- The keyset, forwards ------------------------------------------------------
+
+create temporary table page_one as
+select * from public.list_participations(
+  '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+  null, null, null, null, null, null, null, null, null, false, 2);
+
+select is((select count(*)::int from page_one), 2, 'a page of two returns two rows');
+select is((select distinct total_count::int from page_one), 5,
+          'and the total counts the whole filtered set, not the page');
+-- Newest first, said as something that can be wrong: every row on this page is
+-- more recent than every row that did not make it.
+select is(
+  (select array_agg(id order by participated_at desc) from page_one),
+  array['00000000-0000-0000-0000-00000000c301'::uuid,
+        '00000000-0000-0000-0000-00000000c302'::uuid],
+  'the first page holds the two newest entries, in order');
+
+create temporary table page_two as
+select * from public.list_participations(
+  '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+  null, null, null, null, null, null, null,
+  (select min(participated_at) from page_one),
+  (select id from page_one order by participated_at limit 1),
+  false, 2);
+
+select is((select count(*)::int from page_two), 2, 'the next page returns the next two');
+select ok(not exists (select 1 from page_two t2 join page_one t1 on t1.id = t2.id),
+          'and no row appears on both pages: the cursor compares what it orders by');
+
+-- The keyset, backwards -----------------------------------------------------
+
+create temporary table walked_back as
+select * from public.list_participations(
+  '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+  null, null, null, null, null, null, null,
+  (select max(participated_at) from page_two),
+  (select id from page_two order by participated_at desc limit 1),
+  true, 2);
+
+select ok(exists (select 1 from walked_back w join page_one p on p.id = w.id),
+          'walking back from page two lands on page one again');
+
+-- The search ----------------------------------------------------------------
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+     null, null, null, null, 'Findable', null, null, null, null, false, 50)),
+  5, 'a search by name finds the entries');
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+     null, null, null, null, '98888', null, null, null, null, false, 50)),
+  5, 'a search by phone digits finds them too');
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+     null, null, null, null, '321', null, null, null, null, false, 50)),
+  5, 'and so does the document''s last digits');
+
+-- The two new filters -------------------------------------------------------
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e1',
+     null, null, null, null, null, true, null, null, null, false, 50)),
+  1, 'filtering to correct answerers returns only the one who got both right');
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e1',
+     null, null, null, null, null, false, null, null, null, false, 50)),
+  3, 'and filtering to the others returns the three who did not');
+
+-- D5: the two AND rather than widen. Somebody who answered correctly but chose
+-- a different option for the named question is absent from both together.
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e1',
+     null, null, null, null, null, true, '00000000-0000-0000-0000-00000000c122',
+     null, null, false, 50)),
+  0, 'correct AND chose the wrong option is nobody, because the filters add');
+
+select ok(
+  (select bool_or(already_won) from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e1',
+     null, null, null, null, null, null, null, null, null, false, 50)),
+  'the list says who has already won here, so a row that vanishes next round is accounted for');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c408", "role": "authenticated"}';
+
+-- Without members.view: the list still lists, the names do not come, and a
+-- search returns nothing rather than matching a field this caller cannot read.
+select ok(
+  (select count(*) = 5 and bool_and(listener_name is null)
+     from public.list_participations(
+       '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+       null, null, null, null, null, null, null, null, null, false, 50)),
+  'a caller without members.view sees every row and no name');
+
+select is(
+  (select count(*)::int from public.list_participations(
+     '00000000-0000-0000-0000-00000000c0c1', '00000000-0000-0000-0000-00000000c0e5',
+     null, null, null, null, 'Findable', null, null, null, null, false, 50)),
+  0, 'and their search returns nothing, because searching a field you may not read is an oracle');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000004ff", "role": "authenticated"}';
+
+select throws_ok($$
+  select * from public.list_participations('00000000-0000-0000-0000-00000000c0c1')
+$$, '42501', null, 'a stranger to the Station reads no list at all');
+
+reset role;
+
+-- The term the rewrite nearly lost. 0053's policy reads
+--   has_permission('participations.view', company_id)
+--   and promotion_id in (select id from public.promotions)
+-- and that second half is not decoration: public.promotions is itself behind
+-- RLS, so the policy silently required promotions.view too. A SECURITY DEFINER
+-- function gating on participations.view alone would be MORE permissive than
+-- the query it replaced.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000c409', '00000000-0000-0000-0000-00000000c0f1', 'Participations only');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000c409', 'participations.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000c40a', 'participations-only@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000c40a', '00000000-0000-0000-0000-00000000c0c1',
+   '00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-00000000c409');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000c40a", "role": "authenticated"}';
+
+select throws_ok($$
+  select * from public.list_participations('00000000-0000-0000-0000-00000000c0c1')
+$$, '42501', null,
+  'participations.view without promotions.view reads nothing, exactly as 0053''s policy already refused');
 
 reset role;
 
