@@ -22,9 +22,14 @@ import {
  * promotions screen that moment arrived with list_linkable_prizes.
  *
  * ValidationError is the one that is live rather than forward-looking, and it is
- * worth naming: mapParticipationError routes 22P02 there, and decodeCursor
- * accepts any non-empty string as a cursor's id, so a hand-edited `?after=`
- * reaches Postgres as `id.lt."abc"` and comes back with that code. Passing the
+ * worth naming: mapParticipationError routes 22P02 there, and this screen's own
+ * read still has a door to it — list_participations (0090) casts
+ * `p_promotion_id` and `p_option_id` to uuid, and neither the promotion nor the
+ * option filter is checked before the call, so a hand-edited `?promotion=` or
+ * `?option=` reaches Postgres and comes back with that code. decodeCursor used
+ * to be a second door here — it accepted any non-empty string as a cursor's
+ * id — until Block 6d put a uuid check inside it; every keyset screen,
+ * including this one, reads through the fixed function now. Passing the
  * message through rather than replacing it is right — it is the caller's value
  * that is wrong, not the request and not the server.
  *

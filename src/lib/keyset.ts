@@ -22,6 +22,16 @@ export function encodeCursor(cursor: Cursor): string {
   return Buffer.from(JSON.stringify({ value: cursor.value, id: cursor.id })).toString('base64url');
 }
 
+/**
+ * Every keyset caller in this codebase builds its cursor from a row's uuid
+ * primary key via `cursorFor`, without exception -- grep for `cursorFor:` and
+ * check for yourself, rather than trust a count written down here that the
+ * next screen added would make wrong. Anything else is a hand-edited
+ * `?after=`, and letting it through sent `id.lt."abc"` to Postgres, which
+ * answered 22P02.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Returns null for anything unreadable. A bad cursor means "start over", never an error page. */
 export function decodeCursor(raw: string | undefined | null): Cursor | null {
   if (!raw) return null;
@@ -29,7 +39,7 @@ export function decodeCursor(raw: string | undefined | null): Cursor | null {
     const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
     const { value, id } = parsed as Record<string, unknown>;
-    if (typeof id !== 'string' || id.length === 0) return null;
+    if (typeof id !== 'string' || !UUID.test(id)) return null;
     if (value !== null && typeof value !== 'string') return null;
     return { value, id };
   } catch {

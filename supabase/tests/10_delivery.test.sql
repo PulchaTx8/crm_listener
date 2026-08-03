@@ -446,8 +446,13 @@ select is(
 
 select ok(has_function_privilege('authenticated', 'public.deliver_prize(uuid, text)', 'EXECUTE'),
           'deliver_prize is a door');
+-- Block 6d, Task 2 gave this function a fourth parameter (p_deadline_at,
+-- default null) via drop-and-recreate, exactly as 0047 did to
+-- apply_inventory_movement; the three-argument signature this pinned no
+-- longer exists to be looked up, so the pin moves to the four-argument one.
+-- Still private either way -- that is the fact this assertion is about.
 select ok(not has_function_privilege('authenticated',
-            'public.apply_winner_transition(uuid, public.winner_status, text)', 'EXECUTE'),
+            'public.apply_winner_transition(uuid, public.winner_status, text, timestamptz)', 'EXECUTE'),
           'and the transition core behind it is private, like every rule body here');
 
 -- ---------------------------------------------------------------------------

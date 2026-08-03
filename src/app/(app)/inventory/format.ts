@@ -38,6 +38,12 @@ export const MOVEMENT_TYPE_LABELS: Record<InventoryMovementType, string> = {
   DELIVERY: 'Delivered to winner',
   DELIVERY_CANCEL: 'Delivery undone',
   RETURN_PENDING: 'Pending return',
+  // The inverse of RETURN_PENDING (0091/0092): the deadline reopen moves a
+  // unit from pending_return back to awaiting_pickup. This label was missing
+  // from the day the enum value landed (0091, Block 6d Task 1) because the
+  // generated types file this Record is checked against had not been
+  // regenerated since; Task 8 regenerates it and tsc surfaces the gap.
+  RETURN_PENDING_CANCEL: 'Deadline reopened',
   RETURN_TO_STOCK: 'Returned to stock',
   WRITE_OFF: 'Written off',
 };

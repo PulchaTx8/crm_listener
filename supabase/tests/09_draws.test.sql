@@ -17,12 +17,15 @@ select is(enum_range(null::public.draw_status)::text[],
           array['COMPLETED', 'CANCELLED'],
           'draw_status carries exactly the two states a draw can be in');
 
--- winner_status is created with the FULL set 6b will use, and this block writes
--- only AWAITING_PICKUP (spec 3.3). Asserting all five now is what stops 6b from
--- re-shaping a column that other rows already hold.
+-- 6a declared winner_status with five labels; 6c edited it in place and removed
+-- SUPERSEDED, leaving four. 6a's strategy was deliberate: declare the full set
+-- upfront so later blocks add behaviour rather than re-shape a column holding rows.
+-- 6d restores a fifth, RETURN_PENDING, because an expired deadline parks a prize
+-- in pending_return and that resting state needs a name. This exact-array
+-- assertion prevents a later block quietly re-shaping the column.
 select has_type('public', 'winner_status', 'the winner status enum exists');
 select is(enum_range(null::public.winner_status)::text[],
-          array['AWAITING_PICKUP', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF'],
+          array['AWAITING_PICKUP', 'RETURN_PENDING', 'DELIVERED', 'RETURNED', 'WRITTEN_OFF'],
           'winner_status carries what a prize can become, and SUPERSEDED is not among them');
 
 -- Existence ------------------------------------------------------------------

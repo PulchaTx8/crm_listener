@@ -84,23 +84,12 @@ export default async function ParticipationsPage({
 
   const state = parseParticipationListState(params, selected.id);
   const cursorParam = parseParticipationCursor(params);
-  // A cursor that is not base64-encoded JSON means "start from the beginning",
-  // never an error page — decodeCursor (@/lib/keyset) returns null for it.
-  //
-  // That is narrower than it used to claim here, and the difference is live.
-  // decodeCursor does not validate the id it decodes: a well-formed
-  // `{"value":null,"id":"abc"}` parses perfectly, reaches Postgres as
-  // `id.lt."abc"`, and comes back 22P02 — which mapParticipationError routes to
-  // ValidationError and describeParticipationsReadError (./errors.ts) renders
-  // VERBATIM, so this screen shows raw database text rather than starting from
-  // the beginning. The two comments in this directory disagreed about it and
-  // errors.ts had it right.
-  //
-  // Not fixed here on purpose. The fix is a uuid check inside decodeCursor
-  // itself, which is shared by every keyset screen in the application — the
-  // promotions list reaches the same 22P02 through the same door — so it is one
-  // change with four callers and it is the owner's to scope, not this screen's
-  // to work around locally.
+  // A bad cursor starts the list over rather than erroring — decodeCursor
+  // (@/lib/keyset) returns null for it, including for a well-formed
+  // `{"value":null,"id":"abc"}` whose id is not a uuid. That last case used to
+  // reach Postgres as `id.lt."abc"` and come back 22P02, which
+  // describeParticipationsReadError renders verbatim; Block 6d closed it in
+  // decodeCursor itself, where every keyset screen shares the fix.
   const cursor = decodeCursor(cursorParam?.value);
 
   // Read here rather than inside the try below, because `redirect` works by

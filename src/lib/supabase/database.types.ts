@@ -2396,6 +2396,7 @@ export type Database = {
       }
       apply_winner_transition: {
         Args: {
+          p_deadline_at?: string
           p_reason: string
           p_to: Database["public"]["Enums"]["winner_status"]
           p_winner_id: string
@@ -2706,6 +2707,37 @@ export type Database = {
           status: Database["public"]["Enums"]["company_status"]
         }[]
       }
+      list_movements: {
+        Args: {
+          p_company_id: string
+          p_cursor_at?: string
+          p_cursor_id?: string
+          p_from?: string
+          p_limit?: number
+          p_prize_id?: string
+          p_promotion_id?: string
+          p_to?: string
+          p_type?: Database["public"]["Enums"]["inventory_movement_type"]
+          p_walking_back?: boolean
+        }
+        Returns: {
+          actor_id: string
+          actor_name: string
+          created_at: string
+          from_bucket: Database["public"]["Enums"]["inventory_bucket"]
+          movement_id: string
+          movement_type: Database["public"]["Enums"]["inventory_movement_type"]
+          note: string
+          prize_id: string
+          prize_name: string
+          promotion_archived: boolean
+          promotion_id: string
+          promotion_name: string
+          quantity: number
+          to_bucket: Database["public"]["Enums"]["inventory_bucket"]
+          total_count: number
+        }[]
+      }
       list_participations: {
         Args: {
           p_answered_correctly?: boolean
@@ -2735,6 +2767,33 @@ export type Database = {
           source: Database["public"]["Enums"]["participation_source"]
           status: Database["public"]["Enums"]["participation_status"]
           total_count: number
+        }[]
+      }
+      list_pickups: {
+        Args: {
+          p_company_id: string
+          p_cursor_at?: string
+          p_cursor_id?: string
+          p_limit?: number
+          p_promotion_id?: string
+          p_search?: string
+          p_status?: Database["public"]["Enums"]["winner_status"]
+          p_walking_back?: boolean
+        }
+        Returns: {
+          allows_return_to_stock: boolean
+          deadline_at: string
+          draw_status: Database["public"]["Enums"]["draw_status"]
+          member_id: string
+          member_name: string
+          member_phone: string
+          prize_id: string
+          prize_name: string
+          promotion_id: string
+          promotion_name: string
+          status: Database["public"]["Enums"]["winner_status"]
+          total_count: number
+          winner_id: string
         }[]
       }
       list_promotion_prizes: {
@@ -2933,6 +2992,10 @@ export type Database = {
       remove_member: { Args: { p_membership_id: string }; Returns: undefined }
       remove_promotion_question: {
         Args: { p_question_id: string }
+        Returns: undefined
+      }
+      reopen_pickup_deadline: {
+        Args: { p_deadline_at: string; p_reason: string; p_winner_id: string }
         Returns: undefined
       }
       reserve_stock: {
@@ -3138,6 +3201,7 @@ export type Database = {
         | "DELIVERY"
         | "DELIVERY_CANCEL"
         | "RETURN_PENDING"
+        | "RETURN_PENDING_CANCEL"
         | "RETURN_TO_STOCK"
         | "WRITE_OFF"
       invitation_status: "pending" | "accepted" | "revoked"
@@ -3165,6 +3229,7 @@ export type Database = {
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       winner_status:
         | "AWAITING_PICKUP"
+        | "RETURN_PENDING"
         | "DELIVERED"
         | "RETURNED"
         | "WRITTEN_OFF"
@@ -3327,6 +3392,7 @@ export const Constants = {
         "DELIVERY",
         "DELIVERY_CANCEL",
         "RETURN_PENDING",
+        "RETURN_PENDING_CANCEL",
         "RETURN_TO_STOCK",
         "WRITE_OFF",
       ],
@@ -3357,6 +3423,7 @@ export const Constants = {
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       winner_status: [
         "AWAITING_PICKUP",
+        "RETURN_PENDING",
         "DELIVERED",
         "RETURNED",
         "WRITTEN_OFF",

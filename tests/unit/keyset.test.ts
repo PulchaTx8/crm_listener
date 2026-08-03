@@ -97,24 +97,32 @@ describe('keysetFilter', () => {
 });
 
 describe('keysetPage', () => {
+  // Real ids, not the letters they stand for: cursorFor below round-trips
+  // every cursor through the real decodeCursor, which -- since Block 6d --
+  // refuses an id that is not a uuid, the same as every one of this
+  // function's actual callers passes.
+  const A = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const B = 'bbbbbbbb-0000-0000-0000-000000000002';
+  const C = 'cccccccc-0000-0000-0000-000000000003';
+  const D = 'dddddddd-0000-0000-0000-000000000004';
   const rows = (...ids: string[]) => ids.map((id) => ({ id, value: id }));
   const cursorFor = (row: { id: string; value: string }) => ({ value: row.value, id: row.id });
   const decode = (raw: string | null) => (raw === null ? null : decodeCursor(raw));
 
   it('first page, more to come: Next only', () => {
-    const page = keysetPage(rows('a', 'b', 'c'), {
+    const page = keysetPage(rows(A, B, C), {
       pageSize: 2,
       walkingBack: false,
       hadCursor: false,
       cursorFor,
     });
-    expect(page.rows.map((r) => r.id)).toEqual(['a', 'b']);
-    expect(decode(page.nextCursor)).toEqual({ value: 'b', id: 'b' });
+    expect(page.rows.map((r) => r.id)).toEqual([A, B]);
+    expect(decode(page.nextCursor)).toEqual({ value: B, id: B });
     expect(page.previousCursor).toBeNull();
   });
 
   it('first page, nothing beyond it: neither control', () => {
-    const page = keysetPage(rows('a', 'b'), {
+    const page = keysetPage(rows(A, B), {
       pageSize: 2,
       walkingBack: false,
       hadCursor: false,
@@ -128,52 +136,52 @@ describe('keysetPage', () => {
   // sees. Rendering it would show pageSize + 1 rows and then repeat the last
   // one at the top of the next page.
   it('never renders the row it over-fetched', () => {
-    const page = keysetPage(rows('a', 'b', 'c'), {
+    const page = keysetPage(rows(A, B, C), {
       pageSize: 2,
       walkingBack: false,
       hadCursor: false,
       cursorFor,
     });
     expect(page.rows).toHaveLength(2);
-    expect(page.rows.map((r) => r.id)).not.toContain('c');
+    expect(page.rows.map((r) => r.id)).not.toContain(C);
   });
 
   it('a later page offers Previous even when nothing follows it', () => {
-    const page = keysetPage(rows('c', 'd'), {
+    const page = keysetPage(rows(C, D), {
       pageSize: 2,
       walkingBack: false,
       hadCursor: true,
       cursorFor,
     });
     expect(page.nextCursor).toBeNull();
-    expect(decode(page.previousCursor)).toEqual({ value: 'c', id: 'c' });
+    expect(decode(page.previousCursor)).toEqual({ value: C, id: C });
   });
 
   // Walking back reads the ordering in reverse, so the rows arrive backwards
   // and have to be turned around before anyone sees them.
   it('walking back: rows come out in display order, and Next always exists', () => {
-    const page = keysetPage(rows('d', 'c', 'b'), {
+    const page = keysetPage(rows(D, C, B), {
       pageSize: 2,
       walkingBack: true,
       hadCursor: true,
       cursorFor,
     });
-    expect(page.rows.map((r) => r.id)).toEqual(['c', 'd']);
-    expect(decode(page.nextCursor)).toEqual({ value: 'd', id: 'd' });
-    // The over-fetched 'b' proves a page still exists behind this one.
-    expect(decode(page.previousCursor)).toEqual({ value: 'c', id: 'c' });
+    expect(page.rows.map((r) => r.id)).toEqual([C, D]);
+    expect(decode(page.nextCursor)).toEqual({ value: D, id: D });
+    // The over-fetched B proves a page still exists behind this one.
+    expect(decode(page.previousCursor)).toEqual({ value: C, id: C });
   });
 
   it('walking back onto the first page: Previous disappears', () => {
-    const page = keysetPage(rows('b', 'a'), {
+    const page = keysetPage(rows(B, A), {
       pageSize: 2,
       walkingBack: true,
       hadCursor: true,
       cursorFor,
     });
-    expect(page.rows.map((r) => r.id)).toEqual(['a', 'b']);
+    expect(page.rows.map((r) => r.id)).toEqual([A, B]);
     expect(page.previousCursor).toBeNull();
-    expect(decode(page.nextCursor)).toEqual({ value: 'b', id: 'b' });
+    expect(decode(page.nextCursor)).toEqual({ value: B, id: B });
   });
 
   it('no rows at all: no controls, and nothing thrown', () => {

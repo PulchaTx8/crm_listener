@@ -128,6 +128,14 @@ export default async function PromotionDrawsPage({
                 deliverCancel: powers.winnersDeliverCancel,
                 return: powers.winnersReturn,
                 writeOff: powers.winnersWriteOff,
+                // Deliberately false here, not a permission lookup: reopening a
+                // deadline (0093) needs a NEW deadline, and this screen has no
+                // field to collect one. Block 6d Task 9 builds the Pickups
+                // screen -- the one place with a date beside the reason -- and
+                // wires winners.reopen_deadline there. Offering the button here
+                // ahead of that field would only ever produce a click that
+                // fails.
+                reopenDeadline: false,
               }}
               receiptUrls={receiptUrls}
             />

@@ -37,7 +37,34 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // themselves regardless of that redirect. Hiding a link is a courtesy;
       // the boundary is in the database.
       label: 'Inventory',
-      items: [{ href: '/inventory', label: 'Inventory', icon: ICONS.box }],
+      items: [
+        // Same href as before Block 6d, Task 10 — only the label changed,
+        // from 'Inventory' to 'Stock', so no existing href anywhere breaks.
+        // The accessible name DID change, and did break one thing that
+        // selected on it: tests/e2e/inventory-flow.spec.ts's own
+        // getByRole('link', { name: ... }) had to be updated from 'Inventory'
+        // to 'Stock' alongside this rename. 'Inventory' is now the SECTION
+        // name, one level up, and having both the section and its first item
+        // spell the same word read as one link rendered twice; 'Stock' is
+        // what this item actually lists.
+        { href: '/inventory', label: 'Stock', icon: ICONS.box },
+        // Block 6d, Task 10. /inventory/movements redirects nobody by
+        // itself — it opens on whichever Station listCompanyAccess resolves
+        // inventory.view in, the same courtesy the item above already
+        // extends — and list_movements (0096) re-checks that permission
+        // itself regardless. ICONS.inbox rather than ICONS.box: this Record
+        // has no dedicated ledger/list glyph, so the choice is among what
+        // already exists, and reusing box here — the ROW DIRECTLY ABOVE, in
+        // this SAME section — is exactly the case the Audience section's own
+        // ticket/megaphone comment warns against (one icon on two adjacent
+        // rows reads as one link rendered twice). inbox's tray-with-a-flow
+        // shape is otherwise idle in this section (its only other use is
+        // Platform > Contact requests, a different section entirely, the
+        // same non-adjacency that already lets box itself serve both
+        // Inventory and Pickups) and reads reasonably as things moving in
+        // and out, which a stock ledger is.
+        { href: '/inventory/movements', label: 'Movements', icon: ICONS.inbox },
+      ],
     },
     {
       // Visible to every member, including those holding members.view
@@ -74,6 +101,17 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       label: 'Promotions',
       items: [
         { href: '/promotions', label: 'Promotions', icon: ICONS.megaphone },
+        // Block 6d, Task 9. /pickups redirects nobody by itself — it opens on
+        // whichever Station listCompanyAccess resolves promotions.view in,
+        // the same courtesy every item in this section already extends — and
+        // list_pickups (0095) re-checks that permission itself regardless.
+        // ICONS.box rather than a new path: it is the box/package shape
+        // ICONS already declares for Inventory, and reusing it here is
+        // unlike the ticket/megaphone case just above — those two sit on
+        // adjacent ROWS OF THIS SAME SECTION, where one icon on both would
+        // read as one link rendered twice, while Inventory is a different
+        // section entirely, so the two never appear side by side.
+        { href: '/pickups', label: 'Pickups', icon: ICONS.box },
       ],
     },
     {
