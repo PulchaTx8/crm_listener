@@ -139,6 +139,13 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/members.test.ts', minTests: 21 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
+  // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for
+  // free on list_pickups -- another Station refused, an archived promotion's
+  // winners hidden, names withheld without members.view, and the search
+  // oracle shut off with them. Same reasoning as list_participations' own
+  // entry below: pgTAP cannot see any of the four, only a real second user
+  // under a real, narrower grant can.
+  { path: 'tests/isolation/pickups.test.ts', minTests: 4 },
   { path: 'tests/isolation/promotion-prizes.test.ts', minTests: 29 },
   { path: 'tests/isolation/promotions.test.ts', minTests: 21 },
   { path: 'tests/isolation/provisional-password.test.ts', minTests: 4 },
