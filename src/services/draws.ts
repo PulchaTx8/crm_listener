@@ -94,6 +94,18 @@ export async function runDraw(
   input: {
     promotionId: string;
     units: DrawUnitRequest[] | null;
+    /**
+     * Block 6c: the hat, named. Null is 6a's behaviour — every eligible
+     * participation, resolved at draw time — and a list is the set the operator
+     * approved on the participants screen.
+     *
+     * Sent as a list rather than as the filters that produced it, and the
+     * difference is the whole of D3: the ids are captured when the operator
+     * looks, so a participation recorded in the seconds between looking and
+     * drawing is not silently added, and one that has since become ineligible
+     * refuses the draw instead of being dropped out of it.
+     */
+    participationIds?: string[] | null;
   },
 ): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('run_draw', {
@@ -109,6 +121,15 @@ export async function runDraw(
             quantity: unit.quantity,
           }))
         : null,
+    // The same reading of empty as above, and here it is load-bearing rather
+    // than tidy: run_draw reads an empty array as "no list was supplied" and
+    // would draw the whole promotion. A caller whose filter matched nobody must
+    // never reach that, so an empty hat is refused before this function is
+    // called (collectDrawHat) and undefined is what an absent list looks like.
+    p_participation_ids:
+      input.participationIds && input.participationIds.length > 0
+        ? input.participationIds
+        : undefined,
   });
 
   if (error) throw mapDrawError(error.code, error.message);

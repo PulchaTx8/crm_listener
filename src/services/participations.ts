@@ -196,6 +196,111 @@ export async function listParticipationsPage(
   };
 }
 
+/**
+ * The most participations one hat may name.
+ *
+ * There is a ceiling because the ids travel — out of the database into a server
+ * action's result, into the browser, back through a second action and into a
+ * `uuid[]` — and a set with no upper bound would eventually meet a limit
+ * somewhere in that chain with no sentence attached to it. Five thousand at
+ * thirty-seven bytes is under two hundred kilobytes, comfortably inside Next's
+ * one-megabyte action body, and larger than any single promotion this product
+ * has been asked to draw.
+ *
+ * Reaching it REFUSES rather than drawing the first five thousand, which is D3
+ * applied to this end of the wire: a hat quietly cut to a size nobody chose is
+ * exactly the draw an operator would go on describing as "everyone who
+ * answered".
+ */
+export const DRAW_HAT_MAX = 5000;
+
+export interface DrawHat {
+  /** The participations this hat names, in the list's own order. */
+  participationIds: string[];
+  /** Rows the filters matched whose listener has already won here, left out and counted. */
+  alreadyWon: number;
+  /** Rows the filters matched that are not VALID, left out and counted. */
+  notValid: number;
+  /** Everything the filters matched, drawable or not — what the list's own footer says. */
+  matched: number;
+}
+
+/**
+ * The hat the participants screen proposes: every row the operator's filters
+ * match, minus the ones a draw cannot take.
+ *
+ * TWO exclusions happen here and they are not the database being second-guessed.
+ * A row that is not VALID and a listener who has already won in this promotion
+ * are both visible on the screen — the status badge and the "Won here" column —
+ * and both are refused by `draw_eligible_participations` (0076). Sending them
+ * would refuse every draw made from the default filters the moment a promotion
+ * has a second round, so they are dropped HERE and COUNTED, and the dialog says
+ * how many and why before the operator approves anything. That is what
+ * separates this from the silent narrowing D3 forbids: the number the operator
+ * agrees to is the number that goes in.
+ *
+ * What is NOT dropped here is anything the screen cannot see — a listener
+ * blocked or erased since the page rendered. Those still reach `run_draw` and
+ * still refuse it with `22023`, which is the "the list has moved, refresh it"
+ * case D3 was written for.
+ *
+ * Read through the same function the list reads, with the same arguments, so
+ * the set the operator looked at and the set that goes in the hat cannot be
+ * assembled by two different queries.
+ */
+export async function collectDrawHat(
+  params: Omit<ParticipationListParams, 'cursor' | 'cursorSide'>,
+  accessToken: string,
+): Promise<DrawHat> {
+  const term = params.search?.trim().slice(0, PARTICIPATION_SEARCH_MAX_LENGTH) || undefined;
+
+  const { data, error } = await asCaller(accessToken).rpc('list_participations', {
+    p_company_id: params.companyId,
+    p_promotion_id: params.promotionId,
+    p_status: params.status,
+    p_source: params.source,
+    p_from: params.from,
+    p_to: params.to,
+    p_search: term,
+    p_answered_correctly: params.answeredCorrectly,
+    p_option_id: params.optionId,
+    // No cursor: a hat is the whole filtered set and not the page the operator
+    // happens to be standing on. One past the ceiling, so a set that is too big
+    // can say so rather than arriving already trimmed.
+    p_limit: DRAW_HAT_MAX + 1,
+  });
+
+  if (error) throw mapParticipationError(error.code, error.message);
+
+  const rows = data ?? [];
+  if (rows.length > DRAW_HAT_MAX) {
+    throw new ValidationError(
+      `These filters match more than ${DRAW_HAT_MAX} entries, which is more than one hat can name. Narrow the list, or draw among everybody from the promotion's own draws screen.`,
+    );
+  }
+
+  const hat: DrawHat = {
+    participationIds: [],
+    alreadyWon: 0,
+    notValid: 0,
+    matched: rows.length,
+  };
+
+  for (const row of rows) {
+    if (row.status !== 'VALID') {
+      hat.notValid += 1;
+      continue;
+    }
+    if (row.already_won) {
+      hat.alreadyWon += 1;
+      continue;
+    }
+    hat.participationIds.push(row.id);
+  }
+
+  return hat;
+}
+
 export interface PromotionParticipationCounts {
   /** In the draw. */
   valid: number;

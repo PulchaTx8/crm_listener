@@ -194,7 +194,16 @@ export function hasActiveParticipationFilters(state: ParticipationListState): bo
       state.source ||
       state.from ||
       state.to ||
-      state.search,
+      state.search ||
+      // Block 6c's two. `!== undefined` rather than truthy, because `false` is a
+      // filter here — "answered wrongly" — and reading it as "not set" would
+      // leave the one narrowing that hides the most rows with no control that
+      // undoes it. Both need a promotion, so in practice the first term is
+      // already true whenever these are; they are named anyway, because a
+      // clearing rule that depends on another filter's presence is a rule that
+      // breaks the day the promotion requirement moves.
+      state.answeredCorrectly !== undefined ||
+      state.optionId,
   );
 }
 

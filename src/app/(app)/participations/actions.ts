@@ -6,18 +6,24 @@ import { logger } from '@/lib/logger';
 import { importRowSchema, participationFormSchema } from '@/schemas/participations';
 import type { ImportRowInput } from '@/schemas/participations';
 import {
+  collectDrawHat,
   importParticipations,
   recordParticipation,
   resolveOrCreateMember,
   searchStationListeners,
 } from '@/services/participations';
 import type {
+  DrawHat,
   ImportParticipationsResult,
   ParticipationStatus,
   StationListenerPage,
 } from '@/services/participations';
+import { getDraw, runDraw } from '@/services/draws';
+import type { DrawUnitRequest } from '@/services/draws';
 import { getPromotionStationId } from '@/services/promotions';
 import { describeParticipationsReadError, describeParticipationsWriteError } from './errors';
+import { ANY_STATUS } from './list-params';
+import type { ParticipationListState } from './list-params';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately — the same rule
@@ -400,5 +406,131 @@ export async function importParticipationsAction(
       status: 'error',
       message: describeParticipationsWriteError(cause, 'import entries into this promotion'),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Block 6c: the draw, run from the list the operator filtered.
+//
+// Two actions rather than one, and the split is the decision. The hat is
+// collected when the dialog OPENS and drawn when the operator presses the
+// button, so the set they approved is the set that goes in — a participation
+// recorded in between is not quietly added, and a listener blocked in between
+// refuses the draw with 22023 instead of being dropped out of it. One action
+// that re-read the filters at draw time would be a different product: the
+// operator would be approving a description of a hat rather than a hat.
+// ---------------------------------------------------------------------------
+
+/**
+ * The filters, as the browser hands them back. The screen's own
+ * `ParticipationListState` minus nothing — it is already a plain object of
+ * scalars, and re-declaring a narrower one here is how the two would drift.
+ */
+export type DrawHatResult =
+  | { status: 'ok'; hat: DrawHat }
+  | { status: 'error'; message: string };
+
+export async function prepareDrawHatAction(state: ParticipationListState): Promise<DrawHatResult> {
+  if (!state.promotionId) {
+    return { status: 'error', message: 'Choose a promotion before drawing.' };
+  }
+
+  const token = await requireAccessToken();
+  try {
+    const hat = await collectDrawHat(
+      {
+        companyId: state.companyId,
+        promotionId: state.promotionId,
+        // ANY_STATUS is the URL's word for "do not narrow", and the service has
+        // no such value — the same translation page.tsx makes for the list, made
+        // here rather than imported from it because both read the one constant.
+        status: state.status === ANY_STATUS ? undefined : state.status,
+        source: state.source,
+        from: state.from,
+        to: state.to,
+        search: state.search,
+        answeredCorrectly: state.answeredCorrectly,
+        optionId: state.optionId,
+      },
+      token,
+    );
+    return { status: 'ok', hat };
+  } catch (cause) {
+    logger.error(
+      { err: cause, promotionId: state.promotionId },
+      'could not collect the hat for a draw',
+    );
+    return { status: 'error', message: describeParticipationsReadError(cause, 'these entries') };
+  }
+}
+
+/** One winner, as the panel announces it — enough to read out loud, no more. */
+export interface DrawnWinner {
+  awardedRank: number;
+  prizeName: string;
+  listenerName: string | null;
+}
+
+export type RunDrawFromListResult =
+  | { status: 'ok'; drawId: string; winners: DrawnWinner[] }
+  | { status: 'error'; message: string };
+
+/**
+ * The hat goes in as ids. `run_draw` validates every one of them against
+ * `draw_eligible_participations` and refuses the whole draw if any has moved
+ * (D3), so this action does not pre-check them a second time — a check here
+ * would be a second definition of who is eligible, which is what 0076 exists to
+ * prevent.
+ *
+ * No revalidatePath, per this file's own rule at the top: this screen's content
+ * is a keyset page, and re-running it would throw away the operator's place in
+ * the list they just drew from. The winners come back in the result instead,
+ * and the panel links to the draw's own record for everything else.
+ */
+export async function runDrawFromListAction(
+  promotionId: string,
+  units: DrawUnitRequest[] | null,
+  participationIds: string[],
+): Promise<RunDrawFromListResult> {
+  if (participationIds.length === 0) {
+    return {
+      status: 'error',
+      message: 'Nobody in this list can be drawn. Widen the filters and try again.',
+    };
+  }
+
+  const token = await requireAccessToken();
+  let drawId: string;
+  try {
+    drawId = await runDraw(token, { promotionId, units, participationIds });
+  } catch (cause) {
+    logger.error(
+      { err: cause, promotionId, hat: participationIds.length },
+      'run_draw from the participants list failed',
+    );
+    return {
+      status: 'error',
+      message: describeParticipationsWriteError(cause, 'run a draw in this promotion'),
+    };
+  }
+
+  // The draw is DONE by this point, so a failure to read it back is reported as
+  // what it is — the winners could not be shown — rather than as a draw that did
+  // not happen. Telling an operator their draw failed when prizes have already
+  // moved is the one wrong answer available here.
+  try {
+    const detail = await getDraw(token, drawId);
+    return {
+      status: 'ok',
+      drawId,
+      winners: detail.winners.map((winner) => ({
+        awardedRank: winner.awardedRank,
+        prizeName: winner.prizeName,
+        listenerName: winner.memberName,
+      })),
+    };
+  } catch (cause) {
+    logger.error({ err: cause, drawId }, 'the draw ran but could not be read back');
+    return { status: 'ok', drawId, winners: [] };
   }
 }

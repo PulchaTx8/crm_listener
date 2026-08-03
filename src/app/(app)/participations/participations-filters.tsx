@@ -41,6 +41,26 @@ export interface PromotionOption {
 }
 
 /**
+ * One question of the SELECTED promotion, with the options somebody could have
+ * chosen — the second half of D5's filter.
+ *
+ * A question with no options is not carried: the filter is over
+ * `participation_answers.option_id`, so an essay has nothing to offer here. The
+ * list is empty whenever no promotion is chosen, which is what makes the control
+ * disappear rather than render a picker of nothing.
+ */
+export interface QuestionFilterOption {
+  id: string;
+  label: string;
+}
+
+export interface QuestionFilterGroup {
+  id: string;
+  prompt: string;
+  options: QuestionFilterOption[];
+}
+
+/**
  * A click, reduced to the facts that decide whether it will navigate this
  * document. `href` is null when the click was not inside an anchor at all.
  */
@@ -121,6 +141,7 @@ export function ParticipationsFilters({
   currentHref,
   timeZone,
   promotions,
+  questions,
   canSearchByListener,
 }: {
   state: ParticipationListState;
@@ -135,6 +156,11 @@ export function ParticipationsFilters({
   /** The Station's zone, so the day the operator picks is that Station's day. */
   timeZone: string;
   promotions: PromotionOption[];
+  /**
+   * The selected promotion's questions that have options, or an empty list when
+   * no promotion is selected. The page reads them; this row only renders them.
+   */
+  questions: QuestionFilterGroup[];
   /**
    * Whether the listener search is available to this caller at all. It is a
    * different permission from the rest of the screen — see ./access.ts — and the
@@ -336,6 +362,18 @@ export function ParticipationsFilters({
     router.replace(href as Route);
   }
 
+  // What the two answer filters may offer, decided in one place and read three
+  // times below — the two controls and the sentence that stands in for them.
+  // @/lib/participations/answer-filter holds the rules rather than this file,
+  // because a rendering decision that can be wrong in the operator's favour
+  // ("offer a filter that narrows to everybody") is worth unit tests, and a
+  // client component's JSX is not where those go.
+  const answers = answerFilterState({
+    promotionId: state.promotionId,
+    promotionHasQuiz: promotions.some((p) => p.id === state.promotionId && p.hasQuiz),
+    promotionHasOptions: questions.some((question) => question.options.length > 0),
+  });
+
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="participations-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
@@ -381,20 +419,33 @@ export function ParticipationsFilters({
       </label>
 
       {/*
+        Said rather than left blank. Both answer filters need a promotion — a
+        question belongs to one, and so does a right answer — so an operator who
+        was told this screen can filter by what people answered would otherwise
+        stand in front of a row that simply does not have it, with nothing
+        naming the one click that brings it back.
+      */}
+      {answers.reason ? (
+        <p
+          className="self-end pb-2 text-xs text-muted-foreground"
+          data-testid="participation-answer-filter-note"
+        >
+          {answers.reason}
+        </p>
+      ) : null}
+
+      {/*
         Block 6c. Rendered only where there is something to be right about:
         answerFilterState needs a promotion (a right answer belongs to one) and
-        needs that promotion to ask a QUIZ. A poll has questions and no gabarito,
-        and a correct/wrong control there would offer a choice with one outcome.
+        needs that promotion to ask a QUIZ. A poll has questions and no right
+        answer, and a correct/wrong control there would offer a choice with one
+        outcome.
 
         'Any' is a third state rather than a default, and it matters: on a
         promotion with a quiz, drawing without narrowing is exactly the case that
         needs draws.include_wrong_answers (0078).
       */}
-      {answerFilterState({
-        promotionId: state.promotionId,
-        promotionHasQuiz: promotions.some((p) => p.id === state.promotionId && p.hasQuiz),
-        promotionHasOptions: false,
-      }).correctnessAvailable ? (
+      {answers.correctnessAvailable ? (
         <label className="flex w-44 flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Quiz answer</span>
           <Select
@@ -412,6 +463,40 @@ export function ParticipationsFilters({
             <option value="">Any answer</option>
             <option value="yes">Answered correctly</option>
             <option value="no">Answered wrongly</option>
+          </Select>
+        </label>
+      ) : null}
+
+      {/*
+        D5's second filter, and the one that works where the first cannot: a poll
+        has no right answer, but "who chose this option" is a question worth
+        drawing on. Grouped by question, because an option label on its own —
+        "Yes", "The blue one" — names nothing an operator can pick from
+        confidently when a promotion asks more than one thing.
+
+        It ANDs with the correctness filter above (D5), which is why picking an
+        option somebody answered correctly and an option they did not can leave
+        the list empty: that is two conditions, not two lists added together, and
+        list_participations (0090) narrows exactly the same way.
+      */}
+      {answers.optionsAvailable ? (
+        <label className="flex w-56 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Chose</span>
+          <Select
+            value={state.optionId ?? ''}
+            onChange={(e) => navigate({ optionId: e.target.value || undefined })}
+            data-testid="participation-option-filter"
+          >
+            <option value="">Any option</option>
+            {questions.map((question) => (
+              <optgroup key={question.id} label={question.prompt}>
+                {question.options.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           </Select>
         </label>
       ) : null}
