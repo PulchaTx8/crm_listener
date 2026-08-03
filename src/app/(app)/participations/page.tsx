@@ -89,7 +89,7 @@ export default async function ParticipationsPage({
   // `{"value":null,"id":"abc"}` whose id is not a uuid. That last case used to
   // reach Postgres as `id.lt."abc"` and come back 22P02, which
   // describeParticipationsReadError renders verbatim; Block 6d closed it in
-  // decodeCursor itself, where all six keyset screens share the fix.
+  // decodeCursor itself, where every keyset screen shares the fix.
   const cursor = decodeCursor(cursorParam?.value);
 
   // Read here rather than inside the try below, because `redirect` works by

@@ -23,8 +23,10 @@ export function encodeCursor(cursor: Cursor): string {
 }
 
 /**
- * Every screen's cursor id is a row's uuid primary key -- `cursorFor` puts one
- * there in all six callers, without exception. Anything else is a hand-edited
+ * Every keyset caller in this codebase builds its cursor from a row's uuid
+ * primary key via `cursorFor`, without exception -- grep for `cursorFor:` and
+ * check for yourself, rather than trust a count written down here that the
+ * next screen added would make wrong. Anything else is a hand-edited
  * `?after=`, and letting it through sent `id.lt."abc"` to Postgres, which
  * answered 22P02.
  */
