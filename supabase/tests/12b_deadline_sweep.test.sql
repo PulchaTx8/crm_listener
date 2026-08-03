@@ -6,7 +6,7 @@
 --   ERROR: invalid transaction termination
 -- So this file builds its fixture, runs, asserts, and deletes what it made.
 
-select plan(10);
+select plan(14);
 
 -- ---------------------------------------------------------------------------
 -- SELF-HEALING: the same cleanup this file runs at the bottom, run again here
@@ -58,6 +58,11 @@ delete from public.members where organization_id = '00000000-0000-0000-0000-0000
 delete from public.audit_logs where company_id = '00000000-0000-0000-0000-00000000d1c2';
 delete from public.companies where id = '00000000-0000-0000-0000-00000000d1c2';
 delete from public.organizations where id = '00000000-0000-0000-0000-00000000d1f2';
+
+-- The cancellation actor the cancelled-draw fixture needs, cleaned up here
+-- too: this file does not roll back, and it is the only auth.users row it
+-- ever creates.
+delete from auth.users where id = '00000000-0000-0000-0000-00000000d1ab';
 
 -- Pinned so a future migration cannot quietly re-grant EXECUTE to
 -- service_role and reintroduce the silent no-op finding 1 of the first
@@ -210,6 +215,126 @@ select is(
     where movement_type = 'RETURN_PENDING'
       and prize_id = '00000000-0000-0000-0000-00000000d1d1'),
   1, 'and emits no second movement');
+
+-- ---------------------------------------------------------------------------
+-- THE CANCELLED-DRAW FIXTURE, inserted between the first fixture above and
+-- the poison fixture below rather than after it: at this point Overdue 6d has
+-- already left AWAITING_PICKUP and nothing else in this Station is due, so
+-- the extra sweep call this section adds cannot reprocess anything the
+-- assertions above already checked, and it runs before the poison fixture
+-- breaks a balance on purpose. A winner whose DRAW was cancelled, built the way
+-- cancel_draw (0079) actually leaves one: its unit reversed back to `linked`
+-- through the same apply_inventory_movement call cancel_draw itself makes,
+-- draws.status set to CANCELLED, and winners.status left UNTOUCHED at
+-- AWAITING_PICKUP -- 6a had no vocabulary for "un-awarded", and 0079's own
+-- header says so. Before this block that combination was inert. It is not
+-- any more: sweep_pickup_deadlines selects on winners.status alone, so
+-- without the join this task's review added, this winner matches every
+-- clause (AWAITING_PICKUP, a real deadline, overdue) while its actual unit
+-- sits in `linked`, not `awaiting_pickup` -- and NOTHING else in this Station
+-- holds a live unit of this prize, so a naive sweep would fail this winner's
+-- movement (balance CHECK, insufficient awaiting_pickup), count it as
+-- failed, and this procedure's own end-of-loop guard would raise. This file
+-- has no ON_ERROR_STOP toggle here (unlike the poison fixture below, which
+-- adds one because IT expects the raise): a regression that dropped the
+-- join would abort THIS script at the CALL two statements down, and every
+-- assertion after it -- including the whole poison fixture -- would never
+-- run, which is exactly the mutation check this task's report records by
+-- hand. Same Station as the first fixture (...00d1c1): every id below is
+-- already covered by that fixture's own cleanup, except the cancelling
+-- actor, cleaned up separately above and below.
+
+insert into public.prizes (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000d1d4', '00000000-0000-0000-0000-00000000d1f1',
+   '00000000-0000-0000-0000-00000000d1c1', 'Cancelled draw prize 6d sweep');
+
+insert into public.inventory_balances (company_id, prize_id, organization_id, available)
+values ('00000000-0000-0000-0000-00000000d1c1', '00000000-0000-0000-0000-00000000d1d4',
+        '00000000-0000-0000-0000-00000000d1f1', 1);
+
+insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
+values ('00000000-0000-0000-0000-00000000d1a4', '00000000-0000-0000-0000-00000000d1e1',
+        '00000000-0000-0000-0000-00000000d1d4', '00000000-0000-0000-0000-00000000d1f1',
+        '00000000-0000-0000-0000-00000000d1c1');
+
+select public.apply_inventory_movement(
+  '00000000-0000-0000-0000-00000000d1c1'::uuid, '00000000-0000-0000-0000-00000000d1d4'::uuid,
+  'PROMOTION_LINK'::public.inventory_movement_type, 1,
+  'available'::public.inventory_bucket, 'linked'::public.inventory_bucket,
+  null, null, '00000000-0000-0000-0000-00000000d1a4'::uuid);
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-00000000d117', '00000000-0000-0000-0000-00000000d1f1', 'CancelledDraw 6d');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-00000000d117', '00000000-0000-0000-0000-00000000d1c1',
+   '00000000-0000-0000-0000-00000000d1f1');
+
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-00000000d127', '00000000-0000-0000-0000-00000000d1e1',
+   '00000000-0000-0000-0000-00000000d117', '00000000-0000-0000-0000-00000000d1f1',
+   '00000000-0000-0000-0000-00000000d1c1', false, 'VALID', 'MANUAL', now() - interval '1 hour');
+
+select public.apply_draw(
+  '00000000-0000-0000-0000-00000000d1e1'::uuid,
+  '00000000-0000-0000-0000-00000000d1f1'::uuid,
+  '00000000-0000-0000-0000-00000000d1c1'::uuid,
+  jsonb_build_array(jsonb_build_object(
+    'promotion_prize_id', '00000000-0000-0000-0000-00000000d1a4', 'quantity', 1)),
+  array['00000000-0000-0000-0000-00000000d127']::uuid[]);
+
+update public.winners set deadline_at = now() - interval '1 day'
+  where id = pg_temp.winner_of('CancelledDraw 6d');
+
+-- The reversal cancel_draw itself performs -- awaiting_pickup back to
+-- linked, through the ledger's one writer -- BEFORE draws.status is touched,
+-- the same order cancel_draw's own body uses.
+select public.apply_inventory_movement(
+  '00000000-0000-0000-0000-00000000d1c1'::uuid, '00000000-0000-0000-0000-00000000d1d4'::uuid,
+  'DRAW_CANCEL'::public.inventory_movement_type, 1,
+  'awaiting_pickup'::public.inventory_bucket, 'linked'::public.inventory_bucket,
+  null, 'fixture:cancel-draw-mirror',
+  '00000000-0000-0000-0000-00000000d1a4'::uuid);
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000d1ab', 'sweep-canceller@example.test');
+
+update public.draws set
+  status = 'CANCELLED',
+  cancelled_at = now(),
+  cancelled_by = '00000000-0000-0000-0000-00000000d1ab',
+  cancellation_reason = 'fixture: mirrors cancel_draw for the sweep exclusion case'
+where id = (select draw_id from public.winners where id = pg_temp.winner_of('CancelledDraw 6d'));
+
+-- Nothing else in this Station is currently due (Overdue 6d already
+-- RETURN_PENDING, InTime/NoDeadline not due, Delivered not AWAITING_PICKUP
+-- at all) -- so this call's candidate set is exactly {CancelledDraw 6d} under
+-- the join, and empty under it.
+call public.sweep_pickup_deadlines();
+
+-- Reached only if the CALL above did not raise. Under the unfixed query
+-- (verified by mutation, recorded in the task report) this line is never
+-- executed at all: the CALL raises 'pickup deadline sweep: 1 of 1 due
+-- winner(s) failed', ON_ERROR_STOP aborts the script here, and pg_prove
+-- reports every assertion below as never run.
+select pass('the sweep did not raise for a winner whose draw was cancelled');
+
+select is((select status::text from public.winners where id = pg_temp.winner_of('CancelledDraw 6d')),
+  'AWAITING_PICKUP', 'the cancelled draw''s winner is untouched -- it is not awaiting anything, but the sweep did not touch it either');
+
+select is(
+  (select awaiting_pickup from public.inventory_balances
+    where company_id = '00000000-0000-0000-0000-00000000d1c1'
+      and prize_id = '00000000-0000-0000-0000-00000000d1d4'),
+  0, 'nothing moved into pending_return: the unit was already back in linked');
+
+select is(
+  (select linked from public.inventory_balances
+    where company_id = '00000000-0000-0000-0000-00000000d1c1'
+      and prize_id = '00000000-0000-0000-0000-00000000d1d4'),
+  1, 'and the unit reversed by the cancellation stayed exactly where it was left');
 
 -- ---------------------------------------------------------------------------
 -- THE SECOND FIXTURE, for D6. A SECOND Station, ...00d1c2, with two overdue
@@ -479,3 +604,6 @@ delete from public.members where organization_id = '00000000-0000-0000-0000-0000
 delete from public.audit_logs where company_id = '00000000-0000-0000-0000-00000000d1c2';
 delete from public.companies where id = '00000000-0000-0000-0000-00000000d1c2';
 delete from public.organizations where id = '00000000-0000-0000-0000-00000000d1f2';
+
+-- The cancellation actor the cancelled-draw fixture created.
+delete from auth.users where id = '00000000-0000-0000-0000-00000000d1ab';

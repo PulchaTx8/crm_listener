@@ -38,6 +38,21 @@
 --     so the same predicate is restated here, through the same helper 0044
 --     names -- not a second expression of "who may see an archived row".
 --
+-- A FIFTH predicate sits beside those four, and it is NOT a fifth rule RLS
+-- used to apply -- winners_select_by_promotion_view (0075) never looked at
+-- draws.status either, so RLS never hid this. It is a fact about what
+-- AWAITING_PICKUP means after 0079: cancel_draw reverses the unit from
+-- awaiting_pickup back to linked and marks the DRAW cancelled, but -- by 6a's
+-- own design, 0079's header quotes it directly ("6a has no vocabulary for
+-- un-awarded") -- it leaves winners.status untouched at AWAITING_PICKUP.
+-- Before this block that was inert: nothing read those rows as live. This
+-- function is the first thing that does, so a winner whose draw was
+-- CANCELLED is excluded from the candidate set below -- it is not awaiting
+-- anything, whatever the column still says, and showing it here would let an
+-- operator try to hand over a prize that was already un-awarded.
+-- sweep_pickup_deadlines (0094) carries the identical exclusion for the
+-- identical reason, and its own header spells out what happens without it.
+--
 -- Nulls last, and the ordering and the cursor filter agree on it in as many
 -- words as keysetFilter's own contract (src/lib/keyset.ts) uses: deadline_at
 -- is nullable and the null means a winner with no deadline at all (0075), so
@@ -114,6 +129,13 @@ begin
      where w.company_id = p_company_id
        -- RULE 4. THE ONE BLOCK 6C LOST FOR FIVE COMMITS.
        and (pr.deleted_at is null or public.is_owner_of_company(pr.company_id))
+       -- THE FIFTH FACT, NOT A FIFTH RULE. A cancelled draw's winner is not
+       -- awaiting anything: cancel_draw (0079) already reversed its unit back
+       -- to linked and left winners.status at AWAITING_PICKUP on purpose (6a
+       -- had no vocabulary for "un-awarded"). Without this line the row would
+       -- list as a real pickup, and an operator could try to deliver a prize
+       -- that was already un-awarded.
+       and d.status <> 'CANCELLED'
        and (p_status is null       or w.status = p_status)
        and (p_promotion_id is null or pr.id = p_promotion_id)
        and (v_search is null       or m.full_name ilike '%' || v_search || '%'
@@ -187,7 +209,7 @@ end;
 $$;
 
 comment on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) is
-  'One keyset page of the pickups list: every winner across every promotion of a Station, soonest deadline first (nulls -- no deadline at all -- last), with the status and promotion filters and a listener search the screen carries. SECURITY DEFINER, so what RLS used to do is done here by hand, in four rules: (1) promotions.view or a 42501 rather than an empty page (winners_select_by_promotion_view, 0075); (2) the listener''s name and phone returned only to a caller holding members.view -- without it the list still lists, every row, with those two null; (3) a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle (0090 argues this in full for the participants list); (4) an archived promotion''s winners hidden from everybody but the platform admin and the Organization''s owner, through the same is_owner_of_company predicate 0044''s policy names -- the exact rule Block 6c''s list_participations lost for five commits, caught only by tests/isolation. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
+  'One keyset page of the pickups list: every winner across every promotion of a Station, soonest deadline first (nulls -- no deadline at all -- last), with the status and promotion filters and a listener search the screen carries. SECURITY DEFINER, so what RLS used to do is done here by hand, in four rules: (1) promotions.view or a 42501 rather than an empty page (winners_select_by_promotion_view, 0075); (2) the listener''s name and phone returned only to a caller holding members.view -- without it the list still lists, every row, with those two null; (3) a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle (0090 argues this in full for the participants list); (4) an archived promotion''s winners hidden from everybody but the platform admin and the Organization''s owner, through the same is_owner_of_company predicate 0044''s policy names -- the exact rule Block 6c''s list_participations lost for five commits, caught only by tests/isolation. Plus a fifth fact that is not a fifth rule: a winner whose draw was CANCELLED is excluded outright, because cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and RLS never hid that either -- this function is simply the first reader to treat AWAITING_PICKUP as "live" and so the first that has to say so. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
 
 revoke execute on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) from public;
 grant execute on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) to authenticated;

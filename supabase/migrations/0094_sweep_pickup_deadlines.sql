@@ -106,12 +106,45 @@ begin
   -- the select list needs, is not a column the index carries. (The plan
   -- above, quoted from the measurement, says "Index Scan," not "Index Only
   -- Scan," which is the same fact independently.)
-  select array_agg(id order by deadline_at)
+  --
+  -- THE JOIN TO draws AND `d.status <> 'CANCELLED'` ARE NOT OPTIONAL, and were
+  -- added after this sweep shipped once already, in review. cancel_draw
+  -- (0079) reverses a cancelled draw's winners from awaiting_pickup back to
+  -- linked, but -- 6a had no vocabulary for "un-awarded" -- it leaves
+  -- winners.status at AWAITING_PICKUP on purpose. Before this block existed
+  -- that was inert: nothing read those rows as live. This sweep does, and
+  -- without this join a cancelled draw's winner matches every clause above
+  -- (AWAITING_PICKUP, a real deadline, overdue) while its actual unit already
+  -- sits in linked, not awaiting_pickup. Both ways that goes are bad and NEITHER
+  -- announces itself as this predicate's absence:
+  --   * if nothing else holds a live unit of that prize, awaiting_pickup is 0
+  --     and apply_inventory_movement's own balance CHECK refuses the move --
+  --     caught by the handler below, counted as a failure, and this
+  --     procedure's own end-of-loop raise (added for the cron.job_run_details
+  --     finding) marks the hourly run failed. The winner never leaves
+  --     AWAITING_PICKUP, so it is due again on every future run: not a
+  --     one-off failure but a job that reports failed EVERY HOUR, FOREVER;
+  --   * if some OTHER, genuinely live winner holds a real unit of the same
+  --     prize, awaiting_pickup is positive and the move SUCCEEDS -- silently
+  --     spending that live winner's unit against the cancelled draw's phantom
+  --     row. winners.status transitions for the phantom (which owns no real
+  --     unit); the balance is debited for a unit that, per the ledger, belongs
+  --     to somebody else entirely. No exception, no WARNING, nothing in
+  --     job_run_details -- the run reports success. The live winner's own row
+  --     is untouched and still says AWAITING_PICKUP, but the aggregate balance
+  --     no longer agrees, and the desync surfaces later, at delivery, looking
+  --     like an unrelated failure with no link back to this sweep.
+  -- Demonstrated by mutation while fixing this (temporarily dropping the join,
+  -- reproducing each branch, restoring it) -- the report for the task that
+  -- added this join has the reproduction and its output.
+  select array_agg(w.id order by w.deadline_at)
     into v_ids
-    from public.winners
-   where status = 'AWAITING_PICKUP'
-     and deadline_at is not null
-     and deadline_at <= now();
+    from public.winners w
+    join public.draws d on d.id = w.draw_id
+   where w.status = 'AWAITING_PICKUP'
+     and w.deadline_at is not null
+     and w.deadline_at <= now()
+     and d.status <> 'CANCELLED';
 
   if v_ids is null then
     raise notice 'pickup deadline sweep: nothing due';
@@ -169,7 +202,7 @@ end;
 $$;
 
 comment on procedure public.sweep_pickup_deadlines() is
-  'Moves every winner whose frozen pickup deadline has passed to RETURN_PENDING, and its unit from awaiting_pickup to pending_return, where it rests until an operator returns it or writes it off. Scheduled hourly; deadlines are day-grained so an hour of latency is the whole cost. Skips a null deadline_at, which means this winner has no deadline at all rather than one of zero days (0075). Re-running is safe and not because this is careful: apply_winner_transition refuses any source that is not AWAITING_PICKUP, so twice in an hour and once after a week of downtime give the same result. Commits after each winner so that one whose movement is refused cannot roll back every other Station''s expirations, then raises if any winner failed -- after every succeeded winner is already committed, so this destroys no work, and it exists only so cron.job_run_details can distinguish a clean run from one with real failures, which the per-winner WARNING alone cannot: that lands in the server log, not in job_run_details. Records no actor -- auth.uid() is null under pg_cron and all three actor columns are nullable -- which is honest: nobody did this, the deadline did.';
+  'Moves every winner whose frozen pickup deadline has passed to RETURN_PENDING, and its unit from awaiting_pickup to pending_return, where it rests until an operator returns it or writes it off. Scheduled hourly; deadlines are day-grained so an hour of latency is the whole cost. Skips a null deadline_at, which means this winner has no deadline at all rather than one of zero days (0075). Skips a winner whose DRAW was cancelled too: cancel_draw (0079) reverses the unit back to linked but deliberately leaves winners.status at AWAITING_PICKUP, and without this exclusion such a winner either fails this sweep every hour forever (no live unit left to move) or, worse, silently spends a genuinely live winner''s unit on the same prize with no error at all -- both reproduced and recorded against the task that added this line. Re-running is safe and not because this is careful: apply_winner_transition refuses any source that is not AWAITING_PICKUP, so twice in an hour and once after a week of downtime give the same result. Commits after each winner so that one whose movement is refused cannot roll back every other Station''s expirations, then raises if any winner failed -- after every succeeded winner is already committed, so this destroys no work, and it exists only so cron.job_run_details can distinguish a clean run from one with real failures, which the per-winner WARNING alone cannot: that lands in the server log, not in job_run_details. Records no actor -- auth.uid() is null under pg_cron and all three actor columns are nullable -- which is honest: nobody did this, the deadline did.';
 
 -- Owner-only: EXECUTE is revoked from public and granted to nobody else, the
 -- convention this schema uses for every other SECURITY INVOKER writer. See

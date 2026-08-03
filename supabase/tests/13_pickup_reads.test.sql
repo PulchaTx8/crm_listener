@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(11);
 
 -- Block 6d, Task 5: the pickups list, as one function.
 --
@@ -16,6 +16,12 @@ select plan(10);
 -- oracle all need a REAL second user with a REAL, narrower grant to mean
 -- anything, which is exactly what pgTAP -- a single unauthenticated or
 -- single-role session per statement -- cannot cheaply set up twice over.
+--
+-- Case 11 is the exception: a cancelled draw's winner is a fact pgTAP CAN
+-- see on its own, because it is not gated on who is asking. It was added in
+-- this task's own review round, alongside the identical exclusion in
+-- sweep_pickup_deadlines (0094) -- see that migration's header for what
+-- happens without it.
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000d2f1', 'Org 6d pickups');
@@ -136,6 +142,66 @@ values
    '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2a2',
    '00000000-0000-0000-0000-00000000d216', '00000000-0000-0000-0000-00000000d226',
    1, 'AWAITING_PICKUP', now() + interval '10 days');
+
+-- ---------------------------------------------------------------------------
+-- A THIRD promotion, holding exactly one winner whose DRAW was cancelled --
+-- built by hand into the shape cancel_draw (0079) actually leaves, rather
+-- than through cancel_draw itself (which needs an authenticated actor holding
+-- draws.cancel, and what is under test here is the READ, not the cancellation
+-- door): draws.status = CANCELLED with the three facts
+-- draws_cancellation_shape requires, and winners.status left UNTOUCHED at
+-- AWAITING_PICKUP -- 6a had no vocabulary for "un-awarded", 0079's own header
+-- says so in as many words. Its own promotion, separate from A and B, so a
+-- regression here cannot hide behind the paging fixture's own counts.
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at)
+values
+  ('00000000-0000-0000-0000-00000000d2e3', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', 'List promo C (cancelled draw)',
+   now() - interval '9 days', now() + interval '1 day');
+
+insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
+values
+  ('00000000-0000-0000-0000-00000000d2a3', '00000000-0000-0000-0000-00000000d2e3',
+   '00000000-0000-0000-0000-00000000d2d1', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-00000000d217', '00000000-0000-0000-0000-00000000d2f1', 'Listener Seven');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-00000000d217', '00000000-0000-0000-0000-00000000d2c1',
+   '00000000-0000-0000-0000-00000000d2f1');
+
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple,
+   status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-00000000d228', '00000000-0000-0000-0000-00000000d2e3',
+   '00000000-0000-0000-0000-00000000d217', '00000000-0000-0000-0000-00000000d2f1',
+   '00000000-0000-0000-0000-00000000d2c1', false, 'VALID', 'MANUAL', now() - interval '7 hours');
+
+-- draws_cancellation_shape (0075) requires a real actor for cancelled_by.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000d2aa', 'pickup-list-canceller@example.test');
+
+insert into public.draws
+  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count,
+   offered_count, status, cancelled_at, cancelled_by, cancellation_reason)
+values
+  ('00000000-0000-0000-0000-00000000d233', '00000000-0000-0000-0000-00000000d2e3',
+   '00000000-0000-0000-0000-00000000d2f1', '00000000-0000-0000-0000-00000000d2c1',
+   repeat('3', 64), 1, 1, 1, 'CANCELLED', now(), '00000000-0000-0000-0000-00000000d2aa',
+   'fixture: proves a cancelled draw''s winner does not list as a pickup');
+
+insert into public.winners
+  (id, draw_id, company_id, promotion_prize_id, member_id, participation_id,
+   awarded_rank, status, deadline_at)
+values
+  ('00000000-0000-0000-0000-00000000d2b7', '00000000-0000-0000-0000-00000000d233',
+   '00000000-0000-0000-0000-00000000d2c1', '00000000-0000-0000-0000-00000000d2a3',
+   '00000000-0000-0000-0000-00000000d217', '00000000-0000-0000-0000-00000000d228',
+   1, 'AWAITING_PICKUP', now() + interval '1 day');
 
 -- ---------------------------------------------------------------------------
 -- Case 1: the permission, first, and a refusal rather than an empty page.
@@ -286,11 +352,33 @@ select ok(
 -- Case 10. No promotion filter spans the whole Station, not one promotion --
 -- the product requirement itself ("every prize awaiting collection across
 -- all of a Station's promotions"), not merely the promotion filter's absence.
+--
+-- Still 6, not 7, even though a SEVENTH winner now exists (promo C's,
+-- below) -- which makes this count a second, independent witness to Case 11:
+-- if the cancelled-draw exclusion regressed, this assertion would go red too,
+-- for a different-sounding reason pointing at the same root cause.
 
 select is(
   (select count(*)::int from public.list_pickups(
      '00000000-0000-0000-0000-00000000d2c1', null, null, null, null, null, false, 50)),
   6, 'with no promotion named, the list spans every promotion of the Station');
+
+-- ---------------------------------------------------------------------------
+-- Case 11. THE FIFTH FACT, NOT A FIFTH RULE. A winner whose draw was
+-- CANCELLED does not list, whatever winners.status still says. Scoped to
+-- promo C, which holds exactly one winner and no other: a non-zero count
+-- here can only be that one row. This is the Critical gap this task's own
+-- review round found and fixed -- cancel_draw (0079) reverses the unit but
+-- deliberately leaves winners.status at AWAITING_PICKUP (6a had no
+-- vocabulary for "un-awarded"), and RLS never hid this either
+-- (winners_select_by_promotion_view does not look at draws.status): before
+-- this block, that combination was inert.
+
+select is(
+  (select count(*)::int from public.list_pickups(
+     '00000000-0000-0000-0000-00000000d2c1', null, '00000000-0000-0000-0000-00000000d2e3',
+     null, null, null, false, 50)),
+  0, 'a winner whose draw was cancelled does not list, whatever winners.status still says');
 
 reset role;
 
