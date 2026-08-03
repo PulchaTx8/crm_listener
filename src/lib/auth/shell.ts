@@ -49,7 +49,20 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // regardless of that redirect. Hiding a link is a courtesy; the
       // boundary is in the database.
       label: 'Audience',
-      items: [{ href: '/members', label: 'Members', icon: ICONS.headphones }],
+      items: [
+        { href: '/members', label: 'Members', icon: ICONS.headphones },
+        // Moved here from Promotions in Block 6c, on the owner's ruling: this
+        // is the listing of PEOPLE taking part, and it is where the draw is
+        // run from, so it belongs beside the audience rather than beside the
+        // promotions it happens to reference. The courtesy is unchanged:
+        // /participations redirects at the top of its own page for anyone
+        // holding participations.view in no Station, 0053's policies and
+        // list_participations' own two-permission gate (0090) filter every
+        // read regardless, and the write RPCs re-check has_permission in their
+        // own bodies (0054). Hiding a link is a courtesy; the boundary is in
+        // the database.
+        { href: '/participations', label: 'Participations', icon: ICONS.ticket },
+      ],
     },
     {
       // Visible to every member, on the same courtesy the two sections above
@@ -61,20 +74,6 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       label: 'Promotions',
       items: [
         { href: '/promotions', label: 'Promotions', icon: ICONS.megaphone },
-        // Same section as the promotions it belongs to, and same courtesy the
-        // three sections above extend: /participations redirects at the top of
-        // its own page for anyone holding participations.view in no Station,
-        // 0053's select policies filter every read underneath regardless of
-        // that redirect, and record_participation and import_participations
-        // re-check has_permission in their own SECURITY DEFINER bodies before
-        // writing anything (0054). Hiding a link is a courtesy; the boundary is
-        // in the database.
-        //
-        // Added here rather than in Task 7, which built the screen and left it
-        // reachable only by typing the URL because this file was outside its
-        // file list — it flagged that rather than reaching for it, which is
-        // why this line exists at all.
-        { href: '/participations', label: 'Participations', icon: ICONS.ticket },
       ],
     },
     {
