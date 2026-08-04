@@ -2408,6 +2408,57 @@ export type Database = {
           },
         ]
       }
+      station_message_templates: {
+        Row: {
+          body: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          key: Database["public"]["Enums"]["system_message_key"]
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          key: Database["public"]["Enums"]["system_message_key"]
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          key?: Database["public"]["Enums"]["system_message_key"]
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "station_message_templates_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "station_message_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       storage_erasure_queue: {
         Row: {
           attempts: number
@@ -3824,6 +3875,17 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+      system_message_key:
+        | "REFUSAL"
+        | "ABANDON"
+        | "FULL_NAME"
+        | "ADDRESS"
+        | "CITY"
+        | "NEIGHBOURHOOD"
+        | "AGE"
+        | "CPF"
+        | "PASSPORT"
+        | "DISCOVERY_SOURCE"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       winner_status:
         | "AWAITING_PICKUP"
@@ -4022,6 +4084,18 @@ export const Constants = {
         "cpf",
         "passport",
         "discovery_source",
+      ],
+      system_message_key: [
+        "REFUSAL",
+        "ABANDON",
+        "FULL_NAME",
+        "ADDRESS",
+        "CITY",
+        "NEIGHBOURHOOD",
+        "AGE",
+        "CPF",
+        "PASSPORT",
+        "DISCOVERY_SOURCE",
       ],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       winner_status: [
