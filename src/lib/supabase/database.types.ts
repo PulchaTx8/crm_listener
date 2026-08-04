@@ -1102,6 +1102,60 @@ export type Database = {
           },
         ]
       }
+      music_merges: {
+        Row: {
+          children_moved: number
+          company_id: string
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["music_merge_kind"]
+          loser_id: string
+          merged_by: string | null
+          organization_id: string
+          reason: string
+          winner_id: string
+        }
+        Insert: {
+          children_moved: number
+          company_id: string
+          created_at?: string
+          id?: string
+          kind: Database["public"]["Enums"]["music_merge_kind"]
+          loser_id: string
+          merged_by?: string | null
+          organization_id: string
+          reason: string
+          winner_id: string
+        }
+        Update: {
+          children_moved?: number
+          company_id?: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["music_merge_kind"]
+          loser_id?: string
+          merged_by?: string | null
+          organization_id?: string
+          reason?: string
+          winner_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "music_merges_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "music_merges_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       music_requests: {
         Row: {
           channel: Database["public"]["Enums"]["music_request_channel"]
@@ -3263,6 +3317,10 @@ export type Database = {
           member_id: string
         }[]
       }
+      music_merge_table: {
+        Args: { p_kind: Database["public"]["Enums"]["music_merge_kind"] }
+        Returns: string
+      }
       music_reference_table: {
         Args: { p_kind: Database["public"]["Enums"]["music_reference_kind"] }
         Returns: string
@@ -3659,6 +3717,7 @@ export type Database = {
         | "subject_request"
         | "court_order"
         | "internal_policy"
+      music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
       music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
       music_request_channel: "MANUAL" | "IMPORT"
@@ -3856,6 +3915,7 @@ export const Constants = {
         "court_order",
         "internal_policy",
       ],
+      music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
       music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
       music_request_channel: ["MANUAL", "IMPORT"],

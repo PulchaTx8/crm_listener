@@ -6,7 +6,12 @@ import { z } from 'zod';
  * — the reasoning schemas/inventory.ts sets out for its own.
  */
 
-/** The four short lists 0100's music_reference_kind carries. NOT 7b's merge kinds, which drop SHOW and add SONG. */
+/**
+ * The four short lists 0100's music_reference_kind carries. Not the merge's
+ * kinds (MUSIC_MERGE_KINDS below): that set adds SONG and keeps SHOW, after
+ * the owner ruled for merge_shows on 2026-08-04. This line used to say the
+ * merge would drop SHOW, which 0105 corrects at the database as well.
+ */
 export const MUSIC_REFERENCE_KINDS = ['GENRE', 'LABEL', 'ARTIST', 'SHOW'] as const;
 export type MusicReferenceKind = (typeof MUSIC_REFERENCE_KINDS)[number];
 
