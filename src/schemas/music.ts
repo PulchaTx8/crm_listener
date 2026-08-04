@@ -122,3 +122,79 @@ export const songUpdateSchema = songFormSchema
   .extend({ songId: z.string().uuid() });
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
+
+/** The five 0105's music_merge_kind carries. Shows are here on the owner's 2026-08-04 ruling. */
+export const MUSIC_MERGE_KINDS = ['SONG', 'ARTIST', 'LABEL', 'GENRE', 'SHOW'] as const;
+export type MusicMergeKind = (typeof MUSIC_MERGE_KINDS)[number];
+
+export const MUSIC_REQUEST_CHANNELS = ['MANUAL', 'IMPORT'] as const;
+
+/**
+ * A reason has to fit in a sentence somebody will read in six months.
+ * `text` in Postgres has no length of its own, so the bound is here.
+ */
+export const MERGE_REASON_MAX_LENGTH = 300;
+
+/**
+ * Mirrors 0106's three refusals, so each arrives as a field-level message
+ * instead of a round trip: a blank reason, an empty loser list, and a survivor
+ * named among the losers.
+ *
+ * The duplicate collapse is here as well as in the core. The core dedupes
+ * because a repeated id would archive one record and write two history rows
+ * claiming different child counts for it; this dedupes because a checkbox list
+ * that somehow submits the same id twice should not depend on the database to
+ * be correct about it.
+ */
+export const mergeFormSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    kind: z.enum(MUSIC_MERGE_KINDS),
+    winnerId: z.string().uuid('Choose which record stays.'),
+    loserIds: z
+      .array(z.string().uuid())
+      .min(1, 'Choose at least one record to absorb.')
+      .transform((ids) => [...new Set(ids)]),
+    reason: z
+      .string()
+      .trim()
+      .min(1, 'Say why these are the same record.')
+      .max(MERGE_REASON_MAX_LENGTH),
+  })
+  .refine((v) => !v.loserIds.includes(v.winnerId), {
+    message: 'The record that stays cannot also be one of the ones being absorbed.',
+    path: ['winnerId'],
+  });
+
+export type MergeFormInput = z.infer<typeof mergeFormSchema>;
+
+/**
+ * Manual entry, which has two shapes because Block 3's deduplication has two:
+ * the operator either picked a listener from the search results (`memberId`)
+ * or typed enough to find-or-create one (`fullName` and at least one
+ * identifier). resolveOrCreateMember (services/participations.ts) is what
+ * turns the second into the first, and the form calls it before the request
+ * door — the same two doors record-participation-form.tsx already has.
+ *
+ * D5: `songId` is required and there is no free-text alternative. A request
+ * points at a catalogued song or it is not recorded.
+ */
+export const requestFormSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    songId: z.string().uuid('Choose a song — a request never points at free text.'),
+    showId: optionalUuid,
+    memberId: optionalUuid,
+    requestedAt: optionalText(40),
+    fullName: optionalText(160),
+    phone: optionalText(40),
+    email: optionalText(160),
+    cpf: optionalText(20),
+    passport: optionalText(40),
+  })
+  .refine((v) => Boolean(v.memberId) || Boolean(v.fullName), {
+    message: 'Pick a listener, or give a name to register one.',
+    path: ['memberId'],
+  });
+
+export type RequestFormInput = z.infer<typeof requestFormSchema>;
