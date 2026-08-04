@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
@@ -136,7 +137,7 @@ export default async function InventoryPage({
           {viewable.map((company) => (
             <Link
               key={company.id}
-              href={{ pathname: '/inventory', query: { companyId: company.id } }}
+              href={stationSwitchHref('/inventory', company.id, stationSearch)}
               aria-current={company.id === selected.id ? 'page' : undefined}
               className={
                 company.id === selected.id

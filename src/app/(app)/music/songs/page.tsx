@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
@@ -136,20 +137,7 @@ export default async function SongsPage({
           {viewable.map((company) => (
             <Link
               key={company.id}
-              // `station` carried only when a search is active — never as an
-              // empty parameter — the same conditional stationSearch is
-              // applied with everywhere else on this screen (songHref).
-              // Dropping it here would let this ONE link fall back to the
-              // unfiltered, capped Station list on the next render
-              // (listCompanyAccess with no search, page.tsx's own
-              // `viewable.find(...) ?? first`), silently landing the
-              // operator on a different Station's catalogue whenever the
-              // clicked Station was only reachable through the search that
-              // got them here.
-              href={{
-                pathname: '/music/songs',
-                query: { companyId: company.id, ...(stationSearch ? { station: stationSearch } : {}) },
-              }}
+              href={stationSwitchHref('/music/songs', company.id, stationSearch)}
               aria-current={company.id === selected.id ? 'page' : undefined}
               className={
                 company.id === selected.id

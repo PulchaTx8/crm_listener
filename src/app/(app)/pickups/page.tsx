@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import type { WinnerPowers } from '@/components/draws/winner-actions';
@@ -201,7 +202,7 @@ export default async function PickupsPage({
           {viewable.map((company) => (
             <Link
               key={company.id}
-              href={{ pathname: '/pickups', query: { companyId: company.id } }}
+              href={stationSwitchHref('/pickups', company.id, stationSearch)}
               aria-current={company.id === selected.id ? 'page' : undefined}
               className={
                 company.id === selected.id
