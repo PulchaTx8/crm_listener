@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(41);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -208,6 +208,31 @@ values
   ('00000000-0000-0000-0000-00000000e4a9', '00000000-0000-0000-0000-00000000e4f1',
    '00000000-0000-0000-0000-00000000e4c9', 'WHATSAPP', '5511900000900', true);
 
+-- Fix round 1: two more Stations. e4c6 registers a TWO-placeholder template,
+-- for the re-substitution guard (e4c1's one-placeholder template cannot show
+-- it: the loop only ever runs once against it). e4c7 registers a
+-- FIXED-TEXT template with no {{n}} at all — a real, Meta-approved shape
+-- (Task 2) that a variable-count check alone does not exercise.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000e4c6', '00000000-0000-0000-0000-00000000e4f1',
+   'Station templates two vars', 'America/Sao_Paulo'),
+  ('00000000-0000-0000-0000-00000000e4c7', '00000000-0000-0000-0000-00000000e4f1',
+   'Station templates zero vars', 'America/Sao_Paulo');
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-00000000e4a6', '00000000-0000-0000-0000-00000000e4f1',
+   '00000000-0000-0000-0000-00000000e4c6', 'WHATSAPP', '5511900000600', true),
+  ('00000000-0000-0000-0000-00000000e4a7', '00000000-0000-0000-0000-00000000e4f1',
+   '00000000-0000-0000-0000-00000000e4c7', 'WHATSAPP', '5511900000700', true);
+insert into public.message_templates
+  (organization_id, company_id, purpose, name, language, body)
+values
+  ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c6',
+   'PICKUP_REMINDER', 'Lembrete duas variáveis', 'pt_BR', 'Oi {{1}}, prêmio {{2}}'),
+  ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c7',
+   'PICKUP_REMINDER', 'Lembrete fixo', 'pt_BR', 'Seu prêmio já está te esperando!');
+
 -- 22-24: the three columns exist, and only as a triple.
 select has_column('public', 'outbox_messages', 'template_name',
                   'the outbox can name the template a row sends');
@@ -308,6 +333,56 @@ select ok(
     'public.enqueue_whatsapp_outbound(uuid, text, text, jsonb, text, public.template_purpose, jsonb)',
     'EXECUTE'),
   'service_role may still call enqueue_whatsapp_outbound under its new signature');
+
+-- Fix round 1 -------------------------------------------------------------
+
+-- 37: THE IMPORTANT ONE. A fixed-text (zero-placeholder) template sent with
+-- p_template_variables omitted used to pass validation -- coalesce(
+-- jsonb_array_length(null), 0) = 0 matches an expected count of zero -- and
+-- then fail the INSERT on outbox_messages_template_shape with a bare 23514,
+-- because template_name/template_language were non-null beside a null
+-- template_variables. The enqueue said yes and the insert said no.
+select lives_ok($$
+  select public.enqueue_whatsapp_outbound(
+    '00000000-0000-0000-0000-00000000e4a7', '5511911111107', 'unused',
+    null, 'zero-var:test', 'PICKUP_REMINDER')
+$$, 'a zero-placeholder template sent with no variables at all is accepted, not refused by its own shape constraint');
+
+-- 38-39: and it is accepted CORRECTLY — the fixed body verbatim, and
+-- template_variables coalesced to an empty array rather than left null.
+select is(
+  (select body from public.outbox_messages where dedupe_key = 'zero-var:test'),
+  'Seu prêmio já está te esperando!',
+  'the fixed-text body is stored unchanged, with nothing to substitute');
+select is(
+  (select template_variables from public.outbox_messages where dedupe_key = 'zero-var:test'),
+  '[]'::jsonb,
+  'template_variables is coalesced to an empty array, keeping outbox_messages_template_shape satisfied');
+
+-- 40: MINOR 1, treated as the serious one. A value substituted at {{1}} that
+-- itself contains the literal text "{{2}}" must not be re-substituted when
+-- the loop reaches index 2 — Meta takes parameter values literally, and a
+-- naive replace()-per-placeholder run against a mutating body would corrupt
+-- exactly this case (and iterating in reverse would not fix it: the
+-- vulnerable index just moves). e4c6's template has two placeholders, which
+-- e4c1's one-placeholder template cannot exercise.
+select public.enqueue_whatsapp_outbound(
+  '00000000-0000-0000-0000-00000000e4a6', '5511911111108', 'unused',
+  null, 'no-resubstitution:test', 'PICKUP_REMINDER',
+  '["diga {{2}} para mim", "Maria"]'::jsonb);
+
+select is(
+  (select body from public.outbox_messages where dedupe_key = 'no-resubstitution:test'),
+  'Oi diga {{2}} para mim, prêmio Maria',
+  'a variable value containing a literal {{n}} token is stored verbatim, not re-substituted as a second placeholder');
+
+-- 41: MINOR 3. claim_outbox_batch's grant is re-issued in the migration but,
+-- unlike enqueue_whatsapp_outbound's (test 36), was never actually asserted
+-- by this file — and by 0111's own comment this is the one whose loss
+-- "would answer 42501 to every send".
+select ok(
+  has_function_privilege('service_role', 'public.claim_outbox_batch(integer)', 'EXECUTE'),
+  'service_role may still call claim_outbox_batch after the drop-and-recreate');
 
 select * from finish();
 rollback;

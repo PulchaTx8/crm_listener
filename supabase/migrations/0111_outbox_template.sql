@@ -119,6 +119,7 @@ declare
   v_body     text;
   v_expected integer;
   v_i        integer;
+  v_nonce    text;
 begin
   select * into v_integ
   from public.integrations
@@ -164,9 +165,38 @@ begin
     -- RENDERED HERE, not by the caller (D6). One function reads the approved
     -- text and writes both the audit body and the variables, so the two
     -- cannot be produced from different sources and cannot drift.
-    v_body := v_tpl.body;
+    --
+    -- TWO PASSES, not one `replace()` per placeholder run against a body that
+    -- keeps mutating. That first shape has a real bug: if the value dropped
+    -- in at {{1}} itself contains the literal text "{{2}}", the very next
+    -- iteration's replace() matches THAT text too, silently rewriting a
+    -- listener's own words as if they were a second placeholder -- and
+    -- iterating in reverse only moves which index is exposed, since a value
+    -- landing early can equally well contain a placeholder naming an index
+    -- already substituted. Reversing is not a fix.
+    --
+    -- Here, pass one is a SINGLE regexp_replace over v_tpl.body -- the
+    -- ORIGINAL text, never a body a substitution has already touched --
+    -- turning every {{n}} into an inert marker carrying its own index and a
+    -- per-call random nonce. Pass two is a plain (non-regex) replace() per
+    -- index, swapping each marker for its looked-up value. Because pass one
+    -- already consumed every {{n}}-shaped occurrence in the original text
+    -- before any listener-supplied value exists, and a marker's nonce is
+    -- fresh per call, no value substituted in pass two can coincide with a
+    -- marker still waiting to be replaced -- so a value containing literal
+    -- "{{2}}" text passes through untouched instead of being re-substituted.
+    v_nonce := replace(gen_random_uuid()::text, '-', '');
+    v_body := regexp_replace(v_tpl.body, '\{\{(\d+)\}\}', v_nonce || '_\1_', 'g');
     for v_i in 1 .. v_expected loop
-      v_body := replace(v_body, '{{' || v_i || '}}',
+      -- A JSON null element (as opposed to a missing one, already refused
+      -- above by the count check) makes ->> return SQL NULL, and replace()
+      -- on a NULL argument returns NULL: v_body collapses to NULL for the
+      -- rest of this render and the insert below fails NOT NULL (23502) on
+      -- `body`, naming a column rather than the variable index. Deliberate,
+      -- not an oversight: refusing is the right outcome for a value that was
+      -- never a string, and it is no less safe than storing the literal text
+      -- "null" or a silently truncated body would have been.
+      v_body := replace(v_body, v_nonce || '_' || v_i || '_',
                         p_template_variables ->> (v_i - 1));
     end loop;
   else
@@ -183,7 +213,17 @@ begin
     ('WHATSAPP', v_integ.id, v_integ.organization_id, v_integ.company_id,
      p_to_phone, v_body, p_interactive, p_dedupe_key,
      v_tpl.name, v_tpl.language,
-     case when p_template_purpose is not null then p_template_variables end)
+     -- coalesce, not the bare argument: a template with NO placeholders is a
+     -- real, Meta-approved thing (Task 2), and a caller sending one need not
+     -- pass an empty array explicitly. Passed through raw, p_template_variables
+     -- stays NULL for that call -- validation above already accepts it, since
+     -- coalesce(jsonb_array_length(null), 0) = 0 matches an expected count of
+     -- zero -- but the insert would then write template_name/template_language
+     -- NOT NULL beside a NULL template_variables, which
+     -- outbox_messages_template_shape refuses with a bare 23514: the enqueue
+     -- said yes and the insert said no, and the caller learns only a
+     -- constraint name. Coalescing here keeps the two answers in agreement.
+     case when p_template_purpose is not null then coalesce(p_template_variables, '[]'::jsonb) end)
   -- Keyed on the message that provoked it, so a turn re-run after a crash
   -- enqueues nothing new. Returning null then, rather than raising: the caller
   -- is retrying something that already happened, which is success.
@@ -198,4 +238,4 @@ revoke execute on function public.enqueue_whatsapp_outbound(uuid, text, text, js
 grant execute on function public.enqueue_whatsapp_outbound(uuid, text, text, jsonb, text, public.template_purpose, jsonb) to service_role;
 
 comment on function public.enqueue_whatsapp_outbound(uuid, text, text, jsonb, text, public.template_purpose, jsonb) is
-  'Puts one message on the outbound queue on behalf of the conversation engine, which lives in TypeScript and therefore cannot be inside a SECURITY DEFINER body of its own. The organization and the Station are taken from the integration rather than from the caller, so nobody can enqueue a message against a Station they do not hold. Returns null when the dedupe key already exists, which is a turn being re-run after a crash and is success, not a conflict. Since 0111 (Block Templates, Task 3): when p_template_purpose is given, the approved row is resolved from message_templates by (company_id, purpose) -- company_id from the integration, never from the caller -- its body''s {{1}}..{{n}} placeholders are substituted with p_template_variables, and the RENDERED text becomes `body`, with template_name/template_language/template_variables stamped beside it in the same statement. Rendering happens HERE and only here (design decision D6): a caller that rendered its own copy and passed body and variables separately could produce an audit trail that disagrees with itself, which is worse than one that is merely empty, because somebody would believe it. Refuses P0002 when no live template is registered for that purpose at that Station, and 22023 when the variable count disagrees with the highest {{n}} the approved body actually uses -- turning a rejection Meta would answer at send time into a validation error the caller sees immediately. p_template_purpose null, the default, is every call this system made before this task and is unchanged by it: p_body is stored exactly as given and the three template columns stay null together.';
+  'Puts one message on the outbound queue on behalf of the conversation engine, which lives in TypeScript and therefore cannot be inside a SECURITY DEFINER body of its own. The organization and the Station are taken from the integration rather than from the caller, so nobody can enqueue a message against a Station they do not hold. Returns null when the dedupe key already exists, which is a turn being re-run after a crash and is success, not a conflict. Since 0111 (Block Templates, Task 3): when p_template_purpose is given, the approved row is resolved from message_templates by (company_id, purpose) -- company_id from the integration, never from the caller -- its body''s {{1}}..{{n}} placeholders are substituted with p_template_variables, and the RENDERED text becomes `body`, with template_name/template_language/template_variables stamped beside it in the same statement. Rendering happens HERE and only here (design decision D6): a caller that rendered its own copy and passed body and variables separately could produce an audit trail that disagrees with itself, which is worse than one that is merely empty, because somebody would believe it. Refuses P0002 when no live template is registered for that purpose at that Station, and 22023 when the variable count disagrees with the highest {{n}} the approved body actually uses -- turning a rejection Meta would answer at send time into a validation error the caller sees immediately. p_template_purpose null, the default, is every call this system made before this task and is unchanged by it: p_body is stored exactly as given and the three template columns stay null together. A fixed-text template with no {{n}} at all is a real, Meta-approved shape (Task 2), and p_template_variables may be omitted for it -- the insert coalesces to an empty array rather than leaving template_variables null beside a non-null template_name, which outbox_messages_template_shape would otherwise refuse. Rendering is a NONCE-KEYED TWO-PASS substitution rather than one replace() per placeholder run against a body that keeps mutating: the first shape lets a value containing literal "{{2}}" text be re-substituted the moment the loop reaches index 2, which is exactly the drift D6 exists to prevent, and reversing the iteration order does not fix it. A JSON null element in p_template_variables (as opposed to a missing one, refused above by the count check) is deliberately left to fail the insert''s `body` NOT NULL constraint with 23502 -- refusing is the correct outcome for a value that was never a string, and no less safe than storing the literal text "null" would have been.';
