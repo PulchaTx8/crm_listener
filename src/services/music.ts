@@ -94,11 +94,36 @@ export const SONG_PAGE_SIZE = 50;
 /**
  * One constant shared by the row read and the count read, so the two cannot
  * disagree. The three embeds are resolved through the foreign keys 0098
- * declares (songs.artist_id/label_id/genre_id) — confirmed against the
- * generated types, not assumed: artist_id is NOT NULL, so `artists` comes
- * back as a single non-null object; label_id and genre_id are nullable, so
- * `record_labels`/`music_genres` come back as an object or null. See SongRow
- * below, which encodes exactly that shape.
+ * declares (songs.artist_id/label_id/genre_id).
+ *
+ * All three are typed nullable below, `artists` included. An earlier version
+ * of this comment argued that one from the column — "artist_id is NOT NULL, so
+ * `artists` comes back as a single non-null object" — and that answers the
+ * wrong question. PostgREST resolves a to-one embed as a LEFT JOIN and returns
+ * null for the embedded object whenever the parent row is not VISIBLE, which
+ * is not the same fact as whether the child column has a value. 0099's policy
+ * on artists is `deleted_at is null and has_permission('music.view', ...)`, so
+ * an archived artist is unreadable for every caller including the owner (the
+ * same finding listMusicReferences records above), and a live song naming one
+ * comes back as `artist_id: '<uuid>', artists: null`.
+ *
+ * 0103 closes the concurrency window that could newly create such a song, but
+ * the type has to survive the row existing at all — Block 9's ETL writes these
+ * tables directly, and any row written before 0103 is still in the table. The
+ * cost of getting it wrong is not one bad cell: toSongSummary would throw a
+ * TypeError inside listSongsPage, and the Songs screen for that whole Station
+ * would render its load-error state with no way back through the UI.
+ *
+ * Nor was the compiler ever checking this claim, and `as const` — the obvious
+ * way to make it — would make things worse rather than better. Measured, not
+ * assumed: with `as const` on this string, supabase-js infers
+ * `artists: { name: string }`, non-null, alongside `record_labels`/
+ * `music_genres` as `| null`. Its inference reads an embed's nullability off
+ * the foreign-key column's nullability, which is precisely the mistake this
+ * comment exists to correct — so it would not check the shape, it would
+ * endorse `row.artists.name` and hide the bug behind a green typecheck. Left a
+ * plain string deliberately, with the shape declared by hand in SongRow just
+ * below.
  */
 const SONG_COLUMNS =
   'id, title, artist_id, label_id, genre_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, artists(name), record_labels(name), music_genres(name)';
@@ -117,7 +142,8 @@ type SongRow = Pick<
   | 'legacy_id'
   | 'created_at'
 > & {
-  artists: { name: string };
+  /** Null when the artist row is hidden by RLS — an archived artist. Never null because the song has no artist: artist_id is NOT NULL and 0101 refuses a song without one. */
+  artists: { name: string } | null;
   record_labels: { name: string } | null;
   music_genres: { name: string } | null;
 };
@@ -126,7 +152,15 @@ export interface SongSummary {
   id: string;
   title: string;
   artistId: string;
-  artistName: string;
+  /**
+   * Null means "this song has an artist and this caller cannot read it" —
+   * never "this song has no artist", which 0101 refuses. Nullable rather than
+   * a placeholder string because the two nullable siblings below already put
+   * the choice of what to show in the screen's hands, and because an artist
+   * that cannot be read is a different fact from a label that was never set:
+   * the Songs grid renders it differently on purpose.
+   */
+  artistName: string | null;
   labelId: string | null;
   labelName: string | null;
   genreId: string | null;
@@ -144,7 +178,11 @@ function toSongSummary(row: SongRow): SongSummary {
     id: row.id,
     title: row.title,
     artistId: row.artist_id,
-    artistName: row.artists.name,
+    // `?.`, like the two lines below it — the reason is in SONG_COLUMNS'
+    // comment: an archived artist is invisible through RLS, so the embed is
+    // null while artist_id still names it. One such row must cost one cell,
+    // not the whole Station's list.
+    artistName: row.artists?.name ?? null,
     labelId: row.label_id,
     labelName: row.record_labels?.name ?? null,
     genreId: row.genre_id,

@@ -1,5 +1,5 @@
 begin;
-select plan(27);
+select plan(31);
 
 -- Block 7a, Tasks 3 and 4: the doors.
 --
@@ -352,6 +352,98 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", 
 select throws_ok($$
   select public.archive_song('00000000-0000-0000-0000-00000000e199')
 $$, '42501', null, 'an unknown song answers permission denied');
+
+reset role;
+
+-- 28-31: 0103's fix round — assert_song_references_live locks the rows it
+-- checks, so archive_music_reference's FOR UPDATE has something to conflict
+-- with (the final review's finding I2).
+--
+-- WHAT THESE FOUR ASSERTIONS DO NOT PROVE, said first so it is not mistaken
+-- for more than it is: they do NOT reproduce the race. The race needs two
+-- concurrent transactions, and pgTAP runs one — this whole file is a single
+-- transaction that ends in `rollback`, so a second session could not even see
+-- these fixtures, let alone interleave with them. The two-session interleaving
+-- was reproduced against the shipped 0101 body with two real connections
+-- (the creator inserts, and a join of live songs against archived artists
+-- returns 1) and re-run against 0103's body (the creator is refused with
+-- P0002, and the join returns 0); that measurement lives in the block's fix
+-- report, not here, because this harness cannot express it.
+--
+-- What IS expressible here, and is the load-bearing half: whether the function
+-- actually takes a row lock. It is worth pinning precisely because the failure
+-- mode of this fix is silent — a locking clause written in a shape that parses
+-- but locks nothing leaves the race exactly where it was while every comment
+-- reads as if it were closed.
+--
+-- xmax is how a row lock is visible from inside one session: Postgres records
+-- a row-level lock in the tuple's xmax field, so after a locking read xmax
+-- holds the locking transaction's id instead of 0. Any of the four row-lock
+-- modes sets it, and every one of the four conflicts with FOR UPDATE — so
+-- "xmax is set by this call" is exactly the property archive_music_reference
+-- needs, and does not depend on which mode 0103 happened to choose. The plain
+-- `exists (...)` this replaced sets nothing, so 28 would read 0 against the
+-- pre-0103 body and fail — which is the point of writing it this way.
+--
+-- Fixture ids e1b3/e1b4/e1b5, kept apart from e1b1 above: e1b1 has already
+-- been locked by create_song's own foreign-key check in tests 18 and 23, so
+-- its xmax is set for a reason that has nothing to do with this function.
+insert into public.artists (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000e1b3', '00000000-0000-0000-0000-00000000e1f1',
+   '00000000-0000-0000-0000-00000000e1c1', 'Lock probe'),
+  ('00000000-0000-0000-0000-00000000e1b4', '00000000-0000-0000-0000-00000000e1f1',
+   '00000000-0000-0000-0000-00000000e1c1', 'Lock probe control'),
+  ('00000000-0000-0000-0000-00000000e1b5', '00000000-0000-0000-0000-00000000e1f1',
+   '00000000-0000-0000-0000-00000000e1c1', 'Archived before the call');
+
+-- Called directly rather than through create_song, so the lock under test is
+-- this function's own: create_song's INSERT would take a foreign-key lock on
+-- the same row a moment later, and the assertion could then pass with the
+-- function locking nothing at all. Superuser, deliberately — the function
+-- holds EXECUTE for nobody, and who may call it is not the claim here. A DO
+-- block rather than a bare `select f()` so nothing but TAP reaches pg_prove.
+do $$
+begin
+  perform public.assert_song_references_live(
+    '00000000-0000-0000-0000-00000000e1c1',
+    '00000000-0000-0000-0000-00000000e1b3',
+    null, null);
+end $$;
+
+-- 28: the row the call named carries a lock belonging to this transaction.
+select isnt(
+  (select xmax::text from public.artists
+    where id = '00000000-0000-0000-0000-00000000e1b3'),
+  '0',
+  'assert_song_references_live really takes a row lock on the artist it checks (0103)');
+
+-- 29: and the assertion above is not vacuous — an artist the call did not name
+-- is untouched, so 28 is reading this function's lock and not some ambient
+-- effect of the fixture inserts.
+select is(
+  (select xmax::text from public.artists
+    where id = '00000000-0000-0000-0000-00000000e1b4'),
+  '0',
+  'an artist the call did not name carries no lock — 28 is not vacuous');
+
+-- 30-31: the invariant the lock protects, in the form one session can state —
+-- an artist archived BEFORE the call is refused. Note honestly that 31 would
+-- also pass against the pre-0103 body: the `deleted_at is null` qual caught
+-- the sequential case all along, and it is the concurrent case that escaped.
+-- It is here so the invariant itself has a pin, not as evidence for the fix.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
+
+select lives_ok($$
+  select public.archive_music_reference(
+    'ARTIST', '00000000-0000-0000-0000-00000000e1b5')
+$$, 'an artist no live song names can be archived');
+
+select throws_ok($$
+  select public.create_song(
+    '00000000-0000-0000-0000-00000000e1c1', 'Song for an archived artist',
+    '00000000-0000-0000-0000-00000000e1b5')
+$$, 'P0002', null, 'create_song refuses an artist archived before the call');
 
 reset role;
 

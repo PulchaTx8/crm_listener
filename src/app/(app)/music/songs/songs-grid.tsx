@@ -139,7 +139,22 @@ export function SongsGrid({
                       {song.title}
                     </button>
                   </TableCell>
-                  <TableCell>{song.artistName}</TableCell>
+                  {/*
+                    Not the '—' the next two cells use. A dash there means "no
+                    label was set", a legitimate state; a song with no artist
+                    is not a state this system has (artist_id is NOT NULL and
+                    create_song refuses one), so a dash here would tell the
+                    operator something false. Null means the artist exists and
+                    RLS will not show it — it was archived — and saying
+                    "Unavailable" is both true and actionable: the row is still
+                    clickable, and the record's artist picker lists only live
+                    artists, so choosing one and saving is the way out.
+                  */}
+                  <TableCell>
+                    {song.artistName ?? (
+                      <span className="text-muted-foreground">Unavailable</span>
+                    )}
+                  </TableCell>
                   <TableCell>{song.labelName ?? '—'}</TableCell>
                   <TableCell>{song.genreName ?? '—'}</TableCell>
                   <TableCell>{formatDuration(song.durationSeconds)}</TableCell>
