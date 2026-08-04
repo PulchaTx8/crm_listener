@@ -1,5 +1,5 @@
 begin;
-select plan(30);
+select plan(34);
 
 -- Block 7b, Task 1: the history table, and the kind that drives all five
 -- doors. The doors themselves are Task 2; this file grows to cover them.
@@ -312,6 +312,44 @@ select throws_ok($$
   select public.merge_songs('00000000-0000-0000-0000-00000000e2d1',
     array['00000000-0000-0000-0000-00000000e2d3']::uuid[], 'viewer cannot merge')
 $$, '42501', null, 'an actor holding music.view but not music.merge is refused');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Task 4: the Maintenance screen's one read. The merge above archived e2d2 and
+-- e2b2, so only the survivors remain as candidates.
+-- ---------------------------------------------------------------------------
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a2", "role": "authenticated"}';
+
+-- 31: only the live song is offered as a candidate — e2d2 was absorbed.
+select is(
+  (select count(*)::int from public.list_merge_candidates(
+     '00000000-0000-0000-0000-00000000e2c1', 'SONG')),
+  1, 'only live records are offered as merge candidates');
+
+-- 32: a song candidate is labelled by its title.
+select is(
+  (select label from public.list_merge_candidates(
+     '00000000-0000-0000-0000-00000000e2c1', 'SONG')),
+  'Sozinho', 'a song candidate is labelled by its title');
+
+-- 33: the number the operator needs to choose a survivor: the surviving song
+-- absorbed two requests in assertion 17.
+select is(
+  (select child_count from public.list_merge_candidates(
+     '00000000-0000-0000-0000-00000000e2c1', 'SONG')),
+  2, 'a candidate carries the number of children a merge would move');
+
+-- 34: the candidate list refuses a Station the caller cannot merge in. e2c2 is
+-- a real second Station (added in fix round 1), not a nonexistent uuid — this
+-- proves the refusal comes from the permission, not merely from the Station
+-- being absent.
+select throws_ok($$
+  select * from public.list_merge_candidates(
+    '00000000-0000-0000-0000-00000000e2c2', 'SONG')
+$$, '42501', null, 'the candidate list refuses a Station the caller cannot merge in');
 
 reset role;
 
