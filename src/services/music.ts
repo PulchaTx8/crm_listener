@@ -16,6 +16,8 @@ import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import { SONG_SEARCH_MAX_LENGTH } from '@/schemas/music';
 import type {
+  MergeFormInput,
+  MusicMergeKind,
   MusicReferenceKind,
   ReferenceFormInput,
   ReferenceUpdateInput,
@@ -618,6 +620,392 @@ export async function archiveMusicReference(
   if (error) throw mapMusicError(error.code, error.message);
 }
 
+// ---------------------------------------------------------------------------
+// Merges
+// ---------------------------------------------------------------------------
+
+/** The one place a merge kind becomes an RPC name — mirrors 0105's music_merge_table, so a caller's kind can never reach the wire as a raw string. */
+const MERGE_DOORS: Record<
+  MusicMergeKind,
+  'merge_songs' | 'merge_artists' | 'merge_record_labels' | 'merge_music_genres' | 'merge_shows'
+> = {
+  SONG: 'merge_songs',
+  ARTIST: 'merge_artists',
+  LABEL: 'merge_record_labels',
+  GENRE: 'merge_music_genres',
+  SHOW: 'merge_shows',
+};
+
+/**
+ * Collapses duplicates into a survivor and returns how many children moved.
+ *
+ * The count is returned rather than discarded because it is the only feedback
+ * the operator gets that the merge did what they meant: "3 requests moved" and
+ * "0 requests moved" are the difference between having merged the right pair
+ * and having merged two rows nobody had used, and the screen says which.
+ */
+export async function mergeMusicRecords(
+  input: MergeFormInput,
+  accessToken: string,
+): Promise<number> {
+  const { data, error } = await asCaller(accessToken).rpc(MERGE_DOORS[input.kind], {
+    p_winner_id: input.winnerId,
+    p_loser_ids: input.loserIds,
+    p_reason: input.reason,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  if (typeof data !== 'number') throw new InternalError('the merge returned no count');
+  return data;
+}
+
+export interface MergeCandidate {
+  id: string;
+  label: string;
+  /** Null for the four short lists: only a song has a second line to show — its artist (0108's own comment). */
+  subLabel: string | null;
+  childCount: number;
+  legacyId: string | null;
+}
+
+/**
+ * list_merge_candidates (0108) takes its own `p_limit`, and this is it — one
+ * capped read, not something to page through, which is why
+ * music/maintenance/list-params.ts carries no cursor type at all.
+ */
+export const MERGE_CANDIDATE_LIMIT = 100;
+
+/**
+ * The Maintenance screen's one read: every live record of one kind in this
+ * Station, with the number of children a merge would move — the figure that
+ * makes naming the survivor a decision rather than a coin flip (0108's own
+ * comment).
+ */
+export async function listMergeCandidates(
+  companyId: string,
+  kind: MusicMergeKind,
+  search: string | undefined,
+  accessToken: string,
+): Promise<MergeCandidate[]> {
+  const term = search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH) || undefined;
+
+  const { data, error } = await asCaller(accessToken).rpc('list_merge_candidates', {
+    p_company_id: companyId,
+    p_kind: kind,
+    p_search: term,
+    p_limit: MERGE_CANDIDATE_LIMIT,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    label: row.label,
+    subLabel: row.sub_label,
+    childCount: row.child_count,
+    legacyId: row.legacy_id,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+
+/** MANUAL or IMPORT. Block 9's ETL adds the second door for the latter; nothing here has to change when it does. */
+export type MusicRequestChannel = Database['public']['Enums']['music_request_channel'];
+
+/** The same number the Songs and Artists lists use: what a person can scan. */
+export const REQUEST_PAGE_SIZE = 50;
+
+export interface RequestSummary {
+  requestId: string;
+  memberId: string;
+  /**
+   * Null in exactly the situation listParticipationsPage's own listenerName
+   * documents: the caller holds music.view but not members.view. 0107's RULE
+   * 2 withholds this and memberPhone, not the row — the list still lists,
+   * every row, with the two names blank rather than the page refused.
+   */
+  memberName: string | null;
+  memberPhone: string | null;
+  songId: string;
+  songTitle: string;
+  /**
+   * True once the song named here has since been archived. The row still
+   * carries its title — archive_song (0101) is deliberately never refused
+   * over a live request naming it, because a request is a historical fact
+   * that outlives the song — so this is what tells the screen to say
+   * "archived" rather than imply the song is still in the catalogue.
+   */
+  songArchived: boolean;
+  artistName: string;
+  showId: string | null;
+  showName: string | null;
+  channel: MusicRequestChannel;
+  requestedAt: string;
+}
+
+export interface RequestListParams {
+  companyId: string;
+  songId?: string;
+  showId?: string;
+  channel?: MusicRequestChannel;
+  /** A listener search. Returns nothing at all without members.view — 0107's RULE 3, not a bug (music/requests/list-params.ts's own comment). */
+  search?: string;
+  cursor: Cursor | null;
+  cursorSide: 'after' | 'before';
+}
+
+export interface RequestListPage {
+  rows: RequestSummary[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  total: number;
+}
+
+/**
+ * Reads the figure list_music_requests repeats on every row of one batch
+ * (0107's own comment: computed from the same CTE the rows come from), so the
+ * first row carries it for the whole page.
+ *
+ * Pulled out on its own because it is the one piece of this file's new code
+ * that needed checking rather than assuming: is there ever a first row to
+ * read when the filtered set is empty? Read against 0107's SQL directly —
+ * `list_music_requests` is `returns table`, built from `select ... from
+ * visible f where ...`, and a CTE with nothing in it joins to ZERO output
+ * rows, not one row carrying `total_count = 0`. So an empty batch has no
+ * first row to default away; it is simply the same fact as a total of zero,
+ * exactly as listParticipationsPage (services/participations.ts) already
+ * treats its own empty batch. Exported so that answer is pinned by a test
+ * that needs no database, rather than left as a claim in a comment.
+ */
+export function totalFromRequestBatch(rows: readonly { total_count: number }[]): number {
+  return Number(rows[0]?.total_count ?? 0);
+}
+
+/**
+ * One keyset page of a Station's music requests, newest first — modelled
+ * directly on listParticipationsPage (services/participations.ts): the
+ * cursor travels apart from the row values, the read takes
+ * `REQUEST_PAGE_SIZE + 1` rows, and a walking-back read is reversed by
+ * keysetPage before this returns.
+ *
+ * Reads through asCaller rather than createUserClient(), for the identical
+ * reason listParticipationsPage's own comment gives: list_music_requests
+ * (0107) is SECURITY DEFINER, so its permission boundary is written in SQL
+ * rather than enforced by RLS, and an explicit token is what lets this be
+ * driven from tests/isolation too.
+ */
+export async function listMusicRequestsPage(
+  params: RequestListParams,
+  accessToken: string,
+): Promise<RequestListPage> {
+  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const term = params.search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH) || undefined;
+
+  const { data, error } = await asCaller(accessToken).rpc('list_music_requests', {
+    p_company_id: params.companyId,
+    p_song_id: params.songId,
+    p_show_id: params.showId,
+    p_channel: params.channel,
+    p_search: term,
+    // Cursor.value is nullable because other screens sort by a nullable
+    // column; requested_at is not null (0098), so a null here can only mean
+    // "no cursor", which is what undefined says to the function's default —
+    // listParticipationsPage's identical reasoning for participated_at.
+    p_cursor_at: params.cursor?.value ?? undefined,
+    p_cursor_id: params.cursor?.id,
+    p_walking_back: walkingBack,
+    // One past the page, which is how keysetPage knows there is a next one.
+    p_limit: REQUEST_PAGE_SIZE + 1,
+  });
+
+  if (error) throw mapMusicError(error.code, error.message);
+
+  const fetched = data ?? [];
+
+  const { rows: page, nextCursor, previousCursor } = keysetPage(fetched, {
+    pageSize: REQUEST_PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({ value: row.requested_at, id: row.request_id }),
+  });
+
+  return {
+    rows: page.map((row) => ({
+      requestId: row.request_id,
+      memberId: row.member_id,
+      memberName: row.member_name,
+      memberPhone: row.member_phone,
+      songId: row.song_id,
+      songTitle: row.song_title,
+      songArchived: row.song_archived,
+      artistName: row.artist_name,
+      showId: row.show_id,
+      showName: row.show_name,
+      channel: row.channel,
+      requestedAt: row.requested_at,
+    })),
+    nextCursor,
+    previousCursor,
+    total: totalFromRequestBatch(fetched),
+  };
+}
+
+export interface CreateMusicRequestInput {
+  companyId: string;
+  /**
+   * Already resolved: create_music_request (0107) takes a listener, never a
+   * set of identifying fields. resolveOrCreateMember (services/participations.ts)
+   * is the door that turns the form's "pick one or register one" choice into
+   * this one id — the same split record-participation-form.tsx already makes
+   * before calling recordParticipation.
+   */
+  memberId: string;
+  songId: string;
+  showId?: string;
+  requestedAt?: string;
+}
+
+/**
+ * Records a request by hand. `p_requested_at` is sent only when the form gave
+ * one — `coalesce(p_requested_at, now())` in 0107 means omitting the key and
+ * sending null are the same, and omitting it is the one that survives a
+ * future change to the default.
+ */
+export async function createMusicRequest(
+  input: CreateMusicRequestInput,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('create_music_request', {
+    p_company_id: input.companyId,
+    p_member_id: input.memberId,
+    p_song_id: input.songId,
+    p_show_id: input.showId,
+    p_requested_at: input.requestedAt,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('create_music_request returned no id');
+  return data;
+}
+
+/**
+ * Withdraws a mistyped manual entry. Gated on music.request, not a
+ * destructive code — archive_music_request's own comment (0107) says why:
+ * deleted_at exists on this table for exactly this one purpose, and whoever
+ * may record a request is who notices they typed it wrong. Never a DELETE.
+ */
+export async function archiveMusicRequest(requestId: string, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('archive_music_request', {
+    p_request_id: requestId,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+const SONG_OPTION_COLUMNS = 'id, title, artists(name)';
+
+/**
+ * Left a plain string rather than `as const`, for the identical reason
+ * SONG_COLUMNS above gives at length: supabase-js would infer `artists` as
+ * non-null from `artist_id`'s own non-nullability, which is exactly the
+ * mistake 0099's RLS makes possible — an archived artist is unreadable for
+ * every caller including the owner — so the shape is declared by hand below
+ * rather than trusted to a green typecheck that isn't actually checking it.
+ */
+type SongOptionRow = Pick<Database['public']['Tables']['songs']['Row'], 'id' | 'title'> & {
+  artists: { name: string } | null;
+};
+
+export interface SongOption {
+  songId: string;
+  title: string;
+  /**
+   * Null for the reason SONG_COLUMNS' comment gives in full: an archived
+   * artist is unreadable through RLS even though the song still names one.
+   * Same fact SongSummary.artistName (above) already carries; this picker can
+   * hit it too, so the mapping is exported and pinned by a test rather than
+   * trusted to look obviously right.
+   */
+  artistName: string | null;
+}
+
+/** Turns one fetched row into the option the picker renders. Exported for the reason its own doc comment gives. */
+export function toSongOption(row: SongOptionRow): SongOption {
+  return {
+    songId: row.id,
+    title: row.title,
+    artistName: row.artists?.name ?? null,
+  };
+}
+
+/**
+ * A picker is scanned, not paged — the same magnitude
+ * `STATION_LISTENER_PAGE_SIZE` (@/lib/station-listeners) uses for the
+ * identical reason, smaller than SONG_PAGE_SIZE because this list is never
+ * meant to be the whole catalogue.
+ */
+export const SONG_PICKER_MAX_RESULTS = 20;
+
+export interface SongSearchPage {
+  songs: SongOption[];
+  /**
+   * True when the search matched more than this page shows —
+   * searchStationListeners' (services/participations.ts) own shape, so the
+   * picker can say it was cut instead of quietly ending. Deliberately not a
+   * bare `SongOption[]`: this codebase already rejects inferring a cut from a
+   * full page (listLinkablePrizes' own comment, services/promotions.ts) — a
+   * Station whose search matches exactly `SONG_PICKER_MAX_RESULTS` songs
+   * would otherwise be told about a truncation that never happened.
+   */
+  hasMore: boolean;
+}
+
+/**
+ * The request form's song picker: live songs in this Station, searched by
+ * title and internal_code — never the artist's name, for the identical
+ * PostgREST limitation listSongsPage's own comment gives (`.or()` cannot
+ * reach an embedded resource's column).
+ *
+ * Archived songs are excluded: this feeds the choice for a NEW request, and
+ * create_music_request (0107) refuses one naming a song that is not live
+ * here. An existing request that already names an archived song is still
+ * shown by listMusicRequestsPage, with songArchived marking it — a different
+ * screen answering a different question.
+ *
+ * Reads through asCaller rather than createUserClient(), matching every other
+ * exported function in this module that takes an accessToken — searchSongs is
+ * called from the same Server Actions that already hold one, and a second
+ * client-construction convention in one file is a seam worth not having.
+ */
+export async function searchSongs(
+  companyId: string,
+  term: string,
+  accessToken: string,
+): Promise<SongSearchPage> {
+  const trimmed = term.trim().slice(0, SONG_SEARCH_MAX_LENGTH);
+
+  let query = asCaller(accessToken)
+    .from('songs')
+    .select(SONG_OPTION_COLUMNS)
+    .eq('company_id', companyId)
+    .is('deleted_at', null);
+
+  if (trimmed) {
+    const wildcard = quoteForOrFilter(`%${escapeLikePattern(trimmed)}%`);
+    query = query.or(`title.ilike.${wildcard},internal_code.ilike.${wildcard}`);
+  }
+
+  const { data, error } = await query
+    .order('title', { ascending: true })
+    .limit(SONG_PICKER_MAX_RESULTS + 1);
+
+  if (error) throw new InternalError(`Could not search songs: ${error.message}`);
+
+  const rows: SongOptionRow[] = data ?? [];
+  return {
+    songs: rows.slice(0, SONG_PICKER_MAX_RESULTS).map(toSongOption),
+    hasMore: rows.length > SONG_PICKER_MAX_RESULTS,
+  };
+}
+
 /**
  * The error taxonomy in lib/errors.ts exists so a caller can tell these
  * apart; collapsing them into one class throws that away — the same warning
@@ -628,22 +1016,35 @@ export async function archiveMusicReference(
  *   RPC in 0100/0101 raises this with the same shape, having already written
  *   a RAISE LOG line server-side. Also what an unknown id answers, by
  *   design: 0100/0101 check permission BEFORE existence, so a caller cannot
- *   learn whether an id names anything they cannot reach.
+ *   learn whether an id names anything they cannot reach. Block 7b's doors
+ *   (0106, 0107, 0108) raise it the identical way for music.merge and
+ *   music.request, checked before the Station or the record either.
  * - `P0002` is a named reference (artist/label/genre) that is missing, or
  *   belongs to another Station — assert_song_references_live's own raise.
+ *   Now also covers: a merge naming a record that is missing, already
+ *   archived or in another Station (0106 answers all three identically on
+ *   purpose — a distinct message would let a caller probe another Station),
+ *   and a request naming a listener not linked to this Station, a song that
+ *   is not live here, or a programme that is not.
  * - `23505` is a duplicate legacy_id, rewritten by the RPC itself to name
  *   the handle ("a record with legacy id ... already exists in this
  *   station").
  * - `22023` is every validation raise: a blank name/title, or a duration
  *   that is not a positive whole number of seconds. schemas/music.ts
  *   catches all of these before a request is ever sent; this mapping is
- *   what still applies if a caller bypasses the form.
+ *   what still applies if a caller bypasses the form. 0106's merge core adds
+ *   three more of the same shape, caught the same way by mergeFormSchema
+ *   before a request is ever sent: a blank reason, an empty loser list, and a
+ *   survivor named among its own losers.
  * - `23503` is archive_music_reference's refusal while a live song (or
  *   request, for a show) still names the record; its message names the
  *   count ("this record is still used by N live row(s)").
  * - Anything else is ours, not the caller's. Labelling an unexpected
  *   database fault a refusal hides a real fault behind a plausible-looking
- *   permission or business-rule message.
+ *   permission or business-rule message. `XX000` — the unreachable branch in
+ *   0106's and 0108's own kind dispatch — falls through to here on purpose:
+ *   it exists to be loud if the enum ever grows a sixth value with no rule
+ *   written for it, not to be given a friendlier face.
  */
 function mapMusicError(code: string | undefined, message: string): Error {
   if (code === '23503') return new BusinessRuleError(message);

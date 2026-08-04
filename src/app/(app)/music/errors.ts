@@ -16,13 +16,18 @@ import {
  * for the whole block rather than three copies drifting apart, the same
  * reasoning inventory/errors.ts gives for its own two functions.
  *
- * Every read these screens perform — listCompanyAccess, listMusicReferences,
- * listSongsPage, getSongById, listArtistsPage, getArtistById, getArtistSongs
- * — only ever throws InternalError today: none of them call an RPC, so none
- * of the write-side codes mapMusicError (services/music.ts) maps can surface
- * here. The full taxonomy is handled anyway: collapsing it to a single
- * generic message would work today and silently stop being true the moment a
- * read starts going through an RPC.
+ * listCompanyAccess, listMusicReferences, listSongsPage, getSongById,
+ * listArtistsPage, getArtistById and getArtistSongs still only ever throw
+ * InternalError: none of them call an RPC, so none of the write-side codes
+ * mapMusicError (services/music.ts) maps can surface from them. Block 7b adds
+ * two reads that break that pattern on purpose: listMusicRequestsPage and
+ * listMergeCandidates go through list_music_requests and list_merge_candidates,
+ * both SECURITY DEFINER and gated on a permission check, so their errors are
+ * mapMusicError's like a write's — a 42501 is a genuinely reachable case from
+ * a read now, not a hypothetical one. The full taxonomy was handled here
+ * anyway, which is exactly what makes that change require no edit to this
+ * function: collapsing it to a single generic message would have worked
+ * until this moment and silently stopped being true at it.
  */
 export function describeMusicReadError(cause: unknown): string {
   if (cause instanceof ConflictError) return cause.message;
@@ -81,4 +86,25 @@ export function describeMusicWriteError(cause: unknown, action: string): string 
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
   return 'Could not save. Refresh the page and try again.';
+}
+
+/**
+ * A merge's own refusals. Separate from describeMusicWriteError because its
+ * NotFoundError sentence ("refresh and try again") is right for a stale record
+ * dialog and misleading here: a merge's P0002 means one of the records the
+ * operator ticked is gone, archived, or — deliberately indistinguishable — in
+ * another Station, and "refresh the page" is the correct advice for only the
+ * first of those.
+ */
+export function describeMergeError(cause: unknown): string {
+  if (cause instanceof NotFoundError) {
+    return 'One of the records you selected is no longer available — it may have been archived or merged by somebody else. Refresh the list and start again.';
+  }
+  if (cause instanceof UnauthorizedError) {
+    return 'You do not have permission to merge records in this Station.';
+  }
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof BusinessRuleError) return cause.message;
+  if (cause instanceof ConflictError) return cause.message;
+  return 'Could not merge. Refresh the page and try again.';
 }
