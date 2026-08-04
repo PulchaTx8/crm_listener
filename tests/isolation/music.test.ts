@@ -89,11 +89,12 @@ describe('Block 7a — the music catalogue across Stations', () => {
   it('refuses a song that names an artist from another Station', async () => {
     const owner = await signInAs(customer.email, customer.password);
 
-    const { data: otherArtist } = await owner.rpc('create_music_reference', {
+    const { data: otherArtist, error: otherArtistError } = await owner.rpc('create_music_reference', {
       p_company_id: secondCompanyId,
       p_kind: 'ARTIST',
       p_name: 'Artist over there',
     });
+    expect(otherArtistError).toBeNull();
 
     const { error } = await owner.rpc('create_song', {
       p_company_id: customer.companyId,
@@ -120,16 +121,18 @@ describe('Block 7a — the music catalogue across Stations', () => {
       p_artist_id: hereArtist as string,
     });
 
-    const { data: thereArtist } = await owner.rpc('create_music_reference', {
+    const { data: thereArtist, error: thereArtistError } = await owner.rpc('create_music_reference', {
       p_company_id: secondCompanyId,
       p_kind: 'ARTIST',
       p_name: 'Artist there',
     });
-    await owner.rpc('create_song', {
+    expect(thereArtistError).toBeNull();
+    const { error: thereSongError } = await owner.rpc('create_song', {
       p_company_id: secondCompanyId,
       p_title: 'Song there',
       p_artist_id: thereArtist as string,
     });
+    expect(thereSongError).toBeNull();
 
     const viewer = await grantRoleWith(customer, 'music-one-station', ['music.view'], [
       customer.companyId,
@@ -147,13 +150,21 @@ describe('Block 7a — the music catalogue across Stations', () => {
   it('hides an archived record from the ordinary read path entirely', async () => {
     const owner = await signInAs(customer.email, customer.password);
 
-    const { data: genreId } = await owner.rpc('create_music_reference', {
+    const { data: genreId, error: createError } = await owner.rpc('create_music_reference', {
       p_company_id: customer.companyId,
       p_kind: 'GENRE',
       p_name: 'Retired genre',
     });
+    expect(createError).toBeNull();
 
-    await owner.rpc('archive_music_reference', { p_kind: 'GENRE', p_id: genreId as string });
+    const { data: beforeArchive } = await owner.from('music_genres').select('name');
+    expect((beforeArchive ?? []).map((g) => g.name)).toContain('Retired genre');
+
+    const { error: archiveError } = await owner.rpc('archive_music_reference', {
+      p_kind: 'GENRE',
+      p_id: genreId as string,
+    });
+    expect(archiveError).toBeNull();
 
     const { data: genres } = await owner.from('music_genres').select('name');
     expect((genres ?? []).map((g) => g.name)).not.toContain('Retired genre');
@@ -162,11 +173,12 @@ describe('Block 7a — the music catalogue across Stations', () => {
   it('refuses to archive an artist a live song still names', async () => {
     const owner = await signInAs(customer.email, customer.password);
 
-    const { data: artistId } = await owner.rpc('create_music_reference', {
+    const { data: artistId, error: createError } = await owner.rpc('create_music_reference', {
       p_company_id: customer.companyId,
       p_kind: 'ARTIST',
       p_name: 'Still in use',
     });
+    expect(createError).toBeNull();
     await owner.rpc('create_song', {
       p_company_id: customer.companyId,
       p_title: 'Depends on the artist',
@@ -197,6 +209,6 @@ describe('Block 7a — the music catalogue across Stations', () => {
         company_id: customer.companyId,
         name: 'Through the back door',
       });
-    expect(writeError).not.toBeNull();
+    expect(writeError?.code).toBe('42501');
   });
 });
