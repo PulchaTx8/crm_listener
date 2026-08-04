@@ -1194,18 +1194,48 @@ begin
   -- declares — a song from another Station cannot be inserted at all. What
   -- those keys CANNOT see is deleted_at (they reference a non-partial
   -- constraint), so an archived song would otherwise be a legal target.
-  if not exists (
-    select 1 from public.songs
-     where id = p_song_id and company_id = p_company_id and deleted_at is null
-  ) then
+  --
+  -- FOR KEY SHARE, NOT A BARE `exists` — and this is 0103's defect one level
+  -- down, caught in review before it was written a second time.
+  --
+  -- 0106's merge takes FOR UPDATE on the song and the show it is about to
+  -- archive. A plain read takes no row lock and is never blocked by one, so
+  -- under READ COMMITTED this sequence commits a live request naming a song
+  -- that no longer exists to any reader:
+  --   1. merge_songs locks the loser FOR UPDATE and starts repointing;
+  --   2. create_music_request reads the loser as live — the merge has not
+  --      committed — and returns from its check;
+  --   3. the merge commits, archiving the loser;
+  --   4. the INSERT lands, and 0099's policy makes its song unreadable.
+  -- The request is then a row the Requests screen shows with a title only
+  -- list_music_requests can still see, pointing at a song the merge already
+  -- counted and moved past. It is exactly the state 0103 was written to close
+  -- for songs naming artists, and 0027 for movements naming prizes.
+  --
+  -- FOR KEY SHARE is the mode with exactly one conflict — FOR UPDATE — which
+  -- is the whole requirement: it serialises against the merge's archive and
+  -- against nothing else, so two concurrent requests for the same song never
+  -- queue behind each other and an ordinary rename (FOR NO KEY UPDATE) does
+  -- not block either. 0103's header sets out the reasoning in full.
+  --
+  -- `perform` rather than `if not exists`, because `exists` discards the lock:
+  -- the row has to actually be selected for FOR KEY SHARE to be taken on it.
+  perform 1 from public.songs
+    where id = p_song_id and company_id = p_company_id and deleted_at is null
+    for key share;
+
+  if not found then
     raise exception 'song not found in this station: %', p_song_id using errcode = 'P0002';
   end if;
 
-  if p_show_id is not null and not exists (
-    select 1 from public.shows
-     where id = p_show_id and company_id = p_company_id and deleted_at is null
-  ) then
-    raise exception 'programme not found in this station: %', p_show_id using errcode = 'P0002';
+  if p_show_id is not null then
+    perform 1 from public.shows
+      where id = p_show_id and company_id = p_company_id and deleted_at is null
+      for key share;
+
+    if not found then
+      raise exception 'programme not found in this station: %', p_show_id using errcode = 'P0002';
+    end if;
   end if;
 
   insert into public.music_requests
