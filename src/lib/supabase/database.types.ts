@@ -1051,6 +1051,66 @@ export type Database = {
           },
         ]
       }
+      message_templates: {
+        Row: {
+          body: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          language: string
+          name: string
+          organization_id: string
+          purpose: Database["public"]["Enums"]["template_purpose"]
+          updated_at: string
+          variables: Json
+        }
+        Insert: {
+          body: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          language: string
+          name: string
+          organization_id: string
+          purpose: Database["public"]["Enums"]["template_purpose"]
+          updated_at?: string
+          variables?: Json
+        }
+        Update: {
+          body?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          language?: string
+          name?: string
+          organization_id?: string
+          purpose?: Database["public"]["Enums"]["template_purpose"]
+          updated_at?: string
+          variables?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_templates_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "message_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       music_genres: {
         Row: {
           company_id: string
@@ -3886,6 +3946,7 @@ export type Database = {
         | "CPF"
         | "PASSPORT"
         | "DISCOVERY_SOURCE"
+      template_purpose: "PICKUP_REMINDER"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       winner_status:
         | "AWAITING_PICKUP"
@@ -4097,6 +4158,7 @@ export const Constants = {
         "PASSPORT",
         "DISCOVERY_SOURCE",
       ],
+      template_purpose: ["PICKUP_REMINDER"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       winner_status: [
         "AWAITING_PICKUP",

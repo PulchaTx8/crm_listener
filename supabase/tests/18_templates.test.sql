@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(17);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -76,6 +76,114 @@ select ok(
 select ok(
   not has_table_privilege('service_role', 'public.station_message_templates', 'TRUNCATE'),
   'service_role cannot truncate the overrides');
+
+-- Task 2: the approved-template registry. Same fixtures (org ...e4f1,
+-- company ...e4c1) — this table references the same Station, not a new one.
+
+-- 11: the purpose enum is pinned to PICKUP_REMINDER alone. Task 4 depends on
+-- that exact value; a later block adds a second purpose rather than renaming
+-- this one.
+select is(
+  enum_range(null::public.template_purpose)::text[],
+  array['PICKUP_REMINDER'],
+  'template_purpose has exactly PICKUP_REMINDER');
+
+-- 12: a blank name, language or body is refused. '   ' would satisfy NOT
+-- NULL and register a template nobody can send — name and language must
+-- match what Meta approved exactly, and a body a listener cannot read is
+-- worse than no template at all. One assertion, three sub-checks: each
+-- insert is expected to fail with check_violation, and the DO block only
+-- raises (failing this assertion) if one of them is wrongly accepted.
+select lives_ok($$
+  do $do$
+  begin
+    begin
+      insert into public.message_templates
+        (organization_id, company_id, purpose, name, language, body)
+      values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+              'PICKUP_REMINDER', '   ', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!');
+      raise exception 'a blank name was not refused';
+    exception when check_violation then null;
+    end;
+    begin
+      insert into public.message_templates
+        (organization_id, company_id, purpose, name, language, body)
+      values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+              'PICKUP_REMINDER', 'Lembrete de retirada', '   ', 'Oi {{1}}, seu prêmio te espera!');
+      raise exception 'a blank language was not refused';
+    exception when check_violation then null;
+    end;
+    begin
+      insert into public.message_templates
+        (organization_id, company_id, purpose, name, language, body)
+      values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+              'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', '   ');
+      raise exception 'a blank body was not refused';
+    exception when check_violation then null;
+    end;
+  end
+  $do$;
+$$, 'a blank name, language or body is refused by its check constraint');
+
+-- 13: variables must be a JSON array. Task 3's enqueue indexes it
+-- positionally by {{1}}..{{n}}; an object here would fail only at send time,
+-- not at write time.
+select throws_ok($$
+  insert into public.message_templates
+    (organization_id, company_id, purpose, name, language, body, variables)
+  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+          'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!',
+          '{"1": "nome"}'::jsonb)
+$$, '23514', null, 'variables must be a JSON array, not an object');
+
+insert into public.message_templates
+  (organization_id, company_id, purpose, name, language, body)
+values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+        'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!');
+
+-- 14: one live template per (company_id, purpose).
+select throws_ok($$
+  insert into public.message_templates
+    (organization_id, company_id, purpose, name, language, body)
+  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+          'PICKUP_REMINDER', 'Outro nome', 'pt_BR', 'Outro corpo')
+$$, '23505', null, 'a second live template for the same purpose is refused');
+
+-- 15: and archiving the first frees the purpose — the same partial-index
+-- shape as Task 1's station_message_templates, for the same reason: without
+-- it an operator who archived a template could never register its
+-- replacement.
+update public.message_templates set deleted_at = now()
+ where company_id = '00000000-0000-0000-0000-00000000e4c1' and purpose = 'PICKUP_REMINDER';
+
+select lives_ok($$
+  insert into public.message_templates
+    (organization_id, company_id, purpose, name, language, body)
+  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+          'PICKUP_REMINDER', 'Lembrete novo', 'pt_BR', 'Novo corpo {{1}}')
+$$, 'archiving a template frees its purpose for a new registration');
+
+-- 16: authenticated cannot write directly — Task 2 opens no door at all yet;
+-- a later registration screen adds one as SECURITY DEFINER. service_role
+-- reads (Task 3's enqueue_whatsapp_outbound resolves the row under
+-- service_role) and cannot truncate (0059's lesson, applied again).
+select ok(
+  not has_table_privilege('authenticated', 'public.message_templates', 'INSERT')
+  and has_table_privilege('service_role', 'public.message_templates', 'SELECT')
+  and not has_table_privilege('service_role', 'public.message_templates', 'TRUNCATE'),
+  'authenticated cannot write directly; service_role reads and cannot truncate');
+
+-- 17: no status column, deliberately (spec §3.2). This table records what
+-- the operator was told at registration; it cannot know whether Meta still
+-- approves the template, so a status column here would look like live truth
+-- and actually be a stale memory. A revoked approval is discovered by the
+-- first rejected send, not by reading a column. Argue with this test before
+-- adding one back.
+select ok(
+  not exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'message_templates'
+                and column_name = 'status'),
+  'message_templates has no status column — approval state is not tracked here');
 
 select * from finish();
 rollback;
