@@ -1,5 +1,6 @@
 'use server';
 
+import { z } from 'zod';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -10,6 +11,25 @@ import type { SongSearchPage } from '@/services/music';
 import { resolveOrCreateMember, searchStationListeners } from '@/services/participations';
 import type { StationListenerPage } from '@/services/participations';
 import { describeMusicReadError, describeMusicWriteError } from '../errors';
+// The two errors thrown inside `resolveOrCreateMember` and
+// `searchStationListeners` come from services/participations.ts, not
+// services/music.ts — mapParticipationError's own taxonomy, not
+// mapMusicError's. describeMusicWriteError/describeMusicReadError still
+// pattern-match on the shared error CLASSES (BusinessRuleError,
+// UnauthorizedError, …) from @/lib/errors, so nothing throws here, but their
+// wording is written for a music-catalogue refusal — "you cannot ${action}
+// … in this Station" reads as a doubled sentence when `action` already ends
+// "at this Station", and their BusinessRuleError branch invents a wrong
+// cause (a catalogue record "still used by other rows") for what is
+// actually a create_member refusal. describeParticipationsReadError/
+// describeParticipationsWriteError (participations/errors.ts) are the pair
+// written for these two functions' own errors — participations/actions.ts
+// uses them for the identical calls — so they are used here too rather than
+// the music pair.
+import {
+  describeParticipationsReadError,
+  describeParticipationsWriteError,
+} from '../../participations/errors';
 
 // ---------------------------------------------------------------------------
 // Unlike songs/actions.ts, the two writes below DO revalidatePath. There is
@@ -51,7 +71,10 @@ export async function searchRequestListenersAction(
     return { status: 'ok', page: await searchStationListeners(companyId, search, token) };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'could not search the listeners of this station');
-    return { status: 'error', message: describeMusicReadError(cause) };
+    return {
+      status: 'error',
+      message: describeParticipationsReadError(cause, 'the listeners of this Station'),
+    };
   }
 }
 
@@ -114,7 +137,16 @@ export async function recordRequestAction(
 ): Promise<RecordRequestState> {
   const parsed = requestFormSchema.safeParse({
     companyId: formData.get('companyId'),
-    songId: formData.get('songId'),
+    // The hidden `songId` input renders only once a song is picked
+    // (record-request-form.tsx), so submitting without one means
+    // `formData.get('songId')` is `null` — not a string at all. Zod 3
+    // attaches a custom `.uuid(message)` string to the FORMAT check, not the
+    // base type check, so a bare `null` would fail with the generic
+    // "Expected string, received null" instead of the one sentence this
+    // schema wrote for the one mistake an operator will actually make.
+    // `?? ''` turns that into an empty string, which fails the uuid format
+    // check instead and surfaces the real message.
+    songId: formData.get('songId') ?? '',
     showId: formData.get('showId') || null,
     memberId: formData.get('memberId') || null,
     requestedAt: formData.get('requestedAt'),
@@ -176,7 +208,7 @@ export async function recordRequestAction(
       );
       return {
         ok: false,
-        message: describeMusicWriteError(cause, 'register this listener at this Station'),
+        message: describeParticipationsWriteError(cause, 'register this listener at this Station'),
       };
     }
   }
@@ -209,13 +241,28 @@ export async function recordRequestAction(
 
 export type ArchiveRequestState = { ok: null } | { ok: true } | { ok: false; message: string };
 
+/**
+ * A request id is never typed by an operator — it comes from the row the
+ * dialog was opened on — but archive_music_request still reaches Postgres
+ * with whatever this parses to, so a malformed value is refused here rather
+ * than reaching the RPC as raw text and coming back as an opaque `22P02`,
+ * the identical round trip requestFormSchema's own `requestedAt` guard
+ * exists to close for the create side.
+ */
+const archiveRequestSchema = z.object({
+  requestId: z.string().uuid('That request could not be identified. Reopen the list and try again.'),
+});
+
 /** Withdraws a mistyped manual entry — never a DELETE (0107's own comment on archive_music_request). */
 export async function archiveRequestAction(
   _prev: ArchiveRequestState,
   formData: FormData,
 ): Promise<ArchiveRequestState> {
-  const requestId = String(formData.get('requestId') ?? '');
-  if (!requestId) return { ok: false, message: 'Missing request.' };
+  const parsed = archiveRequestSchema.safeParse({ requestId: formData.get('requestId') ?? '' });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Missing request.' };
+  }
+  const { requestId } = parsed.data;
 
   const token = await requireAccessToken();
 

@@ -169,17 +169,6 @@ export const mergeFormSchema = z
 export type MergeFormInput = z.infer<typeof mergeFormSchema>;
 
 /**
- * Manual entry, which has two shapes because Block 3's deduplication has two:
- * the operator either picked a listener from the search results (`memberId`)
- * or typed enough to find-or-create one (`fullName` and at least one
- * identifier). resolveOrCreateMember (services/participations.ts) is what
- * turns the second into the first, and the form calls it before the request
- * door — the same two doors record-participation-form.tsx already has.
- *
- * D5: `songId` is required and there is no free-text alternative. A request
- * points at a catalogued song or it is not recorded.
- */
-/**
  * Blank means "now" — create_music_request (0107) takes it as
  * `coalesce(p_requested_at, now())`, so omitting the key and sending an
  * empty one mean the same thing. Anything else has to be a real instant:
@@ -201,6 +190,17 @@ const optionalInstant = z.preprocess(
   z.string().datetime({ message: 'That date could not be read. Pick it again.' }).optional(),
 );
 
+/**
+ * Manual entry, which has two shapes because Block 3's deduplication has two:
+ * the operator either picked a listener from the search results (`memberId`)
+ * or typed enough to find-or-create one (`fullName` and at least one
+ * identifier). resolveOrCreateMember (services/participations.ts) is what
+ * turns the second into the first, and the form calls it before the request
+ * door — the same two doors record-participation-form.tsx already has.
+ *
+ * D5: `songId` is required and there is no free-text alternative. A request
+ * points at a catalogued song or it is not recorded.
+ */
 export const requestFormSchema = z
   .object({
     companyId: z.string().uuid(),

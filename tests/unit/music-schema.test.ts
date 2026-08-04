@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+// The real conversion the form's hidden `requestedAt` field runs through
+// (record-request-form.tsx), imported rather than hand-copying its output as
+// a literal — see requestFormSchema.requestedAt's own test below for why.
+import { fromZonedWallClock } from '@/app/(app)/promotions/zone';
 import { referenceFormSchema, requestFormSchema, songFormSchema } from '@/schemas/music';
 
 const COMPANY = '00000000-0000-0000-0000-0000000000c1';
@@ -130,14 +134,37 @@ describe('requestFormSchema.requestedAt', () => {
     expect(parsed.success).toBe(false);
   });
 
-  // The exact shape fromZonedWallClock (promotions/zone.ts) produces for
-  // every non-blank value this field will ever carry in the browser.
-  it('accepts the ISO instant fromZonedWallClock produces', () => {
+  // A hand-written literal in the exact SHAPE fromZonedWallClock produces —
+  // useful as a format check on its own, but the pairing between this
+  // schema and that function is a coincidence until the next test proves it
+  // with the real function.
+  it('accepts a hand-written instant in the shape fromZonedWallClock produces', () => {
     const parsed = requestFormSchema.safeParse({
       companyId: COMPANY,
       songId: SONG,
       memberId: MEMBER,
       requestedAt: '2026-08-04T15:04:05.123Z',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  // The fact, not the coincidence: feeds fromZonedWallClock's ACTUAL output
+  // for a datetime-local value into this schema. This is the test that
+  // fails the day somebody "simplifies" record-request-form.tsx by giving
+  // the visible datetime-local input its own `name="requestedAt"` and
+  // dropping the hidden, converted field — a raw datetime-local value
+  // ("2026-08-04T15:04", no seconds, no 'Z') is exactly what the previous
+  // test's hand-written literal cannot catch, because nobody wrote that
+  // failure into the literal.
+  it('accepts what fromZonedWallClock actually returns for a datetime-local value', () => {
+    const instant = fromZonedWallClock('2026-08-04T15:04', 'America/Sao_Paulo');
+    expect(instant).toBeDefined();
+
+    const parsed = requestFormSchema.safeParse({
+      companyId: COMPANY,
+      songId: SONG,
+      memberId: MEMBER,
+      requestedAt: instant,
     });
     expect(parsed.success).toBe(true);
   });

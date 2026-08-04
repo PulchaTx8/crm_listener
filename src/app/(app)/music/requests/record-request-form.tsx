@@ -39,6 +39,27 @@ function describeSong(song: SongOption): string {
 }
 
 /**
+ * What the hidden `requestedAt` field posts. Blank stays blank — that is how
+ * this form says "now" (requestFormSchema's own blankToUndefined turns it
+ * into the absence create_music_request's `coalesce(…, now())` wants).
+ *
+ * `fromZonedWallClock` returns `undefined` only when the wall-clock string it
+ * was given does not parse — practically unreachable from a native
+ * `datetime-local` control — but falling back to `''` in that case would mean
+ * exactly the same thing blank already means: "record it as now", silently,
+ * for an operator who typed a specific time. That is the one failure mode
+ * the `requestedAt` guard on the schema exists to close, so this does not
+ * reopen it here: an unconverted value is sent through as-is, which
+ * `requestFormSchema`'s `z.string().datetime()` check refuses (a bare
+ * `datetime-local` value carries no 'Z' designator), surfacing the guard's
+ * own message instead of a wrong instant nobody asked for.
+ */
+function requestedAtFieldValue(whenLocal: string, timeZone: string): string {
+  if (!whenLocal) return '';
+  return fromZonedWallClock(whenLocal, timeZone) ?? whenLocal;
+}
+
+/**
  * One request, typed by hand — the shape record-participation-form.tsx
  * already solved, with a second search-and-pick half added for the song.
  *
@@ -195,11 +216,7 @@ export function RecordRequestForm({
           field carries '' rather than being omitted, so a submission with
           nothing typed still posts a value the schema's blankToUndefined
           turns into the same absence. */}
-      <input
-        type="hidden"
-        name="requestedAt"
-        value={whenLocal ? (fromZonedWallClock(whenLocal, timeZone) ?? '') : ''}
-      />
+      <input type="hidden" name="requestedAt" value={requestedAtFieldValue(whenLocal, timeZone)} />
 
       <div key={round} className="flex flex-col gap-4">
         {pickedListener ? (
