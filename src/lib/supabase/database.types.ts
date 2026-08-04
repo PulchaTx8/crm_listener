@@ -1381,6 +1381,9 @@ export type Database = {
           pruned_at: string | null
           sent_at: string | null
           status: Database["public"]["Enums"]["outbox_status"]
+          template_language: string | null
+          template_name: string | null
+          template_variables: Json | null
           to_phone: string | null
         }
         Insert: {
@@ -1401,6 +1404,9 @@ export type Database = {
           pruned_at?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["outbox_status"]
+          template_language?: string | null
+          template_name?: string | null
+          template_variables?: Json | null
           to_phone?: string | null
         }
         Update: {
@@ -1421,6 +1427,9 @@ export type Database = {
           pruned_at?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["outbox_status"]
+          template_language?: string | null
+          template_name?: string | null
+          template_variables?: Json | null
           to_phone?: string | null
         }
         Relationships: [
@@ -3040,6 +3049,9 @@ export type Database = {
           id: string
           interactive: Json
           phone_number_id: string
+          template_language: string
+          template_name: string
+          template_variables: Json
           to_phone: string
         }[]
       }
@@ -3203,6 +3215,8 @@ export type Database = {
           p_dedupe_key: string
           p_integration_id: string
           p_interactive: Json
+          p_template_purpose?: Database["public"]["Enums"]["template_purpose"]
+          p_template_variables?: Json
           p_to_phone: string
         }
         Returns: string

@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(36);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -184,6 +184,130 @@ select ok(
               where table_schema = 'public' and table_name = 'message_templates'
                 and column_name = 'status'),
   'message_templates has no status column — approval state is not tracked here');
+
+-- Task 3: the outbox learns templates, and the enqueue resolves them. Same
+-- fixtures — company e4c1 still holds the live PICKUP_REMINDER template test
+-- 17 registered ('Lembrete novo', pt_BR, body 'Novo corpo {{1}}'): one
+-- placeholder, so a one-element variables array is the correct call and a
+-- zero- or two-element one is the mismatch this task must refuse.
+
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-00000000e4a1', '00000000-0000-0000-0000-00000000e4f1',
+   '00000000-0000-0000-0000-00000000e4c1', 'WHATSAPP', '5511900000100', true);
+
+-- A second Station with no registered template at all, for the "no live row"
+-- refusal — e4c1 cannot show that, because it has one.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000e4c9', '00000000-0000-0000-0000-00000000e4f1',
+   'Station templates no registry', 'America/Sao_Paulo');
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-00000000e4a9', '00000000-0000-0000-0000-00000000e4f1',
+   '00000000-0000-0000-0000-00000000e4c9', 'WHATSAPP', '5511900000900', true);
+
+-- 22-24: the three columns exist, and only as a triple.
+select has_column('public', 'outbox_messages', 'template_name',
+                  'the outbox can name the template a row sends');
+select has_column('public', 'outbox_messages', 'template_language',
+                  'and the language it was registered under');
+select has_column('public', 'outbox_messages', 'template_variables',
+                  'and the values actually substituted into it');
+
+-- 25: a purpose with no live registry row for that Station is refused at
+-- enqueue, before anything is written — Meta would refuse a name it has never
+-- approved, and this turns that into a validation error rather than a wasted
+-- send.
+select throws_ok($$
+  select public.enqueue_whatsapp_outbound(
+    '00000000-0000-0000-0000-00000000e4a9', '5511911111101', 'unused',
+    null, 'no-registry:test', 'PICKUP_REMINDER', '[]'::jsonb)
+$$, 'P0002', null,
+  'a purpose with no live registry row for the Station is refused at enqueue');
+
+-- 26: a variable count disagreeing with the body's highest {{n}} is refused.
+-- The registered body wants exactly one; this call offers zero.
+select throws_ok($$
+  select public.enqueue_whatsapp_outbound(
+    '00000000-0000-0000-0000-00000000e4a1', '5511911111102', 'unused',
+    null, 'bad-count:test', 'PICKUP_REMINDER', '[]'::jsonb)
+$$, '22023', null,
+  'a variable count disagreeing with the body''s highest {{n}} is refused');
+
+-- 27: THE PROOF THAT MATTERS MOST (D6). Rendering happens inside the enqueue,
+-- not in whatever called it, so the stored body and the stamped variables
+-- cannot be produced from different sources. Asserting more than "both
+-- columns are non-null": the actual substituted text is checked against the
+-- registry's actual template.
+select public.enqueue_whatsapp_outbound(
+  '00000000-0000-0000-0000-00000000e4a1', '5511911111103', 'this is ignored',
+  null, 'template-happy:test', 'PICKUP_REMINDER', '["Maria"]'::jsonb);
+
+select is(
+  (select body from public.outbox_messages where dedupe_key = 'template-happy:test'),
+  'Novo corpo Maria',
+  'the stored body is the registry''s approved text with the variable actually substituted');
+
+-- 28-30: the three columns are stamped from the registry and the call, not
+-- left for a caller to fill in separately.
+select is(
+  (select template_name from public.outbox_messages where dedupe_key = 'template-happy:test'),
+  'Lembrete novo', 'template_name is stamped from the resolved registry row');
+select is(
+  (select template_language from public.outbox_messages where dedupe_key = 'template-happy:test'),
+  'pt_BR', 'template_language is stamped from the resolved registry row');
+select is(
+  (select template_variables from public.outbox_messages where dedupe_key = 'template-happy:test'),
+  '["Maria"]'::jsonb, 'template_variables is stamped with what was actually sent');
+
+-- 31-33: a plain text send — p_template_purpose omitted — still works
+-- unchanged through the new signature. This is the regression guard for
+-- every message this system already sends.
+select public.enqueue_whatsapp_outbound(
+  '00000000-0000-0000-0000-00000000e4a1', '5511911111104', 'Oi, tudo bem?',
+  null, 'plain-text:test');
+
+select is(
+  (select body from public.outbox_messages where dedupe_key = 'plain-text:test'),
+  'Oi, tudo bem?', 'a plain text send still stores the caller''s own body, unrendered');
+select is(
+  (select template_name from public.outbox_messages where dedupe_key = 'plain-text:test'),
+  null, 'and carries no template stamp');
+select is(
+  (select count(*)::int from public.outbox_messages
+    where dedupe_key = 'plain-text:test'
+      and template_name is null and template_language is null and template_variables is null),
+  1, 'the three template columns stay null together on a plain text row');
+
+-- 34-35: claim_outbox_batch hands the worker the template columns too, and a
+-- plain text row still comes back with nothing templated on it — the same
+-- pairing 0067 proved for `interactive`.
+create temporary table claimed_templated as
+  select * from public.claim_outbox_batch(10000);
+
+select is(
+  (select c.template_name from claimed_templated c
+    join public.outbox_messages o on o.id = c.id
+   where o.dedupe_key = 'template-happy:test'),
+  'Lembrete novo',
+  'the claim hands the worker the template name, language and variables too');
+
+select is(
+  (select count(*)::int from claimed_templated c
+    join public.outbox_messages o on o.id = c.id
+   where o.dedupe_key = 'plain-text:test'
+     and c.template_name is null and c.template_language is null and c.template_variables is null),
+  1, 'and a plain text row still comes back with nothing templated on it');
+
+-- 36: the grant survives the drop-and-recreate. Lost, this answers 42501 to
+-- every template send the moment Task 4 makes one.
+select ok(
+  has_function_privilege('service_role',
+    'public.enqueue_whatsapp_outbound(uuid, text, text, jsonb, text, public.template_purpose, jsonb)',
+    'EXECUTE'),
+  'service_role may still call enqueue_whatsapp_outbound under its new signature');
 
 select * from finish();
 rollback;
