@@ -310,12 +310,24 @@ describe('Block 7b — merging and requests across Stations', () => {
     expect(error?.code).toBe('42501');
   });
 
-  it('refuses the candidate list to a caller who cannot merge', async () => {
-    const viewer = await grantRoleWith(customer, `cand-denied-${STAMP}`, [
-      'music.view',
-      'music.manage',
-    ]);
-    const client = await signInAs(viewer.email, viewer.password);
+  // Fix round 2: list_merge_candidates (0108) is gated on music.view, not
+  // music.merge — moved there in this block's fix round 1 because
+  // maintenance/page.tsx reads this list and getMusicPermissions in one
+  // Promise.all, and gating the READ on music.merge made
+  // "permissions.merge === false" and "the read already threw" the same
+  // event, so the Maintenance screen's own required read-only mode could
+  // never render. pgTAP proved the SQL side of that change (16_music_merge,
+  // assertions 34-35); this file is what proves it as a real caller, since
+  // pgTAP runs as superuser with a null auth.uid() and cannot exercise
+  // has_permission at all.
+  it('refuses the candidate list to a caller holding neither music.view nor music.merge', async () => {
+    // music.manage alone, deliberately: it proves building the catalogue
+    // (creating songs, artists, labels, genres, shows) does not confer
+    // reading the Maintenance screen's list — a caller with music.view
+    // AND music.manage would now succeed under the corrected gate, which
+    // is exactly the case below and would prove nothing about a refusal.
+    const manager = await grantRoleWith(customer, `cand-denied-${STAMP}`, ['music.manage']);
+    const client = await signInAs(manager.email, manager.password);
 
     const { error } = await client.rpc('list_merge_candidates', {
       p_company_id: customer.companyId,
@@ -323,6 +335,23 @@ describe('Block 7b — merging and requests across Stations', () => {
     });
 
     expect(error?.code).toBe('42501');
+  });
+
+  it('lets a caller holding music.view alone read the candidate list', async () => {
+    // The property the whole fix-round-1 ruling rests on: a caller who can
+    // see the catalogue but not merge it can still read this list, which is
+    // what makes the Maintenance screen's read-only mode (MergePanel's
+    // canMerge=false branch) reachable at all rather than a bare LoadError.
+    const viewer = await grantRoleWith(customer, `cand-view-only-${STAMP}`, ['music.view']);
+    const client = await signInAs(viewer.email, viewer.password);
+
+    const { data, error } = await client.rpc('list_merge_candidates', {
+      p_company_id: customer.companyId,
+      p_kind: 'SONG',
+    });
+
+    expect(error).toBeNull();
+    expect(Array.isArray(data)).toBe(true);
   });
 
   it('has no write grant on music_merges for any caller', async () => {

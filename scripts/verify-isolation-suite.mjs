@@ -151,9 +151,14 @@ const REQUIRED_TEST_FILES = [
   // naming nothing (the core scopes its lock, so "elsewhere" is
   // indistinguishable from "absent"); and list_music_requests still LISTS
   // without members.view, with the listener columns null, while a search
-  // returns nothing at all. pgTAP sees none of it — it runs as superuser with
-  // a null auth.uid().
-  { path: 'tests/isolation/music-merge.test.ts', minTests: 10 },
+  // returns nothing at all. Task 9's fix round 2 adds the pair that proves
+  // list_merge_candidates' corrected gate (0108, moved from music.merge to
+  // music.view in fix round 1): music.manage alone still cannot read the
+  // Maintenance screen's list, and music.view alone now can — the property
+  // the whole read-only-screen ruling rests on, and pgTAP cannot show it
+  // either, for the identical reason as everything else in this file: it
+  // runs as superuser with a null auth.uid().
+  { path: 'tests/isolation/music-merge.test.ts', minTests: 11 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for
