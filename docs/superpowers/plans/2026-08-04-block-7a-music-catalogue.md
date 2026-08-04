@@ -550,6 +550,23 @@ git commit -m "feat(music): six tables for an acervo, one per Station"
 
 ## Task 2: RLS, the read gate, and no write grant anywhere
 
+> **Amended after execution (2026-08-04).** Step 2 below originally predicted
+> sixteen failing assertions in `14_music_catalogue`. The real number, run
+> against this codebase's own default-ACL convention (documented in 0002,
+> 0006, 0014, 0019, 0029, 0046, 0058), is **nine**. The other seven
+> (assertions 32–35, 37, 40 — `authenticated` cannot insert/update/delete,
+> `service_role` cannot insert, `anon` cannot select) were already true
+> before this migration: the default ACL on `public` grants a freshly
+> created table only `Dxtm` (TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) to
+> `anon`/`authenticated`/`service_role` — never SELECT, INSERT, UPDATE or
+> DELETE — so there was nothing yet for those seven to catch. They are
+> legitimate regression pins, not proof this migration did anything: each
+> would catch a *future* migration that granted write access by mistake, and
+> none of their assertion names attributes the denial to `0099`. No
+> assertion was weakened or reworded — this note corrects the plan's
+> prediction, not the test. See `docs/block-7a-report.md` for the full 9/7
+> split.
+
 **Files:**
 - Create: `supabase/migrations/0099_rls_music.sql`
 - Modify: `supabase/tests/14_music_catalogue.test.sql`
@@ -634,7 +651,13 @@ select is(relrowsecurity, true, 'RLS enabled on music_requests')
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `npm run db:test`
-Expected: FAIL — sixteen assertions in `14_music_catalogue` and six in `02_permissions` report false. RLS is off and `authenticated` holds the default ACL.
+Expected: FAIL — **nine** assertions in `14_music_catalogue` report false:
+25–30 (the six `relrowsecurity` checks), 31 (`authenticated` may read
+songs), and 38–39 (the two `service_role` truncate-denial checks). Six in
+`02_permissions` report false too. The other seven assertions in
+`14_music_catalogue` (32–35, 37, 40) already pass before the migration, under
+the default ACL — see the amendment note above the task header. RLS is off
+and there is no SELECT grant to `authenticated` yet.
 
 - [ ] **Step 3: Write the migration**
 
@@ -755,6 +778,39 @@ git commit -m "feat(music): read gate on music.view, and no write grant anywhere
 
 ## Task 3: One trio of doors for the four short lists
 
+> **Amended after execution (2026-08-04).** The pgTAP test below, as
+> originally written, calls every RPC with no actor identity at all — no
+> `set local request.jwt.claims`, no `role_permissions`/`company_memberships`
+> fixture. Its own comment (on assertions 2–5) claimed this worked "because
+> pgTAP runs as superuser" — that conflates two different mechanisms.
+> Postgres-as-superuser bypasses table/function ACL (`GRANT`/`REVOKE
+> EXECUTE`), which is genuinely why pgTAP can call these functions at all
+> past `revoke execute ... from public`. It does **not** make
+> `has_permission` answer true: that function is a business-rule query
+> reading `auth.uid()`, and `auth.uid()` is NULL for a superuser session with
+> no JWT claims set. As drafted, ten of the fourteen assertions failed with
+> `42501`, and two more (13, 14) passed for the wrong reason — every call was
+> refused by the same unconditional gate failure, not by the archived-row or
+> unknown-id branch their own comments claim to prove.
+>
+> The fix, applied during execution: the house pattern already used six
+> times in `02_permissions.test.sql` and in
+> `11_filtered_hat.test.sql:351-366`. Insert a role holding **both**
+> `music.view` and `music.manage` (manage alone passes the RPC gates but
+> cannot read a row back, since 0099's select policies gate on `music.view`),
+> an `auth.users` row, and a `company_memberships` row linking them —
+> then bracket every RPC call with `set local role authenticated; set local
+> request.jwt.claims = '{"sub": "<actor>", "role": "authenticated"}';` ...
+> `reset role;`. Two verification reads must stay outside any such bracket,
+> as superuser: `audit_logs` (admin-only policy, `0006_rls_policies.sql:107`)
+> and any read of a just-archived row's `deleted_at` (every 0099 select
+> policy filters `deleted_at is null`, so an archived row is invisible to the
+> narrower actor). No assertion's text, error code or `plan(14)` count
+> changed — only the fixture and the role-switch brackets were added. See
+> `supabase/tests/15_music_rpcs.test.sql` as committed and
+> `docs/block-7a-report.md` for the full account, including why this defect
+> also blocked Task 4 (which appends to the same file).
+
 **Files:**
 - Create: `supabase/migrations/0100_music_reference_rpcs.sql`
 - Create: `supabase/tests/15_music_rpcs.test.sql`
@@ -803,9 +859,14 @@ select is(
   array['GENRE', 'LABEL', 'ARTIST', 'SHOW'],
   'music_reference_kind is the four short lists — songs is not one of them');
 
--- 2-5: one door writes four tables. Called as the table owner here, which
--- has_permission answers true for only because pgTAP runs as superuser —
--- the gate itself is proved in the isolation suite.
+-- 2-5: one door writes four tables. CORRECTED IN EXECUTION (see the
+-- amendment note above the task header): this comment originally claimed
+-- has_permission answers true here "because pgTAP runs as superuser" -- it
+-- does not. Superuser bypasses ACL/EXECUTE checks, not a business-rule query
+-- keyed on auth.uid(), which is NULL with no JWT claims set. These calls
+-- need a real actor fixture (music.view + music.manage) and a
+-- set-local-role/reset-role bracket to reach 42501 only where the gate
+-- itself should fire -- not on every call.
 select lives_ok($$
   select public.create_music_reference(
     '00000000-0000-0000-0000-00000000e1c1', 'GENRE', 'Samba')
@@ -1581,6 +1642,33 @@ git commit -m "feat(music): the song's three doors, and the references they must
 
 ## Task 5: The isolation suite — the boundary, with real JWTs
 
+> **Amended after execution (2026-08-04).** Step 1's fixture below calls
+> `provisionCustomer('music7a')` with a bare literal label, and the five
+> `grantRoleWith` calls below it (`music-viewer`, `music-manager-a`,
+> `music-manager-b`, `music-one-station`, `music-readonly`) are bare literals
+> too. This is the only file in the isolation suite that does this — every
+> other file stamps its label (`inventory.test.ts`'s
+> `` `inv-floor-${Date.now()}` ``, `conversation.test.ts`'s
+> `` `conv-create-${Date.now()}` ``, and so on). `cleanupUsers` can
+> legitimately fail to delete a user an audited RPC has referenced — that is
+> documented, expected behaviour, not a bug, and it warns on every run for
+> every file. But because this file's labels never change, the two fixed
+> e-mails they produce (`admin-music7a@example.test`,
+> `owner-music7a@example.test`) can survive one run and collide with the
+> next one's `createUser` call — this block's own tenant-boundary proof could
+> not then run a second time without a database reset in between, which a
+> single `npm run test:isolation` pass at the end of any earlier task would
+> never surface (a single run always passed). The fix: a module-level `const
+> STAMP = Date.now();`, used in `` provisionCustomer(`music7a-${STAMP}`) ``
+> and in all five `grantRoleWith` labels below (e.g.
+> `` `music-viewer-${STAMP}` ``). Nothing else changes — case count,
+> assertions and error codes are unaffected, and the manifest floor in
+> `scripts/verify-isolation-suite.mjs` (added below, `minTests: 8`) stays as
+> written. Verifying this fix requires **two consecutive runs with no
+> `supabase db reset` in between** — a single run cannot show it, since a
+> single run always passed even with the bug present. See
+> `docs/block-7a-report.md` for the counted runs.
+
 **Files:**
 - Create: `tests/isolation/music.test.ts`
 
@@ -1614,12 +1702,17 @@ import {
  * suite — it is the reason this file exists and the reason it is written in
  * the same task as the functions, never at the end of the block.
  */
+// STAMP: see the amendment note above the task header. Every label below
+// that feeds an e-mail must be stamped with it, or a second consecutive run
+// with no database reset collides on createUser.
+const STAMP = Date.now();
+
 describe('Block 7a — the music catalogue across Stations', () => {
   let customer: ProvisionedCustomer;
   let secondCompanyId: string;
 
   beforeAll(async () => {
-    customer = await provisionCustomer('music7a');
+    customer = await provisionCustomer(`music7a-${STAMP}`);
     secondCompanyId = await addCompany(customer, 'Second Station 7a');
   }, 60_000);
 
@@ -1628,7 +1721,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
   });
 
   it('refuses to register anything without music.manage', async () => {
-    const viewer = await grantRoleWith(customer, 'music-viewer', ['music.view']);
+    const viewer = await grantRoleWith(customer, `music-viewer-${STAMP}`, ['music.view']);
     const client = await signInAs(viewer.email, viewer.password);
 
     const { error } = await client.rpc('create_music_reference', {
@@ -1642,7 +1735,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
 
   it('refuses a Station the caller holds nothing in, without saying it exists', async () => {
     // The grant is in the FIRST Station only; the call names the second.
-    const manager = await grantRoleWith(customer, 'music-manager-a', ['music.manage'], [
+    const manager = await grantRoleWith(customer, `music-manager-a-${STAMP}`, ['music.manage'], [
       customer.companyId,
     ]);
     const client = await signInAs(manager.email, manager.password);
@@ -1657,7 +1750,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
   });
 
   it('never answers P0002 for an id the caller may not see', async () => {
-    const manager = await grantRoleWith(customer, 'music-manager-b', ['music.manage'], [
+    const manager = await grantRoleWith(customer, `music-manager-b-${STAMP}`, ['music.manage'], [
       customer.companyId,
     ]);
     const owner = await signInAs(customer.email, customer.password);
@@ -1728,7 +1821,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
       p_artist_id: thereArtist as string,
     });
 
-    const viewer = await grantRoleWith(customer, 'music-one-station', ['music.view'], [
+    const viewer = await grantRoleWith(customer, `music-one-station-${STAMP}`, ['music.view'], [
       customer.companyId,
     ]);
     const client = await signInAs(viewer.email, viewer.password);
@@ -1779,7 +1872,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
   });
 
   it('lets a caller with music.view read but never write', async () => {
-    const viewer = await grantRoleWith(customer, 'music-readonly', ['music.view']);
+    const viewer = await grantRoleWith(customer, `music-readonly-${STAMP}`, ['music.view']);
     const client = await signInAs(viewer.email, viewer.password);
 
     const { error: readError } = await client.from('artists').select('id').limit(1);
@@ -1820,6 +1913,32 @@ git commit -m "test(music): the tenant boundary, with real users and narrower gr
 ---
 
 ## Task 6: Types, schemas and the URL contract
+
+> **Amended after execution (2026-08-04).** `optionalUuid`, below, originally
+> chained `.uuid()` before `.transform()`. Zod validates a `ZodString`'s own
+> checks (`.uuid()` included) before running `.transform()` — the transform
+> only ever receives a value that already survived the inner type's
+> validation. `.nullable()`/`.optional()` only short-circuit the literal
+> `null`/`undefined`; an empty string `''` is neither, so it reaches
+> `.uuid()`, is refused as a malformed uuid, and the whole parse aborts
+> before the transform's `v === ''` branch — which reads as load-bearing —
+> ever runs. `optionalText` escapes this only because it carries no format
+> check at all; `nationality`/`vocal` below (`z.enum(...).nullable().optional()`,
+> no transform) hit the identical shape, since an enum check
+> refuses `''` the same way `.uuid()` does. The fix: resolve emptiness
+> *before* validation, with `z.preprocess`, rather than after it in a
+> `.transform()` the validator never lets the value reach:
+> ```ts
+> const blankToUndefined = (v: unknown) =>
+>   v === null || v === undefined || v === '' ? undefined : v;
+> const optionalUuid = z.preprocess(blankToUndefined, z.string().uuid().optional());
+> ```
+> and, in `songFormSchema`, `nationality: z.preprocess(blankToUndefined,
+> z.enum(MUSIC_NATIONALITIES).optional())` (`vocal` the same shape). No
+> export or field name changed; `songUpdateSchema` inherits the fix for free
+> via `.omit().extend()`. See `docs/block-7a-report.md` for how this was
+> found and verified (including that `z.preprocess`'s output type is the
+> inner schema's own, not widened to `unknown`).
 
 **Files:**
 - Modify: `src/lib/supabase/database.types.ts` (regenerated)
@@ -1978,12 +2097,13 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v === null || v === undefined || v === '' ? undefined : v));
 
-const optionalUuid = z
-  .string()
-  .uuid()
-  .nullable()
-  .optional()
-  .transform((v) => (v === null || v === undefined || v === '' ? undefined : v));
+// CORRECTED IN EXECUTION (see the amendment note above the task header):
+// resolve emptiness BEFORE validation. .uuid() chained ahead of .transform()
+// refuses '' before the transform's own v === '' branch could ever run.
+const blankToUndefined = (v: unknown) =>
+  v === null || v === undefined || v === '' ? undefined : v;
+
+const optionalUuid = z.preprocess(blankToUndefined, z.string().uuid().optional());
 
 export const referenceFormSchema = z.object({
   companyId: z.string().uuid(),
@@ -2008,8 +2128,11 @@ export const songFormSchema = z.object({
   artistId: z.string().uuid('Choose an artist — a song without one is a draft.'),
   labelId: optionalUuid,
   genreId: optionalUuid,
-  nationality: z.enum(MUSIC_NATIONALITIES).nullable().optional(),
-  vocal: z.enum(MUSIC_VOCALS).nullable().optional(),
+  // CORRECTED IN EXECUTION: same reasoning as optionalUuid above -- an
+  // untouched <select> posts '', and an enum check refuses it before any
+  // .transform() could normalise it away.
+  nationality: z.preprocess(blankToUndefined, z.enum(MUSIC_NATIONALITIES).optional()),
+  vocal: z.preprocess(blankToUndefined, z.enum(MUSIC_VOCALS).optional()),
   // 0098's check is `duration_seconds is null or duration_seconds > 0`, and
   // the column is an integer. All three refusals happen here first.
   durationSeconds: z
@@ -2373,6 +2496,33 @@ git commit -m "feat(music): labels, genres and shows on one screen with tabs"
 
 ## Task 11: The navigation, and the round trip
 
+> **Amended after execution (2026-08-04).** Step 3's spec below asserts
+> `/still has songs registered/i` on the artist archive refusal. That string
+> does not appear anywhere in the shipped UI, so the spec as written cannot
+> pass. `archive_music_reference`'s `23503` refusal is mapped by the shared
+> `mapMusicError`/`describeMusicWriteError` pair to one fixed sentence reused
+> across all four reference kinds (genres, labels, artists, shows) — the
+> RPC's own message carries a row count, not an entity kind, so the UI
+> cannot say "songs" without threading a kind through every existing caller
+> of a shared error mapper. Task 9's review ruled the generic wording
+> functionally acceptable rather than requiring that change. The assertion
+> below must check what the screen actually renders:
+> ```ts
+> await expect(
+>   page.getByText(
+>     /you cannot archive this artist yet — it still has other records registered against it/i,
+>   ),
+> ).toBeVisible();
+> ```
+> See `docs/block-7a-report.md` and `src/app/(app)/music/errors.ts`'s
+> `describeMusicWriteError`. (Several other corrections to this same spec —
+> button text, `getByRole('cell', ...)` not applying to the Catalog screen's
+> `<ul>`/`<li>` rows, `exact: true` on ambiguous role queries, and more —
+> were also needed and are not plan defects in the sense of this section;
+> they are catalogued in `.superpowers/sdd/2026-08-04-block-7a-music-catalogue/task-11-report.md`
+> as ordinary brief-vs-shipped-UI drift, not load-bearing mistakes a future
+> planner would repeat.)
+
 **Files:**
 - Modify: `src/lib/auth/shell.ts`
 - Modify: `src/components/layout/app-shell.tsx` (one icon)
@@ -2469,7 +2619,14 @@ test('an operator builds a Station catalogue from nothing', async ({ page }) => 
   // 5. And the artist cannot be archived out from under it.
   await page.getByRole('tab', { name: 'Artist data' }).click();
   await page.getByRole('button', { name: 'Archive' }).click();
-  await expect(page.getByText(/still has songs registered/i)).toBeVisible();
+  // CORRECTED IN EXECUTION (see the amendment note above the task header):
+  // describeMusicWriteError's message is generic across all four reference
+  // kinds, not "songs" specifically.
+  await expect(
+    page.getByText(
+      /you cannot archive this artist yet — it still has other records registered against it/i,
+    ),
+  ).toBeVisible();
 });
 ```
 
