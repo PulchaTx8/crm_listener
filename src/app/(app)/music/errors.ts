@@ -108,3 +108,31 @@ export function describeMergeError(cause: unknown): string {
   if (cause instanceof ConflictError) return cause.message;
   return 'Could not merge. Refresh the page and try again.';
 }
+
+/**
+ * describeMusicReadError's taxonomy, worded for the Maintenance screen's own
+ * page-load read. Task 7's review flagged this exactly: listMergeCandidates
+ * is gated on `music.merge`, not `music.view` like every other read this
+ * taxonomy already served, so describeMusicReadError's fixed
+ * UnauthorizedError sentence ("you do not have permission to view the music
+ * catalogue in this Station") would misname the permission a caller is
+ * actually missing here. Checked against 0108: list_merge_candidates raises
+ * `42501` the identical way every other RPC in this taxonomy does, so that
+ * one branch is the only thing that needed its own wording — every other
+ * branch is delegated rather than copied, since a merge candidate read
+ * throws through the same mapMusicError taxonomy as everything else.
+ *
+ * Not describeMergeError: that function's NotFoundError sentence
+ * ("...may have been archived or merged by somebody else. Refresh the list
+ * and start again.") is written for the merge ACTION's own P0002, a case
+ * list_merge_candidates cannot raise at all — it names no record id, so
+ * there is nothing for it to find missing. Reusing describeMergeError here
+ * would be exactly the misapplied-branch mistake this function's own
+ * UnauthorizedError fix is closing.
+ */
+export function describeMaintenanceReadError(cause: unknown): string {
+  if (cause instanceof UnauthorizedError) {
+    return 'You do not have permission to merge records in this Station.';
+  }
+  return describeMusicReadError(cause);
+}
