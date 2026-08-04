@@ -34,6 +34,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      artists: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "artists_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "artists_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -1000,6 +1051,141 @@ export type Database = {
           },
         ]
       }
+      music_genres: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "music_genres_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "music_genres_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      music_requests: {
+        Row: {
+          channel: Database["public"]["Enums"]["music_request_channel"]
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          member_id: string
+          organization_id: string
+          requested_at: string
+          show_id: string | null
+          song_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel?: Database["public"]["Enums"]["music_request_channel"]
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          member_id: string
+          organization_id: string
+          requested_at?: string
+          show_id?: string | null
+          song_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel?: Database["public"]["Enums"]["music_request_channel"]
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          member_id?: string
+          organization_id?: string
+          requested_at?: string
+          show_id?: string | null
+          song_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "music_requests_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "music_requests_member_org_fk"
+            columns: ["member_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "music_requests_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "music_requests_show_company_fk"
+            columns: ["show_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "shows"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "music_requests_song_company_fk"
+            columns: ["song_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "songs"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
       organization_memberships: {
         Row: {
           created_at: string
@@ -1902,6 +2088,57 @@ export type Database = {
         }
         Relationships: []
       }
+      record_labels: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "record_labels_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "record_labels_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       role_permissions: {
         Row: {
           permission_code: string
@@ -1966,6 +2203,150 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "roles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shows: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shows_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "shows_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      songs: {
+        Row: {
+          artist_id: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          duration_seconds: number | null
+          genre_id: string | null
+          id: string
+          internal_code: string | null
+          label_id: string | null
+          legacy_id: string | null
+          nationality: Database["public"]["Enums"]["music_nationality"] | null
+          organization_id: string
+          title: string
+          updated_at: string
+          vocal: Database["public"]["Enums"]["music_vocal"] | null
+        }
+        Insert: {
+          artist_id: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          duration_seconds?: number | null
+          genre_id?: string | null
+          id?: string
+          internal_code?: string | null
+          label_id?: string | null
+          legacy_id?: string | null
+          nationality?: Database["public"]["Enums"]["music_nationality"] | null
+          organization_id: string
+          title: string
+          updated_at?: string
+          vocal?: Database["public"]["Enums"]["music_vocal"] | null
+        }
+        Update: {
+          artist_id?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          duration_seconds?: number | null
+          genre_id?: string | null
+          id?: string
+          internal_code?: string | null
+          label_id?: string | null
+          legacy_id?: string | null
+          nationality?: Database["public"]["Enums"]["music_nationality"] | null
+          organization_id?: string
+          title?: string
+          updated_at?: string
+          vocal?: Database["public"]["Enums"]["music_vocal"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "songs_artist_company_fk"
+            columns: ["artist_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "artists"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "songs_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "songs_genre_company_fk"
+            columns: ["genre_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "music_genres"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "songs_label_company_fk"
+            columns: ["label_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "record_labels"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "songs_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -2404,9 +2785,26 @@ export type Database = {
         Returns: undefined
       }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
+      archive_music_reference: {
+        Args: {
+          p_id: string
+          p_kind: Database["public"]["Enums"]["music_reference_kind"]
+        }
+        Returns: undefined
+      }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       archive_promotion: {
         Args: { p_promotion_id: string }
+        Returns: undefined
+      }
+      archive_song: { Args: { p_song_id: string }; Returns: undefined }
+      assert_song_references_live: {
+        Args: {
+          p_artist_id: string
+          p_company_id: string
+          p_genre_id: string
+          p_label_id: string
+        }
         Returns: undefined
       }
       assign_company_role: {
@@ -2516,6 +2914,15 @@ export type Database = {
         }
         Returns: string
       }
+      create_music_reference: {
+        Args: {
+          p_company_id: string
+          p_kind: Database["public"]["Enums"]["music_reference_kind"]
+          p_legacy_id?: string
+          p_name: string
+        }
+        Returns: string
+      }
       create_prize: {
         Args: {
           p_allows_return_to_stock?: boolean
@@ -2559,6 +2966,21 @@ export type Database = {
           p_name: string
           p_organization_id: string
           p_permission_codes?: string[]
+        }
+        Returns: string
+      }
+      create_song: {
+        Args: {
+          p_artist_id: string
+          p_company_id: string
+          p_duration_seconds?: number
+          p_genre_id?: string
+          p_internal_code?: string
+          p_label_id?: string
+          p_legacy_id?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_title: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
         }
         Returns: string
       }
@@ -2841,6 +3263,10 @@ export type Database = {
           member_id: string
         }[]
       }
+      music_reference_table: {
+        Args: { p_kind: Database["public"]["Enums"]["music_reference_kind"] }
+        Returns: string
+      }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
       participation_status_for: {
@@ -3111,6 +3537,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      update_music_reference: {
+        Args: {
+          p_id: string
+          p_kind: Database["public"]["Enums"]["music_reference_kind"]
+          p_name: string
+        }
+        Returns: undefined
+      }
       update_prize: {
         Args: {
           p_allows_return_to_stock?: boolean
@@ -3150,6 +3584,20 @@ export type Database = {
           p_name: string
           p_permission_codes?: string[]
           p_role_id: string
+        }
+        Returns: undefined
+      }
+      update_song: {
+        Args: {
+          p_artist_id: string
+          p_duration_seconds?: number
+          p_genre_id?: string
+          p_internal_code?: string
+          p_label_id?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_song_id: string
+          p_title: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
         }
         Returns: undefined
       }
@@ -3211,6 +3659,10 @@ export type Database = {
         | "subject_request"
         | "court_order"
         | "internal_policy"
+      music_nationality: "DOMESTIC" | "INTERNATIONAL"
+      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
+      music_request_channel: "MANUAL" | "IMPORT"
+      music_vocal: "MALE" | "FEMALE" | "DUO" | "GROUP" | "INSTRUMENTAL"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
       participation_source: "MANUAL" | "IMPORT" | "WHATSAPP"
@@ -3404,6 +3856,10 @@ export const Constants = {
         "court_order",
         "internal_policy",
       ],
+      music_nationality: ["DOMESTIC", "INTERNATIONAL"],
+      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
+      music_request_channel: ["MANUAL", "IMPORT"],
+      music_vocal: ["MALE", "FEMALE", "DUO", "GROUP", "INSTRUMENTAL"],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
       participation_source: ["MANUAL", "IMPORT", "WHATSAPP"],

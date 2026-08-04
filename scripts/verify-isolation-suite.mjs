@@ -137,6 +137,14 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
   { path: 'tests/isolation/members.test.ts', minTests: 21 },
+  // Block 7a, Task 5: the music catalogue's tenant boundary -- a cross-
+  // Station song refused by assert_song_references_live with P0002 (not a
+  // permission code, even for the owner, who passes every gate), the
+  // 42501-not-P0002 rule for an id a narrower caller cannot see, and the
+  // write refusal on a table with no INSERT grant to any role. pgTAP runs
+  // as superuser and answers true from has_permission unconditionally, so
+  // none of this is visible to it.
+  { path: 'tests/isolation/music.test.ts', minTests: 8 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for

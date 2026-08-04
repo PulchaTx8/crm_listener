@@ -86,6 +86,17 @@ export type TeamTab = (typeof TEAM_TABS)[number];
 export const CUSTOMER_TABS = ['customer', 'stations', 'owner'] as const;
 export type CustomerTab = (typeof CUSTOMER_TABS)[number];
 
+export const SONG_TABS = ['data'] as const;
+export type SongTab = (typeof SONG_TABS)[number];
+
+/**
+ * An artist's record opens on its own fields and offers what the artist is
+ * FOR: the songs registered under them. One read per opening feeds both, the
+ * shape every other record dialog in this codebase uses.
+ */
+export const ARTIST_TABS = ['data', 'songs'] as const;
+export type ArtistTab = (typeof ARTIST_TABS)[number];
+
 export interface RecordParam {
   recordId: string | null;
   /** Null only when no record is open — an open record always resolves to a tab. */

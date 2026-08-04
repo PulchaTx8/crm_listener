@@ -115,6 +115,21 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
+      // Visible to every member, including those holding no music permission
+      // in any Station at all — the same courtesy Inventory, Audience and
+      // Promotions already extend. Each of the three pages redirects at the
+      // top of its own render for anyone holding music.view nowhere, the
+      // select policies in 0099 cut every read to the Stations that do hold
+      // it, and every RPC in 0100/0101 re-checks has_permission in its own
+      // body. Hiding a link is a courtesy; the boundary is in the database.
+      label: 'Music',
+      items: [
+        { href: '/music/songs', label: 'Songs', icon: ICONS.music },
+        { href: '/music/artists', label: 'Artists', icon: ICONS.users },
+        { href: '/music/catalog', label: 'Catalog', icon: ICONS.box },
+      ],
+    },
+    {
       // Visible to every member, including those holding no organization-scoped
       // permission at all. Deliberate, and not a hole: Team renders the member
       // roster (widened per-permission by RLS, 0024), the role list, the
