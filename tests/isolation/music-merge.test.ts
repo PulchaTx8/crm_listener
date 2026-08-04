@@ -47,12 +47,18 @@ describe('Block 7b — merging and requests across Stations', () => {
       p_name: `Artist for ${title}`,
     });
     expect(artistError).toBeNull();
+    // Fix round 1, Minor: a null id here (RLS/grant surprise, not a query
+    // error) would still let cases 1 and 2 pass — merge_songs' own
+    // `v_company is null` branch answers 42501 for a null p_winner_id too, for
+    // the wrong reason entirely. Pin non-null before any case trusts these ids.
+    expect(artistId).toBeTruthy();
     const { data: songId, error: songError } = await owner.rpc('create_song', {
       p_company_id: companyId,
       p_title: title,
       p_artist_id: artistId as string,
     });
     expect(songError).toBeNull();
+    expect(songId).toBeTruthy();
     return { artistId: artistId as string, songId: songId as string };
   }
 
@@ -101,6 +107,15 @@ describe('Block 7b — merging and requests across Stations', () => {
     expect(error?.code).toBe('42501');
   });
 
+  // Fix round 1, Minor: the pairing this comment set claims is proved by the
+  // SQLSTATE alone (P0002) isn't the whole property. 0106's core has exactly
+  // ONE raise for missing/archived/elsewhere, so the two cases below must also
+  // produce the literal SAME MESSAGE, not merely the same code — a future
+  // split into two distinct messages (one per cause) would still pass a
+  // code-only assertion while reopening the oracle these cases exist to shut.
+  // Carried across the two `it`s, which is the property's actual subject.
+  let crossStationLoserMessage: string | undefined;
+
   it('refuses a LOSER that lives in another Station, and says nothing about it', async () => {
     const mine = await seedSong(customer.companyId, 'My song');
     const theirs = await seedSong(secondCompanyId, 'Their song');
@@ -123,6 +138,8 @@ describe('Block 7b — merging and requests across Stations', () => {
     // its lock to the winner's Station, so "elsewhere" and "nonexistent" are
     // indistinguishable — a distinct message here would be an oracle.
     expect(error?.code).toBe('P0002');
+    crossStationLoserMessage = error?.message;
+    expect(crossStationLoserMessage).toBeTruthy();
   });
 
   it('answers a cross-Station loser identically to a uuid that names nothing', async () => {
@@ -142,6 +159,9 @@ describe('Block 7b — merging and requests across Stations', () => {
     });
 
     expect(error?.code).toBe('P0002');
+    // The message, not just the code: 0106 has exactly one raise for
+    // missing/archived/elsewhere, and this is what proves it stayed that way.
+    expect(error?.message).toBe(crossStationLoserMessage);
   });
 
   it('merges, and the requests really move', async () => {
@@ -184,7 +204,26 @@ describe('Block 7b — merging and requests across Stations', () => {
 
   it('lists requests without members.view, with the listener columns null', async () => {
     // D6's rule 2: the list still LISTS. An empty page here would be a
-    // different bug wearing the same clothes.
+    // different bug wearing the same clothes. Fix round 1, Minor: this case
+    // used to lean on case 5's request still being in the table — true today,
+    // but silent and order-dependent. It now seeds its own request, so
+    // editing case 5 cannot quietly break the premise here.
+    const owner = await signInAs(customer.email, customer.password);
+    const song = await seedSong(customer.companyId, 'No-name listener song');
+    const { data: memberId, error: memberError } = await owner.rpc('resolve_or_create_member', {
+      p_company_id: customer.companyId,
+      p_full_name: `Anonymous ${STAMP}`,
+      p_phone: `+5512${String(STAMP).slice(-9)}`,
+    });
+    expect(memberError).toBeNull();
+    const resolved = memberId as { member_id: string };
+    const { error: requestError } = await owner.rpc('create_music_request', {
+      p_company_id: customer.companyId,
+      p_member_id: resolved.member_id,
+      p_song_id: song.songId,
+    });
+    expect(requestError).toBeNull();
+
     const viewer = await grantRoleWith(customer, `req-noname-${STAMP}`, ['music.view']);
     const client = await signInAs(viewer.email, viewer.password);
 
@@ -193,21 +232,64 @@ describe('Block 7b — merging and requests across Stations', () => {
     });
 
     expect(error).toBeNull();
-    const rows = data as { member_name: string | null; song_title: string }[];
+    const rows = data as {
+      member_name: string | null;
+      member_phone: string | null;
+      song_title: string;
+    }[];
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.member_name === null)).toBe(true);
+    // Fix round 1, Important 2: D6's rule 2 nulls BOTH columns (0107's list
+    // body cases on v_names for phone exactly as it does for name). Asserting
+    // only member_name left the phone column's own `case when v_names then
+    // f.phone else null end` unguarded by anything in this project.
+    expect(rows.every((r) => r.member_phone === null)).toBe(true);
     // And the row is still useful: the song is there.
     expect(rows.every((r) => typeof r.song_title === 'string')).toBe(true);
   });
 
   it('returns nothing at all when a caller without members.view searches', async () => {
     // D6's rule 3: searching a field you may not read is an oracle.
+    //
+    // Fix round 1, Important 1: self-contained, and proves the zero means
+    // "withheld" rather than "nothing was there". Seeds its own request naming
+    // a listener the search term matches, and — as the OWNER, who holds
+    // members.view — confirms the search really does find that row before
+    // asserting the restricted caller gets none. Run alone, or after somebody
+    // edits an earlier case's listener name, this no longer stays green for
+    // the wrong reason.
+    const owner = await signInAs(customer.email, customer.password);
+    const song = await seedSong(customer.companyId, 'Searched-for song');
+    const searchTerm = `Searchable Listener ${STAMP}`;
+    const { data: memberId, error: memberError } = await owner.rpc('resolve_or_create_member', {
+      p_company_id: customer.companyId,
+      p_full_name: searchTerm,
+      p_phone: `+5513${String(STAMP).slice(-9)}`,
+    });
+    expect(memberError).toBeNull();
+    const resolved = memberId as { member_id: string };
+    const { error: requestError } = await owner.rpc('create_music_request', {
+      p_company_id: customer.companyId,
+      p_member_id: resolved.member_id,
+      p_song_id: song.songId,
+    });
+    expect(requestError).toBeNull();
+
+    // Proof the row is really there and really matches the search, from a
+    // caller who is allowed to see it.
+    const { data: ownerRows, error: ownerError } = await owner.rpc('list_music_requests', {
+      p_company_id: customer.companyId,
+      p_search: searchTerm,
+    });
+    expect(ownerError).toBeNull();
+    expect((ownerRows as unknown[]).length).toBeGreaterThan(0);
+
     const viewer = await grantRoleWith(customer, `req-nosearch-${STAMP}`, ['music.view']);
     const client = await signInAs(viewer.email, viewer.password);
 
     const { data, error } = await client.rpc('list_music_requests', {
       p_company_id: customer.companyId,
-      p_search: 'Listener',
+      p_search: searchTerm,
     });
 
     expect(error).toBeNull();
@@ -257,7 +339,11 @@ describe('Block 7b — merging and requests across Stations', () => {
         children_moved: 0,
       });
 
-    // Even the owner, who passes every permission gate, has no INSERT.
-    expect(error).not.toBeNull();
+    // Even the owner, who passes every permission gate, has no INSERT. Pinned
+    // to the code, matching music.test.ts:227's sibling assertion (fix round
+    // 1, Minor) — `.not.toBeNull()` alone would also pass for PGRST204 (an
+    // unrecognised column, e.g. after a rename), which is a schema mistake,
+    // not the missing-grant this case exists to prove.
+    expect(error?.code).toBe('42501');
   });
 });
