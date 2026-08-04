@@ -170,6 +170,7 @@ export function ArtistsGrid({
         recordId={recordId}
         tab={(tab as ArtistTab) ?? 'data'}
         manage={manage}
+        stationSearch={state.stationSearch}
         onTab={setTab}
         onClose={close}
         onSaved={(artist) => setGrid((current) => applyRowPatch(current, { kind: 'save', row: artist }))}

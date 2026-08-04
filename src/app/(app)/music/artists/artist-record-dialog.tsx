@@ -11,7 +11,16 @@ import type { ArtistSummary } from '@/services/music';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // grid that opens this dialog reads it too and a Server Component elsewhere
 // cannot import a value out of a client module. See src/lib/record-params.ts.
-import { ARTIST_TABS, type ArtistTab } from '@/lib/record-params';
+import { ARTIST_TABS, withRecord, type ArtistTab } from '@/lib/record-params';
+// songHref is the Songs screen's own link builder (songs/list-params.ts),
+// imported rather than re-hand-rolled here: it is the one place that knows
+// how to spell a /music/songs URL, including carrying `station=` — the same
+// reasoning that module's own header gives for why every link ON that
+// screen goes through it instead of each assembling its own query string.
+// The links below are the only ones in this file that LEAVE the Artists
+// screen, which is exactly why they are the ones a hand-rolled template
+// literal missed the Station search on.
+import { DEFAULT_SONG_SORT, defaultDirectionFor as defaultSongDirectionFor, songHref } from '../songs/list-params';
 import { updateArtistAction, type ArtistSaveState } from './actions';
 import { getArtistRecordAction, type ArtistRecord } from './record';
 
@@ -34,6 +43,7 @@ export function ArtistRecordDialog({
   recordId,
   tab,
   manage,
+  stationSearch,
   onTab,
   onClose,
   onSaved,
@@ -43,6 +53,15 @@ export function ArtistRecordDialog({
   tab: ArtistTab;
   /** Whether the caller holds music.manage at this Station — a courtesy gate, never the boundary; update_music_reference re-checks it itself. */
   manage: boolean;
+  /**
+   * The Station-name search active on the Artists list (ArtistListState.stationSearch),
+   * carried onto the song links the `songs` tab renders — the same reasoning
+   * every other link on the Artists screen already carries it: dropping it
+   * would silently reopen a DIFFERENT Station's catalogue when the artist's
+   * own Station was only reachable through that search (it fell outside the
+   * capped, alphabetical list /music/songs falls back to otherwise).
+   */
+  stationSearch?: string;
   onTab: (tab: ArtistTab) => void;
   onClose: () => void;
   onSaved: (artist: ArtistSummary) => void;
@@ -168,7 +187,7 @@ export function ArtistRecordDialog({
           </>
         )}
 
-        {record && tab === 'songs' && <ArtistSongsTab record={record} />}
+        {record && tab === 'songs' && <ArtistSongsTab record={record} stationSearch={stationSearch} />}
       </DialogBody>
 
       <DialogFooter>
@@ -272,6 +291,40 @@ function ArtistReadOnlyFields({ artist }: { artist: ArtistSummary }) {
 }
 
 /**
+ * Builds a link into /music/songs through songHref — the Songs screen's own
+ * URL builder — rather than a second, hand-rolled query string beside it.
+ * songHref already carries `station=` whenever `stationSearch` is set, which
+ * is the whole point: a Station reachable only through that search is not in
+ * the capped, alphabetical list /music/songs falls back to (`viewable.find(...)
+ * ?? first`, songs/page.tsx), so a link that dropped it would silently open a
+ * DIFFERENT Station's catalogue instead of an error.
+ *
+ * songHref's own SongListState carries no `record`/`tab` — those are spelled
+ * by withRecord (record-params.ts), the one module that owns a record
+ * address — so this composes the two: songHref for the list state
+ * (companyId, station, the artist filter), withRecord for the record to open
+ * on top of it. Passing `songId` undefined (the "see the rest" link, with no
+ * one song to open) yields the filtered list with no record param at all.
+ */
+function songLinkHref(
+  companyId: string,
+  stationSearch: string | undefined,
+  artistId: string,
+  songId?: string,
+): string {
+  const base = songHref({
+    companyId,
+    stationSearch,
+    artistId,
+    sort: DEFAULT_SONG_SORT,
+    direction: defaultSongDirectionFor(DEFAULT_SONG_SORT),
+  });
+  if (!songId) return base;
+  const [path, search] = base.split('?');
+  return `${path}?${withRecord(search ?? '', songId, null)}`;
+}
+
+/**
  * Renders from the single read record.ts took when the record opened —
  * getArtistSongs ran there, inside getArtistRecordAction, alongside
  * getArtistById, never here. Opening this tab is a local `tab` state change
@@ -279,12 +332,12 @@ function ArtistReadOnlyFields({ artist }: { artist: ArtistSummary }) {
  * cannot re-run that read, let alone the Artists list's own keyset query
  * behind this dialog.
  *
- * Each row links to the Songs screen carrying both the Station (companyId)
- * and the song's own id — `/music/songs?companyId=…&artist=<id>&record=<id>`
- * — which is how an operator gets from an artist to one of their songs
- * without losing the Station.
+ * Each row links to the Songs screen carrying the Station (companyId AND
+ * stationSearch — see songLinkHref above) and the song's own id, which is
+ * how an operator gets from an artist to one of their songs without losing
+ * the Station.
  */
-function ArtistSongsTab({ record }: { record: ArtistRecord }) {
+function ArtistSongsTab({ record, stationSearch }: { record: ArtistRecord; stationSearch?: string }) {
   return (
     <div className="flex flex-col gap-3">
       {record.songs.length === 0 ? (
@@ -295,7 +348,7 @@ function ArtistSongsTab({ record }: { record: ArtistRecord }) {
             <li key={song.id} className="py-2">
               <Link
                 href={
-                  `/music/songs?companyId=${record.companyId}&artist=${record.artist.id}&record=${song.id}` as Route
+                  songLinkHref(record.companyId, stationSearch, record.artist.id, song.id) as Route
                 }
                 className="text-sm text-primary underline-offset-2 hover:underline"
                 data-testid="artist-song-link"
@@ -310,7 +363,7 @@ function ArtistSongsTab({ record }: { record: ArtistRecord }) {
         <p className="text-xs text-muted-foreground">
           Showing the first 200 songs.{' '}
           <Link
-            href={`/music/songs?companyId=${record.companyId}&artist=${record.artist.id}` as Route}
+            href={songLinkHref(record.companyId, stationSearch, record.artist.id) as Route}
             className="text-primary underline underline-offset-2"
           >
             See the rest in Songs
