@@ -1252,6 +1252,38 @@ git commit -m "feat(music): one trio of doors for genres, labels, artists and sh
 
 ## Task 4: The song's own three doors
 
+> **Amended after execution (2026-08-04).** This task appends to the same
+> `15_music_rpcs.test.sql` Task 3 writes, and carries both of Task 3's own
+> defects (see Task 3's amendment note above) unless corrected here too —
+> the execution ledger records this explicitly as a second, separate
+> amendment, not something Task 3's fix already covers.
+>
+> **First**, the fenced test code below originally called every
+> `create_song`/`update_song`/`archive_song` RPC with no actor identity —
+> the identical `has_permission`-reads-`auth.uid()` problem Task 3's
+> amendment explains in full. The fix reuses Task 3's own actor fixture (no
+> second fixture is declared here): bracket every RPC call with `set local
+> role authenticated; set local request.jwt.claims = '{"sub":
+> "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';` ...
+> `reset role;`, grouping consecutive calls under one bracket wherever no
+> verification read sits between them — applied below.
+>
+> **Second**, the fixture below originally inserted its two artists at
+> `00000000-0000-0000-0000-00000000e1a1`/`...e1a2` — the exact ids Task 3's
+> own actor fixture uses for its `roles` row and its `auth.users` row, in
+> the same file. Not a primary-key conflict (different tables), but a
+> genuine reading trap: the controller caught and reassigned this before
+> Task 4 was even dispatched, and the reassignment was never carried back
+> into this plan document until now. Reassigned below to `...e1b1` (Station
+> A) and `...e1b2` (Station B); every reference to them in the assertions
+> that follow is updated to match. The label at `...e1d2` and the unknown
+> id `...e199` are unaffected.
+>
+> No assertion's text, error code or `plan(23)` count changed — only the
+> fixture ids and the role-switch brackets. See
+> `supabase/tests/15_music_rpcs.test.sql` as committed and
+> `docs/block-7a-report.md` for the full account.
+
 **Files:**
 - Create: `supabase/migrations/0101_music_song_rpcs.sql`
 - Modify: `supabase/tests/15_music_rpcs.test.sql`
@@ -1267,29 +1299,58 @@ Append to `supabase/tests/15_music_rpcs.test.sql`, before `select * from finish(
 ```sql
 -- Fixtures for the song doors: an artist in each of the two Stations, and a
 -- label in the second, so "belongs to this Station" is never accidentally
--- true because there was only one of everything.
+-- true because there was only one of everything. CORRECTED IN EXECUTION
+-- (see the amendment note above the task header): ids e1b1/e1b2 rather than
+-- e1a1/e1a2 -- those two are already the role id and the actor's
+-- auth.users id from Task 3's own fixture above, in different tables so
+-- there is no primary-key collision, but reusing them here would be a
+-- copy-paste trap for the next reader. Fixture inserts stay superuser,
+-- outside any role bracket: authenticated holds no write grant on artists
+-- or record_labels either.
 insert into public.artists (id, organization_id, company_id, name) values
-  ('00000000-0000-0000-0000-00000000e1a1', '00000000-0000-0000-0000-00000000e1f1',
+  ('00000000-0000-0000-0000-00000000e1b1', '00000000-0000-0000-0000-00000000e1f1',
    '00000000-0000-0000-0000-00000000e1c1', 'Elis Regina'),
-  ('00000000-0000-0000-0000-00000000e1a2', '00000000-0000-0000-0000-00000000e1f1',
+  ('00000000-0000-0000-0000-00000000e1b2', '00000000-0000-0000-0000-00000000e1f1',
    '00000000-0000-0000-0000-00000000e1c2', 'Elis Regina');
 insert into public.record_labels (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-00000000e1d2', '00000000-0000-0000-0000-00000000e1f1',
    '00000000-0000-0000-0000-00000000e1c2', 'Label of the other Station');
 
--- 15: the ordinary case, with every optional field filled.
+-- 15: the ordinary case, with every optional field filled. CORRECTED IN
+-- EXECUTION: called as the actor fixture from Task 3, under its own grant
+-- of music.manage -- has_permission reads auth.uid(), which is null under
+-- plain pgTAP, so this call must run under the real role for the gate to
+-- answer anything but 42501.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
+
 select lives_ok($$
   select public.create_song(
     '00000000-0000-0000-0000-00000000e1c1', 'Águas de Março',
-    '00000000-0000-0000-0000-00000000e1a1', null, null,
+    '00000000-0000-0000-0000-00000000e1b1', null, null,
     'DOMESTIC', 'FEMALE', 213, 'INT-1', 'LEG-SONG-1')
 $$, 'create_song registers a song with its whole record');
 
+reset role;
+
+-- 16: read as the superuser pgTAP connects as, deliberately: the row is
+-- live, so the actor's music.view grant would also see it, but every other
+-- verification read in this file follows the same superuser convention and
+-- there is no reason for this one to be the exception.
 select is(
   (select vocal::text from public.songs where title = 'Águas de Março'),
   'FEMALE', 'the vocal is stored as given');
 
--- 17: a song without an artist is a draft, not a record (§3.2).
+-- 17-20: four more calls against create_song, none needing a read in
+-- between, so one bracket covers all four -- the same grouping the
+-- fixtures above use for create_music_reference's SHOW/blank-name/
+-- legacy-handle trio.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
+
+-- 17: a song without an artist is a draft, not a record (§3.2). Must get
+-- past the permission gate (the actor holds music.manage in this Station)
+-- to reach assert_song_references_live's own check.
 select throws_ok($$
   select public.create_song(
     '00000000-0000-0000-0000-00000000e1c1', 'No artist', null)
@@ -1298,17 +1359,21 @@ $$, '22023', null, 'a song must name an artist');
 -- 18-19: the Station boundary, checked IN THE DATABASE and not on the
 -- screen. The composite foreign key would also refuse this, but with a
 -- constraint name; the RPC refuses it first, with a message an operator can
--- act on.
+-- act on. Both calls name Station e1c1, where this actor holds
+-- music.manage, so both must pass the permission gate and be refused by
+-- assert_song_references_live specifically -- a 42501 here would mean the
+-- refusal came from the wrong place and would prove nothing about the
+-- Station boundary.
 select throws_ok($$
   select public.create_song(
     '00000000-0000-0000-0000-00000000e1c1', 'Borrowed artist',
-    '00000000-0000-0000-0000-00000000e1a2')
+    '00000000-0000-0000-0000-00000000e1b2')
 $$, 'P0002', null, 'an artist from another Station is refused');
 
 select throws_ok($$
   select public.create_song(
     '00000000-0000-0000-0000-00000000e1c1', 'Borrowed label',
-    '00000000-0000-0000-0000-00000000e1a1',
+    '00000000-0000-0000-0000-00000000e1b1',
     '00000000-0000-0000-0000-00000000e1d2')
 $$, 'P0002', null, 'a label from another Station is refused');
 
@@ -1317,26 +1382,40 @@ $$, 'P0002', null, 'a label from another Station is refused');
 select lives_ok($$
   select public.create_song(
     '00000000-0000-0000-0000-00000000e1c1', 'Águas de Março',
-    '00000000-0000-0000-0000-00000000e1a1')
+    '00000000-0000-0000-0000-00000000e1b1')
 $$, 'the same title by the same artist may be registered twice (D2)');
+
+reset role;
 
 -- 21: update replaces the whole record, and resolves the Station from the
 -- song rather than a parameter.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
+
 select lives_ok($$
   select public.update_song(
     (select id from public.songs where legacy_id = 'LEG-SONG-1'),
-    'Aguas de Marco', '00000000-0000-0000-0000-00000000e1a1',
+    'Aguas de Marco', '00000000-0000-0000-0000-00000000e1b1',
     null, null, 'DOMESTIC', 'DUO', 214, 'INT-1', 'LEG-SONG-1')
 $$, 'update_song replaces the record wholesale');
 
+reset role;
+
+-- 22: read as the superuser pgTAP connects as, deliberately, same reasoning
+-- as 16.
 select is(
   (select vocal::text from public.songs where legacy_id = 'LEG-SONG-1'),
   'DUO', 'the updated vocal is stored');
 
 -- 23: an unknown song answers 42501, never P0002 — 0093's rule again.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
+
 select throws_ok($$
   select public.archive_song('00000000-0000-0000-0000-00000000e199')
 $$, '42501', null, 'an unknown song answers permission denied');
+
+reset role;
 ```
 
 - [ ] **Step 2: Run it and watch it fail**

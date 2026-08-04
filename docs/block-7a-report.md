@@ -85,15 +85,20 @@ two of three), but the same conclusion holds on every measure that matters:
 **`music.test.ts` reported its full 8/8 in every run where it is confirmed
 present in the captured output, and every crash this session hit a file
 this block does not own** (`inventory`, `tenant`, and one unidentified file
-in Run 1 — none of them `music.test.ts`). Six runs total across the two
-verification sessions, five crashes, zero of them `music.test.ts`, no two
-crashes on the same file. That is the flake this project has carried since
-Block 4b, not a regression this block introduced.
+in Run 1 — none of them `music.test.ts`). Counted directly from the two
+tables above: six runs total across the two verification sessions, **three
+clean and three crashed** (Task 11's run 2, and this report's runs 1 and
+3). Those three crashed runs lost **four file-instances** between them —
+one in Task 11's run 2, one in this report's run 1 (unidentified), and two
+in this report's run 3 (`inventory.test.ts`, `tenant.test.ts`) — none of
+them `music.test.ts`, and no single file crashing twice. That is the flake
+this project has carried since Block 4b, not a regression this block
+introduced.
 
 ### 1.2 E2E — reported truthfully, not as green
 
 `npm run test:e2e` (the literal command, Playwright's default parallelism —
-32 logical cores on this machine) fails **14 of the suite's 30 specs**, all
+32 logical cores on this machine) fails **14 of the suite's 28 specs**, all
 at the identical first step: signing in as a freshly created platform admin
 times out waiting for `/app` and lands on `/login` instead. Verified fresh
 for this report:
@@ -165,8 +170,10 @@ edited in place.
 ## 3. What was built, against the spec's §7a scope
 
 §7a's own prose says "the two catalogue screens (Songs, Artists, Catalog)"
-— naming three screens while calling them two. The plan flagged this as a
-slip in the spec, not a scope reduction, and built all three: **Songs**
+— naming three screens while calling them two. The plan's own header
+section ("Two readings of the spec this plan settles, and one it does not",
+item 1) states this reading explicitly and flagged it as a slip in the
+spec, not a scope reduction, and built all three: **Songs**
 (the one entity with real fields — nationality, vocal, duration, label,
 genre), **Artists** (with a two-tab record: the artist's own data, and the
 songs that name them), and **Catalog** (one screen, three tabs, for
@@ -445,12 +452,12 @@ triage — none blocking, none load-bearing:
 - Task 7's own report overstates the significance of
   `archiveMusicReference`'s argument order — supabase-js RPC arguments are
   named, not positional, so the order carries no real risk.
-- `describeMusicWriteError`'s archive-refusal sentence is generic ("other
-  records") rather than naming the dependent kind ("songs" for an artist,
-  "requests" for a show), because the shared mapper's source message
-  carries no entity kind. Reviewer's verdict: functionally acceptable, not
-  a defect — recorded here since it is also why Defect 4 (§4) needed
-  amending.
+- Task 9's own review flagged the generic wording of
+  `describeMusicWriteError`'s archive-refusal sentence as a candidate
+  polish item; the reviewer's verdict was functionally acceptable, not a
+  defect. (This is the same shared-mapper mechanism §4 item 4 explains in
+  full, as the reason Task 11's plan amendment was needed — recorded once
+  there, cross-referenced here rather than re-explained.)
 - The Catalog screen's `archiveReferenceAction` kind-validator originally
   admitted `'ARTIST'`, which is not one of that screen's three tabs —
   narrowed to the screen's own three kinds in fix round 1.
