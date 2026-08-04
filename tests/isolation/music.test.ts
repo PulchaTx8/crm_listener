@@ -17,12 +17,27 @@ import {
  * suite — it is the reason this file exists and the reason it is written in
  * the same task as the functions, never at the end of the block.
  */
+// Every label below feeds a fixed e-mail template in harness.ts
+// (provisionCustomer's `admin-${label}@…`/`owner-${label}@…`,
+// addMemberByInvitation's `member-${label}@…`) with no stamping of its own —
+// unlike every other file in this suite, which stamps each label itself
+// (inventory.test.ts's `inv-floor-${Date.now()}`, conversation.test.ts's
+// `conv-e2e-${Date.now()}`, and so on). A bare literal here means a second
+// run against a database that could not fully delete the first run's users
+// (cleanupUsers' own documented limitation: a non-cascading FK from
+// audit_logs/companies/invitations/roles can leave one behind) collides on
+// createUser before a single case runs. One stamp for the whole file, reused
+// everywhere a label feeds an e-mail, is enough: the requirement is only that
+// two RUNS never ask for the same address, not that every label be
+// independently unique within a single run.
+const STAMP = Date.now();
+
 describe('Block 7a — the music catalogue across Stations', () => {
   let customer: ProvisionedCustomer;
   let secondCompanyId: string;
 
   beforeAll(async () => {
-    customer = await provisionCustomer('music7a');
+    customer = await provisionCustomer(`music7a-${STAMP}`);
     secondCompanyId = await addCompany(customer, 'Second Station 7a');
   }, 60_000);
 
@@ -31,7 +46,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
   });
 
   it('refuses to register anything without music.manage', async () => {
-    const viewer = await grantRoleWith(customer, 'music-viewer', ['music.view']);
+    const viewer = await grantRoleWith(customer, `music-viewer-${STAMP}`, ['music.view']);
     const client = await signInAs(viewer.email, viewer.password);
 
     const { error } = await client.rpc('create_music_reference', {
@@ -45,7 +60,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
 
   it('refuses a Station the caller holds nothing in, without saying it exists', async () => {
     // The grant is in the FIRST Station only; the call names the second.
-    const manager = await grantRoleWith(customer, 'music-manager-a', ['music.manage'], [
+    const manager = await grantRoleWith(customer, `music-manager-a-${STAMP}`, ['music.manage'], [
       customer.companyId,
     ]);
     const client = await signInAs(manager.email, manager.password);
@@ -60,7 +75,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
   });
 
   it('never answers P0002 for an id the caller may not see', async () => {
-    const manager = await grantRoleWith(customer, 'music-manager-b', ['music.manage'], [
+    const manager = await grantRoleWith(customer, `music-manager-b-${STAMP}`, ['music.manage'], [
       customer.companyId,
     ]);
     const owner = await signInAs(customer.email, customer.password);
@@ -134,7 +149,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
     });
     expect(thereSongError).toBeNull();
 
-    const viewer = await grantRoleWith(customer, 'music-one-station', ['music.view'], [
+    const viewer = await grantRoleWith(customer, `music-one-station-${STAMP}`, ['music.view'], [
       customer.companyId,
     ]);
     const client = await signInAs(viewer.email, viewer.password);
@@ -194,7 +209,7 @@ describe('Block 7a — the music catalogue across Stations', () => {
   });
 
   it('lets a caller with music.view read but never write', async () => {
-    const viewer = await grantRoleWith(customer, 'music-readonly', ['music.view']);
+    const viewer = await grantRoleWith(customer, `music-readonly-${STAMP}`, ['music.view']);
     const client = await signInAs(viewer.email, viewer.password);
 
     const { error: readError } = await client.from('artists').select('id').limit(1);
