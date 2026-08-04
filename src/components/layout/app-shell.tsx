@@ -21,6 +21,10 @@ export const ICONS = {
   // that had been rendered twice.
   ticket:
     'M3 9V7a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v2a2 2 0 0 0 0 4v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2a2 2 0 0 0 0-4zM13 6v2M13 11v2M13 16v2',
+  // A music note, for the catalogue. Its own path rather than reusing radio:
+  // that one is Overview's "My stations" and would make the two sections read
+  // as the same destination.
+  music: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
 } as const;
 
 export interface ShellUser {
