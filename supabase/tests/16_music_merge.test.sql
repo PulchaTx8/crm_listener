@@ -1,5 +1,5 @@
 begin;
-select plan(34);
+select plan(36);
 
 -- Block 7b, Task 1: the history table, and the kind that drives all five
 -- doors. The doors themselves are Task 2; this file grows to cover them.
@@ -342,14 +342,77 @@ select is(
      '00000000-0000-0000-0000-00000000e2c1', 'SONG')),
   2, 'a candidate carries the number of children a merge would move');
 
--- 34: the candidate list refuses a Station the caller cannot merge in. e2c2 is
--- a real second Station (added in fix round 1), not a nonexistent uuid — this
--- proves the refusal comes from the permission, not merely from the Station
--- being absent.
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Fix round 1, Critical 1: 0108's gate moved from music.merge to music.view
+-- (D8 — a candidate list is seeing the catalogue, not destroying anything;
+-- 0108's own comment carries the full reasoning). page.tsx reads this list
+-- and getMusicPermissions in one Promise.all, so gating the READ itself on
+-- music.merge made `permissions.merge = false` and "the read already threw"
+-- the same event — the Maintenance screen's required read-only mode for a
+-- caller without music.merge could never actually render; page.tsx returned
+-- LoadError before MergePanel ever saw canMerge=false. The two assertions
+-- below prove the corrected contract directly, in the SAME Station as 31-33,
+-- rather than leaning on 36's cross-station refusal (below) to stand in for
+-- it — that one is a real proof of tenant isolation, but it does not by
+-- itself show which single permission code the same-Station gate now checks.
+-- ---------------------------------------------------------------------------
+
+-- A third actor: neither music.view nor music.merge, in the FIRST Station —
+-- role e2a5 is granted no permission at all. Fixture rows written as the
+-- superuser, the same reset-role-first shape every other actor fixture in
+-- this file uses: `authenticated` (the role assertions 31-33 are still
+-- running as, from e2a2's session) holds no INSERT on public.roles.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000e2a5', '00000000-0000-0000-0000-00000000e2f1',
+   'Music nobody 7b — no permissions');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000e2a6', 'music-nobody-7b@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000e2a6', '00000000-0000-0000-0000-00000000e2c1',
+   '00000000-0000-0000-0000-00000000e2f1', '00000000-0000-0000-0000-00000000e2a5');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a6", "role": "authenticated"}';
+
+-- 34: an actor holding neither permission is still refused — the read stays
+-- gated, only on a different code than the doors.
+select throws_ok($$
+  select * from public.list_merge_candidates(
+    '00000000-0000-0000-0000-00000000e2c1', 'SONG')
+$$, '42501', null, 'an actor holding neither music.view nor music.merge cannot read the candidate list');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a4", "role": "authenticated"}';
+
+-- 35: music.view ALONE now reaches the read — the corrected contract, and
+-- the one fact that actually makes the Maintenance screen's read-only mode
+-- reachable. e2a4 ("Music viewer 7b — no merge", from assertion 30) holds
+-- music.view but not music.merge, in this same Station.
+select is(
+  (select count(*)::int from public.list_merge_candidates(
+     '00000000-0000-0000-0000-00000000e2c1', 'SONG')),
+  1, 'an actor holding music.view alone can read the candidate list');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a2", "role": "authenticated"}';
+
+-- 36: the candidate list refuses a Station the caller cannot reach at all.
+-- e2c2 is a real second Station (added in fix round 1), not a nonexistent
+-- uuid — this proves the refusal comes from the permission, not merely from
+-- the Station being absent. e2a2 holds music.view and music.merge in e2c1
+-- only, so this is the identical "neither permission, in this OTHER
+-- Station" shape as 34 above, proved across a tenant boundary instead of
+-- within one Station.
 select throws_ok($$
   select * from public.list_merge_candidates(
     '00000000-0000-0000-0000-00000000e2c2', 'SONG')
-$$, '42501', null, 'the candidate list refuses a Station the caller cannot merge in');
+$$, '42501', null, 'the candidate list refuses a Station the caller cannot reach at all');
 
 reset role;
 

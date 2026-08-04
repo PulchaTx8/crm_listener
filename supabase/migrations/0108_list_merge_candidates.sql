@@ -9,10 +9,26 @@
 -- gives it for the whole page, where the alternative is one count per row from
 -- the screen.
 --
--- SECURITY DEFINER and gated on music.merge — the same permission as the
--- doors, because this list exists only to feed them. A caller holding
--- music.view alone reads the ordinary lists (0099's policies) and has no use
--- for this one.
+-- SECURITY DEFINER and gated on music.view, not music.merge — Task 9's fix
+-- round 1 corrected this from the original music.merge gate, which read as
+-- consistent with the five doors but collided with the Maintenance screen's
+-- own requirement (task-9-brief.md) that a caller without music.merge still
+-- see the list read-only: since page.tsx resolves this read and
+-- getMusicPermissions in the same request, gating the read itself on
+-- music.merge meant `permissions.merge = false` and "the read already
+-- threw" were the same event, and the read-only branch could never run.
+--
+-- D8 (0098) defines music.view as "see the catalogue and the requests" and
+-- music.merge as the one destructive code, kept separate on purpose. A
+-- candidate list is seeing the catalogue: every column it returns (label,
+-- sub_label, legacy_id) is already readable by a music.view caller through
+-- 0099's ordinary select policies, and child_count is an aggregate over rows
+-- that same caller can already read and count for themselves, one row at a
+-- time. Nothing here is destructive and nothing here is a secret a
+-- music.view caller could not already assemble by hand — gating the READ on
+-- music.merge leaked nothing, it only cost the screen its read-only mode.
+-- The destruction stays exactly where D8 put it: music.merge, checked by
+-- each of the five doors before any of them writes anything.
 --
 -- sub_label is the second line a candidate needs to be told apart from its
 -- duplicate: for a song, the artist. The four short lists have nothing to put
@@ -40,9 +56,9 @@ declare
   v_search text := nullif(btrim(coalesce(p_search, '')), '');
   v_like   text;
 begin
-  if not public.has_permission('music.merge', p_company_id) then
+  if not public.has_permission('music.view', p_company_id) then
     raise log 'list_merge_candidates denied: actor=% company=%', auth.uid(), p_company_id;
-    raise exception 'permission denied: music.merge required' using errcode = '42501';
+    raise exception 'permission denied: music.view required' using errcode = '42501';
   end if;
 
   v_like := '%' || coalesce(v_search, '') || '%';
@@ -114,7 +130,7 @@ end;
 $$;
 
 comment on function public.list_merge_candidates(uuid, public.music_merge_kind, text, integer) is
-  'The Maintenance screen''s one read: every live record of one kind in one Station, with the number of children a merge would move. Gated on music.merge — this list exists only to feed the doors. child_count is what makes naming the survivor a decision rather than a coin flip, and the counts include withdrawn/archived children because apply_music_merge moves those too.';
+  'The Maintenance screen''s one read: every live record of one kind in one Station, with the number of children a merge would move. Gated on music.view (D8), not music.merge — every column and the child_count aggregate are already readable by a music.view caller through 0099''s ordinary policies, so this leaks nothing new, and it is what lets a caller without music.merge still see the screen read-only. child_count is what makes naming the survivor a decision rather than a coin flip, and the counts include withdrawn/archived children because apply_music_merge moves those too.';
 
 revoke execute on function public.list_merge_candidates(uuid, public.music_merge_kind, text, integer) from public;
 grant execute on function public.list_merge_candidates(uuid, public.music_merge_kind, text, integer) to authenticated;

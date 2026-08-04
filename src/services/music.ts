@@ -1016,9 +1016,13 @@ export async function searchSongs(
  *   RPC in 0100/0101 raises this with the same shape, having already written
  *   a RAISE LOG line server-side. Also what an unknown id answers, by
  *   design: 0100/0101 check permission BEFORE existence, so a caller cannot
- *   learn whether an id names anything they cannot reach. Block 7b's doors
- *   (0106, 0107, 0108) raise it the identical way for music.merge and
- *   music.request, checked before the Station or the record either.
+ *   learn whether an id names anything they cannot reach. Block 7b's write
+ *   doors (0106's five merge doors, 0107's create_music_request) raise it the
+ *   identical way for music.merge and music.request respectively, checked
+ *   before the Station or the record either. 0108's list_merge_candidates
+ *   raises it too, but for music.view (Task 9's fix round corrected this
+ *   from an original music.merge gate — see 0108's own comment) — a read,
+ *   not a write, listed here because it throws through this same taxonomy.
  * - `P0002` is a named reference (artist/label/genre) that is missing, or
  *   belongs to another Station — assert_song_references_live's own raise.
  *   Now also covers: a merge naming a record that is missing, already

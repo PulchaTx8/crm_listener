@@ -42,10 +42,19 @@ describe('stagingReducer', () => {
     expect(state.survivorId).toBeNull();
   });
 
-  it('ticking an already-staged row removes it', () => {
-    const staged = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: candidate() });
-    const untoggled = stagingReducer(staged, { type: 'toggle', candidate: candidate() });
-    expect(untoggled.staged).toEqual([]);
+  it('ticking an already-staged row removes just that row, not the whole basket', () => {
+    // Fix round 1: two rows staged first, so the removal has to leave the
+    // OTHER one behind — a do-nothing reducer `(state) => state` would never
+    // get either row into `staged` in the first place, and the sanity check
+    // below catches that before the removal is even attempted.
+    const one = candidate();
+    const two = candidate({ id: '22222222-0000-0000-0000-000000000002' });
+    let state = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: one });
+    state = stagingReducer(state, { type: 'toggle', candidate: two });
+    expect(state.staged).toEqual([one, two]);
+
+    state = stagingReducer(state, { type: 'toggle', candidate: one });
+    expect(state.staged).toEqual([two]);
   });
 
   it('removing the named survivor clears the survivor too, not only the row', () => {
@@ -69,21 +78,58 @@ describe('stagingReducer', () => {
     expect(state.survivorId).toBe(one.id);
   });
 
-  it('refuses to name a survivor that was never staged', () => {
-    const state = stagingReducer(EMPTY_STAGING, { type: 'name-survivor', id: candidate().id });
+  it('refuses to name a survivor that was never staged, but accepts one that was', () => {
+    // Fix round 1: this is the only assertion covering the stale-winner
+    // contract, so it has to actually exercise a staged row and an unstaged
+    // one, not two calls that both collapse to EMPTY_STAGING against a
+    // do-nothing reducer.
+    const a = candidate();
+    const b = candidate({ id: '22222222-0000-0000-0000-000000000002' });
+    let state = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: a });
+    expect(state.staged).toEqual([a]); // sanity: staging actually happened
+
+    // b was never ticked — naming it survivor is refused, and the state
+    // before and after this dispatch is compared, not just checked against
+    // the reducer's own initial null.
+    const before = state.survivorId;
+    state = stagingReducer(state, { type: 'name-survivor', id: b.id });
+    expect(state.survivorId).toBe(before);
     expect(state.survivorId).toBeNull();
+
+    // a WAS ticked — naming it succeeds. A do-nothing reducer cannot reach
+    // this: it never got past the first `toggle` above.
+    state = stagingReducer(state, { type: 'name-survivor', id: a.id });
+    expect(state.survivorId).toBe(a.id);
   });
 
-  it('reset clears everything, the same as leaving the screen would', () => {
-    const staged = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: candidate() });
-    expect(stagingReducer(staged, { type: 'reset' })).toEqual(EMPTY_STAGING);
+  it('reset clears everything, even a fully-built basket with a named survivor', () => {
+    // Fix round 1: reset from a basket that actually has two staged rows and
+    // a named survivor — not from a single toggle a do-nothing reducer would
+    // already show as empty, which made the original assertion trivial.
+    const a = candidate();
+    const b = candidate({ id: '22222222-0000-0000-0000-000000000002' });
+    let state = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: a });
+    state = stagingReducer(state, { type: 'toggle', candidate: b });
+    state = stagingReducer(state, { type: 'name-survivor', id: a.id });
+    expect(state.staged).toEqual([a, b]); // sanity: the basket is real
+    expect(state.survivorId).toBe(a.id);
+
+    expect(stagingReducer(state, { type: 'reset' })).toEqual(EMPTY_STAGING);
   });
 });
 
 describe('losersOf / canSubmitMerge', () => {
   it('a lone staged row named survivor has no losers, and cannot submit', () => {
-    let state = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: candidate() });
-    state = stagingReducer(state, { type: 'name-survivor', id: candidate().id });
+    // Fix round 1: asserts the naming actually took effect (survivorId is
+    // the real candidate's id, not the null a do-nothing reducer would
+    // still show) before relying on that state for the losers/can-submit
+    // checks — otherwise both of those pass trivially against EMPTY_STAGING
+    // too (staged.filter(...) on [] is [], and survivorId !== null on null
+    // is false).
+    const a = candidate();
+    let state = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: a });
+    state = stagingReducer(state, { type: 'name-survivor', id: a.id });
+    expect(state.survivorId).toBe(a.id);
     expect(losersOf(state)).toEqual([]);
     expect(canSubmitMerge(state)).toBe(false);
   });
@@ -93,6 +139,10 @@ describe('losersOf / canSubmitMerge', () => {
     const two = candidate({ id: '22222222-0000-0000-0000-000000000002' });
     let state = stagingReducer(EMPTY_STAGING, { type: 'toggle', candidate: one });
     state = stagingReducer(state, { type: 'toggle', candidate: two });
+    // Fix round 1: sanity check that both rows are really staged — without
+    // it, `canSubmitMerge(EMPTY_STAGING) === false` already satisfies the
+    // assertion below for a do-nothing reducer.
+    expect(state.staged).toEqual([one, two]);
     expect(canSubmitMerge(state)).toBe(false);
   });
 

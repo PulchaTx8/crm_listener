@@ -208,6 +208,17 @@ export function MergePanel({
   const [staging, dispatch] = useReducer(stagingReducer, EMPTY_STAGING);
   const [reason, setReason] = useState('');
   const [confirming, setConfirming] = useState(false);
+  // Fix round 1, Minor: ConfirmMergeDialog unmounts (and its useActionState
+  // with it) the instant `confirming` goes false — including on a plain ESC
+  // or backdrop click, which closes the dialog exactly the same as the
+  // "Cancel" button does. Without this, a FAILED merge attempt vanished
+  // without a trace the moment the dialog closed: the operator was left
+  // looking at the same full basket with nothing on screen saying a merge
+  // was tried and refused. Captured via the dialog's own `onFailed` the
+  // instant the action returns `ok: false` — not only on dismissal — so it
+  // survives every dismissal path, not just the ones this file happens to
+  // enumerate.
+  const [lastFailure, setLastFailure] = useState<string | null>(null);
 
   const losers = losersOf(staging);
   const survivor = staging.staged.find((c) => c.id === staging.survivorId) ?? null;
@@ -362,6 +373,10 @@ export function MergePanel({
             // (mergeFormSchema's own: a missing survivor, an empty loser
             // list).
             e.preventDefault();
+            // A fresh attempt starts clean — the banner below would
+            // otherwise sit under a brand-new, not-yet-resolved
+            // confirmation showing a refusal from a previous one.
+            setLastFailure(null);
             setConfirming(true);
           }}
         >
@@ -388,6 +403,11 @@ export function MergePanel({
           >
             Merge…
           </Button>
+          {lastFailure && (
+            <p className="text-sm text-destructive" data-testid="maintenance-merge-last-error">
+              {lastFailure}
+            </p>
+          )}
         </form>
       )}
 
@@ -399,8 +419,10 @@ export function MergePanel({
           losers={losers}
           reason={reason}
           onCancel={() => setConfirming(false)}
+          onFailed={(message) => setLastFailure(message)}
           onDone={() => {
             setConfirming(false);
+            setLastFailure(null);
             dispatch({ type: 'reset' });
             setReason('');
           }}
@@ -429,6 +451,7 @@ function ConfirmMergeDialog({
   losers,
   reason,
   onCancel,
+  onFailed,
   onDone,
 }: {
   companyId: string;
@@ -437,10 +460,24 @@ function ConfirmMergeDialog({
   losers: MergeCandidate[];
   reason: string;
   onCancel: () => void;
+  /**
+   * Fired the instant a submitted merge comes back refused — not only when
+   * the dialog is later dismissed. Fix round 1: this dialog unmounts (taking
+   * `state.message` with it) on every dismissal path, ESC and a backdrop
+   * click included, not only the "Cancel" button — so the parent has to
+   * learn the message the moment it exists, or it is lost no matter which
+   * of those the operator uses.
+   */
+  onFailed: (message: string) => void;
   onDone: () => void;
 }) {
   const titleId = useId();
   const [state, action, pending] = useActionState(mergeRecordsAction, INITIAL_MERGE);
+
+  useEffect(() => {
+    if (state.ok === false) onFailed(state.message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <Dialog open onClose={state.ok === true ? onDone : onCancel} labelledBy={titleId} className="max-w-lg">

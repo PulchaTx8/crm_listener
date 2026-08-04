@@ -109,30 +109,19 @@ export function describeMergeError(cause: unknown): string {
   return 'Could not merge. Refresh the page and try again.';
 }
 
-/**
- * describeMusicReadError's taxonomy, worded for the Maintenance screen's own
- * page-load read. Task 7's review flagged this exactly: listMergeCandidates
- * is gated on `music.merge`, not `music.view` like every other read this
- * taxonomy already served, so describeMusicReadError's fixed
- * UnauthorizedError sentence ("you do not have permission to view the music
- * catalogue in this Station") would misname the permission a caller is
- * actually missing here. Checked against 0108: list_merge_candidates raises
- * `42501` the identical way every other RPC in this taxonomy does, so that
- * one branch is the only thing that needed its own wording — every other
- * branch is delegated rather than copied, since a merge candidate read
- * throws through the same mapMusicError taxonomy as everything else.
- *
- * Not describeMergeError: that function's NotFoundError sentence
- * ("...may have been archived or merged by somebody else. Refresh the list
- * and start again.") is written for the merge ACTION's own P0002, a case
- * list_merge_candidates cannot raise at all — it names no record id, so
- * there is nothing for it to find missing. Reusing describeMergeError here
- * would be exactly the misapplied-branch mistake this function's own
- * UnauthorizedError fix is closing.
- */
-export function describeMaintenanceReadError(cause: unknown): string {
-  if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to merge records in this Station.';
-  }
-  return describeMusicReadError(cause);
-}
+// describeMaintenanceReadError briefly lived here (Task 9's first pass):
+// listMergeCandidates's list_merge_candidates (0108) originally checked
+// music.merge, not music.view like every other read this taxonomy serves,
+// so describeMusicReadError's fixed "...view the music catalogue..."
+// sentence would have misnamed the permission a 403 was actually about.
+// Fix round 1 corrected the mismatch at its real source instead: 0108 is now
+// gated on music.view (see that migration's own comment for why — D8 scopes
+// music.merge to the five doors that actually destroy something, and this
+// read leaks nothing a music.view caller could not already assemble by
+// hand). That also fixed a Critical the gate change surfaced: page.tsx reads
+// this list and getMusicPermissions in one Promise.all, so gating the READ
+// on music.merge made `permissions.merge === false` and "the read already
+// threw" the same event — the Maintenance screen's own required read-only
+// mode could never render. With the gate now music.view,
+// describeMusicReadError's existing sentence is correct again, so the
+// Maintenance screen's page.tsx uses it directly and this describer is gone.

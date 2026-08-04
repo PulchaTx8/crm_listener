@@ -148,6 +148,17 @@ export const MERGE_REASON_MAX_LENGTH = 300;
  */
 export const mergeFormSchema = z
   .object({
+    // Validated here, logged on a write failure (maintenance/actions.ts),
+    // and carried in the confirmation dialog's hidden input — but never sent
+    // to Postgres: mergeMusicRecords (services/music.ts) posts only
+    // p_winner_id/p_loser_ids/p_reason to the door, and every one of 0106's
+    // five doors resolves the Station from the WINNER row itself, inside the
+    // scoped lock, rather than trusting a caller-supplied id. Read this field
+    // as a courtesy for the UI's own bookkeeping (which Station's screen is
+    // this?), not as a tenancy guard — there isn't one here to be. Fix round
+    // 1 added this comment after a Critical found the actual boundary
+    // (MergePanel's own React state persisting across a Company switch) one
+    // layer up, in the UI that builds this input, not in this schema.
     companyId: z.string().uuid(),
     kind: z.enum(MUSIC_MERGE_KINDS),
     winnerId: z.string().uuid('Choose which record stays.'),

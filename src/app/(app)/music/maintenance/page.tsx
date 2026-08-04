@@ -15,7 +15,7 @@ import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
 import { getMusicPermissions } from '../permissions';
 import type { MusicPermissions } from '../permissions';
-import { describeMaintenanceReadError, describeMusicReadError } from '../errors';
+import { describeMusicReadError } from '../errors';
 import { MergePanel } from './merge-panel';
 import { maintenanceHref, parseMaintenanceParams } from './list-params';
 import type { MaintenanceSearchParams } from './list-params';
@@ -94,7 +94,9 @@ export default async function MaintenancePage({
   // requests/page.tsx uses for its own session read. Needed because
   // listMergeCandidates reads through the caller's token rather than
   // createUserClient() — list_merge_candidates is SECURITY DEFINER, so its
-  // permission boundary (music.merge) is written in SQL rather than
+  // permission boundary (music.view, as of Task 9's fix round — see 0108's
+  // own comment for why the read is gated on the same code as every other
+  // music read rather than on music.merge) is written in SQL rather than
   // enforced by RLS.
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !sessionData.session) redirect('/login');
@@ -109,13 +111,16 @@ export default async function MaintenancePage({
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id, kind: state.kind }, 'could not load merge candidates');
-    // Not describeMusicReadError: listMergeCandidates is gated on
-    // music.merge, not music.view like every other read that describer
-    // serves, so its fixed "...view the music catalogue..." sentence would
-    // misname the permission a 403 here is actually about (Task 7's review,
-    // verified against 0108 — see describeMaintenanceReadError's own
-    // comment in ../errors.ts).
-    return <LoadError message={describeMaintenanceReadError(cause)} />;
+    // describeMusicReadError, not a Maintenance-specific describer:
+    // list_merge_candidates is gated on music.view (0108, corrected in
+    // Task 9's fix round — it originally checked music.merge, which made
+    // `permissions.merge === false` and "this read already threw" the same
+    // event, so the read-only branch below could never run). Now that its
+    // 42501 really is about music.view, describeMusicReadError's own
+    // "...view the music catalogue..." sentence is the right one — a
+    // Maintenance-specific wording (Task 9's first pass added one) would be
+    // wrong in the opposite direction now.
+    return <LoadError message={describeMusicReadError(cause)} />;
   }
 
   return (
@@ -199,11 +204,29 @@ export default async function MaintenancePage({
         ))}
       </div>
 
-      {/* Keyed on the kind: a clean remount between panels means the
-          staging area of a Songs merge can never bleed into an Artists
-          one after a tab switch — the same reasoning ReferenceTabs' own
-          header gives for keying its panel on `tab`. */}
-      <MergePanel key={state.kind} state={state} candidates={candidates} canMerge={permissions.merge} />
+      {/* Keyed on Station AND kind, not kind alone — fix round 1, Critical 2.
+          The Company switcher above is a <Link> to this same route, a soft
+          client-side navigation exactly like the kind tabs; keying only on
+          `kind` remounted MergePanel on a kind switch but NOT on a Station
+          switch, so a staged basket (React state local to the old mount —
+          §5.1) survived across it. On screen that read as: Station B
+          highlighted, Station B's candidate list with nothing ticked, and a
+          staging panel still holding Station A's rows with a survivor
+          already named — confirmable, because the doors take only
+          winnerId/loserIds/reason and derive the Station from the winner
+          row, never from anything this screen posts. With duplicate titles
+          across Stations (the ordinary case for a group under one
+          Organization), that is a real, irreversible cross-Station merge
+          waiting on one confirm click. Both fields together is what makes a
+          clean remount — the same reasoning ReferenceTabs' own header gives
+          for keying its panel on `tab` alone, extended to the one axis this
+          screen has that ReferenceTabs does not: more than one Station. */}
+      <MergePanel
+        key={`${state.companyId}:${state.kind}`}
+        state={state}
+        candidates={candidates}
+        canMerge={permissions.merge}
+      />
     </>
   );
 }
