@@ -295,10 +295,17 @@ create policy music_merges_select_music_view on public.music_merges
   using (public.has_permission('music.view', company_id));
 
 -- service_role needs the explicit grant (Block 1a §3.9: BYPASSRLS does not
--- substitute for a GRANT), and read-only for the reason 0099 gives: the core
--- is SECURITY DEFINER and runs as the table owner, so no write grant is needed
--- to make it work, and giving one would be a second, unaudited way to rewrite
--- a Station's merge history.
+-- substitute for a GRANT), and read-only for the reason 0099 gives.
+--
+-- No write grant is needed to make the merge work, and this is worth saying
+-- precisely because the chain is two links long: the five DOORS in 0106 are
+-- SECURITY DEFINER, so they run as this table's owner, and the private core
+-- they call is SECURITY INVOKER — which inherits the doors' current_user
+-- rather than the caller's. That is the same shape apply_winner_transition
+-- (0092) already uses to write winner_status_history, a table `authenticated`
+-- holds only SELECT on (0081). So the only writer here is already the owner,
+-- and granting service_role INSERT would add a second, unaudited way to
+-- rewrite a Station's merge history rather than enable anything.
 grant select on public.music_merges to service_role;
 
 -- The default ACL leaves service_role holding TRUNCATE, which `revoke all`
