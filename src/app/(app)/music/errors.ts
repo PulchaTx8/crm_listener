@@ -42,24 +42,35 @@ export function describeMusicReadError(cause: unknown): string {
 /**
  * Same taxonomy as describeMusicReadError, worded for a write instead of a
  * page load. Each mutating action across the three screens passes its own
- * `action` phrase — "register songs", "save this song", "archive this song"
- * and so on — so a 403 reads as "you cannot do THIS, here" rather than a
- * generic "music" refusal. mapMusicError (services/music.ts) itself only ever
- * throws UnauthorizedError with the raw Postgres text ("permission denied:
- * music.manage required") — it names the permission code, not the action in
- * the person's own words, so that message is rewritten here rather than
- * passed through.
+ * `action` phrase — "register songs", "save this song", "archive this song",
+ * "archive this artist" and so on — so a 403 reads as "you cannot do THIS,
+ * here" rather than a generic "music" refusal. mapMusicError (services/music.ts)
+ * itself only ever throws UnauthorizedError with the raw Postgres text
+ * ("permission denied: music.manage required") — it names the permission
+ * code, not the action in the person's own words, so that message is
+ * rewritten here rather than passed through.
  *
- * ConflictError and BusinessRuleError already carry a complete, specific
- * sentence from mapMusicError's own mapping: a duplicate legacy id names the
- * handle, and a refused archive over a live reference names the count of
- * rows still using it. Those pass through verbatim — replacing either with
- * something generic would throw away the one detail the person actually
- * needed to read.
+ * ConflictError already carries a complete, specific sentence from
+ * mapMusicError's own mapping — a duplicate legacy id names the handle — and
+ * passes through verbatim: replacing it with something generic would throw
+ * away the one detail the person actually needed to read.
+ *
+ * BusinessRuleError does not: mapMusicError's `23503` branch is the ONLY
+ * place this taxonomy ever constructs one, and that branch fires from a
+ * single source — archive_music_reference's refusal while a live song (or,
+ * for a show, a live request) still names the record being archived — with
+ * one message written for all four reference kinds at once: "this record is
+ * still used by N live row(s); change them first". It cannot say "artist" or
+ * "songs" because the RPC that raises it does not know which screen is
+ * calling; naming the record's kind is this function's job, done with the
+ * `action` phrase the caller already passed for the 403 case above (every
+ * archive action in this block phrases it "archive this <kind>").
  */
 export function describeMusicWriteError(cause: unknown, action: string): string {
   if (cause instanceof ConflictError) return cause.message;
-  if (cause instanceof BusinessRuleError) return cause.message;
+  if (cause instanceof BusinessRuleError) {
+    return `You cannot ${action} yet — it still has other records registered against it. Move or archive them first.`;
+  }
   if (cause instanceof NotFoundError) {
     return 'That could not be found. Refresh the page and try again.';
   }
