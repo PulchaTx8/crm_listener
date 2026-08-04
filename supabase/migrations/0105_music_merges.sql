@@ -85,7 +85,7 @@ create index music_merges_loser_idx  on public.music_merges (loser_id);
 create index music_merges_winner_idx on public.music_merges (winner_id);
 
 -- ---------------------------------------------------------------------------
--- RLS. Read-only for everybody; the core writes as the table owner.
+-- RLS. Read-only for everybody; 0106's doors write as the table owner.
 -- ---------------------------------------------------------------------------
 
 alter table public.music_merges enable row level security;
@@ -107,10 +107,14 @@ create policy music_merges_select_music_view on public.music_merges
   using (public.has_permission('music.view', company_id));
 
 -- service_role needs the explicit grant (Block 1a §3.9: BYPASSRLS does not
--- substitute for a GRANT), and read-only for the reason 0099 gives: the core
--- is SECURITY DEFINER and runs as the table owner, so no write grant is needed
--- to make it work, and giving one would be a second, unaudited way to rewrite
--- a Station's merge history.
+-- substitute for a GRANT), and read-only for the reason 0099 gives: it is
+-- 0106's five doors, not this table's own core, that are SECURITY DEFINER and
+-- run as the table owner — the core (see the table comment above) is
+-- SECURITY INVOKER and inherits that identity only when a door calls it, the
+-- same pattern 0084's deliver_prize/apply_winner_transition pair already
+-- proves in production. Either way, no write grant to service_role is needed
+-- to make a merge work, and giving one would be a second, unaudited way to
+-- rewrite a Station's merge history.
 grant select on public.music_merges to service_role;
 
 -- The default ACL leaves service_role holding TRUNCATE, which `revoke all`
