@@ -1,5 +1,5 @@
 begin;
-select plan(233);
+select plan(239);
 
 select has_table('public', 'permissions', 'permissions exists');
 select has_table('public', 'role_permissions', 'role_permissions exists');
@@ -157,6 +157,22 @@ select is(relrowsecurity, true, 'RLS enabled on prizes')
   from pg_class where oid = 'public.prizes'::regclass;
 select is(relrowsecurity, true, 'RLS enabled on prize_categories')
   from pg_class where oid = 'public.prize_categories'::regclass;
+
+-- Block 7a, Task 2: the same standing inventory, extended to the acervo's six
+-- tables (built in 0098, secured in 0099). Same reasoning as above — a table
+-- this migration misses looks exactly like one that never needed securing.
+select is(relrowsecurity, true, 'RLS enabled on music_genres')
+  from pg_class where oid = 'public.music_genres'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on record_labels')
+  from pg_class where oid = 'public.record_labels'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on artists')
+  from pg_class where oid = 'public.artists'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on shows')
+  from pg_class where oid = 'public.shows'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on songs')
+  from pg_class where oid = 'public.songs'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on music_requests')
+  from pg_class where oid = 'public.music_requests'::regclass;
 
 -- The ledger's immutability, and the projection's single-writer property, are
 -- grants, not comments. No role — not even service_role — holds UPDATE or

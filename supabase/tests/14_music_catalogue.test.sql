@@ -1,5 +1,5 @@
 begin;
-select plan(24);
+select plan(40);
 
 -- Block 7a, Task 1: the acervo's shape.
 --
@@ -150,6 +150,55 @@ select isnt(
   (select code from public.permissions where code = 'music.merge'),
   null,
   'music.merge is a code of its own — the only one that destroys');
+
+-- 25-30: RLS is on. A table this migration misses looks exactly like a table
+-- that never needed securing — this project has shipped that mistake once
+-- already (rate_limit_counters, Block 0) — so the state is asserted rather
+-- than left to whoever reads the migration list.
+select is(relrowsecurity, true, 'RLS enabled on music_genres')
+  from pg_class where oid = 'public.music_genres'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on record_labels')
+  from pg_class where oid = 'public.record_labels'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on artists')
+  from pg_class where oid = 'public.artists'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on shows')
+  from pg_class where oid = 'public.shows'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on songs')
+  from pg_class where oid = 'public.songs'::regclass;
+select is(relrowsecurity, true, 'RLS enabled on music_requests')
+  from pg_class where oid = 'public.music_requests'::regclass;
+
+-- 31-36: authenticated may read and may never write. Every write goes
+-- through a SECURITY DEFINER RPC that runs as the table owner and needs no
+-- grant of its own; a grant here would be a second, unaudited way in.
+select ok(has_table_privilege('authenticated', 'public.songs', 'SELECT'),
+  'authenticated may read songs — RLS decides which');
+select ok(not has_table_privilege('authenticated', 'public.songs', 'INSERT'),
+  'authenticated cannot insert songs directly');
+select ok(not has_table_privilege('authenticated', 'public.songs', 'UPDATE'),
+  'authenticated cannot update songs directly');
+select ok(not has_table_privilege('authenticated', 'public.songs', 'DELETE'),
+  'authenticated cannot delete songs directly');
+select ok(not has_table_privilege('authenticated', 'public.artists', 'INSERT'),
+  'authenticated cannot insert artists directly');
+select ok(not has_table_privilege('authenticated', 'public.music_requests', 'INSERT'),
+  'authenticated cannot insert requests directly — 7b brings the door');
+
+-- 37-39: service_role likewise. BYPASSRLS does not substitute for a GRANT
+-- (Block 1a §3.9), and the revoke below only ever ran against anon and
+-- authenticated, so TRUNCATE has to be taken from service_role explicitly —
+-- it is neither INSERT, UPDATE nor DELETE, and one statement would empty a
+-- Station's whole acervo (0029 closed this same hole for the ledger).
+select ok(not has_table_privilege('service_role', 'public.songs', 'INSERT'),
+  'service_role cannot insert songs');
+select ok(not has_table_privilege('service_role', 'public.songs', 'TRUNCATE'),
+  'service_role cannot truncate songs');
+select ok(not has_table_privilege('service_role', 'public.music_requests', 'TRUNCATE'),
+  'service_role cannot truncate the request history');
+
+-- 40: anon reaches none of it.
+select ok(not has_table_privilege('anon', 'public.songs', 'SELECT'),
+  'anon cannot read songs');
 
 select * from finish();
 rollback;
