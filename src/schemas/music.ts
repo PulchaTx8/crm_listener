@@ -179,13 +179,35 @@ export type MergeFormInput = z.infer<typeof mergeFormSchema>;
  * D5: `songId` is required and there is no free-text alternative. A request
  * points at a catalogued song or it is not recorded.
  */
+/**
+ * Blank means "now" — create_music_request (0107) takes it as
+ * `coalesce(p_requested_at, now())`, so omitting the key and sending an
+ * empty one mean the same thing. Anything else has to be a real instant:
+ * this is the shape fromZonedWallClock (promotions/zone.ts) always produces
+ * (`new Date(...).toISOString()`), and Task 7's review flagged that this
+ * field carried no check of its own before this — an unparseable string
+ * would sail through `optionalText` untouched and reach Postgres's own
+ * `timestamptz` cast, which answers with an opaque internal error rather
+ * than a field-level message, the one thing this file's own top comment
+ * says every bound here exists to avoid. z.string().datetime() is Zod's
+ * strict ISO-8601 UTC check (a 'Z' suffix required, arbitrary sub-second
+ * precision allowed) rather than a bare `Date.parse` — narrower on purpose,
+ * since the only legitimate source of a non-blank value is that one
+ * `toISOString()` call, and anything else is either a bug in this form or a
+ * hand-crafted request.
+ */
+const optionalInstant = z.preprocess(
+  blankToUndefined,
+  z.string().datetime({ message: 'That date could not be read. Pick it again.' }).optional(),
+);
+
 export const requestFormSchema = z
   .object({
     companyId: z.string().uuid(),
     songId: z.string().uuid('Choose a song — a request never points at free text.'),
     showId: optionalUuid,
     memberId: optionalUuid,
-    requestedAt: optionalText(40),
+    requestedAt: optionalInstant,
     fullName: optionalText(160),
     phone: optionalText(40),
     email: optionalText(160),

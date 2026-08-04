@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { referenceFormSchema, songFormSchema } from '@/schemas/music';
+import { referenceFormSchema, requestFormSchema, songFormSchema } from '@/schemas/music';
 
 const COMPANY = '00000000-0000-0000-0000-0000000000c1';
 const ARTIST = '00000000-0000-0000-0000-0000000000a1';
+const SONG = '00000000-0000-0000-0000-000000000501';
+const MEMBER = '00000000-0000-0000-0000-000000000601';
 
 describe('songFormSchema', () => {
   it('accepts a song with nothing but a title and an artist', () => {
@@ -107,5 +109,64 @@ describe('referenceFormSchema', () => {
     expect(
       referenceFormSchema.safeParse({ companyId: COMPANY, kind: 'GENRE', name: '  ' }).success,
     ).toBe(false);
+  });
+});
+
+describe('requestFormSchema.requestedAt', () => {
+  // The guard Task 7's review flagged as missing: before this, requestedAt
+  // ran through optionalText alone — a trim and a length cap, no format
+  // check — so a value that could not be read as a date would sail past this
+  // schema untouched and reach create_music_request's own `timestamptz`
+  // cast, which answers with an opaque internal error rather than a
+  // field-level message. This is the test that would have failed against
+  // the old schema: optionalText(40).safeParse('not a date') succeeds.
+  it('refuses a string that is not a real instant, rather than sending it on to Postgres', () => {
+    const parsed = requestFormSchema.safeParse({
+      companyId: COMPANY,
+      songId: SONG,
+      memberId: MEMBER,
+      requestedAt: 'not a date',
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  // The exact shape fromZonedWallClock (promotions/zone.ts) produces for
+  // every non-blank value this field will ever carry in the browser.
+  it('accepts the ISO instant fromZonedWallClock produces', () => {
+    const parsed = requestFormSchema.safeParse({
+      companyId: COMPANY,
+      songId: SONG,
+      memberId: MEMBER,
+      requestedAt: '2026-08-04T15:04:05.123Z',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  // Blank means "now" (0107's own coalesce) and must turn into undefined
+  // rather than being refused as an unreadable date — the same emptiness
+  // rule optionalText already gives every other optional field on this
+  // schema.
+  it('turns a blank value into undefined rather than refusing it', () => {
+    const parsed = requestFormSchema.parse({
+      companyId: COMPANY,
+      songId: SONG,
+      memberId: MEMBER,
+      requestedAt: '',
+    });
+    expect(parsed.requestedAt).toBeUndefined();
+  });
+
+  // A date with no time zone designator is exactly the hand-crafted or
+  // copy-pasted shape this guard exists to catch: `new Date(...)` would
+  // happily parse it in Node's own process zone rather than refusing it,
+  // which is the silent-wrong-instant failure this field must not have.
+  it('refuses an instant with no timezone designator', () => {
+    const parsed = requestFormSchema.safeParse({
+      companyId: COMPANY,
+      songId: SONG,
+      memberId: MEMBER,
+      requestedAt: '2026-08-04T15:04:05',
+    });
+    expect(parsed.success).toBe(false);
   });
 });
