@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(21);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -88,44 +88,36 @@ select is(
   array['PICKUP_REMINDER'],
   'template_purpose has exactly PICKUP_REMINDER');
 
--- 12: a blank name, language or body is refused. '   ' would satisfy NOT
--- NULL and register a template nobody can send — name and language must
--- match what Meta approved exactly, and a body a listener cannot read is
--- worse than no template at all. One assertion, three sub-checks: each
--- insert is expected to fail with check_violation, and the DO block only
--- raises (failing this assertion) if one of them is wrongly accepted.
-select lives_ok($$
-  do $do$
-  begin
-    begin
-      insert into public.message_templates
-        (organization_id, company_id, purpose, name, language, body)
-      values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-              'PICKUP_REMINDER', '   ', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!');
-      raise exception 'a blank name was not refused';
-    exception when check_violation then null;
-    end;
-    begin
-      insert into public.message_templates
-        (organization_id, company_id, purpose, name, language, body)
-      values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-              'PICKUP_REMINDER', 'Lembrete de retirada', '   ', 'Oi {{1}}, seu prêmio te espera!');
-      raise exception 'a blank language was not refused';
-    exception when check_violation then null;
-    end;
-    begin
-      insert into public.message_templates
-        (organization_id, company_id, purpose, name, language, body)
-      values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-              'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', '   ');
-      raise exception 'a blank body was not refused';
-    exception when check_violation then null;
-    end;
-  end
-  $do$;
-$$, 'a blank name, language or body is refused by its check constraint');
+-- 12: a blank name is refused. '   ' would satisfy NOT NULL and register a
+-- template whose recorded name does not match what Meta approved.
+select throws_ok($$
+  insert into public.message_templates
+    (organization_id, company_id, purpose, name, language, body)
+  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+          'PICKUP_REMINDER', '   ', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!')
+$$, '23514', null, 'a blank name is refused by the check constraint');
 
--- 13: variables must be a JSON array. Task 3's enqueue indexes it
+-- 13: a blank language is refused, same reasoning as 12 — the Cloud API
+-- takes name AND language together, and a blank one cannot match what Meta
+-- approved. A separate assertion from 12: these are two different check
+-- constraints, and a failure here says which column let a blank through.
+select throws_ok($$
+  insert into public.message_templates
+    (organization_id, company_id, purpose, name, language, body)
+  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+          'PICKUP_REMINDER', 'Lembrete de retirada', '   ', 'Oi {{1}}, seu prêmio te espera!')
+$$, '23514', null, 'a blank language is refused by the check constraint');
+
+-- 14: a blank body is refused — the column a listener actually reads, and a
+-- third distinct check constraint from 12 and 13.
+select throws_ok($$
+  insert into public.message_templates
+    (organization_id, company_id, purpose, name, language, body)
+  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
+          'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', '   ')
+$$, '23514', null, 'a blank body is refused by the check constraint');
+
+-- 15: variables must be a JSON array. Task 3's enqueue indexes it
 -- positionally by {{1}}..{{n}}; an object here would fail only at send time,
 -- not at write time.
 select throws_ok($$
@@ -141,7 +133,7 @@ insert into public.message_templates
 values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
         'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!');
 
--- 14: one live template per (company_id, purpose).
+-- 16: one live template per (company_id, purpose).
 select throws_ok($$
   insert into public.message_templates
     (organization_id, company_id, purpose, name, language, body)
@@ -149,7 +141,7 @@ select throws_ok($$
           'PICKUP_REMINDER', 'Outro nome', 'pt_BR', 'Outro corpo')
 $$, '23505', null, 'a second live template for the same purpose is refused');
 
--- 15: and archiving the first frees the purpose — the same partial-index
+-- 17: and archiving the first frees the purpose — the same partial-index
 -- shape as Task 1's station_message_templates, for the same reason: without
 -- it an operator who archived a template could never register its
 -- replacement.
@@ -163,17 +155,25 @@ select lives_ok($$
           'PICKUP_REMINDER', 'Lembrete novo', 'pt_BR', 'Novo corpo {{1}}')
 $$, 'archiving a template frees its purpose for a new registration');
 
--- 16: authenticated cannot write directly — Task 2 opens no door at all yet;
--- a later registration screen adds one as SECURITY DEFINER. service_role
--- reads (Task 3's enqueue_whatsapp_outbound resolves the row under
--- service_role) and cannot truncate (0059's lesson, applied again).
+-- 18: authenticated cannot write directly — Task 2 opens no door at all yet;
+-- a later registration screen adds one as SECURITY DEFINER.
 select ok(
-  not has_table_privilege('authenticated', 'public.message_templates', 'INSERT')
-  and has_table_privilege('service_role', 'public.message_templates', 'SELECT')
-  and not has_table_privilege('service_role', 'public.message_templates', 'TRUNCATE'),
-  'authenticated cannot write directly; service_role reads and cannot truncate');
+  not has_table_privilege('authenticated', 'public.message_templates', 'INSERT'),
+  'authenticated cannot insert a template directly');
 
--- 17: no status column, deliberately (spec §3.2). This table records what
+-- 19: service_role reads — Task 3's enqueue_whatsapp_outbound resolves the
+-- row under service_role. A separate assertion from 18 and 20: three
+-- different grants, three different reasons a fix would touch.
+select ok(
+  has_table_privilege('service_role', 'public.message_templates', 'SELECT'),
+  'service_role reads templates, which is how the enqueue resolves them');
+
+-- 20: and service_role cannot truncate. 0059's lesson, applied again.
+select ok(
+  not has_table_privilege('service_role', 'public.message_templates', 'TRUNCATE'),
+  'service_role cannot truncate the templates');
+
+-- 21: no status column, deliberately (spec §3.2). This table records what
 -- the operator was told at registration; it cannot know whether Meta still
 -- approves the template, so a status column here would look like live truth
 -- and actually be a stale memory. A revoked approval is discovered by the
