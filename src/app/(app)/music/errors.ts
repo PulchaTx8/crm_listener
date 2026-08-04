@@ -16,13 +16,18 @@ import {
  * for the whole block rather than three copies drifting apart, the same
  * reasoning inventory/errors.ts gives for its own two functions.
  *
- * Every read these screens perform — listCompanyAccess, listMusicReferences,
- * listSongsPage, getSongById, listArtistsPage, getArtistById, getArtistSongs
- * — only ever throws InternalError today: none of them call an RPC, so none
- * of the write-side codes mapMusicError (services/music.ts) maps can surface
- * here. The full taxonomy is handled anyway: collapsing it to a single
- * generic message would work today and silently stop being true the moment a
- * read starts going through an RPC.
+ * listCompanyAccess, listMusicReferences, listSongsPage, getSongById,
+ * listArtistsPage, getArtistById and getArtistSongs still only ever throw
+ * InternalError: none of them call an RPC, so none of the write-side codes
+ * mapMusicError (services/music.ts) maps can surface from them. Block 7b adds
+ * two reads that break that pattern on purpose: listMusicRequestsPage and
+ * listMergeCandidates go through list_music_requests and list_merge_candidates,
+ * both SECURITY DEFINER and gated on a permission check, so their errors are
+ * mapMusicError's like a write's — a 42501 is a genuinely reachable case from
+ * a read now, not a hypothetical one. The full taxonomy was handled here
+ * anyway, which is exactly what makes that change require no edit to this
+ * function: collapsing it to a single generic message would have worked
+ * until this moment and silently stopped being true at it.
  */
 export function describeMusicReadError(cause: unknown): string {
   if (cause instanceof ConflictError) return cause.message;
@@ -82,3 +87,41 @@ export function describeMusicWriteError(cause: unknown, action: string): string 
   // and its message may carry a raw database error — not something to show.
   return 'Could not save. Refresh the page and try again.';
 }
+
+/**
+ * A merge's own refusals. Separate from describeMusicWriteError because its
+ * NotFoundError sentence ("refresh and try again") is right for a stale record
+ * dialog and misleading here: a merge's P0002 means one of the records the
+ * operator ticked is gone, archived, or — deliberately indistinguishable — in
+ * another Station, and "refresh the page" is the correct advice for only the
+ * first of those.
+ */
+export function describeMergeError(cause: unknown): string {
+  if (cause instanceof NotFoundError) {
+    return 'One of the records you selected is no longer available — it may have been archived or merged by somebody else. Refresh the list and start again.';
+  }
+  if (cause instanceof UnauthorizedError) {
+    return 'You do not have permission to merge records in this Station.';
+  }
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof BusinessRuleError) return cause.message;
+  if (cause instanceof ConflictError) return cause.message;
+  return 'Could not merge. Refresh the page and try again.';
+}
+
+// describeMaintenanceReadError briefly lived here (Task 9's first pass):
+// listMergeCandidates's list_merge_candidates (0108) originally checked
+// music.merge, not music.view like every other read this taxonomy serves,
+// so describeMusicReadError's fixed "...view the music catalogue..."
+// sentence would have misnamed the permission a 403 was actually about.
+// Fix round 1 corrected the mismatch at its real source instead: 0108 is now
+// gated on music.view (see that migration's own comment for why — D8 scopes
+// music.merge to the five doors that actually destroy something, and this
+// read leaks nothing a music.view caller could not already assemble by
+// hand). That also fixed a Critical the gate change surfaced: page.tsx reads
+// this list and getMusicPermissions in one Promise.all, so gating the READ
+// on music.merge made `permissions.merge === false` and "the read already
+// threw" the same event — the Maintenance screen's own required read-only
+// mode could never render. With the gate now music.view,
+// describeMusicReadError's existing sentence is correct again, so the
+// Maintenance screen's page.tsx uses it directly and this describer is gone.

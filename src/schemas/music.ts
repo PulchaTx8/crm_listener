@@ -6,7 +6,12 @@ import { z } from 'zod';
  * — the reasoning schemas/inventory.ts sets out for its own.
  */
 
-/** The four short lists 0100's music_reference_kind carries. NOT 7b's merge kinds, which drop SHOW and add SONG. */
+/**
+ * The four short lists 0100's music_reference_kind carries. Not the merge's
+ * kinds (MUSIC_MERGE_KINDS below): that set adds SONG and keeps SHOW, after
+ * the owner ruled for merge_shows on 2026-08-04. This line used to say the
+ * merge would drop SHOW, which 0105 corrects at the database as well.
+ */
 export const MUSIC_REFERENCE_KINDS = ['GENRE', 'LABEL', 'ARTIST', 'SHOW'] as const;
 export type MusicReferenceKind = (typeof MUSIC_REFERENCE_KINDS)[number];
 
@@ -117,3 +122,117 @@ export const songUpdateSchema = songFormSchema
   .extend({ songId: z.string().uuid() });
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
+
+/** The five 0105's music_merge_kind carries. Shows are here on the owner's 2026-08-04 ruling. */
+export const MUSIC_MERGE_KINDS = ['SONG', 'ARTIST', 'LABEL', 'GENRE', 'SHOW'] as const;
+export type MusicMergeKind = (typeof MUSIC_MERGE_KINDS)[number];
+
+export const MUSIC_REQUEST_CHANNELS = ['MANUAL', 'IMPORT'] as const;
+
+/**
+ * A reason has to fit in a sentence somebody will read in six months.
+ * `text` in Postgres has no length of its own, so the bound is here.
+ */
+export const MERGE_REASON_MAX_LENGTH = 300;
+
+/**
+ * Mirrors 0106's three refusals, so each arrives as a field-level message
+ * instead of a round trip: a blank reason, an empty loser list, and a survivor
+ * named among the losers.
+ *
+ * The duplicate collapse is here as well as in the core. The core dedupes
+ * because a repeated id would archive one record and write two history rows
+ * claiming different child counts for it; this dedupes because a checkbox list
+ * that somehow submits the same id twice should not depend on the database to
+ * be correct about it.
+ */
+export const mergeFormSchema = z
+  .object({
+    // Validated here, logged on a write failure (maintenance/actions.ts),
+    // and carried in the confirmation dialog's hidden input — but never sent
+    // to Postgres: mergeMusicRecords (services/music.ts) posts only
+    // p_winner_id/p_loser_ids/p_reason to the door, and every one of 0106's
+    // five doors resolves the Station from the WINNER row itself, inside the
+    // scoped lock, rather than trusting a caller-supplied id. Read this field
+    // as a courtesy for the UI's own bookkeeping (which Station's screen is
+    // this?), not as a tenancy guard — there isn't one here to be. Fix round
+    // 1 added this comment after a Critical found the actual boundary
+    // (MergePanel's own React state persisting across a Company switch) one
+    // layer up, in the UI that builds this input, not in this schema.
+    companyId: z.string().uuid(),
+    kind: z.enum(MUSIC_MERGE_KINDS),
+    winnerId: z.string().uuid('Choose which record stays.'),
+    loserIds: z
+      .array(z.string().uuid())
+      .min(1, 'Choose at least one record to absorb.')
+      .transform((ids) => [...new Set(ids)]),
+    reason: z
+      .string()
+      .trim()
+      .min(1, 'Say why these are the same record.')
+      .max(MERGE_REASON_MAX_LENGTH),
+  })
+  .refine((v) => !v.loserIds.includes(v.winnerId), {
+    message: 'The record that stays cannot also be one of the ones being absorbed.',
+    path: ['winnerId'],
+  });
+
+export type MergeFormInput = z.infer<typeof mergeFormSchema>;
+
+/**
+ * Blank means "now" — create_music_request (0107) takes it as
+ * `coalesce(p_requested_at, now())`, so omitting the key and sending an
+ * empty one mean the same thing. Anything else has to be a real instant:
+ * this is the shape fromZonedWallClock (promotions/zone.ts) always produces
+ * (`new Date(...).toISOString()`), and Task 7's review flagged that this
+ * field carried no check of its own before this — an unparseable string
+ * would sail through `optionalText` untouched and reach Postgres's own
+ * `timestamptz` cast, which answers with an opaque internal error rather
+ * than a field-level message, the one thing this file's own top comment
+ * says every bound here exists to avoid. z.string().datetime() is Zod's
+ * strict ISO-8601 UTC check (a 'Z' suffix required, arbitrary sub-second
+ * precision allowed) rather than a bare `Date.parse` — narrower on purpose,
+ * since the only legitimate source of a non-blank value is that one
+ * `toISOString()` call, and anything else is either a bug in this form or a
+ * hand-crafted request.
+ */
+const optionalInstant = z.preprocess(
+  blankToUndefined,
+  z.string().datetime({ message: 'That date could not be read. Pick it again.' }).optional(),
+);
+
+/**
+ * Manual entry, which has two shapes because Block 3's deduplication has two:
+ * the operator either picked a listener from the search results (`memberId`)
+ * or typed enough to find-or-create one (`fullName` and at least one
+ * identifier). resolveOrCreateMember (services/participations.ts) is what
+ * turns the second into the first, and the form calls it before the request
+ * door — the same two doors record-participation-form.tsx already has.
+ *
+ * D5: `songId` is required and there is no free-text alternative. A request
+ * points at a catalogued song or it is not recorded.
+ */
+export const requestFormSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    songId: z.string().uuid('Choose a song — a request never points at free text.'),
+    showId: optionalUuid,
+    memberId: optionalUuid,
+    requestedAt: optionalInstant,
+    // 200, matching record-request-form.tsx's own maxLength and the pattern
+    // this form copies (participationFormSchema.fullName /
+    // record-participation-form.tsx, both 200) — this used to say 160, a
+    // bound the browser's input never enforced, so a name between 161 and
+    // 200 characters passed the form and was refused only at the RPC.
+    fullName: optionalText(200),
+    phone: optionalText(40),
+    email: optionalText(160),
+    cpf: optionalText(20),
+    passport: optionalText(40),
+  })
+  .refine((v) => Boolean(v.memberId) || Boolean(v.fullName), {
+    message: 'Pick a listener, or give a name to register one.',
+    path: ['memberId'],
+  });
+
+export type RequestFormInput = z.infer<typeof requestFormSchema>;
