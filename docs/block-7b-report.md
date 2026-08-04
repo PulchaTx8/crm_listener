@@ -151,8 +151,9 @@ replaced); `src/app/(app)/music/requests/` (`page.tsx`, `list-params.ts`,
 `src/lib/auth/shell.ts`'s Music section extended with Requests and
 Maintenance (in that order, after Songs/Artists/Catalog); `database.types.ts`
 regenerated (purely additive, 147 insertions). Tests:
-`supabase/tests/16_music_merge.test.sql` (36 assertions, up from 7a's
-baseline of 9 at Task 1),
+`supabase/tests/16_music_merge.test.sql` (40 assertions, up from 7a's
+baseline of 9 at Task 1; §12 below records the last 4, added in the final
+whole-branch review),
 `supabase/tests/17_music_requests.test.sql` (18 assertions, new file),
 `tests/isolation/music-merge.test.ts` (11 cases, new file),
 `tests/unit/music-merge-schema.test.ts`,
@@ -540,3 +541,63 @@ convention carried from every earlier block.
 §4 above the specific note it inherits), the WhatsApp music-request channel
 is its own future block, and the listener merge ruled for on 2026-08-01
 remains unbuilt, recorded only as a pointer at what it should reuse.
+
+---
+
+## 12. Final whole-branch review, before merge
+
+Seven findings surfaced in the review that followed Task 11. None is a live
+defect in the sense §8 above uses the word — each is a test that would not
+catch a regression, a comment claiming more than it proves, or a document
+that would mislead the next reader. Four are corrected without changing
+anything else this report claims: the Requests grid's title for a null
+listener name now reads on `canFindListeners` rather than always blaming a
+missing permission (a caller who holds `members.view` and is looking at a
+listener who has since exercised LGPD erasure was being told they lacked a
+permission they hold); the plan document's `list_merge_candidates` gate is
+corrected from `music.merge` to `music.view` in the three places it still
+disagreed with §6 above; `merge-panel.tsx`'s own comment now says it is keyed
+on `` `${state.companyId}:${state.kind}` ``, matching `page.tsx` (§8's defect
+5) instead of restating the pre-fix `kind`-alone claim; and
+`requestFormSchema.fullName`'s bound was raised from 160 to 200 to match its
+form's own `maxLength` and the pattern `participationFormSchema.fullName`
+already sets — a name between 161 and 200 characters previously passed the
+browser and was refused only at the RPC.
+
+Three findings change what this report states above:
+
+- **Coverage.** Assertion 30 in `16_music_merge.test.sql` proved only
+  `merge_songs` refuses a `music.view`-only caller with `42501`; the
+  identical `has_permission('music.merge', …)` clause in `merge_artists`,
+  `merge_record_labels`, `merge_music_genres` and `merge_shows` had no
+  assertion of its own anywhere in this suite — deleting any of those four
+  clauses today would have left every gate in this repository green, on the
+  one operation in this domain that destroys data. Four `throws_ok`
+  assertions were added (37–40), reusing the `e2a4` actor fixture and adding
+  one live fixture row apiece for `record_labels`/`music_genres`/`shows`,
+  which this file had none of before. The plan count in §2 above (40, was
+  36) reflects this.
+- **The atomicity claim.** Assertion 14 was commented `THE ATOMICITY PROOF`
+  and named two losers, the second bogus. `apply_music_merge` in fact raises
+  `P0002` from its pre-flight lock-and-count check, before the repoint loop
+  ever runs — so no work was ever applied, and assertions 15–16 (nothing
+  moved, the loser still alive) pass identically against a hypothetical
+  non-transactional implementation. The comment is reworded to state what
+  the test actually proves — the pre-flight refusal is whole and prior to
+  any write — without weakening the assertions themselves, which are correct
+  and simply were misnamed. Atomicity itself remains structurally true (a
+  `plpgsql` function body is one transaction, the same fact §7 above rests
+  its mutation proof on); no genuine post-repoint failure case was added,
+  since forcing one cheaply would need an artificial fault injected after
+  the loop starts, which none of the five kinds currently offers.
+- **A matching gap in the isolation suite.** `tests/isolation/music-merge.test.ts`
+  proved `member_phone` comes back null for a caller without `members.view`,
+  never that it comes back populated for one who holds it — the same class
+  of gap as the coverage finding above, on `list_music_requests` rather than
+  the merge doors. The existing "merges, and the requests really move" case
+  already runs as the tenant owner (who holds `members.view` through
+  `has_permission`'s owner bypass, 0024) and seeds its own request with a
+  real phone number; it now also asserts the returned row's `member_phone`
+  is truthy. Case count is unchanged at 11 — this is a new assertion inside
+  an existing case, not a new case, so `scripts/verify-isolation-suite.mjs`'s
+  `minTests: 11` floor did not move.

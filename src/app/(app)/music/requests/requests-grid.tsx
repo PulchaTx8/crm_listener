@@ -115,17 +115,28 @@ export function RequestsGrid({
                 <TableRow key={request.requestId} data-testid="request-row">
                   <TableCell>
                     {/*
-                      Withheld, not blank. A null memberName means this caller
-                      holds music.view but not members.view — 0107's RULE 2 —
-                      and the list still lists every row rather than refusing
-                      the page. A bare '—' would read exactly like a name that
-                      was never recorded, which is not what happened, so the
-                      title says why instead of leaving the operator to guess.
+                      A null memberName has two different causes, and this
+                      title must not claim the wrong one — the same
+                      ambiguity ParticipationsGrid's own comment states for
+                      listenerName. 0107's list joins members with no
+                      anonymized_at filter, so a null here means either: this
+                      caller holds music.view but not members.view (0107's
+                      RULE 2, which withholds the two columns and still lists
+                      every row), or this caller DOES hold members.view and
+                      the listener has since exercised LGPD erasure
+                      (anonymize_member nulls full_name). canFindListeners is
+                      exactly which of the two is true, so the title is gated
+                      on it rather than guessing — telling a caller who holds
+                      members.view that they lack it would be a lie.
                     */}
                     {request.memberName === null ? (
                       <span
                         className="text-muted-foreground"
-                        title="Withheld — you do not hold members.view at this Station, so listener names and phones are hidden here."
+                        title={
+                          canFindListeners
+                            ? 'This listener has since exercised their right to erasure — their name and phone are no longer stored.'
+                            : 'Withheld — you do not hold members.view at this Station, so listener names and phones are hidden here.'
+                        }
                         data-testid="request-listener-withheld"
                       >
                         —

@@ -199,7 +199,17 @@ describe('Block 7b — merging and requests across Stations', () => {
       p_song_id: winner.songId,
     });
     expect(listError).toBeNull();
-    expect((rows as unknown[]).length).toBe(1);
+    const requestRows = rows as { member_phone: string | null }[];
+    expect(requestRows.length).toBe(1);
+    // M3 (final whole-branch review), same class as I1: the case below
+    // proves member_phone comes back null without members.view, but nothing
+    // proved it comes back POPULATED for a caller who holds it — deleting
+    // f.phone from 0107's select list would have left every gate green.
+    // `owner` holds members.view through has_permission's owner bypass
+    // (0024: is_owner(organization_id) short-circuits the role check), and
+    // this case already seeds its own request with a real phone number, so
+    // no new fixture is needed.
+    expect(requestRows[0]?.member_phone).toBeTruthy();
   });
 
   it('lists requests without members.view, with the listener columns null', async () => {

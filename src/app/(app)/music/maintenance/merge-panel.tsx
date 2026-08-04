@@ -172,11 +172,14 @@ const INITIAL_MERGE: MergeState = { ok: null };
  * operator without music.merge can still see the duplicates and learn what
  * they are missing, which is more useful than a bounce to /app.
  *
- * page.tsx keys this component on `kind` (the same idiom ReferenceTabs' own
- * header documents for its per-tab panel), so switching kind always remounts
- * it: the staged rows of a Songs merge mean nothing once the operator is
- * looking at Artists, and a clean remount is what stops one screen's
- * half-built basket from bleeding into another's.
+ * page.tsx keys this component on `` `${state.companyId}:${state.kind}` ``,
+ * not `kind` alone — `kind` alone was the Critical page.tsx's own comment
+ * describes at length: it remounts on a kind switch but not on a Station
+ * switch (the Company badge is a soft `<Link>` to this same route), so a
+ * staged basket could survive a Station change and merge the wrong
+ * Station's pair. Both fields together is what stops one screen's
+ * half-built basket from bleeding into another's, whether the operator
+ * changed kind, Station, or both.
  */
 export function MergePanel({
   state,

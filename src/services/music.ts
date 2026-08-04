@@ -719,10 +719,17 @@ export interface RequestSummary {
   requestId: string;
   memberId: string;
   /**
-   * Null in exactly the situation listParticipationsPage's own listenerName
-   * documents: the caller holds music.view but not members.view. 0107's RULE
-   * 2 withholds this and memberPhone, not the row — the list still lists,
-   * every row, with the two names blank rather than the page refused.
+   * Null for two different reasons — NOT exactly the situation
+   * listParticipationsPage's own listenerName documents, which is itself two
+   * causes, not one; do not conflate the two functions' reasons. Here: (1)
+   * the caller holds music.view but not members.view, in which case 0107's
+   * RULE 2 withholds this and memberPhone, not the row — the list still
+   * lists, every row, with the two names blank rather than the page refused;
+   * or (2) the caller DOES hold members.view and the listener has since
+   * exercised LGPD erasure — 0107's join carries no anonymized_at filter, and
+   * anonymize_member (0034) nulls members.full_name. The screen must not tell
+   * the two apart (requests-grid.tsx gates its wording on canFindListeners
+   * for exactly this reason).
    */
   memberName: string | null;
   memberPhone: string | null;

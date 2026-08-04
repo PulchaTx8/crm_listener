@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(40);
 
 -- Block 7b, Task 1: the history table, and the kind that drives all five
 -- doors. The doors themselves are Task 2; this file grows to cover them.
@@ -141,9 +141,16 @@ select throws_ok($$
     array['00000000-0000-0000-0000-00000000e2d1']::uuid[], 'itself')
 $$, '22023', null, 'a merge that names the winner among the losers is refused');
 
--- 14: THE ATOMICITY PROOF. Two losers, one of which does not exist. NEITHER
--- may move — proved by counting the requests on the winner afterwards, not by
--- reading the function.
+-- 14: THE PRE-FLIGHT REFUSAL. Two losers, one of which does not exist. The
+-- whole call is refused before either could move — proved by counting the
+-- requests on the winner afterwards, not by reading the function. 0106 raises
+-- P0002 from the pre-flight lock-and-count check, before the repoint loop
+-- ever runs, so this does NOT exercise a rollback of a partially-applied
+-- repoint — a genuine atomicity proof would need a failure injected AFTER the
+-- loop starts, which no kind currently offers cheaply. What this proves is
+-- narrower and still real: a bad call is refused whole, before anything is
+-- touched. Atomicity itself holds structurally regardless — a plpgsql
+-- function body is one transaction.
 select throws_ok($$
   select public.merge_songs('00000000-0000-0000-0000-00000000e2d1',
     array['00000000-0000-0000-0000-00000000e2d2',
@@ -413,6 +420,63 @@ select throws_ok($$
   select * from public.list_merge_candidates(
     '00000000-0000-0000-0000-00000000e2c2', 'SONG')
 $$, '42501', null, 'the candidate list refuses a Station the caller cannot reach at all');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Fix round (final whole-branch review), Important #1: every pgTAP assertion
+-- and every isolation case above calls merge_songs only. Deleting the
+-- has_permission clause from merge_artists, merge_record_labels,
+-- merge_music_genres or merge_shows today would leave every gate in this
+-- repository green — on the one operation in this domain that destroys data.
+--
+-- Same actor as assertion 30 (e2a4: music.view, not music.merge), same
+-- Station. e2b1 is the artist assertion 26 left alive; record_labels,
+-- music_genres and shows have no live fixture anywhere above this point, so
+-- one winner each is added here. The loser array in each call below is never
+-- read: a door's has_permission check runs before apply_music_merge ever
+-- looks at p_loser_ids, so a placeholder id needs no fixture of its own.
+-- ---------------------------------------------------------------------------
+
+insert into public.record_labels (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000e2f2', '00000000-0000-0000-0000-00000000e2f1',
+   '00000000-0000-0000-0000-00000000e2c1', 'Label 7b merge');
+insert into public.music_genres (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000e2f3', '00000000-0000-0000-0000-00000000e2f1',
+   '00000000-0000-0000-0000-00000000e2c1', 'Genre 7b merge');
+insert into public.shows (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000e2f4', '00000000-0000-0000-0000-00000000e2f1',
+   '00000000-0000-0000-0000-00000000e2c1', 'Show 7b merge');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a4", "role": "authenticated"}';
+
+-- 37: merge_artists refuses music.view without music.merge — the load-bearing
+-- clause assertion 30 already proves for merge_songs, here for the door a
+-- careless edit could silently strip and still pass every other test.
+select throws_ok($$
+  select public.merge_artists('00000000-0000-0000-0000-00000000e2b1',
+    array['00000000-0000-0000-0000-0000000000ff']::uuid[], 'viewer cannot merge')
+$$, '42501', null, 'merge_artists refuses an actor holding music.view but not music.merge');
+
+-- 38: merge_record_labels refuses music.view without music.merge.
+select throws_ok($$
+  select public.merge_record_labels('00000000-0000-0000-0000-00000000e2f2',
+    array['00000000-0000-0000-0000-0000000000ff']::uuid[], 'viewer cannot merge')
+$$, '42501', null, 'merge_record_labels refuses an actor holding music.view but not music.merge');
+
+-- 39: merge_music_genres refuses music.view without music.merge.
+select throws_ok($$
+  select public.merge_music_genres('00000000-0000-0000-0000-00000000e2f3',
+    array['00000000-0000-0000-0000-0000000000ff']::uuid[], 'viewer cannot merge')
+$$, '42501', null, 'merge_music_genres refuses an actor holding music.view but not music.merge');
+
+-- 40: merge_shows refuses music.view without music.merge — the fifth door,
+-- and the one the owner's 2026-08-04 ruling added after D3's original four.
+select throws_ok($$
+  select public.merge_shows('00000000-0000-0000-0000-00000000e2f4',
+    array['00000000-0000-0000-0000-0000000000ff']::uuid[], 'viewer cannot merge')
+$$, '42501', null, 'merge_shows refuses an actor holding music.view but not music.merge');
 
 reset role;
 

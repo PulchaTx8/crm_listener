@@ -219,7 +219,12 @@ export const requestFormSchema = z
     showId: optionalUuid,
     memberId: optionalUuid,
     requestedAt: optionalInstant,
-    fullName: optionalText(160),
+    // 200, matching record-request-form.tsx's own maxLength and the pattern
+    // this form copies (participationFormSchema.fullName /
+    // record-participation-form.tsx, both 200) — this used to say 160, a
+    // bound the browser's input never enforced, so a name between 161 and
+    // 200 characters passed the form and was refused only at the RPC.
+    fullName: optionalText(200),
     phone: optionalText(40),
     email: optionalText(160),
     cpf: optionalText(20),

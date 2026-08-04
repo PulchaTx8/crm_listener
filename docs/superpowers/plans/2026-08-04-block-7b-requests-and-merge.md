@@ -1504,7 +1504,9 @@ git commit -m "feat(music): record what a listener asked for, and read it back u
 **Interfaces:**
 - Produces: `public.list_merge_candidates(p_company_id uuid, p_kind public.music_merge_kind, p_search text default null, p_limit integer default 100) returns table (id uuid, label text, sub_label text, child_count integer, legacy_id text)`
 
-**Why this exists, stated before the code:** the Maintenance screen asks the operator to name *which duplicate stays*. Choosing between two rows without knowing that one has three hundred requests behind it and the other has none is a coin flip, and the merge is not reversible. `child_count` is the number the operator actually needs. One `SECURITY DEFINER` read gated on `music.merge` gives it in a single query, where the alternative is one count per candidate row from the screen.
+**Why this exists, stated before the code:** the Maintenance screen asks the operator to name *which duplicate stays*. Choosing between two rows without knowing that one has three hundred requests behind it and the other has none is a coin flip, and the merge is not reversible. `child_count` is the number the operator actually needs. One `SECURITY DEFINER` read gated on `music.view` gives it in a single query, where the alternative is one count per candidate row from the screen.
+
+> **Corrected here, in place, during the branch's final whole-branch review.** This paragraph and Step 3 below originally gated the read on `music.merge`. Task 9's fix round 1 regated it to `music.view`: a candidate list is seeing the catalogue, not destroying anything, and gating the READ itself on the destructive code made Step 1 of Task 9 (the read-only render for a caller without `music.merge`) unreachable — the read would throw `42501` before that branch could ever run, which is exactly the Critical fix round 1 closed. The shipped gate is `music.view`; destruction stays on `music.merge`, checked only by the five doors in `0106`. Corrected so the listener merge that inherits this shape (0106's own comment) does not inherit the plan's original error.
 
 - [ ] **Step 1: Write the failing pgTAP test**
 
@@ -1565,10 +1567,16 @@ Create `supabase/migrations/0108_list_merge_candidates.sql`:
 -- gives it for the whole page, where the alternative is one count per row from
 -- the screen.
 --
--- SECURITY DEFINER and gated on music.merge — the same permission as the
--- doors, because this list exists only to feed them. A caller holding
--- music.view alone reads the ordinary lists (0099's policies) and has no use
--- for this one.
+-- SECURITY DEFINER and gated on music.view, not music.merge. [Corrected in
+-- place during the final whole-branch review — this block originally gated
+-- the read on music.merge, "the same permission as the doors, because this
+-- list exists only to feed them." Task 9's fix round 1 regated it: gating
+-- the READ on the destructive code left the Maintenance screen's read-only
+-- render (Task 9, Step 1) unreachable for a caller without music.merge, since
+-- page.tsx resolves this list and getMusicPermissions in the same
+-- Promise.all. Every column this returns is already reachable through 0099's
+-- ordinary policies to a music.view holder; destruction stays exactly where
+-- D8 put it, checked by the five doors, not by this read.]
 --
 -- sub_label is the second line a candidate needs to be told apart from its
 -- duplicate: for a song, the artist. The four short lists have nothing to put
@@ -1596,9 +1604,9 @@ declare
   v_search text := nullif(btrim(coalesce(p_search, '')), '');
   v_like   text;
 begin
-  if not public.has_permission('music.merge', p_company_id) then
+  if not public.has_permission('music.view', p_company_id) then
     raise log 'list_merge_candidates denied: actor=% company=%', auth.uid(), p_company_id;
-    raise exception 'permission denied: music.merge required' using errcode = '42501';
+    raise exception 'permission denied: music.view required' using errcode = '42501';
   end if;
 
   v_like := '%' || coalesce(v_search, '') || '%';
@@ -1670,7 +1678,7 @@ end;
 $$;
 
 comment on function public.list_merge_candidates(uuid, public.music_merge_kind, text, integer) is
-  'The Maintenance screen''s one read: every live record of one kind in one Station, with the number of children a merge would move. Gated on music.merge — this list exists only to feed the doors. child_count is what makes naming the survivor a decision rather than a coin flip, and the counts include withdrawn/archived children because apply_music_merge moves those too.';
+  'The Maintenance screen''s one read: every live record of one kind in one Station, with the number of children a merge would move. Gated on music.view, not music.merge — Task 9''s fix round 1 correction, so a caller without music.merge can still read this list and render read-only; destruction is checked separately, by the five doors. child_count is what makes naming the survivor a decision rather than a coin flip, and the counts include withdrawn/archived children because apply_music_merge moves those too.';
 
 revoke execute on function public.list_merge_candidates(uuid, public.music_merge_kind, text, integer) from public;
 grant execute on function public.list_merge_candidates(uuid, public.music_merge_kind, text, integer) to authenticated;
@@ -2455,6 +2463,8 @@ git commit -m "feat(music): the Requests screen, and a manual entry that finds i
 - [ ] **Step 1: The page**
 
 Same skeleton as Task 8, resolving the Station on `'music.view'` and reading `listMergeCandidates` for the current `kind`. If `permissions.merge` is false, render the list read-only with an explanation rather than redirecting — the operator can see the duplicates and learn they need the permission, which is more useful than a bounce to `/app`.
+
+> **Note added during the final whole-branch review.** This only works because `listMergeCandidates` (Task 4's `0108`) is gated on `music.view`, not `music.merge`. Task 4 above originally specified the opposite (`music.merge`) — a contradiction with this very requirement, since a read gated on `music.merge` throws `42501` before `permissions.merge` can ever be checked here, and this read-only branch could never render. That was fix round 1's Critical; Task 4's paragraph and code above are corrected to match what shipped, so a reader of this plan does not rebuild the contradiction.
 
 Five tabs (Songs, Artists, Labels, Genres, Shows) writing `?kind=`, each preserving `companyId` and `station` — the same cross-preservation gap `docs/block-7a-report.md` §8 records for the Catalog screen's tabs. **Do not repeat it here:** the tab link spreads the whole current state, not just `kind`.
 
