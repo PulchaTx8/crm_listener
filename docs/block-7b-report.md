@@ -115,6 +115,16 @@ as literally specified does not exit 0 on this machine;
 `npx playwright test --workers=1` does, completely, every time it has been
 tried across both blocks.
 
+**Confirmed independently by CI after this branch was pushed.** GitHub Actions
+ran `build`, `db` and `e2e` on PR #25 and **all three passed**, `e2e` in 5m52s.
+That is the piece of evidence neither this report nor 7a's §1.2 previously had:
+the failures above are contention on this development machine, not a property
+of the specs. It also means the characterisation used throughout this report —
+an environment finding rather than a defect — is now backed by a run on
+hardware nobody here controls, instead of only by the serial rerun. Anyone
+reading §1.2 of the 7a report should carry this back to it: that section
+records the same shape and had no CI confirmation at the time.
+
 ---
 
 ## 2. What shipped
