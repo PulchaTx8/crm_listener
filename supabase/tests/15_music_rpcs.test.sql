@@ -1,5 +1,5 @@
 begin;
-select plan(23);
+select plan(27);
 
 -- Block 7a, Tasks 3 and 4: the doors.
 --
@@ -137,7 +137,39 @@ select is(
     where company_id = '00000000-0000-0000-0000-00000000e1c1' and deleted_at is null),
   'Samba de raiz', 'the new name is stored');
 
--- 11: archive is a soft delete. This project deletes nothing — 7b's merge
+-- 11-13: 0102's fix round — update_music_reference no longer takes a
+-- p_legacy_id parameter at all. Before 0102, the parameter defaulted to null
+-- and was applied unconditionally, and a form that never carried the current
+-- value forward (legacy_id renders read-only in every screen) silently
+-- erased it on the first rename. Proved with its own ARTIST fixture, kept
+-- apart from Samba/Morning Show above, so this does not depend on — or
+-- interact with — a legacy handle used elsewhere in this file.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
+
+select lives_ok($$
+  select public.create_music_reference(
+    '00000000-0000-0000-0000-00000000e1c1', 'ARTIST', 'Cartola', 'LEG-ARTIST-1')
+$$, 'create_music_reference writes an artist with a legacy handle');
+
+select lives_ok($$
+  select public.update_music_reference(
+    'ARTIST',
+    (select id from public.artists where name = 'Cartola'),
+    'Cartola Renamed')
+$$, 'update_music_reference renames the artist, with no legacy_id argument to give it');
+
+reset role;
+
+-- 13: the assertion 0102 exists for. Before the fix this would have read
+-- null — the parameter's own SQL default, applied unconditionally by the
+-- pre-0102 UPDATE — proving exactly the erasure the review found.
+select is(
+  (select legacy_id from public.artists where name = 'Cartola Renamed'),
+  'LEG-ARTIST-1',
+  'update_music_reference leaves legacy_id untouched — the parameter that could overwrite it is gone (0102)');
+
+-- 14: archive is a soft delete. This project deletes nothing — 7b's merge
 -- history needs something to keep pointing at.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
@@ -149,7 +181,7 @@ $$, 'archive_music_reference soft-deletes a show');
 
 reset role;
 
--- 12: read as the superuser pgTAP connects as, deliberately: every 0099
+-- 15: read as the superuser pgTAP connects as, deliberately: every 0099
 -- select policy carries `deleted_at is null`, so an archived row is not
 -- merely hidden from a list, it is UNREADABLE through RLS for this actor —
 -- under `authenticated` the subquery below would return no row at all, and an
@@ -158,7 +190,7 @@ select isnt(
   (select deleted_at from public.shows where name = 'Morning Show'),
   null, 'the show is soft-deleted, and the row is still there');
 
--- 13-14: both refusals proved under the real actor, not the superuser pgTAP
+-- 16-17: both refusals proved under the real actor, not the superuser pgTAP
 -- connects as — the whole point of the permission-before-existence idiom
 -- (0093) is that an unauthorised caller cannot tell an archived row from an
 -- unknown id from a Station it cannot reach, and that only means something
@@ -166,7 +198,7 @@ select isnt(
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
 
--- 13: an archived row cannot be renamed. The composite foreign key cannot see
+-- 16: an archived row cannot be renamed. The composite foreign key cannot see
 -- deleted_at (it references a non-partial constraint), so this check is the
 -- only thing standing between an archived genre and an edit that resurrects
 -- it in every screen's reference list.
@@ -175,7 +207,7 @@ select throws_ok($$
     'SHOW', (select id from public.shows where name = 'Morning Show'), 'Back again')
 $$, '42501', null, 'an archived record answers 42501, not a silent success');
 
--- 14: an unknown id answers 42501 too, never P0002. An id that does not exist
+-- 17: an unknown id answers 42501 too, never P0002. An id that does not exist
 -- and a Station the caller holds nothing in are indistinguishable from out
 -- here — the rule 0093 settled, and the one this block does not break.
 select throws_ok($$
@@ -204,7 +236,7 @@ insert into public.record_labels (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-00000000e1d2', '00000000-0000-0000-0000-00000000e1f1',
    '00000000-0000-0000-0000-00000000e1c2', 'Label of the other Station');
 
--- 15: the ordinary case, with every optional field filled. Called as the
+-- 18: the ordinary case, with every optional field filled. Called as the
 -- actor fixture above, under its own grant of music.manage — has_permission
 -- reads auth.uid(), which is null under plain pgTAP, so this call must run
 -- under the real role for the gate to answer anything but 42501.
@@ -220,7 +252,7 @@ $$, 'create_song registers a song with its whole record');
 
 reset role;
 
--- 16: read as the superuser pgTAP connects as, deliberately: the row is
+-- 19: read as the superuser pgTAP connects as, deliberately: the row is
 -- live, so the actor's music.view grant would also see it, but every other
 -- verification read in this file follows the same superuser convention and
 -- there is no reason for this one to be the exception.
@@ -228,13 +260,13 @@ select is(
   (select vocal::text from public.songs where title = 'Águas de Março'),
   'FEMALE', 'the vocal is stored as given');
 
--- 17-20: four more calls against create_song, none needing a read in
+-- 20-23: four more calls against create_song, none needing a read in
 -- between, so one bracket covers all four — the same grouping the fixtures
 -- above use for create_music_reference's SHOW/blank-name/legacy-handle trio.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
 
--- 17: a song without an artist is a draft, not a record (§3.2). Must get
+-- 20: a song without an artist is a draft, not a record (§3.2). Must get
 -- past the permission gate (the actor holds music.manage in this Station) to
 -- reach assert_song_references_live's own check.
 select throws_ok($$
@@ -242,7 +274,7 @@ select throws_ok($$
     '00000000-0000-0000-0000-00000000e1c1', 'No artist', null)
 $$, '22023', null, 'a song must name an artist');
 
--- 18-19: the Station boundary, checked IN THE DATABASE and not on the
+-- 21-22: the Station boundary, checked IN THE DATABASE and not on the
 -- screen. The composite foreign key would also refuse this, but with a
 -- constraint name; the RPC refuses it first, with a message an operator can
 -- act on. Both calls name Station e1c1, where this actor holds music.manage,
@@ -263,7 +295,7 @@ select throws_ok($$
     '00000000-0000-0000-0000-00000000e1d2')
 $$, 'P0002', null, 'a label from another Station is refused');
 
--- 20: D2 through the door. Two identical songs, no complaint — the cure is
+-- 23: D2 through the door. Two identical songs, no complaint — the cure is
 -- 7b's merge, not a wall here.
 select lives_ok($$
   select public.create_song(
@@ -273,8 +305,10 @@ $$, 'the same title by the same artist may be registered twice (D2)');
 
 reset role;
 
--- 21: update replaces the whole record, and resolves the Station from the
--- song rather than a parameter.
+-- 24: update replaces the whole record, and resolves the Station from the
+-- song rather than a parameter. No trailing legacy_id argument any more
+-- (0102) — update_song's signature no longer has a p_legacy_id parameter to
+-- pass one to.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
 
@@ -282,18 +316,33 @@ select lives_ok($$
   select public.update_song(
     (select id from public.songs where legacy_id = 'LEG-SONG-1'),
     'Aguas de Marco', '00000000-0000-0000-0000-00000000e1b1',
-    null, null, 'DOMESTIC', 'DUO', 214, 'INT-1', 'LEG-SONG-1')
-$$, 'update_song replaces the record wholesale');
+    null, null, 'DOMESTIC', 'DUO', 214, 'INT-1')
+$$, 'update_song replaces the record wholesale, with no legacy_id argument to give it');
 
 reset role;
 
--- 22: read as the superuser pgTAP connects as, deliberately, same reasoning
--- as 16.
+-- 25: read as the superuser pgTAP connects as, deliberately, same reasoning
+-- as 19. This also relies on legacy_id still being 'LEG-SONG-1' to find the
+-- row at all — a preview of 26, made explicit there.
 select is(
   (select vocal::text from public.songs where legacy_id = 'LEG-SONG-1'),
   'DUO', 'the updated vocal is stored');
 
--- 23: an unknown song answers 42501, never P0002 — 0093's rule again. Run
+-- 26: the direct assertion 0102 exists for. Found by internal_code rather
+-- than legacy_id, so this does not lean on the very column it is proving —
+-- 'INT-1' is unique to this song among this file's fixtures (the D2
+-- duplicate in test 23 carries no internal_code at all). Before 0102,
+-- update_song took p_legacy_id defaulting to null and applied it
+-- unconditionally; the Songs screen's own form never carried the current
+-- value forward (song-fields.tsx's legacy-id input has no `name`
+-- attribute), so this is exactly the value an ordinary edit-and-save would
+-- have silently nulled.
+select is(
+  (select legacy_id from public.songs where internal_code = 'INT-1'),
+  'LEG-SONG-1',
+  'update_song leaves legacy_id untouched — the parameter that could overwrite it is gone (0102)');
+
+-- 27: an unknown song answers 42501, never P0002 — 0093's rule again. Run
 -- under the actor: as the superuser pgTAP connects as, has_permission would
 -- read a null auth.uid() and every call would answer 42501 regardless of
 -- which id was named, proving nothing about the unknown-id case specifically.

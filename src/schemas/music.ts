@@ -52,9 +52,20 @@ export const referenceFormSchema = z.object({
 
 export type ReferenceFormInput = z.infer<typeof referenceFormSchema>;
 
-export const referenceUpdateSchema = referenceFormSchema.omit({ companyId: true }).extend({
-  id: z.string().uuid(),
-});
+/**
+ * `legacyId` is dropped here, not merely left unread by a caller: 0102
+ * removed update_music_reference's p_legacy_id parameter entirely, after a
+ * form that carried the field forward unset (it renders read-only, with no
+ * `name` attribute) silently erased it on every ordinary save. Keeping the
+ * field on this schema would let a caller build a payload the RPC has no way
+ * to accept — a parameter that looks like it decides something while
+ * deciding nothing is exactly what 0101's own comment on create_song warns
+ * against, one layer up. `legacyId` stays on referenceFormSchema above: that
+ * is the create path, and create_music_reference still takes it.
+ */
+export const referenceUpdateSchema = referenceFormSchema
+  .omit({ companyId: true, legacyId: true })
+  .extend({ id: z.string().uuid() });
 
 export type ReferenceUpdateInput = z.infer<typeof referenceUpdateSchema>;
 
@@ -90,9 +101,19 @@ export type SongFormInput = z.infer<typeof songFormSchema>;
  * companyId here would be a value the RPC ignores — and a parameter that looks
  * like it decides something while deciding nothing is how a caller ends up
  * believing it can move a song between Stations.
+ *
+ * `legacyId` is dropped for the same reason `companyId` is, and it is the
+ * more serious of the two: 0102 removed update_song's p_legacy_id parameter
+ * entirely, after the read-only legacy-id field (no `name` attribute, so it
+ * never reached FormData) left every ordinary save omitting it — which the
+ * pre-0102 RPC took as "set it to null", silently erasing a song's ETL
+ * handle on its very first edit. There is no longer an RPC parameter to send
+ * this value to, so the schema does not accept it either. `legacyId` stays
+ * on songFormSchema above: that is the create path, and create_song still
+ * takes it.
  */
-export const songUpdateSchema = songFormSchema.omit({ companyId: true }).extend({
-  songId: z.string().uuid(),
-});
+export const songUpdateSchema = songFormSchema
+  .omit({ companyId: true, legacyId: true })
+  .extend({ songId: z.string().uuid() });
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;

@@ -137,6 +137,17 @@ export function SongFields({
         fail to recognise this row and duplicate it. Read-only, and shown only
         once a song exists to ask the question of: "why did the import skip
         this" has no meaning before the row does.
+
+        No `name` attribute, deliberately: this field must never reach the
+        edit form's FormData at all, on this side or a hand-crafted one. That
+        used to be the ONLY guard, and it was not enough — an update form that
+        simply never carries this value forward is indistinguishable, to the
+        RPC it calls, from an operator who cleared it, and update_song used
+        to take an omitted p_legacy_id as "set it to null" and apply that
+        unconditionally. 0102 closed the actual hole by removing update_song's
+        p_legacy_id parameter entirely, so there is no longer a write path to
+        this column for any update payload, forged or not. This field staying
+        un-named is defence in depth on top of that, not the boundary itself.
       */}
       {song && (
         <label className="flex flex-col gap-1 text-sm">

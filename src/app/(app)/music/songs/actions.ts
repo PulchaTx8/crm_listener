@@ -104,6 +104,14 @@ export interface SongSaveState {
   song?: SongSummary;
 }
 
+/**
+ * `legacyId` is deliberately not read from `formData` here — it never was
+ * meaningfully readable (the field renders with no `name` attribute, per
+ * song-fields.tsx's own comment), but the fix for that is not to start
+ * reading it: songUpdateSchema no longer has a `legacyId` field at all (0102
+ * removed update_song's matching RPC parameter), so there is nothing here to
+ * parse it into even if a hand-crafted submission carried one.
+ */
 export async function updateSongAction(
   _prev: SongSaveState,
   formData: FormData,
@@ -118,7 +126,6 @@ export async function updateSongAction(
     vocal: formData.get('vocal') || null,
     durationSeconds: readDurationSeconds(formData),
     internalCode: formData.get('internalCode') || null,
-    legacyId: formData.get('legacyId') || null,
   });
 
   if (!parsed.success) {

@@ -309,6 +309,18 @@ export async function createSong(input: SongFormInput, accessToken: string): Pro
   return data;
 }
 
+/**
+ * legacy_id is deliberately absent from this call: update_song (0102) no
+ * longer takes a p_legacy_id parameter at all, and SongUpdateInput
+ * (schemas/music.ts) carries no `legacyId` field to read one from. Before
+ * 0102, update_song took p_legacy_id defaulting to null and applied it
+ * unconditionally — the UI's own form never carried the current value
+ * forward (legacyId renders read-only, with no `name` attribute), so every
+ * ordinary save silently erased a song's import handle. Removing the
+ * parameter at the database layer is what actually closes that: there is no
+ * longer a value this function — or a hand-crafted RPC call bypassing it
+ * entirely — could send that would touch the column.
+ */
 export async function updateSong(input: SongUpdateInput, accessToken: string): Promise<void> {
   const { error } = await asCaller(accessToken).rpc('update_song', {
     p_song_id: input.songId,
@@ -320,7 +332,6 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_vocal: input.vocal,
     p_duration_seconds: input.durationSeconds ?? undefined,
     p_internal_code: input.internalCode,
-    p_legacy_id: input.legacyId,
   });
   if (error) throw mapMusicError(error.code, error.message);
 }
@@ -529,10 +540,14 @@ export async function createMusicReference(
 }
 
 /**
- * Replaces a reference record's name and legacy handle wholesale —
- * update_music_reference (0100) sets every field on every call, never
- * merged. The Station is resolved from the row itself inside the RPC, never
- * from a parameter here.
+ * Replaces a reference record's name wholesale — update_music_reference
+ * (0102) no longer takes or writes legacy_id at all. It used to (0100), set
+ * unconditionally on every call the same way update_song's did, and
+ * ReferenceUpdateInput (schemas/music.ts) carries no `legacyId` field to read
+ * one from any more, for the identical reason updateSong's own comment gives:
+ * legacy_id is Block 9's ETL idempotency handle (D7), read-only in every
+ * screen, and only createMusicReference sets it. The Station is resolved
+ * from the row itself inside the RPC, never from a parameter here.
  */
 export async function updateMusicReference(
   input: ReferenceUpdateInput,
@@ -542,7 +557,6 @@ export async function updateMusicReference(
     p_kind: input.kind,
     p_id: input.id,
     p_name: input.name,
-    p_legacy_id: input.legacyId,
   });
   if (error) throw mapMusicError(error.code, error.message);
 }

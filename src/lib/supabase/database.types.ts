@@ -3541,7 +3541,6 @@ export type Database = {
         Args: {
           p_id: string
           p_kind: Database["public"]["Enums"]["music_reference_kind"]
-          p_legacy_id?: string
           p_name: string
         }
         Returns: undefined
@@ -3595,7 +3594,6 @@ export type Database = {
           p_genre_id?: string
           p_internal_code?: string
           p_label_id?: string
-          p_legacy_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
           p_song_id: string
           p_title: string
