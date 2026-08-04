@@ -3209,6 +3209,10 @@ export type Database = {
           id: string
         }[]
       }
+      enqueue_pickup_reminder: {
+        Args: { p_winner_id: string }
+        Returns: string
+      }
       enqueue_whatsapp_outbound: {
         Args: {
           p_body: string
