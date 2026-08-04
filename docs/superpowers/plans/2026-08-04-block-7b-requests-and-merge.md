@@ -1178,15 +1178,23 @@ begin
   -- gives: 0034 scrubs full_name, so the row would be a blank line nobody can
   -- identify, and recording fresh activity against somebody who exercised
   -- erasure is precisely what that erasure was for.
-  if not exists (
-    select 1 from public.members m
-      join public.member_company_links l on l.member_id = m.id
-     where m.id = p_member_id
-       and m.organization_id = v_org
-       and l.company_id = p_company_id
-       and m.deleted_at is null
-       and m.anonymized_at is null
-  ) then
+  -- `for share of m`, not a bare `exists`: the same lock, for the same reason,
+  -- that record_member_consent, add_member_note and block_member (0034) all
+  -- take on the member row. anonymize_member takes FOR UPDATE on it, and
+  -- FOR SHARE conflicts with that, so the two serialise. Without the lock an
+  -- erasure committing between this check and the INSERT below leaves a
+  -- brand-new request attached to an erased listener — which is precisely the
+  -- outcome the paragraph above says the exclusion exists to prevent.
+  perform 1 from public.members m
+    join public.member_company_links l on l.member_id = m.id
+   where m.id = p_member_id
+     and m.organization_id = v_org
+     and l.company_id = p_company_id
+     and m.deleted_at is null
+     and m.anonymized_at is null
+   for share of m;
+
+  if not found then
     raise exception 'listener not found in this station: %', p_member_id using errcode = 'P0002';
   end if;
 
@@ -1422,7 +1430,15 @@ begin
          -- cannot narrow differently (0090's rule).
          (select count(*) from visible)::integer as total_count
     from visible f
-   where p_cursor_id is null
+   -- BOTH halves, the shape 0090 and 0096 use for a NOT NULL sort key. 0095
+   -- guards on p_cursor_id alone and its own comment says why it cannot do
+   -- otherwise — deadline_at is nullable there, so a null cursor timestamp is
+   -- a real position. requested_at is NOT NULL, so a null here is a malformed
+   -- cursor, and `requested_at < null` would evaluate to NULL and return zero
+   -- rows — no rows, and therefore no total_count either. An empty page, from
+   -- the one list whose RULE 1 exists to guarantee empty pages never happen.
+   where p_cursor_at is null
+      or p_cursor_id is null
       or (
         case when p_walking_back then
           -- Toward earlier positions in display order (newest first).
