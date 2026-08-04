@@ -59,19 +59,31 @@ begin
   -- and which Stations may see them is member_company_links' business. 0098's
   -- own comment says this door checks that link; this is it.
   --
+  -- FOR SHARE OF m — fix round 1, Important 1. anonymize_member (0034) takes
+  -- FOR UPDATE on this row, so a plain unlocked read is the same class of race
+  -- 0103 closed for songs, one level down: a concurrent erasure could commit
+  -- between this check and the INSERT below, leaving a brand-new request
+  -- attached to a listener who no longer has a name — recording fresh
+  -- activity against somebody who exercised erasure is precisely what that
+  -- erasure was for. record_member_consent, add_member_note and block_member
+  -- (0034:423, :496, :565) all take the identical FOR SHARE, in the identical
+  -- WHERE, for the identical reason; this matches their shape. FOR SHARE
+  -- conflicts with FOR UPDATE and nothing weaker, so two concurrent requests
+  -- for the same listener never queue behind each other.
+  --
   -- An anonymised listener is excluded for the reason searchStationListeners
   -- gives: 0034 scrubs full_name, so the row would be a blank line nobody can
-  -- identify, and recording fresh activity against somebody who exercised
-  -- erasure is precisely what that erasure was for.
-  if not exists (
-    select 1 from public.members m
-      join public.member_company_links l on l.member_id = m.id
-     where m.id = p_member_id
-       and m.organization_id = v_org
-       and l.company_id = p_company_id
-       and m.deleted_at is null
-       and m.anonymized_at is null
-  ) then
+  -- identify.
+  perform 1 from public.members m
+    join public.member_company_links l on l.member_id = m.id
+   where m.id = p_member_id
+     and m.organization_id = v_org
+     and l.company_id = p_company_id
+     and m.deleted_at is null
+     and m.anonymized_at is null
+   for share of m;
+
+  if not found then
     raise exception 'listener not found in this station: %', p_member_id using errcode = 'P0002';
   end if;
 
@@ -165,10 +177,17 @@ declare
 begin
   -- 0093's one-gated-query idiom: no such id, an id in a Station this caller
   -- holds nothing in, and an already-withdrawn row all answer 42501 alike.
+  --
+  -- FOR UPDATE (fix round 1, Minor 4) — matching lift_member_block's identical
+  -- shape (0034:649) — so two concurrent withdrawals of the same request
+  -- serialise: the second waits, then re-reads deleted_at as already set by
+  -- the first and is refused, rather than both passing the gate and both
+  -- writing an audit row for one withdrawal.
   select organization_id, company_id into v_org, v_company
     from public.music_requests
    where id = p_request_id and deleted_at is null
-     and public.has_permission('music.request', company_id);
+     and public.has_permission('music.request', company_id)
+   for update;
 
   if v_company is null then
     raise log 'archive_music_request denied: actor=% request=%', v_actor, p_request_id;
@@ -307,7 +326,19 @@ begin
          -- cannot narrow differently (0090's rule).
          (select count(*) from visible)::integer as total_count
     from visible f
-   where p_cursor_id is null
+   -- Fix round 1, Important 2: guard on BOTH p_cursor_at is null and
+   -- p_cursor_id is null, matching list_participations (0090:191-192) and
+   -- list_movements (0096:193-194) — both NOT NULL sort keys, exactly this
+   -- shape. The single-condition form (p_cursor_id is null alone) is
+   -- list_pickups' (0095), and its own comment says it cannot express the
+   -- other because deadline_at is nullable; requested_at is NOT NULL here, so
+   -- there was never a reason to take that weaker form. Without both, a
+   -- caller passing p_cursor_id with a null p_cursor_at evaluates every
+   -- comparison against NULL, gets zero rows, and — since total_count comes
+   -- from the same zero-row result — an empty page from the one list whose
+   -- Rule 1 exists specifically so an empty page is never silent.
+   where p_cursor_at is null
+      or p_cursor_id is null
       or (
         case when p_walking_back then
           -- Toward earlier positions in display order (newest first).
