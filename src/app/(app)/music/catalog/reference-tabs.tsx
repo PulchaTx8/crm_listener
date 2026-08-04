@@ -1,0 +1,158 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import type { ReferenceSummary } from '@/services/music';
+import { ReferencePanel } from './reference-panel';
+
+/**
+ * The Catalog screen's own tab vocabulary — deliberately NOT added to
+ * src/lib/record-params.ts. That module owns the address of an OPEN RECORD
+ * (`?record=&tab=`), and nothing on this screen opens a record: each row is
+ * its own one-field form, edited and archived in place (see
+ * reference-panel.tsx). `tab=` here picks which of three short lists is
+ * showing — a different question with a different owner, this file, the one
+ * 'use client' module that renders it.
+ *
+ * `CatalogTab` is duplicated as a literal three-string array in page.tsx
+ * rather than imported from here as a value: page.tsx is a Server Component,
+ * and importing a runtime value out of a 'use client' module from a Server
+ * Component is exactly the defect record-params.ts's own header documents at
+ * length — the array would arrive as an opaque client reference, not the
+ * array, and both reads a validator makes off it (`.includes`, `[0]`) answer
+ * `undefined` without ever throwing. page.tsx imports this file's
+ * `CatalogTab` TYPE instead (erased at compile time, so it never crosses that
+ * boundary) and keeps its own three-element array for the one runtime check
+ * it needs — validating `?tab=` before this component ever mounts. The two
+ * arrays cannot silently drift apart: both are checked against the same
+ * union, so renaming a tab in one file without the other is a type error, not
+ * a quiet bug.
+ */
+export const CATALOG_TABS = ['labels', 'genres', 'shows'] as const;
+export type CatalogTab = (typeof CATALOG_TABS)[number];
+
+const TAB_COPY: Record<CatalogTab, { label: string; noun: string; description: string }> = {
+  labels: {
+    label: 'Labels',
+    noun: 'label',
+    description: 'Record labels a song can be credited to.',
+  },
+  genres: {
+    label: 'Genres',
+    noun: 'genre',
+    description: 'Genres a song can be filed under.',
+  },
+  shows: {
+    label: 'Shows',
+    noun: 'show',
+    description: 'Shows a listener can name a music request against.',
+  },
+};
+
+const KIND_FOR_TAB = { labels: 'LABEL', genres: 'GENRE', shows: 'SHOW' } as const;
+
+/**
+ * Holds the three reference panels and the tab that picks which one shows.
+ *
+ * The tab lives in the URL, not only in this component's state — but never
+ * through `useRouter().push`, for the reason src/hooks/use-record-dialog.ts's
+ * header gives at length for the identical choice on a record's address: a
+ * push asks Next for a fresh render of this route, which would re-run
+ * page.tsx's three list reads for nothing a tab switch needs.
+ * `history.replaceState` changes the address bar and nothing else, which is
+ * exactly what flipping a tab is — and `replaceState`, not `pushState`,
+ * because switching tabs is not a place Back should stop (the same
+ * reasoning useRecordDialog's own `setTab` gives).
+ *
+ * `initialTab` arrives already validated: page.tsx parsed and clamped
+ * `?tab=` before this component ever mounted, the same contract
+ * parseRecordParam (record-params.ts) carries for hostile input, applied to
+ * one more parameter — an unknown or missing `tab=` falls back to the first
+ * tab rather than rendering nothing. This component does not re-validate it;
+ * it only keeps the address bar in step with local `tab` state from here on,
+ * and, once on mount, rewrites the URL to that canonical value — so a
+ * bookmarked `?tab=nonsense` and a bare URL with no `tab=` at all both settle
+ * on an address that means what it shows, and a link to "the genres of this
+ * Station" survives a reload.
+ *
+ * `companyId` and any Station search already sit in the URL by the time this
+ * mounts (page.tsx put them there, or a Link/StationSearchForm did on the way
+ * in) and this component's own history writes only ever touch the `tab` key
+ * on the CURRENT query string — never rebuild it from scratch — so switching
+ * tabs cannot drop either one, unlike a hand-rolled Link would risk.
+ */
+export function ReferenceTabs({
+  companyId,
+  manage,
+  initialTab,
+  labels,
+  genres,
+  shows,
+}: {
+  companyId: string;
+  /** Whether the caller holds music.manage at this Station — a courtesy gate; create_music_reference/update_music_reference/archive_music_reference each re-check it themselves. */
+  manage: boolean;
+  initialTab: CatalogTab;
+  labels: ReferenceSummary[];
+  genres: ReferenceSummary[];
+  shows: ReferenceSummary[];
+}) {
+  const [tab, setTabState] = useState<CatalogTab>(initialTab);
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    query.set('tab', initialTab);
+    const search = query.toString();
+    window.history.replaceState(null, '', search ? `?${search}` : window.location.pathname);
+    // initialTab is this mount's canonical value, computed once by page.tsx;
+    // every later change goes through setTab below instead of this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function setTab(next: CatalogTab) {
+    setTabState(next);
+    const query = new URLSearchParams(window.location.search);
+    query.set('tab', next);
+    const search = query.toString();
+    window.history.replaceState(null, '', search ? `?${search}` : window.location.pathname);
+  }
+
+  const itemsByTab: Record<CatalogTab, ReferenceSummary[]> = { labels, genres, shows };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div role="tablist" aria-label="Catalogue lists" className="flex gap-1 border-b">
+        {CATALOG_TABS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            aria-selected={tab === name}
+            onClick={() => setTab(name)}
+            className={
+              tab === name
+                ? 'border-b-2 border-primary px-4 py-2 text-sm font-medium'
+                : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted-foreground hover:text-foreground'
+            }
+            data-testid={`catalog-tab-${name}`}
+          >
+            {TAB_COPY[name].label}
+          </button>
+        ))}
+      </div>
+
+      {/* Keyed on the tab: a clean remount between panels means no leftover
+          per-row action state (an unsaved edit, a stale error) from one
+          panel's rows bleeds into another's after a switch. */}
+      <ReferencePanel
+        key={tab}
+        kind={KIND_FOR_TAB[tab]}
+        noun={TAB_COPY[tab].noun}
+        title={TAB_COPY[tab].label}
+        description={TAB_COPY[tab].description}
+        items={itemsByTab[tab]}
+        companyId={companyId}
+        manage={manage}
+      />
+    </div>
+  );
+}
