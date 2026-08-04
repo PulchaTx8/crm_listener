@@ -105,6 +105,17 @@ begin
     -- somewhere, and leaving it aimed at the row this merge is about to
     -- archive would make one uuid mean two different things depending on
     -- which side of deleted_at the reader is on.
+    --
+    -- Fix round 1, Minor B: none of the five updates below carries a
+    -- company_id scope, and that is safe only because it is not load-bearing
+    -- by itself — 0098's composite foreign keys (songs_artist_company_fk,
+    -- music_requests_song_company_fk, and their four siblings) make a child
+    -- in one Station pointing at a parent in another impossible to insert in
+    -- the first place. The scope that matters already happened above, in the
+    -- locking loop's `company_id = $2`, which is what refuses v_loser before
+    -- this loop ever runs. Do not add a scope here — there is nothing left
+    -- for it to guard, and a redundant filter over an unindexed predicate
+    -- would only cost the plan a scan it does not need.
     if p_kind = 'SONG' then
       update public.music_requests
          set song_id = p_winner_id, updated_at = now()
@@ -165,6 +176,30 @@ revoke execute on function
 comment on function
   public.apply_music_merge(public.music_merge_kind, uuid, uuid, uuid[], text) is
   'Collapses one or more records into a survivor, in one transaction: locks winner and losers together in id order and scoped to the Station, refuses a winner named among the losers, refuses any id that is missing/archived/elsewhere, repoints the children, writes one music_merges row per loser and soft-deletes it. Returns the total number of children repointed. Atomic on purpose, and deliberately the opposite of 6d''s sweep, which commits per winner: there an unattended sweep must not let one bad row stop every Station; here one operator pressed one button, and half a merge is worse than none. PRIVATE: SECURITY INVOKER, EXECUTE granted to nobody — the five doors below are the only callers.';
+
+-- ---------------------------------------------------------------------------
+-- Fix round 1, Important #2. The repoint above must NOT filter
+-- `deleted_at is null` (D-c: a withdrawn or already-archived child still has
+-- to follow its parent), so it can use none of 0098's four indexes on these
+-- same columns — songs_artist_idx, songs_label_idx, songs_genre_idx and
+-- music_requests_song_idx are all partial, `where deleted_at is null`
+-- (0098:254-256,262) — and music_requests.show_id carries no index at all.
+-- Every repoint was therefore a full scan of the child table, per loser, held
+-- under the winner/loser rows' FOR UPDATE lock — on music_requests, the table
+-- 0098's own comment calls "the highest-volume thing Block 9 imports"
+-- (0098:243).
+--
+-- Non-partial, on purpose, and named apart from 0098's so the partial and
+-- non-partial pairs coexist rather than collide: the planner picks whichever
+-- serves a given query, and an archived child is exactly what the repoint has
+-- to find.
+-- ---------------------------------------------------------------------------
+
+create index songs_artist_all_idx        on public.songs (artist_id);
+create index songs_label_all_idx         on public.songs (label_id);
+create index songs_genre_all_idx         on public.songs (genre_id);
+create index music_requests_song_all_idx on public.music_requests (song_id);
+create index music_requests_show_all_idx on public.music_requests (show_id);
 
 -- ---------------------------------------------------------------------------
 -- The five doors. Each checks music.merge at the winner's Station BEFORE

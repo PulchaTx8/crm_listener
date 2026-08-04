@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(30);
 
 -- Block 7b, Task 1: the history table, and the kind that drives all five
 -- doors. The doors themselves are Task 2; this file grows to cover them.
@@ -110,8 +110,16 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a2", "role": "authenticated"}';
 
 -- 10: the private core is not reachable from outside, whatever else is true.
+-- All three roles, because the message says "nobody" and the expression
+-- should mean the same thing — anon and service_role were untested here
+-- before this fix round, same gap 02_permissions.test.sql closes for
+-- apply_inventory_movement.
 select ok(
-  not has_function_privilege('authenticated',
+  not has_function_privilege('anon',
+    'public.apply_music_merge(public.music_merge_kind, uuid, uuid, uuid[], text)', 'EXECUTE')
+  and not has_function_privilege('authenticated',
+    'public.apply_music_merge(public.music_merge_kind, uuid, uuid, uuid[], text)', 'EXECUTE')
+  and not has_function_privilege('service_role',
     'public.apply_music_merge(public.music_merge_kind, uuid, uuid, uuid[], text)', 'EXECUTE'),
   'apply_music_merge is granted to nobody');
 
@@ -243,6 +251,69 @@ select is(
                         'merge_music_genres', 'merge_shows')
       and has_function_privilege('authenticated', p.oid, 'EXECUTE')),
   5, 'five doors, all granted to authenticated');
+
+-- ---------------------------------------------------------------------------
+-- Fix round 1, Important #1: the property this whole design exists to
+-- protect — a caller cannot use the winner's Station to learn anything about
+-- a record in a DIFFERENT Station — was untested. Every prior assertion ran
+-- in one Station with one authorised actor; #27 exercises only the
+-- already-archived arm of P0002, never the other-Station arm. The scoped
+-- lock's `company_id = $2` clause is what makes that arm true by
+-- construction, and a "tidy-up" that swaps it for an explicit
+-- `if v_row.company_id <> p_company_id then raise 'belongs to another
+-- station'` reintroduces a cross-tenant existence oracle while still passing
+-- every assertion above.
+-- ---------------------------------------------------------------------------
+
+-- A second Station in the same Organization, with its own artist and song —
+-- the shape of a real cross-Station attempt, not a random uuid.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000e2c2', '00000000-0000-0000-0000-00000000e2f1',
+   'Station 7b merge — second', 'America/Sao_Paulo');
+insert into public.artists (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-00000000e2b3', '00000000-0000-0000-0000-00000000e2f1',
+   '00000000-0000-0000-0000-00000000e2c2', 'Caetano Veloso (other station)');
+insert into public.songs (id, organization_id, company_id, title, artist_id) values
+  ('00000000-0000-0000-0000-00000000e2d3', '00000000-0000-0000-0000-00000000e2f1',
+   '00000000-0000-0000-0000-00000000e2c2', 'Sozinho', '00000000-0000-0000-0000-00000000e2b3');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a2", "role": "authenticated"}';
+
+-- 29: a loser that lives in ANOTHER Station answers the identical P0002 a
+-- uuid naming nothing gets — proved by the actor who holds music.merge only
+-- in the FIRST Station, exactly as production would call it.
+select throws_ok($$
+  select public.merge_songs('00000000-0000-0000-0000-00000000e2d1',
+    array['00000000-0000-0000-0000-00000000e2d3']::uuid[], 'reaches past the station')
+$$, 'P0002', null, 'a loser belonging to another station is refused, same code as a missing one');
+
+reset role;
+
+-- A second actor: music.view but NOT music.merge, in the FIRST Station. The
+-- door must refuse before it ever reveals whether the winner id names
+-- anything, so this has to fail exactly like an unknown id does — 42501.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000e2a3', '00000000-0000-0000-0000-00000000e2f1',
+   'Music viewer 7b — no merge');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000e2a3', 'music.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000e2a4', 'music-viewer-7b@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000e2a4', '00000000-0000-0000-0000-00000000e2c1',
+   '00000000-0000-0000-0000-00000000e2f1', '00000000-0000-0000-0000-00000000e2a3');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e2a4", "role": "authenticated"}';
+
+-- 30: music.view alone does not reach a door that needs music.merge.
+select throws_ok($$
+  select public.merge_songs('00000000-0000-0000-0000-00000000e2d1',
+    array['00000000-0000-0000-0000-00000000e2d3']::uuid[], 'viewer cannot merge')
+$$, '42501', null, 'an actor holding music.view but not music.merge is refused');
+
+reset role;
 
 select * from finish();
 rollback;
