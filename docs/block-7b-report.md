@@ -69,12 +69,12 @@ them:**
 The crash in Run 1 is the same shape every prior block records: the tests
 that *did* run all passed (242/242 both times — the arithmetic never
 disagrees), and nothing about which two files went unreported points at this
-block's own file. This matches Task 9's fix-round-2 observation (two clean
-runs of `test:isolation` after the `music.view` gate change, no reset
-needed) and Task 10's own clean run — three of the four most recent
-observations of this suite, across two sessions, are clean; one crashed. The
-conclusion this report draws is the same one 7a's §1.1 drew: this is the
-inherited flake, not a regression.
+block's own file. This matches Task 9's fix-round-2 observation (one clean
+run of `test:isolation` after the `music.view` gate change, no reset
+needed — `progress.md`'s own entry for that round) and Task 10's own clean
+run — three of the four most recent observations of this suite, across two
+sessions, are clean; one crashed. The conclusion this report draws is the
+same one 7a's §1.1 drew: this is the inherited flake, not a regression.
 
 ### 1.2 E2E — reported truthfully, not as green
 
@@ -249,7 +249,7 @@ reconstruct by hand.
 
 Two duplicates that nobody had used yet — no request ever pointed at
 either — merge cleanly and move zero children. `music_merges`'
-`children_moved` column (`0105_music_merges.sql:65`) carries this in its own
+`children_moved` column (`0105_music_merges.sql:64`) carries this in its own
 comment: *"Zero is a legitimate value — a duplicate nobody had used yet."*
 The check constraint (`music_merges_children_not_negative`) only forbids a
 negative count; zero passes freely.

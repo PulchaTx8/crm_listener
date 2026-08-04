@@ -27,12 +27,23 @@ by `0098_music_catalogue.sql` — Block 7a — so they are already live in
 `public.permissions` today, in every environment 7a has reached. That part
 is not this deploy's problem.
 
-**What is this deploy's problem:** the nine functions those two permission
-codes are meant to gate — `merge_songs`, `merge_artists`,
-`merge_record_labels`, `merge_music_genres`, `merge_shows`,
-`create_music_request`, `archive_music_request`, `list_music_requests`, and
-`list_merge_candidates` — do not exist until migrations `0105`–`0108` are
-applied. If the frontend for this block (the Requests and Maintenance
+**What is this deploy's problem:** none of the nine new functions exist
+until migrations `0105`–`0108` are applied, and they do not all answer to
+the same permission — the division is worth stating plainly, since it is
+exactly what D8 was for:
+
+- **Five** merge doors gated on `music.merge` — `merge_songs`,
+  `merge_artists`, `merge_record_labels`, `merge_music_genres`,
+  `merge_shows`.
+- **Two** request doors gated on `music.request` — `create_music_request`,
+  `archive_music_request`.
+- **Two** reads gated on `music.view`, not on either of the above —
+  `list_music_requests` (`0107`) and `list_merge_candidates` (`0108`,
+  regated here from `music.merge` during this block's own Task 9 — §6 of
+  the verification report has the ruling). `music.request` and
+  `music.merge` grant nothing on their own toward reading either list.
+
+If the frontend for this block (the Requests and Maintenance
 screens, both already in `src/lib/auth/shell.ts`'s Music section on this
 branch) reaches production ahead of `supabase db push`, both screens will
 **render** — the sidebar has no permission gate, by the same "hiding a link
@@ -48,14 +59,20 @@ nothing wrong there. Push the database first.
 **The other direction is silent, not loud, and worse to miss:** pushing
 `0105`–`0108` alone, with no frontend change, changes nothing an operator
 can see — no sidebar link exists yet to reach the new screens. But it does
-mean the nine functions now exist and are gated only on `music.request` /
-`music.merge`, which — see the note at the end of §2 — every role that has
-held either permission since 7a can now actually use, with no code deploy
-required on this app's side at all. If a role was granted `music.request`
-or `music.merge` months ago "at zero cost, for later," that role's holder
-can call these functions directly (via `supabase-js`, `curl`, or any REST
-client hitting PostgREST) the moment the migrations land, whether or not the
-UI that is meant to front them has shipped.
+mean the nine functions now exist and are gated by whichever permission
+each one actually checks — the five merge doors on `music.merge`, the two
+request doors on `music.request`, the two reads on `music.view` — which,
+for the two destructive-code cases, `music.request` and `music.merge`, is
+what makes the note at the end of §2 true: every role that has held either
+permission since 7a can now actually use it, with no code deploy required
+on this app's side at all. If a role was granted `music.request` or
+`music.merge` months ago "at zero cost, for later," that role's holder can
+call the matching functions directly (via `supabase-js`, `curl`, or any
+REST client hitting PostgREST) the moment the migrations land, whether or
+not the UI that is meant to front them has shipped. A role holding only
+`music.view` gains the same live access to the two reads — a smaller
+consequence, since both were already arguably "seeing," but real from the
+same moment.
 
 ---
 
