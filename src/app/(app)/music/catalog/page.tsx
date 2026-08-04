@@ -151,7 +151,22 @@ export default async function CatalogPage({
           {viewable.map((company) => (
             <Link
               key={company.id}
-              href={{ pathname: '/music/catalog', query: { companyId: company.id } }}
+              // `station` carried only when a search is active — never as an
+              // empty parameter — the same conditional every other link on
+              // this screen already follows (ReferenceTabs's own tab writes
+              // never touch this key at all, since they only rewrite `tab`
+              // on the existing query string). Dropping it here would let
+              // this ONE link fall back to the unfiltered, capped Station
+              // list on the next render (listCompanyAccess with no search,
+              // this file's own `viewable.find(...) ?? first`), silently
+              // landing the operator on a different Station's catalogue
+              // whenever the clicked Station was only reachable through the
+              // search that got them here — the same failure class fixed on
+              // the Songs and Artists screens' own switcher links.
+              href={{
+                pathname: '/music/catalog',
+                query: { companyId: company.id, ...(stationSearch ? { station: stationSearch } : {}) },
+              }}
               aria-current={company.id === selected.id ? 'page' : undefined}
               className={
                 company.id === selected.id

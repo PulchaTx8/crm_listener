@@ -43,6 +43,23 @@ const NOUN: Record<MusicReferenceKind, string> = {
   SHOW: 'show',
 };
 
+/**
+ * The three kinds this screen's own forms ever submit — narrower than
+ * MusicReferenceKind, whose fourth member, ARTIST, is the Artists screen's
+ * own kind and never appears in a hidden `kind` input anywhere under
+ * catalog/ (reference-tabs.tsx's KIND_FOR_TAB only maps to these three).
+ * archiveReferenceAction validates against this tuple rather than against
+ * NOUN's keys (a superset), so its own validator cannot admit a case this
+ * screen's UI has no way to produce — even though create_music_reference and
+ * update_music_reference's re-checked permission would still refuse an
+ * ARTIST request from a caller who has no business making one either way.
+ */
+const CATALOG_REFERENCE_KINDS = ['LABEL', 'GENRE', 'SHOW'] as const;
+
+function isCatalogReferenceKind(value: string): value is (typeof CATALOG_REFERENCE_KINDS)[number] {
+  return (CATALOG_REFERENCE_KINDS as readonly string[]).includes(value);
+}
+
 async function requireAccessToken(): Promise<string> {
   const supabase = await createUserClient();
   const { data } = await supabase.auth.getSession();
@@ -148,10 +165,7 @@ export async function archiveReferenceAction(
   formData: FormData,
 ): Promise<ArchiveReferenceState> {
   const kindRaw = formData.get('kind');
-  const kind =
-    typeof kindRaw === 'string' && Object.prototype.hasOwnProperty.call(NOUN, kindRaw)
-      ? (kindRaw as MusicReferenceKind)
-      : null;
+  const kind = typeof kindRaw === 'string' && isCatalogReferenceKind(kindRaw) ? kindRaw : null;
   const id = String(formData.get('id') ?? '');
   if (!kind || !id) return { status: 'error', message: 'Missing record.' };
 

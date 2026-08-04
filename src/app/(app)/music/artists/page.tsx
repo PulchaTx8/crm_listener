@@ -126,7 +126,20 @@ export default async function ArtistsPage({
           {viewable.map((company) => (
             <Link
               key={company.id}
-              href={{ pathname: '/music/artists', query: { companyId: company.id } }}
+              // `station` carried only when a search is active — never as an
+              // empty parameter — the same conditional stationSearch is
+              // applied with everywhere else on this screen (artistHref).
+              // Dropping it here would let this ONE link fall back to the
+              // unfiltered, capped Station list on the next render
+              // (listCompanyAccess with no search, page.tsx's own
+              // `viewable.find(...) ?? first`), silently landing the
+              // operator on a different Station's catalogue whenever the
+              // clicked Station was only reachable through the search that
+              // got them here.
+              href={{
+                pathname: '/music/artists',
+                query: { companyId: company.id, ...(stationSearch ? { station: stationSearch } : {}) },
+              }}
               aria-current={company.id === selected.id ? 'page' : undefined}
               className={
                 company.id === selected.id

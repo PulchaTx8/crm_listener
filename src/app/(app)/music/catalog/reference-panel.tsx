@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import type { ReferenceSummary } from '@/services/music';
 import type { MusicReferenceKind } from '@/schemas/music';
@@ -141,10 +142,7 @@ function EditableRow({
   item: ReferenceSummary;
 }) {
   const [saveState, saveAction, savePending] = useActionState(updateReferenceAction, INITIAL_SAVE);
-  const [archiveState, archiveAction, archivePending] = useActionState(
-    archiveReferenceAction,
-    INITIAL_ARCHIVE,
-  );
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   return (
     <li className="flex flex-col gap-2 py-3" data-testid={`${kind.toLowerCase()}-row`}>
@@ -166,29 +164,14 @@ function EditableRow({
           </Button>
         </form>
 
-        <form
-          action={archiveAction}
-          onSubmit={(event) => {
-            // A lightweight gate in front of an irreversible RPC, not a
-            // record dialog: archiving a reference is unreadable through RLS
-            // for every caller afterwards (services/music.ts's own comment on
-            // archiveMusicReference), and this screen deliberately carries no
-            // modal machinery for a one-field row to open one over.
-            if (
-              !window.confirm(
-                `Archive "${item.name}"? It stops being selectable for a new song or request, and this cannot be undone here.`,
-              )
-            ) {
-              event.preventDefault();
-            }
-          }}
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          onClick={() => setConfirmingArchive(true)}
         >
-          <input type="hidden" name="kind" value={kind} />
-          <input type="hidden" name="id" value={item.id} />
-          <Button type="submit" variant="destructive" size="sm" disabled={archivePending}>
-            {archivePending ? 'Archiving…' : 'Archive'}
-          </Button>
-        </form>
+          Archive
+        </Button>
 
         {item.legacyId && (
           <span
@@ -201,9 +184,80 @@ function EditableRow({
       </div>
 
       {saveState.status === 'error' && <p className="text-sm text-destructive">{saveState.message}</p>}
-      {archiveState.status === 'error' && (
-        <p className="text-sm text-destructive">{archiveState.message}</p>
+
+      {confirmingArchive && (
+        <ArchiveReferenceDialog
+          kind={kind}
+          noun={noun}
+          item={item}
+          onClose={() => setConfirmingArchive(false)}
+        />
       )}
     </li>
+  );
+}
+
+/**
+ * The archive confirmation, modelled directly on ArchiveSongDialog
+ * (music/songs/songs-grid.tsx) — the codebase's one established shape for
+ * confirming an irreversible archive/delete: a styled `<Dialog>` with a
+ * stable `data-testid`, not `window.confirm` (unstyled, blocks the main
+ * thread, and undrivable by the `getByTestId('...-archive-confirm')` pattern
+ * every e2e spec that exercises an archive flow already uses).
+ *
+ * This needs none of the record-overlay machinery the brief's "no record
+ * dialog here" rules out: no URL param, no `record-params.ts` entry, no
+ * `useRecordDialog`. It is local `useState` on the row that opens it
+ * (`confirmingArchive` above) plus the same `Dialog` primitive every other
+ * confirmation in this codebase already uses — "no record dialog" and "no
+ * confirmation dialog" are different rules, and only the first one binds
+ * this screen.
+ */
+function ArchiveReferenceDialog({
+  kind,
+  noun,
+  item,
+  onClose,
+}: {
+  kind: MusicReferenceKind;
+  noun: string;
+  item: ReferenceSummary;
+  /** Closes the dialog — called both on Cancel and, via the effect below, once the archive itself succeeds. */
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  const [state, action, pending] = useActionState(archiveReferenceAction, INITIAL_ARCHIVE);
+
+  useEffect(() => {
+    if (state.status === 'archived') onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <Dialog open onClose={onClose} labelledBy={titleId} className="max-w-lg">
+      <DialogHeader>
+        <DialogTitle id={titleId}>Archive this {noun}?</DialogTitle>
+      </DialogHeader>
+      <DialogBody>
+        <p className="text-sm">
+          <strong>{item.name}</strong> stops being selectable for a new song or request.{' '}
+          <strong>This cannot be undone here</strong> — not by you, not by support. Only direct
+          database access can restore it.
+        </p>
+        {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
+      </DialogBody>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <form action={action}>
+          <input type="hidden" name="kind" value={kind} />
+          <input type="hidden" name="id" value={item.id} />
+          <Button type="submit" disabled={pending} data-testid={`${noun}-archive-confirm`}>
+            {pending ? 'Archiving…' : 'Archive anyway'}
+          </Button>
+        </form>
+      </DialogFooter>
+    </Dialog>
   );
 }
