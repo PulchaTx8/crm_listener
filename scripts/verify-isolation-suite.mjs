@@ -145,6 +145,15 @@ const REQUIRED_TEST_FILES = [
   // as superuser and answers true from has_permission unconditionally, so
   // none of this is visible to it.
   { path: 'tests/isolation/music.test.ts', minTests: 8 },
+  // Block 7b, Task 5: the merge's boundary and D6's identity rules. The three
+  // that only a second identity can prove: music.manage does NOT confer
+  // music.merge; a loser in another Station answers the SAME P0002 as a uuid
+  // naming nothing (the core scopes its lock, so "elsewhere" is
+  // indistinguishable from "absent"); and list_music_requests still LISTS
+  // without members.view, with the listener columns null, while a search
+  // returns nothing at all. pgTAP sees none of it — it runs as superuser with
+  // a null auth.uid().
+  { path: 'tests/isolation/music-merge.test.ts', minTests: 10 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for
