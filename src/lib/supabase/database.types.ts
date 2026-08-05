@@ -3130,6 +3130,36 @@ export type Database = {
           to_phone: string
         }[]
       }
+      claim_report_run: {
+        Args: never
+        Returns: {
+          attempts: number
+          byte_size: number | null
+          company_ids: string[]
+          expires_at: string | null
+          filters: Json
+          finished_at: string | null
+          format: Database["public"]["Enums"]["report_format"]
+          id: string
+          last_error: string | null
+          organization_id: string
+          payload: Json | null
+          report_type: Database["public"]["Enums"]["report_type"]
+          requested_at: string
+          requested_by: string
+          row_count: number | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["report_status"]
+          storage_path: string | null
+          withheld: string[]
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "report_runs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       clear_station_message_template: {
         Args: {
           p_company_id: string
@@ -3320,6 +3350,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      fail_report_run: {
+        Args: { p_error: string; p_run_id: string }
+        Returns: undefined
+      }
       find_member_by_identifier: {
         Args: {
           p_cpf_hash?: string
@@ -3329,6 +3363,16 @@ export type Database = {
           p_phone?: string
         }
         Returns: Json
+      }
+      finish_report_run: {
+        Args: {
+          p_byte_size: number
+          p_row_count: number
+          p_run_id: string
+          p_storage_path: string
+          p_withheld?: string[]
+        }
+        Returns: undefined
       }
       finish_whatsapp_event: {
         Args: {
@@ -3409,6 +3453,10 @@ export type Database = {
         Returns: boolean
       }
       is_owner_of_company: { Args: { p_company_id: string }; Returns: boolean }
+      is_owner_of_company_for: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_for: { Args: { p_user_id: string }; Returns: boolean }
       lift_member_block: {
@@ -3840,6 +3888,129 @@ export type Database = {
         Args: { p_deadline_at: string; p_reason: string; p_winner_id: string }
         Returns: undefined
       }
+      report_guard: {
+        Args: {
+          p_company_ids: string[]
+          p_permission: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      report_page: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_report_type: Database["public"]["Enums"]["report_type"]
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_listeners: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_movements: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_music_requests: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_participations: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_winners: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      request_report: {
+        Args: {
+          p_company_ids: string[]
+          p_filters?: Json
+          p_format: Database["public"]["Enums"]["report_format"]
+          p_organization_id: string
+          p_payload?: Json
+          p_report_type: Database["public"]["Enums"]["report_type"]
+        }
+        Returns: string
+      }
+      requeue_stalled_report_runs: { Args: never; Returns: number }
       reserve_stock: {
         Args: {
           p_company_id: string

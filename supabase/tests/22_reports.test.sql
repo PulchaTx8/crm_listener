@@ -1,5 +1,5 @@
 begin;
-select plan(39);
+select plan(55);
 
 -- Block 8b. The report engine, from the table outward. Tasks 4-9 append to this
 -- file and raise the plan count as they go.
@@ -341,6 +341,106 @@ select is(
      '{}'::jsonb, null, null, 100) p),
   2::bigint,
   'the dispatcher reaches the participations page function');
+
+-- ---------------------------------------------------------------------------
+-- The run lifecycle (0127) and the expiry (0128).
+-- ---------------------------------------------------------------------------
+
+select has_function('public', 'request_report',
+  array['uuid', 'uuid[]', 'report_type', 'report_format', 'jsonb', 'jsonb'],
+  'request_report exists');
+select has_function('public', 'claim_report_run', array[]::text[],
+  'claim_report_run exists');
+select has_function('public', 'finish_report_run',
+  array['uuid', 'text', 'integer', 'integer', 'text[]'],
+  'finish_report_run exists');
+select has_function('public', 'fail_report_run', array['uuid', 'text'],
+  'fail_report_run exists');
+select has_function('public', 'requeue_stalled_report_runs', array[]::text[],
+  'requeue_stalled_report_runs exists');
+
+-- The grant asymmetry IS the security model. A client that could finish a run
+-- could set status = READY and point storage_path at another Station's object,
+-- which 0123's policy would then match and sign.
+select ok(
+  not has_function_privilege('authenticated', 'public.claim_report_run()', 'EXECUTE'),
+  'authenticated may not claim a run');
+select ok(
+  not has_function_privilege('authenticated',
+    'public.finish_report_run(uuid, text, integer, integer, text[])', 'EXECUTE'),
+  'authenticated may not finish a run');
+select ok(
+  has_function_privilege('authenticated',
+    'public.request_report(uuid, uuid[], public.report_type, public.report_format, jsonb, jsonb)',
+    'EXECUTE'),
+  'authenticated may request a report');
+
+-- `for update skip locked` is the whole concurrency argument, and pgTAP runs
+-- single-session so it cannot exercise the race. The shape is asserted here;
+-- tests/isolation/reports.test.ts proves the behaviour with two connections.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc
+    where proname = 'claim_report_run') ilike '%skip locked%',
+  'the claim skips locked rows');
+
+-- Three attempts and no more -- the contrast with storage_erasure_queue, which
+-- deliberately has no threshold at all.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc
+    where proname = 'fail_report_run') like '%attempts >= 3%',
+  'fail_report_run gives up at three attempts');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc
+    where proname = 'requeue_stalled_report_runs') like '%15 minutes%',
+  'the stall threshold is fifteen minutes');
+
+-- A procedure, not a function, and for 0094's reason: only a procedure may
+-- commit, and this one must commit per run so one unwritable row does not roll
+-- back every other expiry, every day, for ever.
+select is(
+  (select prokind from pg_proc where proname = 'expire_report_runs'),
+  'p'::"char",
+  'expire_report_runs is a procedure');
+
+-- And it may carry NEITHER security definer NOR a set clause: Postgres refuses
+-- transaction control inside either. A future editor "hardening" it with
+-- `set search_path` would break every expiry with `invalid transaction
+-- termination`, at 03:17, where nobody is watching.
+select ok(
+  not (select prosecdef from pg_proc where proname = 'expire_report_runs')
+  and (select proconfig from pg_proc where proname = 'expire_report_runs') is null,
+  'expire_report_runs carries neither security definer nor a set clause');
+
+select ok(
+  exists (select 1 from cron.job where command like '%expire_report_runs%'),
+  'the expiry is scheduled');
+
+-- The end-to-end path the worker walks, driven by hand: request, claim, finish.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00008c050002", "role": "authenticated"}';
+select lives_ok(
+  $$select public.request_report(
+      '00000000-0000-0000-0000-00008c010001',
+      array['00000000-0000-0000-0000-00008c020001']::uuid[],
+      'PARTICIPATIONS'::public.report_type,
+      'CSV'::public.report_format,
+      '{}'::jsonb, null)$$,
+  'an entitled caller may request a listing report');
+
+-- A caller who cannot read the domain is refused at the request, in the dialog
+-- they are looking at, rather than ten seconds later in a queue.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00008c050003", "role": "authenticated"}';
+select throws_ok(
+  $$select public.request_report(
+      '00000000-0000-0000-0000-00008c010001',
+      array['00000000-0000-0000-0000-00008c020001']::uuid[],
+      'MOVEMENTS'::public.report_type,
+      'CSV'::public.report_format,
+      '{}'::jsonb, null)$$,
+  '42501', null, 'a request the caller cannot read is refused at the request');
+reset role;
 
 select * from finish();
 rollback;
