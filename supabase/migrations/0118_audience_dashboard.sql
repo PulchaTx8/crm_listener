@@ -92,8 +92,17 @@ begin
   -- (previous_to_at = from_at <= to_at), monthly filters `< to_at`, and both
   -- top-ten lists filter `< to_at`. Nothing below ever asks about a link made
   -- after the window ended.
+  -- discovery_source and first_contact_origin are carried HERE rather than
+  -- re-joined below (found by the EXPLAIN this review's B6 asked for). This
+  -- CTE already joins members for D12b; the two top-ten CTEs used to join it
+  -- a second time, against a MATERIALISED CTE that carries no index, and one
+  -- of the plans measured for the fix report chose a nested loop for it --
+  -- 3,998,000 rows removed by join filter for 2,000 listeners, quadratic in
+  -- the Station's audience. Reading the two columns off the join that is
+  -- already happening costs one wider CTE row and removes the second join
+  -- entirely.
   link as (
-    select l.member_id, l.linked_at, s.*
+    select l.member_id, l.linked_at, m.discovery_source, m.first_contact_origin, s.*
       from public.member_company_links l
       join station s on s.id = l.company_id
       join public.members m
@@ -247,11 +256,10 @@ begin
     select jsonb_agg(jsonb_build_object('id', d.value, 'label', d.label, 'count', d.n)
                      order by d.n desc, d.label) as rows
       from (
-        select coalesce(btrim(m.discovery_source), '') as value,
-               coalesce(nullif(btrim(m.discovery_source), ''), 'Not stated') as label,
+        select coalesce(btrim(l.discovery_source), '') as value,
+               coalesce(nullif(btrim(l.discovery_source), ''), 'Not stated') as label,
                count(distinct l.member_id) as n
           from link l
-          join public.members m on m.id = l.member_id
          where l.linked_at < l.to_at
          group by 1, 2
          order by count(distinct l.member_id) desc, 2
@@ -262,11 +270,10 @@ begin
     select jsonb_agg(jsonb_build_object('id', f.value, 'label', f.label, 'count', f.n)
                      order by f.n desc, f.label) as rows
       from (
-        select coalesce(btrim(m.first_contact_origin), '') as value,
-               coalesce(nullif(btrim(m.first_contact_origin), ''), 'Not stated') as label,
+        select coalesce(btrim(l.first_contact_origin), '') as value,
+               coalesce(nullif(btrim(l.first_contact_origin), ''), 'Not stated') as label,
                count(distinct l.member_id) as n
           from link l
-          join public.members m on m.id = l.member_id
          where l.linked_at < l.to_at
          group by 1, 2
          order by count(distinct l.member_id) desc, 2
