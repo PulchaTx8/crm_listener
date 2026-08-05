@@ -213,6 +213,13 @@ const REQUIRED_TEST_FILES = [
   // after the same mutation showed it was only being caught there
   // incidentally, inside another test's fixture read.
   { path: 'tests/isolation/templates.test.ts', minTests: 13 },
+  // Block 8b. Three of these eight have no other proof anywhere in the
+  // repository, which is why the floor is the full count rather than a round
+  // number below it: the two-claimant race (pgTAP is single-session and cannot
+  // exercise `for update skip locked`), report_runs' RLS against a colleague as
+  // well as a stranger, and the withheld contract asserted as a SESSION rather
+  // than by passing a user id as an argument the way 22_reports must.
+  { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },
 ];
 
