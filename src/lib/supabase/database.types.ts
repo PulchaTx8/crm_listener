@@ -3899,10 +3899,10 @@ export type Database = {
       report_page: {
         Args: {
           p_company_ids: string[]
-          p_cursor_at: string
-          p_cursor_id: string
+          p_cursor_at?: string
+          p_cursor_id?: string
           p_filters: Json
-          p_limit: number
+          p_limit?: number
           p_report_type: Database["public"]["Enums"]["report_type"]
           p_user_id: string
         }

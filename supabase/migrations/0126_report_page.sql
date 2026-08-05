@@ -24,9 +24,15 @@ create function public.report_page(
   p_report_type public.report_type,
   p_company_ids uuid[],
   p_filters     jsonb,
-  p_cursor_at   timestamptz,
-  p_cursor_id   uuid,
-  p_limit       integer
+  -- Defaulted, unlike the five page functions this dispatches to, and for a
+  -- reason outside SQL: `supabase gen types` marks a defaulted parameter
+  -- optional, and the worker passes no cursor on the first page. Without the
+  -- defaults the generated Args type requires a string where the caller has
+  -- null, and the only way through is a cast that would silently outlive the
+  -- reason for it.
+  p_cursor_at   timestamptz default null,
+  p_cursor_id   uuid        default null,
+  p_limit       integer     default 1000
 )
 returns table (
   sort_at     timestamptz,
