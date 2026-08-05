@@ -20,7 +20,9 @@
 - **Period bounds are dates, never instants**, converted per Station inside SQL (D5).
 - **Every "top" list is the top ten**, ordered by count descending with the record's own name as the tie-break.
 - **The gate before any PR:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run db:test`, `npm run test:isolation`, `npm run build`, `npm run test:e2e`.
-- **Fixture UUIDs in pgTAP** are `00000000-0000-0000-0000-0000d8<EE><NNNN>`, where `d8` tags this block (colliding with no existing test file), `EE` is the entity and `NNNN` the instance: `01` organizations, `02` companies, `03` members, `04` roles, `05` `auth.users`, `06` artists, `07` genres, `08` songs, `09` promotions, `0a` prizes and promotion_prizes, `0b` draws, `0c` winners, `0d` participations.
+- **Fixture UUIDs in pgTAP** are `00000000-0000-0000-0000-0000d8<EE><NNNN>`, where `d8` tags this block (colliding with no existing test file), `EE` is the entity and `NNNN` the instance: `01` organizations, `02` companies, `03` members, `04` roles, `05` `auth.users`, `06` artists, `07` genres, `08` songs, `09` promotions, `0a` prizes and promotion_prizes, `0b` draws, `0c` winners, `0d` participations, `11` member_blocks.
+
+  **Taken by Task 3 already:** organizations `010001`; companies `020001` (Station SP) and `020002` (Station UTC); members `030001`–`030005`; roles `040001`–`040003`; users `050001`–`050004`; promotions `090001`; participations `0d0001`; member_blocks `110001`–`110002`. Later tasks start above those.
 
   The numeric entity code exists because the obvious alternative bites: a UUID admits only `0-9a-f`, so mnemonic letters like `m` for members, `u` for users or `s` for songs produce `invalid input syntax for type uuid` at the first insert. An earlier draft of this plan did exactly that.
 - **pgTAP exercises these functions as a real authenticated caller, never as the migration role, and never against a stubbed `has_permission`.** No test file in this repository replaces that function, and here the house pattern is not merely convention: the aggregates are `SECURITY INVOKER`, so the migration role — which bypasses RLS — would prove the arithmetic and nothing whatever about isolation, which is the property D4 exists to buy. The pattern, copied from `02_permissions.test.sql:295-336`, is: insert `roles` + `role_permissions` + `auth.users` + `company_memberships` as the migration role, then
@@ -482,6 +484,8 @@ git commit -m "feat(dashboards): what a period is, resolved once and at the Stat
 ---
 
 ### Task 3: `get_audience_dashboard`
+
+> **Amended during implementation (spec D12b).** As first written, this task excluded deleted and anonymised members from the audience total but not from `took_part`, `barred` or `blocks_by_kind`, which read `participations` and `member_blocks` without joining `members`. That let the panel print more people taking part than there are listeners. **Every figure on this panel counts the same population**: each of those three now joins `public.members` with `deleted_at is null and anonymized_at is null`. Two assertions prove it, over a minimal promotion-and-participation fixture, taking the file to 36.
 
 **Files:**
 - Create: `supabase/migrations/0118_audience_dashboard.sql`
