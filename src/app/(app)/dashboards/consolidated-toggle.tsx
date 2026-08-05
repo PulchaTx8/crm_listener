@@ -32,6 +32,7 @@ export function ConsolidatedToggle({
   active,
   singleCompanyId,
   consolidatedCompanyIds,
+  complete,
 }: {
   eligible: boolean;
   base: string;
@@ -40,6 +41,21 @@ export function ConsolidatedToggle({
   active: boolean;
   singleCompanyId: string;
   consolidatedCompanyIds: string[];
+  /**
+   * Whether `consolidatedCompanyIds` really is every Station the caller can
+   * consolidate, or only the ones that survived a cap and a search box
+   * (whole-branch review, Important B7).
+   *
+   * The page builds that array by intersecting two `listCompanyAccess` calls,
+   * and BOTH are capped at fifty and BOTH are narrowed by the active Station
+   * search term. So "All stations" could mean the alphabetically-first fifty,
+   * or every Station whose name happens to contain "fm" — and the label said
+   * "All stations" regardless, which is a claim about the caller's whole
+   * relationship to the platform made from a filtered list. When this is
+   * false the label names what it actually has, and the page shows the
+   * accompanying caveat.
+   */
+  complete: boolean;
 }) {
   if (!eligible) return null;
 
@@ -65,8 +81,15 @@ export function ConsolidatedToggle({
         href={consolidatedHref as Route}
         aria-current={active ? 'page' : undefined}
         className={active ? ACTIVE_PILL : INACTIVE_PILL}
+        title={
+          complete
+            ? undefined
+            : 'Only the Stations listed above — a search or the fifty-Station cap is narrowing them.'
+        }
       >
-        All stations ({consolidatedCompanyIds.length})
+        {complete
+          ? `All stations (${consolidatedCompanyIds.length})`
+          : `Stations listed (${consolidatedCompanyIds.length})`}
       </Link>
     </div>
   );

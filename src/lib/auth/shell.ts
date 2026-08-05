@@ -39,9 +39,21 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // boundary is in the database.
       label: 'Dashboards',
       items: [
-        { href: '/dashboards/audience', label: 'Audience', icon: ICONS.chart },
-        { href: '/dashboards/music', label: 'Music', icon: ICONS.music },
-        { href: '/dashboards/promotions', label: 'Promotions', icon: ICONS.megaphone },
+        // "... overview", not the bare domain word, and the same rule the
+        // Inventory section below records for its own rename (Block 6d): a
+        // SECTION and an ITEM spelling the same word read as one link
+        // rendered twice. This block shipped three of them at once — every
+        // one of "Audience", "Music" and "Promotions" is already a section
+        // label further down THIS SAME sidebar, so the shipped nav offered
+        // two "Audience" entries (one a link here, one a heading over
+        // Members and Participations), two "Music" and two "Promotions".
+        // Unlike Inventory > Stock, the href is not what changed; only the
+        // accessible name is, and tests/e2e/dashboards.spec.ts selects on
+        // it by role and name, so its three getByRole('link') calls moved
+        // with this.
+        { href: '/dashboards/audience', label: 'Audience overview', icon: ICONS.chart },
+        { href: '/dashboards/music', label: 'Music overview', icon: ICONS.music },
+        { href: '/dashboards/promotions', label: 'Promotions overview', icon: ICONS.megaphone },
       ],
     },
     {

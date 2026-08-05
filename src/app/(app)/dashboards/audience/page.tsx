@@ -13,12 +13,15 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
+import { BLOCK_KIND_LABELS } from '../../members/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
 import { ConsolidatedToggle } from '../consolidated-toggle';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
+import { StationPeriodNote } from '../station-period-note';
+import { withOperatorLabels } from '../slice-labels';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -30,12 +33,24 @@ const BASE = '/dashboards/audience';
 // `cards` for a caller lacking participations.view — it is named in
 // `withheld` instead (D13), and DashboardCards renders that tile identically
 // to every other withheld figure without this list knowing the difference.
-const CARD_SPECS: readonly CardSpec[] = [
-  { key: 'listeners', label: 'Listeners at this Station' },
-  { key: 'new_listeners', label: 'New in the period' },
-  { key: 'took_part', label: 'Took part in the period' },
-  { key: 'barred', label: 'Listeners barred in the period' },
-];
+//
+// A function rather than a constant because of the caveat (whole-branch
+// review, Important B5): all four of these count DISTINCT MEMBERS, so in a
+// consolidated view none of them is the sum of the single-Station figures —
+// a listener reachable from two selected Stations is one listener. Only
+// `barred` used to say so, and only under its own chart, which made a
+// property of the whole panel read as a quirk of that one bar.
+function cardSpecs(consolidated: boolean): CardSpec[] {
+  const note = consolidated
+    ? 'Counts distinct listeners: one reachable from two of the Stations selected counts once, so this is not the sum of their separate figures.'
+    : undefined;
+  return [
+    { key: 'listeners', label: 'Listeners at this Station', note },
+    { key: 'new_listeners', label: 'New in the period', note },
+    { key: 'took_part', label: 'Took part in the period', note },
+    { key: 'barred', label: 'Listeners barred in the period', note },
+  ];
+}
 
 export default async function AudienceDashboardPage({
   searchParams,
@@ -121,7 +136,11 @@ export default async function AudienceDashboardPage({
     return <LoadError message={describeDashboardError(cause)} />;
   }
 
-  const timezones = new Set(dashboard.stations.map((s) => s.timezone));
+  // Whether the Station list above is the caller's WHOLE relationship or a
+  // narrowed view of it (whole-branch review, Important B7). Both
+  // listCompanyAccess calls are capped at fifty and both are filtered by the
+  // active search term, so "All stations" is only true when neither applies.
+  const stationListIsComplete = !capped && !stationSearch;
 
   return (
     <>
@@ -132,12 +151,15 @@ export default async function AudienceDashboardPage({
 
       {(capped || stationSearch) && (
         <div className="mb-4 flex flex-col gap-2">
-          {capped && (
-            <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
-          )}
+          {/* Rendered for a SEARCH as well as for the cap. A search narrows
+              exactly the same list the cap does, including the one the
+              consolidated toggle sums, and saying nothing about it left "All
+              stations" standing over a filtered set. */}
+          <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
+            Showing {viewable.length + suspended.length} of the Stations you can reach
+            {stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
+            only the Stations listed here. Search by name to reach one that is not listed.
+          </p>
           <StationSearchForm
             action={BASE}
             value={stationSearch ?? ''}
@@ -191,6 +213,7 @@ export default async function AudienceDashboardPage({
             active={companyIds.length > 1}
             singleCompanyId={first.id}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
+            complete={stationListIsComplete}
           />
         </div>
       )}
@@ -203,14 +226,13 @@ export default async function AudienceDashboardPage({
         stationSearch={stationSearch}
       />
 
-      {timezones.size > 1 && (
-        <p className="mb-4 text-xs text-muted-foreground" data-testid="mixed-timezone-note">
-          These Stations do not share a timezone. The period&apos;s dates are the same for all of
-          them; the instants they begin and end are not.
-        </p>
-      )}
+      <StationPeriodNote stations={dashboard.stations} />
 
-      <DashboardCards specs={CARD_SPECS} cards={dashboard.cards} withheld={dashboard.withheld} />
+      <DashboardCards
+        specs={cardSpecs(dashboard.stations.length > 1)}
+        cards={dashboard.cards}
+        withheld={dashboard.withheld}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -237,7 +259,14 @@ export default async function AudienceDashboardPage({
                 selected, so this is not always the sum of the barred card above.
               </p>
             )}
-            <BreakdownBars data={dashboard.breakdowns.blocks_by_kind} label="Barred by kind" />
+            {/* `key` is the raw member_block_kind value; BLOCK_KIND_LABELS is
+                the wording the audience record already uses for the same two
+                (whole-branch review, Important B2) — not a second vocabulary
+                invented here. */}
+            <BreakdownBars
+              data={withOperatorLabels(dashboard.breakdowns.blocks_by_kind, BLOCK_KIND_LABELS)}
+              label="Barred by kind"
+            />
           </CardContent>
         </Card>
 

@@ -19,9 +19,16 @@ import type { PeriodSelection } from '@/app/(app)/dashboards/period';
  * permission the caller does not hold in every named Station (and, for a
  * consolidated call, `reports.consolidated` in every one — D3), `22023` for
  * an empty Station list or, in principle, an invalid period — though
- * `parsePeriod` (`app/(app)/dashboards/period.ts`) refuses an unknown preset
- * or an impossible/reversed date before a request is ever sent, so a 22023
- * that reaches here almost always means the Station list, not the period.
+ * `parsePeriod` (`app/(app)/dashboards/period.ts`) refuses an unknown preset,
+ * an impossible date and a range that does not open before it closes, all
+ * before a request is ever sent, so a 22023 that reaches here almost always
+ * means the Station list, not the period.
+ *
+ * "Almost always" is doing real work in that sentence, and used to be doing
+ * more than it could carry (whole-branch review, Important B3): `parsePeriod`
+ * compared `from > to` while 0117 refuses `p_to <= p_from`, so an operator who
+ * picked one date in both inputs sailed through this layer and got a
+ * ValidationError back. Both bounds now agree.
  *
  * Nothing here ever constructs a `BusinessRuleError`, a `ConflictError` or a
  * `NotFoundError`: these three functions are read-only aggregates with no

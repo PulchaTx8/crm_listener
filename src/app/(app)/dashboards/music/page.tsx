@@ -13,12 +13,15 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
+import { NATIONALITY_LABELS, VOCAL_LABELS } from '../../music/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
 import { ConsolidatedToggle } from '../consolidated-toggle';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
+import { StationPeriodNote } from '../station-period-note';
+import { withOperatorLabels } from '../slice-labels';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -117,7 +120,11 @@ export default async function MusicDashboardPage({
     return <LoadError message={describeDashboardError(cause)} />;
   }
 
-  const timezones = new Set(dashboard.stations.map((s) => s.timezone));
+  // Whether the Station list above is the caller's WHOLE relationship or a
+  // narrowed view of it (whole-branch review, Important B7). Both
+  // listCompanyAccess calls are capped at fifty and both are filtered by the
+  // active search term, so "All stations" is only true when neither applies.
+  const stationListIsComplete = !capped && !stationSearch;
 
   return (
     <>
@@ -128,12 +135,15 @@ export default async function MusicDashboardPage({
 
       {(capped || stationSearch) && (
         <div className="mb-4 flex flex-col gap-2">
-          {capped && (
-            <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
-          )}
+          {/* Rendered for a SEARCH as well as for the cap. A search narrows
+              exactly the same list the cap does, including the one the
+              consolidated toggle sums, and saying nothing about it left "All
+              stations" standing over a filtered set. */}
+          <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
+            Showing {viewable.length + suspended.length} of the Stations you can reach
+            {stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
+            only the Stations listed here. Search by name to reach one that is not listed.
+          </p>
           <StationSearchForm
             action={BASE}
             value={stationSearch ?? ''}
@@ -187,6 +197,7 @@ export default async function MusicDashboardPage({
             active={companyIds.length > 1}
             singleCompanyId={first.id}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
+            complete={stationListIsComplete}
           />
         </div>
       )}
@@ -199,12 +210,7 @@ export default async function MusicDashboardPage({
         stationSearch={stationSearch}
       />
 
-      {timezones.size > 1 && (
-        <p className="mb-4 text-xs text-muted-foreground" data-testid="mixed-timezone-note">
-          These Stations do not share a timezone. The period&apos;s dates are the same for all of
-          them; the instants they begin and end are not.
-        </p>
-      )}
+      <StationPeriodNote stations={dashboard.stations} />
 
       <DashboardCards specs={CARD_SPECS} cards={dashboard.cards} withheld={dashboard.withheld} />
 
@@ -223,7 +229,15 @@ export default async function MusicDashboardPage({
             <CardTitle>Domestic × international</CardTitle>
           </CardHeader>
           <CardContent>
-            <BreakdownBars data={dashboard.breakdowns.nationality} label="Domestic × international" />
+            {/* `key` is the raw music_nationality value; NATIONALITY_LABELS
+                is the wording the Songs grid already uses (whole-branch
+                review, Important B2). The NOT_STATED bucket carries its own
+                human label from SQL and passes through untouched — it was the
+                mix of the two on one axis that gave this away. */}
+            <BreakdownBars
+              data={withOperatorLabels(dashboard.breakdowns.nationality, NATIONALITY_LABELS)}
+              label="Domestic × international"
+            />
           </CardContent>
         </Card>
 
@@ -232,7 +246,10 @@ export default async function MusicDashboardPage({
             <CardTitle>Vocal</CardTitle>
           </CardHeader>
           <CardContent>
-            <BreakdownBars data={dashboard.breakdowns.vocal} label="Vocal" />
+            <BreakdownBars
+              data={withOperatorLabels(dashboard.breakdowns.vocal, VOCAL_LABELS)}
+              label="Vocal"
+            />
           </CardContent>
         </Card>
 

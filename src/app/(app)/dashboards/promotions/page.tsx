@@ -13,12 +13,16 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
+import { STATUS_LABELS as PARTICIPATION_STATUS_LABELS } from '@/lib/participation-status';
+import { STATUS_LABELS as WINNER_STATUS_LABELS } from '../../pickups/list-params';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
 import { ConsolidatedToggle } from '../consolidated-toggle';
 import { DashboardCards, WithheldFigure } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
+import { StationPeriodNote } from '../station-period-note';
+import { withOperatorLabels } from '../slice-labels';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -129,7 +133,11 @@ export default async function PromotionsDashboardPage({
     return <LoadError message={describeDashboardError(cause)} />;
   }
 
-  const timezones = new Set(dashboard.stations.map((s) => s.timezone));
+  // Whether the Station list above is the caller's WHOLE relationship or a
+  // narrowed view of it (whole-branch review, Important B7). Both
+  // listCompanyAccess calls are capped at fifty and both are filtered by the
+  // active search term, so "All stations" is only true when neither applies.
+  const stationListIsComplete = !capped && !stationSearch;
 
   // `monthly`, `breakdowns.participation_status` and `top.promotions` are the
   // three payload keys D13 can omit OUTSIDE `cards` (0120's own header): an
@@ -151,12 +159,15 @@ export default async function PromotionsDashboardPage({
 
       {(capped || stationSearch) && (
         <div className="mb-4 flex flex-col gap-2">
-          {capped && (
-            <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
-          )}
+          {/* Rendered for a SEARCH as well as for the cap. A search narrows
+              exactly the same list the cap does, including the one the
+              consolidated toggle sums, and saying nothing about it left "All
+              stations" standing over a filtered set. */}
+          <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
+            Showing {viewable.length + suspended.length} of the Stations you can reach
+            {stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
+            only the Stations listed here. Search by name to reach one that is not listed.
+          </p>
           <StationSearchForm
             action={BASE}
             value={stationSearch ?? ''}
@@ -210,6 +221,7 @@ export default async function PromotionsDashboardPage({
             active={companyIds.length > 1}
             singleCompanyId={first.id}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
+            complete={stationListIsComplete}
           />
         </div>
       )}
@@ -222,12 +234,7 @@ export default async function PromotionsDashboardPage({
         stationSearch={stationSearch}
       />
 
-      {timezones.size > 1 && (
-        <p className="mb-4 text-xs text-muted-foreground" data-testid="mixed-timezone-note">
-          These Stations do not share a timezone. The period&apos;s dates are the same for all of
-          them; the instants they begin and end are not.
-        </p>
-      )}
+      <StationPeriodNote stations={dashboard.stations} />
 
       <DashboardCards specs={CARD_SPECS} cards={dashboard.cards} withheld={dashboard.withheld} />
 
@@ -250,7 +257,14 @@ export default async function PromotionsDashboardPage({
             <CardTitle>The prize cycle</CardTitle>
           </CardHeader>
           <CardContent>
-            <SplitDonut data={dashboard.breakdowns.prize_cycle} label="The prize cycle" />
+            {/* `key` is the raw winner_status value; the pickups screen's own
+                STATUS_LABELS is the wording an operator already reads on that
+                list's badges and buttons (whole-branch review, Important B2).
+                One vocabulary for winner_status, not two. */}
+            <SplitDonut
+              data={withOperatorLabels(dashboard.breakdowns.prize_cycle, WINNER_STATUS_LABELS)}
+              label="The prize cycle"
+            />
           </CardContent>
         </Card>
 
@@ -261,7 +275,10 @@ export default async function PromotionsDashboardPage({
           <CardContent>
             {dashboard.breakdowns.participation_status ? (
               <SplitDonut
-                data={dashboard.breakdowns.participation_status}
+                data={withOperatorLabels(
+                  dashboard.breakdowns.participation_status,
+                  PARTICIPATION_STATUS_LABELS,
+                )}
                 label="Why entries were refused"
               />
             ) : (

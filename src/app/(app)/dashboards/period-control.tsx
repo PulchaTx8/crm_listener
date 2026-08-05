@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import type { Period } from '@/schemas/dashboards';
-import { periodHref, withStationSearch } from './period';
+import { exclusiveEnd, inclusiveEnd, periodHref, withStationSearch } from './period';
 import type { PeriodPreset, PeriodSelection } from './period';
 
 const PRESETS: readonly { preset: PeriodPreset; label: string }[] = [
@@ -36,6 +36,23 @@ const INACTIVE_PILL =
  * not from `selection` (the URL's parsed intent, `null` for every non-custom
  * preset): switching from "current month" into "custom" starts the range at
  * that month's real bounds rather than a blank pair of inputs.
+ *
+ * THE `To` INPUT IS INCLUSIVE, and the conversion happens here (whole-branch
+ * review, Important B4). Everything underneath — the URL, `parsePeriod`,
+ * `resolve_dashboard_period`, every figure — is half-open with an EXCLUSIVE
+ * `to`, which is right and matches 0040 and `situationOf()`. But a date picker
+ * does not mean that to a person: an operator asking for August fills in
+ * 2026-08-01 and 2026-08-31, and under a raw exclusive bound silently loses
+ * the 31st from every number on the page. Worse, seeding straight from
+ * `resolved.to` pre-filled 2026-09-01 when switching into Custom — correct,
+ * unreadable as correct, and an open invitation to "fix" it to the 31st and
+ * lose a day for real.
+ *
+ * So the input shows `inclusiveEnd(resolved.to)` and submits
+ * `exclusiveEnd(typed)`, and `period.ts` owns both halves so the two can never
+ * drift apart. The round trip is stable by construction: 2026-09-01 seeds
+ * 2026-08-31, submitting sends 2026-09-01, and the next render seeds
+ * 2026-08-31 again — no day is gained or lost by looking at the screen twice.
  */
 export function PeriodControl({
   base,
@@ -52,7 +69,9 @@ export function PeriodControl({
 }) {
   const router = useRouter();
   const [from, setFrom] = useState(resolved.from);
-  const [to, setTo] = useState(resolved.to);
+  // `to` holds the INCLUSIVE last day the operator sees, never the exclusive
+  // bound the URL carries. Every read of it converts on the way out.
+  const [to, setTo] = useState(inclusiveEnd(resolved.to));
 
   // Re-synced from the payload rather than trusted from whatever the browser
   // last painted: a DIFFERENT control (a Station switch, the consolidated
@@ -61,10 +80,15 @@ export function PeriodControl({
   // — the same reason members-filters.tsx resyncs its own date inputs from a
   // server-supplied prop instead of only from local state.
   useEffect(() => setFrom(resolved.from), [resolved.from]);
-  useEffect(() => setTo(resolved.to), [resolved.to]);
+  useEffect(() => setTo(inclusiveEnd(resolved.to)), [resolved.to]);
 
   function hrefFor(next: PeriodSelection): string {
     return withStationSearch(periodHref(base, next, companyIds), stationSearch);
+  }
+
+  /** The one place the operator's inclusive last day becomes the URL's exclusive bound. */
+  function customFor(nextFrom: string, nextInclusiveTo: string): PeriodSelection {
+    return { preset: 'custom', from: nextFrom, to: exclusiveEnd(nextInclusiveTo) };
   }
 
   return (
@@ -72,7 +96,7 @@ export function PeriodControl({
       {PRESETS.map(({ preset, label }) => {
         const isActive = selection.preset === preset;
         const target: PeriodSelection =
-          preset === 'custom' ? { preset: 'custom', from, to } : { preset, from: null, to: null };
+          preset === 'custom' ? customFor(from, to) : { preset, from: null, to: null };
         return (
           <Link
             key={preset}
@@ -96,7 +120,7 @@ export function PeriodControl({
                 const next = e.target.value;
                 setFrom(next);
                 if (next && to) {
-                  router.replace(hrefFor({ preset: 'custom', from: next, to }) as Route);
+                  router.replace(hrefFor(customFor(next, to)) as Route);
                 }
               }}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
@@ -104,7 +128,11 @@ export function PeriodControl({
             />
           </label>
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <span>To</span>
+            {/* "To" means the last day INCLUDED, which is what a date picker
+                means to the person filling it in. The exclusive bound the URL
+                and the RPC use is one day later, and customFor is where the
+                two meet. */}
+            <span title="The last day included in the period.">To</span>
             <input
               type="date"
               value={to}
@@ -112,7 +140,7 @@ export function PeriodControl({
                 const next = e.target.value;
                 setTo(next);
                 if (from && next) {
-                  router.replace(hrefFor({ preset: 'custom', from, to: next }) as Route);
+                  router.replace(hrefFor(customFor(from, next)) as Route);
                 }
               }}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"

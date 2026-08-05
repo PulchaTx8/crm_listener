@@ -71,9 +71,55 @@ export function parsePeriod(params: {
   const { from, to } = params;
   if (!from || !to) return DEFAULT_SELECTION;
   if (!isRealDate(from) || !isRealDate(to)) return DEFAULT_SELECTION;
-  if (from > to) return DEFAULT_SELECTION;
+  // `>=`, not `>`. `to` is EXCLUSIVE, so `from === to` is a period of zero
+  // length, and 0117:87 refuses it with 22023 (`p_to <= p_from`) exactly as it
+  // refuses a reversed one. Under `>` this parser passed it through, the RPC
+  // threw, and the operator got the whole page replaced by "That period is not
+  // valid." — for a URL this file's own contract says it will silently repair.
+  // The two comments claiming a 22023 can only come from a caller who bypassed
+  // this (errors.ts and services/dashboards.ts) were false for precisely this
+  // input; both now say so.
+  if (from >= to) return DEFAULT_SELECTION;
 
   return { preset: 'custom', from, to };
+}
+
+/**
+ * The two halves of the one conversion `period-control.tsx` needs, and the
+ * reason this contract has an inside and an outside.
+ *
+ * Every bound in this block is half-open: `to` is EXCLUSIVE, which is what
+ * 0040, `situationOf()` and `resolve_dashboard_period` all agree a period
+ * means. A date input is not that. An operator asked for August types
+ * `2026-08-01` and `2026-08-31`, and under a raw exclusive bound loses the
+ * 31st from every figure on the page without one word on screen saying so —
+ * the failure is silent, plausible, and off by exactly one day.
+ *
+ * So the CONTROL speaks the operator's language (an inclusive last day) and
+ * converts at the edge, rather than the URL or the RPC changing meaning. The
+ * round trip has to be stable and is: `resolved.to` 2026-09-01 seeds the input
+ * as 2026-08-31, submitting sends 2026-09-01 back, and the next render seeds
+ * 2026-08-31 again. Nothing drifts by a day in either direction.
+ *
+ * Both return the input unchanged if it is not a real calendar date, so a
+ * hand-edited URL still reaches `parsePeriod`'s own repair rather than being
+ * turned into a different wrong date here.
+ */
+function shiftDays(date: string, days: number): string {
+  if (!isRealDate(date)) return date;
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+/** An exclusive `to` (what the URL and the RPC carry) as the last day it includes. */
+export function inclusiveEnd(exclusiveTo: string): string {
+  return shiftDays(exclusiveTo, -1);
+}
+
+/** An inclusive last day (what a person types) as the exclusive `to` everything else uses. */
+export function exclusiveEnd(inclusiveTo: string): string {
+  return shiftDays(inclusiveTo, 1);
 }
 
 /**

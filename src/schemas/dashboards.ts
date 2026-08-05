@@ -24,6 +24,21 @@ import { z } from 'zod';
  * `database.types.ts`), and `schema.parse(data)` in `services/dashboards.ts`
  * is what makes the return type true — never an `as` cast, which would only
  * assert the shape without checking it.
+ *
+ * THE THREE `cards` OBJECTS ARE `.strict()`, and nothing else in this file is.
+ * Zod's default is to STRIP an unknown key silently, which on a D13 payload is
+ * the wrong default in one specific direction: `cards` is the object where a
+ * key's presence or absence carries the meaning, so a typo'd key name in a
+ * migration would leave the real figure absent (rendered as "withheld", a
+ * permission claim that is false) while the misspelled one was quietly
+ * discarded — a page that lies with nothing failing. Strict turns that into a
+ * parse error somebody has to look at. THE COST, stated because a future
+ * author will meet it: deploys here run `supabase db push` before the
+ * frontend, so a migration that ADDS a card to one of these functions makes
+ * that dashboard throw until the matching schema line ships. Add the field
+ * here first, deploy, then add it in SQL — the reverse of the order the
+ * runbook's `reports.consolidated` trap warns about, and for the opposite
+ * reason.
  */
 
 // ---------------------------------------------------------------------------
@@ -86,11 +101,26 @@ export const periodSchema = z.object({
 });
 export type Period = z.infer<typeof periodSchema>;
 
-/** One Station named in the payload — every one the caller's Station ids resolved to, consolidated or not. */
+/**
+ * One Station named in the payload — every one the caller's Station ids
+ * resolved to, consolidated or not.
+ *
+ * `from` and `to` are this Station's OWN resolved window, and they are here
+ * because D5 (as amended on 2026-08-05) keeps presets resolving from `now()`
+ * at each Station's clock. On the turn of a month a Station at UTC+14 and one
+ * at UTC−3 resolve **different calendar months**, so `period` above — the
+ * overall bounds — is not a claim about any individual Station. A screen that
+ * printed one date range over a consolidated set would be asserting a
+ * uniformity the query does not provide; these are what let it notice the
+ * disagreement and name the Stations it applies to instead. `to` is exclusive,
+ * exactly as `period.to` is.
+ */
 export const stationSchema = z.object({
   id: z.string(),
   name: z.string(),
   timezone: z.string(),
+  from: z.string(),
+  to: z.string(),
 });
 export type Station = z.infer<typeof stationSchema>;
 
@@ -111,7 +141,7 @@ const audienceCardsSchema = z.object({
   /** Withheld without participations.view (D13) — omitted, never zeroed. */
   took_part: cardSchema.optional(),
   barred: cardSchema,
-});
+}).strict();
 
 const audienceBreakdownsSchema = z.object({
   blocks_by_kind: z.array(sliceSchema),
@@ -144,7 +174,7 @@ const musicCardsSchema = z.object({
   catalogue: cardSchema,
   new_songs: cardSchema,
   requests: cardSchema,
-});
+}).strict();
 
 const musicBreakdownsSchema = z.object({
   nationality: z.array(sliceSchema),
@@ -187,7 +217,7 @@ const promotionsCardsSchema = z.object({
   awarded: cardSchema,
   /** No `previous` either, for the same reason as `live_now`. */
   overdue: cardSchema,
-});
+}).strict();
 
 const promotionsBreakdownsSchema = z.object({
   participation_status: z.array(sliceSchema).optional(),

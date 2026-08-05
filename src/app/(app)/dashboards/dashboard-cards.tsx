@@ -5,6 +5,22 @@ import type { Card as CardValue, Withheld } from '@/schemas/dashboards';
 export interface CardSpec {
   key: string;
   label: string;
+  /**
+   * A caveat about what this figure counts, rendered under the number when the
+   * figure needs one — today, only the Audience panel's four, and only in a
+   * consolidated view (whole-branch review, Important B5).
+   *
+   * It exists because `listeners`, `new_listeners`, `took_part` and `barred`
+   * all count DISTINCT MEMBERS, and members are Organization-scoped (0031): a
+   * listener reachable from two of the selected Stations is one listener, so
+   * the consolidated figure is not the sum of the single-Station figures
+   * anybody could produce by visiting each panel in turn. Design spec §3.1
+   * already said so for `barred` and the page already printed it there; the
+   * other three carry exactly the same arithmetic and said nothing, which
+   * makes the one caveat read as a quirk of bars rather than the property of
+   * the panel it actually is.
+   */
+  note?: string;
 }
 
 /**
@@ -78,6 +94,9 @@ export function DashboardCards({
                       Previous period: {card.previous.toLocaleString()}
                     </p>
                   )}
+                  {/* Only on a real figure. A withheld tile says nothing about
+                      what it would have counted — that is the whole of D13. */}
+                  {spec.note && <p className="text-xs text-muted-foreground">{spec.note}</p>}
                 </div>
               ) : (
                 <WithheldFigure />
