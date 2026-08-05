@@ -179,8 +179,9 @@ create procedure public.sweep_pickup_reminders()
 language plpgsql
 as $$
 declare
-  v_ids uuid[];
-  v_id  uuid;
+  v_ids     uuid[];
+  v_id      uuid;
+  v_failed  integer := 0;
 begin
   -- Candidate set (task brief, D8's own window shape): AWAITING_PICKUP, the
   -- draw not CANCELLED -- Blocks 6c and 6d each lost this exclusion once
@@ -190,7 +191,14 @@ begin
   -- left solely to enqueue_pickup_reminder's own re-check: an anonymised
   -- listener is never even handed to the loop below, which is what keeps it
   -- out of the exception-handler path a missing template takes instead.
-  select coalesce(array_agg(w.id), '{}') into v_ids
+  --
+  -- ORDER BY w.id (fix round 1): array_agg with no ORDER BY has no defined
+  -- walk order, which made the sweep's own non-abort behaviour depend on
+  -- which candidate the planner happened to visit first -- a test asserting
+  -- "Station A's winner survives Station B's failure" is only proving that
+  -- if the failing candidate is actually walked before the surviving one.
+  -- Costs nothing and makes the walk order reproducible run to run.
+  select coalesce(array_agg(w.id order by w.id), '{}') into v_ids
     from public.winners w
     join public.draws d on d.id = w.draw_id
     join public.members m on m.id = w.member_id
@@ -210,13 +218,28 @@ begin
       -- row (a Station with no registered template, say) stop every other
       -- Station's reminders, where one operator pressing one button must not
       -- get half a merge. A Station with no registered template lands here
-      -- and the sweep continues. No explicit ROLLBACK: the EXCEPTION clause
-      -- already rolls this block back to its own implicit savepoint on the
-      -- way in here, and an explicit ROLLBACK is a full transaction abort,
-      -- not the savepoint undo this needs -- the COMMIT below is what a
-      -- caught exception still requires, to close the (now-empty-of-this-
-      -- winner) transaction before the next iteration opens one.
-      null;
+      -- and the sweep continues.
+      --
+      -- v_failed AND raise warning ... sqlerrm (fix round 1): 0094's own
+      -- header explains why a WARNING is the only place this can be seen at
+      -- all -- cron.job_run_details records status=succeeded for a CALL in
+      -- which every single winner failed, because RAISE WARNING lands in the
+      -- Postgres server log and never reaches that table. A bare `null`
+      -- here, this migration's own first draft, meant a Station that
+      -- registers its template with the wrong placeholder count fails
+      -- 22023 every hour, forever, with no line anywhere -- exactly the
+      -- silent failure Block 6d's report called out and this block exists
+      -- to end. Deliberately NOT followed by 0094's own terminal
+      -- `raise exception when v_failed > 0`: that raise is what makes 0094's
+      -- own per-winner durability provable under pgTAP (12b's poison
+      -- fixture), but this procedure's test fixture deliberately contains a
+      -- failing candidate (the no-template Station) on every run, and a
+      -- terminal raise would abort the bare top-level CALL pgTAP issues,
+      -- taking every assertion after it down too. The per-winner WARNING is
+      -- the whole of the fix this round asked for; the terminal raise is
+      -- explicitly out of scope.
+      v_failed := v_failed + 1;
+      raise warning 'pickup reminder sweep failed for winner %: %', v_id, sqlerrm;
     end;
     -- OUTSIDE the exception block on purpose -- 0094's own rule, restated
     -- because this migration hit its exact failure mode while being
@@ -225,17 +248,26 @@ begin
     -- presence of an EXCEPTION clause makes the block itself a
     -- subtransaction. Placed there once, by mistake, while drafting this
     -- file: the raised 2D000 was caught by the very block it occurred in,
-    -- and the ROLLBACK that used to sit in the exception handler undid the
+    -- and an earlier draft's explicit ROLLBACK in the handler undid the
     -- winner's already-successful enqueue along with it -- a caught error
     -- silently erasing a real success. Moving COMMIT here, matching 0094
-    -- exactly, is what fixed it.
+    -- exactly, is what fixed it; no explicit ROLLBACK belongs in the handler
+    -- either way, because the EXCEPTION clause already rolls the block back
+    -- to its own implicit savepoint on the way in.
     commit;
   end loop;
+
+  -- Informational only -- NOTICE, never EXCEPTION, for the reason directly
+  -- above. Nothing but pg_cron calls this, and cron.job_run_details stores
+  -- only the CALL's own completion status; this line exists for whoever
+  -- reads the server log directly, the same audience the per-winner WARNING
+  -- above is for.
+  raise notice 'pickup reminder sweep: % of % candidate(s) failed', v_failed, coalesce(array_length(v_ids, 1), 0);
 end;
 $$;
 
 comment on procedure public.sweep_pickup_reminders() is
-  'Enqueues a PICKUP_REMINDER template send for every winner whose frozen deadline is due within the next two days and not yet passed. Candidate set: AWAITING_PICKUP, the draw not CANCELLED, deadline_at strictly between now() and now() + 2 days, and the listener neither soft-deleted nor anonymised. Scheduled directly through pg_cron, the same shape as its sibling sweep_pickup_deadlines (0094) and for the identical reasons stated there: no HTTP, no application code in the path, and not folded into the WhatsApp worker''s ten-second tick. Commits after each winner, inside a per-winner exception block, so a Station with no registered template -- or any other single failure -- cannot abort reminders for every other Station in the installation. Re-running is safe: enqueue_pickup_reminder re-validates AWAITING_PICKUP before enqueuing, and enqueue_whatsapp_outbound''s own dedupe_key refuses a repeat for a winner already reminded. Records no actor -- auth.uid() is null under pg_cron -- which is honest: nobody did this, the clock did.';
+  'Enqueues a PICKUP_REMINDER template send for every winner whose frozen deadline is due within the next two days and not yet passed. Candidate set: AWAITING_PICKUP, the draw not CANCELLED, deadline_at strictly between now() and now() + 2 days, and the listener neither soft-deleted nor anonymised -- collected in id order so the walk is reproducible. Scheduled directly through pg_cron, the same shape as its sibling sweep_pickup_deadlines (0094) and for the identical reasons stated there: no HTTP, no application code in the path, and not folded into the WhatsApp worker''s ten-second tick. Commits after each winner, inside a per-winner exception block, so a Station with no registered template -- or any other single failure -- cannot abort reminders for every other Station in the installation. Every per-winner failure is named in a WARNING (winner id and SQLERRM), because cron.job_run_details records only the CALL''s own completion status and cannot otherwise tell a clean run from one where every winner failed (0094''s own finding); deliberately carries NO terminal raise-if-any-failed the way 0094 does, because that raise is 0094''s only route to marking a run failed in job_run_details and this procedure accepts a coarser signal (the server log alone) in exchange for never aborting mid-batch on a candidate set that, unlike expired deadlines, is expected to contain unregistered Stations routinely. Re-running is safe: enqueue_pickup_reminder re-validates AWAITING_PICKUP before enqueuing, and enqueue_whatsapp_outbound''s own dedupe_key refuses a repeat for a winner already reminded. Records no actor -- auth.uid() is null under pg_cron -- which is honest: nobody did this, the clock did.';
 
 revoke execute on procedure public.sweep_pickup_reminders() from public;
 

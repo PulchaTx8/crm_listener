@@ -6,7 +6,7 @@
 -- inside an open transaction block raises "invalid transaction termination".
 -- So this file builds its fixture, runs, asserts, and deletes what it made.
 
-select plan(12);
+select plan(13);
 
 -- ---------------------------------------------------------------------------
 -- SELF-HEALING: the same cleanup this file runs at the bottom, run again here
@@ -16,28 +16,39 @@ select plan(12);
 -- broke. Every DELETE below is a no-op on a genuinely fresh database.
 
 delete from public.outbox_messages where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.winners where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.participations where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.draws where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.promotion_prizes where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.promotions where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.prizes where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.message_templates where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.integrations where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.member_company_links where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.members where organization_id = '00000000-0000-0000-0000-00000000e5f1';
 delete from public.companies where id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.organizations where id = '00000000-0000-0000-0000-00000000e5f1';
 delete from auth.users where id = '00000000-0000-0000-0000-00000000e5ab';
 
@@ -73,11 +84,22 @@ select ok(
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e5f1', 'Org pickup reminders');
 
+-- Station C (...e5c3, fix round 1) is a THIRD Station in a DIFFERENT
+-- timezone -- America/Manaus, a constant UTC-4 with no DST, distinct from
+-- Sao Paulo's constant UTC-3. Without it, assertions 4 and 5 only prove the
+-- deadline is converted through SOME `at time zone` expression: both other
+-- Stations share 'America/Sao_Paulo', so an implementation that hardcoded
+-- that literal instead of reading companies.timezone would still pass every
+-- other assertion in this file. Station C's own winner (assertion 6 below)
+-- is the one case that distinguishes "reads the column" from "reads the
+-- literal that happens to be right twice".
 insert into public.companies (id, organization_id, name, timezone) values
   ('00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5f1',
    'Station reminders', 'America/Sao_Paulo'),
   ('00000000-0000-0000-0000-00000000e5c2', '00000000-0000-0000-0000-00000000e5f1',
-   'Station reminders no template', 'America/Sao_Paulo');
+   'Station reminders no template', 'America/Sao_Paulo'),
+  ('00000000-0000-0000-0000-00000000e5c3', '00000000-0000-0000-0000-00000000e5f1',
+   'Station reminders Manaus', 'America/Manaus');
 
 insert into public.integrations
   (id, organization_id, company_id, provider, phone_number_id, enabled)
@@ -85,23 +107,31 @@ values
   ('00000000-0000-0000-0000-00000000e5a1', '00000000-0000-0000-0000-00000000e5f1',
    '00000000-0000-0000-0000-00000000e5c1', 'WHATSAPP', '5511900001001', true),
   ('00000000-0000-0000-0000-00000000e5a2', '00000000-0000-0000-0000-00000000e5f1',
-   '00000000-0000-0000-0000-00000000e5c2', 'WHATSAPP', '5511900002001', true);
+   '00000000-0000-0000-0000-00000000e5c2', 'WHATSAPP', '5511900002001', true),
+  ('00000000-0000-0000-0000-00000000e5a3', '00000000-0000-0000-0000-00000000e5f1',
+   '00000000-0000-0000-0000-00000000e5c3', 'WHATSAPP', '5511900003001', true);
 
--- Station A's approved template. Three placeholders, matching the contract
--- Task 4 fixes: {{1}} first name, {{2}} prize name, {{3}} the deadline.
--- Station B registers none -- that absence is the whole point of its fixture.
+-- Station A's and Station C's approved templates. Three placeholders each,
+-- matching the contract Task 4 fixes: {{1}} first name, {{2}} prize name,
+-- {{3}} the deadline. Station B registers none -- that absence is the whole
+-- point of its fixture.
 insert into public.message_templates
   (organization_id, company_id, purpose, name, language, body)
 values
   ('00000000-0000-0000-0000-00000000e5f1', '00000000-0000-0000-0000-00000000e5c1',
    'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR',
+   'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}!'),
+  ('00000000-0000-0000-0000-00000000e5f1', '00000000-0000-0000-0000-00000000e5c3',
+   'PICKUP_REMINDER', 'Lembrete de retirada Manaus', 'pt_BR',
    'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}!');
 
 insert into public.prizes (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-00000000e5d1', '00000000-0000-0000-0000-00000000e5f1',
    '00000000-0000-0000-0000-00000000e5c1', 'Fone de ouvido'),
   ('00000000-0000-0000-0000-00000000e5d2', '00000000-0000-0000-0000-00000000e5f1',
-   '00000000-0000-0000-0000-00000000e5c2', 'Caneca');
+   '00000000-0000-0000-0000-00000000e5c2', 'Caneca'),
+  ('00000000-0000-0000-0000-00000000e5d3', '00000000-0000-0000-0000-00000000e5f1',
+   '00000000-0000-0000-0000-00000000e5c3', 'Camiseta');
 
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at)
@@ -111,6 +141,9 @@ values
    now() - interval '2 days', now() + interval '5 days'),
   ('00000000-0000-0000-0000-00000000e5e2', '00000000-0000-0000-0000-00000000e5f1',
    '00000000-0000-0000-0000-00000000e5c2', 'Promo reminders B',
+   now() - interval '2 days', now() + interval '5 days'),
+  ('00000000-0000-0000-0000-00000000e5e3', '00000000-0000-0000-0000-00000000e5f1',
+   '00000000-0000-0000-0000-00000000e5c3', 'Promo reminders C',
    now() - interval '2 days', now() + interval '5 days');
 
 insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id)
@@ -120,7 +153,10 @@ values
    '00000000-0000-0000-0000-00000000e5c1'),
   ('00000000-0000-0000-0000-00000000e5b2', '00000000-0000-0000-0000-00000000e5e2',
    '00000000-0000-0000-0000-00000000e5d2', '00000000-0000-0000-0000-00000000e5f1',
-   '00000000-0000-0000-0000-00000000e5c2');
+   '00000000-0000-0000-0000-00000000e5c2'),
+  ('00000000-0000-0000-0000-00000000e5b3', '00000000-0000-0000-0000-00000000e5e3',
+   '00000000-0000-0000-0000-00000000e5d3', '00000000-0000-0000-0000-00000000e5f1',
+   '00000000-0000-0000-0000-00000000e5c3');
 
 -- Draws written by hand, not through run_draw/apply_draw -- the identical
 -- choice 13's own header explains: what is under test is the sweep's read,
@@ -135,7 +171,10 @@ values
    repeat('1', 64), 1, 4, 4),
   ('00000000-0000-0000-0000-00000000e533', '00000000-0000-0000-0000-00000000e5e2',
    '00000000-0000-0000-0000-00000000e5f1', '00000000-0000-0000-0000-00000000e5c2',
-   repeat('3', 64), 1, 1, 1);
+   repeat('3', 64), 1, 1, 1),
+  ('00000000-0000-0000-0000-00000000e534', '00000000-0000-0000-0000-00000000e5e3',
+   '00000000-0000-0000-0000-00000000e5f1', '00000000-0000-0000-0000-00000000e5c3',
+   repeat('4', 64), 1, 1, 1);
 
 -- draws_cancellation_shape (0075) needs a real actor for cancelled_by.
 insert into auth.users (id, email) values
@@ -168,7 +207,9 @@ insert into public.members (id, organization_id, full_name, phone, anonymized_at
   ('00000000-0000-0000-0000-00000000e525', '00000000-0000-0000-0000-00000000e5f1',
    null, null, now()),
   ('00000000-0000-0000-0000-00000000e526', '00000000-0000-0000-0000-00000000e5f1',
-   'Elis NoTemplate', '5511900020001', null);
+   'Elis NoTemplate', '5511900020001', null),
+  ('00000000-0000-0000-0000-00000000e527', '00000000-0000-0000-0000-00000000e5f1',
+   'Fabio Manaus', '5511900030001', null);
 
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-00000000e521', '00000000-0000-0000-0000-00000000e5c1',
@@ -182,6 +223,8 @@ insert into public.member_company_links (member_id, company_id, organization_id)
   ('00000000-0000-0000-0000-00000000e525', '00000000-0000-0000-0000-00000000e5c1',
    '00000000-0000-0000-0000-00000000e5f1'),
   ('00000000-0000-0000-0000-00000000e526', '00000000-0000-0000-0000-00000000e5c2',
+   '00000000-0000-0000-0000-00000000e5f1'),
+  ('00000000-0000-0000-0000-00000000e527', '00000000-0000-0000-0000-00000000e5c3',
    '00000000-0000-0000-0000-00000000e5f1');
 
 insert into public.participations
@@ -205,9 +248,13 @@ values
    '00000000-0000-0000-0000-00000000e5c1', false, 'VALID', 'MANUAL', now() - interval '1 hours'),
   ('00000000-0000-0000-0000-00000000e546', '00000000-0000-0000-0000-00000000e5e2',
    '00000000-0000-0000-0000-00000000e526', '00000000-0000-0000-0000-00000000e5f1',
-   '00000000-0000-0000-0000-00000000e5c2', false, 'VALID', 'MANUAL', now() - interval '1 hours');
+   '00000000-0000-0000-0000-00000000e5c2', false, 'VALID', 'MANUAL', now() - interval '1 hours'),
+  ('00000000-0000-0000-0000-00000000e547', '00000000-0000-0000-0000-00000000e5e3',
+   '00000000-0000-0000-0000-00000000e527', '00000000-0000-0000-0000-00000000e5f1',
+   '00000000-0000-0000-0000-00000000e5c3', false, 'VALID', 'MANUAL', now() - interval '1 hours');
 
--- Six winners, the six states the sweep must tell apart.
+-- Seven winners, the six states the sweep must tell apart at Station A/B, plus
+-- Station C's own in-window winner for the cross-timezone proof.
 --
 -- InWindow's deadline is deliberately 02:00 UTC TOMORROW rather than a plain
 -- `now() + interval '1 day'`: this Postgres container runs in UTC (0062's own
@@ -253,16 +300,32 @@ values
   ('00000000-0000-0000-0000-00000000e556', '00000000-0000-0000-0000-00000000e533',
    '00000000-0000-0000-0000-00000000e5c2', '00000000-0000-0000-0000-00000000e5b2',
    '00000000-0000-0000-0000-00000000e526', '00000000-0000-0000-0000-00000000e546',
-   1, 'AWAITING_PICKUP', now() + interval '1 day');
+   1, 'AWAITING_PICKUP', now() + interval '1 day'),
+  -- ManausInWindow (fix round 1): the cross-timezone proof. 03:30 UTC TOMORROW
+  -- is 23:30 TODAY in America/Manaus (UTC-4) but 00:30 TOMORROW in
+  -- America/Sao_Paulo (UTC-3) -- a full calendar day apart from the SAME
+  -- instant. If enqueue_pickup_reminder ever read a hardcoded
+  -- 'America/Sao_Paulo' instead of this Station's own companies.timezone,
+  -- this winner's rendered date would be wrong by exactly one day.
+  ('00000000-0000-0000-0000-00000000e557', '00000000-0000-0000-0000-00000000e534',
+   '00000000-0000-0000-0000-00000000e5c3', '00000000-0000-0000-0000-00000000e5b3',
+   '00000000-0000-0000-0000-00000000e527', '00000000-0000-0000-0000-00000000e547',
+   1, 'AWAITING_PICKUP', (current_date + 1 + time '03:30:00') at time zone 'UTC');
 
 -- ---------------------------------------------------------------------------
 -- THE FIRST SWEEP. Its candidate set, under the procedure's own predicate, is
--- exactly {InWindow, NoTemplate}: CancelledDraw is excluded by the join to
--- draws, Delivered by winners.status, Expired by the deadline's lower bound,
--- Anonymized by the listener predicate -- none of those four is ever handed
--- to enqueue_pickup_reminder at all. NoTemplate IS handed to it, fails inside
--- enqueue_whatsapp_outbound's own P0002, and is caught by the per-winner
--- exception block -- which is what assertion 10 (together with 3) proves.
+-- exactly {InWindow, NoTemplate, ManausInWindow}: CancelledDraw is excluded
+-- by the join to draws, Delivered by winners.status, Expired by the
+-- deadline's lower bound, Anonymized by the listener predicate -- none of
+-- those four is ever handed to enqueue_pickup_reminder at all. NoTemplate IS
+-- handed to it, fails inside enqueue_whatsapp_outbound's own P0002, and is
+-- caught by the per-winner exception block -- which is what assertion 10
+-- (together with 3) proves. Collected in id order (fix round 1): the walk is
+-- InWindow (...e551), NoTemplate (...e556), then ManausInWindow (...e557) --
+-- so InWindow's success is already committed BEFORE NoTemplate's failure,
+-- and ManausInWindow's success is committed AFTER it. Between assertions 11
+-- and 13 this proves survival on both sides of the failure, not merely
+-- whichever side the planner happened to visit first.
 
 call public.sweep_pickup_reminders();
 
@@ -349,8 +412,28 @@ select is(
     where dedupe_key = 'pickup-reminder:00000000-0000-0000-0000-00000000e551'),
   1, 'and Station A''s winner is still enqueued -- Station B''s failure did not abort the sweep');
 
+-- 12: THE CROSS-TIMEZONE PROOF (fix round 1). Station C's own zone is
+-- America/Manaus (UTC-4), not Station A/B's America/Sao_Paulo (UTC-3) --
+-- expected value computed with THAT literal, from the SAME stored
+-- deadline_at, so an implementation that hardcoded 'America/Sao_Paulo' for
+-- every Station (which assertions 4 and 5 alone cannot catch, since both
+-- Stations they check share that zone) would print a date one calendar day
+-- off from what this asserts. Also incidental confirmation that a WINNER
+-- WALKED AFTER the no-template failure (...e557 sorts after ...e556 in the
+-- id-ordered walk) still commits -- the failure does not poison anything
+-- that comes after it either.
+select is(
+  (select body from public.outbox_messages
+    where dedupe_key = 'pickup-reminder:00000000-0000-0000-0000-00000000e557'),
+  format('Oi %s, seu prêmio %s te espera até %s!', 'Fabio', 'Camiseta',
+    to_char(
+      (select deadline_at from public.winners where id = '00000000-0000-0000-0000-00000000e557')
+        at time zone 'America/Manaus',
+      'DD/MM/YYYY')),
+  'a Station in a different timezone gets its deadline formatted in ITS OWN zone, not another Station''s');
+
 -- ---------------------------------------------------------------------------
--- 12: RUNNING THE SWEEP TWICE ENQUEUES NOTHING THE SECOND TIME -- proved by
+-- 13: RUNNING THE SWEEP TWICE ENQUEUES NOTHING THE SECOND TIME -- proved by
 -- actually running it again (D9), not by reading outbox_messages' own unique
 -- constraint on (provider, dedupe_key). InWindow is still, after this second
 -- call, a candidate every time the query runs (nothing about it changes
@@ -370,27 +453,38 @@ select * from finish();
 -- Clean up, children first: this file did not roll back.
 
 delete from public.outbox_messages where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.winners where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.participations where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.draws where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.promotion_prizes where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.promotions where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.prizes where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.message_templates where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.integrations where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.member_company_links where company_id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.members where organization_id = '00000000-0000-0000-0000-00000000e5f1';
 delete from public.companies where id in (
-  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2');
+  '00000000-0000-0000-0000-00000000e5c1', '00000000-0000-0000-0000-00000000e5c2',
+  '00000000-0000-0000-0000-00000000e5c3');
 delete from public.organizations where id = '00000000-0000-0000-0000-00000000e5f1';
 delete from auth.users where id = '00000000-0000-0000-0000-00000000e5ab';
