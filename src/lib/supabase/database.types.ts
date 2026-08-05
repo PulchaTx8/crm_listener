@@ -3269,7 +3269,34 @@ export type Database = {
         Args: { p_event_id: string; p_outcome: string }
         Returns: Json
       }
+      get_audience_dashboard: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       get_draw: { Args: { p_draw_id: string }; Returns: Json }
+      get_music_dashboard: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_promotions_dashboard: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
@@ -3563,6 +3590,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      promotion_is_live: {
+        Args: {
+          p_at: string
+          p_cancelled_at: string
+          p_ends_at: string
+          p_starts_at: string
+        }
+        Returns: boolean
+      }
       promotion_participation_correctness: {
         Args: { p_promotion_id: string }
         Returns: {
@@ -3730,6 +3766,24 @@ export type Database = {
       reset_provisional_password: {
         Args: { p_user_id: string }
         Returns: undefined
+      }
+      resolve_dashboard_period: {
+        Args: {
+          p_from: string
+          p_preset: string
+          p_timezone: string
+          p_to: string
+        }
+        Returns: {
+          from_at: string
+          from_date: string
+          previous_from_at: string
+          previous_from_date: string
+          previous_to_at: string
+          previous_to_date: string
+          to_at: string
+          to_date: string
+        }[]
       }
       resolve_or_create_member: {
         Args: {

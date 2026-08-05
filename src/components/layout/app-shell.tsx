@@ -32,6 +32,12 @@ export const ICONS = {
   // announces a promotion to everybody, this one is one side of a conversation
   // with one listener.
   message: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+  // A bar chart, for Block 8a's Dashboards section. Its own path rather than
+  // reusing anything here: the eleven glyphs above are all objects or
+  // people (a radio, a box, a shield, a ticket, a speech bubble…), and
+  // nothing already declared means *a measure* — the one idea three read-only
+  // aggregate screens are entirely about.
+  chart: 'M3 3v18h18M8 17V10M13 17V6M18 17v-4',
 } as const;
 
 export interface ShellUser {

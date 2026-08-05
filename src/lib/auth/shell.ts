@@ -29,6 +29,34 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
     },
     {
+      // Visible to every member, including those holding members.view,
+      // music.view and promotions.view in no Station at all — the same
+      // courtesy every section below extends. Each of the three pages
+      // redirects at the top of its own render for a caller who holds its
+      // permission nowhere, and the three functions in 0118–0120 re-check
+      // it themselves regardless of that redirect, raising 42501 rather
+      // than returning a page of zeros. Hiding a link is a courtesy; the
+      // boundary is in the database.
+      label: 'Dashboards',
+      items: [
+        // "... overview", not the bare domain word, and the same rule the
+        // Inventory section below records for its own rename (Block 6d): a
+        // SECTION and an ITEM spelling the same word read as one link
+        // rendered twice. This block shipped three of them at once — every
+        // one of "Audience", "Music" and "Promotions" is already a section
+        // label further down THIS SAME sidebar, so the shipped nav offered
+        // two "Audience" entries (one a link here, one a heading over
+        // Members and Participations), two "Music" and two "Promotions".
+        // Unlike Inventory > Stock, the href is not what changed; only the
+        // accessible name is, and tests/e2e/dashboards.spec.ts selects on
+        // it by role and name, so its three getByRole('link') calls moved
+        // with this.
+        { href: '/dashboards/audience', label: 'Audience overview', icon: ICONS.chart },
+        { href: '/dashboards/music', label: 'Music overview', icon: ICONS.music },
+        { href: '/dashboards/promotions', label: 'Promotions overview', icon: ICONS.megaphone },
+      ],
+    },
+    {
       // Visible to every member, including those holding no inventory
       // permission in any Station at all — the same courtesy Team and Roles
       // below already extend. /inventory redirects at the top of its own

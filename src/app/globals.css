@@ -45,6 +45,23 @@
     --sidebar-accent: 238 45% 15%; /* #151637, the active row */
     --sidebar-accent-foreground: 158 64% 52%; /* #34D399, 9.4:1 on the row */
     --sidebar-border: 238 40% 14%;
+
+    /* Chart categorical palette (Block 8a, `dataviz` skill's reference
+       instance). Eight hues in a fixed order — the order is the CVD-safety
+       mechanism, validated with `validate_palette.js` against this file's own
+       surfaces: worst adjacent pair ΔE 9.1 (OKLab ×100, ≥8 target), worst
+       adjacent normal-vision ΔE 19.6 (≥15 floor). Never reorder; never add a
+       9th by generating a hue — fold an excess series into "Other" or facet
+       instead. `src/components/charts/chart-colors.ts` is the only file that
+       reads these. */
+    --chart-1: 213 68% 50%; /* blue */
+    --chart-2: 17 82% 56%; /* orange */
+    --chart-3: 159 73% 40%; /* aqua */
+    --chart-4: 41 100% 47%; /* yellow */
+    --chart-5: 337 70% 70%; /* magenta */
+    --chart-6: 120 100% 26%; /* green */
+    --chart-7: 249 48% 44%; /* violet */
+    --chart-8: 0 74% 59%; /* red */
   }
 
   .dark {
@@ -78,6 +95,17 @@
     --sidebar-accent: 238 45% 15%;
     --sidebar-accent-foreground: 158 64% 52%;
     --sidebar-border: 238 40% 14%;
+
+    /* Same eight hues as `:root`, stepped for the dark surface — not a
+       separate palette. Worst adjacent CVD ΔE 8.4, normal-vision ΔE 19.3. */
+    --chart-1: 213 77% 56%; /* blue */
+    --chart-2: 17 70% 50%; /* orange */
+    --chart-3: 159 73% 36%; /* aqua */
+    --chart-4: 40 100% 39%; /* yellow */
+    --chart-5: 338 61% 58%; /* magenta */
+    --chart-6: 120 100% 26%; /* green */
+    --chart-7: 247 69% 72%; /* violet */
+    --chart-8: 0 72% 65%; /* red */
   }
 }
 

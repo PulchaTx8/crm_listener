@@ -72,8 +72,23 @@ describe('every screen with a Company switcher', () => {
   for (const { file, source } of switchers) {
     const screen = file.replace(/.*[\\/]src[\\/]/, 'src/').replace(/\\/g, '/');
 
-    it(`${screen} builds the switcher link through stationSwitchHref`, () => {
-      expect(source).toContain('stationSwitchHref(');
+    // Block 8a's three dashboard screens are the ninth, tenth and eleventh
+    // switchers this guard was written to catch the day they were written
+    // (this describe block's own header) — and they DON'T call
+    // stationSwitchHref. They carry a period (preset/from/to) alongside the
+    // Company, which stationSwitchHref's own query type deliberately has no
+    // room for (`{ companyId: string; station?: string }`, station-switch.ts).
+    // `app/(app)/dashboards/period.ts`'s own header explains the second
+    // helper this forced: `withStationSearch`, built for the exact same
+    // Server-Component/client-control/unit-test triangle, appending the same
+    // `station` term the same way — carried by `periodHref`'s query instead
+    // of stationSwitchHref's. Accepting either here is what keeps this guard
+    // honest about its real rule ("some screen-search-carrying mechanism is
+    // used", not "this one specific function is called") without weakening it
+    // for the other eight screens, none of which import withStationSearch at
+    // all.
+    it(`${screen} builds the switcher link through stationSwitchHref (or, for a screen that also carries a period, period.ts's withStationSearch)`, () => {
+      expect(source).toMatch(/stationSwitchHref\(|withStationSearch\(/);
     });
 
     // Belt and braces: a screen could call the helper for one link and still
