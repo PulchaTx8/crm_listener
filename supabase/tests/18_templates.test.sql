@@ -1,5 +1,5 @@
 begin;
-select plan(70);
+select plan(71);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -160,6 +160,18 @@ $$, 'archiving a template frees its purpose for a new registration');
 select ok(
   not has_table_privilege('authenticated', 'public.message_templates', 'INSERT'),
   'authenticated cannot insert a template directly');
+
+-- 18b: and authenticated CAN read one. Task 1's file asserts this positively
+-- for station_message_templates (test 8); Task 2's asserted only the absence
+-- of the insert grant, never the presence of the select — so dropping
+-- `grant select … to authenticated` from 0110 would have left this file green
+-- and the WhatsApp screen permanently empty. Measured, not assumed: with that
+-- line revoked, tests 62-63 below now fail too, but only INCIDENTALLY, by
+-- reading the table inside a door's fixture. This is the assertion that says
+-- so on purpose and would survive those being rewritten.
+select ok(
+  has_table_privilege('authenticated', 'public.message_templates', 'SELECT'),
+  'authenticated may read registered templates, gated by the policy');
 
 -- 19: service_role reads — Task 3's enqueue_whatsapp_outbound resolves the
 -- row under service_role. A separate assertion from 18 and 20: three

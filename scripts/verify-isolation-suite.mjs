@@ -179,6 +179,24 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/roles.test.ts', minTests: 17 },
   { path: 'tests/isolation/signup-disabled.test.ts', minTests: 1 },
   { path: 'tests/isolation/tenant.test.ts', minTests: 9 },
+  // Block Templates, Task 5: the two codes, both tables, four doors. What only
+  // this file can show, for the reason every other entry here gives -- pgTAP
+  // runs as superuser with a null auth.uid() and gets `true` from
+  // has_permission unconditionally -- is the GATE: templates.view does not
+  // confer templates.manage on any of the four doors, one case each, because a
+  // gate restored on three of four would satisfy a bundled assertion; and the
+  // read policy filters per row's company_id, so a delegate in one Station
+  // cannot see the group's other registrations.
+  //
+  // The positive branch (templates.view ALONE genuinely reading BOTH tables)
+  // is here for a different reason: it is the whole reachability of the two
+  // screens, and it is what a caller EXPERIENCES rather than what a catalogue
+  // says. Revoking `grant select on message_templates from authenticated` was
+  // run as a real mutation against the local stack and fails exactly this file
+  // with 42501; 18_templates.test.sql now asserts that grant directly as well,
+  // after the same mutation showed it was only being caught there
+  // incidentally, inside another test's fixture read.
+  { path: 'tests/isolation/templates.test.ts', minTests: 13 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },
 ];
 
