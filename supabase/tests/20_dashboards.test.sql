@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(34);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -116,6 +116,201 @@ select throws_ok(
 select throws_ok(
   $$ select * from public.resolve_dashboard_period('last_tuesday', null, null, 'America/Sao_Paulo') $$,
   '22023', null, 'an unknown preset is refused rather than defaulted');
+
+-- ---------------------------------------------------------------------------
+-- get_audience_dashboard (Task 3). Fixtures use the d8 tag.
+-- ---------------------------------------------------------------------------
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-0000d8010001', 'Org dashboards');
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000d8020001', '00000000-0000-0000-0000-0000d8010001',
+   'Station SP', 'America/Sao_Paulo'),
+  ('00000000-0000-0000-0000-0000d8020002', '00000000-0000-0000-0000-0000d8010001',
+   'Station UTC', 'UTC');
+
+insert into public.members (id, organization_id, full_name, discovery_source) values
+  ('00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d8010001', 'Ana',  'Instagram'),
+  ('00000000-0000-0000-0000-0000d8030002', '00000000-0000-0000-0000-0000d8010001', 'Bruno','Instagram'),
+  ('00000000-0000-0000-0000-0000d8030003', '00000000-0000-0000-0000-0000d8010001', 'Célia', null);
+
+-- THE ASSERTION THIS WHOLE BLOCK EXISTS TO GET RIGHT. Ana is linked at 23:30
+-- on 31 August, Sao Paulo time -- which is 02:30Z on 1 September. Counted at
+-- the Station's clock she belongs to August; counted at the server's she
+-- belongs to September.
+insert into public.member_company_links (member_id, company_id, organization_id, linked_at) values
+  ('00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '2026-09-01 02:30:00+00'),
+  -- Bruno lands squarely inside August at either clock.
+  ('00000000-0000-0000-0000-0000d8030002', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '2026-08-15 12:00:00+00'),
+  -- Célia arrives in July: she counts toward the comparison window, not August.
+  ('00000000-0000-0000-0000-0000d8030003', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '2026-07-20 12:00:00+00');
+
+-- TWO CALLERS, built once here and reused by Tasks 4 and 5. Both are ordinary
+-- role holders -- roles, role_permissions, auth.users, company_memberships --
+-- exactly as 02_permissions.test.sql:295-336 builds them, because these
+-- functions are SECURITY INVOKER and a caller that bypasses RLS would prove
+-- nothing about the property D4 buys.
+--
+--   d8050001  everything: members.view, music.view, promotions.view,
+--             participations.view, reports.consolidated, in BOTH Stations.
+--   d8050002  members.view, music.view and promotions.view in Station SP, and
+--             deliberately NOT participations.view -- the withheld case (D13).
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000d8040001', '00000000-0000-0000-0000-0000d8010001', 'Everything'),
+  ('00000000-0000-0000-0000-0000d8040002', '00000000-0000-0000-0000-0000d8010001', 'No entries');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000d8040001', 'members.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'music.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'promotions.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'participations.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'reports.consolidated'),
+  ('00000000-0000-0000-0000-0000d8040002', 'members.view'),
+  ('00000000-0000-0000-0000-0000d8040002', 'music.view'),
+  ('00000000-0000-0000-0000-0000d8040002', 'promotions.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000d8050001', 'dash-all@example.test'),
+  ('00000000-0000-0000-0000-0000d8050002', 'dash-no-entries@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000d8050001', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040001'),
+  ('00000000-0000-0000-0000-0000d8050001', '00000000-0000-0000-0000-0000d8020002',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040001'),
+  ('00000000-0000-0000-0000-0000d8050002', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040002');
+
+-- 20-21: the refusals, asserted as a signed-in user who simply is not a member
+-- of this Organization at all. 42501, never an empty payload -- zero and "you
+-- may not see this" must not render alike.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000d8050003', 'dash-outsider@example.test');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050003", "role": "authenticated"}';
+select throws_ok(
+  $$ select public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[], 'current_month', null, null) $$,
+  '42501', null, 'a caller without members.view is refused, not given zeros');
+select throws_ok(
+  $$ select public.get_audience_dashboard(array[]::uuid[], 'current_month', null, null) $$,
+  '22023', null, 'a call naming no station is refused');
+reset role;
+
+-- Everything below runs as d8050001 unless a block says otherwise.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+-- 22-23: August at the Sao Paulo Station. Ana (23:30 local on the 31st) and
+-- Bruno are in; Célia is not. Counted in UTC this would be 1, and that single
+-- difference is requirement L2.
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
+  2,
+  'a link at 23:30 local on the last day counts in that month');
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,previous}')::int,
+  1,
+  'July''s arrival is the comparison figure, not August''s');
+
+-- 24: the same window at a UTC Station puts Ana in September. Proved against
+-- the same rows by moving the links, so the only variable is the timezone.
+-- The write is fixture surgery and runs as the migration role: 0035 revokes
+-- insert on member_company_links from authenticated, because every real write
+-- to it goes through a SECURITY DEFINER RPC in 0034.
+reset role;
+insert into public.member_company_links (member_id, company_id, organization_id, linked_at)
+select member_id, '00000000-0000-0000-0000-0000d8020002', organization_id, linked_at
+  from public.member_company_links
+ where company_id = '00000000-0000-0000-0000-0000d8020001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020002']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
+  1,
+  'the same rows counted at a UTC Station exclude the 02:30Z link');
+
+-- 25: the stock figure is measured as of the window's end (D6), so a
+-- historical period reports what was true then.
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,listeners,current}')::int,
+  3,
+  'the listener total is measured at the end of the window');
+
+-- 26: an anonymised member is not audience any more. The write is done as the
+-- migration role -- an authenticated caller has no grant to update members
+-- directly, and this is fixture surgery, not the behaviour under test.
+reset role;
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-0000d8030002';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,listeners,current}')::int,
+  2,
+  'an anonymised member leaves the audience total');
+reset role;
+update public.members set anonymized_at = null
+ where id = '00000000-0000-0000-0000-0000d8030002';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+-- 27: the discovery breakdown names the unfilled rather than dropping it, so
+-- its buckets sum to the total beside them (D8's rule, applied here).
+select is(
+  (select sum((value ->> 'count')::int)::int
+     from jsonb_array_elements(
+       public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+         'custom', '2026-08-01', '2026-09-01') #> '{top,discovery_source}')),
+  3,
+  'the discovery buckets, including "not stated", sum to the audience');
+
+-- 28-29: two Stations at once needs reports.consolidated in both, and the
+-- payload names both Stations with their own timezones.
+select is(
+  jsonb_array_length(
+    public.get_audience_dashboard(
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+      'custom', '2026-08-01', '2026-09-01') #> '{stations}'),
+  2,
+  'a consolidated payload names every Station it summed');
+select is(
+  (public.get_audience_dashboard(
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020001']::uuid[],
+      'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
+  2,
+  'a repeated Station id is deduplicated, not double-counted');
+
+-- 30-31: the withheld contract (D13). With participations.view the figure is a
+-- card; without it, it is named in withheld and absent from cards -- never a
+-- zero, which would read as "nobody took part".
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{withheld}'),
+  '[]'::jsonb,
+  'nothing is withheld from a caller holding participations.view');
+
+-- Switch to the caller who lacks participations.view. Same rows, same window,
+-- different permissions: the figure must be ABSENT, not zero. A zero would say
+-- "nobody took part", which is a claim about the audience rather than about
+-- this caller.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050002", "role": "authenticated"}';
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{cards,took_part}'),
+  null,
+  'without participations.view the figure is absent, not zero');
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{withheld,0,needs}'),
+  'participations.view',
+  'and the payload names the permission that would fill it');
+reset role;
 
 select * from finish();
 rollback;
