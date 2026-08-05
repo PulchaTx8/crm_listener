@@ -122,6 +122,22 @@ const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
 const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/contact-requests.test.ts', minTests: 3 },
   { path: 'tests/isolation/conversation.test.ts', minTests: 7 },
+  // Block 8a, Task 6: the three dashboard aggregates are all SECURITY
+  // INVOKER (D4) precisely so RLS applies inside them -- pgTAP's own suite
+  // (supabase/tests/20_dashboards.test.sql) runs under `set local role
+  // authenticated` with hand-written JWT claims, never a real session or a
+  // real second identity of different ownership, so it cannot show RLS
+  // actually engaging, only that the arithmetic is right once it does. Six
+  // cases: a cross-Station call raises rather than narrows (D3); a
+  // consolidated call needs reports.consolidated in EVERY Station named, not
+  // one; the three panels gate independently; the withheld contract (D13),
+  // both halves, on the audience panel; the same shape on the promotions
+  // panel, where the prize cycle survives while the entry side is withheld;
+  // and an archived promotion's participations dropping out of a non-owner's
+  // totals while holding for the Organization's owner -- the one case
+  // deliberately deferred from Task 5's pgTAP suite, which has no second
+  // identity to prove ownership with.
+  { path: 'tests/isolation/dashboards.test.ts', minTests: 6 },
   { path: 'tests/isolation/conversation-store.test.ts', minTests: 5 },
   // One when REDIS_URL is unset -- the case that REPORTS the skip -- and the
   // whole contract when it is set. The floor is the honest one: a file that
