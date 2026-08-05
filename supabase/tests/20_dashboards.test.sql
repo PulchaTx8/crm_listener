@@ -1,5 +1,5 @@
 begin;
-select plan(42);
+select plan(50);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -468,6 +468,123 @@ select is(
      'custom', '2026-08-01', '2026-09-01') #>> '{withheld,0,needs}'),
   'participations.view',
   'and the payload names the permission that would fill it');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- get_music_dashboard (Task 4). Fixtures first, as the migration role.
+-- ---------------------------------------------------------------------------
+insert into public.artists (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000d8060001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Artist One');
+insert into public.music_genres (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000d8070001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Samba');
+
+-- Four songs covering the two nullable attributes and three of the five vocal
+-- values, so the breakdowns below have something to drop if they are written
+-- as a two-slice chart.
+insert into public.songs (id, organization_id, company_id, title, artist_id, genre_id, nationality, vocal) values
+  ('00000000-0000-0000-0000-0000d8080001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'One',   '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', 'DOMESTIC', 'MALE'),
+  ('00000000-0000-0000-0000-0000d8080002', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Two',   '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', 'INTERNATIONAL', 'INSTRUMENTAL'),
+  ('00000000-0000-0000-0000-0000d8080003', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Three', '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', null, null),
+  ('00000000-0000-0000-0000-0000d8080004', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Four',  '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', 'DOMESTIC', 'DUO');
+
+-- Five requests in August: song One three times, the rest once each.
+insert into public.music_requests (organization_id, company_id, member_id, song_id, requested_at)
+values
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080001','2026-08-10 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080001','2026-08-11 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080001','2026-08-12 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080002','2026-08-13 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080003','2026-08-14 12:00:00+00');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+-- 43: requests in the window.
+select is(
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
+  5, 'the request count is the requests in the window');
+
+-- 44: the catalogue and the requests are separate numbers, because §4.2 does
+-- not say which "total" it meant and the two answer different questions.
+select is(
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,catalogue,current}')::int,
+  4, 'the catalogue total counts songs, not requests');
+
+-- 45: most requested.
+select is(
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{top,songs,0,label}'),
+  'One', 'the most requested song leads the list');
+
+-- 46-47: THE BREAKDOWN THAT §4.2 WOULD HAVE GOT WRONG. Five requests: three
+-- domestic (One x3), one international (Two), one not stated (Three). Four is
+-- never requested and so contributes nothing to either breakdown, even though
+-- it has both attributes filled in -- these are breakdowns of REQUESTS, not of
+-- the catalogue. Whatever the split, the buckets must sum to the request
+-- total -- a two-slice chart would sum to 4 and still show "5 requests" beside
+-- it.
+select is(
+  (select sum((value ->> 'count')::int)::int
+     from jsonb_array_elements(
+       public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+         'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,nationality}')),
+  5, 'the nationality buckets sum to the requests, including "not stated"');
+select is(
+  (select sum((value ->> 'count')::int)::int
+     from jsonb_array_elements(
+       public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+         'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,vocal}')),
+  5, 'the vocal buckets sum to the requests, all five values plus "not stated"');
+
+-- 48: a soft-deleted request leaves every figure (0098's partial indexes and
+-- policies treat deleted_at as gone, and so must this).
+reset role;
+update public.music_requests set deleted_at = now()
+ where song_id = '00000000-0000-0000-0000-0000d8080003';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+select is(
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
+  4, 'a soft-deleted request is not counted');
+
+-- 49: nothing is ever withheld here -- every figure reads a table gated by
+-- music.view, which is this panel's own gate (D13). d8u02 lacks
+-- participations.view and is used deliberately: even the caller who loses
+-- figures on the other two panels loses none here.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050002", "role": "authenticated"}';
+select is(
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{withheld}'),
+  '[]'::jsonb, 'the music panel withholds nothing');
+reset role;
+
+-- 50: and the gate is still a gate -- the outsider from assertion 20, who is
+-- a signed-in user of no Station at all.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050003", "role": "authenticated"}';
+select throws_ok(
+  $$ select public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[], 'custom', '2026-08-01', '2026-09-01') $$,
+  '42501', null, 'a caller without music.view is refused');
 reset role;
 
 select * from finish();
