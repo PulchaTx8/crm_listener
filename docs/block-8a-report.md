@@ -598,3 +598,33 @@ serial e2e run you intend to trust.**
   Station-search block near-verbatim.** This wave moved the period note out of
   all three into one component and left the rest, since §8 lists the
   duplication as a Task 9 deferred minor rather than a review finding.
+
+### 10.5 Owner decision, 2026-08-05: `.strict()` stays, and it opens a second deploy-order trap
+
+Item 9 above records that the three `cards` schemas became `.strict()` to make
+`src/schemas/dashboards.ts` testable at all — a payload with an unrecognised
+key must fail loudly, or nothing distinguishes a real omission (D13) from a
+typo. The re-review flagged this as a production behaviour change introduced
+to satisfy a test, not a design decision anyone had actually taken, and asked
+the owner to rule on it rather than let it stand by default.
+
+**Ratified as a decision, not an accident.** `.strict()` is what spec §7
+already promised — "the Zod payload schemas reject a malformed `jsonb`" — and
+it is the only layer where the D13 contract (a withheld figure is omitted,
+never zeroed) is proven at the boundary where a caller's code actually reads
+it, rather than only in the SQL that produces it.
+
+**The cost is a second deploy-order trap, the mirror of the one this
+document's own runbook opens with.** That trap is frontend-ahead-of-database:
+`reports.consolidated` missing from `public.permissions` fails every
+consolidated call with a permission error that names no migration. This one is
+database-ahead-of-frontend: a migration that adds a `cards` key one of the
+three functions did not used to send, shipped ahead of the matching line in
+`src/schemas/dashboards.ts`, makes `schema.parse` throw on the **whole page**,
+not one figure — `.strict()` refuses the unknown key instead of silently
+dropping it. The two failures look nothing alike, which is the point: a
+permission error per action versus a parse error taking down the entire
+dashboard is what tells whoever is on call which direction was missed. Both
+halves are now stated together in `docs/block-8a-runbook.md` §0, and the
+schema file's own header already carried this cost before the re-review
+raised it, so no change was needed there.

@@ -44,6 +44,34 @@ later, `reports.consolidated` is live the day `0118`–`0120` land. Audit who
 holds it **before** these migrations reach an environment anyone can act in,
 not after.
 
+**A second deploy-order trap, in the opposite direction.** `src/schemas/dashboards.ts`
+keeps its three `cards` schemas `.strict()` — an owner decision, ratified
+2026-08-05, that this is what spec §7 already promised ("the Zod payload
+schemas reject a malformed `jsonb`") and the layer where the D13 contract
+(a withheld figure is omitted, never zeroed) is actually proven. The cost is
+the mirror image of the trap above: a migration that adds a `cards` key one
+of `get_audience_dashboard`/`get_music_dashboard`/`get_promotions_dashboard`
+did not used to send, deployed **ahead** of the matching schema line in
+`src/schemas/dashboards.ts`, makes `schema.parse(data)` throw on every load —
+`.strict()` refuses the unknown key rather than silently stripping it.
+
+**For these three functions, the database and the frontend must ship
+together — neither one ahead of the other.** The two directions fail nothing
+alike, which is exactly what tells whoever is on call which one happened:
+
+- **Frontend ahead of database** (the trap above): fails **per action** —
+  `PGRST202`, one RPC call at a time, naming no migration. The rest of the
+  page that loaded before the click still works.
+- **Database ahead of frontend** (this one): `schema.parse` throws once, over
+  the whole payload, before anything on the page renders — taking down the
+  **entire dashboard**, not one figure, with a Zod parse error that names an
+  unrecognised key rather than a missing migration.
+
+A card added to one of the three functions and a card added to
+`src/schemas/dashboards.ts` belong in the same deploy. Which of the two ships
+first within that deploy does not matter; splitting them across two deploys
+does.
+
 ---
 
 ## 1. Applying the migrations
