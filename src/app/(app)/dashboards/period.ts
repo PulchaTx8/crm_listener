@@ -72,7 +72,7 @@ export function parsePeriod(params: {
   if (!from || !to) return DEFAULT_SELECTION;
   if (!isRealDate(from) || !isRealDate(to)) return DEFAULT_SELECTION;
   // `>=`, not `>`. `to` is EXCLUSIVE, so `from === to` is a period of zero
-  // length, and 0117:87 refuses it with 22023 (`p_to <= p_from`) exactly as it
+  // length, and 0117:91 refuses it with 22023 (`p_to <= p_from`) exactly as it
   // refuses a reversed one. Under `>` this parser passed it through, the RPC
   // threw, and the operator got the whole page replaced by "That period is not
   // valid." — for a URL this file's own contract says it will silently repair.

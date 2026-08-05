@@ -40,7 +40,7 @@ describe('the period search params', () => {
   });
 
   // Whole-branch review, Important B3. `to` is EXCLUSIVE, so from === to is a
-  // period of zero length and 0117:87 refuses it with 22023 (`p_to <=
+  // period of zero length and 0117:91 refuses it with 22023 (`p_to <=
   // p_from`) exactly as it refuses a reversed one. This parser compared
   // `from > to`, so the one URL an operator produces by picking the same date
   // twice passed straight through and threw at the database — replacing the
