@@ -25,6 +25,13 @@ export const ICONS = {
   // that one is Overview's "My stations" and would make the two sections read
   // as the same destination.
   music: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+  // A speech bubble, for what the bot says. Its own path rather than reusing
+  // anything here: nine of the ten glyphs above are objects or people, and the
+  // Templates block is about WORDS — the one idea this map had no shape for.
+  // megaphone is the near miss and is genuinely a different thing: that one
+  // announces a promotion to everybody, this one is one side of a conversation
+  // with one listener.
+  message: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
 } as const;
 
 export interface ShellUser {

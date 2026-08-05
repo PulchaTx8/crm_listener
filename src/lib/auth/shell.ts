@@ -142,6 +142,31 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
+      // Visible to every member, including those holding templates.view in no
+      // Station at all — the same courtesy every section above extends. Both
+      // pages redirect at the top of their own render for anyone holding it
+      // nowhere, 0109's and 0110's select policies cut every read to the
+      // Stations that do hold it, and all four doors in 0113 re-check
+      // templates.manage in their own bodies. Hiding a link is a courtesy; the
+      // boundary is in the database.
+      label: 'Templates',
+      items: [
+        // ICONS.message is new, and is the block's own: this is the one
+        // section about WORDS rather than records, and nothing already
+        // declared meant that (see the path's own comment in app-shell.tsx).
+        { href: '/templates/messages', label: 'Messages', icon: ICONS.message },
+        // ICONS.megaphone rather than message again: these two sit on ADJACENT
+        // ROWS OF THIS SAME SECTION, which is exactly the case the Audience
+        // section's ticket/megaphone comment warns against — one icon on both
+        // would read as one link rendered twice. megaphone is otherwise used
+        // only by Promotions, a different section entirely, the same
+        // non-adjacency that already lets box serve both Inventory and
+        // Pickups. Its shape reads reasonably here: a registered template is
+        // the only thing that lets a Station SPEAK FIRST rather than answer.
+        { href: '/templates/whatsapp', label: 'WhatsApp', icon: ICONS.megaphone },
+      ],
+    },
+    {
       // Visible to every member, including those holding no organization-scoped
       // permission at all. Deliberate, and not a hole: Team renders the member
       // roster (widened per-permission by RLS, 0024), the role list, the
