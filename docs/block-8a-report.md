@@ -120,7 +120,7 @@ shape every earlier block's report records for this machine — `deadline`,
 `delivery-flow`, `draw-flow`, `filtered-draw`, `inventory-flow`,
 `invitation-flow`, `members-flow`, `music-catalogue`, `music-requests`,
 `participations-flow` (×1 of its 6), `promotion-prizes`, `promotions-flow`
-(×2 of its 3), `provisioning-flow`, `record-dialog`, `roles-flow`,
+(×1 of its 3), `provisioning-flow`, `record-dialog`, `roles-flow`,
 `templates`. Every one of the eighteen fails at the identical first step: a
 freshly created platform admin's `Sign in` click times out waiting for
 `/app` and lands on `/login` instead — sign-in contention under this
