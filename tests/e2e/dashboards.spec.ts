@@ -462,7 +462,19 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   await expect(page.getByTestId('mixed-timezone-note')).toHaveCount(0);
 
   await toggle.getByRole('link', { name: /All stations/ }).click();
-  await expect(page.getByTestId('mixed-timezone-note')).toBeVisible();
+  // Accept EITHER note, not just mixed-timezone-note. TZA (America/Sao_Paulo)
+  // and TZB (America/New_York) are one to two hours apart, and in the band
+  // after Sao Paulo crosses into a new month and before New York does,
+  // `current_month` (the default preset here) resolves DIFFERENT calendar
+  // months for the two Stations — StationPeriodNote correctly renders
+  // `mixed-period-note` instead for that hour, not `mixed-timezone-note`. The
+  // component is right; asserting only one testid was the fragile part. What
+  // this test proves is that A note fires for a mixed selection, not which
+  // one — see station-period-note.test.ts for a test that pins each branch to
+  // its own condition directly, independent of the wall clock.
+  await expect(
+    page.getByTestId('mixed-timezone-note').or(page.getByTestId('mixed-period-note')),
+  ).toBeVisible();
 
   await toggle.getByRole('link', { name: 'This station' }).click();
   await expect(page.getByTestId('mixed-timezone-note')).toHaveCount(0);
