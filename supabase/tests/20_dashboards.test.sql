@@ -1,5 +1,5 @@
 begin;
-select plan(53);
+select plan(60);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -647,6 +647,178 @@ select throws_ok($$
     array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
     'custom', '2026-08-01', '2026-09-01')
 $$, '42501', null, 'a two-Station call is refused without reports.consolidated in both, for music too (D3)');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- get_promotions_dashboard (Task 5). The situation rule, at the three
+-- instants that matter, needs no fixture at all: it reads no table. The
+-- window is half-open, so a promotion is live AT its start and over AT its
+-- end.
+select is(public.promotion_is_live('2026-08-10 00:00:00+00'::timestamptz,
+                                   '2026-08-20 00:00:00+00'::timestamptz,
+                                   null,
+                                   '2026-08-10 00:00:00+00'::timestamptz),
+          true,  'a promotion is live at the instant it starts');
+select is(public.promotion_is_live('2026-08-10 00:00:00+00'::timestamptz,
+                                   '2026-08-20 00:00:00+00'::timestamptz,
+                                   null,
+                                   '2026-08-20 00:00:00+00'::timestamptz),
+          false, 'a promotion is over at the instant it ends');
+select is(public.promotion_is_live('2026-08-10 00:00:00+00'::timestamptz,
+                                   '2026-08-20 00:00:00+00'::timestamptz,
+                                   '2026-08-15 00:00:00+00'::timestamptz,
+                                   '2026-08-16 00:00:00+00'::timestamptz),
+          false, 'a cancelled promotion is never live');
+
+-- FIXTURES, adapted from supabase/tests/13_pickup_reads.test.sql:42-130's own
+-- promotion / prize / promotion_prizes / participations / draws / winners
+-- chain -- retagged to the d8 range, moved inside the test window (10-20
+-- August 2026), with a participation per participation_status value and a
+-- SECOND draw marked CANCELLED whose winner is left at AWAITING_PICKUP. All
+-- fixture writes run as the migration role (RLS revokes them from
+-- authenticated outright).
+reset role;
+
+insert into public.prizes (id, organization_id, company_id, name, allows_return_to_stock)
+values
+  ('00000000-0000-0000-0000-0000d80a0001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Dashboard prize', true);
+
+insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000d8090002', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'August Draw',
+   '2026-08-10 00:00:00+00', '2026-08-20 00:00:00+00');
+
+insert into public.promotion_prizes (id, promotion_id, prize_id, organization_id, company_id) values
+  ('00000000-0000-0000-0000-0000d80a0002', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d80a0001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001');
+
+-- Four listeners, one per participation_status value below (VALID reuses Ana,
+-- 030001, already linked at this Station from Task 3 -- this fixture adds no
+-- member solely to hold a VALID row), plus a fifth for the cancelled draw's
+-- own winner.
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000d8030006', '00000000-0000-0000-0000-0000d8010001', 'Fabio'),
+  ('00000000-0000-0000-0000-0000d8030007', '00000000-0000-0000-0000-0000d8010001', 'Gustavo'),
+  ('00000000-0000-0000-0000-0000d8030008', '00000000-0000-0000-0000-0000d8010001', 'Helena'),
+  ('00000000-0000-0000-0000-0000d8030009', '00000000-0000-0000-0000-0000d8010001', 'Ivo');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000d8030006', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001'),
+  ('00000000-0000-0000-0000-0000d8030007', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001'),
+  ('00000000-0000-0000-0000-0000d8030008', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001'),
+  ('00000000-0000-0000-0000-0000d8030009', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001');
+
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple, status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-0000d80d0002', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', false, 'VALID', 'MANUAL', '2026-08-12 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d80d0003', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8030006', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', false, 'DUPLICATE', 'MANUAL', '2026-08-12 13:00:00+00'),
+  ('00000000-0000-0000-0000-0000d80d0004', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8030007', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', false, 'TOO_SOON', 'MANUAL', '2026-08-12 14:00:00+00'),
+  ('00000000-0000-0000-0000-0000d80d0005', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8030008', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', false, 'OVER_LIMIT', 'MANUAL', '2026-08-12 15:00:00+00'),
+  -- The cancelled draw's own winner needs its own participation.
+  ('00000000-0000-0000-0000-0000d80d0006', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8030009', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', false, 'VALID', 'MANUAL', '2026-08-13 12:00:00+00');
+
+-- Two draws: one COMPLETED, whose winner counts as awarded, and one
+-- CANCELLED, built by hand into the shape cancel_draw (0079) actually leaves
+-- (draws_cancellation_shape's three facts, winners.status left untouched at
+-- AWAITING_PICKUP) -- the same reasoning 13_pickup_reads.test.sql gives for
+-- not driving cancel_draw itself: what is under test is the READ.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000d8050005', 'dashboards-canceller@example.test');
+
+insert into public.draws
+  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count, offered_count)
+values
+  ('00000000-0000-0000-0000-0000d80b0001', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8020001',
+   repeat('4', 64), 1, 1, 1);
+
+insert into public.draws
+  (id, promotion_id, organization_id, company_id, seed, algorithm_version, entry_count,
+   offered_count, status, cancelled_at, cancelled_by, cancellation_reason)
+values
+  ('00000000-0000-0000-0000-0000d80b0002', '00000000-0000-0000-0000-0000d8090002',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8020001',
+   repeat('5', 64), 1, 1, 1, 'CANCELLED', '2026-08-14 00:00:00+00',
+   '00000000-0000-0000-0000-0000d8050005',
+   'fixture: proves a cancelled draw''s winner is not counted as awarded');
+
+-- Both winners' created_at is set explicitly rather than left to default now()
+-- (0075): the awarded/overdue cards filter on a FIXED August-2026 window, and
+-- a fixture that floated on the real wall clock would only pass by
+-- coincidence.
+insert into public.winners
+  (id, draw_id, company_id, promotion_prize_id, member_id, participation_id,
+   awarded_rank, status, deadline_at, created_at)
+values
+  ('00000000-0000-0000-0000-0000d80c0001', '00000000-0000-0000-0000-0000d80b0001',
+   '00000000-0000-0000-0000-0000d8020001', '00000000-0000-0000-0000-0000d80a0002',
+   '00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d80d0002',
+   1, 'AWAITING_PICKUP', '2026-08-25 00:00:00+00', '2026-08-14 00:00:00+00'),
+  -- The cancelled draw's winner: left at AWAITING_PICKUP by cancel_draw's own
+  -- design (6a has no vocabulary for "un-awarded") -- what assertion 57 below
+  -- proves is counted nowhere, and without this row that assertion would pass
+  -- vacuously.
+  ('00000000-0000-0000-0000-0000d80c0002', '00000000-0000-0000-0000-0000d80b0002',
+   '00000000-0000-0000-0000-0000d8020001', '00000000-0000-0000-0000-0000d80a0002',
+   '00000000-0000-0000-0000-0000d8030009', '00000000-0000-0000-0000-0000d80d0006',
+   1, 'AWAITING_PICKUP', '2026-08-25 00:00:00+00', '2026-08-14 00:00:00+00');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+-- 57: A cancelled draw awards nothing (D12), the same exclusion 0094 and 0095
+-- both carry and for the same reason: cancel_draw reverses the unit but leaves
+-- winners.status at AWAITING_PICKUP, so this -- the third reader to treat that
+-- status as live -- must say so itself. Two winners exist in the window; only
+-- the completed draw's counts.
+select is(
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,awarded,current}')::int,
+  1, 'a winner of a cancelled draw is not counted as awarded');
+
+-- 58: The refusal breakdown, which is why this panel covers the entry side at
+-- all: it is the number that shows a per-person rule turning real people away.
+select is(
+  (select sum((value ->> 'count')::int)::int
+     from jsonb_array_elements(
+       public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+         'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,participation_status}')),
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,participations,current}')::int,
+  'the four refusal buckets sum to the participation total');
+
+-- 59-60: D13 again, on the panel where it bites hardest: no participations.view
+-- means the entry side is withheld and the PRIZE CYCLE SURVIVES, because
+-- winners is gated by promotions.view -- this panel's own gate. d8u02 is
+-- exactly that caller, and this pair of assertions is the whole reason the
+-- distinction exists: one number goes away, the other must not.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050002", "role": "authenticated"}';
+select is(
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{cards,participations}'),
+  null, 'the entry figures are withheld without participations.view');
+select isnt(
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{cards,awarded}'),
+  null, 'the prize cycle survives, because winners is gated by promotions.view');
 reset role;
 
 select * from finish();

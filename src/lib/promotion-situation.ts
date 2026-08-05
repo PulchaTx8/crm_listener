@@ -10,6 +10,15 @@
  */
 export type PromotionSituation = 'scheduled' | 'live' | 'ended' | 'cancelled';
 
+/**
+ * A SECOND COPY of this rule lives in SQL, in
+ * supabase/migrations/0120_promotions_dashboard.sql's promotion_is_live: the
+ * Promotions dashboard aggregates in the database and cannot call this, exactly
+ * as this cannot call that. Design spec D11 accepts the duplication only
+ * because both are pinned at the same boundary instants — here by
+ * tests/unit/promotion-situation-boundary.test.ts and there by
+ * supabase/tests/20_dashboards.test.sql. Change this rule and change both.
+ */
 export function situationOf(
   row: { startsAt: string; endsAt: string; cancelledAt: string | null },
   now: Date = new Date(),

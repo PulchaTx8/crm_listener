@@ -1,0 +1,310 @@
+-- supabase/migrations/0120_promotions_dashboard.sql
+
+-- Block 8a, Task 5: the Promotions dashboard, and the situation rule's
+-- second copy.
+
+-- The situation rule, in SQL, for the second time in this codebase.
+--
+-- src/lib/promotion-situation.ts:14 is the first copy: the promotions grid and
+-- the record dialog are client components and cannot call this. An aggregate
+-- has to classify in the database, so the rule exists twice -- accepted in the
+-- design spec's D11 on three conditions, all met here: the same half-open
+-- window; each copy naming the other; and BOTH proved at the same boundary
+-- instants (supabase/tests/20_dashboards.test.sql and
+-- tests/unit/promotion-situation-boundary.test.ts).
+--
+-- Half-open, matching 0040's exclusion constraint: a promotion is live at the
+-- instant it starts and over at the instant it ends.
+create or replace function public.promotion_is_live(
+  p_starts_at    timestamptz,
+  p_ends_at      timestamptz,
+  p_cancelled_at timestamptz,
+  p_at           timestamptz
+)
+returns boolean
+language sql
+immutable
+set search_path = pg_catalog, public
+as $$
+  select p_cancelled_at is null
+     and p_at >= p_starts_at
+     and p_at <  p_ends_at;
+$$;
+
+comment on function public.promotion_is_live(timestamptz, timestamptz, timestamptz, timestamptz) is
+  'Whether a promotion is on air at a given instant: not cancelled, started, and not yet ended, over a half-open window matching 0040''s exclusion constraint. THE SECOND COPY of a rule src/lib/promotion-situation.ts also holds -- the grid and the record dialog are client components and cannot call a database function, and an aggregate cannot call TypeScript. Design spec D11 accepts the duplication only because both copies are pinned at the same three boundary instants by paired tests; change one and the other fails.';
+
+grant execute on function public.promotion_is_live(timestamptz, timestamptz, timestamptz, timestamptz) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- get_promotions_dashboard: the third and last of the three aggregates. Same
+-- shape as 0118/0119 (same arguments, same dedup, same permission loop, same
+-- station CTE, same payload keys); what follows is only what is specific to
+-- promotions.
+--
+-- SECURITY INVOKER, for the same reason 0118 gives (D4): 0044's promotions
+-- policy, 0052's participations policy and 0075's winners policy all apply
+-- INSIDE this function and cannot be forgotten. What is still done by hand is
+-- the permission check below, because RLS answers "which rows" and not "may
+-- this person be here at all".
+--
+-- D12. cancel_draw (0079) reverses the prize unit but deliberately leaves
+-- winners.status at AWAITING_PICKUP -- 6a has no vocabulary for "un-awarded".
+-- list_pickups (0095) and sweep_pickup_deadlines (0094) both exclude these
+-- rows and each says why in its own header; this is the third reader to treat
+-- AWAITING_PICKUP as live and so the third that has to. Counting them would
+-- report prizes handed out that were taken back before anyone was told. The
+-- exclusion is carried by every winner-derived figure below: awarded, overdue
+-- and the prize_cycle breakdown all read the same `winner` CTE, which joins
+-- to draws and filters out a cancelled one there, once, rather than repeating
+-- the predicate in each figure separately.
+--
+-- D13. participations is gated by participations.view (0053), which
+-- promotions.view -- this panel's own gate -- does not imply. It feeds the
+-- whole entry side of this panel: the participation count, the distinct
+-- listeners, the refusal breakdown and the busiest-promotions list. Those four
+-- are OMITTED (never zeroed) for a caller lacking participations.view in any
+-- selected Station, and named in withheld instead. The prize cycle does not
+-- cross that line: winners is gated by promotions.view, so a caller who lacks
+-- participations.view still sees on-air, ended, awarded, overdue and the
+-- prize_cycle breakdown in full.
+--
+-- live_now and overdue carry no `previous` key at all -- not a null one -- as
+-- neither has a comparison that would mean anything: on-air-now is a fact
+-- about this instant, and a zero previous overdue count would read as "it used
+-- to be fine and now it is not" when the truth is simply that the figure has
+-- no "before".
+create or replace function public.get_promotions_dashboard(
+  p_company_ids uuid[],
+  p_preset      text default 'current_month',
+  p_from        date default null,
+  p_to          date default null
+)
+returns jsonb
+language plpgsql
+stable
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  v_ids            uuid[];
+  v_id             uuid;
+  v_consolidated   boolean;
+  v_participations boolean := true;
+  v_result         jsonb;
+begin
+  if p_company_ids is null or cardinality(p_company_ids) = 0 then
+    raise exception 'at least one station is required' using errcode = '22023';
+  end if;
+
+  -- Deduplicated before anything counts, so naming a Station twice cannot
+  -- double its rows.
+  select array_agg(distinct s) into v_ids from unnest(p_company_ids) as t(s);
+  v_consolidated := cardinality(v_ids) > 1;
+
+  foreach v_id in array v_ids loop
+    if not public.has_permission('promotions.view', v_id) then
+      raise exception 'promotions.view is required in every station requested'
+        using errcode = '42501';
+    end if;
+    if v_consolidated and not public.has_permission('reports.consolidated', v_id) then
+      raise exception 'reports.consolidated is required in every station of a consolidated view'
+        using errcode = '42501';
+    end if;
+    -- Not a refusal: the figures it feeds are withheld instead (D13).
+    if not public.has_permission('participations.view', v_id) then
+      v_participations := false;
+    end if;
+  end loop;
+
+  with station as (
+    select c.id, c.organization_id, c.name, c.timezone, p.*
+      from public.companies c
+      cross join lateral public.resolve_dashboard_period(p_preset, p_from, p_to, c.timezone) p
+     where c.id = any(v_ids)
+  ),
+  -- Every promotion of every named Station, both windows in one row each, so
+  -- the cards below can FILTER current vs. previous. No explicit
+  -- deleted_at/is_owner_of_company predicate here: 0044's own select policy
+  -- already carries that pair, and this function is SECURITY INVOKER
+  -- precisely so it need not be restated.
+  promotion as (
+    select pr.starts_at, pr.ends_at, pr.cancelled_at,
+           s.from_at, s.to_at, s.previous_from_at, s.previous_to_at
+      from public.promotions pr
+      join station s on s.id = pr.company_id
+  ),
+  promotion_cards as (
+    select
+      -- On air right now, at the single instant every Station shares --
+      -- promotion_is_live already folds in "not cancelled" (D11).
+      count(*) filter (where public.promotion_is_live(starts_at, ends_at, cancelled_at, now()))
+        as live_now,
+      count(*) filter (where cancelled_at is null and ends_at >= from_at and ends_at < to_at)
+        as ended_current,
+      count(*) filter (where cancelled_at is null and ends_at >= previous_from_at and ends_at < previous_to_at)
+        as ended_previous
+      from promotion
+  ),
+  -- Every participation of every named Station, both windows in one row --
+  -- the CTE the whole entry side of this panel (D13) is built from.
+  participation as (
+    select p.id, p.member_id, p.promotion_id, p.status, p.participated_at,
+           s.timezone, s.from_at, s.to_at, s.previous_from_at, s.previous_to_at
+      from public.participations p
+      join station s on s.id = p.company_id
+  ),
+  participation_cards as (
+    select
+      count(*) filter (where participated_at >= from_at and participated_at < to_at)
+        as current,
+      count(*) filter (where participated_at >= previous_from_at and participated_at < previous_to_at)
+        as previous,
+      count(distinct member_id) filter (where participated_at >= from_at and participated_at < to_at)
+        as distinct_current,
+      count(distinct member_id) filter (where participated_at >= previous_from_at and participated_at < previous_to_at)
+        as distinct_previous
+      from participation
+  ),
+  -- D12, applied once: a winner whose DRAW was cancelled is excluded from
+  -- every figure that reads this CTE (awarded, overdue, prize_cycle), because
+  -- cancel_draw (0079) reverses the unit but deliberately leaves
+  -- winners.status at AWAITING_PICKUP.
+  winner as (
+    select w.id, w.status, w.deadline_at, w.created_at,
+           s.from_at, s.to_at, s.previous_from_at, s.previous_to_at
+      from public.winners w
+      join station s on s.id = w.company_id
+      join public.draws d on d.id = w.draw_id and d.status <> 'CANCELLED'
+  ),
+  winner_cards as (
+    select
+      count(*) filter (where created_at >= from_at and created_at < to_at)
+        as awarded_current,
+      count(*) filter (where created_at >= previous_from_at and created_at < previous_to_at)
+        as awarded_previous,
+      -- Overdue is a fact about right now, not about the chosen period -- no
+      -- window filter, the same reason live_now has none.
+      count(*) filter (where status = 'AWAITING_PICKUP' and deadline_at is not null and deadline_at < now())
+        as overdue_current
+      from winner
+  ),
+  -- Why entries were refused, current window only (no comparison, like every
+  -- other breakdown in this block). Every value of participation_status is
+  -- listed whether or not it occurred, via unnest(enum_range(...)) LEFT
+  -- JOINed to the rows -- so a status nobody hit this period reports 0 instead
+  -- of vanishing from the chart, and the buckets always sum to
+  -- cards.participations.current. The column is never null (0052), so there is
+  -- no "not stated" bucket to add, unlike 0119's nationality/vocal.
+  participation_status_breakdown as (
+    select jsonb_agg(jsonb_build_object('key', b.key, 'label', b.label, 'count', b.n)
+                     order by b.sort, b.label) as rows
+      from (
+        select v::text as key, v::text as label, 0 as sort,
+               count(p.id) as n
+          from unnest(enum_range(null::public.participation_status)) as v
+          left join participation p
+            on p.status = v
+           and p.participated_at >= p.from_at and p.participated_at < p.to_at
+         group by v
+      ) b
+  ),
+  -- The prize cycle, identical shape, over winner_status -- and, per D12,
+  -- reading the SAME `winner` CTE every other winner-derived figure does, so a
+  -- cancelled draw's winner cannot appear here either.
+  prize_cycle as (
+    select jsonb_agg(jsonb_build_object('key', b.key, 'label', b.label, 'count', b.n)
+                     order by b.sort, b.label) as rows
+      from (
+        select v::text as key, v::text as label, 0 as sort,
+               count(w.id) as n
+          from unnest(enum_range(null::public.winner_status)) as v
+          left join winner w
+            on w.status = v
+           and w.created_at >= w.from_at and w.created_at < w.to_at
+         group by v
+      ) b
+  ),
+  -- Busiest promotions, top ten by participation count in the window --
+  -- part of the entry side (D13), so joined off `participation`, not
+  -- `promotion` above.
+  top_promotions as (
+    select jsonb_agg(jsonb_build_object('id', t.promotion_id, 'label', t.name, 'count', t.n)
+                     order by t.n desc, t.name) as rows
+      from (
+        select p.promotion_id, pm.name, count(*) as n
+          from participation p
+          join public.promotions pm on pm.id = p.promotion_id
+         where p.participated_at >= p.from_at and p.participated_at < p.to_at
+         group by p.promotion_id, pm.name
+         order by count(*) desc, pm.name
+         limit 10
+      ) t
+  ),
+  -- Monthly participations, over the last twelve months ending at the
+  -- window's end, at the Station's own clock -- also entry-side (D13).
+  monthly as (
+    select jsonb_agg(jsonb_build_object('month', m.bucket, 'count', m.n) order by m.bucket) as rows
+      from (
+        select to_char(date_trunc('month', p.participated_at at time zone p.timezone), 'YYYY-MM') as bucket,
+               count(*) as n
+          from participation p
+         where p.participated_at < p.to_at
+           and p.participated_at >= (p.to_at - interval '12 months')
+         group by 1
+      ) m
+  )
+  select jsonb_build_object(
+    'period', (
+      select jsonb_build_object(
+        'preset', p_preset,
+        'from', min(from_date), 'to', min(to_date),
+        'previous_from', min(previous_from_date), 'previous_to', min(previous_to_date))
+        from station),
+    'stations', (
+      select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'timezone', timezone) order by name)
+        from station),
+    'cards', (
+      select jsonb_strip_nulls(jsonb_build_object(
+        'live_now', jsonb_build_object('current', pc.live_now),
+        'ended',    jsonb_build_object('current', pc.ended_current, 'previous', pc.ended_previous),
+        'participations', case when v_participations
+                                then jsonb_build_object('current', ptc.current, 'previous', ptc.previous)
+                                else null end,
+        'distinct_participants', case when v_participations
+                                       then jsonb_build_object('current', ptc.distinct_current, 'previous', ptc.distinct_previous)
+                                       else null end,
+        'awarded', jsonb_build_object('current', wc.awarded_current, 'previous', wc.awarded_previous),
+        'overdue', jsonb_build_object('current', wc.overdue_current)))
+        from promotion_cards pc, participation_cards ptc, winner_cards wc),
+    -- Withheld the same way the daggered cards are: the caller sees an empty
+    -- array rather than a chart that looks like twelve months of nothing.
+    'monthly', case when v_participations
+                    then coalesce((select rows from monthly), '[]'::jsonb)
+                    else '[]'::jsonb end,
+    'breakdowns', jsonb_strip_nulls(jsonb_build_object(
+                    'participation_status', case when v_participations
+                                                  then coalesce((select rows from participation_status_breakdown), '[]'::jsonb)
+                                                  else null end,
+                    'prize_cycle', coalesce((select rows from prize_cycle), '[]'::jsonb))),
+    'top', jsonb_strip_nulls(jsonb_build_object(
+             'promotions', case when v_participations
+                                 then coalesce((select rows from top_promotions), '[]'::jsonb)
+                                 else null end)),
+    'withheld', case when v_participations then '[]'::jsonb
+                     else jsonb_build_array(
+                            jsonb_build_object('figure', 'participations', 'needs', 'participations.view'),
+                            jsonb_build_object('figure', 'distinct_participants', 'needs', 'participations.view'),
+                            jsonb_build_object('figure', 'participation_status', 'needs', 'participations.view'),
+                            jsonb_build_object('figure', 'promotions', 'needs', 'participations.view'))
+                     end
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+comment on function public.get_promotions_dashboard(uuid[], text, date, date) is
+  'The Promotions dashboard for one Station or a consolidated set, both windows in one call. Same contract and SECURITY INVOKER rationale as get_audience_dashboard/get_music_dashboard (D4): 0044''s policy on promotions, 0052''s on participations and 0075''s on winners all apply inside it. Refuses with 42501 unless the caller holds promotions.view in EVERY station named, and reports.consolidated in every one when more than one is named (D3). live_now uses promotion_is_live (this migration''s own second copy of src/lib/promotion-situation.ts''s rule, pinned by paired tests per D11) against a single shared instant, so it and overdue -- a fact about right now, not the chosen period -- carry no previous key at all, never a null one. A winner whose DRAW was cancelled counts toward NOTHING on this panel (D12): cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and awarded, overdue and the prize_cycle breakdown all read one `winner` CTE that excludes it once, so no figure here can forget the exclusion the way a copy-pasted predicate could. participations is gated by participations.view (0053), which promotions.view -- this panel''s own gate -- does not imply (D13): the whole entry side -- participations, distinct_participants, the participation_status breakdown and the busiest-promotions top ten -- is OMITTED (never zeroed) for a caller lacking it in any selected Station, and named in withheld instead; the prize cycle is unaffected, because winners answers to promotions.view alone. Every enum breakdown (participation_status, prize_cycle) lists every value whether or not it occurred this window, so its buckets always sum to the card printed beside it.';
+
+grant execute on function public.get_promotions_dashboard(uuid[], text, date, date) to authenticated;
