@@ -57,6 +57,24 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
+      // Block 8b. Its own section rather than an item under Dashboards,
+      // because what it lists crosses every domain -- listeners, promotions,
+      // music and stock all export into the same place -- and filing it under
+      // one of them would misname where it belongs.
+      //
+      // "My reports" rather than "Reports", so the section and its single item
+      // do not spell the same word: the sidebar renders both, and Block 8a's
+      // own note here records what that looks like when they match.
+      //
+      // No permission guards this link, and none guards the page either. It
+      // lists the caller's OWN runs, limited by report_runs' RLS (0122), so
+      // there is nothing to hide from somebody whose list is empty. The
+      // boundary is on the export buttons, each guarded by its own domain's
+      // permission, and in request_report (0127), which re-checks regardless.
+      label: 'Reports',
+      items: [{ href: '/reports', label: 'My reports', icon: ICONS.inbox }],
+    },
+    {
       // Visible to every member, including those holding no inventory
       // permission in any Station at all — the same courtesy Team and Roles
       // below already extend. /inventory redirects at the top of its own
