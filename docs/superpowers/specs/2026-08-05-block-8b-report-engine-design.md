@@ -115,15 +115,36 @@ in the installation, which is a far worse blast radius than the problem it solve
 
 ### D4 — The page functions mirror the screens' queries, and are `SECURITY DEFINER` for the same reason the list RPCs are
 
-Five functions, one per report type, each returning one keyset page as `jsonb` rows plus the
-cursor for the next page. Each one **carries every permission term its screen's list RPC
-carries**, not only the obvious one — `list_participations`'s header is the standing warning
-here: RLS on `public.promotions` silently required `promotions.view` alongside
-`participations.view`, and a `SECURITY DEFINER` rewrite that gated on one of them would be
-more permissive than the query it replaced.
+Five functions, one per report type, with one uniform signature:
 
-A thin `report_page(p_run_id, p_cursor, p_limit)` dispatches by the run's type, so the worker
-has one call and no knowledge of report internals.
+```sql
+public.report_page_<kind>(
+  p_user_id uuid, p_company_ids uuid[], p_filters jsonb,
+  p_cursor_at timestamptz, p_cursor_id uuid, p_limit integer
+) returns table (
+  sort_at timestamptz, sort_id uuid, row_data jsonb,
+  total_count bigint, withheld text[]
+)
+```
+
+Each one **carries every permission term its screen's list RPC carries**, not only the obvious
+one — `list_participations`'s header is the standing warning here: RLS on `public.promotions`
+silently required `promotions.view` alongside `participations.view`, and a `SECURITY DEFINER`
+rewrite that gated on one of them would be more permissive than the query it replaced.
+
+**`total_count` and `withheld` come back from the same call as the rows, and that is what stops
+this block from repeating 0095's defect.** An earlier draft of this spec gave the page function
+a run id and put the row ceiling in a separate `report_run_row_count` — two functions
+implementing the same filter predicates, which is precisely the duplication the rest of this
+document argues against. 0090 already solved it: *"total_count is computed from the same CTE the
+rows come from, so a page and its count cannot narrow differently."* The same reasoning applies
+to `withheld`, which is a function of the caller's permissions and must not be computed twice
+either.
+
+Taking an explicit `p_user_id` rather than a run id is what lets one function serve both callers:
+the request path passes `auth.uid()` before any run row exists, and the worker passes
+`run.requested_by`. A thin `report_page(...)` dispatches by report type, so the worker has one
+call and no knowledge of report internals.
 
 ### D5 — `report_runs`: the queue and the history are one table
 
@@ -204,15 +225,15 @@ recorded.
 
 ### D9 — Fifty thousand rows is the ceiling, and above it the run is refused, not truncated
 
-The list RPCs already return `total_count` from the same CTE the rows come from, so the count
-costs one query.
+The count costs nothing extra: it rides back on the page call itself (D4), so asking for the
+count is asking for the first page with `p_limit => 1`.
 
-**It is checked twice, and the two refusals look different on purpose.** At request time it
-runs as the caller — the list RPCs are granted to `authenticated`, so this costs nothing extra
-— and a request over the ceiling is **refused there, with no run row created**, so the operator
-learns immediately and is told the count and to narrow the filter. It is checked again in the
-worker, because rows keep arriving between the request and the generation; a run that crosses
-the ceiling in that window ends `FAILED` with the same message.
+**It is checked twice, and the two refusals look different on purpose.** At request time it runs
+as the caller, and a request over the ceiling is **refused there, with no run row created**, so
+the operator learns immediately and is told the count and to narrow the filter. It is checked
+again in the worker — on the first page, from the same `total_count` — because rows keep
+arriving between the request and the generation; a run that crosses the ceiling in that window
+ends `FAILED` with the same message.
 
 This does not contradict D1. D1 is about where a file is *produced*; nothing about it requires
 that an impossible request be accepted, queued and failed ten seconds later when it could be
@@ -249,9 +270,11 @@ a page somebody prints. Listings get XLSX and CSV, which is what row data is act
 
 `exceljs` and `@react-pdf/renderer` are both **named in the Block 0 spec and never installed**;
 this block adds them. `@react-pdf/renderer` has a history of lagging new React majors and this
-project is on **React 19** — proving it renders here is the plan's first task, before anything
-depends on it. If it does not, the fallback is rendering the panel PDF from HTML through the
-browser's print pipeline, and that call gets made before the block is spent, not after.
+project is on **React 19**, so the risk was checked before the plan was written rather than
+assumed: `@react-pdf/renderer@4.5.1` declares `react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0`,
+and `exceljs` is at `4.4.0`. The declaration is not the proof, so rendering a page to a buffer
+in Node is still the plan's first task, before anything depends on it — but the fallback (the
+panel PDF through the browser's print pipeline) is now unlikely to be needed.
 
 XLSX is written through `ExcelJS.stream.xlsx.WorkbookWriter`, not the in-memory workbook, so a
 report at the D9 ceiling does not hold fifty thousand rows in the worker's heap.
@@ -361,14 +384,20 @@ The dialog asks for the format and nothing else.
 | 0121 | `has_permission_for`, `has_company_access_for`, `is_platform_admin_for`; the three existing signatures become wrappers (D3) |
 | 0122 | `report_status` enum, `report_type` enum, `report_runs`, its indexes, RLS |
 | 0123 | the `reports` bucket and its `storage.objects` policies (0086's shape) |
-| 0124 | `request_report`, `claim_report_run`, `finish_report_run`, `fail_report_run`, `requeue_stalled_report_runs` |
-| 0125 | `report_page_listeners`, `report_page_participations` |
-| 0126 | `report_page_winners`, `report_page_music_requests`, `report_page_movements` |
-| 0127 | `report_page` dispatcher and `report_run_row_count` (the D9 preflight) |
+| 0124 | `report_page_listeners`, `report_page_participations` |
+| 0125 | `report_page_winners`, `report_page_music_requests`, `report_page_movements` |
+| 0126 | the `report_page` dispatcher |
+| 0127 | `request_report` (which preflights through 0126), `claim_report_run`, `finish_report_run`, `fail_report_run`, `requeue_stalled_report_runs` |
 | 0128 | `expire_report_runs` procedure and its `cron.schedule`, writing into `storage_erasure_queue` |
 
-0121 is first and alone for a reason: it touches three functions every policy in the
-installation depends on. It must go in as a pure refactor with the full pgTAP suite green
+**The order has no forward references, and that is deliberate rather than incidental.** The
+lifecycle RPCs come *after* the page functions because `request_report` calls the dispatcher for
+its preflight (D9); plpgsql would resolve a forward call at run time and let the wrong order pass
+migration, then fail on the first request in whatever environment ran it first.
+
+0121 is first and alone for a different reason: it touches four functions
+(`is_platform_admin`, `is_owner`, `has_company_access`, `has_permission`) that every policy in
+the installation depends on. It goes in as a pure refactor with the full pgTAP suite green
 behind it, before anything is built on top of it.
 
 ---
