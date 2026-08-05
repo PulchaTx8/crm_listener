@@ -49,7 +49,11 @@ This is a deliberate departure from the `SECURITY DEFINER` shape used by `list_p
 
 ### D5 — The period travels as local dates. Presets are resolved in SQL, per Station
 
-The period is a pair of **dates**, not instants: `p_from` inclusive, `p_to` exclusive. The dates are identical for every Station in the selection; each Station converts them with its own timezone inside the query — `p_from::timestamp at time zone c.timezone` — which is what makes requirement L2 true for a group whose radios sit in different timezones.
+The period is a pair of **dates**, not instants: `p_from` inclusive, `p_to` exclusive. For a **custom** range the dates are identical for every Station in the selection, and each converts them with its own timezone inside the query — `p_from::timestamp at time zone c.timezone` — which is what makes requirement L2 true for a group whose radios sit in different timezones.
+
+**For a preset, the dates are not always identical, and the first draft of this decision claimed they were.** Presets resolve from `now()` at each Station's clock (below), so on the turn of a month a Station at UTC+14 and one at UTC−3 resolve *different calendar months*. The owner's ruling of 2026-08-05, taken after the whole-branch review surfaced it: **keep the per-Station resolution.** Each Station measures its own month, which is what requirement L2 asks for and what "how did the group do last month" actually means — a Station is not well measured by a calendar it does not live in.
+
+What changes is the reporting, not the arithmetic. The payload carries **each Station's own resolved dates** alongside its id and timezone, and the screen's note fires when those dates disagree — naming the Stations that differ — rather than asserting unconditionally that the dates are the same everywhere. A page must never claim a uniformity the query does not provide.
 
 The presets `current_month`, `previous_month` and `current_year` are resolved **in SQL, per Station**, from `now() at time zone c.timezone`. Resolving them in Node would use the server's clock, and the server runs UTC: three hours of error puts the last evening of a month into the next one, in every card on the page, silently. `0062_ingest_whatsapp_event.sql` and `0112_sweep_pickup_reminders.sql` already carry this rule for what a listener is told; this is the same rule applied to what the owner is shown.
 
