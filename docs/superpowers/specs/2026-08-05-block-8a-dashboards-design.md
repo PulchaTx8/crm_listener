@@ -248,7 +248,7 @@ The consolidated option appears when the caller holds `reports.consolidated` **i
 | # | what |
 |---|---|
 | `0115` | `reports.consolidated` in `public.permissions` |
-| `0116` | three indexes (below) |
+| `0116` | two indexes (below) |
 | `0117` | `resolve_dashboard_period` — the preset and comparison arithmetic of D5/D6, in one place |
 | `0118` | `get_audience_dashboard` |
 | `0119` | `get_music_dashboard` |
@@ -256,11 +256,12 @@ The consolidated option appears when the caller holds `reports.consolidated` **i
 
 `0117` exists because all three functions need the same window arithmetic per Station, and three copies of "what the previous month is" is three chances to disagree. It is the only unit in this block whose correctness is pure arithmetic, so it is also the only one that can be tested exhaustively without fixtures.
 
-**The indexes are a measured gap, not a precaution.** Three of the four source tables have no index that supports "this Station, this date range":
+**Two of the indexes are a measured gap; a third was proposed on the same reasoning and the measurement contradicted it.** Two of the four source tables have no index that supports "this Station, this date range":
 
 - `participations` — its only listing index is `(promotion_id, participated_at desc, id desc)`. A Station-wide count over a period has no promotion to start from.
-- `member_company_links` — has `(company_id)` alone; `linked_at` is not in it, and D9 makes `linked_at` the column every arrival figure filters on.
 - `winners` — has `(draw_id, awarded_rank)` and a partial `(deadline_at)`; nothing keyed by Station and date.
+
+`member_company_links` was the third candidate, on the reasoning that `linked_at` is the column every arrival figure filters on (D9) and `(company_id)` alone from `0031` does not cover it. `0116`'s first draft shipped a `(company_id, linked_at)` index on that reasoning. `EXPLAIN (ANALYZE)` during the fix wave — run against every plan this block produces, including an isolated read bound to a literal date — showed Postgres never chooses it, preferring `0031`'s existing single-column `member_links_company_idx (company_id)` in every case: the `link` CTE in `0118` selects `member_id`, not `linked_at`, so no index-only scan is possible regardless of column order, and the date bound reaches the planner as a filter on an already-materialised CTE rather than a range it can push into an index scan. An index nothing reads is a write cost with no reader, so `0116` was corrected in place to drop it — the migration is unmerged, so the fix edits it rather than adding a later migration to undo it.
 
 `music_requests` already has `(company_id, requested_at) where deleted_at is null` from `0098` and needs nothing.
 

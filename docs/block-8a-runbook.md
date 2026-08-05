@@ -59,7 +59,7 @@ Six migrations belong to this block:
 | migration | what it adds |
 |---|---|
 | `0115_reports_consolidated_permission.sql` | the one new permission code, `reports.consolidated` |
-| `0116_dashboard_indexes.sql` | three indexes: `member_links_company_linked_idx`, `participations_company_period_idx`, `winners_company_created_idx` — measured gaps, not precautions (spec §6) |
+| `0116_dashboard_indexes.sql` | two indexes: `participations_company_period_idx`, `winners_company_created_idx` — measured gaps, not precautions (spec §6). A third, `member_links_company_linked_idx`, was in this migration's first draft and was dropped after EXPLAIN (ANALYZE) showed Postgres never chooses it (spec §6) |
 | `0117_resolve_dashboard_period.sql` | `resolve_dashboard_period` — both windows, per Station, from the Station's own clock |
 | `0118_audience_dashboard.sql` | `get_audience_dashboard` |
 | `0119_music_dashboard.sql` | `get_music_dashboard` |

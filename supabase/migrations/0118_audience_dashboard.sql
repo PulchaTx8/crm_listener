@@ -85,13 +85,20 @@ begin
   -- BOUNDED BY `to_at`, and the bound is not cosmetic (whole-branch review,
   -- Important B6). This CTE is referenced four times below, so Postgres
   -- materialises it and pushes NO date predicate down into it from any
-  -- consumer -- without the line below, `member_links_company_linked_idx`
-  -- (0116) is never exercised on its second column and every load reads the
-  -- Station's whole arrival history. The bound is a semantic no-op, checked
-  -- consumer by consumer: cards filter `< to_at` or `< previous_to_at`
-  -- (previous_to_at = from_at <= to_at), monthly filters `< to_at`, and both
-  -- top-ten lists filter `< to_at`. Nothing below ever asks about a link made
-  -- after the window ended.
+  -- consumer -- without the line below every load reads the Station's whole
+  -- arrival history into this CTE, however short the requested window is.
+  -- (0116's first draft added `member_links_company_linked_idx` on the theory
+  -- that this bound would let the scan use it; the fix wave's own EXPLAIN
+  -- showed Postgres never chose that index -- this CTE selects `member_id`,
+  -- not `linked_at`, so no index-only scan was ever possible on it -- and
+  -- 0116 was corrected in place to drop it. The bound below stands on its own
+  -- regardless: it still keeps this CTE's materialised row count to one
+  -- Station's window rather than its whole history, via 0031's plain
+  -- `(company_id)` index.) The bound is a semantic no-op, checked consumer by
+  -- consumer: cards filter `< to_at` or `< previous_to_at` (previous_to_at =
+  -- from_at <= to_at), monthly filters `< to_at`, and both top-ten lists
+  -- filter `< to_at`. Nothing below ever asks about a link made after the
+  -- window ended.
   -- discovery_source and first_contact_origin are carried HERE rather than
   -- re-joined below (found by the EXPLAIN this review's B6 asked for). This
   -- CTE already joins members for D12b; the two top-ten CTEs used to join it

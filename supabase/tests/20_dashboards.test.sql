@@ -25,14 +25,22 @@ select is(
   'company',
   'reports.consolidated is company-scoped');
 
--- the three indexes the aggregates need. Each source table is filtered by
+-- the two indexes the aggregates need. Each source table is filtered by
 -- Station AND a date range; without these the aggregate scans.
 select has_index('public', 'participations', 'participations_company_period_idx',
   'participations is indexed by station and date');
-select has_index('public', 'member_company_links', 'member_links_company_linked_idx',
-  'member_company_links is indexed by station and linked_at');
 select has_index('public', 'winners', 'winners_company_created_idx',
   'winners is indexed by station and created_at');
+
+-- member_links_company_linked_idx (company_id, linked_at) shipped in 0116's
+-- first draft on the same reasoning as the two above, and EXPLAIN (ANALYZE)
+-- during the fix wave showed Postgres never chooses it -- the `link` CTE in
+-- 0118 selects member_id, not linked_at, so no index-only scan is possible,
+-- and the date bound never reaches the planner as a pushable range. 0116 was
+-- corrected in place to drop it; this proves the drop landed rather than
+-- silently leaving both plan and DDL to agree by accident.
+select hasnt_index('public', 'member_company_links', 'member_links_company_linked_idx',
+  'member_company_links does not carry the index the measurement refused');
 
 -- ---------------------------------------------------------------------------
 -- The period resolver (Task 2). Every assertion below uses America/Sao_Paulo,
