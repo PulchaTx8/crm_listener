@@ -33,6 +33,27 @@ Measured on this branch, against a freshly reset local stack:
 failed on this machine for sign-in contention against the local Supabase since
 Block 7b; CI is the arbitration, as it has been for every block since.
 
+### CI
+
+**All three jobs green** on `acb8543` (run `31051347107`): `build`, `db`, `e2e`.
+
+Two things happened on the way there, both worth recording.
+
+**CI's lint caught what the local one did not.** `next lint` caches by file, and
+`organizationId` in the e2e spec stopped being used partway through the branch —
+when `requestReportAction` began deriving the Organization from the Station ids
+instead of accepting it from the form. The local cache kept returning a clean
+verdict from before that change. Clearing `.next/cache/eslint` reproduces it.
+
+**The first `e2e` run failed on `promotions-flow.spec.ts`, not on this block.**
+Block 4's fixture setup got `An invalid response was received from the upstream
+server` — a 502 from the local Supabase gateway — during `create_promotion`.
+`reports.spec.ts` passed in the same run. A re-run of the failed job was green.
+Recorded rather than quietly re-run: CI runs e2e with **two workers**, and this
+is the shape of the contention every block since 7b has met on this machine in
+parallel. It is not evidence about this block's code, and it is not evidence
+that the suite is stable in parallel either.
+
 **`npm run db:test` requires a freshly reset database**, and this cost time
 during verification. After the e2e or isolation suites have run,
 `15_music_rpcs.test.sql` — Block 7a's, untouched by this block — fails with
