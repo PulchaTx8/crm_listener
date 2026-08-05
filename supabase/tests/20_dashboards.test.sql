@@ -1,5 +1,5 @@
 begin;
-select plan(50);
+select plan(53);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -585,6 +585,68 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050003", 
 select throws_ok(
   $$ select public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[], 'custom', '2026-08-01', '2026-09-01') $$,
   '42501', null, 'a caller without music.view is refused');
+reset role;
+
+-- 51-53: the consolidated path, closed here rather than left for review --
+-- the same class of gap Task 3's review caught on get_audience_dashboard: a
+-- correct-but-unexercised branch in a function whose defects are silent.
+--
+-- Station UTC gets its own artist, song and two requests inside the window,
+-- as migration-role fixture surgery, so a consolidated call over both
+-- Stations produces a number strictly larger than either Station alone --
+-- asserting a sum against an empty second Station would prove nothing.
+insert into public.artists (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000d8060002', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020002', 'Artist UTC');
+insert into public.songs (id, organization_id, company_id, title, artist_id) values
+  ('00000000-0000-0000-0000-0000d8080005', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020002', 'Five', '00000000-0000-0000-0000-0000d8060002');
+insert into public.music_requests (organization_id, company_id, member_id, song_id, requested_at)
+values
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020002',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080005','2026-08-16 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020002',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080005','2026-08-17 12:00:00+00');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+-- 51: a consolidated payload names every Station it summed.
+select is(
+  jsonb_array_length(
+    public.get_music_dashboard(
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+      'custom', '2026-08-01', '2026-09-01') #> '{stations}'),
+  2,
+  'a consolidated music payload names both stations it summed');
+
+-- 52: and a figure genuinely sums across them: SP has 4 (after the
+-- soft-delete at assertion 48), UTC has 2, consolidated must show 6 -- not 4,
+-- which is what a query that silently ignored the second Station would still
+-- show.
+select is(
+  (public.get_music_dashboard(
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+      'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
+  6,
+  'a consolidated requests figure sums both stations, not just one');
+
+-- 53: D3's refusal, exercised on THIS function specifically. d8050004
+-- (Task 3) reaches both Stations and was built to hold no
+-- reports.consolidated -- but its role only ever granted members.view, so as
+-- built it would refuse a music-dashboard call on the music.view check
+-- first, proving nothing about the consolidated gate. Extended here (not
+-- rebuilt) with music.view, so this assertion actually exercises D3's branch
+-- rather than short-circuiting on an earlier one.
+reset role;
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000d8040003', 'music.view');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050004", "role": "authenticated"}';
+select throws_ok($$
+  select public.get_music_dashboard(
+    array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+    'custom', '2026-08-01', '2026-09-01')
+$$, '42501', null, 'a two-Station call is refused without reports.consolidated in both, for music too (D3)');
 reset role;
 
 select * from finish();
