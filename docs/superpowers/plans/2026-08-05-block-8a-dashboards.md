@@ -219,7 +219,7 @@ The single place that knows what "previous month" means. All three aggregates ca
 
 **Files:**
 - Create: `supabase/migrations/0117_resolve_dashboard_period.sql`
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(5)` to `plan(19)`, append assertions)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(5)` to `plan(21)`, append assertions)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -237,7 +237,7 @@ The single place that knows what "previous month" means. All three aggregates ca
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `supabase/tests/20_dashboards.test.sql`, before `select * from finish();`, and change `select plan(5);` to `select plan(19);`:
+Append to `supabase/tests/20_dashboards.test.sql`, before `select * from finish();`, and change `select plan(5);` to `select plan(21);`:
 
 ```sql
 -- ---------------------------------------------------------------------------
@@ -287,10 +287,25 @@ select is(
   (select extract(day from from_date)::int from public.resolve_dashboard_period('current_month', null, null, 'America/Sao_Paulo')),
   1,
   'current_month starts on the first of the month');
+-- The comparison window of a calendar preset must be the previous CALENDAR
+-- unit, and this is the assertion that says so without depending on the month
+-- the suite happens to run in: stepping the comparison window forward by one
+-- month must land exactly on the chosen window's start. Subtracting a day-count
+-- instead -- 31 days off a 31-day May, landing on 31 March -- fails this for
+-- every pair of adjacent months with different lengths, and passes only when
+-- the value is genuinely right.
 select is(
+  (select (previous_from_date + interval '1 month')::date from public.resolve_dashboard_period('previous_month', null, null, 'America/Sao_Paulo')),
   (select previous_to_date from public.resolve_dashboard_period('previous_month', null, null, 'America/Sao_Paulo')),
-  (select from_date from public.resolve_dashboard_period('previous_month', null, null, 'America/Sao_Paulo')),
-  'previous_month compares against the month before it');
+  'previous_month compares against exactly the calendar month before it');
+select is(
+  (select (previous_from_date + interval '1 month')::date from public.resolve_dashboard_period('current_month', null, null, 'America/Sao_Paulo')),
+  (select from_date from public.resolve_dashboard_period('current_month', null, null, 'America/Sao_Paulo')),
+  'current_month compares against exactly the calendar month before it');
+select is(
+  (select (previous_from_date + interval '1 year')::date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
+  (select from_date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
+  'current_year compares against exactly the calendar year before it — which a day-count subtraction gets wrong after every leap year');
 select is(
   (select to_date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
   (select (from_date + interval '1 year')::date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
@@ -388,16 +403,29 @@ begin
   -- The Station's today, never the server's.
   v_today := (now() at time zone p_timezone)::date;
 
+  -- Each branch sets its OWN comparison window, and that is the whole point of
+  -- the shape below. A calendar preset compares against the previous CALENDAR
+  -- unit, which is not the same thing as subtracting the current unit's length:
+  -- `date - date` in Postgres is a count of days, so subtracting the span of a
+  -- 31-day May would place the comparison window at 31 March, giving one day of
+  -- March plus all of April and calling it "the previous month". That is right
+  -- only when two adjacent units happen to share a length -- true for July into
+  -- August, false for ten month pairs in twelve and for every year after a leap
+  -- year -- and it fails as a plausible number rather than an error.
+  v_pto := null;
   case p_preset
     when 'current_month' then
-      v_from := date_trunc('month', v_today::timestamp)::date;
-      v_to   := (v_from + interval '1 month')::date;
+      v_from  := date_trunc('month', v_today::timestamp)::date;
+      v_to    := (v_from + interval '1 month')::date;
+      v_pfrom := (v_from - interval '1 month')::date;
     when 'previous_month' then
-      v_to   := date_trunc('month', v_today::timestamp)::date;
-      v_from := (v_to - interval '1 month')::date;
+      v_to    := date_trunc('month', v_today::timestamp)::date;
+      v_from  := (v_to - interval '1 month')::date;
+      v_pfrom := (v_from - interval '1 month')::date;
     when 'current_year' then
-      v_from := date_trunc('year', v_today::timestamp)::date;
-      v_to   := (v_from + interval '1 year')::date;
+      v_from  := date_trunc('year', v_today::timestamp)::date;
+      v_to    := (v_from + interval '1 year')::date;
+      v_pfrom := (v_from - interval '1 year')::date;
     when 'custom' then
       if p_from is null or p_to is null then
         raise exception 'a custom period needs both bounds' using errcode = '22023';
@@ -407,17 +435,19 @@ begin
       end if;
       v_from := p_from;
       v_to   := p_to;
+      -- The only preset where subtracting the span IS the right answer: an
+      -- arbitrary range of N days has no calendar unit to step back by, so the
+      -- immediately preceding N days is the only sensible comparison.
+      v_pfrom := (v_from - (v_to - v_from))::date;
     else
       -- Not defaulted to a month. A typo in a search param must be an error the
       -- screen can name, not a silently different question answered correctly.
       raise exception 'unknown period preset: %', p_preset using errcode = '22023';
   end case;
 
-  -- The window immediately before, of the same length (D6). For the calendar
-  -- presets that is the previous calendar month or year, which is what
-  -- subtracting the span gives, because the span IS that month or year.
-  v_pto   := v_from;
-  v_pfrom := (v_from - (v_to - v_from))::date;
+  -- Common to every preset: the comparison window ends where the chosen one
+  -- begins, so the two are adjacent and never overlap.
+  v_pto := v_from;
 
   return query select
     (v_from::timestamp  at time zone p_timezone),
@@ -437,7 +467,7 @@ grant execute on function public.resolve_dashboard_period(text, date, date, text
 - [ ] **Step 4: Run the tests to make sure they pass**
 
 Run: `npm run db:reset && npm run db:test`
-Expected: PASS — 19 assertions in `20_dashboards.test.sql`, `Result: PASS`.
+Expected: PASS — 21 assertions in `20_dashboards.test.sql`, `Result: PASS`.
 
 - [ ] **Step 5: Commit**
 
@@ -452,7 +482,7 @@ git commit -m "feat(dashboards): what a period is, resolved once and at the Stat
 
 **Files:**
 - Create: `supabase/migrations/0118_audience_dashboard.sql`
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(19)` to `plan(32)`, append assertions)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(21)` to `plan(34)`, append assertions)
 
 **Interfaces:**
 - Consumes: `public.resolve_dashboard_period` (Task 2), `public.has_permission(text, uuid)` (0010/0015/0016).
@@ -460,7 +490,7 @@ git commit -m "feat(dashboards): what a period is, resolved once and at the Stat
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(19)` to `plan(32)`:
+Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(21)` to `plan(34)`:
 
 ```sql
 -- ---------------------------------------------------------------------------
@@ -653,7 +683,7 @@ select is(
 reset role;
 ```
 
-> **Note for the implementer:** that last assertion makes 32, not 31 — set `plan(32)` and renumber the comments. The two callers built at the top of this section are reused by Tasks 4 and 5; do not rebuild them there.
+> **Note for the implementer:** assertion numbers in the comments are guidance, not a contract — what must hold is that `plan(N)` equals the number of assertions actually in the file (34 after this task). The two callers built at the top of this section are reused by Tasks 4 and 5; do not rebuild them there.
 
 - [ ] **Step 2: Run it to make sure it fails**
 
@@ -891,7 +921,7 @@ grant execute on function public.get_audience_dashboard(uuid[], text, date, date
 - [ ] **Step 4: Run the tests to make sure they pass**
 
 Run: `npm run db:reset && npm run db:test`
-Expected: PASS — 32 assertions, `Result: PASS`.
+Expected: PASS — 34 assertions, `Result: PASS`.
 
 - [ ] **Step 5: Commit**
 
@@ -906,7 +936,7 @@ git commit -m "feat(dashboards): the audience panel, counted at the Station's cl
 
 **Files:**
 - Create: `supabase/migrations/0119_music_dashboard.sql`
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(32)` to `plan(40)`)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(34)` to `plan(42)`)
 
 **Interfaces:**
 - Consumes: `public.resolve_dashboard_period` (Task 2). Follows `get_audience_dashboard`'s payload contract exactly (Task 3).
@@ -914,7 +944,7 @@ git commit -m "feat(dashboards): the audience panel, counted at the Station's cl
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(32)` to `plan(40)`. Assertions are numbered 33–40. The two callers already exist from Task 3; fixtures are inserted as the migration role and the assertions run as `d8u01` unless stated.
+Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(34)` to `plan(42)`. Assertions are numbered from wherever Task 3 left off; keep `plan(N)` equal to the real count (42 after this task). The two callers already exist from Task 3; fixtures are inserted as the migration role and the assertions run as `d8u01` unless stated.
 
 ```sql
 -- ---------------------------------------------------------------------------
@@ -1122,7 +1152,7 @@ This requires `request` to carry `nationality` and `vocal` from the joined song 
 - [ ] **Step 4: Run the tests to make sure they pass**
 
 Run: `npm run db:reset && npm run db:test`
-Expected: PASS — 40 assertions, `Result: PASS`.
+Expected: PASS — 42 assertions, `Result: PASS`.
 
 - [ ] **Step 5: Commit**
 
@@ -1139,7 +1169,7 @@ git commit -m "feat(dashboards): the music panel, with the three vocal values th
 - Create: `supabase/migrations/0120_promotions_dashboard.sql`
 - Create: `tests/unit/promotion-situation-boundary.test.ts`
 - Modify: `src/lib/promotion-situation.ts` (comment only)
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(40)` to `plan(51)`)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(42)` to `plan(53)`)
 
 **Interfaces:**
 - Consumes: `public.resolve_dashboard_period` (Task 2); the payload contract of Task 3.
@@ -1149,7 +1179,7 @@ git commit -m "feat(dashboards): the music panel, with the three vocal values th
 
 D11 accepts a second copy of the situation rule on the condition that both copies are proved at the same boundary instants. Write both halves now.
 
-Append to `supabase/tests/20_dashboards.test.sql` (change `plan(40)` to `plan(51)`) — fixtures plus these assertions, numbered 41–51. The `promotion_is_live` assertions need no role switch: it reads no table. Everything calling `get_promotions_dashboard` runs as `d8u01` unless stated.
+Append to `supabase/tests/20_dashboards.test.sql` (change `plan(42)` to `plan(53)`) — fixtures plus these assertions, numbered from wherever Task 4 left off, keeping `plan(N)` equal to the real count (53 after this task). The `promotion_is_live` assertions need no role switch: it reads no table. Everything calling `get_promotions_dashboard` runs as `d8u01` unless stated.
 
 ```sql
 -- FIXTURES: do not invent these inserts. supabase/tests/13_pickup_reads.test.sql
@@ -1324,7 +1354,7 @@ then `get_promotions_dashboard`, in the shape of `0118`, with `promotions.view` 
 
 - [ ] **Step 4: Run everything to make sure it passes**
 
-Run: `npm run db:reset && npm run db:test` → PASS, 51 assertions.
+Run: `npm run db:reset && npm run db:test` → PASS, 53 assertions.
 Run: `npx vitest run tests/unit/promotion-situation-boundary.test.ts` → PASS, 3 tests.
 
 - [ ] **Step 5: Add the comment pointing back**
