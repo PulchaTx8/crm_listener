@@ -1,5 +1,12 @@
-import type { SendInteractiveInput, SendResult, SendTextInput, WhatsAppTransport } from './transport';
+import type {
+  SendInteractiveInput,
+  SendResult,
+  SendTemplateInput,
+  SendTextInput,
+  WhatsAppTransport,
+} from './transport';
 import { buildInteractivePayload } from './interactive';
+import { buildTemplatePayload } from './template';
 
 const GRAPH_VERSION = 'v21.0';
 
@@ -39,6 +46,29 @@ export class GraphTransport implements WhatsAppTransport {
    */
   async sendInteractive({ phoneNumberId, to, interactive }: SendInteractiveInput): Promise<SendResult> {
     const built = buildInteractivePayload(interactive) as Record<string, unknown>;
+    return this.post(phoneNumberId, {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      ...built,
+    });
+  }
+
+  /**
+   * The one send that does not need an inbound message to have come first. The
+   * class header above says an out-of-window free-form text comes back as a
+   * 400 and that "Block 6's first Station-initiated message — a draw result —
+   * will need a template, and this method is not it." This is it, one block
+   * later than that comment guessed and for the pickup reminder instead.
+   *
+   * Built before anything else, for the reason sendInteractive gives: a shape
+   * `buildTemplatePayload` refuses throws here, outside `post`'s try/catch,
+   * rather than being folded into a retryable SendResult it is not. In
+   * practice drainOutbox has already refused it through parseTemplate and
+   * parked the row; this is the guard for any caller that has not.
+   */
+  async sendTemplate({ phoneNumberId, to, template }: SendTemplateInput): Promise<SendResult> {
+    const built = buildTemplatePayload(template) as Record<string, unknown>;
     return this.post(phoneNumberId, {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
