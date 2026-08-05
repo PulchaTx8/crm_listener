@@ -1,5 +1,5 @@
 begin;
-select plan(34);
+select plan(36);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -292,6 +292,51 @@ select is(
      'custom', '2026-08-01', '2026-09-01') #> '{withheld}'),
   '[]'::jsonb,
   'nothing is withheld from a caller holding participations.view');
+
+-- 32: took_part had no assertion that it ever counts anything -- only that it
+-- is present or absent. One promotion at Station SP, one VALID participation
+-- by Ana inside August, gives it teeth. Fixture surgery as the migration role:
+-- 0044/0053 grant no role insert on promotions or participations, since every
+-- real write goes through a SECURITY DEFINER RPC.
+reset role;
+insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000d8090001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'August Quiz',
+   '2026-08-01 00:00:00+00', '2026-09-01 00:00:00+00');
+insert into public.participations
+  (id, promotion_id, member_id, organization_id, company_id, allows_multiple, status, source, participated_at)
+values
+  ('00000000-0000-0000-0000-0000d80d0001', '00000000-0000-0000-0000-0000d8090001',
+   '00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', false, 'VALID', 'MANUAL', '2026-08-15 12:00:00+00');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,took_part,current}')::int,
+  1,
+  'took_part actually counts a valid participation inside the window');
+
+-- 33: D12b -- every figure on this panel counts the same population. Ana's
+-- participation happened, but she has since been erased, and took_part must
+-- not count her any more than listeners does -- the two cards must never
+-- disagree about who counts. Bracketed as migration-role fixture surgery, the
+-- same rule assertion 26 above already follows.
+reset role;
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-0000d8030001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,took_part,current}')::int,
+  0,
+  'an anonymised participant is excluded from took_part too (D12b)');
+reset role;
+update public.members set anonymized_at = null
+ where id = '00000000-0000-0000-0000-0000d8030001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 
 -- Switch to the caller who lacks participations.view. Same rows, same window,
 -- different permissions: the figure must be ABSENT, not zero. A zero would say

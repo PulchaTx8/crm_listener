@@ -100,6 +100,15 @@ begin
                                                                             as new_previous
       from link
   ),
+  -- D12b: every figure on this panel counts the same population. took_part
+  -- reads participations directly, with no obligation on its own to exclude an
+  -- erased member -- the participation genuinely happened. But left that way,
+  -- this card and `listeners` above would silently disagree about who counts,
+  -- and nothing on screen says so: a page that prints more "took part" than
+  -- "listeners" reads as a bug even when each number is individually true. The
+  -- accepted cost is the opposite, smaller error -- activity by a since-erased
+  -- listener is undercounted -- rather than the two cards contradicting each
+  -- other.
   took_part as (
     select
       count(distinct p.member_id) filter (where p.participated_at >= s.from_at and p.participated_at < s.to_at)
@@ -108,12 +117,18 @@ begin
         as previous
       from public.participations p
       join station s on s.id = p.company_id
+      join public.members m
+        on m.id = p.member_id and m.deleted_at is null and m.anonymized_at is null
   ),
   -- Distinct MEMBERS, not block rows: member_blocks.company_id is nullable and
   -- 0032 states that null means the whole Organization, so a group-wide bar
   -- would otherwise be counted once per Station in a consolidated view. The
   -- consequence is deliberate and documented in the spec: a consolidated bar
   -- figure is not always the sum of its parts.
+  --
+  -- Same D12b join as took_part above, for the same reason: a block recorded
+  -- against a since-erased member must not make `barred` disagree with
+  -- `listeners` about who is in the audience this panel describes.
   barred as (
     select
       count(distinct b.member_id) filter (where b.starts_at >= s.from_at and b.starts_at < s.to_at)
@@ -124,6 +139,8 @@ begin
       join station s
         on s.id = b.company_id
         or (b.company_id is null and b.organization_id = s.organization_id)
+      join public.members m
+        on m.id = b.member_id and m.deleted_at is null and m.anonymized_at is null
      where b.lifted_at is null
   ),
   blocks_by_kind as (
@@ -135,6 +152,8 @@ begin
           join station s
             on s.id = b.company_id
             or (b.company_id is null and b.organization_id = s.organization_id)
+          join public.members m
+            on m.id = b.member_id and m.deleted_at is null and m.anonymized_at is null
          where b.lifted_at is null
            and b.starts_at >= s.from_at and b.starts_at < s.to_at
          group by b.kind
@@ -216,6 +235,6 @@ end;
 $$;
 
 comment on function public.get_audience_dashboard(uuid[], text, date, date) is
-  'The Audience dashboard for one Station or a consolidated set, both windows in one call. SECURITY INVOKER by design (spec D4): the select policies of 0035 apply inside it, so the multi-tenant cut is structural rather than restated -- the failure mode a DEFINER aggregate carries is a count that silently includes rows the caller may not read, which looks like a number rather than a defect. Refuses with 42501 unless the caller holds members.view in EVERY station named, and reports.consolidated in every one when more than one is named (D3), so a consolidated total can never contain a Station the caller could not have visited alone. New listeners are counted from member_company_links.linked_at, not members.created_at (D9): members are Organization-scoped and a listener arriving here from a sister Station is new HERE. Stock figures are measured as of each window''s end, so a historical period compares two true totals. The bar figure counts distinct MEMBERS and treats a null member_blocks.company_id as the Organization-wide block 0032 says it is, which is why a consolidated bar figure is not always the sum of its parts. Deleted and anonymised members are excluded throughout. took_part reads participations, gated by participations.view, which members.view does not imply: a caller lacking it gets the figure OMITTED and named in withheld, never zeroed (D13).';
+  'The Audience dashboard for one Station or a consolidated set, both windows in one call. SECURITY INVOKER by design (spec D4): the select policies of 0035 apply inside it, so the multi-tenant cut is structural rather than restated -- the failure mode a DEFINER aggregate carries is a count that silently includes rows the caller may not read, which looks like a number rather than a defect. Refuses with 42501 unless the caller holds members.view in EVERY station named, and reports.consolidated in every one when more than one is named (D3), so a consolidated total can never contain a Station the caller could not have visited alone. New listeners are counted from member_company_links.linked_at, not members.created_at (D9): members are Organization-scoped and a listener arriving here from a sister Station is new HERE. Stock figures are measured as of each window''s end, so a historical period compares two true totals. The bar figure counts distinct MEMBERS and treats a null member_blocks.company_id as the Organization-wide block 0032 says it is, which is why a consolidated bar figure is not always the sum of its parts. Deleted and anonymised members are excluded throughout -- every figure on this panel counts the same population, took_part and barred/blocks_by_kind included, so the cards cannot contradict each other by silently counting different audiences under one page; the cost accepted is that activity by a since-erased listener is undercounted, the smaller error next to a page that could otherwise print more "took part" than "listeners" (D12b). took_part reads participations, gated by participations.view, which members.view does not imply: a caller lacking it gets the figure OMITTED and named in withheld, never zeroed (D13).';
 
 grant execute on function public.get_audience_dashboard(uuid[], text, date, date) to authenticated;
