@@ -101,6 +101,14 @@ It is accepted rather than avoided, with three conditions: the SQL states the sa
 
 The Promotions dashboard is the third reader to treat `AWAITING_PICKUP` as live, so it carries the same exclusion: **a winner whose draw was cancelled counts toward nothing** — not prizes awarded, not the pickup cycle, not the overdue figure. Counting them would report prizes handed out that were taken back before anyone was told.
 
+### D12b — Every Audience figure counts the same people
+
+Deleted and anonymised members are excluded from **every** figure on the Audience panel, not only from the headline total.
+
+Found while implementing Task 3, where the total excluded them and "took part" and "barred" did not, because those two read `participations` and `member_blocks` without joining `members`. Both readings are defensible in isolation — the erased person's participation did happen — but together they let the page print *1,234 listeners* above *1,300 took part*, and a reader has no way to learn that the two numbers count different populations. One panel, one population.
+
+The cost is accepted and named: activity by someone since erased is undercounted. Anonymisation is rare, the undercount is small, and the alternative is a page that contradicts itself in public.
+
 ### D13 — A figure the caller's permissions cannot support is withheld, never zeroed
 
 Because aggregation runs as the caller (D4), a figure drawn from a table gated by a permission **other than its panel's own** returns nothing for a caller who lacks it — and nothing would render as a zero indistinguishable from a true one. D4 refuses that confusion at the panel level; this is the same rule one level down, and it is the price of D4 rather than an argument against it.
@@ -123,8 +131,8 @@ Every figure below comes from a column that exists today. No migration in this b
 |---|---|---|
 | Listeners at this Station | `member_company_links` as of the end of the window, excluding members that are deleted or anonymized | yes (as of each window's end) |
 | New in the period | `member_company_links.linked_at` in the window (D9) | yes |
-| Took part in the period | distinct members with a participation in the window (D10) — **needs `participations.view`, withheld without it** (D13) | yes |
-| Listeners barred in the period | distinct members with a block starting in the window and still in force (`lifted_at is null`), split by `kind` (`draw_ban`, `suspension`) — see the rule below | yes |
+| Took part in the period | distinct members with a participation in the window (D10), excluding deleted and anonymised (D12b) — **needs `participations.view`, withheld without it** (D13) | yes |
+| Listeners barred in the period | distinct members, excluding deleted and anonymised (D12b), with a block starting in the window and still in force (`lifted_at is null`), split by `kind` (`draw_ban`, `suspension`) — see the rule below | yes |
 | Monthly arrivals | `linked_at` grouped by month, over the last twelve months ending at the window's end | — |
 | How they were found | `members.discovery_source`, top ten with a "not stated" bucket | — |
 | First contact | `members.first_contact_origin`, top ten with a "not stated" bucket | — |
