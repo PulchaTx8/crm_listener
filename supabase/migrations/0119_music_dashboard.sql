@@ -13,9 +13,19 @@
 -- beside them. Both breakdowns therefore carry every value of their enum plus an
 -- explicit "not stated" bucket, and the pgTAP suite asserts the sum rather than
 -- the slices, because it is the sum that a future edit would break silently. The
--- window filter is applied inside these two CTEs (rather than left implicit the
--- way 0118's blocks_by_kind reads a pre-filtered slice) so the invariant holds
--- for every period requested, not only the one the fixtures happen to cover.
+-- window filter rides in the LEFT JOIN's own condition rather than a WHERE, so
+-- a value nobody requested this period survives the filter and reports 0 --
+-- put it in a WHERE and the empty side is discarded again, which is the whole
+-- failure this shape exists to avoid.
+--
+-- THIS IS THE BLOCK'S PATTERN, not a local trick, and an earlier draft of this
+-- comment said otherwise (whole-branch review, Minor C2): it claimed 0118's
+-- blocks_by_kind "reads a pre-filtered slice", which was never true -- that CTE
+-- was a plain `group by kind` and genuinely dropped `suspension` in any period
+-- nobody was suspended (review Important B1). It now carries the identical
+-- unnest(enum_range(...)) LEFT JOIN shape, as does 0120's participation_status
+-- and prize_cycle. All five enum breakdowns in this block are written the same
+-- way, and a sixth should be too.
 --
 -- Nothing here is ever withheld (D13): every table this reads -- songs,
 -- music_requests, music_genres -- is gated by music.view, which is this panel's
@@ -80,6 +90,17 @@ begin
       cross join lateral public.resolve_dashboard_period(p_preset, p_from, p_to, c.timezone) p
      where c.id = any(v_ids)
   ),
+  -- DELIBERATELY NOT BOUNDED BY created_at, and this is the one CTE in the
+  -- block where the obvious date bound would be wrong (whole-branch review,
+  -- Important B6, argued down). `request` below joins THIS CTE to reach a
+  -- song's nationality and vocal, and record_music_request (0107:139-142)
+  -- takes `coalesce(p_requested_at, now())` -- an operator may register a
+  -- request that HAPPENED before the song was catalogued here. Bounding this
+  -- by `created_at < to_at` would then silently drop a backdated request
+  -- inside the window because its song was entered after the window closed,
+  -- which is a wrong number, not a slower one. The catalogue cards' own
+  -- `created_at < to_at` filters below are the correct place for that bound,
+  -- and songs is the smallest of the four source tables besides.
   song as (
     select sg.id, sg.title, sg.genre_id, sg.nationality, sg.vocal, sg.created_at,
            st.timezone, st.from_at, st.to_at, st.previous_from_at, st.previous_to_at
@@ -92,6 +113,18 @@ begin
   -- previous with FILTER rather than two separately-scoped CTEs. Carries the
   -- joined song's nationality and vocal so the breakdowns below need no
   -- second join to songs.
+  --
+  -- BOUNDED, and the bound is what makes 0098's
+  -- (company_id, requested_at) index earn its keep (whole-branch review,
+  -- Important B6). This CTE is referenced six times below, so Postgres
+  -- materialises it and pushes no consumer's date predicate down into it --
+  -- unbounded, every load read the Station's ENTIRE request history to
+  -- produce figures that span at most twelve months. The bound is a semantic
+  -- no-op, checked consumer by consumer: the cards filter the two windows,
+  -- monthly filters [to_at - 12 months, to_at), and the two top-tens and both
+  -- breakdowns filter the current window. Twelve months is the widest of
+  -- those and the comparison window can be wider still (a custom range of two
+  -- years), hence `least`.
   request as (
     select r.id, r.requested_at, r.song_id, sg.genre_id, sg.title as song_title,
            sg.nationality, sg.vocal, sg.timezone,
@@ -99,6 +132,8 @@ begin
       from public.music_requests r
       join song sg on sg.id = r.song_id
      where r.deleted_at is null
+       and r.requested_at >= least(sg.previous_from_at, sg.to_at - interval '12 months')
+       and r.requested_at <  sg.to_at
   ),
   song_cards as (
     select
@@ -206,16 +241,29 @@ begin
            and r.requested_at >= r.from_at and r.requested_at < r.to_at
       ) b
   )
-  select jsonb_build_object(
+  -- One payload shape across all three functions: jsonb_strip_nulls once, at
+  -- the top, recursing into every level (whole-branch review, Minor C3 --
+  -- 0118's own comment on this carries the full argument). Nothing on this
+  -- panel is ever withheld, so nothing here is ever null to strip; it is
+  -- spelled the same way anyway, because three different strip scopes across
+  -- three functions sharing one Zod schema is three chances for the one D13
+  -- rests on to drift.
+  select jsonb_strip_nulls(jsonb_build_object(
     'period', (
       select jsonb_build_object(
         'preset', p_preset,
         'from', min(from_date), 'to', min(to_date),
         'previous_from', min(previous_from_date), 'previous_to', min(previous_to_date))
         from station),
-    'stations', (
-      select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'timezone', timezone) order by name)
-        from station),
+    -- Each Station's own resolved dates beside its timezone (D5 as amended) --
+    -- see 0118's own comment: a preset resolves at each Station's clock, so a
+    -- consolidated call on a month boundary can hold two different calendar
+    -- months, and the screen names them rather than claiming they agree.
+    'stations', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', id, 'name', name, 'timezone', timezone,
+               'from', from_date, 'to', to_date) order by name)
+        from station), '[]'::jsonb),
     'cards', (
       select jsonb_build_object(
         'catalogue', jsonb_build_object('current', sc.catalogue_current, 'previous', sc.catalogue_previous),
@@ -230,7 +278,7 @@ begin
                     'songs',  coalesce((select rows from top_songs), '[]'::jsonb),
                     'genres', coalesce((select rows from top_genres), '[]'::jsonb)),
     'withheld',   '[]'::jsonb
-  ) into v_result;
+  )) into v_result;
 
   return v_result;
 end;

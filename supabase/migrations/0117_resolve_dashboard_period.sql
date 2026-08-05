@@ -22,8 +22,11 @@
 -- ends, not a moment after -- so a row cannot fall in two adjacent periods or
 -- in neither.
 --
--- SECURITY INVOKER (the default, stated for the reader): it reads no table and
--- so has nothing to bypass. It is pure arithmetic over its arguments.
+-- SECURITY INVOKER: it reads no table and so has nothing to bypass. It is pure
+-- arithmetic over its arguments. DECLARED rather than left to the Postgres
+-- default (whole-branch review, Minor C8): 0118-0120 all three spell it out,
+-- and a reader comparing the four functions of this block should not have to
+-- know which way the default falls to see that they agree.
 create or replace function public.resolve_dashboard_period(
   p_preset   text,
   p_from     date,
@@ -42,6 +45,7 @@ returns table (
 )
 language plpgsql
 stable
+security invoker
 set search_path = pg_catalog, public
 as $$
 declare

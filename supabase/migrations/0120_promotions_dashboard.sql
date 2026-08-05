@@ -151,11 +151,35 @@ begin
   ),
   -- Every participation of every named Station, both windows in one row --
   -- the CTE the whole entry side of this panel (D13) is built from.
+  --
+  -- BOUNDED, and this is the single largest read in the block (whole-branch
+  -- review, Important B6). Five figures reference this CTE, so Postgres
+  -- materialises it and pushes no consumer's date predicate down into it:
+  -- unbounded, opening this dashboard read the Station's ENTIRE participation
+  -- history -- every entry of every promotion it has ever run -- to produce
+  -- figures that span at most twelve months, and
+  -- participations_company_period_idx (0116) was never exercised on its
+  -- second column at all. The bound is a semantic no-op, checked consumer by
+  -- consumer: participation_cards filters the two windows, the refusal
+  -- breakdown and top_promotions filter the current window, and monthly
+  -- filters [to_at - 12 months, to_at). `least` because the comparison window
+  -- of a long custom range can open earlier than twelve months back.
+  --
+  -- `and v_participations` short-circuits the whole scan on the withheld path
+  -- (the same reasoning 0118's took_part carries, Minor C6): every consumer
+  -- of this CTE is omitted for a caller lacking participations.view, so
+  -- reading the table at all was work whose only possible outcome was being
+  -- thrown away. The aggregates below still return their one row of zeros
+  -- over an empty input, and the `case when` clauses discard it exactly as
+  -- they discarded the real numbers.
   participation as (
     select p.id, p.member_id, p.promotion_id, p.status, p.participated_at,
            s.timezone, s.from_at, s.to_at, s.previous_from_at, s.previous_to_at
       from public.participations p
       join station s on s.id = p.company_id
+     where v_participations
+       and p.participated_at >= least(s.previous_from_at, s.to_at - interval '12 months')
+       and p.participated_at <  s.to_at
   ),
   participation_cards as (
     select
@@ -173,6 +197,12 @@ begin
   -- every figure that reads this CTE (awarded, overdue, prize_cycle), because
   -- cancel_draw (0079) reverses the unit but deliberately leaves
   -- winners.status at AWAITING_PICKUP.
+  -- DELIBERATELY UNBOUNDED BY DATE, unlike `participation` above: `overdue`
+  -- is a fact about right now over ALL time (an AWAITING_PICKUP winner whose
+  -- deadline passed two years ago is still uncollected today), so a
+  -- window bound here would silently shrink the one figure on this panel that
+  -- has no window. winners_company_created_idx (0116) still serves the
+  -- awarded FILTERs, and 0075's partial (deadline_at) index serves overdue.
   winner as (
     select w.id, w.status, w.deadline_at, w.created_at,
            s.from_at, s.to_at, s.previous_from_at, s.previous_to_at
@@ -231,6 +261,23 @@ begin
   -- Busiest promotions, top ten by participation count in the window --
   -- part of the entry side (D13), so joined off `participation`, not
   -- `promotion` above.
+  --
+  -- THE ARCHIVED-PROMOTION JOIN IS CONSISTENT WITH THE CARD ABOVE IT, and a
+  -- reader is right to check (whole-branch review, Minor C4 -- raised as a
+  -- discrepancy, and it is not one; recorded here so the next reader stops
+  -- where this one did). This joins public.promotions under RLS, so
+  -- promotions_select_promotions_view (0044:43-48) hides an archived
+  -- promotion from anyone but the Organization owner and this list loses its
+  -- name. The worry is that its participations would still swell
+  -- cards.participations, printing a total no named promotion accounts for --
+  -- but they do not: participations_select_participations_view (0053:25-30)
+  -- carries `promotion_id in (select id from public.promotions)`, and that
+  -- subquery is itself filtered by the policy above. The same caller who
+  -- cannot see the promotion cannot see its participations either, so the
+  -- rows are gone from `participation` before any figure counts them. Both
+  -- sides move together, in both directions, for every caller. Spec §7's
+  -- isolation requirement ("an archived promotion's participations do not
+  -- reach a non-owner's totals") is the assertion that pins it.
   top_promotions as (
     select jsonb_agg(jsonb_build_object('id', t.promotion_id, 'label', t.name, 'count', t.n)
                      order by t.n desc, t.name) as rows
@@ -257,7 +304,13 @@ begin
          group by 1
       ) m
   )
-  -- The whole payload is wrapped in jsonb_strip_nulls, not only `cards` --
+  -- The whole payload is wrapped in jsonb_strip_nulls, ONCE, at the top --
+  -- and 0118 and 0119 now spell it exactly this way too (whole-branch review,
+  -- Minor C3: this function stripped at four levels, 0118 at one and 0119 at
+  -- none, on three payloads sharing one Zod schema and one D13 contract).
+  -- jsonb_strip_nulls recurses, so the inner calls this function used to make
+  -- on `cards`, `breakdowns` and `top` were redundant and are gone.
+  --
   -- `monthly` is a TOP-level key (matching 0118/0119's own shape) and, unlike
   -- `cards`/`breakdowns`/`top`, has no sub-object of its own to strip inside.
   -- D13 applies to it exactly as it does to the entry cards: an empty chart
@@ -273,11 +326,15 @@ begin
         'from', min(from_date), 'to', min(to_date),
         'previous_from', min(previous_from_date), 'previous_to', min(previous_to_date))
         from station),
-    'stations', (
-      select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'timezone', timezone) order by name)
-        from station),
+    -- Each Station's own resolved dates beside its timezone (D5 as amended) --
+    -- see 0118's own comment for the full argument.
+    'stations', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', id, 'name', name, 'timezone', timezone,
+               'from', from_date, 'to', to_date) order by name)
+        from station), '[]'::jsonb),
     'cards', (
-      select jsonb_strip_nulls(jsonb_build_object(
+      select jsonb_build_object(
         'live_now', jsonb_build_object('current', pc.live_now),
         'ended',    jsonb_build_object('current', pc.ended_current, 'previous', pc.ended_previous),
         'participations', case when v_participations
@@ -287,20 +344,20 @@ begin
                                        then jsonb_build_object('current', ptc.distinct_current, 'previous', ptc.distinct_previous)
                                        else null end,
         'awarded', jsonb_build_object('current', wc.awarded_current, 'previous', wc.awarded_previous),
-        'overdue', jsonb_build_object('current', wc.overdue_current)))
+        'overdue', jsonb_build_object('current', wc.overdue_current))
         from promotion_cards pc, participation_cards ptc, winner_cards wc),
     'monthly', case when v_participations
                     then coalesce((select rows from monthly), '[]'::jsonb)
                     else null end,
-    'breakdowns', jsonb_strip_nulls(jsonb_build_object(
+    'breakdowns', jsonb_build_object(
                     'participation_status', case when v_participations
                                                   then coalesce((select rows from participation_status_breakdown), '[]'::jsonb)
                                                   else null end,
-                    'prize_cycle', coalesce((select rows from prize_cycle), '[]'::jsonb))),
-    'top', jsonb_strip_nulls(jsonb_build_object(
+                    'prize_cycle', coalesce((select rows from prize_cycle), '[]'::jsonb)),
+    'top', jsonb_build_object(
              'promotions', case when v_participations
                                  then coalesce((select rows from top_promotions), '[]'::jsonb)
-                                 else null end)),
+                                 else null end),
     'withheld', case when v_participations then '[]'::jsonb
                      else jsonb_build_array(
                             jsonb_build_object('figure', 'participations', 'needs', 'participations.view'),
