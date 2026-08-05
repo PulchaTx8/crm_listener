@@ -20,7 +20,9 @@
 - **Period bounds are dates, never instants**, converted per Station inside SQL (D5).
 - **Every "top" list is the top ten**, ordered by count descending with the record's own name as the tie-break.
 - **The gate before any PR:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run db:test`, `npm run test:isolation`, `npm run build`, `npm run test:e2e`.
-- **Fixture UUIDs in pgTAP** follow the existing convention: `00000000-0000-0000-0000-0000000<hex tag>`. This block uses the `d8` tag (`...0000d8xx`) so it collides with no existing test file.
+- **Fixture UUIDs in pgTAP** are `00000000-0000-0000-0000-0000d8<EE><NNNN>`, where `d8` tags this block (colliding with no existing test file), `EE` is the entity and `NNNN` the instance: `01` organizations, `02` companies, `03` members, `04` roles, `05` `auth.users`, `06` artists, `07` genres, `08` songs, `09` promotions, `0a` prizes and promotion_prizes, `0b` draws, `0c` winners, `0d` participations.
+
+  The numeric entity code exists because the obvious alternative bites: a UUID admits only `0-9a-f`, so mnemonic letters like `m` for members, `u` for users or `s` for songs produce `invalid input syntax for type uuid` at the first insert. An earlier draft of this plan did exactly that.
 - **pgTAP exercises these functions as a real authenticated caller, never as the migration role, and never against a stubbed `has_permission`.** No test file in this repository replaces that function, and here the house pattern is not merely convention: the aggregates are `SECURITY INVOKER`, so the migration role — which bypasses RLS — would prove the arithmetic and nothing whatever about isolation, which is the property D4 exists to buy. The pattern, copied from `02_permissions.test.sql:295-336`, is: insert `roles` + `role_permissions` + `auth.users` + `company_memberships` as the migration role, then
 
   ```sql
@@ -496,31 +498,31 @@ Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change 
 -- get_audience_dashboard (Task 3). Fixtures use the d8 tag.
 -- ---------------------------------------------------------------------------
 insert into public.organizations (id, name) values
-  ('00000000-0000-0000-0000-0000000d8f01', 'Org dashboards');
+  ('00000000-0000-0000-0000-0000d8010001', 'Org dashboards');
 insert into public.companies (id, organization_id, name, timezone) values
-  ('00000000-0000-0000-0000-0000000d8c01', '00000000-0000-0000-0000-0000000d8f01',
+  ('00000000-0000-0000-0000-0000d8020001', '00000000-0000-0000-0000-0000d8010001',
    'Station SP', 'America/Sao_Paulo'),
-  ('00000000-0000-0000-0000-0000000d8c02', '00000000-0000-0000-0000-0000000d8f01',
+  ('00000000-0000-0000-0000-0000d8020002', '00000000-0000-0000-0000-0000d8010001',
    'Station UTC', 'UTC');
 
 insert into public.members (id, organization_id, full_name, discovery_source) values
-  ('00000000-0000-0000-0000-0000000d8m01', '00000000-0000-0000-0000-0000000d8f01', 'Ana',  'Instagram'),
-  ('00000000-0000-0000-0000-0000000d8m02', '00000000-0000-0000-0000-0000000d8f01', 'Bruno','Instagram'),
-  ('00000000-0000-0000-0000-0000000d8m03', '00000000-0000-0000-0000-0000000d8f01', 'Célia', null);
+  ('00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d8010001', 'Ana',  'Instagram'),
+  ('00000000-0000-0000-0000-0000d8030002', '00000000-0000-0000-0000-0000d8010001', 'Bruno','Instagram'),
+  ('00000000-0000-0000-0000-0000d8030003', '00000000-0000-0000-0000-0000d8010001', 'Célia', null);
 
 -- THE ASSERTION THIS WHOLE BLOCK EXISTS TO GET RIGHT. Ana is linked at 23:30
 -- on 31 August, Sao Paulo time -- which is 02:30Z on 1 September. Counted at
 -- the Station's clock she belongs to August; counted at the server's she
 -- belongs to September.
 insert into public.member_company_links (member_id, company_id, organization_id, linked_at) values
-  ('00000000-0000-0000-0000-0000000d8m01', '00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8f01', '2026-09-01 02:30:00+00'),
+  ('00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '2026-09-01 02:30:00+00'),
   -- Bruno lands squarely inside August at either clock.
-  ('00000000-0000-0000-0000-0000000d8m02', '00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8f01', '2026-08-15 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8030002', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '2026-08-15 12:00:00+00'),
   -- Célia arrives in July: she counts toward the comparison window, not August.
-  ('00000000-0000-0000-0000-0000000d8m03', '00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8f01', '2026-07-20 12:00:00+00');
+  ('00000000-0000-0000-0000-0000d8030003', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '2026-07-20 12:00:00+00');
 
 -- TWO CALLERS, built once here and reused by Tasks 4 and 5. Both are ordinary
 -- role holders -- roles, role_permissions, auth.users, company_memberships --
@@ -533,37 +535,37 @@ insert into public.member_company_links (member_id, company_id, organization_id,
 --   d8u02  members.view, music.view and promotions.view in Station SP, and
 --          deliberately NOT participations.view -- the withheld case (D13).
 insert into public.roles (id, organization_id, name) values
-  ('00000000-0000-0000-0000-0000000d8r01', '00000000-0000-0000-0000-0000000d8f01', 'Everything'),
-  ('00000000-0000-0000-0000-0000000d8r02', '00000000-0000-0000-0000-0000000d8f01', 'No entries');
+  ('00000000-0000-0000-0000-0000d8040001', '00000000-0000-0000-0000-0000d8010001', 'Everything'),
+  ('00000000-0000-0000-0000-0000d8040002', '00000000-0000-0000-0000-0000d8010001', 'No entries');
 insert into public.role_permissions (role_id, permission_code) values
-  ('00000000-0000-0000-0000-0000000d8r01', 'members.view'),
-  ('00000000-0000-0000-0000-0000000d8r01', 'music.view'),
-  ('00000000-0000-0000-0000-0000000d8r01', 'promotions.view'),
-  ('00000000-0000-0000-0000-0000000d8r01', 'participations.view'),
-  ('00000000-0000-0000-0000-0000000d8r01', 'reports.consolidated'),
-  ('00000000-0000-0000-0000-0000000d8r02', 'members.view'),
-  ('00000000-0000-0000-0000-0000000d8r02', 'music.view'),
-  ('00000000-0000-0000-0000-0000000d8r02', 'promotions.view');
+  ('00000000-0000-0000-0000-0000d8040001', 'members.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'music.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'promotions.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'participations.view'),
+  ('00000000-0000-0000-0000-0000d8040001', 'reports.consolidated'),
+  ('00000000-0000-0000-0000-0000d8040002', 'members.view'),
+  ('00000000-0000-0000-0000-0000d8040002', 'music.view'),
+  ('00000000-0000-0000-0000-0000d8040002', 'promotions.view');
 insert into auth.users (id, email) values
-  ('00000000-0000-0000-0000-0000000d8u01', 'dash-all@example.test'),
-  ('00000000-0000-0000-0000-0000000d8u02', 'dash-no-entries@example.test');
+  ('00000000-0000-0000-0000-0000d8050001', 'dash-all@example.test'),
+  ('00000000-0000-0000-0000-0000d8050002', 'dash-no-entries@example.test');
 insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
-  ('00000000-0000-0000-0000-0000000d8u01', '00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8f01', '00000000-0000-0000-0000-0000000d8r01'),
-  ('00000000-0000-0000-0000-0000000d8u01', '00000000-0000-0000-0000-0000000d8c02',
-   '00000000-0000-0000-0000-0000000d8f01', '00000000-0000-0000-0000-0000000d8r01'),
-  ('00000000-0000-0000-0000-0000000d8u02', '00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8f01', '00000000-0000-0000-0000-0000000d8r02');
+  ('00000000-0000-0000-0000-0000d8050001', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040001'),
+  ('00000000-0000-0000-0000-0000d8050001', '00000000-0000-0000-0000-0000d8020002',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040001'),
+  ('00000000-0000-0000-0000-0000d8050002', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040002');
 
 -- 20-21: the refusals, asserted as a signed-in user who simply is not a member
 -- of this Organization at all. 42501, never an empty payload -- zero and "you
 -- may not see this" must not render alike.
 insert into auth.users (id, email) values
-  ('00000000-0000-0000-0000-0000000d8u03', 'dash-outsider@example.test');
+  ('00000000-0000-0000-0000-0000d8050003', 'dash-outsider@example.test');
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u03", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050003", "role": "authenticated"}';
 select throws_ok(
-  $$ select public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[], 'current_month', null, null) $$,
+  $$ select public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[], 'current_month', null, null) $$,
   '42501', null, 'a caller without members.view is refused, not given zeros');
 select throws_ok(
   $$ select public.get_audience_dashboard(array[]::uuid[], 'current_month', null, null) $$,
@@ -572,18 +574,18 @@ reset role;
 
 -- Everything below runs as d8u01 unless a block says otherwise.
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 
 -- 22-23: August at the Sao Paulo Station. Ana (23:30 local on the 31st) and
 -- Bruno are in; Célia is not. Counted in UTC this would be 1, and that single
 -- difference is requirement L2.
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
   2,
   'a link at 23:30 local on the last day counts in that month');
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,previous}')::int,
   1,
   'July''s arrival is the comparison figure, not August''s');
@@ -591,11 +593,11 @@ select is(
 -- 24: the same window at a UTC Station puts Ana in September. Proved against
 -- the same rows by moving the links, so the only variable is the timezone.
 insert into public.member_company_links (member_id, company_id, organization_id, linked_at)
-select member_id, '00000000-0000-0000-0000-0000000d8c02', organization_id, linked_at
+select member_id, '00000000-0000-0000-0000-0000d8020002', organization_id, linked_at
   from public.member_company_links
- where company_id = '00000000-0000-0000-0000-0000000d8c01';
+ where company_id = '00000000-0000-0000-0000-0000d8020001';
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c02']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020002']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
   1,
   'the same rows counted at a UTC Station exclude the 02:30Z link');
@@ -603,7 +605,7 @@ select is(
 -- 25: the stock figure is measured as of the window's end (D6), so a
 -- historical period reports what was true then.
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,listeners,current}')::int,
   3,
   'the listener total is measured at the end of the window');
@@ -613,26 +615,26 @@ select is(
 -- directly, and this is fixture surgery, not the behaviour under test.
 reset role;
 update public.members set anonymized_at = now()
- where id = '00000000-0000-0000-0000-0000000d8m02';
+ where id = '00000000-0000-0000-0000-0000d8030002';
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,listeners,current}')::int,
   2,
   'an anonymised member leaves the audience total');
 reset role;
 update public.members set anonymized_at = null
- where id = '00000000-0000-0000-0000-0000000d8m02';
+ where id = '00000000-0000-0000-0000-0000d8030002';
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 
 -- 27: the discovery breakdown names the unfilled rather than dropping it, so
 -- its buckets sum to the total beside them (D8's rule, applied here).
 select is(
   (select sum((value ->> 'count')::int)::int
      from jsonb_array_elements(
-       public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+       public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
          'custom', '2026-08-01', '2026-09-01') #> '{top,discovery_source}')),
   3,
   'the discovery buckets, including "not stated", sum to the audience');
@@ -642,13 +644,13 @@ select is(
 select is(
   jsonb_array_length(
     public.get_audience_dashboard(
-      array['00000000-0000-0000-0000-0000000d8c01','00000000-0000-0000-0000-0000000d8c02']::uuid[],
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
       'custom', '2026-08-01', '2026-09-01') #> '{stations}'),
   2,
   'a consolidated payload names every Station it summed');
 select is(
   (public.get_audience_dashboard(
-      array['00000000-0000-0000-0000-0000000d8c01','00000000-0000-0000-0000-0000000d8c01']::uuid[],
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020001']::uuid[],
       'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
   2,
   'a repeated Station id is deduplicated, not double-counted');
@@ -657,7 +659,7 @@ select is(
 -- card; without it, it is named in withheld and absent from cards -- never a
 -- zero, which would read as "nobody took part".
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{withheld}'),
   '[]'::jsonb,
   'nothing is withheld from a caller holding participations.view');
@@ -668,14 +670,14 @@ select is(
 -- this caller.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u02", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050002", "role": "authenticated"}';
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,took_part}'),
   null,
   'without participations.view the figure is absent, not zero');
 select is(
-  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{withheld,0,needs}'),
   'participations.view',
   'and the payload names the permission that would fill it');
@@ -950,62 +952,62 @@ Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change 
 -- get_music_dashboard (Task 4). Fixtures first, as the migration role.
 -- ---------------------------------------------------------------------------
 insert into public.artists (id, organization_id, company_id, name) values
-  ('00000000-0000-0000-0000-0000000d8a01', '00000000-0000-0000-0000-0000000d8f01',
-   '00000000-0000-0000-0000-0000000d8c01', 'Artist One');
+  ('00000000-0000-0000-0000-0000d8060001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Artist One');
 insert into public.music_genres (id, organization_id, company_id, name) values
-  ('00000000-0000-0000-0000-0000000d8g01', '00000000-0000-0000-0000-0000000d8f01',
-   '00000000-0000-0000-0000-0000000d8c01', 'Samba');
+  ('00000000-0000-0000-0000-0000d8070001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Samba');
 
 -- Four songs covering the two nullable attributes and three of the five vocal
 -- values, so the breakdowns below have something to drop if they are written
 -- as a two-slice chart.
 insert into public.songs (id, organization_id, company_id, title, artist_id, genre_id, nationality, vocal) values
-  ('00000000-0000-0000-0000-0000000d8s01', '00000000-0000-0000-0000-0000000d8f01',
-   '00000000-0000-0000-0000-0000000d8c01', 'One',   '00000000-0000-0000-0000-0000000d8a01',
-   '00000000-0000-0000-0000-0000000d8g01', 'DOMESTIC', 'MALE'),
-  ('00000000-0000-0000-0000-0000000d8s02', '00000000-0000-0000-0000-0000000d8f01',
-   '00000000-0000-0000-0000-0000000d8c01', 'Two',   '00000000-0000-0000-0000-0000000d8a01',
-   '00000000-0000-0000-0000-0000000d8g01', 'INTERNATIONAL', 'INSTRUMENTAL'),
-  ('00000000-0000-0000-0000-0000000d8s03', '00000000-0000-0000-0000-0000000d8f01',
-   '00000000-0000-0000-0000-0000000d8c01', 'Three', '00000000-0000-0000-0000-0000000d8a01',
-   '00000000-0000-0000-0000-0000000d8g01', null, null),
-  ('00000000-0000-0000-0000-0000000d8s04', '00000000-0000-0000-0000-0000000d8f01',
-   '00000000-0000-0000-0000-0000000d8c01', 'Four',  '00000000-0000-0000-0000-0000000d8a01',
-   '00000000-0000-0000-0000-0000000d8g01', 'DOMESTIC', 'DUO');
+  ('00000000-0000-0000-0000-0000d8080001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'One',   '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', 'DOMESTIC', 'MALE'),
+  ('00000000-0000-0000-0000-0000d8080002', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Two',   '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', 'INTERNATIONAL', 'INSTRUMENTAL'),
+  ('00000000-0000-0000-0000-0000d8080003', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Three', '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', null, null),
+  ('00000000-0000-0000-0000-0000d8080004', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8020001', 'Four',  '00000000-0000-0000-0000-0000d8060001',
+   '00000000-0000-0000-0000-0000d8070001', 'DOMESTIC', 'DUO');
 
 -- Five requests in August: song One three times, the rest once each.
 insert into public.music_requests (organization_id, company_id, member_id, song_id, requested_at)
 values
-  ('00000000-0000-0000-0000-0000000d8f01','00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8m01','00000000-0000-0000-0000-0000000d8s01','2026-08-10 12:00:00+00'),
-  ('00000000-0000-0000-0000-0000000d8f01','00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8m01','00000000-0000-0000-0000-0000000d8s01','2026-08-11 12:00:00+00'),
-  ('00000000-0000-0000-0000-0000000d8f01','00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8m01','00000000-0000-0000-0000-0000000d8s01','2026-08-12 12:00:00+00'),
-  ('00000000-0000-0000-0000-0000000d8f01','00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8m01','00000000-0000-0000-0000-0000000d8s02','2026-08-13 12:00:00+00'),
-  ('00000000-0000-0000-0000-0000000d8f01','00000000-0000-0000-0000-0000000d8c01',
-   '00000000-0000-0000-0000-0000000d8m01','00000000-0000-0000-0000-0000000d8s03','2026-08-14 12:00:00+00');
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080001','2026-08-10 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080001','2026-08-11 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080001','2026-08-12 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080002','2026-08-13 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8010001','00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8030001','00000000-0000-0000-0000-0000d8080003','2026-08-14 12:00:00+00');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 
 -- 33: requests in the window.
 select is(
-  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
   5, 'the request count is the requests in the window');
 
 -- 33: the catalogue and the requests are separate numbers, because §4.2 does
 -- not say which "total" it meant and the two answer different questions.
 select is(
-  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,catalogue,current}')::int,
   4, 'the catalogue total counts songs, not requests');
 
 -- 34: most requested.
 select is(
-  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{top,songs,0,label}'),
   'One', 'the most requested song leads the list');
 
@@ -1017,13 +1019,13 @@ select is(
 select is(
   (select sum((value ->> 'count')::int)::int
      from jsonb_array_elements(
-       public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+       public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
          'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,nationality}')),
   5, 'the nationality buckets sum to the requests, including "not stated"');
 select is(
   (select sum((value ->> 'count')::int)::int
      from jsonb_array_elements(
-       public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+       public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
          'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,vocal}')),
   5, 'the vocal buckets sum to the requests, all five values plus "not stated"');
 
@@ -1031,11 +1033,11 @@ select is(
 -- policies treat deleted_at as gone, and so must this).
 reset role;
 update public.music_requests set deleted_at = now()
- where song_id = '00000000-0000-0000-0000-0000000d8s03';
+ where song_id = '00000000-0000-0000-0000-0000d8080003';
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 select is(
-  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
   4, 'a soft-deleted request is not counted');
 
@@ -1045,9 +1047,9 @@ select is(
 -- figures on the other two panels loses none here.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u02", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050002", "role": "authenticated"}';
 select is(
-  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{withheld}'),
   '[]'::jsonb, 'the music panel withholds nothing');
 reset role;
@@ -1055,9 +1057,9 @@ reset role;
 -- 40: and the gate is still a gate -- the outsider from assertion 20, who is
 -- a signed-in user of no Station at all.
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u03", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050003", "role": "authenticated"}';
 select throws_ok(
-  $$ select public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[], 'custom', '2026-08-01', '2026-09-01') $$,
+  $$ select public.get_music_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[], 'custom', '2026-08-01', '2026-09-01') $$,
   '42501', null, 'a caller without music.view is refused');
 reset role;
 ```
@@ -1217,7 +1219,7 @@ select is(public.promotion_is_live('2026-08-10 00:00:00+00'::timestamptz,
 -- winners.status at AWAITING_PICKUP, so this -- the third reader to treat that
 -- status as live -- must say so itself.
 select is(
-  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,awarded,current}')::int,
   1, 'a winner of a cancelled draw is not counted as awarded');
 
@@ -1226,9 +1228,9 @@ select is(
 select is(
   (select sum((value ->> 'count')::int)::int
      from jsonb_array_elements(
-       public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+       public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
          'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,participation_status}')),
-  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,participations,current}')::int,
   'the four refusal buckets sum to the participation total');
 
@@ -1239,13 +1241,13 @@ select is(
 -- exists: one number goes away, the other must not.
 reset role;
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u02", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050002", "role": "authenticated"}';
 select is(
-  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,participations}'),
   null, 'the entry figures are withheld without participations.view');
 select isnt(
-  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,awarded}'),
   null, 'the prize cycle survives, because winners is gated by promotions.view');
 reset role;
