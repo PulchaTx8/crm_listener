@@ -202,6 +202,51 @@ comment on function public.has_permission(text, uuid) is
   'Valid code AND active subscription AND (admin OR owner OR the role assigned in THAT Company grants it). The role must be live (r.deleted_at is null, 0024 Minor 2). Since 0121 this function has NO BODY OF ITS OWN: it is has_permission_for(auth.uid(), ...), so the rule the worker applies and the rule a screen applies cannot drift apart.';
 
 -- ---------------------------------------------------------------------------
+-- 5. is_owner_of_company_for
+--
+-- FOUND WHILE WRITING 0124, not while writing this file, and the way it was
+-- found is worth recording. 0044 introduced is_owner_of_company so a policy
+-- could admit the Organization's owner to rows it hides from everyone else --
+-- an ARCHIVED promotion, which the owner must see to resolve a discrepancy
+-- himself. 0090 restates that rule by hand, because SECURITY DEFINER inherits
+-- none of it, and the report over participations must restate it identically or
+-- the export and the screen disagree about which entries exist.
+--
+-- Without this sibling, that restatement in the worker would ask about
+-- auth.uid() -- null -- and quietly answer "not the owner". The failure is
+-- FAIL-CLOSED, so nothing leaks; it is worse than a leak in one specific way:
+-- an owner who exported a report would get a file missing exactly the rows the
+-- screen was showing him, with nothing anywhere saying why.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.is_owner_of_company_for(p_user_id uuid, p_company_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select public.is_platform_admin_for(p_user_id)
+      or exists (
+        select 1 from public.companies c
+        where c.id = p_company_id and public.is_owner_for(p_user_id, c.organization_id)
+      );
+$$;
+
+comment on function public.is_owner_of_company_for(uuid, uuid) is
+  'Block 8b. True for the platform admin and for the Organization owner of that Station, for a NAMED user; is_owner_of_company(uuid) is this with auth.uid(). Exists so a background job can apply 0044''s archived-row rule as the person who asked for the report rather than as nobody.';
+
+create or replace function public.is_owner_of_company(p_company_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog, public
+as $$
+  select public.is_owner_of_company_for(auth.uid(), p_company_id);
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Grants.
 --
 -- The `_for` siblings go to service_role as well as authenticated, which is the
@@ -216,8 +261,10 @@ revoke execute on function public.is_platform_admin_for(uuid) from public;
 revoke execute on function public.is_owner_for(uuid, uuid) from public;
 revoke execute on function public.has_company_access_for(uuid, uuid) from public;
 revoke execute on function public.has_permission_for(uuid, text, uuid) from public;
+revoke execute on function public.is_owner_of_company_for(uuid, uuid) from public;
 
 grant execute on function public.is_platform_admin_for(uuid) to authenticated, service_role;
 grant execute on function public.is_owner_for(uuid, uuid) to authenticated, service_role;
 grant execute on function public.has_company_access_for(uuid, uuid) to authenticated, service_role;
 grant execute on function public.has_permission_for(uuid, text, uuid) to authenticated, service_role;
+grant execute on function public.is_owner_of_company_for(uuid, uuid) to authenticated, service_role;
