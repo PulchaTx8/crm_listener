@@ -29,6 +29,22 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
     },
     {
+      // Visible to every member, including those holding members.view,
+      // music.view and promotions.view in no Station at all — the same
+      // courtesy every section below extends. Each of the three pages
+      // redirects at the top of its own render for a caller who holds its
+      // permission nowhere, and the three functions in 0118–0120 re-check
+      // it themselves regardless of that redirect, raising 42501 rather
+      // than returning a page of zeros. Hiding a link is a courtesy; the
+      // boundary is in the database.
+      label: 'Dashboards',
+      items: [
+        { href: '/dashboards/audience', label: 'Audience', icon: ICONS.chart },
+        { href: '/dashboards/music', label: 'Music', icon: ICONS.music },
+        { href: '/dashboards/promotions', label: 'Promotions', icon: ICONS.megaphone },
+      ],
+    },
+    {
       // Visible to every member, including those holding no inventory
       // permission in any Station at all — the same courtesy Team and Roles
       // below already extend. /inventory redirects at the top of its own

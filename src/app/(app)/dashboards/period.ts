@@ -104,3 +104,28 @@ export function periodHref(base: string, selection: PeriodSelection, companyIds:
   }
   return `${base}?${query.toString()}`;
 }
+
+/**
+ * Every link the three dashboard pages render — the four period presets, the
+ * consolidated toggle, and each per-Station switch pill — changes the
+ * Company or the period, exactly the class of link `../../lib/station-switch.ts`'s
+ * own header says this codebase already got wrong five times over: a link
+ * that drops the Station search term is indistinguishable, on the next
+ * render, from one that was never searched at all. `listCompanyAccess` then
+ * re-runs with no term, the capped alphabetical fifty stands in for it, and a
+ * Station reachable only through the search box silently falls out of
+ * `viewable` — so a page's own "stale companyId falls back to the first
+ * Station" rule (necessary for a genuinely stale id) fires for the WRONG
+ * reason and renders a different Station with nothing on screen saying so.
+ *
+ * `periodHref` above cannot carry `station` itself without widening a
+ * contract Task 7 already shipped and tested; this sits beside it instead,
+ * still free of any import beyond types, so the same Server Component/client
+ * control/unit-test triangle this file's own header describes can all reach
+ * it. A plain string append rather than a re-parse through URLSearchParams:
+ * every caller here always supplies at least one companyId, so periodHref's
+ * own query string is never empty and already carries a `?`.
+ */
+export function withStationSearch(href: string, stationSearch: string | undefined): string {
+  return stationSearch ? `${href}&station=${encodeURIComponent(stationSearch)}` : href;
+}
