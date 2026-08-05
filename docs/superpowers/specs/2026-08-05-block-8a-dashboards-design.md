@@ -136,7 +136,7 @@ Every figure below comes from a column that exists today. No migration in this b
 | Listeners at this Station | `member_company_links` as of the end of the window, excluding members that are deleted or anonymized | yes (as of each window's end) |
 | New in the period | `member_company_links.linked_at` in the window (D9) | yes |
 | Took part in the period | distinct members with a participation in the window (D10), excluding deleted and anonymised (D12b) — **needs `participations.view`, withheld without it** (D13) | yes |
-| Listeners barred in the period | distinct members, excluding deleted and anonymised (D12b), with a block starting in the window and still in force (`lifted_at is null`), split by `kind` (`draw_ban`, `suspension`) — see the rule below | yes |
+| Listeners barred in the period | distinct members, excluding deleted and anonymised (D12b), with a block starting in the window and **still in force on `is_member_blocked`'s own definition** — `lifted_at is null` **and** (`ends_at is null` or still ahead) — split by `kind` (`draw_ban`, `suspension`, every value of the enum whether used or not) | yes |
 | Monthly arrivals | `linked_at` grouped by month, over the last twelve months ending at the window's end | — |
 | How they were found | `members.discovery_source`, top ten with a "not stated" bucket | — |
 | First contact | `members.first_contact_origin`, top ten with a "not stated" bucket | — |
@@ -145,6 +145,10 @@ Every figure below comes from a column that exists today. No migration in this b
 
 - The card counts **distinct members**, not block rows. An Organization-wide block therefore counts in every single-Station panel the member can be reached from, and **once** in a consolidated panel covering several of them. The consolidated figure is consequently not always the sum of its parts, and the screen says so where it is shown.
 - The split by `kind` also counts distinct members, so **a member barred both ways appears in both buckets** and the buckets can add up above the card. This is stated rather than hidden by making the card a sum, because "how many people are barred" and "how many bars of each kind" are different questions and only the first belongs on a card.
+
+**Amended 2026-08-05, after the whole-branch review (Minor C9).** The first draft of the row above said "still in force (`lifted_at is null`)", and that is not what in force means. `member_blocks` carries a nullable `ends_at`, and `is_member_blocked` (`0032`, superseded by `0036`) derives in force at read time from all three columns — `lifted_at is null and starts_at <= now() and (ends_at is null or ends_at > now())`. `0032`'s own comment is explicit that **a dated suspension ends because the date passed**: nobody lifts it, so `lifted_at` stays null for ever. Reading `lifted_at` alone reported a listener as barred on this panel while every screen that asks `is_member_blocked` said they were free — the same disagreement between two readings of one table that D12b exists to refuse. `starts_at <= now()` is deliberately **not** restated in the aggregate: this card asks "barred *in the period*", and the window filter is what places the block in the period; a second, `now()`-relative start test would make a forward-dated block inside a forward-dated custom range vanish for a reason the card's label never mentions.
+
+**Also amended:** the split by `kind` lists **every value of `member_block_kind`**, whether or not it occurred, matching the four other enum breakdowns in this block (Important B1). A `group by kind` dropped `suspension` entirely in any period nobody was suspended, and a reader cannot tell "nobody was suspended" from "this chart does not cover suspensions".
 
 ### 3.2 Music — `music.view`
 
@@ -207,7 +211,8 @@ All three are `stable`, `security invoker`, `set search_path = pg_catalog, publi
     "from": "2026-08-01", "to": "2026-09-01",              // local dates, exclusive end
     "previous_from": "2026-07-01", "previous_to": "2026-08-01"
   },
-  "stations": [ { "id": "…", "name": "…", "timezone": "America/Sao_Paulo" } ],
+  "stations": [ { "id": "…", "name": "…", "timezone": "America/Sao_Paulo",
+                  "from": "2026-08-01", "to": "2026-09-01" } ],
   "cards":   { "<name>": { "current": 0, "previous": 0 } },
   "monthly": [ { "month": "2026-08", "count": 0 } ],
   "breakdowns": { "<name>": [ { "key": "…", "label": "…", "count": 0 } ] },
@@ -218,7 +223,7 @@ All three are `stable`, `security invoker`, `set search_path = pg_catalog, publi
 
 A card with no meaningful comparison (on air now, overdue) omits `previous` rather than reporting a zero that would read as a drop to nothing.
 
-`stations` returns the timezone of each Station in the selection so the screen can say when a consolidated period spans more than one — the dates are the same everywhere, the instants are not.
+`stations` returns, for each Station in the selection, its **timezone and its own resolved `from`/`to`** (D5 as amended). The timezone is what lets the screen say a consolidated period spans more than one clock; the dates are what let it notice that a **preset** resolved two different calendar months and name the Stations that disagree. The top-level `period` keeps reporting the overall bounds and is not a claim about any single Station: *"the dates are the same everywhere, the instants are not"* is true of a custom range and false of a preset, and the screen must fire on the condition rather than assert it.
 
 ---
 

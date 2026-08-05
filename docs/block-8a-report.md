@@ -7,7 +7,13 @@
 **Plan:** `docs/superpowers/plans/2026-08-05-block-8a-dashboards.md`
 **Migrations:** `0115`–`0120`
 **Commits:** `c66bb25..a6a2dc2` (24 commits, Tasks 1–9; this report and the
-runbook are Task 10, committed separately)
+runbook are Task 10, committed separately), then `3193a17..eb4cb01` — the
+whole-branch review's fix wave, §10 below
+
+> **§10 supersedes §1 and parts of §8.** The gate numbers at the top of this
+> document are the ones Task 10 measured; the ones this branch now stands on
+> are in **§10.2**, re-run after the fix wave. Several items §8 lists as
+> deferred minors are closed there.
 
 Sixteen blocks had written data into this system and nothing read it back as
 a number. This block gives three screens that do: **Audience**, **Music**
@@ -434,3 +440,161 @@ convention carried from every earlier block.
 **Nothing beyond this plan's own scope was started.** Excel/CSV/PDF export,
 asynchronous generation, `saved_reports`, scheduled or emailed reports all
 remain Block 8b's, per §6 above.
+
+---
+
+## 10. The whole-branch review, and the fix wave that answered it
+
+All ten tasks were reviewed together against the branch diff once they were
+merged. **No Critical finding.** Nine Important, several Minor, and two
+questions the owner ruled on directly. One dispatch fixed the list; the full
+account, including the `EXPLAIN` plans and the two findings argued down, is in
+`.superpowers/sdd/2026-08-05-block-8a-dashboards/fix-wave-report.md`.
+
+Commits: `3193a17` (SQL), `085aa53` (one performance defect the measurement
+turned up), `9adef9e` (screens), `9927ca8` (tests), `eb4cb01` (e2e).
+
+### 10.1 What the review found, and what changed
+
+**The two owner decisions.**
+
+- **Presets across timezones.** D5 was amended before the wave (`d8869d0`) and
+  the arithmetic kept: each Station measures its own month, because a Station
+  is not well measured by a calendar it does not live in. What was wrong was
+  the **reporting** — all three pages printed, unconditionally, *"The period's
+  dates are the same for all of them"*, which is true of a custom range and
+  false of a preset resolved at two distant clocks. The payload's `stations`
+  entries now carry each Station's own `from`/`to`, and one shared component
+  fires on the real condition: different windows → say so and name which
+  Station measured which; same window, different zones → the original
+  sentence, kept verbatim; neither → nothing.
+- **Nav labels.** The three Dashboards items are now "Audience overview",
+  "Music overview", "Promotions overview". Every one of the bare words was
+  already a **section** heading further down the same sidebar — the rule
+  `shell.ts` records for Inventory > Stock, violated three times at once.
+
+**The nine Important.**
+
+1. **`blocks_by_kind` dropped an enum value with zero rows.** A plain
+   `group by kind`, so a period in which nobody was suspended drew a one-bar
+   chart and a reader could not tell "nobody was suspended" from "this chart
+   does not cover suspensions" — the exact failure `0119`'s header argues
+   against at length, in the one breakdown of five not written to avoid it.
+   Now `unnest(enum_range(…)) LEFT JOIN`, like its four siblings.
+2. **Charts printed raw enum codes** beside a bucket labelled "Not stated" —
+   one axis, two vocabularies, and the mixed one is the tell. Fixed
+   client-side through the four label Records this codebase already has, which
+   is what the payload's `key`/`label` split was for. No fifth vocabulary.
+3. **`parsePeriod` accepted `from === to`,** which `0117` refuses, so picking
+   one date in both inputs replaced the page with an error. Two comments
+   asserted this could not happen; both were false for that input and both now
+   say so.
+4. **The custom range's `To` bound was exclusive and nothing said so.** An
+   operator asking for August lost the 31st from every figure, silently. The
+   input now means the last day INCLUDED and converts once at its own edge;
+   the URL and the RPC keep the half-open bound. The round trip is pinned by
+   unit tests and by the e2e.
+5. **Only `barred` disclosed that it counts distinct members.** `listeners`,
+   `new_listeners` and `took_part` do too, so none is the sum of its parts in
+   a consolidated view. All four now carry the caveat when consolidated.
+6. **Three source CTEs read all of history.** Each is multiply-referenced, so
+   Postgres materialises it and pushes no date predicate down. Bounded, as
+   semantic no-ops. **Measured, not argued:** with eight Stations and 400,000
+   participations the promotions aggregate went 98.4 ms → 60.1 ms, its
+   materialised CTE 50,000 → 15,705 rows, its temp I/O 794 → 250 blocks. Two
+   things the measurement settled against the review's own phrasing:
+   `participations_company_period_idx` is used on its **first column only**
+   even after the rewrite (the date arrives from a lateral function scan the
+   planner will not push into an index), and
+   **`member_links_company_linked_idx` is never chosen at all** — Postgres
+   prefers `0031`'s single-column `(company_id)` index in every plan,
+   including an isolated read against a literal date. Whether to drop it is
+   the owner's call, made from that evidence.
+7. **"All stations (N)" could be fewer than all stations** — the count came
+   from two lists both capped at fifty and both narrowed by the active search,
+   and the caveat rendered only for the cap. The label now reads from the real
+   relationship and the caveat fires for a search too.
+8. **Eight payload keys had no assertion anywhere.** All eight now do. The two
+   that mattered: `monthly` — the block's only timezone-sensitive arithmetic
+   after the period resolver, written out three times and never once run
+   against data — is pinned by the same 23:30-local row that pins
+   `new_listeners`, landing in August at Sao Paulo and September at UTC; and
+   `live_now`, the aggregate's only consumer of `promotion_is_live`, is pinned
+   by three purpose-built promotions defined relative to `now()` so exactly one
+   is live on any day, for ever.
+9. **`src/schemas/dashboards.ts` had no test** — the only layer of the D13
+   chain without one, and the one that decides what "omitted" means to
+   TypeScript. Seven cases now cover it, which needed the three `cards`
+   objects to become `.strict()`; the deploy-order cost of that is stated in
+   the schema's own header.
+
+**The nine Minor,** all done: the `group by` that made `' Instagram '` a second
+bucket printed `Instagram`; `0119`'s false claim about `0118`; one
+`jsonb_strip_nulls` shape across all three payloads, with `stations` coalesced;
+a header line on the archived-promotion join (see below); D11's third instant
+on both sides; the withheld path no longer scanning a table whose answer it
+throws away; `0117` declaring `security invoker`; and `barred` no longer
+counting a dated block that expired on its own — `is_member_blocked` has always
+derived in force from `ends_at` too, and `0032` is explicit that a dated
+suspension ends because the date passed. Spec §3.1 was amended to match.
+
+The stale assertion-number comments were fixed by **removing the numbers**:
+they had gone stale twice already, this wave inserts 21 assertions above them,
+and an ordinal in a comment is a fact nothing keeps true.
+
+### 10.2 Gates, re-run after the wave
+
+| Gate | Result |
+|---|---|
+| `npm run lint` | clean |
+| `npm run typecheck` | clean |
+| `npm test` | **783 passed (783)**, 55 files (was 769/54) |
+| `npm run db:reset && npm run db:test` | **`Files=22, Tests=1263`, `Result: PASS`** — `20_dashboards.test.sql` 87 assertions (was 66) |
+| `npm run test:isolation` | **24 files, 261 tests, all passed** — on the third attempt; runs 1 and 2 hit the `Worker exited unexpectedly` flake the verifier's own header documents at two runs in five, and both were refused as incomplete rather than counted |
+| `npm run build` | clean; route table byte-for-byte unchanged at 226/226/236 kB |
+| `npm run test:e2e` | **not green at default parallelism**, as before: `19 failed / 2 did not run / 13 passed`, and `20 failed / 2 did not run / 12 passed` on a second run. The same shape §1.3 records — every failure is the sign-in step timing out under contention |
+| `npx playwright test --workers=1` | **34 passed (3.8m)** — 34/34 |
+
+Two e2e notes worth keeping. The wave's own e2e change was **caused by** a fix:
+`dashboards.spec.ts` asserted the old exclusive `To` semantics and rightly
+failed once the input became inclusive. And a serial run began failing
+`roles-flow.spec.ts` at `/invite/<token>?error=failed`, on a spec nothing here
+touches — `acceptInvitation`'s IP-keyed rate limiter, exhausted by repeated
+full runs from one machine, the "invitation limiter that pretends to be a
+regression" already on record from Block 3b. **Run `npm run db:reset` before a
+serial e2e run you intend to trust.**
+
+### 10.3 Two findings not implemented, and one the review did not find
+
+- **Bounding `0119`'s `song` CTE by `created_at` would be a wrong number, not a
+  slower one.** `request` joins that CTE to reach each song's nationality and
+  vocal, and `record_music_request` takes an operator-supplied `requested_at`
+  (`0107:139-142`), so a request inside the window can legitimately belong to a
+  song catalogued after it closed. The bound would silently drop it from every
+  music figure. The catalogue cards' own filters are the right place, and are
+  already there; the reasoning is now in `0119`'s own comment so the obvious
+  bound is not re-applied.
+- **The archived-promotion discrepancy does not exist.**
+  `participations_select_participations_view` (`0053:25-30`) already carries
+  `promotion_id in (select id from public.promotions)`, and that subquery is
+  itself filtered by `0044`'s policy — so a caller who cannot see an archived
+  promotion cannot see its participations either, and `cards.participations`
+  and `top.promotions` move together for every caller. A header line was still
+  added, because a reader *should* stop at that join; it now records what they
+  will find.
+- **One defect the review did not name, found by the measurement it asked
+  for.** `0118`'s `discovery` and `first_contact` re-joined `members` a second
+  time — against a materialised CTE, which carries no index. One measured plan
+  chose a nested loop: **3,998,000 rows removed by join filter for 2,000
+  listeners**, quadratic in the Station's own audience. The two columns are now
+  carried on the `link` CTE that already joins `members`, and the second join
+  is gone (`085aa53`).
+
+### 10.4 Still open, for the owner
+
+- **Dropping `member_links_company_linked_idx`** (`0116`). The evidence says it
+  buys nothing; no migration was written either way.
+- **The three dashboard pages still duplicate their banner, switcher and
+  Station-search block near-verbatim.** This wave moved the period note out of
+  all three into one component and left the rest, since §8 lists the
+  duplication as a Task 9 deferred minor rather than a review finding.
