@@ -21,6 +21,16 @@
 - **Every "top" list is the top ten**, ordered by count descending with the record's own name as the tie-break.
 - **The gate before any PR:** `npm run lint`, `npm run typecheck`, `npm test`, `npm run db:test`, `npm run test:isolation`, `npm run build`, `npm run test:e2e`.
 - **Fixture UUIDs in pgTAP** follow the existing convention: `00000000-0000-0000-0000-0000000<hex tag>`. This block uses the `d8` tag (`...0000d8xx`) so it collides with no existing test file.
+- **pgTAP exercises these functions as a real authenticated caller, never as the migration role, and never against a stubbed `has_permission`.** No test file in this repository replaces that function, and here the house pattern is not merely convention: the aggregates are `SECURITY INVOKER`, so the migration role — which bypasses RLS — would prove the arithmetic and nothing whatever about isolation, which is the property D4 exists to buy. The pattern, copied from `02_permissions.test.sql:295-336`, is: insert `roles` + `role_permissions` + `auth.users` + `company_memberships` as the migration role, then
+
+  ```sql
+  set local role authenticated;
+  set local request.jwt.claims = '{"sub": "<user uuid>", "role": "authenticated"}';
+  -- assertions
+  reset role;
+  ```
+
+  Fixtures are always inserted **before** switching role; `reset role` always follows the assertions.
 - **Test timezone is `America/Sao_Paulo`** — UTC−3 with no DST since 2019, so a fixed expected instant stays fixed. Never write a timezone test against a zone that observes DST unless the test is about DST.
 
 ---
@@ -442,7 +452,7 @@ git commit -m "feat(dashboards): what a period is, resolved once and at the Stat
 
 **Files:**
 - Create: `supabase/migrations/0118_audience_dashboard.sql`
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(19)` to `plan(31)`, append assertions)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(19)` to `plan(32)`, append assertions)
 
 **Interfaces:**
 - Consumes: `public.resolve_dashboard_period` (Task 2), `public.has_permission(text, uuid)` (0010/0015/0016).
@@ -450,7 +460,7 @@ git commit -m "feat(dashboards): what a period is, resolved once and at the Stat
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(19)` to `plan(31)`:
+Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(19)` to `plan(32)`:
 
 ```sql
 -- ---------------------------------------------------------------------------
@@ -483,26 +493,57 @@ insert into public.member_company_links (member_id, company_id, organization_id,
   ('00000000-0000-0000-0000-0000000d8m03', '00000000-0000-0000-0000-0000000d8c01',
    '00000000-0000-0000-0000-0000000d8f01', '2026-07-20 12:00:00+00');
 
--- pgTAP runs as the migration role, which is not a member of any Station, so
--- has_permission is false and the function refuses. Both facts are asserted:
--- the refusal here, and the counting below through a role that is granted.
--- 20: the refusal, and that it is 42501 rather than an empty payload.
+-- TWO CALLERS, built once here and reused by Tasks 4 and 5. Both are ordinary
+-- role holders -- roles, role_permissions, auth.users, company_memberships --
+-- exactly as 02_permissions.test.sql:295-336 builds them, because these
+-- functions are SECURITY INVOKER and a caller that bypasses RLS would prove
+-- nothing about the property D4 buys.
+--
+--   d8u01  everything: members.view, music.view, promotions.view,
+--          participations.view, reports.consolidated, in BOTH Stations.
+--   d8u02  members.view, music.view and promotions.view in Station SP, and
+--          deliberately NOT participations.view -- the withheld case (D13).
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000d8r01', '00000000-0000-0000-0000-0000000d8f01', 'Everything'),
+  ('00000000-0000-0000-0000-0000000d8r02', '00000000-0000-0000-0000-0000000d8f01', 'No entries');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000d8r01', 'members.view'),
+  ('00000000-0000-0000-0000-0000000d8r01', 'music.view'),
+  ('00000000-0000-0000-0000-0000000d8r01', 'promotions.view'),
+  ('00000000-0000-0000-0000-0000000d8r01', 'participations.view'),
+  ('00000000-0000-0000-0000-0000000d8r01', 'reports.consolidated'),
+  ('00000000-0000-0000-0000-0000000d8r02', 'members.view'),
+  ('00000000-0000-0000-0000-0000000d8r02', 'music.view'),
+  ('00000000-0000-0000-0000-0000000d8r02', 'promotions.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000d8u01', 'dash-all@example.test'),
+  ('00000000-0000-0000-0000-0000000d8u02', 'dash-no-entries@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000d8u01', '00000000-0000-0000-0000-0000000d8c01',
+   '00000000-0000-0000-0000-0000000d8f01', '00000000-0000-0000-0000-0000000d8r01'),
+  ('00000000-0000-0000-0000-0000000d8u01', '00000000-0000-0000-0000-0000000d8c02',
+   '00000000-0000-0000-0000-0000000d8f01', '00000000-0000-0000-0000-0000000d8r01'),
+  ('00000000-0000-0000-0000-0000000d8u02', '00000000-0000-0000-0000-0000000d8c01',
+   '00000000-0000-0000-0000-0000000d8f01', '00000000-0000-0000-0000-0000000d8r02');
+
+-- 20-21: the refusals, asserted as a signed-in user who simply is not a member
+-- of this Organization at all. 42501, never an empty payload -- zero and "you
+-- may not see this" must not render alike.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000d8u03', 'dash-outsider@example.test');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u03", "role": "authenticated"}';
 select throws_ok(
   $$ select public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[], 'current_month', null, null) $$,
   '42501', null, 'a caller without members.view is refused, not given zeros');
-
--- 21: an empty station list is a caller error.
 select throws_ok(
   $$ select public.get_audience_dashboard(array[]::uuid[], 'current_month', null, null) $$,
   '22023', null, 'a call naming no station is refused');
+reset role;
 
--- The remaining assertions run with has_permission stubbed to true for this
--- transaction, which is how 02_permissions.test.sql already exercises gated
--- functions without building a full role graph. The stub is dropped before
--- finish() so nothing leaks into the next file.
-create or replace function public.has_permission(p_permission text, p_company_id uuid)
-returns boolean language sql stable security definer
-set search_path = pg_catalog, public as $$ select true $$;
+-- Everything below runs as d8u01 unless a block says otherwise.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
 
 -- 22-23: August at the Sao Paulo Station. Ana (23:30 local on the 31st) and
 -- Bruno are in; Célia is not. Counted in UTC this would be 1, and that single
@@ -538,16 +579,24 @@ select is(
   3,
   'the listener total is measured at the end of the window');
 
--- 26: an anonymised member is not audience any more.
+-- 26: an anonymised member is not audience any more. The write is done as the
+-- migration role -- an authenticated caller has no grant to update members
+-- directly, and this is fixture surgery, not the behaviour under test.
+reset role;
 update public.members set anonymized_at = now()
  where id = '00000000-0000-0000-0000-0000000d8m02';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
 select is(
   (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,listeners,current}')::int,
   2,
   'an anonymised member leaves the audience total');
+reset role;
 update public.members set anonymized_at = null
  where id = '00000000-0000-0000-0000-0000000d8m02';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
 
 -- 27: the discovery breakdown names the unfilled rather than dropping it, so
 -- its buckets sum to the total beside them (D8's rule, applied here).
@@ -584,18 +633,27 @@ select is(
   '[]'::jsonb,
   'nothing is withheld from a caller holding participations.view');
 
-create or replace function public.has_permission(p_permission text, p_company_id uuid)
-returns boolean language sql stable security definer
-set search_path = pg_catalog, public as $$ select p_permission <> 'participations.view' $$;
-
+-- Switch to the caller who lacks participations.view. Same rows, same window,
+-- different permissions: the figure must be ABSENT, not zero. A zero would say
+-- "nobody took part", which is a claim about the audience rather than about
+-- this caller.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u02", "role": "authenticated"}';
 select is(
   (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,took_part}'),
   null,
   'without participations.view the figure is absent, not zero');
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{withheld,0,needs}'),
+  'participations.view',
+  'and the payload names the permission that would fill it');
+reset role;
 ```
 
-> **Note for the implementer:** the `create or replace function public.has_permission` stub above replaces a real function for the duration of the transaction and is rolled back with it. Confirm `02_permissions.test.sql` uses the same technique before copying it; if it does not, build the role graph with the harness instead and adjust the assertion count. **Do not leave a stubbed `has_permission` committed in a migration.**
+> **Note for the implementer:** that last assertion makes 32, not 31 — set `plan(32)` and renumber the comments. The two callers built at the top of this section are reused by Tasks 4 and 5; do not rebuild them there.
 
 - [ ] **Step 2: Run it to make sure it fails**
 
@@ -833,7 +891,7 @@ grant execute on function public.get_audience_dashboard(uuid[], text, date, date
 - [ ] **Step 4: Run the tests to make sure they pass**
 
 Run: `npm run db:reset && npm run db:test`
-Expected: PASS — 31 assertions, `Result: PASS`.
+Expected: PASS — 32 assertions, `Result: PASS`.
 
 - [ ] **Step 5: Commit**
 
@@ -848,7 +906,7 @@ git commit -m "feat(dashboards): the audience panel, counted at the Station's cl
 
 **Files:**
 - Create: `supabase/migrations/0119_music_dashboard.sql`
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(31)` to `plan(39)`)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(32)` to `plan(40)`)
 
 **Interfaces:**
 - Consumes: `public.resolve_dashboard_period` (Task 2). Follows `get_audience_dashboard`'s payload contract exactly (Task 3).
@@ -856,16 +914,12 @@ git commit -m "feat(dashboards): the audience panel, counted at the Station's cl
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(31)` to `plan(39)`:
+Append to `supabase/tests/20_dashboards.test.sql` before `finish()`, and change `plan(32)` to `plan(40)`. Assertions are numbered 33–40. The two callers already exist from Task 3; fixtures are inserted as the migration role and the assertions run as `d8u01` unless stated.
 
 ```sql
 -- ---------------------------------------------------------------------------
--- get_music_dashboard (Task 4).
+-- get_music_dashboard (Task 4). Fixtures first, as the migration role.
 -- ---------------------------------------------------------------------------
-create or replace function public.has_permission(p_permission text, p_company_id uuid)
-returns boolean language sql stable security definer
-set search_path = pg_catalog, public as $$ select true $$;
-
 insert into public.artists (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-0000000d8a01', '00000000-0000-0000-0000-0000000d8f01',
    '00000000-0000-0000-0000-0000000d8c01', 'Artist One');
@@ -904,7 +958,10 @@ values
   ('00000000-0000-0000-0000-0000000d8f01','00000000-0000-0000-0000-0000000d8c01',
    '00000000-0000-0000-0000-0000000d8m01','00000000-0000-0000-0000-0000000d8s03','2026-08-14 12:00:00+00');
 
--- 32: requests in the window.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
+
+-- 33: requests in the window.
 select is(
   (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
@@ -941,29 +998,39 @@ select is(
          'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,vocal}')),
   5, 'the vocal buckets sum to the requests, all five values plus "not stated"');
 
--- 37: a soft-deleted request leaves every figure (0098's partial indexes and
+-- 38: a soft-deleted request leaves every figure (0098's partial indexes and
 -- policies treat deleted_at as gone, and so must this).
+reset role;
 update public.music_requests set deleted_at = now()
  where song_id = '00000000-0000-0000-0000-0000000d8s03';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u01", "role": "authenticated"}';
 select is(
   (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,requests,current}')::int,
   4, 'a soft-deleted request is not counted');
 
--- 38: nothing is ever withheld here -- every figure reads a table gated by
--- music.view, which is this panel's own gate (D13).
+-- 39: nothing is ever withheld here -- every figure reads a table gated by
+-- music.view, which is this panel's own gate (D13). d8u02 lacks
+-- participations.view and is used deliberately: even the caller who loses
+-- figures on the other two panels loses none here.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u02", "role": "authenticated"}';
 select is(
   (public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{withheld}'),
   '[]'::jsonb, 'the music panel withholds nothing');
+reset role;
 
--- 39: and the gate is still a gate.
-create or replace function public.has_permission(p_permission text, p_company_id uuid)
-returns boolean language sql stable security definer
-set search_path = pg_catalog, public as $$ select p_permission <> 'music.view' $$;
+-- 40: and the gate is still a gate -- the outsider from assertion 20, who is
+-- a signed-in user of no Station at all.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u03", "role": "authenticated"}';
 select throws_ok(
   $$ select public.get_music_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[], 'custom', '2026-08-01', '2026-09-01') $$,
   '42501', null, 'a caller without music.view is refused');
+reset role;
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
@@ -1055,7 +1122,7 @@ This requires `request` to carry `nationality` and `vocal` from the joined song 
 - [ ] **Step 4: Run the tests to make sure they pass**
 
 Run: `npm run db:reset && npm run db:test`
-Expected: PASS — 39 assertions, `Result: PASS`.
+Expected: PASS — 40 assertions, `Result: PASS`.
 
 - [ ] **Step 5: Commit**
 
@@ -1072,7 +1139,7 @@ git commit -m "feat(dashboards): the music panel, with the three vocal values th
 - Create: `supabase/migrations/0120_promotions_dashboard.sql`
 - Create: `tests/unit/promotion-situation-boundary.test.ts`
 - Modify: `src/lib/promotion-situation.ts` (comment only)
-- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(39)` to `plan(50)`)
+- Modify: `supabase/tests/20_dashboards.test.sql` (raise `plan(40)` to `plan(51)`)
 
 **Interfaces:**
 - Consumes: `public.resolve_dashboard_period` (Task 2); the payload contract of Task 3.
@@ -1082,7 +1149,7 @@ git commit -m "feat(dashboards): the music panel, with the three vocal values th
 
 D11 accepts a second copy of the situation rule on the condition that both copies are proved at the same boundary instants. Write both halves now.
 
-Append to `supabase/tests/20_dashboards.test.sql` (change `plan(39)` to `plan(50)`) — fixtures plus these assertions:
+Append to `supabase/tests/20_dashboards.test.sql` (change `plan(40)` to `plan(51)`) — fixtures plus these assertions, numbered 41–51. The `promotion_is_live` assertions need no role switch: it reads no table. Everything calling `get_promotions_dashboard` runs as `d8u01` unless stated.
 
 ```sql
 -- FIXTURES: do not invent these inserts. supabase/tests/13_pickup_reads.test.sql
@@ -1138,10 +1205,12 @@ select is(
 
 -- D13 again, on the panel where it bites hardest: no participations.view means
 -- the entry side is withheld and the PRIZE CYCLE SURVIVES, because winners is
--- gated by promotions.view -- this panel's own gate.
-create or replace function public.has_permission(p_permission text, p_company_id uuid)
-returns boolean language sql stable security definer
-set search_path = pg_catalog, public as $$ select p_permission <> 'participations.view' $$;
+-- gated by promotions.view -- this panel's own gate. d8u02 is exactly that
+-- caller, and this pair of assertions is the whole reason the distinction
+-- exists: one number goes away, the other must not.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000d8u02", "role": "authenticated"}';
 select is(
   (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,participations}'),
@@ -1150,10 +1219,7 @@ select isnt(
   (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000000d8c01']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,awarded}'),
   null, 'the prize cycle survives, because winners is gated by promotions.view');
-
--- Restore the real function before the file ends, so a later edit that moves
--- assertions cannot inherit the stub.
--- (rollback at the end of the transaction does this too; stated for the reader.)
+reset role;
 ```
 
 Create `tests/unit/promotion-situation-boundary.test.ts` — the TypeScript half, at the identical instants:
@@ -1258,7 +1324,7 @@ then `get_promotions_dashboard`, in the shape of `0118`, with `promotions.view` 
 
 - [ ] **Step 4: Run everything to make sure it passes**
 
-Run: `npm run db:reset && npm run db:test` → PASS, 50 assertions.
+Run: `npm run db:reset && npm run db:test` → PASS, 51 assertions.
 Run: `npx vitest run tests/unit/promotion-situation-boundary.test.ts` → PASS, 3 tests.
 
 - [ ] **Step 5: Add the comment pointing back**
