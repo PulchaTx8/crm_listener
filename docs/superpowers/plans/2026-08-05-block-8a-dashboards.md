@@ -33,6 +33,8 @@
   ```
 
   Fixtures are always inserted **before** switching role; `reset role` always follows the assertions.
+
+- **Every fixture write runs as the migration role — no exceptions, including a write made mid-way through a block of assertions.** RLS in this codebase does not merely filter reads: it revokes `insert`/`update`/`delete` from `authenticated` on the tenant tables outright (`0035_rls_members.sql` does this for `members`, `member_company_links` and `member_blocks`), because every real write goes through a `SECURITY DEFINER` RPC. A fixture write left inside an authenticated block does not return zero rows — it aborts the file with `permission denied for table …`. When a test needs to change data between assertions, bracket it: `reset role;` → the write → `set local role authenticated;` and the `set local request.jwt.claims` line again.
 - **Test timezone is `America/Sao_Paulo`** — UTC−3 with no DST since 2019, so a fixed expected instant stays fixed. Never write a timezone test against a zone that observes DST unless the test is about DST.
 
 ---
@@ -592,10 +594,16 @@ select is(
 
 -- 24: the same window at a UTC Station puts Ana in September. Proved against
 -- the same rows by moving the links, so the only variable is the timezone.
+-- The write is fixture surgery and runs as the migration role: 0035 revokes
+-- insert on member_company_links from authenticated, because every real write
+-- to it goes through a SECURITY DEFINER RPC in 0034.
+reset role;
 insert into public.member_company_links (member_id, company_id, organization_id, linked_at)
 select member_id, '00000000-0000-0000-0000-0000d8020002', organization_id, linked_at
   from public.member_company_links
  where company_id = '00000000-0000-0000-0000-0000d8020001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 select is(
   (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020002']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,new_listeners,current}')::int,
