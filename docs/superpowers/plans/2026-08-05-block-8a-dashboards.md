@@ -412,7 +412,6 @@ begin
   -- only when two adjacent units happen to share a length -- true for July into
   -- August, false for ten month pairs in twelve and for every year after a leap
   -- year -- and it fails as a plausible number rather than an error.
-  v_pto := null;
   case p_preset
     when 'current_month' then
       v_from  := date_trunc('month', v_today::timestamp)::date;
