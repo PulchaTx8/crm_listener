@@ -26,6 +26,23 @@ export type RequestedField = Enums<'promotion_requested_field'>;
 export type QuestionKind = Enums<'promotion_question_kind'>;
 
 /**
+ * One of the ten texts a Station may give its own wording to.
+ * `system_message_key` (0109), derived rather than re-declared for exactly the
+ * reason the file header gives for `RequestedField`: a hand-written union here
+ * would be a second place an eleventh key has to be added, and the two would
+ * disagree silently. Derived, `SYSTEM_MESSAGE_DEFAULTS` fails to compile until
+ * somebody writes the text that goes with the new key.
+ */
+export type SystemMessageKey = Enums<'system_message_key'>;
+
+/**
+ * One Station's own wording. PARTIAL on purpose (D2): a row exists per
+ * OVERRIDDEN text, never one per Station, so a missing key is the ordinary
+ * case and `resolveSystemMessage` answers it with the code's own default.
+ */
+export type SystemMessageOverrides = Partial<Record<SystemMessageKey, string>>;
+
+/**
  * One thing the bot asks. Produced by `whatsapp_conversation_steps` (0066) in
  * exactly this order: consent, then the stale fields in the enum's own order,
  * then the promotion's questions in `position` order.
@@ -109,9 +126,18 @@ export interface QuestionPrompt {
 /**
  * Everything the prompts need and the engine must not fetch.
  *
- * `fieldPrompts` is a total record on purpose: the compiler refuses a caller
- * that forgets one of the eight, which is the failure mode a
- * `Partial`/lookup-table would turn into a listener receiving an empty message.
+ * `systemMessages` REPLACED a total `fieldPrompts: Record<RequestedField,
+ * string>`, and the reason that record was total has not been abandoned — it
+ * has moved. It was total so the compiler would refuse a caller that forgot one
+ * of the eight, "the failure mode a Partial/lookup-table would turn into a
+ * listener receiving an empty message". A partial map is now CORRECT (D2: one
+ * row per overridden text, never one per Station), and the guarantee it used to
+ * carry is held in two stronger places instead: `SYSTEM_MESSAGE_DEFAULTS` and
+ * `FIELD_MESSAGE_KEYS` in engine.ts are both total over their key types, so a
+ * ninth requested field still fails to compile, and a missing override resolves
+ * to a non-empty constant rather than to nothing. The empty message is
+ * unreachable now by construction rather than by the caller remembering.
+ *
  * `questions` is keyed by question id and is NOT total -- a promotion's
  * questions are data -- so a step naming a question the context does not carry
  * is a caller bug, and `PromptContextError` says so loudly rather than sending
@@ -126,8 +152,8 @@ export interface PromptContext {
     yesButtonLabel: string | null;
     noButtonLabel: string | null;
   };
-  /** The whole message sent at a field step, not a column heading. */
-  fieldPrompts: Record<RequestedField, string>;
+  /** This Station's own wording, per text. Absent keys are the ordinary case. */
+  systemMessages: SystemMessageOverrides;
   questions: Record<string, QuestionPrompt>;
 }
 

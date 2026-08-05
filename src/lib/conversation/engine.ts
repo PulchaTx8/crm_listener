@@ -28,6 +28,8 @@ import type {
   QuestionPrompt,
   RequestedField,
   Step,
+  SystemMessageKey,
+  SystemMessageOverrides,
   Turn,
 } from './steps';
 
@@ -45,6 +47,13 @@ export const CONSENT_NO_ID = 'consent_no';
  * comments English; only what the listener reads is not), and constants rather
  * than columns because the owner called them copy, changeable without a
  * migration (spec §4.1).
+ *
+ * The Templates block does not overturn that reasoning — it extends it. These
+ * stay constants and stay changeable without a migration; they are now also
+ * changeable without a DEPLOY, by a Station, one text at a time. What they
+ * became is the FLOOR: `SYSTEM_MESSAGE_DEFAULTS` below collects them, and
+ * `resolveSystemMessage` returns a Station's own wording when it has some and
+ * these when it has not. An absent override is a valid state, never a hole.
  */
 export const DEFAULT_YES_BUTTON_LABEL = 'Quero!';
 export const DEFAULT_NO_BUTTON_LABEL = 'Agora não';
@@ -73,6 +82,87 @@ export const FIELD_PROMPTS: Record<RequestedField, string> = {
 };
 export const ABANDON_MESSAGE =
   'Não consegui entender a resposta. Vamos parar por aqui — é só mandar a hashtag de novo quando quiser tentar outra vez.';
+
+/**
+ * The two override types live in `./steps` with the rest of the vocabulary and
+ * are re-exported here, where the defaults and the resolver are — so a caller
+ * needing "the ten texts" imports one module rather than two.
+ */
+export type { SystemMessageKey, SystemMessageOverrides } from './steps';
+
+/**
+ * Which key carries each requested field's prompt.
+ *
+ * TOTAL, and that is the whole point of it existing rather than a
+ * `field.toUpperCase()`: a ninth `RequestedField` fails to compile HERE as well
+ * as in `FIELD_PROMPTS`, so the pair cannot drift into a field whose prompt
+ * nobody can override and, worse, a key that resolves to nothing.
+ */
+export const FIELD_MESSAGE_KEYS: Record<RequestedField, SystemMessageKey> = {
+  full_name: 'FULL_NAME',
+  address: 'ADDRESS',
+  city: 'CITY',
+  neighbourhood: 'NEIGHBOURHOOD',
+  age: 'AGE',
+  cpf: 'CPF',
+  passport: 'PASSPORT',
+  discovery_source: 'DISCOVERY_SOURCE',
+};
+
+/** The constants above, collected under the keys a Station overrides them by. */
+export const SYSTEM_MESSAGE_DEFAULTS: Record<SystemMessageKey, string> = {
+  REFUSAL: REFUSAL_MESSAGE,
+  ABANDON: ABANDON_MESSAGE,
+  FULL_NAME: FIELD_PROMPTS.full_name,
+  ADDRESS: FIELD_PROMPTS.address,
+  CITY: FIELD_PROMPTS.city,
+  NEIGHBOURHOOD: FIELD_PROMPTS.neighbourhood,
+  AGE: FIELD_PROMPTS.age,
+  CPF: FIELD_PROMPTS.cpf,
+  PASSPORT: FIELD_PROMPTS.passport,
+  DISCOVERY_SOURCE: FIELD_PROMPTS.discovery_source,
+};
+
+/**
+ * The Station's wording for one text, or the code's own if it has none.
+ *
+ * PER TEXT, never per Station. A Station that overrides the city prompt keeps
+ * the other nine defaults — the all-or-nothing alternative is invisible until
+ * a Station with one override goes silent on everything else, and silence is
+ * what this whole block exists to end.
+ *
+ * A blank override resolves to the default rather than to nothing. 0109's
+ * check constraint refuses a blank body and so does its door; this is the
+ * third guard, and the only one standing at the moment the message is chosen.
+ */
+export function resolveSystemMessage(
+  overrides: SystemMessageOverrides,
+  key: SystemMessageKey,
+): string {
+  const override = overrides[key];
+  return override !== undefined && override.trim() !== '' ? override : SYSTEM_MESSAGE_DEFAULTS[key];
+}
+
+/**
+ * Narrows an untrusted key/text map to the ten texts this engine knows about.
+ *
+ * The map arrives as jsonb built in plpgsql (0114) and read in TypeScript, and
+ * a `Record<string, string>` says nothing about which keys are in it. Rather
+ * than a second list of the ten to keep in step with the enum, the keys are
+ * checked against `SYSTEM_MESSAGE_DEFAULTS`, which is total over
+ * `SystemMessageKey` and so cannot fall behind it.
+ *
+ * An unknown key is DROPPED rather than carried: the column is enum-typed so
+ * one should be unreachable, and a value nothing resolves is a value nothing
+ * should keep.
+ */
+export function toSystemMessageOverrides(source: Record<string, string>): SystemMessageOverrides {
+  const overrides: SystemMessageOverrides = {};
+  for (const [key, body] of Object.entries(source)) {
+    if (key in SYSTEM_MESSAGE_DEFAULTS) overrides[key as SystemMessageKey] = body;
+  }
+  return overrides;
+}
 
 /**
  * Re-prompts allowed at ONE step; the fourth failure there ends the
@@ -155,7 +245,13 @@ function consentTurn(
 ): Turn {
   if (message.kind !== 'button') return failure(conversation, context);
   if (message.buttonId === CONSENT_NO_ID) {
-    return { kind: 'refused', outbound: { kind: 'text', body: REFUSAL_MESSAGE } };
+    return {
+      kind: 'refused',
+      outbound: {
+        kind: 'text',
+        body: resolveSystemMessage(context.systemMessages, 'REFUSAL'),
+      },
+    };
   }
   if (message.buttonId !== CONSENT_YES_ID) return failure(conversation, context);
   return answered(conversation, conversation.answers, context);
@@ -255,7 +351,13 @@ function answered(
 function failure(conversation: Conversation, context: PromptContext): Turn {
   const reprompts = conversation.reprompts + 1;
   if (reprompts > MAX_REPROMPTS_PER_STEP) {
-    return { kind: 'abandon', outbound: { kind: 'text', body: ABANDON_MESSAGE } };
+    return {
+      kind: 'abandon',
+      outbound: {
+        kind: 'text',
+        body: resolveSystemMessage(context.systemMessages, 'ABANDON'),
+      },
+    };
   }
 
   const step = conversation.steps[conversation.cursor];
@@ -291,7 +393,10 @@ function promptFor(step: Step, context: PromptContext): Outbound {
         }),
       };
     case 'field':
-      return { kind: 'text', body: context.fieldPrompts[step.field] };
+      return {
+        kind: 'text',
+        body: resolveSystemMessage(context.systemMessages, FIELD_MESSAGE_KEYS[step.field]),
+      };
     case 'question':
       return questionOutbound(step, context);
   }

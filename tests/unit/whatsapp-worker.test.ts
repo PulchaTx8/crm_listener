@@ -5,6 +5,7 @@ import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
 import type {
   SendInteractiveInput,
   SendResult,
+  SendTemplateInput,
   SendTextInput,
   WhatsAppTransport,
 } from '@/lib/integrations/whatsapp/transport';
@@ -54,6 +55,14 @@ interface ClaimedRow {
   body: string;
   /** Block 5b: the conversation's own messages. Null on every reply 5a writes. */
   interactive: unknown;
+  /**
+   * The Templates block: null or non-null as a triple, which
+   * outbox_messages_template_shape (0111) enforces and which the worker relies
+   * on by discriminating on template_name alone.
+   */
+  template_name: string | null;
+  template_language: string | null;
+  template_variables: unknown;
   attempts: number;
   phone_number_id: string | null;
   // Only the discarded PostgREST shape uses this. It exists so a worker mutated
@@ -178,11 +187,14 @@ function asClient(db: FakeDb): SupabaseClient<Database> {
 }
 
 /** Returns each scripted result in turn, then repeats the last one. */
-function scripted(
-  ...results: SendResult[]
-): WhatsAppTransport & { seen: SendTextInput[]; seenInteractive: SendInteractiveInput[] } {
+function scripted(...results: SendResult[]): WhatsAppTransport & {
+  seen: SendTextInput[];
+  seenInteractive: SendInteractiveInput[];
+  seenTemplates: SendTemplateInput[];
+} {
   const seen: SendTextInput[] = [];
   const seenInteractive: SendInteractiveInput[] = [];
+  const seenTemplates: SendTemplateInput[] = [];
   let index = 0;
   const next = (): SendResult => {
     const result = results[Math.min(index, results.length - 1)];
@@ -192,6 +204,7 @@ function scripted(
   return {
     seen,
     seenInteractive,
+    seenTemplates,
     sendText(input: SendTextInput): Promise<SendResult> {
       seen.push(input);
       return Promise.resolve(next());
@@ -202,6 +215,13 @@ function scripted(
     // which sends failed.
     sendInteractive(input: SendInteractiveInput): Promise<SendResult> {
       seenInteractive.push(input);
+      return Promise.resolve(next());
+    },
+    // The same counter again, for the same reason: three shapes, one queue,
+    // one ladder. A reminder that failed and a reply that failed are the same
+    // failure to this worker.
+    sendTemplate(input: SendTemplateInput): Promise<SendResult> {
+      seenTemplates.push(input);
       return Promise.resolve(next());
     },
   };
@@ -216,6 +236,9 @@ function outboxRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
     to_phone: '5511988887777',
     body: 'Pronto!',
     interactive: null,
+    template_name: null,
+    template_language: null,
+    template_variables: null,
     attempts: 0,
     phone_number_id: '1111',
     integrations: { phone_number_id: '1111' },
@@ -498,6 +521,111 @@ describe('runTick: the outbound half', () => {
     const parked = db.updates.filter((update) => update.patch.status === 'FAILED');
     expect(parked).toHaveLength(1);
     expect(String(parked[0]?.patch.last_error)).toContain('interactive');
+  });
+
+  // The Templates block. The third shape, and the only one Meta accepts
+  // outside the 24-hour window — so the only one this queue can use to START a
+  // conversation. Until the worker looked at these columns, 0112's reminder
+  // would have gone out as its rendered body text, which Meta refuses with a
+  // 400 for exactly the reason the template exists.
+  const reminder = {
+    template_name: 'lembrete_retirada',
+    template_language: 'pt_BR',
+    template_variables: ['Maria', 'Caneca PulchaTX', '12/08/2026'],
+  };
+
+  it('sends a template row as a template, not as its rendered body text', async () => {
+    const db = new FakeDb({
+      // The body carries 0111's rendered text, which is for the operator
+      // reading the audit trail and not for Meta (D6). A worker that sent it
+      // would be sending free-form text outside the window.
+      outbox: [outboxRow({ body: 'Oi Maria, seu prêmio te espera!', ...reminder })],
+    });
+    const transport = scripted({ ok: true, externalId: 'wamid.TEMPLATE' });
+
+    const result = await tick(db, transport);
+
+    expect(transport.seen).toHaveLength(0);
+    expect(transport.seenInteractive).toHaveLength(0);
+    expect(transport.seenTemplates).toEqual([
+      {
+        phoneNumberId: '1111',
+        to: '5511988887777',
+        template: {
+          name: 'lembrete_retirada',
+          language: 'pt_BR',
+          variables: ['Maria', 'Caneca PulchaTX', '12/08/2026'],
+        },
+      },
+    ]);
+    expect(result.sent).toBe(1);
+    // Settled exactly like the other two: one queue, one ladder, one shape of
+    // write. outbox_messages_sent_shape (0059) does not know about kinds.
+    expect(db.updates.filter((update) => update.patch.status === 'SENT')).toHaveLength(1);
+  });
+
+  it('parks a row whose stored template payload is not one the API would accept', async () => {
+    const db = new FakeDb({
+      outbox: [
+        outboxRow({
+          ...reminder,
+          // A value Meta refuses. The realistic source is a prize name pasted
+          // with a line break in it, and nobody is waiting at a screen for
+          // this message: its caller is 0112's unattended sweep.
+          template_variables: ['Maria', 'Caneca\nPulchaTX', '12/08/2026'],
+        }),
+      ],
+    });
+    const transport = scripted({ ok: true, externalId: 'wamid.NEVER' });
+
+    const result = await tick(db, transport);
+
+    expect(transport.seenTemplates).toHaveLength(0);
+    expect(transport.seen).toHaveLength(0);
+    expect(result.sendFailed).toBe(1);
+    const parked = db.updates.filter((update) => update.patch.status === 'FAILED');
+    expect(parked).toHaveLength(1);
+    expect(String(parked[0]?.patch.last_error)).toContain('template');
+  });
+
+  it('parks rather than throwing, so the rest of the batch still goes out', async () => {
+    // FakeTransport and NOT `scripted` here, deliberately: the fake calls
+    // buildTemplatePayload, which THROWS for these values, and `scripted` only
+    // records. If the worker handed this row straight to sendTemplate, that
+    // throw would escape drainOutbox and take the second row with it — the
+    // failure mode the parse-before-send ordering exists to prevent, and a
+    // double that never builds could not show it.
+    const db = new FakeDb({
+      outbox: [
+        outboxRow({
+          id: 'ob-bad',
+          ...reminder,
+          template_variables: ['Maria', 'Caneca\nPulchaTX', '12/08/2026'],
+        }),
+        outboxRow({ id: 'ob-good', body: 'Pronto!' }),
+      ],
+    });
+    const transport = new FakeTransport();
+
+    const result = await tick(db, transport);
+
+    expect(result.sendFailed).toBe(1);
+    expect(result.sent).toBe(1);
+    expect(transport.sentTemplates).toHaveLength(0);
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0]?.body).toBe('Pronto!');
+  });
+
+  it('still sends a row with no template stamp down its old path', async () => {
+    // The regression guard for every message this system already sends: three
+    // new columns on the claim must not turn a reply into a template send.
+    const db = new FakeDb({ outbox: [outboxRow()] });
+    const transport = scripted({ ok: true, externalId: 'wamid.TEXT' });
+
+    await tick(db, transport);
+
+    expect(transport.seenTemplates).toHaveLength(0);
+    expect(transport.seen).toHaveLength(1);
   });
 
   it('claims its batch through the function that marks the rows in the same statement', async () => {

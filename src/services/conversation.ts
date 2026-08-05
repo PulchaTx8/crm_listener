@@ -2,10 +2,10 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import {
-  FIELD_PROMPTS,
   PromptContextError,
   advance,
   firstPrompt,
+  toSystemMessageOverrides,
 } from '@/lib/conversation/engine';
 import type {
   Conversation,
@@ -79,6 +79,14 @@ const startSchema = z.object({
     noButtonLabel: z.string().nullable(),
   }),
   questions: z.record(z.string(), z.unknown()),
+  /**
+   * This Station's own wording for the ten system texts (0114). `.default({})`
+   * rather than required, and that is not laxity: a Station that has
+   * overridden nothing is the ordinary case, and an older deploy's stored
+   * document has no such key at all. Absent and empty both mean "use the
+   * constants", which is exactly what resolveSystemMessage does with them.
+   */
+  systemMessages: z.record(z.string(), z.string()).default({}),
 });
 
 /**
@@ -322,11 +330,15 @@ async function loadPromptContext(
 function promptContext(source: {
   promotion: PromptContext['promotion'];
   questions: Record<string, unknown>;
+  systemMessages: Record<string, string>;
 }): PromptContext {
   return {
     promotion: source.promotion,
-    // Copy, from the one place it lives.
-    fieldPrompts: FIELD_PROMPTS,
+    // The Station's own words where it has given any, and the constants in
+    // engine.ts everywhere else — per text, never per Station (D2). Narrowed
+    // rather than cast: the map crossed a jsonb boundary and its keys are only
+    // as trustworthy as the enum that produced them.
+    systemMessages: toSystemMessageOverrides(source.systemMessages),
     questions: source.questions as PromptContext['questions'],
   };
 }

@@ -1051,6 +1051,66 @@ export type Database = {
           },
         ]
       }
+      message_templates: {
+        Row: {
+          body: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          language: string
+          name: string
+          organization_id: string
+          purpose: Database["public"]["Enums"]["template_purpose"]
+          updated_at: string
+          variables: Json
+        }
+        Insert: {
+          body: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          language: string
+          name: string
+          organization_id: string
+          purpose: Database["public"]["Enums"]["template_purpose"]
+          updated_at?: string
+          variables?: Json
+        }
+        Update: {
+          body?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          language?: string
+          name?: string
+          organization_id?: string
+          purpose?: Database["public"]["Enums"]["template_purpose"]
+          updated_at?: string
+          variables?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_templates_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "message_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       music_genres: {
         Row: {
           company_id: string
@@ -1321,6 +1381,9 @@ export type Database = {
           pruned_at: string | null
           sent_at: string | null
           status: Database["public"]["Enums"]["outbox_status"]
+          template_language: string | null
+          template_name: string | null
+          template_variables: Json | null
           to_phone: string | null
         }
         Insert: {
@@ -1341,6 +1404,9 @@ export type Database = {
           pruned_at?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["outbox_status"]
+          template_language?: string | null
+          template_name?: string | null
+          template_variables?: Json | null
           to_phone?: string | null
         }
         Update: {
@@ -1361,6 +1427,9 @@ export type Database = {
           pruned_at?: string | null
           sent_at?: string | null
           status?: Database["public"]["Enums"]["outbox_status"]
+          template_language?: string | null
+          template_name?: string | null
+          template_variables?: Json | null
           to_phone?: string | null
         }
         Relationships: [
@@ -2408,6 +2477,57 @@ export type Database = {
           },
         ]
       }
+      station_message_templates: {
+        Row: {
+          body: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          key: Database["public"]["Enums"]["system_message_key"]
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          key: Database["public"]["Enums"]["system_message_key"]
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          key?: Database["public"]["Enums"]["system_message_key"]
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "station_message_templates_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "station_message_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       storage_erasure_queue: {
         Row: {
           attempts: number
@@ -2849,6 +2969,7 @@ export type Database = {
         Returns: undefined
       }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
+      archive_message_template: { Args: { p_id: string }; Returns: undefined }
       archive_music_reference: {
         Args: {
           p_id: string
@@ -2929,8 +3050,18 @@ export type Database = {
           id: string
           interactive: Json
           phone_number_id: string
+          template_language: string
+          template_name: string
+          template_variables: Json
           to_phone: string
         }[]
+      }
+      clear_station_message_template: {
+        Args: {
+          p_company_id: string
+          p_key: Database["public"]["Enums"]["system_message_key"]
+        }
+        Returns: undefined
       }
       complete_password_change: { Args: never; Returns: undefined }
       complete_whatsapp_conversation: {
@@ -3086,12 +3217,18 @@ export type Database = {
           id: string
         }[]
       }
+      enqueue_pickup_reminder: {
+        Args: { p_winner_id: string }
+        Returns: string
+      }
       enqueue_whatsapp_outbound: {
         Args: {
           p_body: string
           p_dedupe_key: string
           p_integration_id: string
           p_interactive: Json
+          p_template_purpose?: Database["public"]["Enums"]["template_purpose"]
+          p_template_variables?: Json
           p_to_phone: string
         }
         Returns: string
@@ -3542,6 +3679,17 @@ export type Database = {
         }
         Returns: string
       }
+      register_message_template: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_language: string
+          p_name: string
+          p_purpose: Database["public"]["Enums"]["template_purpose"]
+          p_variables?: Json
+        }
+        Returns: string
+      }
       release_conversation_turn: {
         Args: { p_integration_id: string; p_phone: string; p_token: string }
         Returns: undefined
@@ -3624,6 +3772,14 @@ export type Database = {
           p_promotion_id: string
           p_prompt: string
           p_question_id?: string
+        }
+        Returns: string
+      }
+      set_station_message_template: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_key: Database["public"]["Enums"]["system_message_key"]
         }
         Returns: string
       }
@@ -3824,6 +3980,18 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+      system_message_key:
+        | "REFUSAL"
+        | "ABANDON"
+        | "FULL_NAME"
+        | "ADDRESS"
+        | "CITY"
+        | "NEIGHBOURHOOD"
+        | "AGE"
+        | "CPF"
+        | "PASSPORT"
+        | "DISCOVERY_SOURCE"
+      template_purpose: "PICKUP_REMINDER"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       winner_status:
         | "AWAITING_PICKUP"
@@ -4023,6 +4191,19 @@ export const Constants = {
         "passport",
         "discovery_source",
       ],
+      system_message_key: [
+        "REFUSAL",
+        "ABANDON",
+        "FULL_NAME",
+        "ADDRESS",
+        "CITY",
+        "NEIGHBOURHOOD",
+        "AGE",
+        "CPF",
+        "PASSPORT",
+        "DISCOVERY_SOURCE",
+      ],
+      template_purpose: ["PICKUP_REMINDER"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       winner_status: [
         "AWAITING_PICKUP",

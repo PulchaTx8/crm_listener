@@ -4,6 +4,7 @@ import type { Database, Json } from '@/lib/supabase/database.types';
 import { CONVERSATION_WINDOW_SECONDS, type ConversationStore } from '@/lib/conversation/store';
 import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
 import { parseInteractive } from '@/lib/integrations/whatsapp/interactive';
+import { parseTemplate } from '@/lib/integrations/whatsapp/template';
 import { parseInboundTurn, runConversationTurn } from '@/services/conversation';
 import type { WhatsAppTransport } from '@/lib/integrations/whatsapp/transport';
 
@@ -352,10 +353,45 @@ async function drainOutbox(
       continue;
     }
 
-    // Block 5b: one queue, two shapes. A null `interactive` is every reply 5a
-    // writes and goes out as text; anything else is a message of the
-    // conversation, and its body column carries the same words for the operator
-    // rather than for Meta.
+    // The Templates block: one queue, THREE shapes now. A row with a
+    // template_name is a Station-INITIATED message — the only kind Meta takes
+    // outside the 24-hour window — and its body column carries 0111's rendered
+    // text for the operator rather than for Meta, exactly as an interactive
+    // row's does.
+    //
+    // Checked first, and the discriminator is template_name alone:
+    // outbox_messages_template_shape (0111) makes the three columns null or
+    // non-null together, so one is as good as three and a row cannot be half a
+    // template. A template row never also carries an interactive payload —
+    // enqueue_whatsapp_outbound takes both parameters and 0112's reminder
+    // passes null for the interactive one — but the order here is what makes
+    // that true by construction rather than by agreement between two files.
+    const template =
+      row.template_name === null
+        ? null
+        : parseTemplate({
+            name: row.template_name,
+            language: row.template_language,
+            variables: row.template_variables,
+          });
+    if (row.template_name !== null && template === null) {
+      // Same reasoning as the interactive branch below, with one addition that
+      // makes it matter more: nobody is waiting at a screen for this message.
+      // Its caller is 0112's unattended sweep, so a row Meta would 400 would
+      // otherwise burn the ladder and disappear into a log. Parked with the
+      // reason on the row instead.
+      const { error: parkError } = await supabase
+        .from('outbox_messages')
+        .update({ status: 'FAILED', last_error: 'stored template payload is not sendable' })
+        .eq('id', row.id);
+      failed(result, 'park a row with an unsendable template payload', parkError);
+      result.sendFailed += 1;
+      continue;
+    }
+
+    // Block 5b: a null `interactive` is every reply 5a writes and goes out as
+    // text; anything else is a message of the conversation, and its body column
+    // carries the same words for the operator rather than for Meta.
     const interactive = row.interactive === null ? null : parseInteractive(row.interactive);
     if (row.interactive !== null && interactive === null) {
       // Stored, but not a shape the API would take — a payload written by an
@@ -372,17 +408,23 @@ async function drainOutbox(
       continue;
     }
 
-    const send = interactive
-      ? await transport.sendInteractive({
+    const send = template
+      ? await transport.sendTemplate({
           phoneNumberId: row.phone_number_id,
           to: row.to_phone,
-          interactive,
+          template,
         })
-      : await transport.sendText({
-          phoneNumberId: row.phone_number_id,
-          to: row.to_phone,
-          body: row.body,
-        });
+      : interactive
+        ? await transport.sendInteractive({
+            phoneNumberId: row.phone_number_id,
+            to: row.to_phone,
+            interactive,
+          })
+        : await transport.sendText({
+            phoneNumberId: row.phone_number_id,
+            to: row.to_phone,
+            body: row.body,
+          });
 
     if (send.ok) {
       // Meta has accepted it. `sent` counts that fact, and is incremented even

@@ -25,6 +25,18 @@ export const runtime = 'nodejs';
  * anywhere. Nothing below can be tested for that: this file's tests import the
  * handler and call it directly, which is the same reason the identical defect
  * reached the webhook route.
+ *
+ * NOT where `sweep_pickup_deadlines` (0094) or its Block Templates sibling
+ * `sweep_pickup_reminders` (0112) run, and a reader looking for either here is
+ * the reason this paragraph exists. Both are procedures, scheduled directly by
+ * `cron.schedule` inside their own migrations, called by pg_cron as plain SQL
+ * with no HTTP and no application code in the path — 0094's header gives the
+ * reasoning in full, and 0112 restates it rather than departing from it.
+ * `sweep_pickup_reminders` only ENQUEUES a template send (through
+ * `enqueue_whatsapp_outbound`, 0111); the row it writes is an ordinary
+ * `outbox_messages` PENDING row, and it is THIS tick's own `drainOutbox`
+ * (`runTick`, services/whatsapp.ts) that claims and actually sends it, on its
+ * ordinary ten-second cadence, the same as any other queued message.
  */
 export async function POST(request: Request): Promise<Response> {
   const secret = env.WORKER_TICK_SECRET;
