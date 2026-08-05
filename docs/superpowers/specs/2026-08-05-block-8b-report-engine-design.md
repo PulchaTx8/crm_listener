@@ -173,9 +173,18 @@ RPCs, not table grants.
 
 ### D6 — A generated file lives seven days, and then its bytes are actually deleted
 
-The bucket is `reports`, private, with policies on `storage.objects` proving the Station from
-the object path — the shape `0086_delivery_receipts.sql` established. No public URL ever; the
-client asks for a short-lived signed URL at the moment of the click, and it is never stored.
+The bucket is `reports`, private, in the shape `0086_delivery_receipts.sql` established. No
+public URL ever; the client asks for a short-lived signed URL at the moment of the click, and it
+is never stored.
+
+**Where it departs from 0086, and why the departure is stronger.** A delivery receipt has no row
+of its own, so 0086 must prove the Station from the object path (`storage.foldername(name)[1]`)
+and then ask `has_permission` about it. A report object *does* have a row — exactly one
+`report_runs` row names it in `storage_path` — so the read policy matches on that and inherits
+`report_runs`' own RLS through the subquery. The rule "may this caller see this run" is then
+written once, and an object cannot be reached through any run except the one that produced it.
+The path keeps the `{company_id}/{run_id}.{ext}` shape for legibility during an incident, not as
+a permission check.
 
 At expiry a sweep writes the object into `storage_erasure_queue` (0087) and clears
 `storage_path`. The queue is drained by the tick through the storage API, because — as 0087's
