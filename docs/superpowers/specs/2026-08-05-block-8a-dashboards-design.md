@@ -85,7 +85,9 @@ A listener who already existed at a sister Station and entered this one last wee
 
 ### D10 — "Active in the period" means they did something, and the something is named
 
-There is no activity status on a member. The only evidence of activity the data holds is a participation or a music request, so **active = distinct members with at least one participation or one music request whose timestamp falls in the window.** The screen labels it as such rather than as "active", so the number cannot be read as a claim the data does not support.
+There is no activity status on a member. The only evidence of activity the data holds is a participation or a music request, so the figure counts **distinct members with at least one participation in the window**, and the screen labels it "took part in the period" rather than "active", so the number cannot be read as a claim the data does not support.
+
+**Music requests are deliberately not part of it,** though they are equally good evidence. `music_requests` is gated by `music.view` and `participations` by `participations.view` (D13): a definition spanning both would mean something different for almost every caller, and the Music panel already reports requests to the callers who may see them.
 
 ### D11 — The promotion-situation rule gets a second copy, deliberately
 
@@ -98,6 +100,14 @@ It is accepted rather than avoided, with three conditions: the SQL states the sa
 `cancel_draw` (`0079`) reverses the prize unit but deliberately leaves `winners.status` at `AWAITING_PICKUP` — 6a has no vocabulary for "un-awarded". `list_pickups` (`0095`) and `sweep_pickup_deadlines` (`0094`) both exclude these rows, each documenting why in its own header.
 
 The Promotions dashboard is the third reader to treat `AWAITING_PICKUP` as live, so it carries the same exclusion: **a winner whose draw was cancelled counts toward nothing** — not prizes awarded, not the pickup cycle, not the overdue figure. Counting them would report prizes handed out that were taken back before anyone was told.
+
+### D13 — A figure the caller's permissions cannot support is withheld, never zeroed
+
+Because aggregation runs as the caller (D4), a figure drawn from a table gated by a permission **other than its panel's own** returns nothing for a caller who lacks it — and nothing would render as a zero indistinguishable from a true one. D4 refuses that confusion at the panel level; this is the same rule one level down, and it is the price of D4 rather than an argument against it.
+
+Exactly one table crosses the line: **`participations`, gated by `participations.view`** (`0053`), which neither `members.view` nor `promotions.view` implies. It feeds the Audience panel's "took part" figure and the Promotions panel's whole entry side — the count, the refusal breakdown, the distinct listeners and the busiest-promotions list. The prize cycle does not cross it: `winners` is gated by `promotions.view` (`0075`), which is the Promotions panel's own gate.
+
+Where the caller lacks `participations.view` **in any selected Station**, the function omits those figures and names them in a `withheld` array in the payload; the screen renders each as an em dash beside the permission that would fill it. A caller gets a smaller dashboard, never a wrong one.
 
 ---
 
@@ -113,7 +123,7 @@ Every figure below comes from a column that exists today. No migration in this b
 |---|---|---|
 | Listeners at this Station | `member_company_links` as of the end of the window, excluding members that are deleted or anonymized | yes (as of each window's end) |
 | New in the period | `member_company_links.linked_at` in the window (D9) | yes |
-| Active in the period | distinct members with a participation or a music request in the window (D10) | yes |
+| Took part in the period | distinct members with a participation in the window (D10) — **needs `participations.view`, withheld without it** (D13) | yes |
 | Listeners barred in the period | distinct members with a block starting in the window and still in force (`lifted_at is null`), split by `kind` (`draw_ban`, `suspension`) — see the rule below | yes |
 | Monthly arrivals | `linked_at` grouped by month, over the last twelve months ending at the window's end | — |
 | How they were found | `members.discovery_source`, top ten with a "not stated" bucket | — |
@@ -145,14 +155,14 @@ Every figure below comes from a column that exists today. No migration in this b
 |---|---|---|
 | On air now | promotions whose window contains `now()` at the Station's timezone, not cancelled (D11) | — |
 | Ended in the period | `ends_at` in the window, not cancelled | yes |
-| Participations | `participations.participated_at` in the window | yes |
-| Distinct listeners taking part | distinct `member_id` over the same rows | yes |
+| Participations | `participations.participated_at` in the window — **needs `participations.view`** (D13) | yes |
+| Distinct listeners taking part | distinct `member_id` over the same rows — **needs `participations.view`** | yes |
 | Prizes awarded | `winners` created in the window, excluding cancelled draws (D12) | yes |
 | Overdue and uncollected | `AWAITING_PICKUP` with `deadline_at < now()`, excluding cancelled draws | — |
-| Monthly participations | grouped by month over the last twelve months | — |
-| Why entries were refused | participations in the window by status: `VALID`, `DUPLICATE`, `TOO_SOON`, `OVER_LIMIT` | — |
+| Monthly participations | grouped by month over the last twelve months — **needs `participations.view`** | — |
+| Why entries were refused | participations in the window by status: `VALID`, `DUPLICATE`, `TOO_SOON`, `OVER_LIMIT` — **needs `participations.view`** | — |
 | The prize cycle | winners in the window by status: `AWAITING_PICKUP`, `DELIVERED`, `RETURNED`, `WRITTEN_OFF` | — |
-| Busiest promotions | top ten by participation count in the window | — |
+| Busiest promotions | top ten by participation count in the window — **needs `participations.view`** | — |
 
 The refusal breakdown is the number that shows a promotion whose per-person rule is turning real people away; it is why D1's alternative — a pickup-only panel — was rejected.
 
@@ -189,7 +199,8 @@ All three are `stable`, `security invoker`, `set search_path = pg_catalog, publi
   "cards":   { "<name>": { "current": 0, "previous": 0 } },
   "monthly": [ { "month": "2026-08", "count": 0 } ],
   "breakdowns": { "<name>": [ { "key": "…", "label": "…", "count": 0 } ] },
-  "top":        { "<name>": [ { "id": "…", "label": "…", "count": 0 } ] }
+  "top":        { "<name>": [ { "id": "…", "label": "…", "count": 0 } ] },
+  "withheld":   [ { "figure": "took_part", "needs": "participations.view" } ]
 }
 ```
 
@@ -221,9 +232,12 @@ The consolidated option appears when the caller holds `reports.consolidated` **i
 |---|---|
 | `0115` | `reports.consolidated` in `public.permissions` |
 | `0116` | three indexes (below) |
-| `0117` | `get_audience_dashboard` |
-| `0118` | `get_music_dashboard` |
-| `0119` | `get_promotions_dashboard` |
+| `0117` | `resolve_dashboard_period` — the preset and comparison arithmetic of D5/D6, in one place |
+| `0118` | `get_audience_dashboard` |
+| `0119` | `get_music_dashboard` |
+| `0120` | `get_promotions_dashboard` |
+
+`0117` exists because all three functions need the same window arithmetic per Station, and three copies of "what the previous month is" is three chances to disagree. It is the only unit in this block whose correctness is pure arithmetic, so it is also the only one that can be tested exhaustively without fixtures.
 
 **The indexes are a measured gap, not a precaution.** Three of the four source tables have no index that supports "this Station, this date range":
 
@@ -239,7 +253,7 @@ The consolidated option appears when the caller holds `reports.consolidated` **i
 
 **pgTAP** — for each function: the permission gate raises `42501` rather than returning zeros; a consolidated call without `reports.consolidated` in one of the Stations is refused; the counts match a seeded fixture; **the timezone boundary holds** — a row written at 23:30 local on the last day of a month is counted in that month and not the next, for a Station whose timezone is not UTC; the comparison window is the correct preceding window; a cancelled draw's winner is counted nowhere (D12); the promotion-situation classification matches `situationOf()` at the start instant, the end instant and the instant after (D11); an Organization-wide `member_blocks` row counts once in a consolidated call and once in each single-Station call it applies to (§3.1); each breakdown's buckets sum to the total shown beside them, including the "not stated" bucket (D8).
 
-**Isolation suite** (`npm run test:isolation`, real JWTs, never `service_role`) — a user of Station A gets no figure of Station B, including through a consolidated call naming B; a user holding `music.view` but not `members.view` is refused by `get_audience_dashboard` and served by `get_music_dashboard`; an archived promotion's participations do not reach a non-owner's totals.
+**Isolation suite** (`npm run test:isolation`, real JWTs, never `service_role`) — a user of Station A gets no figure of Station B, including through a consolidated call naming B; a user holding `music.view` but not `members.view` is refused by `get_audience_dashboard` and served by `get_music_dashboard`; an archived promotion's participations do not reach a non-owner's totals; **a caller holding `members.view` without `participations.view` receives the Audience panel with the "took part" figure named in `withheld` and absent from `cards` — not present and zero** (D13), and the same caller's Promotions panel keeps its prize cycle and withholds its entry side.
 
 **Vitest** — the Zod payload schemas reject a malformed `jsonb`; the situation boundary test that pairs with the pgTAP one (D11).
 
