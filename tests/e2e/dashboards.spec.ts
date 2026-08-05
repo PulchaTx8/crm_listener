@@ -476,8 +476,19 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
 
   await fromInput.fill('2020-01-01');
   await expect(page).toHaveURL(/from=2020-01-01/);
-  await toInput.fill('2020-02-01');
+
+  // THE `To` INPUT IS INCLUSIVE AND THE URL'S BOUND IS EXCLUSIVE (whole-branch
+  // review, Important B4). An operator asking for the whole of January types
+  // the 31st, which is the last day they want counted; period-control converts
+  // it once, at its own edge, so `parsePeriod` and 0117 keep the half-open
+  // bound every other window in this system uses. Typing 2020-01-31 must
+  // therefore put `to=2020-02-01` in the URL — and the INPUT must go on
+  // reading 2020-01-31 after the navigation, because that round trip
+  // (seed → render → submit → seed) is the whole property: an operator who
+  // loses a day by looking at the screen twice has no way to find out.
+  await toInput.fill('2020-01-31');
   await expect(page).toHaveURL(/to=2020-02-01/);
+  await expect(toInput).toHaveValue('2020-01-31');
 
   // A DIFFERENT control (the Station pill, not period-control's own inputs)
   // navigates while custom is active — see this file's header for what this
@@ -486,7 +497,7 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   await expect(page).toHaveURL(/from=2020-01-01/);
   await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(fromInput).toHaveValue('2020-01-01');
-  await expect(toInput).toHaveValue('2020-02-01');
+  await expect(toInput).toHaveValue('2020-01-31');
   await expect(periodControl.getByRole('link', { name: 'Custom range' })).toHaveAttribute(
     'aria-current',
     'page',
@@ -495,8 +506,9 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   // A SECOND different control — the consolidated toggle itself.
   await page.getByTestId('consolidated-toggle').getByRole('link', { name: /All stations/ }).click();
   await expect(page).toHaveURL(/from=2020-01-01/);
+  await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(fromInput).toHaveValue('2020-01-01');
-  await expect(toInput).toHaveValue('2020-02-01');
+  await expect(toInput).toHaveValue('2020-01-31');
 
   // --- the same two Stations, one grant short: not eligible, and never -----
   // satisfied by asking anyway.
