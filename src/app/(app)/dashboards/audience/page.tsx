@@ -102,12 +102,14 @@ export default async function AudienceDashboardPage({
   // panel) does not depend on it, the same narrower catch members/page.tsx
   // gives its own courtesy registration card.
   let consolidatedEligible: ViewableCompany[] = [];
+  let reportCapped = false;
   try {
-    const { viewable: reportEligible } = await listCompanyAccess(
+    const { viewable: reportEligible, capped: consolidatedCapped } = await listCompanyAccess(
       supabase,
       'reports.consolidated',
       stationSearch,
     );
+    reportCapped = consolidatedCapped;
     const reportIds = new Set(reportEligible.map((c) => c.id));
     consolidatedEligible = viewable.filter((c) => reportIds.has(c.id));
   } catch (cause) {
@@ -139,8 +141,13 @@ export default async function AudienceDashboardPage({
   // Whether the Station list above is the caller's WHOLE relationship or a
   // narrowed view of it (whole-branch review, Important B7). Both
   // listCompanyAccess calls are capped at fifty and both are filtered by the
-  // active search term, so "All stations" is only true when neither applies.
-  const stationListIsComplete = !capped && !stationSearch;
+  // active search term, so "All stations" is only true when neither applies —
+  // and that means BOTH calls' own `capped` flag, not just the first
+  // (residual from the fix wave: the second call's `capped` used to be
+  // destructured away unread, so a caller holding reports.consolidated in
+  // more than fifty Stations but members.view in fewer would still see "All
+  // stations (N)" over a truncated intersection).
+  const stationListIsComplete = !capped && !reportCapped && !stationSearch;
 
   return (
     <>
