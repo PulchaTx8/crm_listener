@@ -62,12 +62,15 @@ grant execute on function public.promotion_is_live(timestamptz, timestamptz, tim
 -- D13. participations is gated by participations.view (0053), which
 -- promotions.view -- this panel's own gate -- does not imply. It feeds the
 -- whole entry side of this panel: the participation count, the distinct
--- listeners, the refusal breakdown and the busiest-promotions list. Those four
--- are OMITTED (never zeroed) for a caller lacking participations.view in any
--- selected Station, and named in withheld instead. The prize cycle does not
--- cross that line: winners is gated by promotions.view, so a caller who lacks
--- participations.view still sees on-air, ended, awarded, overdue and the
--- prize_cycle breakdown in full.
+-- listeners, the refusal breakdown, the busiest-promotions list AND the
+-- monthly participation chart. All five are OMITTED (never zeroed, never an
+-- empty array standing in for a number the caller may not see) for a caller
+-- lacking participations.view in any selected Station, and named in withheld
+-- instead -- monthly included, because an empty chart reads as "nobody took
+-- part in twelve months", the same false claim a zero card would make, only
+-- in a different shape. The prize cycle does not cross that line: winners is
+-- gated by promotions.view, so a caller who lacks participations.view still
+-- sees on-air, ended, awarded, overdue and the prize_cycle breakdown in full.
 --
 -- live_now and overdue carry no `previous` key at all -- not a null one -- as
 -- neither has a comparison that would mean anything: on-air-now is a fact
@@ -254,7 +257,16 @@ begin
          group by 1
       ) m
   )
-  select jsonb_build_object(
+  -- The whole payload is wrapped in jsonb_strip_nulls, not only `cards` --
+  -- `monthly` is a TOP-level key (matching 0118/0119's own shape) and, unlike
+  -- `cards`/`breakdowns`/`top`, has no sub-object of its own to strip inside.
+  -- D13 applies to it exactly as it does to the entry cards: an empty chart
+  -- reads as "nobody took part in twelve months", a claim about the
+  -- audience made to someone simply not allowed to see the answer -- the
+  -- same confusion a zero card would cause, in a different shape. So it is
+  -- omitted (null, then stripped) rather than returned as `[]`, and named in
+  -- withheld alongside the cards it shares its gate with.
+  select jsonb_strip_nulls(jsonb_build_object(
     'period', (
       select jsonb_build_object(
         'preset', p_preset,
@@ -277,11 +289,9 @@ begin
         'awarded', jsonb_build_object('current', wc.awarded_current, 'previous', wc.awarded_previous),
         'overdue', jsonb_build_object('current', wc.overdue_current)))
         from promotion_cards pc, participation_cards ptc, winner_cards wc),
-    -- Withheld the same way the daggered cards are: the caller sees an empty
-    -- array rather than a chart that looks like twelve months of nothing.
     'monthly', case when v_participations
                     then coalesce((select rows from monthly), '[]'::jsonb)
-                    else '[]'::jsonb end,
+                    else null end,
     'breakdowns', jsonb_strip_nulls(jsonb_build_object(
                     'participation_status', case when v_participations
                                                   then coalesce((select rows from participation_status_breakdown), '[]'::jsonb)
@@ -296,15 +306,16 @@ begin
                             jsonb_build_object('figure', 'participations', 'needs', 'participations.view'),
                             jsonb_build_object('figure', 'distinct_participants', 'needs', 'participations.view'),
                             jsonb_build_object('figure', 'participation_status', 'needs', 'participations.view'),
-                            jsonb_build_object('figure', 'promotions', 'needs', 'participations.view'))
+                            jsonb_build_object('figure', 'promotions', 'needs', 'participations.view'),
+                            jsonb_build_object('figure', 'monthly', 'needs', 'participations.view'))
                      end
-  ) into v_result;
+  )) into v_result;
 
   return v_result;
 end;
 $$;
 
 comment on function public.get_promotions_dashboard(uuid[], text, date, date) is
-  'The Promotions dashboard for one Station or a consolidated set, both windows in one call. Same contract and SECURITY INVOKER rationale as get_audience_dashboard/get_music_dashboard (D4): 0044''s policy on promotions, 0052''s on participations and 0075''s on winners all apply inside it. Refuses with 42501 unless the caller holds promotions.view in EVERY station named, and reports.consolidated in every one when more than one is named (D3). live_now uses promotion_is_live (this migration''s own second copy of src/lib/promotion-situation.ts''s rule, pinned by paired tests per D11) against a single shared instant, so it and overdue -- a fact about right now, not the chosen period -- carry no previous key at all, never a null one. A winner whose DRAW was cancelled counts toward NOTHING on this panel (D12): cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and awarded, overdue and the prize_cycle breakdown all read one `winner` CTE that excludes it once, so no figure here can forget the exclusion the way a copy-pasted predicate could. participations is gated by participations.view (0053), which promotions.view -- this panel''s own gate -- does not imply (D13): the whole entry side -- participations, distinct_participants, the participation_status breakdown and the busiest-promotions top ten -- is OMITTED (never zeroed) for a caller lacking it in any selected Station, and named in withheld instead; the prize cycle is unaffected, because winners answers to promotions.view alone. Every enum breakdown (participation_status, prize_cycle) lists every value whether or not it occurred this window, so its buckets always sum to the card printed beside it.';
+  'The Promotions dashboard for one Station or a consolidated set, both windows in one call. Same contract and SECURITY INVOKER rationale as get_audience_dashboard/get_music_dashboard (D4): 0044''s policy on promotions, 0052''s on participations and 0075''s on winners all apply inside it. Refuses with 42501 unless the caller holds promotions.view in EVERY station named, and reports.consolidated in every one when more than one is named (D3). live_now uses promotion_is_live (this migration''s own second copy of src/lib/promotion-situation.ts''s rule, pinned by paired tests per D11) against a single shared instant, so it and overdue -- a fact about right now, not the chosen period -- carry no previous key at all, never a null one. A winner whose DRAW was cancelled counts toward NOTHING on this panel (D12): cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and awarded, overdue and the prize_cycle breakdown all read one `winner` CTE that excludes it once, so no figure here can forget the exclusion the way a copy-pasted predicate could. participations is gated by participations.view (0053), which promotions.view -- this panel''s own gate -- does not imply (D13): the whole entry side -- participations, distinct_participants, the participation_status breakdown, the busiest-promotions top ten AND the monthly participation chart -- is OMITTED (never zeroed, never an empty array in place of a number the caller may not see) for a caller lacking it in any selected Station, and named in withheld instead; the prize cycle is unaffected, because winners answers to promotions.view alone. Every enum breakdown (participation_status, prize_cycle) lists every value whether or not it occurred this window, so its buckets always sum to the card printed beside it.';
 
 grant execute on function public.get_promotions_dashboard(uuid[], text, date, date) to authenticated;

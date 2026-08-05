@@ -1,5 +1,5 @@
 begin;
-select plan(60);
+select plan(62);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -819,6 +819,24 @@ select isnt(
   (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #> '{cards,awarded}'),
   null, 'the prize cycle survives, because winners is gated by promotions.view');
+
+-- 61-62: monthly is entry-side too (D13) -- an empty chart reads as "nobody
+-- took part in twelve months", the same false claim a zero card would make,
+-- only in a different shape. Both halves are asserted, exactly as the brief's
+-- own reasoning demands for the daggered cards: an empty array would satisfy
+-- neither "absent" nor "named", and that is the whole point.
+select is(
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{monthly}'),
+  null, 'monthly is withheld, not an empty chart, without participations.view');
+select ok(
+  exists (
+    select 1
+      from jsonb_array_elements(
+        public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+          'custom', '2026-08-01', '2026-09-01') #> '{withheld}') w
+     where w ->> 'figure' = 'monthly' and w ->> 'needs' = 'participations.view'),
+  'and withheld names monthly, needing participations.view, alongside the others');
 reset role;
 
 select * from finish();
