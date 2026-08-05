@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(21);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -71,16 +71,32 @@ select is(
   (select extract(day from from_date)::int from public.resolve_dashboard_period('current_month', null, null, 'America/Sao_Paulo')),
   1,
   'current_month starts on the first of the month');
+
+-- The comparison window of a calendar preset must be the previous CALENDAR
+-- unit, and this is the assertion that says so without depending on the month
+-- the suite happens to run in: stepping the comparison window forward by one
+-- month must land exactly on the chosen window's start. Subtracting a day-count
+-- instead -- 31 days off a 31-day May, landing on 31 March -- fails this for
+-- every pair of adjacent months with different lengths, and passes only when
+-- the value is genuinely right.
 select is(
+  (select (previous_from_date + interval '1 month')::date from public.resolve_dashboard_period('previous_month', null, null, 'America/Sao_Paulo')),
   (select previous_to_date from public.resolve_dashboard_period('previous_month', null, null, 'America/Sao_Paulo')),
-  (select from_date from public.resolve_dashboard_period('previous_month', null, null, 'America/Sao_Paulo')),
-  'previous_month compares against the month before it');
+  'previous_month compares against exactly the calendar month before it');
+select is(
+  (select (previous_from_date + interval '1 month')::date from public.resolve_dashboard_period('current_month', null, null, 'America/Sao_Paulo')),
+  (select from_date from public.resolve_dashboard_period('current_month', null, null, 'America/Sao_Paulo')),
+  'current_month compares against exactly the calendar month before it');
+select is(
+  (select (previous_from_date + interval '1 year')::date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
+  (select from_date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
+  'current_year compares against exactly the calendar year before it — which a day-count subtraction gets wrong after every leap year');
 select is(
   (select to_date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
   (select (from_date + interval '1 year')::date from public.resolve_dashboard_period('current_year', null, null, 'America/Sao_Paulo')),
   'current_year spans exactly one year');
 
--- 16: the preset is resolved at the STATION's clock. Kiritimati is UTC+14 and
+-- 18: the preset is resolved at the STATION's clock. Kiritimati is UTC+14 and
 -- Niue is UTC-11, twenty-five hours apart, so for part of every day the two
 -- are in different months -- and on those days this assertion is the only
 -- thing that would catch a resolver that used the server's date.
@@ -90,7 +106,7 @@ select ok(
   (select from_date from public.resolve_dashboard_period('current_month', null, null, 'Pacific/Niue')),
   'the month is the Station''s own, so a zone ahead is never behind');
 
--- 17-19: the refusals. Each is a caller error, not a wrong number.
+-- 19-21: the refusals. Each is a caller error, not a wrong number.
 select throws_ok(
   $$ select * from public.resolve_dashboard_period('custom', null, null, 'America/Sao_Paulo') $$,
   '22023', null, 'a custom period without bounds is refused');
