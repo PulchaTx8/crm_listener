@@ -21,6 +21,7 @@ import { ConsolidatedToggle } from '../consolidated-toggle';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
+import { ExportDialog } from '@/components/reports/export-dialog';
 import { withOperatorLabels } from '../slice-labels';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -154,6 +155,13 @@ export default async function AudienceDashboardPage({
       <PageHeader
         title="Audience"
         description="Who is listening, how many are new, and who is barred — one Station or several, side by side."
+        // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
+        // second set the dialog asks for: this panel's PDF must carry the
+        // figures on this screen, and the only way to guarantee that is to
+        // hand the export the same arguments getAudienceDashboard just took.
+        action={
+          <ExportDialog reportType="AUDIENCE_PANEL" companyIds={companyIds} filters={selection} />
+        }
       />
 
       {(capped || stationSearch) && (

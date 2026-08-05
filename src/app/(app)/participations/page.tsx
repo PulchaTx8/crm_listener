@@ -31,6 +31,8 @@ import type { ParticipationSearchParams } from './list-params';
 import { ParticipationsFilters } from './participations-filters';
 import type { PromotionOption, QuestionFilterGroup } from './participations-filters';
 import { ParticipationsGrid } from './participations-grid';
+import { ExportDialog } from '@/components/reports/export-dialog';
+import { participationsReportFilters } from '@/lib/reports/list-filters';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -272,6 +274,18 @@ export default async function ParticipationsPage({
       <PageHeader
         title="Participations"
         description="Every entry recorded in the Station — the ones that counted, and the ones that did not."
+        // Block 8b. The filters ALREADY on this screen, translated into the
+        // report's vocabulary by list-filters.ts -- never a second set the
+        // dialog asks for. The operator has expressed the question by
+        // filtering; asking again in another vocabulary is how the file and
+        // the screen come to disagree about what was exported.
+        action={
+          <ExportDialog
+            reportType="PARTICIPATIONS"
+            companyIds={[selected.id]}
+            filters={participationsReportFilters(state)}
+          />
+        }
       />
 
       {(capped || stationSearch) && (

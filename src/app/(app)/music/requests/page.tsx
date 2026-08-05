@@ -21,6 +21,8 @@ import { RequestsGrid } from './requests-grid';
 import { parseRequestCursor, parseRequestListParams, requestHref } from './list-params';
 import type { MusicRequestSearchParams } from './list-params';
 import type { UserClient } from '@/lib/supabase/user-client';
+import { ExportDialog } from '@/components/reports/export-dialog';
+import { musicRequestsReportFilters } from '@/lib/reports/list-filters';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -156,6 +158,18 @@ export default async function RequestsPage({
       <PageHeader
         title="Requests"
         description="What listeners asked for, newest first."
+        // Block 8b. The filters ALREADY on this screen, translated into the
+        // report's vocabulary by list-filters.ts -- never a second set the
+        // dialog asks for. The operator has expressed the question by
+        // filtering; asking again in another vocabulary is how the file and
+        // the screen come to disagree about what was exported.
+        action={
+          <ExportDialog
+            reportType="MUSIC_REQUESTS"
+            companyIds={[selected.id]}
+            filters={musicRequestsReportFilters(state)}
+          />
+        }
       />
 
       {(capped || stationSearch) && (

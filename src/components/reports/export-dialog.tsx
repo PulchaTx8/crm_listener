@@ -18,15 +18,22 @@ import { requestReportAction } from '@/app/(app)/reports/actions';
  */
 export function ExportDialog({
   reportType,
-  organizationId,
   companyIds,
   filters,
   disabled,
 }: {
   reportType: ReportType;
-  organizationId: string;
   companyIds: string[];
-  filters: Record<string, unknown>;
+  /**
+   * `object`, not `Record<string, unknown>`: the eight mount sites hand this
+   * their own filter INTERFACES (PeriodSelection, the listing param types), and
+   * an interface has no index signature, so the narrower type would force a
+   * cast at every one of them. Nothing is lost by widening -- this value is
+   * serialised and then parsed by `reportRequestSchema.strict()` on the server,
+   * which is where the shape is actually decided, and where a wrong one is
+   * refused rather than silently carried.
+   */
+  filters: object;
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -48,7 +55,9 @@ export function ExportDialog({
     const data = new FormData();
     data.set('reportType', reportType);
     data.set('format', format);
-    data.set('organizationId', organizationId);
+    // No organizationId: the action derives it from these ids, through the
+    // caller's own client. A value the client sends is a value the server has
+    // to distrust anyway.
     data.set('companyIds', companyIds.join(','));
     data.set('filters', JSON.stringify(filters));
 
