@@ -149,6 +149,9 @@ describe('runConversationTurn', () => {
           conversation: conversation() as unknown,
           promotion: promotionContext,
           questions: questionsContext,
+          // A Station that has overridden nothing, which is every Station
+          // until somebody opens the Messages screen.
+          systemMessages: {},
         },
       }),
     );
@@ -190,8 +193,42 @@ describe('runConversationTurn', () => {
 
     expect(outcome).toEqual({ kind: 'prompted' });
     expect(store.saved[0]?.cursor).toBe(1);
+    // No overrides in this fixture, so this is the constant in engine.ts
+    // reaching the listener — the fallback half of D2, at the turn level.
     expect(String(db.called('enqueue_whatsapp_outbound')?.args.p_body)).toContain('cidade');
     expect(db.called('finish_whatsapp_turn')?.args.p_outcome).toBe('conversation_turn');
+  });
+
+  /**
+   * The Templates block's own proof, and the one the spec asks for by name: a
+   * Station's override REACHES THE LISTENER. Everything else about the
+   * resolution is held in tests/unit/system-message-resolution.test.ts, which
+   * cannot see this — that the map survives the jsonb boundary, the Zod
+   * schema, the narrowing and the engine, and comes out as the body actually
+   * enqueued.
+   *
+   * The case above is its other half: the same turn, with no overrides,
+   * enqueues the constant.
+   */
+  it("speaks the Station's own words when it has given the engine any", async () => {
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      whatsapp_prompt_context: {
+        promotion: promotionContext,
+        questions: questionsContext,
+        systemMessages: { CITY: 'De qual cidade você fala com a gente?' },
+      },
+    });
+    const store = new FakeStore(conversation());
+
+    await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ reply: { kind: 'button', id: CONSENT_YES_ID, title: 'Quero!' } }),
+    );
+
+    expect(String(db.called('enqueue_whatsapp_outbound')?.args.p_body)).toBe(
+      'De qual cidade você fala com a gente?',
+    );
   });
 
   it('records a refusal through its own door and only then forgets the conversation', async () => {

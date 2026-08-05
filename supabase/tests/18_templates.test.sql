@@ -1,5 +1,5 @@
 begin;
-select plan(71);
+select plan(75);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -711,6 +711,72 @@ select ok(
   not has_function_privilege('service_role',
     'public.set_station_message_template(uuid, public.system_message_key, text)', 'EXECUTE'),
   'service_role cannot call the operator doors — it reads these tables, it does not write them');
+
+-- 0114: the overrides actually reach the engine -----------------------------
+--
+-- 0109 grants service_role SELECT and says that is "how the engine resolves
+-- them", but until 0114 nothing read the table: the Messages screen would have
+-- written rows that changed nothing a listener ever saw. These are the SQL
+-- half of that fix. The TypeScript half — that the map survives the Zod
+-- schema, the narrowing and the engine — is in
+-- tests/unit/system-message-resolution.test.ts and conversation-turn.test.ts.
+--
+-- e4c2 carries exactly one live override at this point: REFUSAL, set through
+-- the door by test 50. One, not ten, which is what makes 72 a test of D2 and
+-- not merely of a join.
+
+insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at)
+values ('00000000-0000-0000-0000-00000000e4d1', '00000000-0000-0000-0000-00000000e4f1',
+        '00000000-0000-0000-0000-00000000e4c2', 'Promo templates',
+        now() - interval '1 day', now() + interval '30 days');
+
+-- A promotion in a Station that has overridden NOTHING (e4c9, the registry-less
+-- Station from Task 3), for the empty-map half.
+insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at)
+values ('00000000-0000-0000-0000-00000000e4d9', '00000000-0000-0000-0000-00000000e4f1',
+        '00000000-0000-0000-0000-00000000e4c9', 'Promo sem override',
+        now() - interval '1 day', now() + interval '30 days');
+
+-- 71: the key is there at all.
+select is(
+  public.whatsapp_prompt_context('00000000-0000-0000-0000-00000000e4d1') -> 'systemMessages'
+    ->> 'REFUSAL',
+  'Texto depois de limpar',
+  'whatsapp_prompt_context carries the Station''s own wording for an overridden text');
+
+-- 72: AND ONLY the overridden one. A resolver handed all ten keys could not
+-- tell an override from a default, and the per-text property (D2) would be
+-- decided here rather than in the engine — invisibly, and in SQL.
+select is(
+  (select count(*)::int from jsonb_object_keys(
+    public.whatsapp_prompt_context('00000000-0000-0000-0000-00000000e4d1') -> 'systemMessages')),
+  1, 'and carries ONLY the texts that were overridden, never the other nine');
+
+-- 73: a Station that has overridden nothing yields an empty object, not null.
+-- Null would reach Zod as a missing key and only survive because of a
+-- `.default({})`; an empty object is the honest answer and the ordinary case.
+select is(
+  public.whatsapp_prompt_context('00000000-0000-0000-0000-00000000e4d9') -> 'systemMessages',
+  '{}'::jsonb,
+  'a Station that has overridden nothing yields an empty map, not null');
+
+-- 74: THE DUPLICATION GUARD. start_whatsapp_conversation (0070) assembles the
+-- context for the FIRST message and whatsapp_prompt_context (0071) for every
+-- turn after it, and the two build it separately. Fixing one and not the other
+-- gives a Station its own words from the second message onward and the code's
+-- default on the first — the hardest version of this bug to notice, and the
+-- reason this assertion is separate from 71 rather than folded into it.
+insert into public.members (id, organization_id, full_name)
+values ('00000000-0000-0000-0000-00000000e4e1', '00000000-0000-0000-0000-00000000e4f1', 'Ouvinte templates');
+
+select is(
+  public.start_whatsapp_conversation(
+    '00000000-0000-0000-0000-00000000e4d1',
+    '00000000-0000-0000-0000-00000000e4e1',
+    '00000000-0000-0000-0000-00000000e4a1',
+    '5511911111199', 900) -> 'systemMessages' ->> 'REFUSAL',
+  'Texto depois de limpar',
+  'start_whatsapp_conversation carries the same wording, so the first turn speaks the same voice as the rest');
 
 select * from finish();
 rollback;

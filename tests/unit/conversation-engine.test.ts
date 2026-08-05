@@ -53,15 +53,21 @@ function context(overrides: Partial<PromptContext> = {}): PromptContext {
       yesButtonLabel: null,
       noButtonLabel: null,
     },
-    fieldPrompts: {
-      full_name: 'Qual é o seu nome completo?',
-      address: 'Qual é o seu endereço?',
-      city: 'Em que cidade você mora?',
-      neighbourhood: 'Qual é o seu bairro?',
-      age: 'Qual é a sua data de nascimento? (dd/mm/aaaa)',
-      cpf: 'Qual é o seu CPF?',
-      passport: 'Qual é o número do seu passaporte?',
-      discovery_source: 'Como você ficou sabendo desta promoção?',
+    // A Station that has overridden every one of the eight field prompts, so
+    // the cases below assert against wording that is demonstrably NOT the
+    // constant in engine.ts -- which is what makes them a test of the
+    // resolution and not of the default. The two standalone texts (REFUSAL,
+    // ABANDON) are deliberately left un-overridden here: their cases assert
+    // the exported constants, and so they hold the fallback direction.
+    systemMessages: {
+      FULL_NAME: 'Qual é o seu nome completo?',
+      ADDRESS: 'Qual é o seu endereço?',
+      CITY: 'Em que cidade você mora?',
+      NEIGHBOURHOOD: 'Qual é o seu bairro?',
+      AGE: 'Qual é a sua data de nascimento? (dd/mm/aaaa)',
+      CPF: 'Qual é o seu CPF?',
+      PASSPORT: 'Qual é o número do seu passaporte?',
+      DISCOVERY_SOURCE: 'Como você ficou sabendo desta promoção?',
     },
     questions: {
       'q-quiz': {
