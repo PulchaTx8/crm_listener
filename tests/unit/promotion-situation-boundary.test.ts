@@ -25,6 +25,21 @@ describe('the promotion window is half-open, in TypeScript as in SQL', () => {
     ).toBe('ended');
   });
 
+  // D11 names THREE instants — the start, the end, and the instant AFTER —
+  // and both copies of the rule tested only the first two until the
+  // whole-branch review (Minor C5). The third is what tells a half-open
+  // window apart from a rule that merely happens to exclude its own endpoint:
+  // `at <= endsAt` passes the assertion above and fails this one. The pair to
+  // this case is in supabase/tests/20_dashboards.test.sql.
+  it('is still ended the instant after it ends', () => {
+    expect(
+      situationOf(
+        { startsAt: STARTS, endsAt: ENDS, cancelledAt: null },
+        new Date(Date.parse(ENDS) + 1),
+      ),
+    ).toBe('ended');
+  });
+
   it('is cancelled regardless of where the clock is', () => {
     expect(
       situationOf(

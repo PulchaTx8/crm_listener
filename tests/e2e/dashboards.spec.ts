@@ -337,12 +337,14 @@ test('the round trip: a known figure, the period switch that changes it, a rende
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  // The nav link, reachable: Dashboards > Audience is a real <Link>; the
-  // OTHER "Audience" text on this sidebar (the section heading above Members
-  // and Participations) is a plain <p> — sidebar-nav.tsx never makes a
-  // section label a link — so this is unambiguous despite the visual
-  // duplication Task 9 flagged.
-  await page.getByRole('link', { name: 'Audience' }).click();
+  // The nav link, reachable. It is named "Audience overview" and not
+  // "Audience" since the whole-branch review (deferred minor A2): the bare
+  // word is already the SECTION heading above Members and Participations,
+  // and a section and its item spelling the same word read as one link
+  // rendered twice — the rule shell.ts records for Inventory > Stock. The
+  // heading is a plain <p> (sidebar-nav.tsx never links a section label), so
+  // this selector was never ambiguous; it was the SCREEN that was.
+  await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
   // The owner reaches all five Stations this file provisions; pin to RT
@@ -377,7 +379,7 @@ test('a caller missing participations.view sees the permission named beside real
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Audience' }).click();
+  await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
   // A real number for a card this role's members.view genuinely supports.
@@ -451,7 +453,7 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Audience' }).click();
+  await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
   await page.getByRole('link', { name: stationTZAName }).click();
 
