@@ -1,5 +1,5 @@
 begin;
-select plan(36);
+select plan(42);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -180,6 +180,24 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
   ('00000000-0000-0000-0000-0000d8050002', '00000000-0000-0000-0000-0000d8020001',
    '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040002');
 
+-- A THIRD CALLER (review fix round 1, Finding 2): d8050001 holds
+-- reports.consolidated everywhere it can reach, and d8050002 can only reach
+-- one Station at all, so neither shape can exercise D3's refusal -- a
+-- consolidated call without reports.consolidated in EVERY named Station. This
+-- caller reaches both Stations and holds members.view in both, but
+-- reports.consolidated in neither.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000d8040003', '00000000-0000-0000-0000-0000d8010001', 'Two stations, no consolidation');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000d8040003', 'members.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000d8050004', 'dash-two-stations@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000d8050004', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040003'),
+  ('00000000-0000-0000-0000-0000d8050004', '00000000-0000-0000-0000-0000d8020002',
+   '00000000-0000-0000-0000-0000d8010001', '00000000-0000-0000-0000-0000d8040003');
+
 -- 20-21: the refusals, asserted as a signed-in user who simply is not a member
 -- of this Organization at all. 42501, never an empty payload -- zero and "you
 -- may not see this" must not render alike.
@@ -284,6 +302,25 @@ select is(
   2,
   'a repeated Station id is deduplicated, not double-counted');
 
+-- Review fix round 1, Finding 2: D3's refusal (0118:62-64) had no test proving
+-- it fires. Switch to the caller who reaches both Stations but holds
+-- reports.consolidated in neither -- the shape neither existing caller has.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050004", "role": "authenticated"}';
+select lives_ok($$
+  select public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+    'custom', '2026-08-01', '2026-09-01')
+$$, 'a single-Station call succeeds without reports.consolidated -- the refusal is about consolidating, not the caller');
+select throws_ok($$
+  select public.get_audience_dashboard(
+    array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+    'custom', '2026-08-01', '2026-09-01')
+$$, '42501', null, 'a two-Station call is refused without reports.consolidated in both (D3)');
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
 -- 30-31: the withheld contract (D13). With participations.view the figure is a
 -- card; without it, it is named in withheld and absent from cards -- never a
 -- zero, which would read as "nobody took part".
@@ -335,6 +372,82 @@ select is(
 reset role;
 update public.members set anonymized_at = null
  where id = '00000000-0000-0000-0000-0000d8030001';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+-- Review fix round 1, Finding 1: cards.barred and breakdowns.blocks_by_kind
+-- were entirely untested -- no member_blocks fixture existed anywhere in this
+-- file, so neither the D12b join on these two CTEs, nor the distinct-member
+-- counting, nor the Organization-wide branch (0032: a null
+-- member_blocks.company_id means the whole Organization) had ever run
+-- against non-empty data. Two blocks prove all three: one Station-scoped, one
+-- Organization-wide, on two members not otherwise used in this file. Fixture
+-- surgery as the migration role, same rule as every other write in this file.
+reset role;
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000d8030004', '00000000-0000-0000-0000-0000d8010001', 'Diana'),
+  ('00000000-0000-0000-0000-0000d8030005', '00000000-0000-0000-0000-0000d8010001', 'Elisa');
+-- Both need a member_company_links row somewhere the caller can see, or
+-- members_select_reachable (0035) hides the row outright: member_reachable
+-- requires a link at a Station the caller holds members.view in, and the
+-- D12b join to members added above runs under that same RLS, since this
+-- function is SECURITY INVOKER. Elisa's link additionally satisfies
+-- member_blocks_select_reachable's own Organization-wide arm, which repeats
+-- exactly this requirement for the block row itself.
+insert into public.member_company_links (member_id, company_id, organization_id, linked_at) values
+  ('00000000-0000-0000-0000-0000d8030004', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', now()),
+  ('00000000-0000-0000-0000-0000d8030005', '00000000-0000-0000-0000-0000d8020001',
+   '00000000-0000-0000-0000-0000d8010001', now());
+insert into public.member_blocks (id, organization_id, member_id, company_id, kind, reason, starts_at) values
+  ('00000000-0000-0000-0000-0000d8110001', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8030004', '00000000-0000-0000-0000-0000d8020001',
+   'draw_ban', 'Station-scoped test block', '2026-08-10 12:00:00+00'),
+  ('00000000-0000-0000-0000-0000d8110002', '00000000-0000-0000-0000-0000d8010001',
+   '00000000-0000-0000-0000-0000d8030005', null,
+   'draw_ban', 'Organization-wide test block', '2026-08-10 12:00:00+00');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,barred,current}')::int,
+  2,
+  'barred counts both the Station-scoped and the Organization-wide block');
+
+-- The assertion the function's own comment writes a cheque for: a
+-- consolidated call over both Stations sees the Organization-wide block via
+-- BOTH Stations' rows, but must still count the one member once, not once per
+-- Station reached.
+select is(
+  (public.get_audience_dashboard(
+      array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+      'custom', '2026-08-01', '2026-09-01') #>> '{cards,barred,current}')::int,
+  2,
+  'a consolidated panel counts an Organization-wide block once, not once per Station');
+
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,blocks_by_kind}'),
+  '[{"key": "draw_ban", "label": "draw_ban", "count": 2}]'::jsonb,
+  'blocks_by_kind names the kind used, with the count both blocks contribute to it');
+
+-- D12b on barred: the same population rule proved for took_part, proved here
+-- the same way -- anonymise the Station-scoped block's member and watch the
+-- count drop.
+reset role;
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-0000d8030004';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
+select is(
+  (public.get_audience_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,barred,current}')::int,
+  1,
+  'an anonymised barred member is excluded from barred too (D12b)');
+reset role;
+update public.members set anonymized_at = null
+ where id = '00000000-0000-0000-0000-0000d8030004';
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
 

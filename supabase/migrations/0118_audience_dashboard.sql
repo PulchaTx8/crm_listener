@@ -120,21 +120,23 @@ begin
       join public.members m
         on m.id = p.member_id and m.deleted_at is null and m.anonymized_at is null
   ),
-  -- Distinct MEMBERS, not block rows: member_blocks.company_id is nullable and
-  -- 0032 states that null means the whole Organization, so a group-wide bar
-  -- would otherwise be counted once per Station in a consolidated view. The
-  -- consequence is deliberate and documented in the spec: a consolidated bar
-  -- figure is not always the sum of its parts.
-  --
-  -- Same D12b join as took_part above, for the same reason: a block recorded
-  -- against a since-erased member must not make `barred` disagree with
-  -- `listeners` about who is in the audience this panel describes.
-  barred as (
-    select
-      count(distinct b.member_id) filter (where b.starts_at >= s.from_at and b.starts_at < s.to_at)
-        as current,
-      count(distinct b.member_id) filter (where b.starts_at >= s.previous_from_at and b.starts_at < s.previous_to_at)
-        as previous
+  -- Shared by barred and blocks_by_kind below (review fix round 1, Minor: the
+  -- two had triplicated the same Station-or-Organization-wide join). 0032
+  -- states a null member_blocks.company_id means the whole Organization, so a
+  -- group-wide block matches every Station named -- the reason a consolidated
+  -- bar figure is not always the sum of its parts, and the reason both
+  -- consumers below count DISTINCT MEMBERS rather than matched rows: without
+  -- that, a group-wide block would count once per Station reached in a
+  -- consolidated view instead of once (Finding 1's own regression assertion
+  -- proves this in the test file). Same D12b join as took_part above, for the
+  -- same reason: a block recorded against a since-erased member must not make
+  -- `barred`/`blocks_by_kind` disagree with `listeners` about who is in the
+  -- audience this panel describes. Written once here rather than copied into
+  -- both CTEs, so the join cannot drift between them the way it had already
+  -- diverged from took_part before D12b closed that gap.
+  blocked as (
+    select b.member_id, b.kind, b.starts_at,
+           s.from_at, s.to_at, s.previous_from_at, s.previous_to_at
       from public.member_blocks b
       join station s
         on s.id = b.company_id
@@ -143,20 +145,22 @@ begin
         on m.id = b.member_id and m.deleted_at is null and m.anonymized_at is null
      where b.lifted_at is null
   ),
+  barred as (
+    select
+      count(distinct member_id) filter (where starts_at >= from_at and starts_at < to_at)
+        as current,
+      count(distinct member_id) filter (where starts_at >= previous_from_at and starts_at < previous_to_at)
+        as previous
+      from blocked
+  ),
   blocks_by_kind as (
     select jsonb_agg(jsonb_build_object('key', k.kind, 'label', k.kind, 'count', k.n)
                      order by k.n desc, k.kind) as rows
       from (
-        select b.kind::text as kind, count(distinct b.member_id) as n
-          from public.member_blocks b
-          join station s
-            on s.id = b.company_id
-            or (b.company_id is null and b.organization_id = s.organization_id)
-          join public.members m
-            on m.id = b.member_id and m.deleted_at is null and m.anonymized_at is null
-         where b.lifted_at is null
-           and b.starts_at >= s.from_at and b.starts_at < s.to_at
-         group by b.kind
+        select kind::text as kind, count(distinct member_id) as n
+          from blocked
+         where starts_at >= from_at and starts_at < to_at
+         group by kind
       ) k
   ),
   monthly as (
