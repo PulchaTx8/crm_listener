@@ -41,7 +41,9 @@ const ownerChosenPassword = `Chosen-${stamp}-aA1!`;
 const platformAdminEmail = `reports-admin-${stamp}@example.test`;
 const platformAdminPassword = `Admin-${stamp}-aA1!`;
 
-let organizationId: string;
+// No organizationId here, and its absence is the point: requestReportAction
+// derives the Organization from the Station ids through the caller's own
+// client, so nothing in this journey ever names it.
 let companyId: string;
 
 async function createAuthUser(email: string, password: string): Promise<string> {
@@ -122,10 +124,7 @@ test.beforeAll(async () => {
     p_timezone: 'America/Sao_Paulo',
   });
   if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
-  ({ organization_id: organizationId, company_id: companyId } = provisioned as {
-    organization_id: string;
-    company_id: string;
-  });
+  ({ company_id: companyId } = provisioned as { company_id: string });
 
   // One listener, so the export has a row. Created as the owner, who bypasses
   // has_permission for their own Organization.
