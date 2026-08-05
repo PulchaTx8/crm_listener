@@ -1,5 +1,5 @@
 begin;
-select plan(62);
+select plan(66);
 
 -- 1: the code exists, or has_permission returns false for every caller and
 -- every consolidated call in this block refuses everybody (0010's first line).
@@ -762,6 +762,17 @@ values
 -- (0075): the awarded/overdue cards filter on a FIXED August-2026 window, and
 -- a fixture that floated on the real wall clock would only pass by
 -- coincidence.
+--
+-- deadline_at is deliberately a PAST literal on BOTH rows, not the earlier
+-- draft's future '2026-08-25' (fix round 1, Finding 1): overdue reads
+-- deadline_at < now(), one of the few figures in this block that compares
+-- against the real clock rather than the chosen window, so a future literal
+-- made the cancelled-draw exclusion untestable on this figure -- overdue_current
+-- was 0 whether or not the exclusion applied, and the assertion would have
+-- passed vacuously either way. '2026-08-01' is a FIXED literal, not now() minus
+-- an interval: once a date is in the past it stays in the past as the real
+-- clock only moves forward, so this does not drift the way anchoring to now()
+-- would.
 insert into public.winners
   (id, draw_id, company_id, promotion_prize_id, member_id, participation_id,
    awarded_rank, status, deadline_at, created_at)
@@ -769,15 +780,18 @@ values
   ('00000000-0000-0000-0000-0000d80c0001', '00000000-0000-0000-0000-0000d80b0001',
    '00000000-0000-0000-0000-0000d8020001', '00000000-0000-0000-0000-0000d80a0002',
    '00000000-0000-0000-0000-0000d8030001', '00000000-0000-0000-0000-0000d80d0002',
-   1, 'AWAITING_PICKUP', '2026-08-25 00:00:00+00', '2026-08-14 00:00:00+00'),
+   1, 'AWAITING_PICKUP', '2026-08-01 00:00:00+00', '2026-08-14 00:00:00+00'),
   -- The cancelled draw's winner: left at AWAITING_PICKUP by cancel_draw's own
   -- design (6a has no vocabulary for "un-awarded") -- what assertion 57 below
-  -- proves is counted nowhere, and without this row that assertion would pass
-  -- vacuously.
+  -- proves is counted nowhere in `awarded`, and what the overdue/prize_cycle
+  -- assertions below prove is counted nowhere there either. Its deadline is
+  -- ALSO past, on purpose: without a second overdue candidate, dropping the
+  -- cancelled-draw exclusion would still show overdue_current = 1 by luck
+  -- rather than by having nothing left to exclude.
   ('00000000-0000-0000-0000-0000d80c0002', '00000000-0000-0000-0000-0000d80b0002',
    '00000000-0000-0000-0000-0000d8020001', '00000000-0000-0000-0000-0000d80a0002',
    '00000000-0000-0000-0000-0000d8030009', '00000000-0000-0000-0000-0000d80d0006',
-   1, 'AWAITING_PICKUP', '2026-08-25 00:00:00+00', '2026-08-14 00:00:00+00');
+   1, 'AWAITING_PICKUP', '2026-08-01 00:00:00+00', '2026-08-14 00:00:00+00');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050001", "role": "authenticated"}';
@@ -791,6 +805,23 @@ select is(
   (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
      'custom', '2026-08-01', '2026-09-01') #>> '{cards,awarded,current}')::int,
   1, 'a winner of a cancelled draw is not counted as awarded');
+
+-- Fix round 1, Finding 1: D12 is proven for `awarded` above but `overdue` and
+-- `prize_cycle` share the same exclusion and had nothing pinning it -- both
+-- winners are AWAITING_PICKUP with a deadline now in the past, one on the
+-- live draw and one on the cancelled one, so a dropped exclusion would show 2
+-- here, not 1.
+select is(
+  (public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+     'custom', '2026-08-01', '2026-09-01') #>> '{cards,overdue,current}')::int,
+  1, 'overdue counts only the live draw''s winner, not the cancelled draw''s');
+select is(
+  (select (elem ->> 'count')::int
+     from jsonb_array_elements(
+       public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[],
+         'custom', '2026-08-01', '2026-09-01') #> '{breakdowns,prize_cycle}') elem
+    where elem ->> 'key' = 'AWAITING_PICKUP'),
+  1, 'the prize_cycle AWAITING_PICKUP bucket excludes the cancelled draw''s winner too');
 
 -- 58: The refusal breakdown, which is why this panel covers the entry side at
 -- all: it is the number that shows a per-person rule turning real people away.
@@ -837,6 +868,37 @@ select ok(
           'custom', '2026-08-01', '2026-09-01') #> '{withheld}') w
      where w ->> 'figure' = 'monthly' and w ->> 'needs' = 'participations.view'),
   'and withheld names monthly, needing participations.view, alongside the others');
+reset role;
+
+-- Fix round 1, Finding 2: every assertion above calls get_promotions_dashboard
+-- with a single Station and a caller who already holds promotions.view --
+-- Task 4 added exactly this pair (assertions 50 and 53) for the music panel,
+-- and Task 5 had no analogue. The outsider from assertion 20 (no membership in
+-- this Organization at all) proves the plain refusal; d8050004 (built in
+-- Task 3, reaching both Stations, deliberately never granted
+-- reports.consolidated) proves D3.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050003", "role": "authenticated"}';
+select throws_ok(
+  $$ select public.get_promotions_dashboard(array['00000000-0000-0000-0000-0000d8020001']::uuid[], 'custom', '2026-08-01', '2026-09-01') $$,
+  '42501', null, 'a caller without promotions.view is refused, not given zeros');
+reset role;
+
+-- d8050004 was granted members.view (Task 3) and music.view (Task 4's own
+-- review round) but never promotions.view -- checked, not assumed, by
+-- grep before writing this. Without it, a two-Station call would refuse on
+-- the wrong branch (promotions.view missing) rather than the one under test
+-- here (reports.consolidated missing), the exact trap Task 4's own header
+-- names for this same caller. Granted here as fixture surgery, migration role.
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000d8040003', 'promotions.view');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000d8050004", "role": "authenticated"}';
+select throws_ok($$
+  select public.get_promotions_dashboard(
+    array['00000000-0000-0000-0000-0000d8020001','00000000-0000-0000-0000-0000d8020002']::uuid[],
+    'custom', '2026-08-01', '2026-09-01')
+$$, '42501', null, 'a two-Station call is refused without reports.consolidated in both, for promotions too (D3)');
 reset role;
 
 select * from finish();
