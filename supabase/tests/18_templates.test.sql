@@ -1,5 +1,5 @@
 begin;
-select plan(41);
+select plan(70);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -383,6 +383,322 @@ select is(
 select ok(
   has_function_privilege('service_role', 'public.claim_outbox_batch(integer)', 'EXECUTE'),
   'service_role may still call claim_outbox_batch after the drop-and-recreate');
+
+-- Task 5's prerequisite: the four operator doors -----------------------------
+--
+-- 0109 and 0110 opened both tables to `authenticated` for READING and to
+-- nobody for writing, each saying the write door would be SECURITY DEFINER.
+-- Neither task wrote one, and the plan's file list stops at 0112 — so until
+-- 0113 an operator holding templates.manage could not change a single word,
+-- and Task 5 had no write to be refused. This is that door, and these are the
+-- mechanics of it.
+--
+-- What pgTAP proves here is the same half 15_music_rpcs proves for the music
+-- doors: the shape of the write, the refusals that need no second identity,
+-- and the grants. The permission GATE as a narrower caller experiences it —
+-- templates.view without templates.manage — needs two identities and lives in
+-- tests/isolation/templates.test.ts, written in the same task.
+
+-- A Station of its own for the doors, so none of the direct inserts above can
+-- be mistaken for something a door wrote.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000e4c2', '00000000-0000-0000-0000-00000000e4f1',
+   'Station templates doors', 'America/Sao_Paulo');
+
+-- A real actor, not a superuser bypass: has_permission reads auth.uid(), null
+-- under plain pgTAP, and postgres bypasses every EXECUTE grant besides — so a
+-- call made as postgres would succeed even if `grant execute … to
+-- authenticated` had been left off 0113 entirely. Granted BOTH codes:
+-- templates.manage alone passes the door, but 0109's and 0110's select
+-- policies gate on templates.view, so the actor could not read back what it
+-- had just written.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-00000000e4b1', '00000000-0000-0000-0000-00000000e4f1',
+   'Templates manager');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-00000000e4b1', 'templates.view'),
+  ('00000000-0000-0000-0000-00000000e4b1', 'templates.manage');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000e4b2', 'templates-manager@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-00000000e4b2', '00000000-0000-0000-0000-00000000e4c2',
+   '00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4b1');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+-- 42: the override door writes.
+select lives_ok($$
+  select public.set_station_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'REFUSAL', 'Beleza! Fica pra próxima.')
+$$, 'set_station_message_template writes an override');
+
+reset role;
+
+-- 43: with the body it was given.
+select is(
+  (select body from public.station_message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2'
+      and key = 'REFUSAL' and deleted_at is null),
+  'Beleza! Fica pra próxima.',
+  'the override carries the body the door was given');
+
+-- 44: and stamped with who wrote it. Not decoration: the two codes are the
+-- whole permission model here, so the row itself is the only record of which
+-- operator changed what a listener reads.
+select is(
+  (select created_by from public.station_message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2'
+      and key = 'REFUSAL' and deleted_at is null),
+  '00000000-0000-0000-0000-00000000e4b2'::uuid,
+  'the override records the actor who set it');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+select public.set_station_message_template(
+  '00000000-0000-0000-0000-00000000e4c2', 'REFUSAL', 'Tudo bem, fica pra próxima!');
+
+reset role;
+
+-- 45: setting the same key twice UPDATES the live row. The partial unique
+-- index would refuse a second insert with 23505, so a door that inserted
+-- blindly would make the second edit of any text an error the operator cannot
+-- act on.
+select is(
+  (select count(*)::int from public.station_message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2'
+      and key = 'REFUSAL' and deleted_at is null),
+  1, 'setting the same key twice leaves one live override, not two');
+
+-- 46: and it is the second text, not the first — a door that swallowed the
+-- conflict with `do nothing` would also satisfy 45.
+select is(
+  (select body from public.station_message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2'
+      and key = 'REFUSAL' and deleted_at is null),
+  'Tudo bem, fica pra próxima!',
+  'the second call replaces the text rather than being silently dropped');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+-- 47: a blank body is refused BY THE DOOR, with a code a form can read, rather
+-- than reaching the table's check constraint as a bare 23514. Same reasoning
+-- as 0100's 'a name is required'.
+select throws_ok($$
+  select public.set_station_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'REFUSAL', '   ')
+$$, '22023', null, 'a blank override body is refused by the door, not by the constraint');
+
+-- 48-49: clearing. The live row goes, and the row itself does not — this
+-- project deletes nothing, and the archived text is what an operator asking
+-- "what did it used to say?" has left.
+select lives_ok($$
+  select public.clear_station_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'REFUSAL')
+$$, 'clear_station_message_template archives the live override');
+
+reset role;
+
+select is(
+  (select count(*)::int from public.station_message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2' and key = 'REFUSAL'
+      and deleted_at is null),
+  0, 'no live override remains for the cleared key');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+-- 50: and the key is free again, THROUGH THE DOOR. Test 4 proved the partial
+-- index allows it with a direct insert; this proves the door's upsert does not
+-- collide with the archived row it left behind — an `on conflict` that
+-- inferred the wrong index would fail exactly here and nowhere else.
+select lives_ok($$
+  select public.set_station_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'REFUSAL', 'Texto depois de limpar')
+$$, 'a cleared key can be set again through the door');
+
+-- 51: clearing a key that has no live override says so, rather than reporting
+-- a success that changed nothing. The caller already holds templates.manage in
+-- this Station, so naming the absence reveals nothing they could not read.
+select throws_ok($$
+  select public.clear_station_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'ABANDON')
+$$, 'P0002', null, 'clearing a key with no live override is refused, not silently accepted');
+
+-- 52: THE GATE, in the one form pgTAP can show without a second identity. The
+-- actor holds templates.manage at e4c2 and nothing at all at e4c9, and the
+-- refusal is 42501 — the permission, never P0002, so the answer cannot be read
+-- as "that Station does not exist" (0093).
+select throws_ok($$
+  select public.set_station_message_template(
+    '00000000-0000-0000-0000-00000000e4c9', 'REFUSAL', 'Não deveria entrar')
+$$, '42501', null,
+  'an override at a Station the caller holds nothing in is refused 42501, not P0002');
+
+-- 53: the registry door writes.
+select lives_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
+    'lembrete_retirada', 'pt_BR',
+    'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}.',
+    '["nome do ouvinte", "prêmio", "prazo"]'::jsonb)
+$$, 'register_message_template records an approved template');
+
+reset role;
+
+-- 54: under the name Meta approved. The name is not chosen here (D4) and a
+-- door that trimmed or normalised it would send under a name Meta never saw.
+select is(
+  (select name from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null),
+  'lembrete_retirada', 'the registry records the name as registered with Meta');
+
+-- 55: and with the variable descriptions in order. This is what the WhatsApp
+-- screen labels its fields from and what Task 4's runbook pins the reminder's
+-- three positions against; an array stored out of order or dropped to '[]'
+-- would leave the screen labelling nothing.
+select is(
+  (select variables from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null),
+  '["nome do ouvinte", "prêmio", "prazo"]'::jsonb,
+  'the registry records what each position means, in order');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+select public.register_message_template(
+  '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
+  'lembrete_retirada_v2', 'pt_BR',
+  'Oi {{1}}, retire seu prêmio {{2}} até {{3}}.',
+  '["nome", "prêmio", "prazo"]'::jsonb);
+
+reset role;
+
+-- 56: re-registering the same purpose replaces the live row. Meta approves a
+-- new version under a new name and the operator transcribes it here; a door
+-- that inserted blindly would hit the partial unique index with 23505.
+select is(
+  (select count(*)::int from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null),
+  1, 're-registering a purpose leaves one live template, not two');
+
+-- 57: and it is the new text. Separate from 56 for the same reason 46 is
+-- separate from 45: `do nothing` satisfies the count and loses the edit.
+select is(
+  (select body from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null),
+  'Oi {{1}}, retire seu prêmio {{2}} até {{3}}.',
+  're-registering replaces the approved text rather than being dropped');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+-- 58: THE ONE THAT MATTERS MOST HERE. A registration whose variable
+-- descriptions disagree with the body's highest {{n}} is refused. 0111 makes
+-- the same comparison at enqueue and raises 22023 there — but by then the
+-- caller is Task 4's unattended sweep, whose only signal is a WARNING in a
+-- server log nobody is reading. Refused here, the same mistake is a form error
+-- the operator sees at the moment they can still fix it.
+select throws_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
+    'lembrete_faltando_um', 'pt_BR',
+    'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}.',
+    '["nome", "prêmio"]'::jsonb)
+$$, '22023', null,
+  'a registration whose variable descriptions disagree with the body''s {{n}} count is refused');
+
+-- 59: and a non-string element is refused too. jsonb_typeof on the array as a
+-- whole (0110's check constraint) cannot see inside it, so a null or a number
+-- here would reach the screen as a blank label beside a field the operator is
+-- being asked to fill in correctly.
+select throws_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
+    'lembrete_nulo', 'pt_BR', 'Oi {{1}}!', '[null]'::jsonb)
+$$, '22023', null,
+  'a variable description that is not a string is refused');
+
+-- 60: a blank name is refused by the door, for the same reason as 47.
+select throws_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
+    '   ', 'pt_BR', 'Oi {{1}}!', '["nome"]'::jsonb)
+$$, '22023', null, 'a blank template name is refused by the door');
+
+-- 61: the gate again, on the second door. Both doors take a company_id from
+-- the caller, so both can be pointed at a Station the caller cannot reach, and
+-- both have to refuse the same way.
+select throws_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c9', 'PICKUP_REMINDER',
+    'nao_deveria', 'pt_BR', 'Oi {{1}}!', '["nome"]'::jsonb)
+$$, '42501', null,
+  'registering at a Station the caller holds nothing in is refused 42501, not P0002');
+
+-- 62: archiving. Stops a future reminder; loses no past one.
+select lives_ok($$
+  select public.archive_message_template(
+    (select id from public.message_templates
+      where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null))
+$$, 'archive_message_template archives the live registration');
+
+reset role;
+
+select is(
+  (select count(*)::int from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null),
+  0, 'no live template remains for the archived purpose');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+-- 64: and the purpose is free again through the door, the registry's half of
+-- what 50 proves for the overrides.
+select lives_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
+    'lembrete_depois_de_arquivar', 'pt_BR', 'Oi {{1}}!', '["nome"]'::jsonb)
+$$, 'an archived purpose can be registered again through the door');
+
+-- 65: archiving an id that names nothing answers 42501, not P0002 — 0093's
+-- one-gated-query idiom. The door resolves the Station FROM THE ROW, so an
+-- unknown id, a template in a Station the caller cannot reach, and one already
+-- archived are one indistinguishable refusal.
+select throws_ok($$
+  select public.archive_message_template('00000000-0000-0000-0000-0000000000ff')
+$$, '42501', null,
+  'archiving an id that names nothing answers 42501, the same as one the caller may not touch');
+
+reset role;
+
+-- 66-70: the grants. Every door is reachable by an operator and by nobody
+-- else. The service_role assertion is the one that would go unnoticed:
+-- 0109 and 0110 grant it SELECT so the engine and the enqueue can resolve a
+-- Station's wording, and a stray EXECUTE here would let the worker rewrite the
+-- very texts it reads.
+select ok(
+  has_function_privilege('authenticated',
+    'public.set_station_message_template(uuid, public.system_message_key, text)', 'EXECUTE'),
+  'authenticated may call set_station_message_template');
+select ok(
+  has_function_privilege('authenticated',
+    'public.clear_station_message_template(uuid, public.system_message_key)', 'EXECUTE'),
+  'authenticated may call clear_station_message_template');
+select ok(
+  has_function_privilege('authenticated',
+    'public.register_message_template(uuid, public.template_purpose, text, text, text, jsonb)', 'EXECUTE'),
+  'authenticated may call register_message_template');
+select ok(
+  has_function_privilege('authenticated',
+    'public.archive_message_template(uuid)', 'EXECUTE'),
+  'authenticated may call archive_message_template');
+select ok(
+  not has_function_privilege('service_role',
+    'public.set_station_message_template(uuid, public.system_message_key, text)', 'EXECUTE'),
+  'service_role cannot call the operator doors — it reads these tables, it does not write them');
 
 select * from finish();
 rollback;

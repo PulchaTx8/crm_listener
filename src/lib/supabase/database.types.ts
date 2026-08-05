@@ -2969,6 +2969,7 @@ export type Database = {
         Returns: undefined
       }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
+      archive_message_template: { Args: { p_id: string }; Returns: undefined }
       archive_music_reference: {
         Args: {
           p_id: string
@@ -3054,6 +3055,13 @@ export type Database = {
           template_variables: Json
           to_phone: string
         }[]
+      }
+      clear_station_message_template: {
+        Args: {
+          p_company_id: string
+          p_key: Database["public"]["Enums"]["system_message_key"]
+        }
+        Returns: undefined
       }
       complete_password_change: { Args: never; Returns: undefined }
       complete_whatsapp_conversation: {
@@ -3671,6 +3679,17 @@ export type Database = {
         }
         Returns: string
       }
+      register_message_template: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_language: string
+          p_name: string
+          p_purpose: Database["public"]["Enums"]["template_purpose"]
+          p_variables?: Json
+        }
+        Returns: string
+      }
       release_conversation_turn: {
         Args: { p_integration_id: string; p_phone: string; p_token: string }
         Returns: undefined
@@ -3753,6 +3772,14 @@ export type Database = {
           p_promotion_id: string
           p_prompt: string
           p_question_id?: string
+        }
+        Returns: string
+      }
+      set_station_message_template: {
+        Args: {
+          p_body: string
+          p_company_id: string
+          p_key: Database["public"]["Enums"]["system_message_key"]
         }
         Returns: string
       }
