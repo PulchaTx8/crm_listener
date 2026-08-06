@@ -1802,6 +1802,7 @@ export type Database = {
           email: string
           full_name: string | null
           id: string
+          locale: string | null
           must_change_password: boolean
           provisional_expires_at: string | null
           updated_at: string
@@ -1812,6 +1813,7 @@ export type Database = {
           email: string
           full_name?: string | null
           id: string
+          locale?: string | null
           must_change_password?: boolean
           provisional_expires_at?: string | null
           updated_at?: string
@@ -1822,6 +1824,7 @@ export type Database = {
           email?: string
           full_name?: string | null
           id?: string
+          locale?: string | null
           must_change_password?: boolean
           provisional_expires_at?: string | null
           updated_at?: string

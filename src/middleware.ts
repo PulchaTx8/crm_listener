@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/lib/supabase/database.types';
 import { buildContentSecurityPolicy, CSP_NONCE_HEADER } from '@/lib/security/csp';
+import { localeCookieUpdate } from '@/i18n/locales';
 
 /**
  * Routes reachable without a session. Everything else redirects to /login.
@@ -99,9 +100,29 @@ export async function middleware(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('must_change_password, provisional_expires_at')
+    .select('must_change_password, provisional_expires_at, locale')
     .eq('id', user.id)
     .single();
+
+  // Block 12a, D2. The profile is the choice that follows this person between
+  // browsers; the cookie is what rendering actually reads (src/i18n/request.ts).
+  // Synchronised HERE because this is the one place holding both — the row was
+  // already loaded for must_change_password, so the language costs no query at
+  // all, and the renderer can read a cookie and stop.
+  //
+  // Before the branches below on purpose: somebody being sent to
+  // /change-password should arrive there in their own language.
+  const cookieLocale = localeCookieUpdate({
+    profile: profile?.locale,
+    cookie: request.cookies.get('locale')?.value,
+  });
+  if (cookieLocale) {
+    response.cookies.set('locale', cookieLocale, {
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: 'lax',
+    });
+  }
 
   // A provisional password travels outside the system and is treated as
   // compromised, so it dies of old age (spec §6). Checked here rather than at
