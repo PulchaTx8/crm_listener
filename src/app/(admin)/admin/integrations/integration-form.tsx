@@ -41,7 +41,11 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
   }
 
   return (
-    <form action={save} className="flex flex-col gap-3">
+    // Keyed by Station id, because the Station's NAME lives in the card header
+    // outside this form -- so there is no text inside the form that identifies
+    // which radio it configures, and a test (or anyone reading the DOM during
+    // an incident) would otherwise have to infer it from document order.
+    <form action={save} data-testid={`integration-${row.company_id}`} className="flex flex-col gap-3">
       <input type="hidden" name="companyId" value={row.company_id} />
 
       <div className="flex flex-wrap items-end gap-3">

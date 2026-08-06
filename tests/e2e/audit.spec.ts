@@ -1,0 +1,164 @@
+import { test, expect } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
+import {
+  LOCAL_SUPABASE_URL,
+  LOCAL_SUPABASE_ANON_KEY,
+  LOCAL_SUPABASE_SERVICE_ROLE_KEY,
+} from '../local-supabase';
+
+/**
+ * Block 10a's round trip, and it closes the block's own loop in one assertion:
+ * an administrator connects a Station to WhatsApp on one screen, and the audit
+ * row that write produced appears on the other.
+ *
+ * WHAT ONLY THIS FILE PROVES. 23_audit_and_integrations exercises the SQL and
+ * tests/isolation/audit.test.ts exercises the RPCs with real sessions; neither
+ * renders a screen. The two things that live only here are the rendered
+ * boundary between them -- the integration form writing through the action, and
+ * the viewer reading it back through the policies -- and the credentials panel,
+ * whose whole job is to be legible to somebody debugging.
+ *
+ * Fixture setup is RPC-only, the choice dashboards.spec.ts and reports.spec.ts
+ * both make: what this file proves is the two screens, not how a customer gets
+ * provisioned.
+ */
+const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
+const stamp = Date.now();
+const createdUserIds: string[] = [];
+
+const adminEmail = `audit-admin-${stamp}@example.test`;
+const adminPassword = `Admin-${stamp}-aA1!`;
+const ownerEmail = `audit-owner-${stamp}@example.test`;
+const ownerInitialPassword = `Init-${stamp}-aA1!`;
+const ownerChosenPassword = `Chosen-${stamp}-aA1!`;
+
+let companyName: string;
+let companyId: string;
+
+async function createAuthUser(email: string, password: string): Promise<string> {
+  const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  if (error || !data.user) throw new Error(`could not create ${email}: ${error?.message}`);
+  createdUserIds.push(data.user.id);
+  const { error: profileError } = await admin.from('profiles').insert({ id: data.user.id, email });
+  if (profileError) throw new Error(`could not create a profile for ${email}: ${profileError.message}`);
+  return data.user.id;
+}
+
+async function signInAs(email: string, password: string) {
+  const client = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`signInAs(${email}) failed: ${error.message}`);
+  return client;
+}
+
+test.beforeAll(async () => {
+  const adminUserId = await createAuthUser(adminEmail, adminPassword);
+  const { error } = await admin.from('platform_admins').insert({ user_id: adminUserId });
+  if (error) throw new Error(`could not seed platform admin: ${error.message}`);
+
+  const ownerUserId = await createAuthUser(ownerEmail, ownerInitialPassword);
+  companyName = `Audit Station ${stamp}`;
+  const adminClient = await signInAs(adminEmail, adminPassword);
+  const { data: provisioned, error: provisionError } = await adminClient.rpc('provision_customer', {
+    p_user_id: ownerUserId,
+    p_organization_name: `Audit Org ${stamp}`,
+    p_company_name: companyName,
+    p_timezone: 'America/Sao_Paulo',
+  });
+  if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
+  ({ company_id: companyId } = provisioned as { company_id: string });
+});
+
+test.afterAll(async () => {
+  for (const id of createdUserIds) {
+    await admin.auth.admin.deleteUser(id).catch(() => undefined);
+  }
+});
+
+test('an administrator connects a Station, and the owner reads it in the trail', async ({
+  page,
+}) => {
+  // --- The platform console -------------------------------------------------
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(adminEmail);
+  await page.getByPlaceholder('Password').fill(adminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  // Wait for the login to land before navigating: the admin's own
+  // must_change_password gate is clear, so the change screen bounces them to
+  // /app, and a goto issued before that redirect settles races it. This is the
+  // shape provisioning-flow.spec.ts already uses.
+  await expect(page).toHaveURL(/\/app$/);
+
+  // Through the sidebar rather than by URL, so reaching the console also
+  // asserts the nav entry exists and is scoped to a platform admin -- the same
+  // thing provisioning-flow proves for Customers.
+  await page.getByRole('link', { name: 'WhatsApp integrations' }).click();
+  await expect(page).toHaveURL(/\/admin\/integrations$/);
+  await expect(page.getByRole('heading', { name: 'WhatsApp integrations' })).toBeVisible();
+
+  // The credentials panel: three booleans and no values. The e2e webServer sets
+  // WHATSAPP_APP_SECRET and WHATSAPP_VERIFY_TOKEN (tests/whatsapp-test-env.ts)
+  // and NOT the access token, which makes this the realistic shape -- a
+  // half-configured installation is exactly when somebody opens this screen.
+  await expect(page.getByText('WHATSAPP_ACCESS_TOKEN')).toBeVisible();
+  await expect(page.getByText('not set').first()).toBeVisible();
+  // And the values themselves never appear.
+  await expect(page.getByText('e2e-whatsapp-app-secret')).toHaveCount(0);
+
+  const phoneNumberId = `55${stamp}`;
+  // By Station id, not by text: the Station's NAME is in the card header,
+  // OUTSIDE the form, so no text inside the form identifies which radio it
+  // configures. The first version of this test filtered forms by hasText and
+  // matched none.
+  const form = page.getByTestId(`integration-${companyId}`);
+  await expect(form).toBeVisible();
+
+  // The Station was provisioned with no integration, so its form offers
+  // "Connect" rather than "Save" -- which is list_integrations returning every
+  // COMPANY rather than every integration.
+  await expect(form.getByRole('button', { name: 'Connect' })).toBeVisible();
+
+  await form.getByPlaceholder('1234567890').fill(phoneNumberId);
+  await form.getByRole('button', { name: 'Connect' }).click();
+
+  await expect(form.getByPlaceholder('1234567890')).toHaveValue(phoneNumberId, {
+    timeout: 15_000,
+  });
+
+  // --- The Organization's own trail ----------------------------------------
+  await page.goto('/logout').catch(() => undefined);
+  await page.context().clearCookies();
+
+  await page.goto('/login');
+  await page.getByPlaceholder('E-mail').fill(ownerEmail);
+  await page.getByPlaceholder('Password').fill(ownerInitialPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/change-password$/);
+  await page.getByPlaceholder('New password').fill(ownerChosenPassword);
+  await page.getByPlaceholder('Repeat the password').fill(ownerChosenPassword);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.goto('/audit');
+  await expect(page.getByRole('heading', { name: 'Audit trail' })).toBeVisible();
+
+  // THE ASSERTION THE BLOCK IS NAMED FOR: the write on the other screen is here,
+  // under its human label, read through audit_logs' own policies as the
+  // Organization's owner.
+  await expect(page.getByText('WhatsApp integration configured').first()).toBeVisible();
+
+  // The filter, which is a plain GET -- so this URL is the thing somebody
+  // pastes into a ticket.
+  await page.goto('/audit?action=configure_integration');
+  await expect(page.getByText('WhatsApp integration configured').first()).toBeVisible();
+
+  // And the detail, which is never summarised: the number that was configured
+  // is in the row, in full.
+  await page.getByRole('group').first().locator('summary').click();
+  await expect(page.getByText(phoneNumberId).first()).toBeVisible();
+});
