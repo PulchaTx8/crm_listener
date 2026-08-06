@@ -3302,6 +3302,10 @@ export type Database = {
         Args: { p_note?: string; p_winner_id: string }
         Returns: undefined
       }
+      disable_integration: {
+        Args: { p_company_id: string }
+        Returns: undefined
+      }
       draw_eligible_participations: {
         Args: { p_promotion_id: string }
         Returns: {
@@ -3476,6 +3480,35 @@ export type Database = {
         }
         Returns: string
       }
+      list_audit_logs: {
+        Args: {
+          p_action?: string
+          p_actor_id?: string
+          p_company_id?: string
+          p_cursor_at?: string
+          p_cursor_id?: number
+          p_from?: string
+          p_limit?: number
+          p_succeeded?: boolean
+          p_target_table?: string
+          p_to?: string
+        }
+        Returns: {
+          action: string
+          actor_id: string
+          actor_name: string
+          company_id: string
+          company_name: string
+          created_at: string
+          detail: Json
+          id: number
+          organization_id: string
+          succeeded: boolean
+          target_id: string
+          target_table: string
+          total_count: number
+        }[]
+      }
       list_draws: {
         Args: { p_promotion_id: string }
         Returns: {
@@ -3488,6 +3521,22 @@ export type Database = {
           seed: string
           status: Database["public"]["Enums"]["draw_status"]
           winner_count: number
+        }[]
+      }
+      list_integrations: {
+        Args: never
+        Returns: {
+          company_id: string
+          company_name: string
+          company_status: Database["public"]["Enums"]["company_status"]
+          display_phone_number: string
+          enabled: boolean
+          integration_id: string
+          organization_id: string
+          organization_name: string
+          phone_number_id: string
+          updated_at: string
+          waba_id: string
         }[]
       }
       list_linkable_prizes: {
@@ -4213,6 +4262,16 @@ export type Database = {
           p_vocal?: Database["public"]["Enums"]["music_vocal"]
         }
         Returns: undefined
+      }
+      upsert_integration: {
+        Args: {
+          p_company_id: string
+          p_display_phone_number?: string
+          p_enabled?: boolean
+          p_phone_number_id: string
+          p_waba_id?: string
+        }
+        Returns: string
       }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
       whatsapp_conversation_steps: {

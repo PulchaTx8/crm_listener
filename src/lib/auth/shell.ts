@@ -75,6 +75,19 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [{ href: '/reports', label: 'My reports', icon: ICONS.inbox }],
     },
     {
+      // Block 10a. The Organization's record of itself, not the platform's --
+      // so it lives here rather than in the admin console (design D7).
+      //
+      // Visible to every member, like every other section: the page carries no
+      // permission gate either, and deliberately. list_audit_logs is SECURITY
+      // INVOKER, so audit_logs' own policies decide every row -- a caller
+      // holding audit.view nowhere gets an empty page with a sentence saying
+      // why, which is more useful to somebody who expected to see something
+      // than a silent bounce to /app.
+      label: 'Administration',
+      items: [{ href: '/audit', label: 'Audit trail', icon: ICONS.shield }],
+    },
+    {
       // Visible to every member, including those holding no inventory
       // permission in any Station at all — the same courtesy Team and Roles
       // below already extend. /inventory redirects at the top of its own
@@ -237,6 +250,11 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       items: [
         { href: '/admin/customers', label: 'Customers', icon: ICONS.building },
         { href: '/admin/contact-requests', label: 'Contact requests', icon: ICONS.inbox },
+        // Block 10a. In the PLATFORM section and not the app's, because the
+        // three Meta credentials are installation-wide environment variables:
+        // one app serves every Station, so the account being configured is the
+        // platform's rather than any customer's (design D5/D7).
+        { href: '/admin/integrations', label: 'WhatsApp integrations', icon: ICONS.message },
       ],
     });
   }
