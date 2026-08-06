@@ -41,7 +41,7 @@ export function StockExitForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Record exit'}
+          {pending ? t('saving') : t('recordExit')}
         </Button>
         {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('exitRecorded')}</p>}
       </div>

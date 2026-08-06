@@ -55,7 +55,7 @@ export function PrizeForm({
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Register prize'}
+          {pending ? t('saving') : t('registerPrize')}
         </Button>
         {/* The confirmation stays on screen and opening the new record is a
             deliberate click, the same shape the registration desk uses for a

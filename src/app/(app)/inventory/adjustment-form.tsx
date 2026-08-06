@@ -77,7 +77,7 @@ export function AdjustmentForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Adjust stock'}
+          {pending ? t('saving') : t('adjustStock')}
         </Button>
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">{t('adjustmentRecorded')}</p>

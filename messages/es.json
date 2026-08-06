@@ -132,7 +132,21 @@
     "installationCredentials": "Credenciales de instalación",
     "theseAreEnvironmentVariablesAndAre": "Estas son variables de entorno y nunca se guardan en la base de datos ni se muestran aquí.",
     "disabled": "desactivada",
-    "notConnected": "no conectada"
+    "notConnected": "no conectada",
+    "provisioning": "Aprovisionando…",
+    "working": "Trabajando…",
+    "adding": "Agregando…",
+    "provision": "Aprovisionar",
+    "newPassword": "Nueva contraseña",
+    "addStation": "Agregar Emisora",
+    "noCustomerMatchesThisSearch": "Ningún cliente coincide con esta búsqueda.",
+    "noCompanyProvisionedYet": "Ninguna empresa aprovisionada todavía.",
+    "suspendThisSubscription": "¿Suspender esta suscripción?",
+    "reactivateThisSubscription": "¿Reactivar esta suscripción?",
+    "suspendAction": "Suspender",
+    "reactivateAction": "Reactivar",
+    "save": "Guardar",
+    "connect": "Conectar"
   },
   "draws": {
     "drawOf": "Sorteo del",
@@ -153,7 +167,14 @@
     "whyItIsBeingCancelled": "Por qué se está cancelando",
     "receiptOfTheHandover": "Comprobante de la entrega",
     "leftToDraw": "por sortear",
-    "reason": "Motivo"
+    "reason": "Motivo",
+    "cancelling": "Cancelando…",
+    "uploading": "Subiendo…",
+    "drawing": "Sorteando…",
+    "saving": "Guardando…",
+    "attachReceipt": "Adjuntar comprobante",
+    "draw": "Sortear",
+    "confirm": "Confirmar"
   },
   "reports": {
     "myReports": "Mis informes",
@@ -169,7 +190,9 @@
     "failed": "Falló",
     "queued": "En cola…",
     "generating": "Generando…",
-    "ready": "Listo"
+    "ready": "Listo",
+    "preparing": "Preparando…",
+    "download": "Descargar"
   },
   "audit": {
     "action": "Acción",
@@ -196,7 +219,8 @@
     "show": "mostrar",
     "auditTrail": "Registro de auditoría",
     "theAuditTrailCouldNotBe": "No se pudo cargar el registro de auditoría. Inténtelo de nuevo.",
-    "olderEntries": "Registros anteriores"
+    "olderEntries": "Registros anteriores",
+    "entriesLabel": "{count, plural, one {registro} other {registros}}"
   },
   "pickups": {
     "pickups": "Retiros",
@@ -223,7 +247,10 @@
     "newDeadline": "Nuevo plazo",
     "theNewPickupDeadlineInThis": "El nuevo plazo de retiro, en la hora local de esta Emisora",
     "reasonReopeningTheDeadline": "Motivo — reabriendo el plazo",
-    "reason": "Motivo"
+    "reason": "Motivo",
+    "saving": "Guardando…",
+    "reopen": "Reabrir",
+    "prizesLabel": "{count, plural, one {premio} other {premios}}"
   },
   "templates": {
     "messages": "Mensajes",
@@ -260,7 +287,15 @@
     "thisStationStopsSending": "Esta Emisora deja de enviar",
     "messagesEntirelySilentlyBecauseAStation": "mensajes por completo — en silencio, porque una Emisora sin nada registrado es una Emisora que no envía nada, en lugar de un error que alguien vea.",
     "messagesAlreadySentKeepTheirOwn": "Los mensajes ya enviados conservan su propio texto y siguen legibles. Meta todavía guarda la aprobación de",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "saving": "Guardando…",
+    "restoring": "Restaurando…",
+    "removing": "Quitando…",
+    "save": "Guardar",
+    "restoreTheDefault": "Restaurar el valor por defecto",
+    "replaceWhatIsRecorded": "Reemplazar lo registrado",
+    "recordThisTemplate": "Registrar esta plantilla",
+    "removeAnyway": "Quitar de todos modos"
   },
   "dashboards": {
     "audience": "Audiencia",
@@ -335,7 +370,18 @@
     "roleInTheOrganization": "Rol en la Organización",
     "owner": "Propietario",
     "member": "Miembro",
-    "noAccess": "Sin acceso"
+    "noAccess": "Sin acceso",
+    "sending": "Enviando…",
+    "working": "Trabajando…",
+    "applying": "Aplicando…",
+    "removing": "Quitando…",
+    "sendInvitation": "Enviar invitación",
+    "revokeThisInvitation": "¿Revocar esta invitación?",
+    "removeThisPerson": "¿Quitar a esta persona?",
+    "revokeInvitationAction": "Revocar invitación",
+    "remove": "Quitar",
+    "apply": "Aplicar",
+    "peopleLabel": "{count, plural, one {persona o invitación} other {personas e invitaciones}}"
   },
   "roles": {
     "roles": "Roles",
@@ -362,7 +408,16 @@
     "heldBy": "en manos de",
     "deleteRole": "Eliminar rol…",
     "userSHold": "usuario(s) tienen",
-    "isHeldByNobodyAndWill": "no está en manos de nadie y será archivado. A quien se lo asigne después le hará falta un rol nuevo."
+    "isHeldByNobodyAndWill": "no está en manos de nadie y será archivado. A quien se lo asigne después le hará falta un rol nuevo.",
+    "saving": "Guardando…",
+    "deleting": "Eliminando…",
+    "saveChanges": "Guardar cambios",
+    "create": "Crear",
+    "cancel": "Cancelar",
+    "thisRoleIsInUse": "Este rol está en uso",
+    "deleteThisRole": "¿Eliminar este rol?",
+    "deleteRoleConfirm": "Eliminar rol",
+    "rolesLabel": "{count, plural, one {rol} other {roles}}"
   },
   "members": {
     "kind": "Tipo",
@@ -469,7 +524,25 @@
     "when": "Cuándo",
     "whereWhatsappPhoneCallInPerson": "Dónde (WhatsApp, llamada, en persona…)",
     "registered2": "Registrado.",
-    "viewListener": "Ver oyente"
+    "viewListener": "Ver oyente",
+    "saving": "Guardando…",
+    "erasing": "Borrando…",
+    "archiving": "Archivando…",
+    "checking": "Verificando…",
+    "linking": "Vinculando…",
+    "registering": "Registrando…",
+    "loading": "Cargando…",
+    "save": "Guardar",
+    "listener": "Oyente",
+    "oneStation": "Una Emisora",
+    "blockedHere": " · bloqueado aquí",
+    "archiveAnyway": "Archivar de todos modos",
+    "blockThisListener": "Bloquear a este oyente",
+    "recordConsent": "Registrar consentimiento",
+    "erasePersonalDataPermanently": "Borrar datos personales permanentemente",
+    "confirmLift": "Confirmar levantamiento",
+    "checkForAnExistingListener": "Verificar si el oyente ya existe",
+    "linkThemToThisStationInstead": "Vincularlo a esta Emisora en lugar de registrarlo de nuevo"
   },
   "participations": {
     "draw": "Sorteo",
@@ -497,7 +570,6 @@
     "mbToTheServerAndOne": "MB al servidor, y una importación está limitada a",
     "mbSplitItIntoAtLeast": "MB. Divídalo en al menos",
     "smallerFilesAndImportEachOne": "archivos más pequeños e importe cada uno por separado. Nada de este archivo se ha escrito.",
-    "thisPromotionDrawsOnlyAmongListeners": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta",
     "importingRegistersTheListenersItDoes": "Importar registra a los oyentes que no encuentra, así que necesita permiso para registrar uno — que usted no tiene en esta Emisora. El archivo será rechazado antes de que se escriba su primera línea.",
     "of": "de",
     "enteredTheDraw": "entraron en el sorteo.",
@@ -561,7 +633,17 @@
     "aWrongAnswerRefusesNobodyLeaving": "Una respuesta equivocada no rechaza a nadie. Dejar una pregunta sin responder también se permite — pero una promoción que sortea solo entre respuestas correctas no sorteará a quien dejó el quiz en blanco.",
     "nobodyAtThisStationHeldThat": "Nadie en esta Emisora tenía ese teléfono o CPF, así que el oyente también fue registrado.",
     "recordAnotherEntry": "Registrar otra participación",
-    "thatPhoneOrCpfAlreadyBelongs": "Ese teléfono o CPF ya pertenece a un oyente registrado en una Emisora que usted no puede ver. No se registró nada, y volver a registrarlo aquí no es posible — una persona tiene un teléfono y un CPF en toda la Organización. Pida a alguien que alcance esa Emisora que vincule al oyente aquí, y luego registre la participación."
+    "thatPhoneOrCpfAlreadyBelongs": "Ese teléfono o CPF ya pertenece a un oyente registrado en una Emisora que usted no puede ver. No se registró nada, y volver a registrarlo aquí no es posible — una persona tiene un teléfono y un CPF en toda la Organización. Pida a alguien que alcance esa Emisora que vincule al oyente aquí, y luego registre la participación.",
+    "yes": "Sí",
+    "recording": "Registrando…",
+    "importing": "Importando…",
+    "recordEntry": "Registrar participación",
+    "importAction": "Importar",
+    "entriesLabel": "{count, plural, one {participación} other {participaciones}}",
+    "linesLabel": "{count, plural, one {línea} other {líneas}}",
+    "linesSend": "{count, plural, one {línea envía} other {líneas envían}}",
+    "importAnswerWarning": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo.",
+    "importAnswerWarningNoQuiz": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta — y esta promoción no tiene quiz para que nadie responda. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo."
   },
   "inventory": {
     "theSystemCurrentlyShows": "El sistema muestra hoy",
@@ -658,7 +740,24 @@
     "manualEntry": "Entrada manual",
     "stockAdded": "Stock agregado.",
     "whyIsThisLeavingStock": "¿Por qué está saliendo esto del stock?",
-    "exitRecorded": "Salida registrada."
+    "exitRecorded": "Salida registrada.",
+    "saving": "Guardando…",
+    "checking": "Verificando…",
+    "archiving": "Archivando…",
+    "loading": "Cargando…",
+    "save": "Guardar",
+    "adjustStock": "Ajustar stock",
+    "runReconciliation": "Ejecutar conciliación",
+    "reserveStock": "Reservar stock",
+    "releaseReservation": "Liberar reserva",
+    "addStock": "Agregar stock",
+    "recordExit": "Registrar salida",
+    "archiveAnyway": "Archivar de todos modos",
+    "registerACategory": "Registrar una categoría",
+    "registerAPrize": "Registrar un premio",
+    "prizesLabel": "{count, plural, one {premio} other {premios}}",
+    "unitsLabel": "{count, plural, one {unidad} other {unidades}}",
+    "movementsLabel": "{count, plural, one {movimiento} other {movimientos}}"
   },
   "promotions": {
     "promotions": "Promociones",
@@ -775,7 +874,23 @@
     "prizesInDraw": "{count, plural, one {# premio} other {# premios}}",
     "newDraw": "Nuevo sorteo",
     "thereAreNoLinkedUnitsLeft": "No quedan unidades vinculadas para sortear.",
-    "noDrawSelected": "Ningún sorteo seleccionado."
+    "noDrawSelected": "Ningún sorteo seleccionado.",
+    "saving": "Guardando…",
+    "loading": "Cargando…",
+    "returning": "Devolviendo…",
+    "linking": "Vinculando…",
+    "cancelling": "Cancelando…",
+    "archiving": "Archivando…",
+    "registering": "Registrando…",
+    "save": "Guardar",
+    "returnAction": "Devolver",
+    "linkAction": "Vincular",
+    "cancelPromotionAction": "Cancelar promoción",
+    "archiveAction": "Archivar",
+    "saveQuestion": "Guardar pregunta",
+    "registerAction": "Registrar",
+    "cancelledSuffix": " · cancelado",
+    "promotionsLabel": "{count, plural, one {promoción} other {promociones}}"
   },
   "music": {
     "closeRecord": "Cerrar ficha",
@@ -815,7 +930,6 @@
     "noStationYouCanReachMatches": "Ninguna Emisora que usted alcanza coincide con “",
     "clearTheStationSearch": "Limpiar la búsqueda de Emisora",
     "catalogue": "Catálogo",
-    "yet": "todavía",
     "archive": "Archivar",
     "legacyId2": "Id heredado:",
     "archiveThis": "Archivar este",
@@ -899,6 +1013,23 @@
     "archiveThisSong": "¿Archivar esta canción?",
     "registerASong": "Registrar una canción",
     "songRegistered": "Canción registrada.",
-    "viewSong": "Ver canción"
+    "viewSong": "Ver canción",
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "archiving": "Archivando…",
+    "recording": "Registrando…",
+    "withdrawing": "Retirando…",
+    "merging": "Fusionando…",
+    "save": "Guardar",
+    "withdraw": "Retirar",
+    "archiveAnyway": "Archivar de todos modos",
+    "mergeComplete": "Fusión completa",
+    "mergeTheseRecords": "¿Fusionar estas fichas?",
+    "mergeAnyway": "Fusionar de todos modos",
+    "noneYet": "Ningún {kind} todavía.",
+    "noneYetAddFirst": "Ningún {kind} todavía — agregue el primero arriba.",
+    "artistsLabel": "{count, plural, one {artista} other {artistas}}",
+    "songsLabel": "{count, plural, one {canción} other {canciones}}",
+    "requestsLabel": "{count, plural, one {pedido} other {pedidos}}"
   }
 }

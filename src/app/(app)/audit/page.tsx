@@ -88,7 +88,7 @@ export default async function AuditPage({
 
           <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
             <span>
-              {page.totalCount} {page.totalCount === 1 ? 'entry' : 'entries'}
+              {page.totalCount} {t('entriesLabel', { count: page.totalCount })}
             </span>
             {page.nextCursor ? (
               <Link

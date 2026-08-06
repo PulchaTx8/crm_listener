@@ -85,7 +85,7 @@ export function ConsentForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Record consent'}
+          {pending ? t('saving') : t('recordConsent')}
         </Button>
         {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('consentRecorded')}</p>}
       </div>

@@ -55,7 +55,7 @@ export function LiftBlockButton({
       </label>
       <div className="flex items-center gap-2">
         <Button type="submit" size="sm" disabled={pending}>
-          {pending ? 'Saving…' : 'Confirm lift'}
+          {pending ? t('saving') : t('confirmLift')}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
           {t('cancel')}</Button>

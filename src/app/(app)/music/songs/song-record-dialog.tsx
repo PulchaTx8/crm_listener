@@ -103,7 +103,7 @@ export function SongRecordDialog({
   return (
     <Dialog open={recordId !== null} onClose={requestClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>{record?.song.title ?? (loading ? 'Loading…' : 'Song')}</DialogTitle>
+        <DialogTitle id={titleId}>{record?.song.title ?? (loading ? t('loading') : t('song'))}</DialogTitle>
         <button
           type="button"
           onClick={requestClose}
@@ -227,7 +227,7 @@ function SongDataForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Save'}
+          {pending ? t('saving') : t('save')}
         </Button>
         {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
         {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}

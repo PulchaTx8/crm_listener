@@ -197,7 +197,7 @@ export function RequestsGrid({
 
         <PageControls
           total={total}
-          label={total === 1 ? 'request' : 'requests'}
+          label={t('requestsLabel', { count: total ?? 0 })}
           previousHref={previousHref}
           nextHref={nextHref}
         />
@@ -307,7 +307,7 @@ function ArchiveDialog({
         <form action={action}>
           <input type="hidden" name="requestId" value={request.requestId} />
           <Button type="submit" disabled={pending} data-testid="request-archive-confirm">
-            {pending ? 'Withdrawing…' : 'Withdraw'}
+            {pending ? t('withdrawing') : t('withdraw')}
           </Button>
         </form>
       </DialogFooter>

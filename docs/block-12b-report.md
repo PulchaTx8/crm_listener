@@ -80,17 +80,41 @@ table, which is what it always meant. The suite caught it, not review.
 
 ---
 
-## 6. What is still in English, and why it is a separate pass
+## 6. The conditional text — done in a second pass
 
-**117 sites in 58 files** hold interface text inside a code expression rather
-than as JSX text — every `pending ? 'Saving…' : 'Save'` on every form, empty-state
-messages, confirmation titles. Block 12a's codemod externalised JSX *text*; text
-inside a ternary was invisible to it, and 12a's own report records the
-loose-literal guard being left off "for 12b".
+**117 sites in 58 files** held interface text inside a code expression rather
+than as JSX text: every `pending ? 'Saving…' : 'Save'` on every form,
+empty-state messages, confirmation titles, and the noun in every count label.
+Block 12a's codemod externalised JSX *text*; text inside a ternary was invisible
+to it, and 12a's own report records the loose-literal guard being left off "for
+12b".
 
-They render in English in all three languages. Nothing is broken and nothing is
-gibberish — it is simply not translated yet. Finishing them, and then turning on
-the guard that stops them coming back, is the next pass.
+All of them are in the catalogue now — **864 keys became 995** — and the sweep
+that found them returns one site, `'invitationId' : 'membershipId'`, which is a
+form field name rather than anything a person reads.
+
+Three of them were not simply moved:
+
+- **Count labels became ICU plurals.** `total === 1 ? 'role' : 'roles'` picks by
+  a rule only English follows. `?? 0` on the count argument keeps the old answer
+  for a withheld total, which read as plural before.
+- **`music.yet` is gone.** The empty state was `No {title} {t('yet')}` plus a
+  conditional tail — a key holding the word "yet" can only ever assemble a
+  sentence in English word order. One whole message per branch now, with the
+  noun interpolated.
+- **The import answer warning** was a key, a conditional clause, and then bare
+  JSX text continuing the same sentence. Also one whole message per branch.
+
+### What is still inline
+
+**38 strings live in template literals** — `` `Actions for ${prize.name}` ``,
+`` `No ${kindLabel} match “${state.search}”.` `` — across 27 files. The ternary
+sweep never saw them. Alongside those: `mergeConfirmationText` and
+`childCountLabel` in `merge-panel.tsx`, which are exported pure helpers with
+their own unit tests, so translating them changes a signature and its callers;
+and `table.tsx`, whose sort announcement (`, sorted descending`) and
+`toLocaleString('en-GB')` are shared-primitive concerns that belong with D5's
+date and number work rather than with this pass.
 
 ---
 

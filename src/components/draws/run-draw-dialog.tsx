@@ -147,7 +147,7 @@ export function RunDrawDialog({
       ) : null}
 
       <Button type="button" onClick={submit} disabled={disabled || pending} data-testid="run-draw">
-        {pending ? 'Drawing…' : 'Draw'}
+        {pending ? t('drawing') : t('draw')}
       </Button>
     </div>
   );

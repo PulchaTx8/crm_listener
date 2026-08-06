@@ -305,7 +305,7 @@ function QuestionForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           {t('cancel')}</Button>
         <Button type="submit" disabled={pending} data-testid="quiz-save">
-          {pending ? 'Saving…' : 'Save question'}
+          {pending ? t('saving') : t('saveQuestion')}
         </Button>
       </div>
     </form>

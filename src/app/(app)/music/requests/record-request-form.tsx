@@ -404,7 +404,7 @@ export function RecordRequestForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           {t('close')}</Button>
         <Button type="submit" disabled={pending} data-testid="request-record-submit">
-          {pending ? 'Recording…' : 'Record request'}
+          {pending ? t('recording') : t('recordARequest')}
         </Button>
       </div>
     </form>

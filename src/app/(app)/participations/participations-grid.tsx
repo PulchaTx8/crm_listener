@@ -127,7 +127,7 @@ export function ParticipationsGrid({
                   {formatInstant(entry.participatedAt, timeZone)}
                 </TableCell>
                 <TableCell className="text-sm" data-testid="participation-already-won">
-                  {entry.alreadyWon ? 'Yes' : '—'}
+                  {entry.alreadyWon ? t('yes') : '—'}
                 </TableCell>
               </TableRow>
             ))
@@ -144,7 +144,7 @@ export function ParticipationsGrid({
       */}
       <PageControls
         total={total}
-        label={total === 1 ? 'entry' : 'entries'}
+        label={t('entriesLabel', { count: total ?? 0 })}
         previousHref={previousHref}
         nextHref={nextHref}
       />

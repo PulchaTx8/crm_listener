@@ -253,7 +253,7 @@ function UnlinkControl({
         aria-label={`Return ${prizeName} to stock`}
         data-testid={`prize-unlink-${prizeId}`}
       >
-        {pending ? 'Returning…' : 'Return'}
+        {pending ? t('returning') : t('returnAction')}
       </Button>
       {state.status === 'error' && (
         <span
@@ -388,7 +388,7 @@ function LinkForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           {t('cancel')}</Button>
         <Button type="submit" disabled={pending} data-testid="prize-link-save">
-          {pending ? 'Linking…' : 'Link'}
+          {pending ? t('linking') : t('linkAction')}
         </Button>
       </div>
     </form>

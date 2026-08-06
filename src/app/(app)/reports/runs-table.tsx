@@ -117,7 +117,7 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
                     disabled={pendingId === run.id}
                     onClick={() => download(run.id)}
                   >
-                    {pendingId === run.id ? 'Preparing…' : 'Download'}
+                    {pendingId === run.id ? t('preparing') : t('download')}
                   </Button>
                 ) : run.status === 'READY' ? (
                   // READY with no path is an expired run: the history survives

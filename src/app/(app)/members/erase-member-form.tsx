@@ -99,7 +99,7 @@ export function EraseMemberForm({ memberId }: { memberId: string }) {
 
       <div className="flex items-center gap-3">
         <Button type="submit" variant="destructive" disabled={pending || !confirmed}>
-          {pending ? 'Erasing…' : 'Erase personal data permanently'}
+          {pending ? t('erasing') : t('erasePersonalDataPermanently')}
         </Button>
       </div>
 

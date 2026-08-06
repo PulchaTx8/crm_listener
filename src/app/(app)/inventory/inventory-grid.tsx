@@ -189,9 +189,12 @@ export function InventoryGrid({
           </TableBody>
         </Table>
 
+        {/* `?? 0` on the label keeps the old answer: an unknown total read as
+            plural before this became an ICU message, and a withheld count
+            should not start saying "prize". */}
         <PageControls
           total={grid.total}
-          label={grid.total === 1 ? 'prize' : 'prizes'}
+          label={t('prizesLabel', { count: grid.total ?? 0 })}
           previousHref={previousHref}
           nextHref={nextHref}
         />
@@ -287,7 +290,7 @@ function ArchivePrizeDialog({
         <form action={action}>
           <input type="hidden" name="prizeId" value={prize.id} />
           <Button type="submit" disabled={pending} data-testid="prize-archive-confirm">
-            {pending ? 'Archiving…' : 'Archive anyway'}
+            {pending ? t('archiving') : t('archiveAnyway')}
           </Button>
         </form>
       </DialogFooter>
@@ -314,7 +317,7 @@ function CreateDialog({
     <Dialog open={creating !== null} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
         <DialogTitle id={titleId}>
-          {creating === 'category' ? 'Register a category' : 'Register a prize'}
+          {creating === 'category' ? t('registerACategory') : t('registerAPrize')}
         </DialogTitle>
       </DialogHeader>
       <DialogBody>

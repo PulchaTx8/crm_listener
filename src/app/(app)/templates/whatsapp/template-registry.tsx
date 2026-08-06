@@ -353,7 +353,7 @@ function RegistrationForm({
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" size="sm" disabled={pending}>
-          {pending ? 'Saving…' : existing ? 'Replace what is recorded' : 'Record this template'}
+          {pending ? t('saving') : existing ? t('replaceWhatIsRecorded') : t('recordThisTemplate')}
         </Button>
         {state.status === 'error' && (
           <span className="text-sm text-destructive">{state.message}</span>
@@ -411,7 +411,7 @@ function ArchiveTemplateDialog({
         <form action={action}>
           <input type="hidden" name="templateId" value={template.id} />
           <Button type="submit" disabled={pending} data-testid="template-archive-confirm">
-            {pending ? 'Removing…' : 'Remove anyway'}
+            {pending ? t('removing') : t('removeAnyway')}
           </Button>
         </form>
       </DialogFooter>

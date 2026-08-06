@@ -232,7 +232,7 @@ export function PickupsGrid({
       */}
       <PageControls
         total={grid.total}
-        label={grid.total === 1 ? 'prize' : 'prizes'}
+        label={t('prizesLabel', { count: grid.total ?? 0 })}
         previousHref={previousHref}
         nextHref={nextHref}
       />

@@ -120,7 +120,7 @@ export function ArtistRecordDialog({
     <Dialog open={recordId !== null} onClose={requestClose} labelledBy={titleId}>
       <DialogHeader>
         <DialogTitle id={titleId}>
-          {record?.artist.name ?? (loading ? 'Loading…' : 'Artist')}
+          {record?.artist.name ?? (loading ? t('loading') : t('artist'))}
         </DialogTitle>
         <button
           type="button"
@@ -264,7 +264,7 @@ function ArtistDataForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Save'}
+          {pending ? t('saving') : t('save')}
         </Button>
         {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
         {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}

@@ -245,7 +245,7 @@ export function RoleRecordDialog({
             carries that name, and two buttons with one name is a screen that
             cannot be spoken about — by a person or by a test. */}
         <Button type="submit" form={formId} disabled={pending} data-testid="role-save">
-          {pending ? 'Saving…' : role ? 'Save changes' : 'Create'}
+          {pending ? t('saving') : role ? t('saveChanges') : t('create')}
         </Button>
       </DialogFooter>
     </Dialog>

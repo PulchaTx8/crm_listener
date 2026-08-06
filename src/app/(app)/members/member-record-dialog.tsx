@@ -138,7 +138,7 @@ export function MemberRecordDialog({
   const erased = Boolean(detail?.anonymizedAt);
   const title = erased
     ? 'Personal data erased'
-    : (detail?.fullName ?? (loading ? 'Loading…' : 'Listener'));
+    : (detail?.fullName ?? (loading ? t('loading') : t('listener')));
 
   return (
     <Dialog open={recordId !== null} onClose={requestClose} labelledBy={titleId}>
@@ -223,7 +223,7 @@ export function MemberRecordDialog({
                     <span>{station.companyName}</span>
                     <span className="text-xs text-muted-foreground">
                       {t('linked')}{' '}{formatDate(station.linkedAt)}
-                      {station.blocked ? ' · blocked here' : ''}
+                      {station.blocked ? t('blockedHere') : ''}
                     </span>
                   </li>
                 ))}
@@ -241,7 +241,7 @@ export function MemberRecordDialog({
                     <li key={consent.id} className="rounded-md border p-3">
                       <span className="font-medium">{CONSENT_TYPE_LABELS[consent.consentType]}</span>
                       {' · '}
-                      {consent.granted ? 'Granted' : 'Withdrawn'}
+                      {consent.granted ? t('granted') : t('withdrawn')}
                       {' · '}
                       {formatDateTime(consent.grantedAt)}
                       {consent.origin ? <span className="block text-muted-foreground">{consent.origin}</span> : null}
@@ -286,7 +286,7 @@ export function MemberRecordDialog({
                     <li key={block.id} data-testid="member-block-row" className="rounded-md border p-3">
                       <span className="font-medium">{BLOCK_KIND_LABELS[block.kind]}</span>
                       {' · '}
-                      {block.companyId ? 'One Station' : 'Whole Organization'}
+                      {block.companyId ? t('oneStation') : t('wholeOrganization')}
                       {' · from '}
                       {formatDateTime(block.startsAt)}
                       {block.endsAt ? ` until ${formatDateTime(block.endsAt)}` : ', no end date'}
@@ -410,7 +410,7 @@ function DataTab({
 
         <div className="sm:col-span-2 flex items-center gap-3">
           <Button type="submit" disabled={pending}>
-            {pending ? 'Saving…' : 'Save'}
+            {pending ? t('saving') : t('save')}
           </Button>
           {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
           {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}

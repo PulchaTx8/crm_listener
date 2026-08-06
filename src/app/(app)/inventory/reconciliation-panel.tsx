@@ -29,7 +29,7 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
       <input type="hidden" name="companyId" value={companyId} />
       <div>
         <Button type="submit" disabled={pending}>
-          {pending ? 'Checking…' : 'Run reconciliation'}
+          {pending ? t('checking') : t('runReconciliation')}
         </Button>
       </div>
 

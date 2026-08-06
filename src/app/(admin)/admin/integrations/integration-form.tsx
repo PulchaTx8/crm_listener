@@ -87,7 +87,7 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
           {t('enabled')}</label>
 
         <Button type="submit" size="sm" disabled={pending}>
-          {row.integration_id ? 'Save' : 'Connect'}
+          {row.integration_id ? t('save') : t('connect')}
         </Button>
 
         {row.integration_id && row.enabled ? (

@@ -154,7 +154,7 @@ export function RolesGrid({
 
         <TableFooter>
           <span className="text-muted-foreground" data-testid="page-total">
-            {grid.total} {grid.total === 1 ? 'role' : 'roles'}
+            {grid.total} {t('rolesLabel', { count: grid.total ?? 0 })}
           </span>
         </TableFooter>
       </div>
@@ -231,7 +231,7 @@ function DeleteRoleDialog({
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
         <DialogTitle id={titleId}>
-          {held ? 'This role is in use' : 'Delete this role?'}
+          {held ? t('thisRoleIsInUse') : t('deleteThisRole')}
         </DialogTitle>
       </DialogHeader>
       <DialogBody>
@@ -249,13 +249,13 @@ function DeleteRoleDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          {held ? 'Close' : 'Cancel'}
+          {held ? t('close') : t('cancel')}
         </Button>
         {!held && (
           <form action={action}>
             <input type="hidden" name="roleId" value={role.id} />
             <Button type="submit" disabled={pending} data-testid="role-delete-confirm">
-              {pending ? 'Deleting…' : 'Delete role'}
+              {pending ? t('deleting') : t('deleteRoleConfirm')}
             </Button>
           </form>
         )}

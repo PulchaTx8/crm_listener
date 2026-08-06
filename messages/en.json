@@ -132,7 +132,21 @@
     "installationCredentials": "Installation credentials",
     "theseAreEnvironmentVariablesAndAre": "These are environment variables and are never stored in the database or shown here.",
     "disabled": "disabled",
-    "notConnected": "not connected"
+    "notConnected": "not connected",
+    "provisioning": "Provisioning…",
+    "working": "Working…",
+    "adding": "Adding…",
+    "provision": "Provision",
+    "newPassword": "New password",
+    "addStation": "Add Station",
+    "noCustomerMatchesThisSearch": "No customer matches this search.",
+    "noCompanyProvisionedYet": "No company provisioned yet.",
+    "suspendThisSubscription": "Suspend this subscription?",
+    "reactivateThisSubscription": "Reactivate this subscription?",
+    "suspendAction": "Suspend",
+    "reactivateAction": "Reactivate",
+    "save": "Save",
+    "connect": "Connect"
   },
   "draws": {
     "drawOf": "Draw of",
@@ -153,7 +167,14 @@
     "whyItIsBeingCancelled": "Why it is being cancelled",
     "receiptOfTheHandover": "Receipt of the handover",
     "leftToDraw": "left to draw",
-    "reason": "Reason"
+    "reason": "Reason",
+    "cancelling": "Cancelling…",
+    "uploading": "Uploading…",
+    "drawing": "Drawing…",
+    "saving": "Saving…",
+    "attachReceipt": "Attach receipt",
+    "draw": "Draw",
+    "confirm": "Confirm"
   },
   "reports": {
     "myReports": "My reports",
@@ -169,7 +190,9 @@
     "failed": "Failed",
     "queued": "Queued…",
     "generating": "Generating…",
-    "ready": "Ready"
+    "ready": "Ready",
+    "preparing": "Preparing…",
+    "download": "Download"
   },
   "audit": {
     "action": "Action",
@@ -196,7 +219,8 @@
     "show": "show",
     "auditTrail": "Audit trail",
     "theAuditTrailCouldNotBe": "The audit trail could not be loaded. Try again.",
-    "olderEntries": "Older entries"
+    "olderEntries": "Older entries",
+    "entriesLabel": "{count, plural, one {entry} other {entries}}"
   },
   "pickups": {
     "pickups": "Pickups",
@@ -223,7 +247,10 @@
     "newDeadline": "New deadline",
     "theNewPickupDeadlineInThis": "The new pickup deadline, in this Station's local time",
     "reasonReopeningTheDeadline": "Reason — reopening the deadline",
-    "reason": "Reason"
+    "reason": "Reason",
+    "saving": "Saving…",
+    "reopen": "Reopen",
+    "prizesLabel": "{count, plural, one {prize} other {prizes}}"
   },
   "templates": {
     "messages": "Messages",
@@ -260,7 +287,15 @@
     "thisStationStopsSending": "This Station stops sending",
     "messagesEntirelySilentlyBecauseAStation": "messages entirely — silently, because a Station with nothing registered is a Station that sends nothing rather than an error anybody sees.",
     "messagesAlreadySentKeepTheirOwn": "Messages already sent keep their own text and stay readable. Meta still holds the approval for",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "restoring": "Restoring…",
+    "removing": "Removing…",
+    "save": "Save",
+    "restoreTheDefault": "Restore the default",
+    "replaceWhatIsRecorded": "Replace what is recorded",
+    "recordThisTemplate": "Record this template",
+    "removeAnyway": "Remove anyway"
   },
   "dashboards": {
     "audience": "Audience",
@@ -335,7 +370,18 @@
     "roleInTheOrganization": "Role in the Organization",
     "owner": "Owner",
     "member": "Member",
-    "noAccess": "No access"
+    "noAccess": "No access",
+    "sending": "Sending…",
+    "working": "Working…",
+    "applying": "Applying…",
+    "removing": "Removing…",
+    "sendInvitation": "Send invitation",
+    "revokeThisInvitation": "Revoke this invitation?",
+    "removeThisPerson": "Remove this person?",
+    "revokeInvitationAction": "Revoke invitation",
+    "remove": "Remove",
+    "apply": "Apply",
+    "peopleLabel": "{count, plural, one {person or invitation} other {people and invitations}}"
   },
   "roles": {
     "roles": "Roles",
@@ -362,7 +408,16 @@
     "heldBy": "held by",
     "deleteRole": "Delete role…",
     "userSHold": "user(s) hold",
-    "isHeldByNobodyAndWill": "is held by nobody and will be archived. Anyone you assign it to afterwards will need a new role."
+    "isHeldByNobodyAndWill": "is held by nobody and will be archived. Anyone you assign it to afterwards will need a new role.",
+    "saving": "Saving…",
+    "deleting": "Deleting…",
+    "saveChanges": "Save changes",
+    "create": "Create",
+    "cancel": "Cancel",
+    "thisRoleIsInUse": "This role is in use",
+    "deleteThisRole": "Delete this role?",
+    "deleteRoleConfirm": "Delete role",
+    "rolesLabel": "{count, plural, one {role} other {roles}}"
   },
   "members": {
     "kind": "Kind",
@@ -469,7 +524,25 @@
     "when": "When",
     "whereWhatsappPhoneCallInPerson": "Where (WhatsApp, phone call, in person…)",
     "registered2": "Registered.",
-    "viewListener": "View listener"
+    "viewListener": "View listener",
+    "saving": "Saving…",
+    "erasing": "Erasing…",
+    "archiving": "Archiving…",
+    "checking": "Checking…",
+    "linking": "Linking…",
+    "registering": "Registering…",
+    "loading": "Loading…",
+    "save": "Save",
+    "listener": "Listener",
+    "oneStation": "One Station",
+    "blockedHere": " · blocked here",
+    "archiveAnyway": "Archive anyway",
+    "blockThisListener": "Block this listener",
+    "recordConsent": "Record consent",
+    "erasePersonalDataPermanently": "Erase personal data permanently",
+    "confirmLift": "Confirm lift",
+    "checkForAnExistingListener": "Check for an existing listener",
+    "linkThemToThisStationInstead": "Link them to this Station instead of registering again"
   },
   "participations": {
     "draw": "Draw",
@@ -497,7 +570,6 @@
     "mbToTheServerAndOne": "MB to the server, and one import is limited to",
     "mbSplitItIntoAtLeast": "MB. Split it into at least",
     "smallerFilesAndImportEachOne": "smaller files and import each one separately. Nothing from this file has been written.",
-    "thisPromotionDrawsOnlyAmongListeners": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer",
     "importingRegistersTheListenersItDoes": "Importing registers the listeners it does not find, so it needs permission to register one — which you do not hold at this Station. The file will be refused before its first line is written.",
     "of": "of",
     "enteredTheDraw": "entered the draw.",
@@ -561,7 +633,17 @@
     "aWrongAnswerRefusesNobodyLeaving": "A wrong answer refuses nobody. Leaving a question unanswered is allowed too — but a promotion that draws only among correct answers will not draw anybody who left the quiz blank.",
     "nobodyAtThisStationHeldThat": "Nobody at this Station held that phone or CPF, so the listener was registered as well.",
     "recordAnotherEntry": "Record another entry",
-    "thatPhoneOrCpfAlreadyBelongs": "That phone or CPF already belongs to a listener registered at a Station you cannot see. Nothing was recorded, and re-registering them here is not possible — one person holds one phone and one CPF across the whole Organization. Ask somebody who can reach that Station to link the listener here, then record the entry."
+    "thatPhoneOrCpfAlreadyBelongs": "That phone or CPF already belongs to a listener registered at a Station you cannot see. Nothing was recorded, and re-registering them here is not possible — one person holds one phone and one CPF across the whole Organization. Ask somebody who can reach that Station to link the listener here, then record the entry.",
+    "yes": "Yes",
+    "recording": "Recording…",
+    "importing": "Importing…",
+    "recordEntry": "Record entry",
+    "importAction": "Import",
+    "entriesLabel": "{count, plural, one {entry} other {entries}}",
+    "linesLabel": "{count, plural, one {line} other {lines}}",
+    "linesSend": "{count, plural, one {line sends} other {lines send}}",
+    "importAnswerWarning": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw.",
+    "importAnswerWarningNoQuiz": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer — and this promotion has no quiz for anybody to answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw."
   },
   "inventory": {
     "theSystemCurrentlyShows": "The system currently shows",
@@ -658,7 +740,24 @@
     "manualEntry": "Manual entry",
     "stockAdded": "Stock added.",
     "whyIsThisLeavingStock": "Why is this leaving stock?",
-    "exitRecorded": "Exit recorded."
+    "exitRecorded": "Exit recorded.",
+    "saving": "Saving…",
+    "checking": "Checking…",
+    "archiving": "Archiving…",
+    "loading": "Loading…",
+    "save": "Save",
+    "adjustStock": "Adjust stock",
+    "runReconciliation": "Run reconciliation",
+    "reserveStock": "Reserve stock",
+    "releaseReservation": "Release reservation",
+    "addStock": "Add stock",
+    "recordExit": "Record exit",
+    "archiveAnyway": "Archive anyway",
+    "registerACategory": "Register a category",
+    "registerAPrize": "Register a prize",
+    "prizesLabel": "{count, plural, one {prize} other {prizes}}",
+    "unitsLabel": "{count, plural, one {unit} other {units}}",
+    "movementsLabel": "{count, plural, one {movement} other {movements}}"
   },
   "promotions": {
     "promotions": "Promotions",
@@ -775,7 +874,23 @@
     "prizesInDraw": "{count, plural, one {# prize} other {# prizes}}",
     "newDraw": "New draw",
     "thereAreNoLinkedUnitsLeft": "There are no linked units left to draw.",
-    "noDrawSelected": "No draw selected."
+    "noDrawSelected": "No draw selected.",
+    "saving": "Saving…",
+    "loading": "Loading…",
+    "returning": "Returning…",
+    "linking": "Linking…",
+    "cancelling": "Cancelling…",
+    "archiving": "Archiving…",
+    "registering": "Registering…",
+    "save": "Save",
+    "returnAction": "Return",
+    "linkAction": "Link",
+    "cancelPromotionAction": "Cancel promotion",
+    "archiveAction": "Archive",
+    "saveQuestion": "Save question",
+    "registerAction": "Register",
+    "cancelledSuffix": " · cancelled",
+    "promotionsLabel": "{count, plural, one {promotion} other {promotions}}"
   },
   "music": {
     "closeRecord": "Close record",
@@ -815,7 +930,6 @@
     "noStationYouCanReachMatches": "No Station you can reach matches “",
     "clearTheStationSearch": "Clear the Station search",
     "catalogue": "Catalogue",
-    "yet": "yet",
     "archive": "Archive",
     "legacyId2": "Legacy id:",
     "archiveThis": "Archive this",
@@ -899,6 +1013,23 @@
     "archiveThisSong": "Archive this song?",
     "registerASong": "Register a song",
     "songRegistered": "Song registered.",
-    "viewSong": "View song"
+    "viewSong": "View song",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "archiving": "Archiving…",
+    "recording": "Recording…",
+    "withdrawing": "Withdrawing…",
+    "merging": "Merging…",
+    "save": "Save",
+    "withdraw": "Withdraw",
+    "archiveAnyway": "Archive anyway",
+    "mergeComplete": "Merge complete",
+    "mergeTheseRecords": "Merge these records?",
+    "mergeAnyway": "Merge anyway",
+    "noneYet": "No {kind} yet.",
+    "noneYetAddFirst": "No {kind} yet — add the first one above.",
+    "artistsLabel": "{count, plural, one {artist} other {artists}}",
+    "songsLabel": "{count, plural, one {song} other {songs}}",
+    "requestsLabel": "{count, plural, one {request} other {requests}}"
   }
 }
