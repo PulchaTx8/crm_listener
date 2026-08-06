@@ -38,8 +38,8 @@ two gigabytes of HTML and have it served back as HTML from a signed URL.
 
 11a wrote the policy first and then spent three measured attempts guessing at
 why it did not work. This block inverts that: **before any directive is
-written, a test proves where the nonce arrives.** Two candidate causes, both
-answerable in minutes, both from Next's own documentation rather than from
+written, a test proves where the nonce arrives.** Three candidate causes, all
+answerable in minutes, all from Next's own documentation rather than from
 inference:
 
 **Cause 1 — the Supabase `setAll` throws the request headers away.** The nonce
@@ -60,6 +60,16 @@ evidence is the ○/ƒ legend `next build` already prints. The fix, if it is thi
 is `export const dynamic = 'force-dynamic'` on those routes: three public pages
 rendered per request, which costs nothing this product will notice.
 
+**Cause 3 — `next dev` needs `'unsafe-eval'`, and the local suite runs against
+it.** `playwright.config.ts` runs `npm run build && npm run start` in CI and
+`npm run dev` locally. The dev server compiles with eval-based source maps and
+React Refresh, so a `script-src` without `'unsafe-eval'` blocks the framework
+outright — every screen dead, in exactly the shape 11a described. Next's own
+example carries the keyword in development for this reason, and the policy here
+does too, gated on `NODE_ENV`. This cause would also explain why the failure was
+invisible: an eval violation is reported in the **browser** console, and nothing
+in the run was listening to the browser. D3 is what fixes that.
+
 ### D2 — The policy, and the two directives that break everything if forgotten
 
 Enforcing, in `middleware.ts` (the per-request nonce can only be minted there;
@@ -67,7 +77,7 @@ the five static headers of 11a D1 stay in `next.config.mjs`):
 
 ```
 default-src 'self';
-script-src 'self' 'nonce-<n>' 'strict-dynamic';
+script-src 'self' 'nonce-<n>' 'strict-dynamic' [+ 'unsafe-eval' in development];
 style-src 'self' 'unsafe-inline';
 img-src 'self' data: blob: <supabase-url>;
 font-src 'self' data:;
