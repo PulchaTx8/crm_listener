@@ -288,7 +288,7 @@ export function PromotionRecordDialog({
       <DialogHeader>
         <div className="flex flex-col gap-1">
           <DialogTitle id={titleId}>
-            {record?.name ?? (loading ? 'Loading…' : 'Promotion')}
+            {record?.name ?? (loading ? t('loading') : t('promotion'))}
           </DialogTitle>
           {record && situation && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -501,7 +501,7 @@ export function PromotionRecordDialog({
             disabled={saving}
             data-testid="promotion-save"
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('saving') : t('save')}
           </Button>
         )}
         <Button type="button" variant="outline" onClick={requestClose}>

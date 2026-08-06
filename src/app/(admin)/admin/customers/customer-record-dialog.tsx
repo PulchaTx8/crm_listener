@@ -234,7 +234,7 @@ function AddStationForm({
       <div className="flex flex-wrap items-center gap-2">
         <Input name="name" placeholder={t('newStationName')} required className="h-9 w-48 text-sm" />
         <Button type="submit" variant="outline" disabled={pending}>
-          {pending ? 'Adding…' : 'Add Station'}
+          {pending ? t('adding') : t('addStation')}
         </Button>
       </div>
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

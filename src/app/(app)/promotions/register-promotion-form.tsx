@@ -80,7 +80,7 @@ export function RegisterPromotionForm({
           <Button type="button" variant="outline" onClick={onClose}>
             {t('cancel')}</Button>
           <Button type="submit" disabled={pending} data-testid="promotion-create-submit">
-            {pending ? 'Registering…' : 'Register'}
+            {pending ? t('registering') : t('registerAction')}
           </Button>
         </DialogFooter>
       </form>

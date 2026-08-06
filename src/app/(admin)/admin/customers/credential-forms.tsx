@@ -59,7 +59,7 @@ export function ProvisionForm({
         <Input name="ownerEmail" type="email" placeholder={t('ownerEMail')} required />
         <Input name="ownerName" placeholder={t('ownerNameOptional')} />
         <Button type="submit" disabled={pending}>
-          {pending ? 'Provisioning…' : 'Provision'}
+          {pending ? t('provisioning') : t('provision')}
         </Button>
       </form>
     </div>
@@ -67,6 +67,7 @@ export function ProvisionForm({
 }
 
 export function RegenerateForm({ userId, email }: { userId: string; email: string }) {
+  const t = useTranslations('admin');
   const [state, action, pending] = useActionState(regenerateAction, INITIAL);
 
   return (
@@ -75,7 +76,7 @@ export function RegenerateForm({ userId, email }: { userId: string; email: strin
         <input type="hidden" name="userId" value={userId} />
         <input type="hidden" name="email" value={email} />
         <Button type="submit" variant="outline" disabled={pending}>
-          {pending ? 'Working…' : 'New password'}
+          {pending ? t('working') : t('newPassword')}
         </Button>
       </form>
       <CredentialNotice state={state} />

@@ -241,7 +241,7 @@ export function PromotionsGrid({
 
         <PageControls
           total={grid.total}
-          label={grid.total === 1 ? 'promotion' : 'promotions'}
+          label={t('promotionsLabel', { count: grid.total ?? 0 })}
           previousHref={previousHref}
           nextHref={nextHref}
         />
@@ -374,7 +374,7 @@ function CancelPromotionDialog({
           <Button type="button" variant="outline" onClick={onDismiss}>
             {t('keepItRunning')}</Button>
           <Button type="submit" disabled={pending} data-testid="promotion-cancel-confirm">
-            {pending ? 'Cancelling…' : 'Cancel promotion'}
+            {pending ? t('cancelling') : t('cancelPromotionAction')}
           </Button>
         </DialogFooter>
       </form>
@@ -429,7 +429,7 @@ function ArchivePromotionDialog({
         <form action={action}>
           <input type="hidden" name="promotionId" value={promotion.id} />
           <Button type="submit" disabled={pending} data-testid="promotion-archive-confirm">
-            {pending ? 'Archiving…' : 'Archive'}
+            {pending ? t('archiving') : t('archiveAction')}
           </Button>
         </form>
       </DialogFooter>

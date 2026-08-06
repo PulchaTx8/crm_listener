@@ -128,7 +128,7 @@ export function CustomersGrid({
             {grid.rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
-                  {search ? 'No customer matches this search.' : 'No company provisioned yet.'}
+                  {search ? t('noCustomerMatchesThisSearch') : t('noCompanyProvisionedYet')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -277,7 +277,7 @@ function StatusDialog({
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
         <DialogTitle id={titleId}>
-          {suspending ? 'Suspend this subscription?' : 'Reactivate this subscription?'}
+          {suspending ? t('suspendThisSubscription') : t('reactivateThisSubscription')}
         </DialogTitle>
       </DialogHeader>
       <DialogBody>
@@ -315,7 +315,7 @@ function StatusDialog({
               only until somebody renders two of these dialogs at once. */}
           {suspending && <input type="hidden" name="reason" value={reason} />}
           <Button type="submit" disabled={pending} data-testid="customer-status-confirm">
-            {pending ? 'Working…' : suspending ? 'Suspend' : 'Reactivate'}
+            {pending ? t('working') : suspending ? t('suspendAction') : t('reactivateAction')}
           </Button>
         </form>
       </DialogFooter>
