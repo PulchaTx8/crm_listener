@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(22);
 
 -- Block 10a. The audit listing and the integration RPCs.
 --
@@ -142,6 +142,60 @@ select is(
      p_action => 'test_action_c', p_limit => 1) l),
   null,
   'the clock has no actor_id at all');
+
+-- ---------------------------------------------------------------------------
+-- The integration RPCs (0130).
+--
+-- These ARE SECURITY DEFINER, and the contrast with list_audit_logs above is
+-- the block in one file: integrations has RLS and NO policies, so there is no
+-- rule to keep applying -- the table is unreachable except through a definer.
+-- ---------------------------------------------------------------------------
+
+select has_function('public', 'list_integrations', array[]::text[],
+  'list_integrations exists');
+select has_function('public', 'upsert_integration',
+  array['uuid', 'text', 'text', 'text', 'boolean'], 'upsert_integration exists');
+select has_function('public', 'disable_integration', array['uuid'],
+  'disable_integration exists');
+
+select ok(
+  (select prosecdef from pg_proc where proname = 'upsert_integration'),
+  'upsert_integration is SECURITY DEFINER, because the table has no policy to apply');
+
+-- The gate is is_platform_admin, not has_permission: there is no Company
+-- permission that could grant this, because the Meta account is the platform's.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'upsert_integration')
+    like '%is_platform_admin()%',
+  'upsert_integration gates on is_platform_admin');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'upsert_integration')
+    not like '%has_permission%',
+  'upsert_integration does not accept a Company permission instead');
+
+-- Nothing here writes a secret, and the assertion is worth its line: the three
+-- Meta secrets are environment variables and a body naming one would mean
+-- somebody had started moving them into the database.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'upsert_integration')
+    not like '%access_token%'
+  and (select pg_get_functiondef(oid) from pg_proc where proname = 'upsert_integration')
+    not like '%app_secret%',
+  'upsert_integration writes no secret');
+
+-- With a null auth.uid() (superuser, no session) is_platform_admin is false, so
+-- every one of the three refuses. This is the fail-closed direction, and the
+-- positive path is proved in tests/isolation/audit.test.ts with a real admin.
+select throws_ok(
+  $$select * from public.list_integrations()$$,
+  '42501', null, 'list_integrations refuses a caller who is not a platform admin');
+select throws_ok(
+  $$select public.upsert_integration(
+      '00000000-0000-0000-0000-00000a020001', '123456789')$$,
+  '42501', null, 'upsert_integration refuses a caller who is not a platform admin');
+select throws_ok(
+  $$select public.disable_integration('00000000-0000-0000-0000-00000a020001')$$,
+  '42501', null, 'disable_integration refuses a caller who is not a platform admin');
 
 select * from finish();
 rollback;
