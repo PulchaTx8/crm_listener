@@ -89,8 +89,13 @@ export function DrawDetailView({
       <header className="space-y-1">
         <h2 className="text-lg font-semibold">{t('drawOf')}{' '}{formatInstant(draw.drawnAt, timeZone)}</h2>
         <p className="text-sm text-muted-foreground">
-          {draw.entryCount} {t('entr')}{draw.entryCount === 1 ? 'y' : 'ies'} {t('inTheHat')}{' '}
-          {draw.winners.length} {t('prize')}{draw.winners.length === 1 ? '' : 's'}
+          {/* ICU plurals, not a suffix glued on in JSX. English pluralises by
+              adding letters to the end of a word; nothing else here does, and
+              `entr` + `ies` becomes gibberish the moment the catalogue is not
+              English. The count lives inside the message so each language
+              decides for itself. */}
+          {t('entriesInTheHat', { count: draw.entryCount })}{' '}
+          {t('prizesDrawn', { count: draw.winners.length })}
         </p>
         {cancelled ? (
           <p className="text-sm font-medium text-destructive" data-testid="draw-cancelled">

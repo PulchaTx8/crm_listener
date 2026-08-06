@@ -5,7 +5,6 @@
   },
   "shell": {
     "language": "Language",
-    "languageSave": "Save",
     "signOut": "Sign out",
     "tagline": "CRM"
   },
@@ -137,9 +136,8 @@
   },
   "draws": {
     "drawOf": "Draw of",
-    "entr": "entr",
-    "inTheHat": "in the hat ·",
-    "prize": "prize",
+    "entriesInTheHat": "{count, plural, one {# entry} other {# entries}} in the hat ·",
+    "prizesDrawn": "{count, plural, one {# prize} other {# prizes}}",
     "cancelledOn": "Cancelled on",
     "winners": "Winners",
     "viewReceipt": "View receipt",
@@ -774,7 +772,7 @@
     "theBotAsksForEachTicked": "The bot asks for each ticked field, in this order, and writes the answer to the listener's record.",
     "draws": "Draws",
     "thisPromotionHasNotBeenDrawn": "This promotion has not been drawn yet.",
-    "prize2": "prize",
+    "prizesInDraw": "{count, plural, one {# prize} other {# prizes}}",
     "newDraw": "New draw",
     "thereAreNoLinkedUnitsLeft": "There are no linked units left to draw.",
     "noDrawSelected": "No draw selected."
