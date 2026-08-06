@@ -159,6 +159,10 @@ test('an administrator connects a Station, and the owner reads it in the trail',
 
   // And the detail, which is never summarised: the number that was configured
   // is in the row, in full.
-  await page.getByRole('group').first().locator('summary').click();
+  // Scoped to the table on purpose. `<details>` carries the implicit role
+  // `group`, and since Block 12b the shell's language gear is one too — so an
+  // unscoped `getByRole('group').first()` opens the gear and never touches the
+  // audit row.
+  await page.getByRole('table').getByRole('group').first().locator('summary').click();
   await expect(page.getByText(phoneNumberId).first()).toBeVisible();
 });
