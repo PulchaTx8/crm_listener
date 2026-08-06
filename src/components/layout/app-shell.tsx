@@ -108,7 +108,7 @@ export async function AppShell({
             <span className="truncate text-sm text-white">{user.fullName ?? user.email}</span>
             <span className="text-xs text-sidebar-muted">{user.roleLabel}</span>
           </span>
-          {/* Block 12a, D4. Renders nothing until a second catalogue exists. */}
+          {/* Block 12b. The gear that changes the interface language. */}
           <LocaleSelector />
           <form action="/auth/signout" method="post" className="ml-auto">
             <button

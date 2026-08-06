@@ -8,6 +8,12 @@ export default defineConfig({
   testDir: './tests/e2e',
   use: {
     baseURL: 'http://localhost:3000',
+    // Block 12b. Pinned, because the resolution order ends at Accept-Language
+    // and Chromium sends whatever the MACHINE is set to. Unpinned, this suite
+    // asserts roughly a hundred English strings and renders in Portuguese on
+    // any developer machine set to pt-BR — a failure that reproduces for one
+    // person and nobody else. The language-switching journey overrides it.
+    locale: 'en-US',
     // Any failure leaves a trace. `on-first-retry` would be dead config here:
     // retries stay at 0 deliberately — a journey that passes on the second
     // attempt is a journey that failed — so a first retry never happens and
