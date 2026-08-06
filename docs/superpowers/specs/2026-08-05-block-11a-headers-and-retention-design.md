@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-05
 **Status:** approved by the owner
-**Splits:** master spec §11 Block 11 — this half ships the security headers, the nonce CSP and the retention cron (N7); observability, alerting, the five documents, the controlled seed and the deploy runbook are **Block 11b**
+**Splits:** master spec §11 Block 11 — this half ships the security headers and the retention cron (N7). **The CSP was implemented, tested and withdrawn (D2)** and belongs to Block 11b, alongside observability, alerting, the five documents, the controlled seed and the deploy runbook
 **Depends on:** Block 0 (`middleware.ts`), Block 5a (`webhook_events`, `outbox_messages`, `whatsapp_conversations`), Block 6b (`storage_erasure_queue`), Block 10a (the audit trail this block deliberately does not touch)
 **Branches from:** `block-10a` — the migration continues at `0131`
 
@@ -15,7 +15,8 @@ nor `next.config.mjs` sets one: no CSP, no `X-Frame-Options`, no
 `Referrer-Policy`, no `X-Content-Type-Options`, no HSTS. Eighteen blocks have
 shipped a product that can be framed by any site on the internet and that leaks
 its full URL — including a `?record=<uuid>` — in the `Referer` of every outbound
-request.
+request. **Five of those six ship here; the CSP does not, for the reason D2
+records.**
 
 **And nothing is ever deleted for age.** Requirement N7 has been on the list
 since the master spec: a retention sweep that walks data whose deadline has
@@ -46,22 +47,44 @@ so it lives there. That it does not reach the two machine routes costs nothing:
 both return JSON to a non-browser caller, and a CSP governs what a *document*
 may load.
 
-### D2 — The CSP is nonce-based with `strict-dynamic`, and it starts in report-only
+### D2 — ~~The CSP is nonce-based with `strict-dynamic`, and it ships enforcing~~ — **WITHDRAWN**
 
-`script-src 'self' 'nonce-<n>' 'strict-dynamic'`. Next.js reads the nonce from
-the CSP header on the request and stamps it onto its own scripts, so no
-`'unsafe-inline'` is needed for the framework — which is the entire point of
-doing it with a nonce rather than a hash list that rots on every build.
+**This decision was implemented, tested, and withdrawn. The CSP is not in this
+block.** The five headers of D1 are; the policy is not.
 
-`style-src` keeps `'unsafe-inline'`, stated rather than hidden: Tailwind ships a
-stylesheet, but React's inline `style` attributes and the `@react-pdf` renderer's
-own injections do not carry a nonce, and a CSP that breaks the product on deploy
-is a CSP that gets removed on deploy.
+What D2 said was that this codebase's Playwright suite — thirty-six journeys
+across every screen — is a better CSP test than a week of report-only telemetry
+nobody reads, and that if the suite passes the policy does not break the
+product. **The suite is what withdrew it.** Shipped with a nonce and
+`'strict-dynamic'`, the result was:
 
-**It ships enforcing, not report-only**, and the reason is that this codebase has
-a full Playwright suite: thirty-six journeys across every screen, run before
-merge, which is a better CSP test than a week of report-only telemetry nobody
-reads. If the suite passes, the policy does not break the product.
+    11 passed, 23 failed
+
+and **not one CSP error anywhere in the output**. The symptom was journeys timing
+out on clicks that did nothing, because no client component had hydrated. Three
+attempts to fix it, each plausible and each measured:
+
+1. Forwarding the nonce properly — `NextResponse.next({ request: { headers } })`
+   rather than mutating `request.headers` in place, which does not propagate.
+   No change.
+2. Dropping `'strict-dynamic'`, which makes a browser ignore `'self'` and so
+   puts every Next chunk at the mercy of the framework having stamped the nonce.
+   No change.
+3. Rebuilding the forwarded headers *after* the Supabase cookie write, since the
+   snapshot taken before it does not carry a refreshed session. No change.
+
+Next's App Router emits **inline** bootstrap scripts, and a `script-src`
+carrying a nonce blocks every inline script that does not have it. The nonce is
+not reaching the renderer in this application, and finding out why is a change
+whose whole subject is that — not a paragraph inside a block about headers and
+retention.
+
+**So the block ships the five headers and no CSP**, and the reason this is the
+right call rather than a retreat: a CSP that breaks the product is worse than
+no CSP, because it will be deleted in an incident by whoever is on call, along
+with whatever else looks suspicious. `X-Frame-Options: DENY` covers the framing
+half that `frame-ancestors` would have. **Block 11b owns the CSP**, with the
+nonce plumbing as its first task and this section as its brief.
 
 ### D3 — Retention periods are fixed for the installation, not per Company
 
@@ -148,13 +171,15 @@ sweep that gained a table would otherwise be found by its damage); a row older
 than its period is deleted and one inside it is not, per table; the cron entry
 exists.
 
-**Vitest** — the CSP builder emits one `nonce-` per call and never repeats it;
-the header list in `next.config.mjs` contains each of the five names.
+**Vitest** — each of the five headers is declared with the value the design
+names, asserted on the VALUE rather than on the file's text.
 
-**Playwright** — the whole existing suite, which is the CSP test: thirty-six
-journeys across every screen, and a violation breaks them. Plus one assertion
-that the response actually carries the headers, because a suite that passes
-proves the policy is not too strict and says nothing about whether it was sent.
+**Playwright** — `tests/e2e/headers.spec.ts` asserts the headers are ON THE
+WIRE, which is a different claim from the unit test's: a `headers()` block that
+never matched, or a proxy that stripped them, looks identical in the config. It
+also asserts them on `/api/health`, which the middleware's matcher excludes —
+the assertion that justifies D1's placement. And the whole existing suite runs,
+which is what withdrew D2.
 
 **The gate is the usual one:** `lint`, `typecheck`, `test`, `db:test`,
 `test:isolation`, `build`, `test:e2e`.
@@ -163,7 +188,8 @@ proves the policy is not too strict and says nothing about whether it was sent.
 
 ## 5. Out of scope
 
-Observability, error monitoring and the alert Block 11b will hang off D7's
-counters; the five documents; the controlled seed; the deploy and backup/PITR
+**The Content-Security-Policy** (D2, withdrawn — Block 11b's first task, with
+the nonce plumbing as its subject); observability, error monitoring and the
+alert Block 11b will hang off D7's counters; the five documents; the controlled seed; the deploy and backup/PITR
 runbook; upload/MIME hardening (there is one upload path, delivery receipts, and
 it is Block 11b's to review); per-Company retention policy (D3).

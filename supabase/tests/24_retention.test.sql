@@ -1,0 +1,108 @@
+begin;
+select plan(16);
+
+-- Block 11a. The retention sweep, and the two lists it must never grow.
+
+select has_function('public', 'sweep_retention', array[]::text[],
+  'sweep_retention exists');
+
+select is(
+  (select prokind from pg_proc where proname = 'sweep_retention'),
+  'p'::"char",
+  'sweep_retention is a procedure, because only a procedure may commit');
+
+-- It may carry NEITHER security definer NOR a set clause: Postgres refuses
+-- transaction control inside either. A future editor "hardening" this with
+-- `set search_path` would break every sweep with `invalid transaction
+-- termination`, at 04:11, where nobody is watching. 0094 proved it; 0128 and
+-- this file both assert it.
+select ok(
+  not (select prosecdef from pg_proc where proname = 'sweep_retention')
+  and (select proconfig from pg_proc where proname = 'sweep_retention') is null,
+  'sweep_retention carries neither security definer nor a set clause');
+
+select ok(
+  exists (select 1 from cron.job where command like '%sweep_retention%'),
+  'the retention sweep is scheduled');
+
+-- ---------------------------------------------------------------------------
+-- THE TWO LISTS, ASSERTED ON THE SOURCE.
+--
+-- A sweep that quietly gained a table would otherwise be found by its damage,
+-- which for these tables means "the thing you needed to prove is gone". No
+-- behavioural test can cover a table nobody thought to seed, so the source
+-- itself is what is checked.
+-- ---------------------------------------------------------------------------
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%audit_logs%',
+  'the sweep never names audit_logs -- it is the proof erasures happened');
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%participations%',
+  'the sweep never names participations');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%winners%',
+  'the sweep never names winners');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%inventory_movements%',
+  'the sweep never names inventory_movements');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%public.members%',
+  'the sweep never names members');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%public.draws%',
+  'the sweep never names draws');
+
+-- An UNPROCESSED erasure is an obligation this installation still owes
+-- somebody. 0087 gives that queue no give-up threshold for exactly that reason,
+-- and sweeping one by age would silently discharge it.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%processed_at is not null%',
+  'the sweep only removes storage erasures that were actually carried out');
+
+-- ---------------------------------------------------------------------------
+-- Behaviour. The sweep COMMITS, so it cannot run inside this transaction --
+-- pgTAP wraps the file in one and rolls it back. What is asserted instead is
+-- that each period boundary is the one the design names, read off the source:
+-- the deletes themselves are exercised by a fixture-driven run in
+-- tests/isolation, where a real connection can commit.
+-- ---------------------------------------------------------------------------
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%webhook_events%interval ''90 days''%',
+  'webhook_events is kept for 90 days');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%outbox_messages%interval ''180 days''%',
+  'outbox_messages is kept for 180 days');
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%contact_requests%interval ''365 days''%',
+  'contact_requests is kept for 365 days');
+
+-- A PENDING outbox row is work not yet done, however old: deleting one would
+-- silently drop a message somebody is waiting for.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%status in (''SENT'', ''FAILED'')%',
+  'only terminal outbox rows are swept');
+
+-- And a webhook that could not be processed in ninety days will not be: keeping
+-- a listener's message text for ever because the code that should have read it
+-- had a bug is an accident, not a policy.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%status in (''DONE'', ''FAILED'')%',
+  'both terminal webhook states are swept, including FAILED');
+
+select * from finish();
+rollback;
