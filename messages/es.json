@@ -570,7 +570,6 @@
     "mbToTheServerAndOne": "MB al servidor, y una importación está limitada a",
     "mbSplitItIntoAtLeast": "MB. Divídalo en al menos",
     "smallerFilesAndImportEachOne": "archivos más pequeños e importe cada uno por separado. Nada de este archivo se ha escrito.",
-    "thisPromotionDrawsOnlyAmongListeners": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta",
     "importingRegistersTheListenersItDoes": "Importar registra a los oyentes que no encuentra, así que necesita permiso para registrar uno — que usted no tiene en esta Emisora. El archivo será rechazado antes de que se escriba su primera línea.",
     "of": "de",
     "enteredTheDraw": "entraron en el sorteo.",
@@ -634,7 +633,17 @@
     "aWrongAnswerRefusesNobodyLeaving": "Una respuesta equivocada no rechaza a nadie. Dejar una pregunta sin responder también se permite — pero una promoción que sortea solo entre respuestas correctas no sorteará a quien dejó el quiz en blanco.",
     "nobodyAtThisStationHeldThat": "Nadie en esta Emisora tenía ese teléfono o CPF, así que el oyente también fue registrado.",
     "recordAnotherEntry": "Registrar otra participación",
-    "thatPhoneOrCpfAlreadyBelongs": "Ese teléfono o CPF ya pertenece a un oyente registrado en una Emisora que usted no puede ver. No se registró nada, y volver a registrarlo aquí no es posible — una persona tiene un teléfono y un CPF en toda la Organización. Pida a alguien que alcance esa Emisora que vincule al oyente aquí, y luego registre la participación."
+    "thatPhoneOrCpfAlreadyBelongs": "Ese teléfono o CPF ya pertenece a un oyente registrado en una Emisora que usted no puede ver. No se registró nada, y volver a registrarlo aquí no es posible — una persona tiene un teléfono y un CPF en toda la Organización. Pida a alguien que alcance esa Emisora que vincule al oyente aquí, y luego registre la participación.",
+    "yes": "Sí",
+    "recording": "Registrando…",
+    "importing": "Importando…",
+    "recordEntry": "Registrar participación",
+    "importAction": "Importar",
+    "entriesLabel": "{count, plural, one {participación} other {participaciones}}",
+    "linesLabel": "{count, plural, one {línea} other {líneas}}",
+    "linesSend": "{count, plural, one {línea envía} other {líneas envían}}",
+    "importAnswerWarning": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo.",
+    "importAnswerWarningNoQuiz": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta — y esta promoción no tiene quiz para que nadie responda. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo."
   },
   "inventory": {
     "theSystemCurrentlyShows": "El sistema muestra hoy",

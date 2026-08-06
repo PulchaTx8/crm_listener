@@ -400,7 +400,7 @@ export function RecordParticipationForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           {t('close')}</Button>
         <Button type="submit" disabled={pending} data-testid="participation-record-submit">
-          {pending ? 'Recording…' : 'Record entry'}
+          {pending ? t('recording') : t('recordEntry')}
         </Button>
       </div>
     </form>

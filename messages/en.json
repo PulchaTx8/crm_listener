@@ -570,7 +570,6 @@
     "mbToTheServerAndOne": "MB to the server, and one import is limited to",
     "mbSplitItIntoAtLeast": "MB. Split it into at least",
     "smallerFilesAndImportEachOne": "smaller files and import each one separately. Nothing from this file has been written.",
-    "thisPromotionDrawsOnlyAmongListeners": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer",
     "importingRegistersTheListenersItDoes": "Importing registers the listeners it does not find, so it needs permission to register one — which you do not hold at this Station. The file will be refused before its first line is written.",
     "of": "of",
     "enteredTheDraw": "entered the draw.",
@@ -634,7 +633,17 @@
     "aWrongAnswerRefusesNobodyLeaving": "A wrong answer refuses nobody. Leaving a question unanswered is allowed too — but a promotion that draws only among correct answers will not draw anybody who left the quiz blank.",
     "nobodyAtThisStationHeldThat": "Nobody at this Station held that phone or CPF, so the listener was registered as well.",
     "recordAnotherEntry": "Record another entry",
-    "thatPhoneOrCpfAlreadyBelongs": "That phone or CPF already belongs to a listener registered at a Station you cannot see. Nothing was recorded, and re-registering them here is not possible — one person holds one phone and one CPF across the whole Organization. Ask somebody who can reach that Station to link the listener here, then record the entry."
+    "thatPhoneOrCpfAlreadyBelongs": "That phone or CPF already belongs to a listener registered at a Station you cannot see. Nothing was recorded, and re-registering them here is not possible — one person holds one phone and one CPF across the whole Organization. Ask somebody who can reach that Station to link the listener here, then record the entry.",
+    "yes": "Yes",
+    "recording": "Recording…",
+    "importing": "Importing…",
+    "recordEntry": "Record entry",
+    "importAction": "Import",
+    "entriesLabel": "{count, plural, one {entry} other {entries}}",
+    "linesLabel": "{count, plural, one {line} other {lines}}",
+    "linesSend": "{count, plural, one {line sends} other {lines send}}",
+    "importAnswerWarning": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw.",
+    "importAnswerWarningNoQuiz": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer — and this promotion has no quiz for anybody to answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw."
   },
   "inventory": {
     "theSystemCurrentlyShows": "The system currently shows",

@@ -591,7 +591,7 @@ export function ImportParticipationsForm({
               {t('thisFileIsNotUtf8')}</p>
           )}
           <p className="text-xs text-muted-foreground">
-            {file.rows.length} {file.rows.length === 1 ? 'line' : 'lines'} {t('underTheHeaderSeparatedBy')}{file.delimiter}”.
+            {file.rows.length} {t('linesLabel', { count: file.rows.length })} {t('underTheHeaderSeparatedBy')}{file.delimiter}”.
             {file.rows[0] && (
               <>
                 {' '}
@@ -630,7 +630,7 @@ export function ImportParticipationsForm({
           {oversized && (
             <p className="text-sm text-destructive" data-testid="participation-import-oversize">
               {t('thisFileIsTooLargeTo')}{' '}{file.rows.length}{' '}
-              {file.rows.length === 1 ? 'line sends' : 'lines send'} {t('about')}{' '}
+              {t('linesSend', { count: file.rows.length })} {t('about')}{' '}
               {(rowsPayloadBytes / (1024 * 1024)).toFixed(1)} {t('mbToTheServerAndOne')}{' '}{(IMPORT_ROWS_BODY_LIMIT_BYTES / (1024 * 1024)).toFixed(0)} {t('mbSplitItIntoAtLeast')}{' '}{Math.ceil(rowsPayloadBytes / IMPORT_ROWS_BODY_LIMIT_BYTES)} {t('smallerFilesAndImportEachOne')}</p>
           )}
         </div>
@@ -650,9 +650,11 @@ export function ImportParticipationsForm({
           className="rounded-md bg-amber-100 p-3 text-sm text-amber-900"
           data-testid="participation-import-answer-warning"
         >
-          {t('thisPromotionDrawsOnlyAmongListeners')}{hasQuestions ? '' : ' — and this promotion has no quiz for anybody to answer'}. Every
-          entry from this file will be recorded and will count towards the rules, and none of them
-          will be in the draw.
+          {/* One whole sentence per branch. The half that used to live here as
+              JSX text -- ". Every entry from this file…" -- could not survive
+              translation glued onto a key, because no other language puts that
+              clause where English does. */}
+          {hasQuestions ? t('importAnswerWarning') : t('importAnswerWarningNoQuiz')}
         </p>
       )}
 
@@ -673,7 +675,7 @@ export function ImportParticipationsForm({
         <Button type="button" variant="outline" onClick={onCancel}>
           {t('close')}</Button>
         <Button type="submit" disabled={pending || !ready} data-testid="participation-import-submit">
-          {pending ? 'Importing…' : 'Import'}
+          {pending ? t('importing') : t('importAction')}
         </Button>
       </div>
     </form>
@@ -711,7 +713,7 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
     >
       <p className="text-sm">
         <span data-testid="participation-import-entered">{entered}</span> {t('of')}{' '}{total}{' '}
-        {total === 1 ? 'line' : 'lines'} {t('enteredTheDraw')}</p>
+        {t('linesLabel', { count: total })} {t('enteredTheDraw')}</p>
 
       <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
         <li>{t('recordedAsAlreadyEntered')}{' '}{result.duplicate}</li>
@@ -768,7 +770,7 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
       {counted.length > 0 && (
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">
-            {counted.length} {counted.length === 1 ? 'line' : 'lines'} {t('counted')}</summary>
+            {counted.length} {t('linesLabel', { count: counted.length })} {t('counted')}</summary>
           <ul className="mt-1 flex flex-col gap-0.5">
             {counted.map((row) => (
               <li key={`counted-${row.line}`}>{t('line')}{' '}{row.line} — counted</li>

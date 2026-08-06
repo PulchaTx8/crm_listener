@@ -156,7 +156,7 @@ export function DrawPanel({
               set the operator approves is a set they were told the size of. */}
           <p className="text-sm" data-testid="draw-hat-summary">
             <strong>{hat.participationIds.length}</strong>{' '}
-            {hat.participationIds.length === 1 ? 'entry' : 'entries'} {t('inTheHatOutOf')}{' '}
+            {t('entriesLabel', { count: hat.participationIds.length })} {t('inTheHatOutOf')}{' '}
             {hat.matched} {t('matchingTheseFilters')}</p>
           {(hat.alreadyWon > 0 || hat.notValid > 0) && (
             <p className="text-xs text-muted-foreground" data-testid="draw-hat-excluded">
