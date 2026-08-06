@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash, randomBytes } from 'node:crypto';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { collectCspViolations } from './csp-violations';
 
 /**
  * Block 8a's round trip (Task 10): the branches that live only in the three
@@ -324,6 +325,12 @@ test.afterAll(async () => {
 test('the round trip: a known figure, the period switch that changes it, a rendered chart, and the nav link', async ({
   page,
 }) => {
+  // Block 11b, D3. The CSP rides along on the longest signed-in journey in the
+  // suite, and on the screen made of inline style attributes -- which is what a
+  // careless style-src kills. Installed before the first navigation, because
+  // the violations that matter are raised during bootstrap.
+  const cspViolations = await collectCspViolations(page);
+
   await page.goto('/login');
   await page.getByPlaceholder('E-mail').fill(ownerEmail);
   await page.getByPlaceholder('Password').fill(ownerInitialPassword);
@@ -368,6 +375,11 @@ test('the round trip: a known figure, the period switch that changes it, a rende
     .getByRole('link', { name: 'Previous month' })
     .click();
   await expect(listenersCard.locator('p').nth(1)).toHaveText('0');
+
+  // Nothing above this line would have failed in Block 11a's broken run either
+  // -- it failed by TIMING OUT, silently. This is the assertion that names a
+  // cause instead.
+  expect(cspViolations, `CSP violations:\n${cspViolations.join('\n')}`).toEqual([]);
 });
 
 test('a caller missing participations.view sees the permission named beside real numbers, never a zero', async ({

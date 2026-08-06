@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { collectCspViolations } from './csp-violations';
 
 /**
  * Block 11b, D1. THE PROBE.
@@ -37,5 +38,23 @@ for (const path of ['/login', '/']) {
       unstamped,
       `script tags without the nonce -- the renderer never received it:\n${unstamped.join('\n')}`,
     ).toEqual([]);
+  });
+}
+
+/**
+ * The other half of D3, on the pages anybody can reach without an account.
+ *
+ * The nonce probe above proves the scripts were STAMPED. This proves the
+ * browser then ran them -- a policy can be wrong in ways the HTML cannot show,
+ * and every one of those ways looks like a screen that quietly does nothing.
+ */
+for (const path of ['/', '/contato', '/login']) {
+  test(`${path} raises no policy violation`, async ({ page }) => {
+    const violations = await collectCspViolations(page);
+
+    await page.goto(path);
+    await page.waitForLoadState('networkidle');
+
+    expect(violations, `CSP violations on ${path}:\n${violations.join('\n')}`).toEqual([]);
   });
 }
