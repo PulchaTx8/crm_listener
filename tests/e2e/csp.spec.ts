@@ -24,13 +24,13 @@ for (const path of ['/login', '/']) {
     const response = await request.get(path);
     expect(response.status()).toBe(200);
 
-    const header = response.headers()['content-security-policy'];
+    const header = response.headers()['content-security-policy'] ?? '';
     expect(header, 'the response carries a CSP at all').toBeTruthy();
-    const nonce = /'nonce-([^']+)'/.exec(header)?.[1];
+    const nonce = /'nonce-([^']+)'/.exec(header)?.[1] ?? '';
     expect(nonce, 'the CSP carries a nonce').toBeTruthy();
 
     const html = await response.text();
-    const tags = [...html.matchAll(/<script\b([^>]*)>/g)].map((m) => m[1]);
+    const tags = [...html.matchAll(/<script\b([^>]*)>/g)].map((m) => m[1] ?? '');
     expect(tags.length, 'the page delivered any script at all').toBeGreaterThan(0);
 
     const unstamped = tags.filter((attrs) => !attrs.includes(`nonce="${nonce}"`));

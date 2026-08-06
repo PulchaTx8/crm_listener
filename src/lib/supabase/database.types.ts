@@ -715,6 +715,36 @@ export type Database = {
           },
         ]
       }
+      job_health: {
+        Row: {
+          alerted_at: string | null
+          consecutive_failures: number
+          job_name: string
+          last_counters: Json | null
+          last_started_at: string | null
+          last_success_at: string | null
+          max_silence: string
+        }
+        Insert: {
+          alerted_at?: string | null
+          consecutive_failures?: number
+          job_name: string
+          last_counters?: Json | null
+          last_started_at?: string | null
+          last_success_at?: string | null
+          max_silence: string
+        }
+        Update: {
+          alerted_at?: string | null
+          consecutive_failures?: number
+          job_name?: string
+          last_counters?: Json | null
+          last_started_at?: string | null
+          last_success_at?: string | null
+          max_silence?: string
+        }
+        Relationships: []
+      }
       member_blocks: {
         Row: {
           company_id: string | null
@@ -3108,6 +3138,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      check_job_health: {
+        Args: never
+        Returns: {
+          alerted_at: string
+          job_name: string
+          last_counters: Json
+          last_started_at: string
+          last_success_at: string
+        }[]
+      }
       claim_conversation_turn: {
         Args: {
           p_integration_id: string
@@ -3463,6 +3503,11 @@ export type Database = {
       }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_for: { Args: { p_user_id: string }; Returns: boolean }
+      job_started: { Args: { p_job: string }; Returns: undefined }
+      job_succeeded: {
+        Args: { p_counters?: Json; p_job: string }
+        Returns: undefined
+      }
       lift_member_block: {
         Args: { p_block_id: string; p_reason: string }
         Returns: undefined

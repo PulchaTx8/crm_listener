@@ -20,7 +20,11 @@ vi.mock('@/lib/reports/drain', () => ({ drainReportRuns }));
 
 // The real client would need a service-role key and a URL. Neither is what is
 // under test here.
-vi.mock('@/lib/supabase/service-client', () => ({ createServiceClient: () => ({}) }));
+// Block 11b: the client now carries one call worth watching -- the tick's own
+// health stamp, which pg_cron cannot write because its statement only enqueues
+// an HTTP request.
+const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
+vi.mock('@/lib/supabase/service-client', () => ({ createServiceClient: () => ({ rpc }) }));
 
 const SECRET = 'a-shared-secret-for-pg-cron';
 process.env.WORKER_TICK_SECRET = SECRET;
@@ -55,6 +59,8 @@ beforeEach(() => {
   drainStorageErasures.mockResolvedValue(NO_ERASURES);
   drainReportRuns.mockReset();
   drainReportRuns.mockResolvedValue(NO_REPORTS);
+  rpc.mockReset();
+  rpc.mockResolvedValue({ error: null });
 });
 
 describe('POST /api/worker/tick', () => {
@@ -162,5 +168,22 @@ describe('POST /api/worker/tick', () => {
     expect(runTick).not.toHaveBeenCalled();
 
     process.env.WORKER_TICK_SECRET = SECRET;
+  });
+
+  // Block 11b, D5. The tick's heartbeat is written HERE and not by pg_cron,
+  // because pg_cron's statement only enqueues an HTTP request: it reports
+  // success the moment pg_net accepts the call, with the app in the ground.
+  it('stamps its own health so silence means something', async () => {
+    await post({ 'x-worker-secret': SECRET });
+
+    expect(rpc).toHaveBeenCalledWith('job_succeeded', {
+      p_job: 'whatsapp-worker-tick',
+      p_counters: expect.objectContaining({ ingested: 3, sent: 2 }),
+    });
+  });
+
+  it('does not stamp when the secret is wrong', async () => {
+    await post({ 'x-worker-secret': 'wrong' });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });
