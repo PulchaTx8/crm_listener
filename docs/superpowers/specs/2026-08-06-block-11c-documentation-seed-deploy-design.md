@@ -110,17 +110,24 @@ the audit entry.
 between blocks, which forty-three isolated journeys never exercise. It duplicates
 coverage on purpose.
 
-### D4 — There is no screen for a second Station, and the block records that rather than building one
+### D4 — The second Station goes through the console, because that screen exists
 
-§35 asks for two Companies. **The product has no path to a second one**:
-`provision_customer` creates an Organization and one Station, and the five specs
-that need another insert it with the service key. The acceptance journey does the
-same, and `ARCHITECTURE.md` records the gap in a line: adding a Station to an
-existing Organization is a manual insert today, because the decision was never
-taken.
+**Corrected while writing the plan.** An earlier draft of this section said the
+product had no path to a second Station and that the journey would insert one
+with the service key. That was wrong: `AddStationForm` lives in the customer
+record dialog at `/admin/customers`
+(`src/app/(admin)/admin/customers/customer-record-dialog.tsx:185`) over the
+`add_company` RPC (`0017`), and it is **platform-admin only** — which is why it
+sits in the console rather than on the customer's own screens. The first search
+for it looked for `create_company` and found nothing.
 
-Building that screen would be new product — permission, audit, tests — in the
-block whose job is to describe and prove what exists. The owner ruled it out.
+So §35's two Companies are both created through the interface, by the platform
+admin, in the same dialog the journey already visits to provision the customer.
+Nothing is inserted behind the product's back, and there is no gap to record.
+
+The five specs that create a second Station with the service key are not wrong
+for doing so — they are testing something else and building fixtures cheaply.
+The acceptance journey is the one place that must not.
 
 ### D5 — Backup is proved, not asserted
 
@@ -153,9 +160,8 @@ a README that repeats the documents is a sixth document that disagrees with them
 
 ## 3. Out of scope
 
-**No migrations, and no new product behaviour.** Not the second-Station screen
-(D4), not a `job_health` screen, not external uptime monitoring or error
-tracking.
+**No migrations, and no new product behaviour.** Not a `job_health` screen, not
+external uptime monitoring, not error tracking.
 
 **Block 9 (the legacy ETL) stays deferred** — the owner has neither the SQL
 Server, nor a dump, nor a schema. **Block 10b (`entitlements` and the `pending`
