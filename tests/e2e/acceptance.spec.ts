@@ -348,8 +348,13 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
 
   await test.step('the draw runs and produces a winner', async () => {
     await ownerPage.getByTestId('promotion-tab-prizes').click();
-    await ownerPage.getByTestId('open-draws').click();
-    await expect(ownerPage).toHaveURL(/\/draws$/);
+    // Waited for rather than clicked straight through: the tab switch is a
+    // client render, and a click that lands before it finishes goes nowhere and
+    // leaves the journey on /promotions with no error to read.
+    const openDraws = ownerPage.getByTestId('open-draws');
+    await expect(openDraws).toBeVisible({ timeout: 15_000 });
+    await openDraws.click();
+    await ownerPage.waitForURL(/\/draws$/, { timeout: 30_000 });
 
     await expect(ownerPage.getByTestId('run-draw-dialog')).toBeVisible();
     await ownerPage.getByTestId('run-draw').click();
