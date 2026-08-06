@@ -26,6 +26,12 @@ master spec's §35 from an empty database to an audited delivery.
 None of them can be done from this repository, and none of them is blocking
 anything that is running today.
 
+**Do them in the order below.** Wiring the alerting before redeploying would work
+exactly as designed and be thoroughly annoying: the worker tick stamps its own
+health from application code that is not deployed yet, so fifteen minutes later
+the first alert to arrive would be `whatsapp-worker-tick has gone quiet` — about
+a queue that is draining perfectly well.
+
 **1. Redeploy the frontend.** The database is ahead of it. Everything Block 11b
 put in the frontend — the Content-Security-Policy and the upload validation — is
 in `main` and not yet in the running container.
