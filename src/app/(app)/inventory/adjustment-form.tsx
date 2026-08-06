@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect } from 'react';
 import { adjustStockAction, type AdjustmentFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ export function AdjustmentForm({
   /** Asks the record to re-read, so the ledger and the balance show this movement. */
   onRecorded?: () => void;
 }) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(adjustStockAction, INITIAL);
 
   useEffect(() => {
@@ -61,24 +63,16 @@ export function AdjustmentForm({
       <input type="hidden" name="prizeId" value={prizeId} />
 
       <p className="text-xs text-muted-foreground">
-        The system currently shows <strong>{physical}</strong> unit(s) physically in the Station,
-        of which <strong>{committed}</strong> unit(s) are already committed (reserved, linked,
-        awaiting pickup or pending return).
-      </p>
+        {t('theSystemCurrentlyShows')}{' '}<strong>{physical}</strong> {t('unitSPhysicallyInTheStation')}{' '}<strong>{committed}</strong> {t('unitSAreAlreadyCommittedReserved')}</p>
 
       <label className="flex flex-col gap-1 text-sm">
-        Counted figure
-        <Input name="counted" type="number" min={0} step={1} required />
+        {t('countedFigure')}<Input name="counted" type="number" min={0} step={1} required />
         <span className="text-xs text-muted-foreground">
-          Count everything physically present in the Station right now, including units already
-          reserved — not the difference from what is booked. The system works out whether that is
-          an increase or a decrease.
-        </span>
+          {t('countEverythingPhysicallyPresentInThe')}</span>
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Note
-        <Textarea name="note" required maxLength={2000} placeholder="Why does the count differ?" />
+        {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whyDoesTheCountDiffer')} />
       </label>
 
       <div className="flex items-center gap-3">
@@ -86,7 +80,7 @@ export function AdjustmentForm({
           {pending ? 'Saving…' : 'Adjust stock'}
         </Button>
         {state.status === 'saved' && (
-          <p className="text-sm text-emerald-700">Adjustment recorded.</p>
+          <p className="text-sm text-emerald-700">{t('adjustmentRecorded')}</p>
         )}
         {state.status === 'no_change' && (
           <p className="text-sm text-muted-foreground">{state.message}</p>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +66,7 @@ export function DrawDetailView({
   receiptUrls: Record<string, string>;
   onAttachReceipt: (winnerId: string, formData: FormData) => Promise<string | null>;
 }) {
+  const t = useTranslations('draws');
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -85,21 +87,21 @@ export function DrawDetailView({
   return (
     <section className="space-y-6" data-testid="draw-detail">
       <header className="space-y-1">
-        <h2 className="text-lg font-semibold">Draw of {formatInstant(draw.drawnAt, timeZone)}</h2>
+        <h2 className="text-lg font-semibold">{t('drawOf')}{' '}{formatInstant(draw.drawnAt, timeZone)}</h2>
         <p className="text-sm text-muted-foreground">
-          {draw.entryCount} entr{draw.entryCount === 1 ? 'y' : 'ies'} in the hat ·{' '}
-          {draw.winners.length} prize{draw.winners.length === 1 ? '' : 's'}
+          {draw.entryCount} {t('entr')}{draw.entryCount === 1 ? 'y' : 'ies'} {t('inTheHat')}{' '}
+          {draw.winners.length} {t('prize')}{draw.winners.length === 1 ? '' : 's'}
         </p>
         {cancelled ? (
           <p className="text-sm font-medium text-destructive" data-testid="draw-cancelled">
-            Cancelled on {draw.cancelledAt ? formatInstant(draw.cancelledAt, timeZone) : ''}
+            {t('cancelledOn')}{' '}{draw.cancelledAt ? formatInstant(draw.cancelledAt, timeZone) : ''}
             {draw.cancellationReason ? ` — ${draw.cancellationReason}` : ''}
           </p>
         ) : null}
       </header>
 
       <div>
-        <h3 className="mb-2 font-medium">Winners</h3>
+        <h3 className="mb-2 font-medium">{t('winners')}</h3>
         <ol className="space-y-1" data-testid="draw-winners">
           {draw.winners.map((winner) => (
             <li key={winner.id} className="border-b py-2">
@@ -122,16 +124,14 @@ export function DrawDetailView({
                     className="underline"
                     data-testid="winner-receipt"
                   >
-                    View receipt
-                  </a>
+                    {t('viewReceipt')}</a>
                 ) : winner.receiptErasedAt ? (
                   // Not the same as never having had one, and the screen says so:
                   // the listener asked to be erased and the object is gone.
                   <span data-testid="winner-receipt-erased">
-                    receipt erased at the listener&apos;s request
-                  </span>
+                    {t('receiptErasedAtTheListenerS')}</span>
                 ) : (
-                  <span data-testid="winner-no-receipt">no receipt</span>
+                  <span data-testid="winner-no-receipt">{t('noReceipt')}</span>
                 )}
               </p>
 
@@ -165,14 +165,12 @@ export function DrawDetailView({
       </div>
 
       <div className="rounded border p-3 text-sm">
-        <h3 className="mb-1 font-medium">How to check this draw</h3>
+        <h3 className="mb-1 font-medium">{t('howToCheckThisDraw')}</h3>
         <p className="text-muted-foreground">
-          Rank the entries by <code>sha256(seed + &quot;:&quot; + participation id)</code> and walk
-          the list, skipping anybody already awarded. The runbook has the whole recipe.
-        </p>
+          {t('rankTheEntriesBy')}{' '}<code>{t('sha256SeedParticipationId')}</code> {t('andWalkTheListSkippingAnybody')}</p>
         <dl className="mt-2 space-y-1">
           <div className="flex gap-2">
-            <dt className="font-medium">Seed</dt>
+            <dt className="font-medium">{t('seed')}</dt>
             <dd>
               <code data-testid="draw-seed" className="break-all">
                 {draw.seed}
@@ -180,7 +178,7 @@ export function DrawDetailView({
             </dd>
           </div>
           <div className="flex gap-2">
-            <dt className="font-medium">Algorithm</dt>
+            <dt className="font-medium">{t('algorithm')}</dt>
             <dd data-testid="draw-algorithm-version">v{draw.algorithmVersion}</dd>
           </div>
         </dl>
@@ -189,12 +187,11 @@ export function DrawDetailView({
       {canCancel && !cancelled ? (
         <div className="space-y-2 border-t pt-4">
           <label className="block text-sm font-medium" htmlFor="cancel-reason">
-            Cancel this draw
-          </label>
+            {t('cancelThisDraw')}</label>
           <Input
             id="cancel-reason"
             value={reason}
-            placeholder="Why it is being cancelled"
+            placeholder={t('whyItIsBeingCancelled')}
             onChange={(event) => setReason(event.target.value)}
           />
           <Button
@@ -232,6 +229,7 @@ function ReceiptForm({
   winnerId: string;
   onAttach: (winnerId: string, formData: FormData) => Promise<string | null>;
 }) {
+  const t = useTranslations('draws');
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -251,7 +249,7 @@ function ReceiptForm({
         // Block 11b. Convenience, not a defence: it filters the file picker.
         // What refuses a wrong file is the action, and behind it the bucket.
         accept={RECEIPT_ACCEPT}
-        aria-label="Receipt of the handover"
+        aria-label={t('receiptOfTheHandover')}
         data-testid="receipt-input"
         className="text-sm"
       />

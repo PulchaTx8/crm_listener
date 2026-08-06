@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -29,6 +30,7 @@ export function SongsFilters({
   artists: ReferenceSummary[];
   genres: ReferenceSummary[];
 }) {
+  const t = useTranslations('music');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   // Re-synced from the URL so browser back/forward leaves this input agreeing
@@ -50,7 +52,7 @@ export function SongsFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="songs-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Search</span>
+        <span className="text-muted-foreground">{t('search')}</span>
         <Input
           type="search"
           value={search}
@@ -59,20 +61,20 @@ export function SongsFilters({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Title or code"
-          aria-label="Search songs by title or code"
+          placeholder={t('titleOrCode')}
+          aria-label={t('searchSongsByTitleOrCode')}
           data-testid="song-search-input"
         />
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Artist</span>
+        <span className="text-muted-foreground">{t('artist')}</span>
         <Select
           value={state.artistId ?? ALL_ARTISTS}
           onChange={(e) => navigate({ artistId: e.target.value || undefined })}
           data-testid="song-artist-filter"
         >
-          <option value={ALL_ARTISTS}>All artists</option>
+          <option value={ALL_ARTISTS}>{t('allArtists')}</option>
           {artists.map((artist) => (
             <option key={artist.id} value={artist.id}>
               {artist.name}
@@ -82,13 +84,13 @@ export function SongsFilters({
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Genre</span>
+        <span className="text-muted-foreground">{t('genre')}</span>
         <Select
           value={state.genreId ?? ALL_GENRES}
           onChange={(e) => navigate({ genreId: e.target.value || undefined })}
           data-testid="song-genre-filter"
         >
-          <option value={ALL_GENRES}>All genres</option>
+          <option value={ALL_GENRES}>{t('allGenres')}</option>
           {genres.map((genre) => (
             <option key={genre.id} value={genre.id}>
               {genre.name}
@@ -110,8 +112,7 @@ export function SongsFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="song-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

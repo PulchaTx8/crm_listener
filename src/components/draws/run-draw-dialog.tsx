@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,6 +91,7 @@ export function RunDrawDialog({
   onRun: (units: DrawUnitRequest[] | null) => Promise<string | null>;
   disabled?: boolean;
 }) {
+  const t = useTranslations('draws');
   const [choices, setChoices] = useState<DrawUnitChoice[]>(linked);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -117,8 +119,7 @@ export function RunDrawDialog({
             <span>
               {unit.prizeName}
               <span className="ml-2 text-sm text-muted-foreground">
-                {unit.available} left to draw
-              </span>
+                {unit.available} {t('leftToDraw')}</span>
             </span>
             <Input
               type="number"

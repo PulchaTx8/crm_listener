@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { DrawDetailView } from '@/components/draws/draw-detail';
@@ -42,14 +43,14 @@ export function DrawsScreen({
   winnerPowers: WinnerPowers;
   receiptUrls: Record<string, string>;
 }) {
+  const t = useTranslations('promotions');
   return (
     <div className="grid gap-6 md:grid-cols-[16rem_1fr]">
       <aside className="space-y-3">
-        <h2 className="font-medium">Draws</h2>
+        <h2 className="font-medium">{t('draws')}</h2>
         {draws.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="no-draws">
-            This promotion has not been drawn yet.
-          </p>
+            {t('thisPromotionHasNotBeenDrawn')}</p>
         ) : (
           <ul className="space-y-1" data-testid="draw-list">
             {draws.map((draw) => (
@@ -62,7 +63,7 @@ export function DrawsScreen({
                 >
                   {formatInstant(draw.drawnAt, timeZone)}
                   <span className="ml-1 text-muted-foreground">
-                    · {draw.winnerCount} prize{draw.winnerCount === 1 ? '' : 's'}
+                    · {draw.winnerCount} {t('prize2')}{draw.winnerCount === 1 ? '' : 's'}
                     {draw.status === 'CANCELLED' ? ' · cancelled' : ''}
                   </span>
                 </Link>
@@ -74,7 +75,7 @@ export function DrawsScreen({
         {canDraw ? (
           linked.length > 0 ? (
             <div className="border-t pt-3">
-              <h3 className="mb-2 font-medium">New draw</h3>
+              <h3 className="mb-2 font-medium">{t('newDraw')}</h3>
               <RunDrawDialog
                 linked={linked}
                 onRun={(units: DrawUnitRequest[] | null) => runDrawAction(promotionId, units)}
@@ -82,8 +83,7 @@ export function DrawsScreen({
             </div>
           ) : (
             <p className="border-t pt-3 text-sm text-muted-foreground" data-testid="nothing-to-draw">
-              There are no linked units left to draw.
-            </p>
+              {t('thereAreNoLinkedUnitsLeft')}</p>
           )
         ) : null}
       </aside>
@@ -105,7 +105,7 @@ export function DrawsScreen({
             }
           />
         ) : (
-          <p className="text-sm text-muted-foreground">No draw selected.</p>
+          <p className="text-sm text-muted-foreground">{t('noDrawSelected')}</p>
         )}
       </div>
     </div>

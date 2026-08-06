@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,7 @@ export function SongRecordDialog({
   /** Every successful read of a record, which is how a song registered a moment ago gets its row: the grid opens the new record and takes the row from this read rather than a second one of its own. */
   onLoaded?: (song: SongSummary) => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [record, setRecord] = useState<SongRecord | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export function SongRecordDialog({
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -113,7 +115,7 @@ export function SongRecordDialog({
       </DialogHeader>
 
       {record && (
-        <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+        <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
           {SONG_TABS.map((name) => (
             <button
               key={name}
@@ -134,14 +136,13 @@ export function SongRecordDialog({
       )}
 
       <DialogBody>
-        {loading && <p className="text-sm text-muted-foreground">Loading the record…</p>}
+        {loading && <p className="text-sm text-muted-foreground">{t('loadingTheRecord')}</p>}
 
         {failure && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm text-destructive">{failure}</p>
             <Button type="button" variant="outline" onClick={() => setReloadToken((n) => n + 1)}>
-              Try again
-            </Button>
+              {t('tryAgain')}</Button>
           </div>
         )}
 
@@ -163,9 +164,7 @@ export function SongRecordDialog({
             ) : (
               <div className="flex flex-col gap-4">
                 <p className="text-sm text-muted-foreground">
-                  You do not hold music.manage at this Station, so this song can be read here but
-                  not edited.
-                </p>
+                  {t('youDoNotHoldMusicManage2')}</p>
                 <SongFields
                   song={record.song}
                   artists={artists}
@@ -181,8 +180,7 @@ export function SongRecordDialog({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={requestClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -208,6 +206,7 @@ function SongDataForm({
   onDirty: (dirty: boolean) => void;
   onSaved: (song: SongSummary) => void;
 }) {
+  const t = useTranslations('music');
   const [state, action, pending] = useActionState(updateSongAction, INITIAL_SAVE);
 
   useEffect(() => {
@@ -231,7 +230,7 @@ function SongDataForm({
           {pending ? 'Saving…' : 'Save'}
         </Button>
         {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
-        {state.status === 'saved' && <span className="text-sm text-muted-foreground">Saved.</span>}
+        {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}
       </div>
     </form>
   );

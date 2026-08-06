@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -28,6 +29,7 @@ export function RegisterPromotionForm({
   onClose: () => void;
   onCreated: (promotionId: string) => void;
 }) {
+  const t = useTranslations('promotions');
   const titleId = useId();
   const [state, action, pending] = useActionState(createPromotionAction, INITIAL);
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
@@ -41,7 +43,7 @@ export function RegisterPromotionForm({
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Register a promotion</DialogTitle>
+        <DialogTitle id={titleId}>{t('registerAPromotion')}</DialogTitle>
       </DialogHeader>
       <form action={action}>
         <DialogBody>
@@ -76,8 +78,7 @@ export function RegisterPromotionForm({
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
+            {t('cancel')}</Button>
           <Button type="submit" disabled={pending} data-testid="promotion-create-submit">
             {pending ? 'Registering…' : 'Register'}
           </Button>

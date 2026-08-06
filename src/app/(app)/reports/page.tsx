@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { listMyReportRuns } from '@/services/reports';
@@ -18,12 +19,13 @@ export const dynamic = 'force-dynamic';
  * it in the database regardless.
  */
 export default async function ReportsPage() {
+  const t = await getTranslations('reports');
   const runs = await listMyReportRuns();
 
   return (
     <>
       <PageHeader
-        title="My reports"
+        title={t('myReports')}
         description="Exports you have asked for. A file is kept for seven days, then erased — the record of the export stays."
       />
       <Card>

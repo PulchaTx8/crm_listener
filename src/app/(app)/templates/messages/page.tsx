@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -23,6 +24,7 @@ export default async function SystemMessagesPage({
 }: {
   searchParams: Promise<{ companyId?: string; station?: string }>;
 }) {
+  const t = await getTranslations('templates');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -79,7 +81,7 @@ export default async function SystemMessagesPage({
   return (
     <>
       <PageHeader
-        title="Messages"
+        title={t('messages')}
         description="Everything the bot says on its own — in this Station’s words, or the system’s."
       />
 
@@ -87,9 +89,7 @@ export default async function SystemMessagesPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/templates/messages"
@@ -119,7 +119,7 @@ export default async function SystemMessagesPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -135,9 +135,7 @@ export default async function SystemMessagesPage({
         the bot's voice away from every listener at this Station.
       */}
       <p className="mb-4 text-sm text-muted-foreground">
-        These are read by listeners on WhatsApp, so they are written in Portuguese. A text you have
-        not changed sends the system default, and restoring it is always one button away.
-      </p>
+        {t('theseAreReadByListenersOn')}</p>
 
       <SystemMessageList
         rows={rows}
@@ -149,31 +147,32 @@ export default async function SystemMessagesPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('templates');
   return (
     <>
-      <PageHeader title="Messages" />
+      <PageHeader title={t('messages')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link
             href="/templates/messages"
             className="text-sm text-primary underline underline-offset-2"
           >
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('templates');
   return (
     <>
-      <PageHeader title="Messages" />
+      <PageHeader title={t('messages')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

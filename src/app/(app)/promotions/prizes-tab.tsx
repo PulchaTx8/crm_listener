@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -58,6 +59,7 @@ export function PrizesTab({
   canLink: boolean;
   onSaved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [linking, setLinking] = useState(false);
 
   return (
@@ -88,14 +90,11 @@ export function PrizesTab({
         className="self-start text-sm underline"
         data-testid="open-draws"
       >
-        Draws of this promotion →
-      </Link>
+        {t('drawsOfThisPromotion')}</Link>
 
       {prizes.length === 0 && !linking && (
         <p className="text-sm text-muted-foreground">
-          No prize is linked to this promotion yet. A promotion can run without one, but nothing can
-          be drawn from it.
-        </p>
+          {t('noPrizeIsLinkedToThis')}</p>
       )}
 
       {prizes.length > 0 && (
@@ -103,10 +102,10 @@ export function PrizesTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Prize</th>
-                <th className="px-3 py-2 font-medium">Linked</th>
-                <th className="px-3 py-2 font-medium">Drawn</th>
-                <th className="px-3 py-2 font-medium">Left</th>
+                <th className="px-3 py-2 font-medium">{t('prize')}</th>
+                <th className="px-3 py-2 font-medium">{t('linked')}</th>
+                <th className="px-3 py-2 font-medium">{t('drawn')}</th>
+                <th className="px-3 py-2 font-medium">{t('left')}</th>
                 {/* The header text is hidden, not the header cell: `sr-only` is
                     `position: absolute`, so putting it on the `th` itself takes
                     the cell out of the table's column algorithm and leaves a
@@ -115,7 +114,7 @@ export function PrizesTab({
                     a screen reader can announce. */}
                 {canLink && (
                   <th className="px-3 py-2 font-medium">
-                    <span className="sr-only">Return to stock</span>
+                    <span className="sr-only">{t('returnToStock')}</span>
                   </th>
                 )}
               </tr>
@@ -163,8 +162,7 @@ export function PrizesTab({
             onClick={() => setLinking(true)}
             data-testid="prize-link-open"
           >
-            Link a prize
-          </Button>
+            {t('linkAPrize')}</Button>
         </div>
       )}
 
@@ -182,9 +180,7 @@ export function PrizesTab({
 
       {!canLink && (
         <p className="text-sm text-muted-foreground">
-          You do not hold promotions.prizes at this Station, so what is linked can be read here but
-          not changed.
-        </p>
+          {t('youDoNotHoldPromotionsPrizes')}</p>
       )}
     </div>
   );
@@ -222,6 +218,7 @@ function UnlinkControl({
   free: number;
   onSaved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [state, action, pending] = useActionState(unlinkPrizeAction, INITIAL);
   const [quantity, setQuantity] = useState('1');
 
@@ -231,7 +228,7 @@ function UnlinkControl({
   }, [state]);
 
   if (free === 0) {
-    return <span className="text-xs text-muted-foreground">All drawn</span>;
+    return <span className="text-xs text-muted-foreground">{t('allDrawn')}</span>;
   }
 
   return (
@@ -281,6 +278,7 @@ function LinkForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [state, action, pending] = useActionState(linkPrizeAction, INITIAL);
   const [search, setSearch] = useState('');
   const [options, setOptions] = useState<LinkablePrize[]>([]);
@@ -334,23 +332,22 @@ function LinkForm({
       <input type="hidden" name="promotionId" value={promotionId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Find a prize</span>
+        <span className="text-muted-foreground">{t('findAPrize')}</span>
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Part of the name"
+          placeholder={t('partOfTheName')}
           data-testid="prize-link-search"
         />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Prize</span>
+        <span className="text-muted-foreground">{t('prize')}</span>
         <Select name="prizeId" required data-testid="prize-link-select">
-          <option value="">Choose a prize…</option>
+          <option value="">{t('chooseAPrize')}</option>
           {options.map((prize) => (
             <option key={prize.prizeId} value={prize.prizeId}>
-              {prize.name} — {prize.available} available
-            </option>
+              {prize.name} — {prize.available} {t('available')}</option>
           ))}
         </Select>
         {/* No silent caps: a list that stops must say so, or an operator
@@ -361,15 +358,15 @@ function LinkForm({
             told about a truncation that did not happen. */}
         {cut && (
           <span className="text-xs text-muted-foreground" data-testid="prize-link-cut">
-            Showing the first {LINKABLE_PRIZE_PAGE_SIZE}. Narrow the search to reach the rest.
+            {t('showingTheFirst')}{' '}{LINKABLE_PRIZE_PAGE_SIZE}. Narrow the search to reach the rest.
           </span>
         )}
-        {loading && <span className="text-xs text-muted-foreground">Looking…</span>}
+        {loading && <span className="text-xs text-muted-foreground">{t('looking')}</span>}
         {failure && <span className="text-xs text-destructive">{failure}</span>}
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Units</span>
+        <span className="text-muted-foreground">{t('units')}</span>
         <Input
           name="quantity"
           type="number"
@@ -389,8 +386,7 @@ function LinkForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <Button type="submit" disabled={pending} data-testid="prize-link-save">
           {pending ? 'Linking…' : 'Link'}
         </Button>

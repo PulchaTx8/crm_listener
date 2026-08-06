@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import {
   PageControls,
@@ -72,6 +73,7 @@ export function PickupsGrid({
   ) => Promise<PickupActionResult>;
   onReopen: (winnerId: string, deadlineAt: string, reason: string) => Promise<PickupActionResult>;
 }) {
+  const t = useTranslations('pickups');
   const [grid, setGrid] = useState<RowState<PickupGridRow>>({
     rows: initialRows.map(toGridRow),
     total: initialTotal,
@@ -129,25 +131,24 @@ export function PickupsGrid({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Listener</TableHead>
-            <TableHead>Prize</TableHead>
-            <TableHead>Promotion</TableHead>
-            <TableHead>Status</TableHead>
+            <TableHead>{t('listener')}</TableHead>
+            <TableHead>{t('prize')}</TableHead>
+            <TableHead>{t('promotion')}</TableHead>
+            <TableHead>{t('status')}</TableHead>
             {/* No sort control: listPickups orders by (deadline_at, id)
                 ascending, fixed, because that is exactly what list_pickups
                 (0095) is written to serve and a keyset cursor must compare
                 precisely the columns it orders by — the same reasoning
                 participations-grid.tsx states for its own fixed ordering. */}
-            <TableHead aria-sort="ascending">Deadline</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableHead aria-sort="ascending">{t('deadline')}</TableHead>
+            <TableHead>{t('actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {grid.rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={COLUMN_COUNT} className="py-8 text-center text-muted-foreground">
-                No prize matches these filters.
-              </TableCell>
+                {t('noPrizeMatchesTheseFilters')}</TableCell>
             </TableRow>
           ) : (
             grid.rows.map((row) => {
@@ -256,7 +257,8 @@ function DeadlineText({
   status: PickupRow['status'];
   timeZone: string;
 }) {
-  if (!deadlineAt) return <span>no deadline</span>;
+  const t = useTranslations('pickups');
+  if (!deadlineAt) return <span>{t('noDeadline')}</span>;
 
   const clock = describeDeadline(deadlineAt, status);
   const overdue = clock.startsWith('overdue');

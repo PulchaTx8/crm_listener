@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ import { downloadReportAction } from './actions';
  * read these rows.
  */
 export function RunsTable({ runs }: { runs: ReportRun[] }) {
+  const t = useTranslations('reports');
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -66,8 +68,7 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
   if (runs.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No reports yet. Use the Export button on any listing screen or dashboard.
-      </p>
+        {t('noReportsYetUseTheExport')}</p>
     );
   }
 
@@ -82,12 +83,12 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Report</TableHead>
-            <TableHead>Format</TableHead>
-            <TableHead>Requested</TableHead>
-            <TableHead>Rows</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>File</TableHead>
+            <TableHead>{t('report')}</TableHead>
+            <TableHead>{t('format')}</TableHead>
+            <TableHead>{t('requested')}</TableHead>
+            <TableHead>{t('rows')}</TableHead>
+            <TableHead>{t('status')}</TableHead>
+            <TableHead>{t('file')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -97,7 +98,7 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
                 {REPORT_TYPE_LABELS[run.report_type as ReportType] ?? run.report_type}
                 {run.withheld.length > 0 ? (
                   <span className="block text-xs text-muted-foreground">
-                    withheld: {run.withheld.join(', ')}
+                    {t('withheld')}{' '}{run.withheld.join(', ')}
                   </span>
                 ) : null}
               </TableCell>
@@ -123,7 +124,7 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
                   // and the bytes do not (0128). Saying "expired" rather than
                   // hiding the row is the point -- the record of who exported
                   // what is the part that must not disappear.
-                  <span className="text-xs text-muted-foreground">expired</span>
+                  <span className="text-xs text-muted-foreground">{t('expired')}</span>
                 ) : (
                   <span className="text-xs text-muted-foreground">—</span>
                 )}
@@ -137,17 +138,17 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
 }
 
 function StatusCell({ run }: { run: ReportRun }) {
+  const t = useTranslations('reports');
   if (run.status === 'FAILED') {
     return (
       <span className="text-sm text-destructive" title={run.last_error ?? undefined}>
-        Failed
-        {run.last_error ? (
+        {t('failed')}{run.last_error ? (
           <span className="block text-xs font-normal">{run.last_error}</span>
         ) : null}
       </span>
     );
   }
-  if (run.status === 'QUEUED') return <span className="text-sm">Queued…</span>;
-  if (run.status === 'RUNNING') return <span className="text-sm">Generating…</span>;
-  return <span className="text-sm">Ready</span>;
+  if (run.status === 'QUEUED') return <span className="text-sm">{t('queued')}</span>;
+  if (run.status === 'RUNNING') return <span className="text-sm">{t('generating')}</span>;
+  return <span className="text-sm">{t('ready')}</span>;
 }

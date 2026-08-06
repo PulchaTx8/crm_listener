@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import {
   PageControls,
   Table,
@@ -52,6 +53,7 @@ export function ParticipationsGrid({
   previousHref: string | null;
   nextHref: string | null;
 }) {
+  const t = useTranslations('participations');
   return (
     <div className="mt-4 rounded-lg border">
       <Table>
@@ -64,16 +66,16 @@ export function ParticipationsGrid({
                 it orders by. `aria-sort` on the Entered column states that
                 ordering to assistive technology even though no control changes
                 it — the table IS sorted, it simply cannot be re-sorted. */}
-            <TableHead>Listener</TableHead>
-            <TableHead>Promotion</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Source</TableHead>
-            <TableHead aria-sort="descending">Entered</TableHead>
+            <TableHead>{t('listener')}</TableHead>
+            <TableHead>{t('promotion')}</TableHead>
+            <TableHead>{t('status')}</TableHead>
+            <TableHead>{t('source')}</TableHead>
+            <TableHead aria-sort="descending">{t('entered')}</TableHead>
             {/* Block 6c. Somebody who has already won here is not in the next
                 round's hat (0076), so their row vanishes between rounds. This
                 column is what turns that into something an operator can see
                 coming rather than something they notice afterwards. */}
-            <TableHead>Won here</TableHead>
+            <TableHead>{t('wonHere')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -84,8 +86,7 @@ export function ParticipationsGrid({
                     because there is always at least one filter on: the status
                     defaults to the entries that counted, and the note above this
                     table says so. */}
-                No entry matches these filters.
-              </TableCell>
+                {t('noEntryMatchesTheseFilters')}</TableCell>
             </TableRow>
           ) : (
             rows.map((entry) => (

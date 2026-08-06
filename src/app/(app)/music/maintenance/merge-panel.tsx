@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useReducer, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
@@ -190,6 +191,7 @@ export function MergePanel({
   candidates: MergeCandidate[];
   canMerge: boolean;
 }) {
+  const t = useTranslations('music');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   // Re-synced from the URL so browser back/forward leaves this input
@@ -235,14 +237,14 @@ export function MergePanel({
           className="rounded-md border border-dashed p-3 text-sm text-muted-foreground"
           data-testid="maintenance-readonly-notice"
         >
-          You can see this Station&apos;s {kindLabel}, but merging them needs a permission you do
-          not hold here — <strong>music.merge</strong>. Ask somebody who holds it to collapse the
+          {t('youCanSeeThisStationS')}{' '}{kindLabel}, but merging them needs a permission you do
+          not hold here — <strong>{t('musicMerge')}</strong>. Ask somebody who holds it to collapse the
           duplicates, or to grant it to you.
         </p>
       )}
 
       <label className="flex w-72 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Search {kindLabel}</span>
+        <span className="text-muted-foreground">{t('search')}{' '}{kindLabel}</span>
         <Input
           type="search"
           value={search}
@@ -251,7 +253,7 @@ export function MergePanel({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Name"
+          placeholder={t('name')}
           aria-label={`Search ${kindLabel} by name`}
           data-testid="maintenance-search-input"
         />
@@ -263,10 +265,10 @@ export function MergePanel({
             <TableRow>
               {canMerge && (
                 <TableHead>
-                  <span className="sr-only">Stage for merge</span>
+                  <span className="sr-only">{t('stageForMerge')}</span>
                 </TableHead>
               )}
-              <TableHead>Name</TableHead>
+              <TableHead>{t('name')}</TableHead>
               {/* Uppercased by TableHead's own CSS regardless of the case
                   passed in — no need to capitalise CHILD_NOUN by hand. */}
               <TableHead>{CHILD_NOUN[state.kind]}</TableHead>
@@ -315,7 +317,7 @@ export function MergePanel({
 
       {canMerge && staging.staged.length > 0 && (
         <div className="rounded-md border p-3" data-testid="maintenance-staging-area">
-          <h3 className="mb-2 text-sm font-medium">Staged for merge</h3>
+          <h3 className="mb-2 text-sm font-medium">{t('stagedForMerge')}</h3>
           <ul className="flex flex-col divide-y">
             {staging.staged.map((candidate) => (
               <li
@@ -350,15 +352,13 @@ export function MergePanel({
                   onClick={() => dispatch({ type: 'remove', id: candidate.id })}
                   data-testid="maintenance-staging-remove"
                 >
-                  Remove
-                </Button>
+                  {t('remove')}</Button>
               </li>
             ))}
           </ul>
           {staging.survivorId === null && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Pick which one stays — the radio beside its name.
-            </p>
+              {t('pickWhichOneStaysTheRadio')}</p>
           )}
         </div>
       )}
@@ -384,13 +384,13 @@ export function MergePanel({
           }}
         >
           <label className="flex w-full max-w-xl flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Reason</span>
+            <span className="text-muted-foreground">{t('reason')}</span>
             <Textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               maxLength={MERGE_REASON_MAX_LENGTH}
               required
-              placeholder="Say why these are the same record — this is kept as history."
+              placeholder={t('sayWhyTheseAreTheSame')}
               data-testid="maintenance-reason"
             />
           </label>
@@ -404,8 +404,7 @@ export function MergePanel({
             disabled={!canSubmitMerge(staging)}
             data-testid="maintenance-merge-button"
           >
-            Merge…
-          </Button>
+            {t('merge')}</Button>
           {lastFailure && (
             <p className="text-sm text-destructive" data-testid="maintenance-merge-last-error">
               {lastFailure}
@@ -474,6 +473,7 @@ function ConfirmMergeDialog({
   onFailed: (message: string) => void;
   onDone: () => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [state, action, pending] = useActionState(mergeRecordsAction, INITIAL_MERGE);
 
@@ -502,13 +502,11 @@ function ConfirmMergeDialog({
       <DialogFooter>
         {state.ok === true ? (
           <Button type="button" onClick={onDone} data-testid="maintenance-merge-done">
-            Done
-          </Button>
+            {t('done')}</Button>
         ) : (
           <>
             <Button type="button" variant="outline" onClick={onCancel}>
-              Cancel
-            </Button>
+              {t('cancel')}</Button>
             <form action={action}>
               <input type="hidden" name="companyId" value={companyId} />
               <input type="hidden" name="kind" value={kind} />

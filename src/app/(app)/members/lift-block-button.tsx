@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState } from 'react';
 import { liftMemberBlockAction, type LiftBlockFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ export function LiftBlockButton({
   /** Asks the record to re-read, so the row above gains its "Lifted" line. */
   onLifted?: () => void;
 }) {
+  const t = useTranslations('members');
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(liftMemberBlockAction, INITIAL);
 
@@ -35,14 +37,13 @@ export function LiftBlockButton({
   }, [state]);
 
   if (state.status === 'saved') {
-    return <p className="text-xs text-emerald-700">Lifted.</p>;
+    return <p className="text-xs text-emerald-700">{t('lifted')}</p>;
   }
 
   if (!open) {
     return (
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        Lift this block
-      </Button>
+        {t('liftThisBlock')}</Button>
     );
   }
 
@@ -50,16 +51,14 @@ export function LiftBlockButton({
     <form action={action} data-testid="lift-block-form" className="flex flex-col gap-2">
       <input type="hidden" name="blockId" value={blockId} />
       <label className="flex flex-col gap-1 text-xs">
-        Reason for lifting it now
-        <Input name="reason" required maxLength={2000} className="h-9 text-sm" />
+        {t('reasonForLiftingItNow')}<Input name="reason" required maxLength={2000} className="h-9 text-sm" />
       </label>
       <div className="flex items-center gap-2">
         <Button type="submit" size="sm" disabled={pending}>
           {pending ? 'Saving…' : 'Confirm lift'}
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
       </div>
       {state.status === 'error' && <p className="text-xs text-destructive">{state.message}</p>}
     </form>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -79,6 +80,7 @@ export function MembersGrid({
   suspendedStations: SuspendedCompany[];
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('members');
   const [grid, setGrid] = useState<RowState<MemberListRow>>({
     rows: initialRows,
     total: initialTotal,
@@ -160,8 +162,7 @@ export function MembersGrid({
       {powers.create && (
         <div className="mt-4 flex justify-end">
           <Button type="button" onClick={() => setRegistering(true)} data-testid="member-create">
-            Register listener
-          </Button>
+            {t('registerListener')}</Button>
         </div>
       )}
 
@@ -175,25 +176,23 @@ export function MembersGrid({
                   active={nameSorted}
                   direction={nameSorted ? state.direction : 'asc'}
                 >
-                  Name
-                </SortLink>
+                  {t('name')}</SortLink>
               </TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>E-mail</TableHead>
+              <TableHead>{t('phone')}</TableHead>
+              <TableHead>{t('eMail')}</TableHead>
               <TableHead>CPF</TableHead>
-              <TableHead>Age</TableHead>
-              <TableHead>City</TableHead>
+              <TableHead>{t('age')}</TableHead>
+              <TableHead>{t('city')}</TableHead>
               <TableHead aria-sort={ariaSort(registeredSorted)}>
                 <SortLink
                   href={sortHrefFor(state, 'created')}
                   active={registeredSorted}
                   direction={registeredSorted ? state.direction : 'desc'}
                 >
-                  Registered
-                </SortLink>
+                  {t('registered')}</SortLink>
               </TableHead>
-              <TableHead>Block state</TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead>{t('blockState')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -234,8 +233,7 @@ export function MembersGrid({
                           data-testid="member-blocked-badge"
                           className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive"
                         >
-                          Blocked
-                        </span>
+                          {t('blocked')}</span>
                       ) : (
                         '—'
                       )}
@@ -261,21 +259,18 @@ export function MembersGrid({
                           >
                             {powers.block && (
                               <DropdownMenuItem onSelect={() => open(member.id, 'blocks')}>
-                                Block listener…
-                              </DropdownMenuItem>
+                                {t('blockListener')}</DropdownMenuItem>
                             )}
                             {powers.archive && (
                               <DropdownMenuItem onSelect={() => setArchiving(member)}>
-                                Archive listener…
-                              </DropdownMenuItem>
+                                {t('archiveListener')}</DropdownMenuItem>
                             )}
                             {powers.erase && (powers.block || powers.archive) && (
                               <DropdownMenuSeparator />
                             )}
                             {powers.erase && (
                               <DropdownMenuItem destructive onSelect={() => open(member.id, 'data')}>
-                                Erase personal data…
-                              </DropdownMenuItem>
+                                {t('erasePersonalData')}</DropdownMenuItem>
                             )}
                           </DropdownMenu>
                         )}
@@ -376,6 +371,7 @@ function ArchiveDialog({
   onCancel: () => void;
   onArchived: (id: string) => void;
 }) {
+  const t = useTranslations('members');
   const titleId = useId();
   const [state, action, pending] = useActionState(archiveMemberAction, INITIAL_ARCHIVE);
 
@@ -387,25 +383,23 @@ function ArchiveDialog({
   return (
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Archive this listener?</DialogTitle>
+        <DialogTitle id={titleId}>{t('archiveThisListener')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          {displayName(member)} leaves every list in the app.{' '}
-          <strong>This cannot be undone here</strong> — not by you, not by support. Only direct
+          {displayName(member)} {t('leavesEveryListInTheApp')}{' '}
+          <strong>{t('thisCannotBeUndoneHere')}</strong> — not by you, not by support. Only direct
           database access can restore it.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
-          To bar someone from draws without archiving, use Block instead.
-        </p>
+          {t('toBarSomeoneFromDrawsWithout')}</p>
         {state.status === 'error' && (
           <p className="mt-3 text-sm text-destructive">{state.message}</p>
         )}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="memberId" value={member.id} />
           <Button type="submit" disabled={pending} data-testid="member-archive-confirm">
@@ -432,11 +426,12 @@ function RegisterDialog({
   onRegistered: (memberId: string) => void;
   onOpenExisting: (memberId: string) => void;
 }) {
+  const t = useTranslations('members');
   const titleId = useId();
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Register a listener</DialogTitle>
+        <DialogTitle id={titleId}>{t('registerAListener')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         {/* Still two steps inside the dialog: the duplicate check first, the

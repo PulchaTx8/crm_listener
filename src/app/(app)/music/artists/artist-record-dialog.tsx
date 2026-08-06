@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -68,6 +69,7 @@ export function ArtistRecordDialog({
   /** Every successful read of a record, which is how an artist registered a moment ago gets its row: the grid opens the new record and takes the row from this read rather than a second one of its own. */
   onLoaded?: (artist: ArtistSummary) => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [record, setRecord] = useState<ArtistRecord | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -123,7 +125,7 @@ export function ArtistRecordDialog({
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -131,7 +133,7 @@ export function ArtistRecordDialog({
       </DialogHeader>
 
       {record && (
-        <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+        <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
           {ARTIST_TABS.map((name) => (
             <button
               key={name}
@@ -152,14 +154,13 @@ export function ArtistRecordDialog({
       )}
 
       <DialogBody>
-        {loading && <p className="text-sm text-muted-foreground">Loading the record…</p>}
+        {loading && <p className="text-sm text-muted-foreground">{t('loadingTheRecord')}</p>}
 
         {failure && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm text-destructive">{failure}</p>
             <Button type="button" variant="outline" onClick={() => setReloadToken((n) => n + 1)}>
-              Try again
-            </Button>
+              {t('tryAgain')}</Button>
           </div>
         )}
 
@@ -178,9 +179,7 @@ export function ArtistRecordDialog({
             ) : (
               <div className="flex flex-col gap-4">
                 <p className="text-sm text-muted-foreground">
-                  You do not hold music.manage at this Station, so this artist can be read here but
-                  not edited.
-                </p>
+                  {t('youDoNotHoldMusicManage')}</p>
                 <ArtistReadOnlyFields artist={record.artist} />
               </div>
             )}
@@ -192,8 +191,7 @@ export function ArtistRecordDialog({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={requestClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -214,6 +212,7 @@ function ArtistDataForm({
   onDirty: (dirty: boolean) => void;
   onSaved: (artist: ArtistSummary) => void;
 }) {
+  const t = useTranslations('music');
   const [state, action, pending] = useActionState(updateArtistAction, INITIAL_SAVE);
 
   useEffect(() => {
@@ -231,7 +230,7 @@ function ArtistDataForm({
       <input type="hidden" name="artistId" value={artist.id} />
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Name</span>
+        <span className="text-muted-foreground">{t('name')}</span>
         <Input name="name" defaultValue={artist.name} required maxLength={160} />
       </label>
 
@@ -251,17 +250,16 @@ function ArtistDataForm({
         top of that, not the boundary itself.
       */}
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Legacy id</span>
+        <span className="text-muted-foreground">{t('legacyId')}</span>
         <Input
           value={artist.legacyId ?? ''}
           disabled
           readOnly
-          placeholder="Not linked to an import"
+          placeholder={t('notLinkedToAnImport')}
           data-testid="artist-legacy-id"
         />
         <span className="text-xs text-muted-foreground">
-          Set by the catalogue import; not editable here.
-        </span>
+          {t('setByTheCatalogueImportNot')}</span>
       </label>
 
       <div className="flex items-center gap-3">
@@ -269,22 +267,23 @@ function ArtistDataForm({
           {pending ? 'Saving…' : 'Save'}
         </Button>
         {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
-        {state.status === 'saved' && <span className="text-sm text-muted-foreground">Saved.</span>}
+        {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}
       </div>
     </form>
   );
 }
 
 function ArtistReadOnlyFields({ artist }: { artist: ArtistSummary }) {
+  const t = useTranslations('music');
   return (
     <>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Name</span>
+        <span className="text-muted-foreground">{t('name')}</span>
         <Input value={artist.name} disabled readOnly />
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Legacy id</span>
-        <Input value={artist.legacyId ?? ''} disabled readOnly placeholder="Not linked to an import" />
+        <span className="text-muted-foreground">{t('legacyId')}</span>
+        <Input value={artist.legacyId ?? ''} disabled readOnly placeholder={t('notLinkedToAnImport')} />
       </label>
     </>
   );
@@ -338,10 +337,11 @@ function songLinkHref(
  * the Station.
  */
 function ArtistSongsTab({ record, stationSearch }: { record: ArtistRecord; stationSearch?: string }) {
+  const t = useTranslations('music');
   return (
     <div className="flex flex-col gap-3">
       {record.songs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No songs are registered under this artist.</p>
+        <p className="text-sm text-muted-foreground">{t('noSongsAreRegisteredUnderThis')}</p>
       ) : (
         <ul className="flex flex-col divide-y" data-testid="artist-songs-list">
           {record.songs.map((song) => (
@@ -361,13 +361,12 @@ function ArtistSongsTab({ record, stationSearch }: { record: ArtistRecord; stati
       )}
       {record.songsCapped && (
         <p className="text-xs text-muted-foreground">
-          Showing the first 200 songs.{' '}
+          {t('showingTheFirst200Songs')}{' '}
           <Link
             href={songLinkHref(record.companyId, stationSearch, record.artist.id) as Route}
             className="text-primary underline underline-offset-2"
           >
-            See the rest in Songs
-          </Link>
+            {t('seeTheRestInSongs')}</Link>
           .
         </p>
       )}

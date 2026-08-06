@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import { Input, Select } from '@/components/ui/input';
 import { MUSIC_NATIONALITIES, MUSIC_VOCALS } from '@/schemas/music';
 import type { ReferenceSummary, SongSummary } from '@/services/music';
@@ -33,10 +34,11 @@ export function SongFields({
    */
   disabled?: boolean;
 }) {
+  const t = useTranslations('music');
   return (
     <>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Title</span>
+        <span className="text-muted-foreground">{t('title')}</span>
         <Input
           name="title"
           defaultValue={song?.title ?? ''}
@@ -47,11 +49,10 @@ export function SongFields({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Artist</span>
+        <span className="text-muted-foreground">{t('artist')}</span>
         <Select name="artistId" defaultValue={song?.artistId ?? ''} required disabled={disabled}>
           <option value="" disabled>
-            Choose an artist
-          </option>
+            {t('chooseAnArtist')}</option>
           {artists.map((artist) => (
             <option key={artist.id} value={artist.id}>
               {artist.name}
@@ -61,9 +62,9 @@ export function SongFields({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Label</span>
+        <span className="text-muted-foreground">{t('label')}</span>
         <Select name="labelId" defaultValue={song?.labelId ?? ''} disabled={disabled}>
-          <option value="">No label</option>
+          <option value="">{t('noLabel')}</option>
           {labels.map((label) => (
             <option key={label.id} value={label.id}>
               {label.name}
@@ -73,9 +74,9 @@ export function SongFields({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Genre</span>
+        <span className="text-muted-foreground">{t('genre')}</span>
         <Select name="genreId" defaultValue={song?.genreId ?? ''} disabled={disabled}>
-          <option value="">No genre</option>
+          <option value="">{t('noGenre')}</option>
           {genres.map((genre) => (
             <option key={genre.id} value={genre.id}>
               {genre.name}
@@ -85,9 +86,9 @@ export function SongFields({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Nationality</span>
+        <span className="text-muted-foreground">{t('nationality')}</span>
         <Select name="nationality" defaultValue={song?.nationality ?? ''} disabled={disabled}>
-          <option value="">Unspecified</option>
+          <option value="">{t('unspecified')}</option>
           {MUSIC_NATIONALITIES.map((value) => (
             <option key={value} value={value}>
               {NATIONALITY_LABELS[value]}
@@ -97,9 +98,9 @@ export function SongFields({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Vocal</span>
+        <span className="text-muted-foreground">{t('vocal')}</span>
         <Select name="vocal" defaultValue={song?.vocal ?? ''} disabled={disabled}>
-          <option value="">Unspecified</option>
+          <option value="">{t('unspecified')}</option>
           {MUSIC_VOCALS.map((value) => (
             <option key={value} value={value}>
               {VOCAL_LABELS[value]}
@@ -109,20 +110,20 @@ export function SongFields({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Duration (seconds)</span>
+        <span className="text-muted-foreground">{t('durationSeconds')}</span>
         <Input
           type="number"
           name="durationSeconds"
           defaultValue={song?.durationSeconds ?? ''}
           min={1}
           step={1}
-          placeholder="Optional"
+          placeholder={t('optional')}
           disabled={disabled}
         />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Internal code</span>
+        <span className="text-muted-foreground">{t('internalCode')}</span>
         <Input
           name="internalCode"
           defaultValue={song?.internalCode ?? ''}
@@ -151,17 +152,16 @@ export function SongFields({
       */}
       {song && (
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Legacy id</span>
+          <span className="text-muted-foreground">{t('legacyId')}</span>
           <Input
             value={song.legacyId ?? ''}
             disabled
             readOnly
-            placeholder="Not linked to an import"
+            placeholder={t('notLinkedToAnImport')}
             data-testid="song-legacy-id"
           />
           <span className="text-xs text-muted-foreground">
-            Set by the catalogue import; not editable here.
-          </span>
+            {t('setByTheCatalogueImportNot')}</span>
         </label>
       )}
     </>

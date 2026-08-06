@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,7 @@ export function RoleRecordDialog({
   onClose: () => void;
   onSaved: (role: SavedRole, created: boolean) => void;
 }) {
+  const t = useTranslations('roles');
   const titleId = useId();
   const formId = useId();
   const [state, action, pending] = useActionState(saveRoleAction, INITIAL_SAVE);
@@ -88,17 +90,15 @@ export function RoleRecordDialog({
     return (
       <Dialog open={open} onClose={onClose} labelledBy={titleId} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle id={titleId}>Role</DialogTitle>
+          <DialogTitle id={titleId}>{t('role')}</DialogTitle>
         </DialogHeader>
         <DialogBody>
           <p className="text-sm text-destructive">
-            No such role, or you do not have permission to see this one.
-          </p>
+            {t('noSuchRoleOrYouDo')}</p>
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Close
-          </Button>
+            {t('close')}</Button>
         </DialogFooter>
       </Dialog>
     );
@@ -111,21 +111,20 @@ export function RoleRecordDialog({
           <DialogTitle id={titleId}>{role ? role.name : 'New role'}</DialogTitle>
           {role && (
             <p className="text-xs text-muted-foreground">
-              {role.permissionCodes.length} permission(s) · held by {role.holders} user(s)
-            </p>
+              {role.permissionCodes.length} {t('permissionSHeldBy')}{' '}{role.holders} {t('userS')}</p>
           )}
         </div>
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
       </DialogHeader>
 
-      <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+      <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
         {ROLE_TABS.map((name) => (
           <button
             key={name}
@@ -165,13 +164,11 @@ export function RoleRecordDialog({
 
           <div hidden={tab !== 'data'} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1 text-sm">
-              Name
-              <Input name="name" required maxLength={60} defaultValue={role?.name ?? ''} />
+              {t('name')}<Input name="name" required maxLength={60} defaultValue={role?.name ?? ''} />
             </label>
 
             <label className="flex flex-col gap-1 text-sm">
-              Description
-              <Textarea name="description" maxLength={240} defaultValue={role?.description ?? ''} />
+              {t('description')}<Textarea name="description" maxLength={240} defaultValue={role?.description ?? ''} />
             </label>
 
             {/* Unchecking a box cuts its holders off on their next request, with
@@ -179,20 +176,15 @@ export function RoleRecordDialog({
                 itself, is the whole mitigation for how sharp that edge is. */}
             {role && role.holders > 0 && (
               <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-                {role.holders} user(s) currently hold this role. Saving applies these changes to
-                them immediately — they will not be signed out and do not need to sign back in.
-              </p>
+                {role.holders} {t('userSCurrentlyHoldThisRole')}</p>
             )}
           </div>
 
           <div hidden={tab !== 'powers'} className="flex flex-col gap-4">
             {hasOrgScoped && (
               <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Roles are assigned per Station, but permissions tagged{' '}
-                <strong>whole Organization</strong> below reach every Station regardless of which
-                one this role is assigned in. That is deliberate, not a bug — pick them with that
-                in mind.
-              </p>
+                {t('rolesAreAssignedPerStationBut')}{' '}
+                <strong>{t('wholeOrganization')}</strong> {t('belowReachEveryStationRegardlessOf')}</p>
             )}
 
             {modules.map((module) => (
@@ -217,8 +209,7 @@ export function RoleRecordDialog({
                             is chosen. */}
                         {p.scope === 'organization' && (
                           <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900">
-                            whole Organization
-                          </span>
+                            {t('wholeOrganization')}</span>
                         )}
                       </label>
                       {/* I3 (block-1c final review): update_role restricts neither
@@ -231,10 +222,7 @@ export function RoleRecordDialog({
                           it has no other way to learn what they are handing over. */}
                       {p.code === 'roles.manage' && (
                         <p className="pl-6 text-xs text-muted-foreground">
-                          Whoever holds this can grant themselves — or anyone else — any other
-                          permission, including this one. There is no further restriction on what a
-                          role holding it may compose.
-                        </p>
+                          {t('whoeverHoldsThisCanGrantThemselves')}</p>
                       )}
                     </div>
                   ))}
@@ -249,11 +237,10 @@ export function RoleRecordDialog({
           <span className="mr-auto text-sm text-destructive">{state.message}</span>
         )}
         {state.status === 'saved' && !pending && (
-          <span className="mr-auto text-sm text-muted-foreground">Role saved.</span>
+          <span className="mr-auto text-sm text-muted-foreground">{t('roleSaved')}</span>
         )}
         <Button type="button" variant="outline" onClick={requestClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
         {/* "Create", not "Create role": the grid's own button beside the list
             carries that name, and two buttons with one name is a screen that
             cannot be spoken about — by a person or by a test. */}

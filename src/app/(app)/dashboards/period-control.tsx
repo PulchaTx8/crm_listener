@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -67,6 +68,7 @@ export function PeriodControl({
   companyIds: string[];
   stationSearch?: string;
 }) {
+  const t = useTranslations('dashboards');
   const router = useRouter();
   const [from, setFrom] = useState(resolved.from);
   // `to` holds the INCLUSIVE last day the operator sees, never the exclusive
@@ -112,7 +114,7 @@ export function PeriodControl({
       {selection.preset === 'custom' && (
         <div className="flex items-end gap-2">
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <span>From</span>
+            <span>{t('from')}</span>
             <input
               type="date"
               value={from}
@@ -132,7 +134,7 @@ export function PeriodControl({
                 means to the person filling it in. The exclusive bound the URL
                 and the RPC use is one day later, and customFor is where the
                 two meet. */}
-            <span title="The last day included in the period.">To</span>
+            <span title={t('theLastDayIncludedInThe')}>To</span>
             <input
               type="date"
               value={to}

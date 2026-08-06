@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -59,6 +60,7 @@ export function RequestsFilters({
   /** members.view at this Station — a search without it returns nothing at all (0107's RULE 3). */
   canSearchByListener: boolean;
 }) {
+  const t = useTranslations('music');
   const router = useRouter();
   const noteId = useId();
   const [search, setSearch] = useState(state.search ?? '');
@@ -80,7 +82,7 @@ export function RequestsFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="requests-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Listener</span>
+        <span className="text-muted-foreground">{t('listener')}</span>
         <Input
           type="search"
           value={search}
@@ -90,8 +92,8 @@ export function RequestsFilters({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Name or phone"
-          aria-label="Search requests by listener name or phone"
+          placeholder={t('nameOrPhone')}
+          aria-label={t('searchRequestsByListenerNameOr')}
           aria-describedby={canSearchByListener ? undefined : noteId}
           data-testid="request-search-input"
         />
@@ -101,20 +103,18 @@ export function RequestsFilters({
             className="text-xs text-muted-foreground"
             data-testid="request-search-note"
           >
-            You cannot search by listener at this Station: that needs permission to see the
-            audience here, which you do not hold. Every other filter still works.
-          </span>
+            {t('youCannotSearchByListenerAt')}</span>
         )}
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Programme</span>
+        <span className="text-muted-foreground">{t('programme')}</span>
         <Select
           value={state.showId ?? ANY_SHOW}
           onChange={(e) => navigate({ showId: e.target.value || undefined })}
           data-testid="request-show-filter"
         >
-          <option value={ANY_SHOW}>Every programme</option>
+          <option value={ANY_SHOW}>{t('everyProgramme')}</option>
           {shows.map((show) => (
             <option key={show.id} value={show.id}>
               {show.name}
@@ -124,7 +124,7 @@ export function RequestsFilters({
       </label>
 
       <label className="flex w-48 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Channel</span>
+        <span className="text-muted-foreground">{t('channel')}</span>
         <Select
           value={state.channel ?? ANY_CHANNEL}
           onChange={(e) =>
@@ -132,7 +132,7 @@ export function RequestsFilters({
           }
           data-testid="request-channel-filter"
         >
-          <option value={ANY_CHANNEL}>Any channel</option>
+          <option value={ANY_CHANNEL}>{t('anyChannel')}</option>
           {MUSIC_REQUEST_CHANNELS.map((channel) => (
             <option key={channel} value={channel}>
               {CHANNEL_LABELS[channel]}
@@ -149,8 +149,7 @@ export function RequestsFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="request-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

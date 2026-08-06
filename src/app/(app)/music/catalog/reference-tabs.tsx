@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import type { ReferenceSummary } from '@/services/music';
 import { ReferencePanel } from './reference-panel';
@@ -96,6 +97,7 @@ export function ReferenceTabs({
   genres: ReferenceSummary[];
   shows: ReferenceSummary[];
 }) {
+  const t = useTranslations('music');
   const [tab, setTabState] = useState<CatalogTab>(initialTab);
 
   useEffect(() => {
@@ -120,7 +122,7 @@ export function ReferenceTabs({
 
   return (
     <div className="flex flex-col gap-4">
-      <div role="tablist" aria-label="Catalogue lists" className="flex gap-1 border-b">
+      <div role="tablist" aria-label={t('catalogueLists')} className="flex gap-1 border-b">
         {CATALOG_TABS.map((name) => (
           <button
             key={name}

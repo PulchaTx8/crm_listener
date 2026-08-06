@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -35,6 +36,7 @@ export default async function MovementsPage({
 }: {
   searchParams: Promise<MovementSearchParams>;
 }) {
+  const t = await getTranslations('inventory');
   const params = await searchParams;
   const stationSearch = params.station?.trim().slice(0, STATION_SEARCH_MAX_LENGTH) || undefined;
 
@@ -191,7 +193,7 @@ export default async function MovementsPage({
   return (
     <>
       <PageHeader
-        title="Movements"
+        title={t('movements')}
         description="Every stock movement across this Station's prizes, newest first. Append-only: a mistake is corrected by recording a new movement, never by changing this one."
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
@@ -211,9 +213,7 @@ export default async function MovementsPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/inventory/movements"
@@ -243,7 +243,7 @@ export default async function MovementsPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -263,9 +263,7 @@ export default async function MovementsPage({
         <div className="mt-3 flex flex-col gap-1.5">
           {prizesCapped && (
             <p className="text-xs text-muted-foreground" data-testid="movement-prizes-capped">
-              The prize picker lists the first prizes by name and this Station has more, so it is
-              not the whole list.
-            </p>
+              {t('thePrizePickerListsTheFirst')}</p>
           )}
 
           {prizesError && (
@@ -276,9 +274,7 @@ export default async function MovementsPage({
 
           {promotionsCapped && (
             <p className="text-xs text-muted-foreground" data-testid="movement-promotions-capped">
-              The promotion picker lists the first promotions by name and this Station has more, so
-              it is not the whole list.
-            </p>
+              {t('thePromotionPickerListsTheFirst')}</p>
           )}
 
           {promotionsError && (
@@ -306,28 +302,29 @@ export default async function MovementsPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('inventory');
   return (
     <>
-      <PageHeader title="Movements" />
+      <PageHeader title={t('movements')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href="/inventory/movements" className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('inventory');
   return (
     <>
-      <PageHeader title="Movements" />
+      <PageHeader title={t('movements')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

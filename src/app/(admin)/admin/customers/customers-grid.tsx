@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -55,6 +56,7 @@ export function CustomersGrid({
   nextHref: string | null;
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('admin');
   const [grid, setGrid] = useState<RowState<CustomerRow>>({
     rows: initialRows,
     // No total, deliberately and unchanged: this list is platform-wide by
@@ -98,30 +100,28 @@ export function CustomersGrid({
             type="search"
             name="q"
             defaultValue={search ?? ''}
-            placeholder="Search by Station name"
-            aria-label="Search customers by Station name"
+            placeholder={t('searchByStationName')}
+            aria-label={t('searchCustomersByStationName')}
             className="h-9 w-64 text-sm"
             data-testid="customer-search-input"
           />
           <Button type="submit" variant="outline" className="h-9">
-            Search
-          </Button>
+            {t('search')}</Button>
         </form>
 
         <Button type="button" onClick={() => setProvisioning(true)} data-testid="customer-create">
-          Provision customer
-        </Button>
+          {t('provisionCustomer')}</Button>
       </div>
 
       <div className="mt-4 rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Station</TableHead>
-              <TableHead>Subscription</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Provisioned</TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead>{t('station')}</TableHead>
+              <TableHead>{t('subscription')}</TableHead>
+              <TableHead>{t('owner')}</TableHead>
+              <TableHead>{t('provisioned')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -177,16 +177,13 @@ export function CustomersGrid({
                         trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                       >
                         <DropdownMenuItem onSelect={() => open(row.id, 'stations')}>
-                          Add a Station…
-                        </DropdownMenuItem>
+                          {t('addAStation')}</DropdownMenuItem>
                         {row.status === 'active' ? (
                           <DropdownMenuItem destructive onSelect={() => setStatusChange(row)}>
-                            Suspend…
-                          </DropdownMenuItem>
+                            {t('suspend')}</DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem onSelect={() => setStatusChange(row)}>
-                            Reactivate…
-                          </DropdownMenuItem>
+                            {t('reactivate')}</DropdownMenuItem>
                         )}
                       </DropdownMenu>
                     </div>
@@ -255,6 +252,7 @@ function StatusDialog({
   onCancel: () => void;
   onChanged: (row: CustomerRow) => void;
 }) {
+  const t = useTranslations('admin');
   const titleId = useId();
   const suspending = row.status === 'active';
   const [state, action, pending] = useActionState(
@@ -286,37 +284,30 @@ function StatusDialog({
         <p className="text-sm">
           {suspending ? (
             <>
-              <strong>{row.name}</strong> keeps its data, and everyone signed in there loses access
-              on their next request — nobody is signed out. Reactivating gives it all back.
-            </>
+              <strong>{row.name}</strong> {t('keepsItsDataAndEveryoneSigned')}</>
           ) : (
             <>
-              <strong>{row.name}</strong> becomes reachable again on the next request from anyone
-              signed in there.
-            </>
+              <strong>{row.name}</strong> {t('becomesReachableAgainOnTheNext')}</>
           )}
         </p>
         {suspending && (
           <label className="mt-4 flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Reason</span>
+            <span className="text-muted-foreground">{t('reason')}</span>
             <Input
-              placeholder="Reason"
+              placeholder={t('reason')}
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               className="h-9 text-sm"
             />
             <span className="text-xs text-muted-foreground">
-              Shown to the customer on their own screens. Left empty, it is recorded as
-              &ldquo;non-payment&rdquo;.
-            </span>
+              {t('shownToTheCustomerOnTheir')}</span>
           </label>
         )}
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="companyId" value={row.id} />
           {/* The visible field lives in the body and this carries its value:
@@ -341,16 +332,16 @@ function ProvisionDialog({
   onClose: () => void;
   onProvisioned: (company: CustomerRow) => void;
 }) {
+  const t = useTranslations('admin');
   const titleId = useId();
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Provision a customer</DialogTitle>
+        <DialogTitle id={titleId}>{t('provisionACustomer')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="mb-4 text-sm text-muted-foreground">
-          Creates the organization, the station and the owner account.
-        </p>
+          {t('createsTheOrganizationTheStationAnd')}</p>
         {/* The dialog stays open after a successful provisioning on purpose:
             the provisional password is shown once and stored nowhere, so
             closing over it would lose the only copy that exists. */}
@@ -358,8 +349,7 @@ function ProvisionDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );

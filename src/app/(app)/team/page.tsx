@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
@@ -27,6 +28,7 @@ export default async function TeamPage({
 }: {
   searchParams: Promise<{ record?: string; tab?: string }>;
 }) {
+  const t = await getTranslations('team');
   const params = await searchParams;
   const supabase = await createUserClient();
 
@@ -57,12 +59,11 @@ export default async function TeamPage({
   if (!organizationId) {
     return (
       <>
-        <PageHeader title="Team" />
+        <PageHeader title={t('team')} />
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
-              You do not belong to an organization yet.
-            </p>
+              {t('youDoNotBelongToAn')}</p>
           </CardContent>
         </Card>
       </>
@@ -208,7 +209,7 @@ export default async function TeamPage({
   return (
     <>
       <PageHeader
-        title="Team"
+        title={t('team')}
         description="Invite colleagues and decide what each of them may do."
       />
 

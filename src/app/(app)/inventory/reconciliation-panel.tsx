@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { runReconciliationAction, type ReconciliationState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ const INITIAL: ReconciliationState = { status: 'idle' };
  * later, successful check the way a stale ?error= query param could.
  */
 export function ReconciliationPanel({ companyId }: { companyId: string }) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(runReconciliationAction, INITIAL);
 
   return (
@@ -35,24 +37,24 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
 
       {state.status === 'checked' && state.rows.length === 0 && (
         <p className="text-sm text-emerald-700">
-          No divergence found, checked {formatDateTime(state.checkedAt)}.
+          {t('noDivergenceFoundChecked')}{' '}{formatDateTime(state.checkedAt)}.
         </p>
       )}
 
       {state.status === 'checked' && state.rows.length > 0 && (
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium text-destructive">
-            {state.rows.length} row(s) disagree, checked {formatDateTime(state.checkedAt)}.
+            {state.rows.length} {t('rowSDisagreeChecked')}{' '}{formatDateTime(state.checkedAt)}.
           </p>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Prize</th>
-                  <th className="px-3 py-2 font-medium">Promotion</th>
-                  <th className="px-3 py-2 font-medium">Bucket</th>
-                  <th className="px-3 py-2 font-medium">Stored</th>
-                  <th className="px-3 py-2 font-medium">Computed</th>
+                  <th className="px-3 py-2 font-medium">{t('prize')}</th>
+                  <th className="px-3 py-2 font-medium">{t('promotion')}</th>
+                  <th className="px-3 py-2 font-medium">{t('bucket')}</th>
+                  <th className="px-3 py-2 font-medium">{t('stored')}</th>
+                  <th className="px-3 py-2 font-medium">{t('computed')}</th>
                 </tr>
               </thead>
               <tbody>

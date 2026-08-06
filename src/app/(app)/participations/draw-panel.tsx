@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -47,6 +48,7 @@ export function DrawPanel({
   /** The promotion's live links, already reduced to what is still available. */
   linked: DrawUnitChoice[];
 }) {
+  const t = useTranslations('participations');
   const [open, setOpen] = useState(false);
   const [hat, setHat] = useState<DrawHat | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -85,8 +87,7 @@ export function DrawPanel({
   if (!open) {
     return (
       <Button type="button" onClick={openPanel} data-testid="open-draw-panel">
-        Draw
-      </Button>
+        {t('draw')}</Button>
     );
   }
 
@@ -97,21 +98,19 @@ export function DrawPanel({
       aria-label={`Run a draw in ${promotionName}`}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="font-medium">Draw — {promotionName}</h2>
+        <h2 className="font-medium">{t('draw2')}{' '}{promotionName}</h2>
         <Button
           type="button"
           variant="outline"
           onClick={() => setOpen(false)}
           data-testid="close-draw-panel"
         >
-          Close
-        </Button>
+          {t('close')}</Button>
       </div>
 
       {loading && (
         <p className="text-sm text-muted-foreground" data-testid="draw-hat-loading">
-          Reading the filtered list…
-        </p>
+          {t('readingTheFilteredList')}</p>
       )}
 
       {message && (
@@ -143,12 +142,9 @@ export function DrawPanel({
             className="text-sm underline underline-offset-2"
             data-testid="draw-panel-record-link"
           >
-            Open this draw&apos;s record
-          </Link>
+            {t('openThisDrawSRecord')}</Link>
           <p className="text-xs text-muted-foreground">
-            The list behind this panel still shows what it did before the draw. Refresh it to see
-            who has now won here.
-          </p>
+            {t('theListBehindThisPanelStill')}</p>
         </div>
       )}
 
@@ -160,12 +156,11 @@ export function DrawPanel({
               set the operator approves is a set they were told the size of. */}
           <p className="text-sm" data-testid="draw-hat-summary">
             <strong>{hat.participationIds.length}</strong>{' '}
-            {hat.participationIds.length === 1 ? 'entry' : 'entries'} in the hat, out of{' '}
-            {hat.matched} matching these filters.
-          </p>
+            {hat.participationIds.length === 1 ? 'entry' : 'entries'} {t('inTheHatOutOf')}{' '}
+            {hat.matched} {t('matchingTheseFilters')}</p>
           {(hat.alreadyWon > 0 || hat.notValid > 0) && (
             <p className="text-xs text-muted-foreground" data-testid="draw-hat-excluded">
-              Left out:{' '}
+              {t('leftOut')}{' '}
               {[
                 hat.alreadyWon > 0
                   ? `${hat.alreadyWon} who already won in this promotion`
@@ -180,12 +175,10 @@ export function DrawPanel({
 
           {hat.participationIds.length === 0 ? (
             <p className="text-sm text-muted-foreground" data-testid="draw-hat-empty">
-              Nobody in this list can be drawn. Widen the filters and open this again.
-            </p>
+              {t('nobodyInThisListCanBe')}</p>
           ) : linked.length === 0 ? (
             <p className="text-sm text-muted-foreground" data-testid="draw-nothing-linked">
-              This promotion has no prize units left to draw.
-            </p>
+              {t('thisPromotionHasNoPrizeUnits')}</p>
           ) : (
             <RunDrawDialog linked={linked} onRun={run} />
           )}

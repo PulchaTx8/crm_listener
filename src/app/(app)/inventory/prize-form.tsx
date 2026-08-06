@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { createPrizeAction, type PrizeFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ export function PrizeForm({
   /** Reports the new prize's id so the grid can open its record and take the row from it. */
   onCreated?: (prizeId: string) => void;
 }) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(createPrizeAction, INITIAL);
 
   return (
@@ -25,14 +27,12 @@ export function PrizeForm({
       <input type="hidden" name="companyId" value={companyId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        Name
-        <Input name="name" required maxLength={120} />
+        {t('name')}<Input name="name" required maxLength={120} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Category
-        <Select name="categoryId" defaultValue="">
-          <option value="">Uncategorised</option>
+        {t('category')}<Select name="categoryId" defaultValue="">
+          <option value="">{t('uncategorised')}</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
@@ -42,19 +42,16 @@ export function PrizeForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Internal code
-        <Input name="internalCode" maxLength={40} placeholder="Optional SKU or barcode" />
+        {t('internalCode')}<Input name="internalCode" maxLength={40} placeholder={t('optionalSkuOrBarcode')} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Description
-        <Textarea name="description" maxLength={2000} placeholder="Optional" />
+        {t('description')}<Textarea name="description" maxLength={2000} placeholder={t('optional')} />
       </label>
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="allowsReturnToStock" defaultChecked />
-        Allows return to stock
-      </label>
+        {t('allowsReturnToStock')}</label>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={pending}>
@@ -66,15 +63,14 @@ export function PrizeForm({
             would take its own "Prize registered." with it. */}
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">
-            Prize registered.{' '}
+            {t('prizeRegistered')}{' '}
             {state.prizeId && onCreated && (
               <button
                 type="button"
                 onClick={() => onCreated(state.prizeId as string)}
                 className="underline underline-offset-2"
               >
-                View prize
-              </button>
+                {t('viewPrize')}</button>
             )}
           </p>
         )}

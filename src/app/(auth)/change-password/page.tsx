@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -16,6 +17,7 @@ export default async function ChangePasswordPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  const t = await getTranslations('auth');
   const params = await searchParams;
 
   async function change(formData: FormData) {
@@ -42,17 +44,16 @@ export default async function ChangePasswordPage({
   return (
     <Card>
       <CardContent className="flex flex-col gap-5 pt-6">
-        <h1 className="text-xl font-semibold tracking-tight">Choose a new password</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t('chooseANewPassword')}</h1>
         <p className="text-muted-foreground">
-          Your account was created with a provisional password. Choose your own to continue.
-        </p>
+          {t('yourAccountWasCreatedWithA')}</p>
         {params.error ? (
           <p className="text-sm text-destructive">{MESSAGES[params.error] ?? MESSAGES.failed}</p>
         ) : null}
         <form action={change} className="flex flex-col gap-4">
-          <Input name="password" type="password" placeholder="New password" required />
-          <Input name="confirm" type="password" placeholder="Repeat the password" required />
-          <Button type="submit">Save</Button>
+          <Input name="password" type="password" placeholder={t('newPassword')} required />
+          <Input name="confirm" type="password" placeholder={t('repeatThePassword')} required />
+          <Button type="submit">{t('save')}</Button>
         </form>
       </CardContent>
     </Card>

@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -23,6 +24,7 @@ export default async function WhatsAppTemplatesPage({
 }: {
   searchParams: Promise<{ companyId?: string; station?: string }>;
 }) {
+  const t = await getTranslations('templates');
   const params = await searchParams;
   const stationSearch = params.station?.trim().slice(0, STATION_SEARCH_MAX_LENGTH) || undefined;
 
@@ -70,7 +72,7 @@ export default async function WhatsAppTemplatesPage({
   return (
     <>
       <PageHeader
-        title="WhatsApp templates"
+        title={t('whatsappTemplates')}
         description="The messages this Station may start a conversation with, as Meta approved them."
       />
 
@@ -78,9 +80,7 @@ export default async function WhatsAppTemplatesPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/templates/whatsapp"
@@ -110,7 +110,7 @@ export default async function WhatsAppTemplatesPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -128,15 +128,13 @@ export default async function WhatsAppTemplatesPage({
       */}
       <div className="mb-4 flex flex-col gap-2 rounded-md border border-dashed p-3">
         <p className="text-sm">
-          Templates are created and approved in <strong>Meta’s own console</strong>, not here.
+          {t('templatesAreCreatedAndApprovedIn')}{' '}<strong>{t('metaSOwnConsole')}</strong>, not here.
           Approval takes days and is outside this system. Once it comes through, transcribe the
           approved name, language and body below — exactly as approved — so this Station can send
           it.
         </p>
         <p className="text-xs text-muted-foreground">
-          A revoked or edited approval is not visible from here: what is recorded below is what
-          somebody was told at the time. The first refused send is what discovers a change.
-        </p>
+          {t('aRevokedOrEditedApprovalIs')}</p>
       </div>
 
       <TemplateRegistry
@@ -149,31 +147,32 @@ export default async function WhatsAppTemplatesPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('templates');
   return (
     <>
-      <PageHeader title="WhatsApp templates" />
+      <PageHeader title={t('whatsappTemplates')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link
             href="/templates/whatsapp"
             className="text-sm text-primary underline underline-offset-2"
           >
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('templates');
   return (
     <>
-      <PageHeader title="WhatsApp templates" />
+      <PageHeader title={t('whatsappTemplates')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

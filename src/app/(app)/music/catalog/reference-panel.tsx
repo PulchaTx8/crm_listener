@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -51,6 +52,7 @@ export function ReferencePanel({
   /** Whether the caller holds music.manage at this Station. */
   manage: boolean;
 }) {
+  const t = useTranslations('music');
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -62,7 +64,7 @@ export function ReferencePanel({
 
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No {title.toLowerCase()} yet{manage ? ' — add the first one above.' : '.'}
+          No {title.toLowerCase()} {t('yet')}{manage ? ' — add the first one above.' : '.'}
         </p>
       ) : (
         <ul className="flex flex-col divide-y" data-testid={`${kind.toLowerCase()}-list`}>
@@ -90,6 +92,7 @@ function AddRow({
   noun: string;
   companyId: string;
 }) {
+  const t = useTranslations('music');
   const [state, action, pending] = useActionState(createReferenceAction, INITIAL_CREATE);
 
   return (
@@ -101,12 +104,12 @@ function AddRow({
       <input type="hidden" name="companyId" value={companyId} />
       <input type="hidden" name="kind" value={kind} />
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Name</span>
+        <span className="text-muted-foreground">{t('name')}</span>
         <Input name="name" required maxLength={160} className="h-9 w-56" placeholder={`New ${noun}`} />
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Legacy id</span>
-        <Input name="legacyId" maxLength={120} className="h-9 w-40" placeholder="Optional" />
+        <span className="text-muted-foreground">{t('legacyId')}</span>
+        <Input name="legacyId" maxLength={120} className="h-9 w-40" placeholder={t('optional')} />
       </label>
       <Button type="submit" disabled={pending} className="h-9">
         {pending ? 'Adding…' : `Add ${noun}`}
@@ -141,6 +144,7 @@ function EditableRow({
   noun: string;
   item: ReferenceSummary;
 }) {
+  const t = useTranslations('music');
   const [saveState, saveAction, savePending] = useActionState(updateReferenceAction, INITIAL_SAVE);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
 
@@ -170,15 +174,14 @@ function EditableRow({
           size="sm"
           onClick={() => setConfirmingArchive(true)}
         >
-          Archive
-        </Button>
+          {t('archive')}</Button>
 
         {item.legacyId && (
           <span
             className="text-xs text-muted-foreground"
-            title="Set by the catalogue import; not editable here."
+            title={t('setByTheCatalogueImportNot')}
           >
-            Legacy id: {item.legacyId}
+            {t('legacyId2')}{' '}{item.legacyId}
           </span>
         )}
       </div>
@@ -225,6 +228,7 @@ function ArchiveReferenceDialog({
   /** Closes the dialog — called both on Cancel and, via the effect below, once the archive itself succeeds. */
   onClose: () => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [state, action, pending] = useActionState(archiveReferenceAction, INITIAL_ARCHIVE);
 
@@ -236,20 +240,19 @@ function ArchiveReferenceDialog({
   return (
     <Dialog open onClose={onClose} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Archive this {noun}?</DialogTitle>
+        <DialogTitle id={titleId}>{t('archiveThis')}{' '}{noun}?</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          <strong>{item.name}</strong> stops being selectable for a new song or request.{' '}
-          <strong>This cannot be undone here</strong> — not by you, not by support. Only direct
+          <strong>{item.name}</strong> {t('stopsBeingSelectableForANew')}{' '}
+          <strong>{t('thisCannotBeUndoneHere')}</strong> — not by you, not by support. Only direct
           database access can restore it.
         </p>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="kind" value={kind} />
           <input type="hidden" name="id" value={item.id} />

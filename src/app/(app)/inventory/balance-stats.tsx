@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import type { PrizeBalance } from '@/services/inventory';
 import { physicalTotal } from './format';
 
@@ -11,6 +12,7 @@ import { physicalTotal } from './format';
  * the total.
  */
 export function BalanceStats({ balance, compact }: { balance: PrizeBalance; compact?: boolean }) {
+  const t = useTranslations('inventory');
   const physical = physicalTotal(balance);
   return (
     <div className="flex flex-col gap-2">
@@ -29,8 +31,8 @@ export function BalanceStats({ balance, compact }: { balance: PrizeBalance; comp
         <Stat label="Physical total" value={physical} emphasize />
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-2 text-xs text-muted-foreground">
-        <span>Delivered (cumulative, outside physical stock): {balance.delivered}</span>
-        <span>Written off (cumulative, outside physical stock): {balance.writtenOff}</span>
+        <span>{t('deliveredCumulativeOutsidePhysicalStock')}{' '}{balance.delivered}</span>
+        <span>{t('writtenOffCumulativeOutsidePhysicalStock')}{' '}{balance.writtenOff}</span>
       </div>
     </div>
   );

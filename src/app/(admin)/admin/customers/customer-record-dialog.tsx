@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,7 @@ export function CustomerRecordDialog({
   onClose: () => void;
   onStationAdded: (company: CustomerRow) => void;
 }) {
+  const t = useTranslations('admin');
   const titleId = useId();
 
   if (missing || !row) {
@@ -71,18 +73,15 @@ export function CustomerRecordDialog({
     return (
       <Dialog open={open} onClose={onClose} labelledBy={titleId} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle id={titleId}>Customer</DialogTitle>
+          <DialogTitle id={titleId}>{t('customer')}</DialogTitle>
         </DialogHeader>
         <DialogBody>
           <p className="text-sm text-destructive">
-            No such customer on this page. Search for the Station by name, or clear the search and
-            page through the list.
-          </p>
+            {t('noSuchCustomerOnThisPage')}</p>
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Close
-          </Button>
+            {t('close')}</Button>
         </DialogFooter>
       </Dialog>
     );
@@ -101,14 +100,14 @@ export function CustomerRecordDialog({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
       </DialogHeader>
 
-      <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+      <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
         {CUSTOMER_TABS.map((name) => (
           <button
             key={name}
@@ -131,11 +130,11 @@ export function CustomerRecordDialog({
         {tab === 'customer' && (
           <dl className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-xs text-muted-foreground">Station</dt>
+              <dt className="text-xs text-muted-foreground">{t('station')}</dt>
               <dd>{row.name}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Subscription</dt>
+              <dt className="text-xs text-muted-foreground">{t('subscription')}</dt>
               <dd>
                 <span
                   className={
@@ -150,11 +149,11 @@ export function CustomerRecordDialog({
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Provisioned</dt>
+              <dt className="text-xs text-muted-foreground">{t('provisioned')}</dt>
               <dd>{new Date(row.createdAt).toLocaleDateString('en-GB')}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Owner</dt>
+              <dt className="text-xs text-muted-foreground">{t('owner')}</dt>
               <dd>{row.owner?.email ?? '—'}</dd>
             </div>
           </dl>
@@ -174,8 +173,7 @@ export function CustomerRecordDialog({
               ))}
               {siblings.length === 0 && (
                 <li className="text-sm text-muted-foreground">
-                  This Organization has no other Station.
-                </li>
+                  {t('thisOrganizationHasNoOtherStation')}</li>
               )}
             </ul>
 
@@ -191,7 +189,7 @@ export function CustomerRecordDialog({
             {row.owner ? (
               <>
                 <p className="text-sm">
-                  Owner: <strong>{row.owner.email}</strong>
+                  {t('owner2')}{' '}<strong>{row.owner.email}</strong>
                 </p>
                 <RegenerateForm userId={row.owner.userId} email={row.owner.email} />
               </>
@@ -201,8 +199,7 @@ export function CustomerRecordDialog({
               // membership was archived, which leaves nobody to reissue a
               // password for.
               <p className="text-sm text-muted-foreground">
-                This Organization has no owner on record.
-              </p>
+                {t('thisOrganizationHasNoOwnerOn')}</p>
             )}
           </div>
         )}
@@ -210,8 +207,7 @@ export function CustomerRecordDialog({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -224,6 +220,7 @@ function AddStationForm({
   organizationId: string;
   onAdded: (company: CustomerRow) => void;
 }) {
+  const t = useTranslations('admin');
   const [state, action, pending] = useActionState(addCompanyAction, IDLE);
 
   useEffect(() => {
@@ -235,7 +232,7 @@ function AddStationForm({
     <form action={action} className="flex flex-col gap-2 border-t pt-4">
       <input type="hidden" name="organizationId" value={organizationId} />
       <div className="flex flex-wrap items-center gap-2">
-        <Input name="name" placeholder="New Station name" required className="h-9 w-48 text-sm" />
+        <Input name="name" placeholder={t('newStationName')} required className="h-9 w-48 text-sm" />
         <Button type="submit" variant="outline" disabled={pending}>
           {pending ? 'Adding…' : 'Add Station'}
         </Button>

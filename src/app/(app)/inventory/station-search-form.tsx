@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -13,7 +14,7 @@ import { Input } from '@/components/ui/input';
  * `preserve` is that, built by its callers from the same helper that builds
  * their links, rather than hand-listed here and left to drift.
  */
-export function StationSearchForm({
+export async function StationSearchForm({
   action,
   value,
   preserve,
@@ -24,6 +25,7 @@ export function StationSearchForm({
   preserve: Record<string, string>;
   label: string;
 }) {
+  const t = await getTranslations('inventory');
   return (
     <form method="get" action={action} className="flex flex-wrap items-end gap-2">
       {Object.entries(preserve).map(([name, hiddenValue]) => (
@@ -35,14 +37,13 @@ export function StationSearchForm({
           type="search"
           name="station"
           defaultValue={value}
-          placeholder="Station name"
+          placeholder={t('stationName')}
           className="h-9 w-56 text-sm"
           data-testid="station-search-input"
         />
       </label>
       <Button type="submit" variant="outline" className="h-9">
-        Find Station
-      </Button>
+        {t('findStation')}</Button>
     </form>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -22,6 +23,7 @@ const DEBOUNCE_MS = 350;
  * anything.
  */
 export function MembersFilters({ state }: { state: MemberListState }) {
+  const t = useTranslations('members');
   const router = useRouter();
 
   // Typed values live here between keystrokes; the URL is the source of truth
@@ -87,7 +89,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
     <div className="flex flex-col gap-3" data-testid="member-filters">
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex min-w-64 flex-1 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Search</span>
+          <span className="text-muted-foreground">{t('search')}</span>
           <Input
             type="search"
             value={search}
@@ -95,14 +97,14 @@ export function MembersFilters({ state }: { state: MemberListState }) {
               setSearch(e.target.value);
               debounce('q', () => navigate({}));
             }}
-            placeholder="Name, phone, e-mail, or the CPF's last digits"
-            aria-label="Search the audience by name, phone, e-mail, or the CPF's last digits"
+            placeholder={t('namePhoneEMailOrThe')}
+            aria-label={t('searchTheAudienceByNamePhone')}
             data-testid="member-search-input"
           />
         </label>
 
         <label className="flex w-24 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Age from</span>
+          <span className="text-muted-foreground">{t('ageFrom')}</span>
           <Input
             type="number"
             min={0}
@@ -118,7 +120,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
         </label>
 
         <label className="flex w-24 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Age to</span>
+          <span className="text-muted-foreground">{t('ageTo')}</span>
           <Input
             type="number"
             min={0}
@@ -134,7 +136,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
         </label>
 
         <label className="flex w-56 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Rules consent</span>
+          <span className="text-muted-foreground">{t('rulesConsent')}</span>
           <Select
             value={state.consent ?? ''}
             onChange={(e) => {
@@ -143,16 +145,16 @@ export function MembersFilters({ state }: { state: MemberListState }) {
             }}
             data-testid="member-consent-filter"
           >
-            <option value="">Any</option>
-            <option value="yes">Consented to the rules</option>
-            <option value="no">Has not consented</option>
+            <option value="">{t('any')}</option>
+            <option value="yes">{t('consentedToTheRules')}</option>
+            <option value="no">{t('hasNotConsented')}</option>
           </Select>
         </label>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex w-48 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Registered from</span>
+          <span className="text-muted-foreground">{t('registeredFrom')}</span>
           <Input
             type="date"
             value={fromDay}
@@ -166,7 +168,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
         </label>
 
         <label className="flex w-48 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Registered to</span>
+          <span className="text-muted-foreground">{t('registeredTo')}</span>
           <Input
             type="date"
             value={toDay}
@@ -186,8 +188,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
             onChange={(e) => navigate({ blockedOnly: e.target.checked })}
             data-testid="member-blocked-filter"
           />
-          Blocked listeners only
-        </label>
+          {t('blockedListenersOnly')}</label>
 
         {hasActiveFilters(state) && (
           <Link
@@ -204,8 +205,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
             className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             data-testid="member-clear-filters"
           >
-            Clear filters
-          </Link>
+            {t('clearFilters')}</Link>
         )}
       </div>
     </div>

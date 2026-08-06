@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,7 @@ export function SongsGrid({
   manage: boolean;
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('music');
   const [grid, setGrid] = useState<RowState<SongSummary>>({
     rows: initialRows,
     total: initialTotal,
@@ -83,8 +85,7 @@ export function SongsGrid({
       {manage && (
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button type="button" onClick={() => setCreating(true)} data-testid="song-create">
-            Register song
-          </Button>
+            {t('registerSong')}</Button>
         </div>
       )}
 
@@ -98,24 +99,22 @@ export function SongsGrid({
                   active={titleSorted}
                   direction={titleSorted ? state.direction : 'asc'}
                 >
-                  Title
-                </SortLink>
+                  {t('title')}</SortLink>
               </TableHead>
-              <TableHead>Artist</TableHead>
-              <TableHead>Label</TableHead>
-              <TableHead>Genre</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Code</TableHead>
+              <TableHead>{t('artist')}</TableHead>
+              <TableHead>{t('label')}</TableHead>
+              <TableHead>{t('genre')}</TableHead>
+              <TableHead>{t('duration')}</TableHead>
+              <TableHead>{t('code')}</TableHead>
               <TableHead aria-sort={ariaSort(addedSorted)}>
                 <SortLink
                   href={songSortHref(state, 'created')}
                   active={addedSorted}
                   direction={addedSorted ? state.direction : 'desc'}
                 >
-                  Added
-                </SortLink>
+                  {t('added')}</SortLink>
               </TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -152,7 +151,7 @@ export function SongsGrid({
                   */}
                   <TableCell>
                     {song.artistName ?? (
-                      <span className="text-muted-foreground">Unavailable</span>
+                      <span className="text-muted-foreground">{t('unavailable')}</span>
                     )}
                   </TableCell>
                   <TableCell>{song.labelName ?? '—'}</TableCell>
@@ -176,8 +175,7 @@ export function SongsGrid({
                           trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                         >
                           <DropdownMenuItem destructive onSelect={() => setArchiving(song)}>
-                            Archive song…
-                          </DropdownMenuItem>
+                            {t('archiveSong')}</DropdownMenuItem>
                         </DropdownMenu>
                       )}
                     </div>
@@ -266,6 +264,7 @@ function ArchiveSongDialog({
   onCancel: () => void;
   onArchived: (id: string) => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [state, action, pending] = useActionState(archiveSongAction, INITIAL_ARCHIVE);
 
@@ -277,20 +276,19 @@ function ArchiveSongDialog({
   return (
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Archive this song?</DialogTitle>
+        <DialogTitle id={titleId}>{t('archiveThisSong')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          {song.title} leaves the catalogue and every list in the app.{' '}
-          <strong>This cannot be undone here</strong> — not by you, not by support. Only direct
+          {song.title} {t('leavesTheCatalogueAndEveryList')}{' '}
+          <strong>{t('thisCannotBeUndoneHere')}</strong> — not by you, not by support. Only direct
           database access can restore it.
         </p>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="songId" value={song.id} />
           <Button type="submit" disabled={pending} data-testid="song-archive-confirm">
@@ -319,11 +317,12 @@ function CreateSongDialog({
   onClose: () => void;
   onCreated: (songId: string) => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Register a song</DialogTitle>
+        <DialogTitle id={titleId}>{t('registerASong')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <SongCreateForm
@@ -336,8 +335,7 @@ function CreateSongDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -363,6 +361,7 @@ function SongCreateForm({
   genres: ReferenceSummary[];
   onCreated: (songId: string) => void;
 }) {
+  const t = useTranslations('music');
   const [state, action, pending] = useActionState(createSongAction, INITIAL_CREATE);
 
   return (
@@ -375,15 +374,14 @@ function SongCreateForm({
         </Button>
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">
-            Song registered.{' '}
+            {t('songRegistered')}{' '}
             {state.songId && (
               <button
                 type="button"
                 onClick={() => onCreated(state.songId as string)}
                 className="underline underline-offset-2"
               >
-                View song
-              </button>
+                {t('viewSong')}</button>
             )}
           </p>
         )}

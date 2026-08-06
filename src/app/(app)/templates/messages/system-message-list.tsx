@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
@@ -107,6 +108,7 @@ function MessageRow({
   timeZone: string;
   manage: boolean;
 }) {
+  const t = useTranslations('templates');
   const [saveState, saveAction, savePending] = useActionState(saveSystemMessageAction, INITIAL);
   const [clearState, clearAction, clearPending] = useActionState(clearSystemMessageAction, INITIAL);
   const label = MESSAGE_LABELS[row.key];
@@ -207,14 +209,14 @@ function MessageRow({
       */}
       {(manage || row.overridden) && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">System default</span>
+          <span className="text-xs font-medium text-muted-foreground">{t('systemDefault')}</span>
           <p className="whitespace-pre-wrap text-xs text-muted-foreground">{row.defaultBody}</p>
         </div>
       )}
 
       {row.overridden && row.updatedAt && (
         <p className="text-xs text-muted-foreground">
-          Changed {formatInstant(row.updatedAt, timeZone)}
+          {t('changed')}{' '}{formatInstant(row.updatedAt, timeZone)}
         </p>
       )}
 
@@ -224,13 +226,12 @@ function MessageRow({
 }
 
 function SourceBadge({ overridden }: { overridden: boolean }) {
+  const t = useTranslations('templates');
   return overridden ? (
     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-      This Station’s own wording
-    </span>
+      {t('thisStationSOwnWording')}</span>
   ) : (
     <span className="rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      System default
-    </span>
+      {t('systemDefault')}</span>
   );
 }

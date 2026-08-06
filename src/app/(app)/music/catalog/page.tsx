@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -58,6 +59,7 @@ export default async function CatalogPage({
 }: {
   searchParams: Promise<CatalogSearchParams>;
 }) {
+  const t = await getTranslations('music');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -126,7 +128,7 @@ export default async function CatalogPage({
   return (
     <>
       <PageHeader
-        title="Catalogue"
+        title={t('catalogue')}
         description="Labels, genres and shows — the short lists a song or a request is built from."
       />
 
@@ -134,9 +136,7 @@ export default async function CatalogPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search
-              by name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/music/catalog"
@@ -175,7 +175,7 @@ export default async function CatalogPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -196,28 +196,29 @@ export default async function CatalogPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title="Catalogue" />
+      <PageHeader title={t('catalogue')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href="/music/catalog" className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title="Catalogue" />
+      <PageHeader title={t('catalogue')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import type { Card as CardValue, Withheld } from '@/schemas/dashboards';
 
@@ -31,7 +32,8 @@ export interface CardSpec {
  * below would ever see — can render the identical treatment a card gets,
  * rather than a second, drifting copy of the same two lines in each page.
  */
-export function WithheldFigure({ needs }: { needs?: string }) {
+export async function WithheldFigure({ needs }: { needs?: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <div className="flex flex-col gap-1">
       <p className="text-2xl font-semibold text-muted-foreground" aria-hidden="true">
@@ -40,7 +42,7 @@ export function WithheldFigure({ needs }: { needs?: string }) {
       <p className="text-xs text-muted-foreground">
         {needs ? (
           <>
-            Needs <code className="font-mono">{needs}</code>.
+            {t('needs')}{' '}<code className="font-mono">{needs}</code>.
           </>
         ) : (
           'Not available.'
@@ -64,7 +66,7 @@ export function WithheldFigure({ needs }: { needs?: string }) {
  * even a defect this file did not cause cannot show a false "nobody took
  * part" the way one stray `??` would.
  */
-export function DashboardCards({
+export async function DashboardCards({
   specs,
   cards,
   withheld,
@@ -73,6 +75,7 @@ export function DashboardCards({
   cards: Record<string, CardValue | undefined>;
   withheld: Withheld[];
 }) {
+  const t = await getTranslations('dashboards');
   return (
     <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" data-testid="dashboard-cards">
       {specs.map((spec) => {
@@ -91,7 +94,7 @@ export function DashboardCards({
                   <p className="text-2xl font-semibold">{card.current.toLocaleString()}</p>
                   {card.previous !== undefined && (
                     <p className="text-xs text-muted-foreground">
-                      Previous period: {card.previous.toLocaleString()}
+                      {t('previousPeriod')}{' '}{card.previous.toLocaleString()}
                     </p>
                   )}
                   {/* Only on a real figure. A withheld tile says nothing about

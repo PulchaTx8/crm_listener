@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -106,6 +107,7 @@ function PurposeCard({
   timeZone: string;
   manage: boolean;
 }) {
+  const t = useTranslations('templates');
   const detail = PURPOSE_DETAILS[purpose];
   const [confirmingArchive, setConfirmingArchive] = useState(false);
 
@@ -118,17 +120,15 @@ function PurposeCard({
         </div>
         {existing ? (
           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-            Registered
-          </span>
+            {t('registered')}</span>
         ) : (
           <span className="rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground">
-            Not registered — nothing sends
-          </span>
+            {t('notRegisteredNothingSends')}</span>
         )}
       </div>
 
       <div className="flex flex-col gap-1 rounded-md border border-dashed p-3">
-        <span className="text-xs font-medium">What this system puts in each position</span>
+        <span className="text-xs font-medium">{t('whatThisSystemPutsInEach')}</span>
         <ol className="flex flex-col gap-0.5">
           {detail.sends.map((value, index) => (
             <li key={value} className="text-xs text-muted-foreground">
@@ -137,9 +137,7 @@ function PurposeCard({
           ))}
         </ol>
         <p className="mt-1 text-xs text-muted-foreground">
-          The body you had approved must use these {detail.sends.length} placeholders, in this
-          order.
-        </p>
+          {t('theBodyYouHadApprovedMust')}{' '}{detail.sends.length} {t('placeholdersInThisOrder')}</p>
       </div>
 
       {existing && (
@@ -168,8 +166,7 @@ function PurposeCard({
             size="sm"
             onClick={() => setConfirmingArchive(true)}
           >
-            Remove this registration
-          </Button>
+            {t('removeThisRegistration')}</Button>
         </div>
       )}
 
@@ -196,25 +193,26 @@ function RegisteredDetails({
   template: RegisteredTemplate;
   timeZone: string;
 }) {
+  const t = useTranslations('templates');
   return (
     <div className="flex flex-col gap-3">
       <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
         <div className="flex flex-col">
-          <dt className="text-xs text-muted-foreground">Name at Meta</dt>
+          <dt className="text-xs text-muted-foreground">{t('nameAtMeta')}</dt>
           <dd className="font-mono">{template.name}</dd>
         </div>
         <div className="flex flex-col">
-          <dt className="text-xs text-muted-foreground">Language</dt>
+          <dt className="text-xs text-muted-foreground">{t('language')}</dt>
           <dd className="font-mono">{template.language}</dd>
         </div>
         <div className="flex flex-col">
-          <dt className="text-xs text-muted-foreground">Last recorded</dt>
+          <dt className="text-xs text-muted-foreground">{t('lastRecorded')}</dt>
           <dd>{formatInstant(template.updatedAt, timeZone)}</dd>
         </div>
       </dl>
 
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-muted-foreground">Approved body</span>
+        <span className="text-xs font-medium text-muted-foreground">{t('approvedBody')}</span>
         {/*
           Placeholders left exactly as written, in a monospace block: `{{2}}`
           rendered as prose is the one detail a reader has to be able to count.
@@ -227,8 +225,7 @@ function RegisteredDetails({
       {template.variables.length > 0 && (
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground">
-            What each position means
-          </span>
+            {t('whatEachPositionMeans')}</span>
           <ol className="flex flex-col gap-0.5">
             {template.variables.map((description, index) => (
               <li key={`${index}-${description}`} className="text-xs">
@@ -266,6 +263,7 @@ function RegistrationForm({
   /** How many placeholders this purpose's contract will actually fill. */
   expected: number;
 }) {
+  const t = useTranslations('templates');
   const [state, action, pending] = useActionState(registerTemplateAction, INITIAL_REGISTER);
   const [body, setBody] = useState(existing?.body ?? '');
   const placeholders = countPlaceholders(body);
@@ -277,33 +275,32 @@ function RegistrationForm({
 
       <div className="flex flex-wrap gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Name at Meta</span>
+          <span className="text-muted-foreground">{t('nameAtMeta')}</span>
           <Input
             name="name"
             defaultValue={existing?.name ?? ''}
             required
             maxLength={512}
             className="h-9 w-72 font-mono"
-            placeholder="pickup_reminder"
+            placeholder={t('pickupReminder')}
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Language</span>
+          <span className="text-muted-foreground">{t('language')}</span>
           <Input
             name="language"
             defaultValue={existing?.language ?? ''}
             required
             maxLength={32}
             className="h-9 w-40 font-mono"
-            placeholder="pt_BR"
+            placeholder={t('ptBr')}
           />
         </label>
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">
-          Approved body — copied from Meta exactly, placeholders and all
-        </span>
+          {t('approvedBodyCopiedFromMetaExactly')}</span>
         <Textarea
           name="body"
           value={body}
@@ -327,7 +324,7 @@ function RegistrationForm({
       */}
       {body.trim() !== '' && placeholders !== expected && (
         <p className="text-sm text-destructive" data-testid={`template-contract-warning-${purpose}`}>
-          This body uses {placeholders} placeholder(s), but this system always sends {expected}.
+          {t('thisBodyUses')}{' '}{placeholders} {t('placeholderSButThisSystemAlways')}{' '}{expected}.
           Registered as it stands, no message for this purpose will ever go out. Check the body
           against the approval before saving.
         </p>
@@ -335,7 +332,7 @@ function RegistrationForm({
 
       {placeholders > 0 && (
         <div className="flex flex-col gap-2">
-          <span className="text-sm text-muted-foreground">What each position means</span>
+          <span className="text-sm text-muted-foreground">{t('whatEachPositionMeans')}</span>
           {Array.from({ length: placeholders }, (_, index) => (
             <label key={index} className="flex items-center gap-2 text-sm">
               <code className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
@@ -385,6 +382,7 @@ function ArchiveTemplateDialog({
   title: string;
   onClose: () => void;
 }) {
+  const t = useTranslations('templates');
   const titleId = useId();
   const [state, action, pending] = useActionState(archiveTemplateAction, INITIAL_ARCHIVE);
 
@@ -396,25 +394,20 @@ function ArchiveTemplateDialog({
   return (
     <Dialog open onClose={onClose} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Remove this registration?</DialogTitle>
+        <DialogTitle id={titleId}>{t('removeThisRegistration2')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          This Station stops sending <strong>{title}</strong> messages entirely — silently, because
-          a Station with nothing registered is a Station that sends nothing rather than an error
-          anybody sees.
-        </p>
+          {t('thisStationStopsSending')}{' '}<strong>{title}</strong> {t('messagesEntirelySilentlyBecauseAStation')}</p>
         <p className="mt-3 text-sm text-muted-foreground">
-          Messages already sent keep their own text and stay readable. Meta still holds the
-          approval for <span className="font-mono">{template.name}</span>, so recording it again is
+          {t('messagesAlreadySentKeepTheirOwn')}{' '}<span className="font-mono">{template.name}</span>, so recording it again is
           a matter of transcribing it — no new approval is needed.
         </p>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="templateId" value={template.id} />
           <Button type="submit" disabled={pending} data-testid="template-archive-confirm">

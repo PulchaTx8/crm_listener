@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ export function ArtistsGrid({
   manage: boolean;
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('music');
   const [grid, setGrid] = useState<RowState<ArtistSummary>>({
     rows: initialRows,
     total: initialTotal,
@@ -76,8 +78,7 @@ export function ArtistsGrid({
       {manage && (
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button type="button" onClick={() => setCreating(true)} data-testid="artist-create">
-            Register artist
-          </Button>
+            {t('registerArtist')}</Button>
         </div>
       )}
 
@@ -91,20 +92,18 @@ export function ArtistsGrid({
                   active={nameSorted}
                   direction={nameSorted ? state.direction : 'asc'}
                 >
-                  Name
-                </SortLink>
+                  {t('name')}</SortLink>
               </TableHead>
-              <TableHead>Legacy id</TableHead>
+              <TableHead>{t('legacyId')}</TableHead>
               <TableHead aria-sort={ariaSort(addedSorted)}>
                 <SortLink
                   href={artistSortHref(state, 'created')}
                   active={addedSorted}
                   direction={addedSorted ? state.direction : 'desc'}
                 >
-                  Added
-                </SortLink>
+                  {t('added')}</SortLink>
               </TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -146,8 +145,7 @@ export function ArtistsGrid({
                           trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                         >
                           <DropdownMenuItem destructive onSelect={() => setArchiving(artist)}>
-                            Archive artist…
-                          </DropdownMenuItem>
+                            {t('archiveArtist')}</DropdownMenuItem>
                         </DropdownMenu>
                       )}
                     </div>
@@ -234,6 +232,7 @@ function ArchiveArtistDialog({
   onCancel: () => void;
   onArchived: (id: string) => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [state, action, pending] = useActionState(archiveArtistAction, INITIAL_ARCHIVE);
 
@@ -245,20 +244,19 @@ function ArchiveArtistDialog({
   return (
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Archive this artist?</DialogTitle>
+        <DialogTitle id={titleId}>{t('archiveThisArtist')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          {artist.name} leaves the catalogue and every list in the app.{' '}
-          <strong>This cannot be undone here</strong> — not by you, not by support. Only direct
+          {artist.name} {t('leavesTheCatalogueAndEveryList')}{' '}
+          <strong>{t('thisCannotBeUndoneHere')}</strong> — not by you, not by support. Only direct
           database access can restore it.
         </p>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="artistId" value={artist.id} />
           <Button type="submit" disabled={pending} data-testid="artist-archive-confirm">
@@ -281,19 +279,19 @@ function CreateArtistDialog({
   onClose: () => void;
   onCreated: (artistId: string) => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Register an artist</DialogTitle>
+        <DialogTitle id={titleId}>{t('registerAnArtist')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <ArtistCreateForm companyId={companyId} onCreated={onCreated} />
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -314,6 +312,7 @@ function ArtistCreateForm({
   companyId: string;
   onCreated: (artistId: string) => void;
 }) {
+  const t = useTranslations('music');
   const [state, action, pending] = useActionState(createArtistAction, INITIAL_CREATE);
 
   return (
@@ -321,7 +320,7 @@ function ArtistCreateForm({
       <input type="hidden" name="companyId" value={companyId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Name</span>
+        <span className="text-muted-foreground">{t('name')}</span>
         <Input name="name" required maxLength={160} />
       </label>
 
@@ -329,8 +328,8 @@ function ArtistCreateForm({
           create_music_reference still takes it (unlike update_music_reference
           — see the field's read-only counterpart in artist-record-dialog.tsx). */}
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Legacy id</span>
-        <Input name="legacyId" maxLength={120} placeholder="Optional" />
+        <span className="text-muted-foreground">{t('legacyId')}</span>
+        <Input name="legacyId" maxLength={120} placeholder={t('optional')} />
       </label>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -339,15 +338,14 @@ function ArtistCreateForm({
         </Button>
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">
-            Artist registered.{' '}
+            {t('artistRegistered')}{' '}
             {state.artistId && (
               <button
                 type="button"
                 onClick={() => onCreated(state.artistId as string)}
                 className="underline underline-offset-2"
               >
-                View artist
-              </button>
+                {t('viewArtist')}</button>
             )}
           </p>
         )}

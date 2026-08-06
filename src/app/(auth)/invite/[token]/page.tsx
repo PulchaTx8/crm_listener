@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import type { Route } from 'next';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -24,6 +25,7 @@ export default async function AcceptInvitationPage({
   params: Promise<{ token: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
+  const t = await getTranslations('auth');
   const { token } = await params;
   const query = await searchParams;
 
@@ -35,11 +37,9 @@ export default async function AcceptInvitationPage({
     return (
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
-          <h1 className="text-xl font-semibold tracking-tight">This invitation is not valid</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t('thisInvitationIsNotValid')}</h1>
           <p className="text-sm text-muted-foreground">
-            The link may have expired, been revoked, or already been used. Please ask whoever
-            invited you to send a new one.
-          </p>
+            {t('theLinkMayHaveExpiredBeen')}</p>
         </CardContent>
       </Card>
     );
@@ -83,9 +83,9 @@ export default async function AcceptInvitationPage({
     <Card>
       <CardContent className="flex flex-col gap-5 pt-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">Join {preview.organizationName}</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t('join')}{' '}{preview.organizationName}</h1>
           <p className="text-sm text-muted-foreground">
-            You were invited as <strong>{preview.roleName}</strong> using{' '}
+            {t('youWereInvitedAs')}{' '}<strong>{preview.roleName}</strong> {t('using')}{' '}
             <strong>{preview.email}</strong>. Choose a password to create your account.
           </p>
         </div>
@@ -93,10 +93,10 @@ export default async function AcceptInvitationPage({
           <p className="text-sm text-destructive">{MESSAGES[query.error] ?? MESSAGES.failed}</p>
         ) : null}
         <form action={accept} className="flex flex-col gap-4">
-          <Input name="fullName" placeholder="Your name (optional)" />
-          <Input name="password" type="password" placeholder="Choose a password" required />
-          <Input name="confirm" type="password" placeholder="Repeat the password" required />
-          <Button type="submit">Create my account</Button>
+          <Input name="fullName" placeholder={t('yourNameOptional')} />
+          <Input name="password" type="password" placeholder={t('chooseAPassword')} required />
+          <Input name="confirm" type="password" placeholder={t('repeatThePassword')} required />
+          <Button type="submit">{t('createMyAccount')}</Button>
         </form>
       </CardContent>
     </Card>

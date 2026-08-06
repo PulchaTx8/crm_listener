@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Route } from 'next';
@@ -52,6 +53,7 @@ export default async function MusicDashboardPage({
     to?: string;
   }>;
 }) {
+  const t = await getTranslations('dashboards');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -137,7 +139,7 @@ export default async function MusicDashboardPage({
   return (
     <>
       <PageHeader
-        title="Music"
+        title={t('music')}
         description="The catalogue, what the audience asked for, and how — one Station or several, side by side."
         // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
         // second set the dialog asks for: this panel's PDF must carry the
@@ -155,8 +157,7 @@ export default async function MusicDashboardPage({
               consolidated toggle sums, and saying nothing about it left "All
               stations" standing over a filtered set. */}
           <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
-            Showing {viewable.length + suspended.length} of the Stations you can reach
-            {stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
+            {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}{stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
             only the Stations listed here. Search by name to reach one that is not listed.
           </p>
           <StationSearchForm
@@ -196,7 +197,7 @@ export default async function MusicDashboardPage({
             {suspended.map((company) => (
               <span
                 key={company.id}
-                title="Suspended — no data is available while the subscription is inactive."
+                title={t('suspendedNoDataIsAvailableWhile')}
                 className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
               >
                 {company.name} (suspended)
@@ -232,7 +233,7 @@ export default async function MusicDashboardPage({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Monthly requests</CardTitle>
+            <CardTitle>{t('monthlyRequests')}</CardTitle>
           </CardHeader>
           <CardContent>
             <MonthlyBars data={dashboard.monthly} label="Monthly requests" />
@@ -241,7 +242,7 @@ export default async function MusicDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Domestic × international</CardTitle>
+            <CardTitle>{t('domesticInternational')}</CardTitle>
           </CardHeader>
           <CardContent>
             {/* `key` is the raw music_nationality value; NATIONALITY_LABELS
@@ -258,7 +259,7 @@ export default async function MusicDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Vocal</CardTitle>
+            <CardTitle>{t('vocal')}</CardTitle>
           </CardHeader>
           <CardContent>
             <BreakdownBars
@@ -270,7 +271,7 @@ export default async function MusicDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Most requested songs</CardTitle>
+            <CardTitle>{t('mostRequestedSongs')}</CardTitle>
           </CardHeader>
           <CardContent>
             <TopList data={dashboard.top.songs} label="Most requested songs" />
@@ -279,7 +280,7 @@ export default async function MusicDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Most requested genres</CardTitle>
+            <CardTitle>{t('mostRequestedGenres')}</CardTitle>
           </CardHeader>
           <CardContent>
             <TopList data={dashboard.top.genres} label="Most requested genres" />
@@ -290,28 +291,29 @@ export default async function MusicDashboardPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <>
-      <PageHeader title="Music" />
+      <PageHeader title={t('music')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href={BASE as Route} className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <>
-      <PageHeader title="Music" />
+      <PageHeader title={t('music')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect } from 'react';
 import { recordStockExitAction, type MovementFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ export function StockExitForm({
   /** Asks the record to re-read, so the ledger and the balance show this movement. */
   onRecorded?: () => void;
 }) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(recordStockExitAction, INITIAL);
 
   useEffect(() => {
@@ -30,20 +32,18 @@ export function StockExitForm({
       <input type="hidden" name="prizeId" value={prizeId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        Quantity
-        <Input name="quantity" type="number" min={1} step={1} required />
+        {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Note
-        <Textarea name="note" required maxLength={2000} placeholder="Why is this leaving stock?" />
+        {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whyIsThisLeavingStock')} />
       </label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Record exit'}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">Exit recorded.</p>}
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('exitRecorded')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,6 +108,7 @@ export function WinnerActions({
   drawStatus: 'COMPLETED' | 'CANCELLED';
   onAct: (action: WinnerAction, reason: string) => Promise<string | null>;
 }) {
+  const t = useTranslations('draws');
   const [open, setOpen] = useState<WinnerAction | null>(null);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -157,7 +159,7 @@ export function WinnerActions({
           <Input
             value={reason}
             placeholder={`Reason — ${LABELS[open].toLowerCase()}`}
-            aria-label="Reason"
+            aria-label={t('reason')}
             onChange={(event) => setReason(event.target.value)}
           />
           <Button type="button" size="sm" disabled={pending} onClick={() => run(open)}>

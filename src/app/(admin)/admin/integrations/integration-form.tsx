@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ import type { IntegrationRow } from '@/services/integrations';
  * first step of a secrets subsystem this block deliberately does not open.
  */
 export function IntegrationForm({ row }: { row: IntegrationRow }) {
+  const t = useTranslations('admin');
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -50,7 +52,7 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Phone number id</span>
+          <span className="text-muted-foreground">{t('phoneNumberId')}</span>
           <Input
             name="phoneNumberId"
             defaultValue={row.phone_number_id ?? ''}
@@ -61,12 +63,12 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
         </label>
 
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">WABA id</span>
+          <span className="text-muted-foreground">{t('wabaId')}</span>
           <Input name="wabaId" defaultValue={row.waba_id ?? ''} className="w-48" />
         </label>
 
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-muted-foreground">Display number</span>
+          <span className="text-muted-foreground">{t('displayNumber')}</span>
           <Input
             name="displayPhoneNumber"
             defaultValue={row.display_phone_number ?? ''}
@@ -82,8 +84,7 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
             defaultChecked={row.enabled ?? true}
             className="h-4 w-4"
           />
-          Enabled
-        </label>
+          {t('enabled')}</label>
 
         <Button type="submit" size="sm" disabled={pending}>
           {row.integration_id ? 'Save' : 'Connect'}
@@ -91,8 +92,7 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
 
         {row.integration_id && row.enabled ? (
           <Button type="button" variant="ghost" size="sm" onClick={disable} disabled={pending}>
-            Disable
-          </Button>
+            {t('disable')}</Button>
         ) : null}
       </div>
 
