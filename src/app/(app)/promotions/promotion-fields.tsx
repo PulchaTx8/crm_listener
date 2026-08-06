@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Input, Textarea } from '@/components/ui/input';
 import type { PromotionDetail } from '@/services/promotions';
@@ -26,6 +27,7 @@ export function PromotionFields({
   onRepeatsChange: (next: boolean) => void;
   onDirty: () => void;
 }) {
+  const t = useTranslations('promotions');
   // The visible inputs speak the Station's wall-clock; the hidden ones beside
   // them carry the instant the action parses. Two fields rather than a
   // conversion on the server, because only the browser knows which Station's
@@ -38,7 +40,7 @@ export function PromotionFields({
     <div className="flex flex-col gap-5" onInput={onDirty} onChange={onDirty}>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-          <span className="text-muted-foreground">Promotion</span>
+          <span className="text-muted-foreground">{t('promotion')}</span>
           <Input
             name="name"
             defaultValue={record?.name ?? ''}
@@ -50,7 +52,7 @@ export function PromotionFields({
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Site integration code</span>
+          <span className="text-muted-foreground">{t('siteIntegrationCode')}</span>
           <Input
             name="siteIntegrationCode"
             type="number"
@@ -61,9 +63,7 @@ export function PromotionFields({
             data-testid="promotion-site-code"
           />
           <span className="text-xs text-muted-foreground">
-            How the Station&apos;s own website refers to this promotion. Optional, and no two live
-            promotions here may share one.
-          </span>
+            {t('howTheStationSOwnWebsite')}</span>
         </label>
 
         <div className="hidden sm:block" aria-hidden="true" />
@@ -73,7 +73,7 @@ export function PromotionFields({
             state reading their own local time would see a window an hour off
             from the one the bot enforces. */}
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Starts</span>
+          <span className="text-muted-foreground">{t('starts')}</span>
           <Input
             type="datetime-local"
             value={startsLocal}
@@ -90,7 +90,7 @@ export function PromotionFields({
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Ends</span>
+          <span className="text-muted-foreground">{t('ends')}</span>
           <Input
             type="datetime-local"
             value={endsLocal}
@@ -103,7 +103,7 @@ export function PromotionFields({
         </label>
 
         <p className="text-xs text-muted-foreground sm:col-span-2" data-testid="promotion-timezone">
-          Times are this Station&apos;s local time ({timeZone}).
+          {t('timesAreThisStationSLocal')}{timeZone}).
         </p>
       </div>
 
@@ -118,7 +118,7 @@ export function PromotionFields({
             className="h-4 w-4 rounded border-input"
             data-testid="promotion-allow-multiple"
           />
-          <span>Allow more than one entry per listener</span>
+          <span>{t('allowMoreThanOneEntryPer')}</span>
         </label>
 
         {/* Shown only when repetition is on, and required then. Unticked, the
@@ -127,7 +127,7 @@ export function PromotionFields({
             times and occupy five hundred places in the draw. */}
         {repeats && (
           <label className="flex w-64 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">At least this many hours apart</span>
+            <span className="text-muted-foreground">{t('atLeastThisManyHoursApart')}</span>
             <Input
               name="minHoursBetweenEntries"
               type="number"
@@ -163,7 +163,7 @@ export function PromotionFields({
             type: a ceiling of one is what turning repeats off already says. */}
         {repeats && (
           <label className="flex w-64 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">At most this many entries each</span>
+            <span className="text-muted-foreground">{t('atMostThisManyEntriesEach')}</span>
             <Input
               name="maxEntriesPerMember"
               type="number"
@@ -174,9 +174,7 @@ export function PromotionFields({
               data-testid="promotion-max-entries"
             />
             <span className="text-xs text-muted-foreground">
-              Optional. Leave it blank for no limit; two or more caps how many times one listener
-              can be in the draw.
-            </span>
+              {t('optionalLeaveItBlankForNo')}</span>
           </label>
         )}
       </div>
@@ -191,16 +189,13 @@ export function PromotionFields({
           data-testid="promotion-require-correct"
         />
         <span>
-          Require the right answer to take part
-          <span className="block text-xs text-muted-foreground">
-            Applies to quiz questions only. Off, a wrong answer is recorded and the listener still
-            goes into the draw.
-          </span>
+          {t('requireTheRightAnswerToTake')}<span className="block text-xs text-muted-foreground">
+            {t('appliesToQuizQuestionsOnlyOff')}</span>
         </span>
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Call to action</span>
+        <span className="text-muted-foreground">{t('callToAction')}</span>
         <Textarea
           name="callToAction"
           rows={3}

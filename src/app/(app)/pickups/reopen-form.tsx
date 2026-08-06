@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,7 @@ export function ReopenForm({
   timeZone: string;
   onReopen: (deadlineAt: string, reason: string) => Promise<string | null>;
 }) {
+  const t = useTranslations('pickups');
   const [deadline, setDeadline] = useState('');
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -58,19 +60,19 @@ export function ReopenForm({
   return (
     <div className="mt-1 flex flex-wrap items-end gap-2" data-testid="reopen-form">
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">New deadline</span>
+        <span className="text-muted-foreground">{t('newDeadline')}</span>
         <Input
           type="datetime-local"
           value={deadline}
           onChange={(event) => setDeadline(event.target.value)}
-          aria-label="The new pickup deadline, in this Station's local time"
+          aria-label={t('theNewPickupDeadlineInThis')}
           data-testid="reopen-deadline"
         />
       </label>
       <Input
         value={reason}
-        placeholder="Reason — reopening the deadline"
-        aria-label="Reason"
+        placeholder={t('reasonReopeningTheDeadline')}
+        aria-label={t('reason')}
         onChange={(event) => setReason(event.target.value)}
         data-testid="reopen-reason"
       />

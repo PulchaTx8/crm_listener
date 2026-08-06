@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Route } from 'next';
@@ -64,6 +65,7 @@ export default async function AudienceDashboardPage({
     to?: string;
   }>;
 }) {
+  const t = await getTranslations('dashboards');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -153,7 +155,7 @@ export default async function AudienceDashboardPage({
   return (
     <>
       <PageHeader
-        title="Audience"
+        title={t('audience')}
         description="Who is listening, how many are new, and who is barred — one Station or several, side by side."
         // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
         // second set the dialog asks for: this panel's PDF must carry the
@@ -171,8 +173,7 @@ export default async function AudienceDashboardPage({
               consolidated toggle sums, and saying nothing about it left "All
               stations" standing over a filtered set. */}
           <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
-            Showing {viewable.length + suspended.length} of the Stations you can reach
-            {stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
+            {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}{stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
             only the Stations listed here. Search by name to reach one that is not listed.
           </p>
           <StationSearchForm
@@ -212,7 +213,7 @@ export default async function AudienceDashboardPage({
             {suspended.map((company) => (
               <span
                 key={company.id}
-                title="Suspended — no data is available while the subscription is inactive."
+                title={t('suspendedNoDataIsAvailableWhile')}
                 className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
               >
                 {company.name} (suspended)
@@ -252,7 +253,7 @@ export default async function AudienceDashboardPage({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Monthly arrivals</CardTitle>
+            <CardTitle>{t('monthlyArrivals')}</CardTitle>
           </CardHeader>
           <CardContent>
             <MonthlyBars data={dashboard.monthly} label="Monthly arrivals" />
@@ -261,7 +262,7 @@ export default async function AudienceDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Barred by kind</CardTitle>
+            <CardTitle>{t('barredByKind')}</CardTitle>
           </CardHeader>
           <CardContent>
             {/* A member barred both ways counts in both bars, and an
@@ -270,9 +271,7 @@ export default async function AudienceDashboardPage({
                 sum of the two kinds shown here (design spec §3.1). */}
             {dashboard.stations.length > 1 && (
               <p className="mb-2 text-xs text-muted-foreground">
-                Counts distinct listeners: an Organization-wide bar counts once across every Station
-                selected, so this is not always the sum of the barred card above.
-              </p>
+                {t('countsDistinctListenersAnOrganizationWide')}</p>
             )}
             {/* `key` is the raw member_block_kind value; BLOCK_KIND_LABELS is
                 the wording the audience record already uses for the same two
@@ -287,7 +286,7 @@ export default async function AudienceDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>How they were found</CardTitle>
+            <CardTitle>{t('howTheyWereFound')}</CardTitle>
           </CardHeader>
           <CardContent>
             <TopList data={dashboard.top.discovery_source} label="How they were found" />
@@ -296,7 +295,7 @@ export default async function AudienceDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>First contact</CardTitle>
+            <CardTitle>{t('firstContact')}</CardTitle>
           </CardHeader>
           <CardContent>
             <TopList data={dashboard.top.first_contact_origin} label="First contact" />
@@ -307,28 +306,29 @@ export default async function AudienceDashboardPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <>
-      <PageHeader title="Audience" />
+      <PageHeader title={t('audience')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href={BASE as Route} className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <>
-      <PageHeader title="Audience" />
+      <PageHeader title={t('audience')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

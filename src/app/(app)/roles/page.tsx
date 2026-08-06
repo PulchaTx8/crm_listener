@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { PageHeader } from '@/components/layout/app-shell';
@@ -14,6 +15,7 @@ export default async function RolesPage({
 }: {
   searchParams: Promise<{ record?: string; tab?: string }>;
 }) {
+  const t = await getTranslations('roles');
   const params = await searchParams;
   const supabase = await createUserClient();
   const {
@@ -50,7 +52,7 @@ export default async function RolesPage({
   return (
     <>
       <PageHeader
-        title="Roles"
+        title={t('roles')}
         description="A role is a set of powers you assign to someone in a Station."
       />
 

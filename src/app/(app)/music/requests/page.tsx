@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -61,6 +62,7 @@ export default async function RequestsPage({
 }: {
   searchParams: Promise<MusicRequestSearchParams>;
 }) {
+  const t = await getTranslations('music');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -156,7 +158,7 @@ export default async function RequestsPage({
   return (
     <>
       <PageHeader
-        title="Requests"
+        title={t('requests')}
         description="What listeners asked for, newest first."
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
@@ -176,9 +178,7 @@ export default async function RequestsPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search
-              by name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/music/requests"
@@ -208,7 +208,7 @@ export default async function RequestsPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -237,28 +237,29 @@ export default async function RequestsPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title="Requests" />
+      <PageHeader title={t('requests')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href="/music/requests" className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title="Requests" />
+      <PageHeader title={t('requests')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

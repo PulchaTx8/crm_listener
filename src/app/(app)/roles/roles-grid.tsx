@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -46,6 +47,7 @@ export function RolesGrid({
   catalogue: PermissionEntry[];
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('roles');
   const [grid, setGrid] = useState<RowState<RoleSummary>>({
     rows: initialRoles,
     total: initialRoles.length,
@@ -84,27 +86,25 @@ export function RolesGrid({
     <>
       <div className="mt-4 flex justify-end">
         <Button type="button" onClick={() => setCreating(true)} data-testid="role-create">
-          Create role
-        </Button>
+          {t('createRole')}</Button>
       </div>
 
       <div className="mt-4 rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Permissions</TableHead>
-              <TableHead>Holders</TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead>{t('name')}</TableHead>
+              <TableHead>{t('description')}</TableHead>
+              <TableHead>{t('permissions')}</TableHead>
+              <TableHead>{t('holders')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {grid.rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
-                  No roles yet. Create one, then assign it on the Team screen.
-                </TableCell>
+                  {t('noRolesYetCreateOneThen')}</TableCell>
               </TableRow>
             ) : (
               grid.rows.map((role) => (
@@ -120,7 +120,7 @@ export function RolesGrid({
                   </TableCell>
                   <TableCell className="text-muted-foreground">{role.description ?? '—'}</TableCell>
                   <TableCell>{role.permissionCodes.length}</TableCell>
-                  <TableCell>held by {role.holders} user(s)</TableCell>
+                  <TableCell>{t('heldBy')}{' '}{role.holders} {t('userS')}</TableCell>
                   <TableCell className="sticky right-0 bg-background">
                     <div className="flex items-center justify-end gap-1">
                       <button
@@ -142,8 +142,7 @@ export function RolesGrid({
                             a Delete that is simply not there, with nothing on
                             screen explaining why. */}
                         <DropdownMenuItem destructive onSelect={() => setDeleting(role)}>
-                          Delete role…
-                        </DropdownMenuItem>
+                          {t('deleteRole')}</DropdownMenuItem>
                       </DropdownMenu>
                     </div>
                   </TableCell>
@@ -218,6 +217,7 @@ function DeleteRoleDialog({
   onCancel: () => void;
   onDeleted: (id: string) => void;
 }) {
+  const t = useTranslations('roles');
   const titleId = useId();
   const [state, action, pending] = useActionState(deleteRoleAction, INITIAL_DELETE);
   const held = role.holders > 0;
@@ -237,15 +237,13 @@ function DeleteRoleDialog({
       <DialogBody>
         {held ? (
           <p className="text-sm">
-            {role.holders} user(s) hold <strong>{role.name}</strong>. Reassign them on the Team
+            {role.holders} {t('userSHold')}{' '}<strong>{role.name}</strong>. Reassign them on the Team
             screen first — deleting a role somebody holds would leave them with no powers and
             nothing on screen to explain why, so the database refuses it.
           </p>
         ) : (
           <p className="text-sm">
-            <strong>{role.name}</strong> is held by nobody and will be archived. Anyone you assign
-            it to afterwards will need a new role.
-          </p>
+            <strong>{role.name}</strong> {t('isHeldByNobodyAndWill')}</p>
         )}
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>

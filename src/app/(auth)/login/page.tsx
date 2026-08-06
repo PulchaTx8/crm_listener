@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -10,6 +11,7 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ error?: string; invited?: string }>;
 }) {
+  const t = await getTranslations('auth');
   const params = await searchParams;
 
   async function signIn(formData: FormData) {
@@ -45,11 +47,10 @@ export default async function LoginPage({
   return (
     <Card>
       <CardContent className="flex flex-col gap-5 pt-6">
-        <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t('signIn')}</h1>
         {params.invited ? (
         <p className="text-sm text-muted-foreground">
-          Your account is ready. Sign in with the password you just chose.
-        </p>
+          {t('yourAccountIsReadySignIn')}</p>
       ) : null}
       {params.error ? (
           <p className="text-sm text-destructive">
@@ -59,13 +60,12 @@ export default async function LoginPage({
           </p>
         ) : null}
         <form action={signIn} className="flex flex-col gap-4">
-          <Input name="email" type="email" placeholder="E-mail" required />
-          <Input name="password" type="password" placeholder="Password" required />
-          <Button type="submit">Sign in</Button>
+          <Input name="email" type="email" placeholder={t('eMail')} required />
+          <Input name="password" type="password" placeholder={t('password')} required />
+          <Button type="submit">{t('signIn')}</Button>
         </form>
         <Link href="/forgot-password" className="text-sm underline">
-          Forgot your password?
-        </Link>
+          {t('forgotYourPassword')}</Link>
       </CardContent>
     </Card>
   );

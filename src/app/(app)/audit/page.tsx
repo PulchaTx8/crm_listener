@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Route } from 'next';
@@ -39,6 +40,7 @@ export default async function AuditPage({
 }: {
   searchParams: Promise<AuditSearchParams>;
 }) {
+  const t = await getTranslations('audit');
   const params = await searchParams;
   const state = parseAuditListState(params);
   const cursor = parseAuditCursor(params);
@@ -56,12 +58,11 @@ export default async function AuditPage({
     logger.error({ err: cause }, 'could not load the audit trail');
     return (
       <>
-        <PageHeader title="Audit trail" />
+        <PageHeader title={t('auditTrail')} />
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
-              The audit trail could not be loaded. Try again.
-            </p>
+              {t('theAuditTrailCouldNotBe')}</p>
           </CardContent>
         </Card>
       </>
@@ -71,7 +72,7 @@ export default async function AuditPage({
   return (
     <>
       <PageHeader
-        title="Audit trail"
+        title={t('auditTrail')}
         description="What has been done in this Organization, by whom, and when. Filtered by what you may read."
       />
 
@@ -94,8 +95,7 @@ export default async function AuditPage({
                 href={auditHref(state, page.nextCursor) as Route}
                 className="underline underline-offset-4"
               >
-                Older entries
-              </Link>
+                {t('olderEntries')}</Link>
             ) : null}
           </div>
         </CardContent>

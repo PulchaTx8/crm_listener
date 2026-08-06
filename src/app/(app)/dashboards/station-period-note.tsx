@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import type { Station } from '@/schemas/dashboards';
 import { inclusiveEnd } from './period';
 
@@ -31,7 +32,8 @@ import { inclusiveEnd } from './period';
  * `to` is exclusive, and "1 August to 1 September" printed under a heading
  * about August is its own small lie.
  */
-export function StationPeriodNote({ stations }: { stations: Station[] }) {
+export async function StationPeriodNote({ stations }: { stations: Station[] }) {
+  const t = await getTranslations('dashboards');
   const windows = new Map<string, { from: string; to: string; names: string[] }>();
   for (const station of stations) {
     const key = `${station.from}|${station.to}`;
@@ -43,9 +45,7 @@ export function StationPeriodNote({ stations }: { stations: Station[] }) {
   if (windows.size > 1) {
     return (
       <p className="mb-4 text-xs text-muted-foreground" data-testid="mixed-period-note">
-        These Stations did not measure the same period. A preset is resolved at each
-        Station&apos;s own clock, and these clocks are far enough apart to land on different
-        dates:{' '}
+        {t('theseStationsDidNotMeasureThe')}{' '}
         {Array.from(windows.values())
           .map((group) => `${group.names.join(', ')} — ${group.from} to ${inclusiveEnd(group.to)}`)
           .join('; ')}
@@ -58,9 +58,7 @@ export function StationPeriodNote({ stations }: { stations: Station[] }) {
   if (timezones.size > 1) {
     return (
       <p className="mb-4 text-xs text-muted-foreground" data-testid="mixed-timezone-note">
-        These Stations do not share a timezone. The period&apos;s dates are the same for all of
-        them; the instants they begin and end are not.
-      </p>
+        {t('theseStationsDoNotShareA')}</p>
     );
   }
 

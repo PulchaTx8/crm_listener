@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -148,6 +149,7 @@ export function PromotionRecordDialog({
   /** Every successful read, which is how a promotion registered a moment ago gets its row. */
   onLoaded?: (record: PromotionDetail) => void;
 }) {
+  const t = useTranslations('promotions');
   const titleId = useId();
   const [record, setRecord] = useState<PromotionDetail | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -297,7 +299,7 @@ export function PromotionRecordDialog({
                 {SITUATION_LABELS[situation]}
               </span>
               <span className="text-muted-foreground">
-                Registered {formatInstant(record.createdAt, timeZone)}
+                {t('registered')}{' '}{formatInstant(record.createdAt, timeZone)}
               </span>
             </div>
           )}
@@ -305,7 +307,7 @@ export function PromotionRecordDialog({
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -313,7 +315,7 @@ export function PromotionRecordDialog({
       </DialogHeader>
 
       {record && (
-        <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+        <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
           {PROMOTION_TABS.map((name) => (
             <button
               key={name}
@@ -335,14 +337,13 @@ export function PromotionRecordDialog({
       )}
 
       <DialogBody>
-        {loading && <p className="text-sm text-muted-foreground">Loading the record…</p>}
+        {loading && <p className="text-sm text-muted-foreground">{t('loadingTheRecord')}</p>}
 
         {failure && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm text-destructive">{failure}</p>
             <Button type="button" variant="outline" onClick={refresh}>
-              Try again
-            </Button>
+              {t('tryAgain')}</Button>
           </div>
         )}
 
@@ -361,9 +362,7 @@ export function PromotionRecordDialog({
         {elsewhere && (
           <div className="flex flex-col items-start gap-3" data-testid="promotion-record-elsewhere">
             <p className="text-sm text-muted-foreground">
-              This promotion belongs to another Station, and its dates, its permissions and its
-              entries all read against that Station rather than the one on screen. Open it there.
-            </p>
+              {t('thisPromotionBelongsToAnotherStation')}</p>
             <Link
               href={
                 `/promotions?companyId=${encodeURIComponent(elsewhere)}&record=${encodeURIComponent(
@@ -373,8 +372,7 @@ export function PromotionRecordDialog({
               className="text-sm text-primary underline underline-offset-2"
               data-testid="promotion-record-elsewhere-link"
             >
-              Open it at the Station it belongs to
-            </Link>
+              {t('openItAtTheStationIt')}</Link>
           </div>
         )}
 
@@ -382,13 +380,13 @@ export function PromotionRecordDialog({
           <>
             {record.cancelledAt && (
               <p className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                Cancelled {formatInstant(record.cancelledAt, timeZone)}
+                {t('cancelled')}{' '}{formatInstant(record.cancelledAt, timeZone)}
                 {record.cancellationReason ? ` — ${record.cancellationReason}` : ''}
               </p>
             )}
             {record.deletedAt && (
               <p className="mb-4 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                Archived {formatInstant(record.deletedAt, timeZone)}. You can see this because you
+                {t('archived')}{' '}{formatInstant(record.deletedAt, timeZone)}. You can see this because you
                 own this Organization; nobody else&apos;s reads return it.
               </p>
             )}
@@ -476,8 +474,7 @@ export function PromotionRecordDialog({
             )}
             {saveState.status === 'saved' && !dirty && (
               <p className="mt-4 text-sm text-emerald-700" data-testid="promotion-saved">
-                Saved.
-              </p>
+                {t('saved')}</p>
             )}
 
             {/* Scoped to the tabs the shared form spans, because that is what
@@ -490,9 +487,7 @@ export function PromotionRecordDialog({
                 sentence about its own permission. */}
             {readOnly && FORM_TABS.includes(tab) && (
               <p className="mt-4 text-sm text-muted-foreground">
-                You do not hold promotions.edit at this Station, so this promotion can be read here
-                but not changed.
-              </p>
+                {t('youDoNotHoldPromotionsEdit')}</p>
             )}
           </>
         )}
@@ -510,8 +505,7 @@ export function PromotionRecordDialog({
           </Button>
         )}
         <Button type="button" variant="outline" onClick={requestClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );

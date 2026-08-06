@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { SidebarNav, type NavSection } from './sidebar-nav';
+import { LocaleSelector } from './locale-selector';
+import { getTranslations } from 'next-intl/server';
 
 /** Feather-style path data, inlined to keep the shell dependency-free. */
 export const ICONS = {
@@ -59,7 +61,7 @@ function initials(user: ShellUser): string {
  * the right. Both the member area and the platform console render inside it, so
  * the two never drift apart visually.
  */
-export function AppShell({
+export async function AppShell({
   sections,
   user,
   children,
@@ -68,6 +70,10 @@ export function AppShell({
   user: ShellUser;
   children: React.ReactNode;
 }) {
+  // Block 12a. The shell is rendered by both layouts, so its wording is the
+  // first thing every screen inherits.
+  const t = await getTranslations('shell');
+
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
@@ -88,7 +94,7 @@ export function AppShell({
           </span>
           <span className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-white">PulchatX</span>
-            <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">CRM</span>
+            <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">{t('tagline')}</span>
           </span>
         </div>
 
@@ -102,10 +108,12 @@ export function AppShell({
             <span className="truncate text-sm text-white">{user.fullName ?? user.email}</span>
             <span className="text-xs text-sidebar-muted">{user.roleLabel}</span>
           </span>
+          {/* Block 12a, D4. Renders nothing until a second catalogue exists. */}
+          <LocaleSelector />
           <form action="/auth/signout" method="post" className="ml-auto">
             <button
               type="submit"
-              aria-label="Sign out"
+              aria-label={t('signOut')}
               className="rounded-md p-2 text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-white"
             >
               <svg
@@ -141,7 +149,7 @@ export function AppShell({
             ))}
           <form action="/auth/signout" method="post" className="ml-auto">
             <button type="submit" className="text-sm text-muted-foreground underline">
-              Sign out
+              {t('signOut')}
             </button>
           </form>
         </header>

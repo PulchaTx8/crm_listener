@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,7 @@ export function RequestsGrid({
   /** members.create, passed through to the manual form's registration half. */
   canRegisterListeners: boolean;
 }) {
+  const t = useTranslations('music');
   const [recording, setRecording] = useState(false);
   const [archiving, setArchiving] = useState<RequestSummary | null>(null);
 
@@ -76,8 +78,7 @@ export function RequestsGrid({
       {canRequest && (
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button type="button" onClick={() => setRecording(true)} data-testid="request-record">
-            Record a request
-          </Button>
+            {t('recordARequest')}</Button>
         </div>
       )}
 
@@ -85,18 +86,18 @@ export function RequestsGrid({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Listener</TableHead>
-              <TableHead>Song</TableHead>
-              <TableHead>Artist</TableHead>
-              <TableHead>Programme</TableHead>
-              <TableHead>Channel</TableHead>
+              <TableHead>{t('listener')}</TableHead>
+              <TableHead>{t('song')}</TableHead>
+              <TableHead>{t('artist')}</TableHead>
+              <TableHead>{t('programme')}</TableHead>
+              <TableHead>{t('channel')}</TableHead>
               {/* No sort control: list_music_requests orders newest first,
                   fixed, because that is the one ordering a keyset cursor can
                   walk — the identical reasoning ParticipationsGrid's own
                   header carries for its Entered column. */}
-              <TableHead aria-sort="descending">Requested</TableHead>
+              <TableHead aria-sort="descending">{t('requested')}</TableHead>
               {canRequest && (
-                <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+                <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
               )}
             </TableRow>
           </TableHeader>
@@ -107,8 +108,7 @@ export function RequestsGrid({
                   colSpan={canRequest ? BASE_COLUMN_COUNT + 1 : BASE_COLUMN_COUNT}
                   className="py-8 text-center text-muted-foreground"
                 >
-                  No request matches these filters.
-                </TableCell>
+                  {t('noRequestMatchesTheseFilters')}</TableCell>
               </TableRow>
             ) : (
               rows.map((request) => (
@@ -166,11 +166,10 @@ export function RequestsGrid({
                     {request.songArchived && (
                       <span
                         className="ml-2 inline-block rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        title="This song has since been archived from the catalogue. The request still names it as history."
+                        title={t('thisSongHasSinceBeenArchived')}
                         data-testid="request-song-archived-badge"
                       >
-                        Archived
-                      </span>
+                        {t('archived')}</span>
                     )}
                   </TableCell>
                   <TableCell className="text-sm">{request.artistName}</TableCell>
@@ -186,8 +185,7 @@ export function RequestsGrid({
                         trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                       >
                         <DropdownMenuItem destructive onSelect={() => setArchiving(request)}>
-                          Withdraw request…
-                        </DropdownMenuItem>
+                          {t('withdrawRequest')}</DropdownMenuItem>
                       </DropdownMenu>
                     </TableCell>
                   )}
@@ -245,11 +243,12 @@ function RecordDialog({
   canRegisterListeners: boolean;
   onClose: () => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Record a request</DialogTitle>
+        <DialogTitle id={titleId}>{t('recordARequest')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <RecordRequestForm
@@ -280,6 +279,7 @@ function ArchiveDialog({
   onCancel: () => void;
   onArchived: () => void;
 }) {
+  const t = useTranslations('music');
   const titleId = useId();
   const [state, action, pending] = useActionState(archiveRequestAction, INITIAL_ARCHIVE);
 
@@ -291,11 +291,11 @@ function ArchiveDialog({
   return (
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Withdraw this request?</DialogTitle>
+        <DialogTitle id={titleId}>{t('withdrawThisRequest')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          The request for “{request.songTitle}” leaves this list. This is for a mistyped entry —
+          {t('theRequestFor')}{request.songTitle}” leaves this list. This is for a mistyped entry —
           it does not undo the song being asked for, only the record of somebody having typed it
           in by mistake.
         </p>
@@ -303,8 +303,7 @@ function ArchiveDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="requestId" value={request.requestId} />
           <Button type="submit" disabled={pending} data-testid="request-archive-confirm">

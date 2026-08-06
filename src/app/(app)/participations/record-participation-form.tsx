@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
@@ -80,6 +81,7 @@ export function RecordParticipationForm({
   /** Called after every recorded attempt, whatever its status, so the tab re-reads its counts. */
   onRecorded: () => void;
 }) {
+  const t = useTranslations('participations');
   const [state, action, pending] = useActionState(recordParticipationAction, INITIAL);
 
   const [picked, setPicked] = useState<StationListener | null>(null);
@@ -163,15 +165,10 @@ export function RecordParticipationForm({
     return (
       <div className="flex flex-col gap-3 rounded-md border p-4" data-testid="participation-record-form">
         <p className="text-sm text-muted-foreground">
-          Recording an entry by hand needs permission to see the audience at this Station, which you
-          do not hold. Both ways of naming a listener go through it: the picker reads the audience,
-          and typing somebody&apos;s details goes through the same deduplication before anything is
-          written. Nothing here would work without it, so it is not offered.
-        </p>
+          {t('recordingAnEntryByHandNeeds')}</p>
         <div>
           <Button type="button" variant="outline" onClick={onCancel}>
-            Close
-          </Button>
+            {t('close')}</Button>
         </div>
       </div>
     );
@@ -200,17 +197,16 @@ export function RecordParticipationForm({
               {describeListener(picked)}
             </span>
             <Button type="button" variant="outline" onClick={() => setPicked(null)}>
-              Choose somebody else
-            </Button>
+              {t('chooseSomebodyElse')}</Button>
           </div>
         ) : (
           <>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Find a listener at this Station</span>
+              <span className="text-muted-foreground">{t('findAListenerAtThisStation')}</span>
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Name, phone or CPF digits"
+                placeholder={t('namePhoneOrCpfDigits')}
                 data-testid="participation-listener-search"
               />
               {/* No silent caps: a list that stops has to say so, or an
@@ -221,10 +217,10 @@ export function RecordParticipationForm({
                   about a truncation that did not happen. */}
               {cut && (
                 <span className="text-xs text-muted-foreground" data-testid="participation-listener-cut">
-                  Showing the first {STATION_LISTENER_PAGE_SIZE}. Narrow the search to reach the rest.
+                  {t('showingTheFirst')}{' '}{STATION_LISTENER_PAGE_SIZE}. Narrow the search to reach the rest.
                 </span>
               )}
-              {searching && <span className="text-xs text-muted-foreground">Looking…</span>}
+              {searching && <span className="text-xs text-muted-foreground">{t('looking')}</span>}
               {searchFailure && <span className="text-xs text-destructive">{searchFailure}</span>}
             </label>
 
@@ -253,17 +249,16 @@ export function RecordParticipationForm({
                 deduplication the picker reads from. */}
             <fieldset className="flex flex-col gap-3 rounded-md border border-dashed p-3">
               <legend className="px-1 text-xs text-muted-foreground">
-                Or enter who is taking part
-              </legend>
+                {t('orEnterWhoIsTakingPart')}</legend>
 
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted-foreground">Name</span>
+                <span className="text-muted-foreground">{t('name')}</span>
                 <Input name="fullName" maxLength={200} data-testid="participation-full-name" />
               </label>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-muted-foreground">Phone</span>
+                  <span className="text-muted-foreground">{t('phone')}</span>
                   <Input name="phone" maxLength={40} data-testid="participation-phone" />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
@@ -273,24 +268,18 @@ export function RecordParticipationForm({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                A phone number or a CPF is what finds an existing listener, so one of the two is
-                needed. Without either, every entry would register a fresh listener nobody could ever
-                be matched against again.
-              </p>
+                {t('aPhoneNumberOrACpf')}</p>
 
               {!canRegisterListeners && (
                 <p className="text-xs text-muted-foreground" data-testid="participation-register-note">
-                  You cannot register listeners at this Station, so this only works for somebody who
-                  is already here. If nobody holds that phone or CPF yet, the entry will be refused
-                  rather than registering them.
-                </p>
+                  {t('youCannotRegisterListenersAtThis')}</p>
               )}
             </fieldset>
           </>
         )}
 
         <label className="flex w-72 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">When they entered</span>
+          <span className="text-muted-foreground">{t('whenTheyEntered')}</span>
           <Input
             type="datetime-local"
             value={when}
@@ -309,13 +298,13 @@ export function RecordParticipationForm({
             value={fromZonedWallClock(when, timeZone) ?? ''}
           />
           <span className="text-xs text-muted-foreground">
-            This Station&apos;s local time ({timeZone}).
+            {t('thisStationSLocalTime')}{timeZone}).
           </span>
         </label>
 
         {questions.length > 0 && (
           <fieldset className="flex flex-col gap-3 rounded-md border p-3">
-            <legend className="px-1 text-xs text-muted-foreground">Answers</legend>
+            <legend className="px-1 text-xs text-muted-foreground">{t('answers')}</legend>
             {questions.map((question) => (
               <label key={question.id} className="flex flex-col gap-1 text-sm">
                 <span>{question.prompt}</span>
@@ -338,7 +327,7 @@ export function RecordParticipationForm({
                 ) : (
                   <>
                     <Select name="answerOptionId" data-testid="participation-answer-option">
-                      <option value="">No answer</option>
+                      <option value="">{t('noAnswer')}</option>
                       {question.options.map((option) => (
                         <option key={option.id} value={option.id}>
                           {option.label}
@@ -356,10 +345,7 @@ export function RecordParticipationForm({
                 stored whatever the status, and whether it was right is a
                 draw-time question Block 6 asks of the answer. */}
             <p className="text-xs text-muted-foreground">
-              A wrong answer refuses nobody. Leaving a question unanswered is allowed too — but a
-              promotion that draws only among correct answers will not draw anybody who left the
-              quiz blank.
-            </p>
+              {t('aWrongAnswerRefusesNobodyLeaving')}</p>
           </fieldset>
         )}
       </div>
@@ -378,13 +364,11 @@ export function RecordParticipationForm({
           <p className="text-sm">{STATUS_MEANINGS[state.outcome]}</p>
           {state.listener === 'created' && (
             <p className="text-xs text-muted-foreground" data-testid="participation-listener-created">
-              Nobody at this Station held that phone or CPF, so the listener was registered as well.
-            </p>
+              {t('nobodyAtThisStationHeldThat')}</p>
           )}
           <div>
             <Button type="button" variant="outline" onClick={recordAnother}>
-              Record another entry
-            </Button>
+              {t('recordAnotherEntry')}</Button>
           </div>
         </div>
       )}
@@ -403,11 +387,7 @@ export function RecordParticipationForm({
       */}
       {showResult && state.status === 'out-of-reach' && (
         <p className="text-sm" data-testid="participation-out-of-reach">
-          That phone or CPF already belongs to a listener registered at a Station you cannot see.
-          Nothing was recorded, and re-registering them here is not possible — one person holds one
-          phone and one CPF across the whole Organization. Ask somebody who can reach that Station
-          to link the listener here, then record the entry.
-        </p>
+          {t('thatPhoneOrCpfAlreadyBelongs')}</p>
       )}
 
       {showResult && state.status === 'error' && (
@@ -418,8 +398,7 @@ export function RecordParticipationForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Close
-        </Button>
+          {t('close')}</Button>
         <Button type="submit" disabled={pending} data-testid="participation-record-submit">
           {pending ? 'Recording…' : 'Record entry'}
         </Button>

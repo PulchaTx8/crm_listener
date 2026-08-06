@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect } from 'react';
 import {
   releaseReservationAction,
@@ -27,6 +28,7 @@ export function ReserveForm({
   prizeId,
   onRecorded,
 }: { companyId: string; prizeId: string } & MovementReport) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(reserveStockAction, INITIAL);
 
   useEffect(() => {
@@ -40,20 +42,18 @@ export function ReserveForm({
       <input type="hidden" name="prizeId" value={prizeId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        Quantity
-        <Input name="quantity" type="number" min={1} step={1} required />
+        {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Note
-        <Textarea name="note" required maxLength={2000} placeholder="What is this held for?" />
+        {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whatIsThisHeldFor')} />
       </label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Reserve stock'}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">Reserved.</p>}
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('reserved2')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
@@ -67,6 +67,7 @@ export function ReleaseForm({
   prizeId,
   onRecorded,
 }: { companyId: string; prizeId: string } & MovementReport) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(releaseReservationAction, INITIAL);
 
   useEffect(() => {
@@ -80,20 +81,18 @@ export function ReleaseForm({
       <input type="hidden" name="prizeId" value={prizeId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        Quantity
-        <Input name="quantity" type="number" min={1} step={1} required />
+        {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Note
-        <Textarea name="note" required maxLength={2000} placeholder="Why is this being released?" />
+        {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whyIsThisBeingReleased')} />
       </label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Release reservation'}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">Released.</p>}
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('released')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

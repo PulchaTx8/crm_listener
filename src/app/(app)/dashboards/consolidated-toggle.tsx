@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { periodHref, withStationSearch } from './period';
@@ -57,6 +58,7 @@ export function ConsolidatedToggle({
    */
   complete: boolean;
 }) {
+  const t = useTranslations('dashboards');
   if (!eligible) return null;
 
   const singleHref = withStationSearch(periodHref(base, period, [singleCompanyId]), stationSearch);
@@ -75,8 +77,7 @@ export function ConsolidatedToggle({
         aria-current={!active ? 'page' : undefined}
         className={!active ? ACTIVE_PILL : INACTIVE_PILL}
       >
-        This station
-      </Link>
+        {t('thisStation')}</Link>
       <Link
         href={consolidatedHref as Route}
         aria-current={active ? 'page' : undefined}

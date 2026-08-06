@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Route } from 'next';
@@ -58,6 +59,7 @@ export default async function PromotionsDashboardPage({
     to?: string;
   }>;
 }) {
+  const t = await getTranslations('dashboards');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -161,7 +163,7 @@ export default async function PromotionsDashboardPage({
   return (
     <>
       <PageHeader
-        title="Promotions"
+        title={t('promotions')}
         description="What is on air, who took part, and how the prize cycle is moving — one Station or several, side by side."
         // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
         // second set the dialog asks for: this panel's PDF must carry the
@@ -179,8 +181,7 @@ export default async function PromotionsDashboardPage({
               consolidated toggle sums, and saying nothing about it left "All
               stations" standing over a filtered set. */}
           <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
-            Showing {viewable.length + suspended.length} of the Stations you can reach
-            {stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
+            {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}{stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
             only the Stations listed here. Search by name to reach one that is not listed.
           </p>
           <StationSearchForm
@@ -220,7 +221,7 @@ export default async function PromotionsDashboardPage({
             {suspended.map((company) => (
               <span
                 key={company.id}
-                title="Suspended — no data is available while the subscription is inactive."
+                title={t('suspendedNoDataIsAvailableWhile')}
                 className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
               >
                 {company.name} (suspended)
@@ -256,7 +257,7 @@ export default async function PromotionsDashboardPage({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Monthly participations</CardTitle>
+            <CardTitle>{t('monthlyParticipations')}</CardTitle>
           </CardHeader>
           <CardContent>
             {dashboard.monthly ? (
@@ -269,7 +270,7 @@ export default async function PromotionsDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>The prize cycle</CardTitle>
+            <CardTitle>{t('thePrizeCycle')}</CardTitle>
           </CardHeader>
           <CardContent>
             {/* `key` is the raw winner_status value; the pickups screen's own
@@ -285,7 +286,7 @@ export default async function PromotionsDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Why entries were refused</CardTitle>
+            <CardTitle>{t('whyEntriesWereRefused')}</CardTitle>
           </CardHeader>
           <CardContent>
             {dashboard.breakdowns.participation_status ? (
@@ -304,7 +305,7 @@ export default async function PromotionsDashboardPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Busiest promotions</CardTitle>
+            <CardTitle>{t('busiestPromotions')}</CardTitle>
           </CardHeader>
           <CardContent>
             {dashboard.top.promotions ? (
@@ -319,28 +320,29 @@ export default async function PromotionsDashboardPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <>
-      <PageHeader title="Promotions" />
+      <PageHeader title={t('promotions')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href={BASE as Route} className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('dashboards');
   return (
     <>
-      <PageHeader title="Promotions" />
+      <PageHeader title={t('promotions')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

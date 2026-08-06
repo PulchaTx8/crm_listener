@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -29,6 +30,7 @@ export default async function InventoryPage({
 }: {
   searchParams: Promise<InventorySearchParams>;
 }) {
+  const t = await getTranslations('inventory');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -111,7 +113,7 @@ export default async function InventoryPage({
   return (
     <>
       <PageHeader
-        title="Inventory"
+        title={t('inventory')}
         description="Every prize in the Station, with its balance broken out by bucket."
       />
 
@@ -119,9 +121,7 @@ export default async function InventoryPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search
-              by name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/inventory"
@@ -158,7 +158,7 @@ export default async function InventoryPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -169,7 +169,7 @@ export default async function InventoryPage({
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Reconciliation</CardTitle>
+          <CardTitle>{t('reconciliation')}</CardTitle>
         </CardHeader>
         <CardContent>
           <ReconciliationPanel companyId={selected.id} />
@@ -198,28 +198,29 @@ export default async function InventoryPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('inventory');
   return (
     <>
-      <PageHeader title="Inventory" />
+      <PageHeader title={t('inventory')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href="/inventory" className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('inventory');
   return (
     <>
-      <PageHeader title="Inventory" />
+      <PageHeader title={t('inventory')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

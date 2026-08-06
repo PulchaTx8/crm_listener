@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,7 @@ export function TeamGrid({
   invitableStations: StationOption[];
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('team');
   const [grid, setGrid] = useState<RowState<TeamRow>>({
     rows: initialRows,
     total: initialRows.length,
@@ -79,27 +81,25 @@ export function TeamGrid({
     <>
       <div className="mt-4 flex justify-end">
         <Button type="button" onClick={() => setInviting(true)} data-testid="team-invite">
-          Invite
-        </Button>
+          {t('invite')}</Button>
       </div>
 
       <div className="mt-4 rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Person</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Organization role</TableHead>
-              <TableHead>Stations</TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead>{t('person')}</TableHead>
+              <TableHead>{t('state')}</TableHead>
+              <TableHead>{t('organizationRole')}</TableHead>
+              <TableHead>{t('stations')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {grid.rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
-                  Nobody here yet.
-                </TableCell>
+                  {t('nobodyHereYet')}</TableCell>
               </TableRow>
             ) : (
               grid.rows.map((row) => (
@@ -121,8 +121,7 @@ export function TeamGrid({
                   <TableCell>
                     {row.kind === 'invitation' ? (
                       <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                        Invitation pending
-                      </span>
+                        {t('invitationPending')}</span>
                     ) : (
                       'Active'
                     )}
@@ -169,17 +168,14 @@ export function TeamGrid({
                         {row.kind === 'member' ? (
                           <>
                             <DropdownMenuItem onSelect={() => open(row.id, 'access')}>
-                              Station access…
-                            </DropdownMenuItem>
+                              {t('stationAccess')}</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem destructive onSelect={() => setRemoving(row)}>
-                              Remove from Organization…
-                            </DropdownMenuItem>
+                              {t('removeFromOrganization')}</DropdownMenuItem>
                           </>
                         ) : (
                           <DropdownMenuItem destructive onSelect={() => setRemoving(row)}>
-                            Revoke invitation…
-                          </DropdownMenuItem>
+                            {t('revokeInvitation')}</DropdownMenuItem>
                         )}
                       </DropdownMenu>
                     </div>
@@ -252,6 +248,7 @@ function RemoveDialog({
   onCancel: () => void;
   onRemoved: (id: string) => void;
 }) {
+  const t = useTranslations('team');
   const titleId = useId();
   const isInvitation = row.kind === 'invitation';
   const [state, action, pending] = useActionState(
@@ -275,23 +272,17 @@ function RemoveDialog({
         <p className="text-sm">
           {isInvitation ? (
             <>
-              The link sent to <strong>{row.email}</strong> stops working immediately and cannot be
-              reinstated — only replaced by a new invitation.
-            </>
+              {t('theLinkSentTo')}{' '}<strong>{row.email}</strong> {t('stopsWorkingImmediatelyAndCannotBe')}</>
           ) : (
             <>
-              <strong>{displayPerson(row)}</strong> loses every Station in this Organization on
-              their next request. They are not signed out, and nothing they have already done is
-              undone.
-            </>
+              <strong>{displayPerson(row)}</strong> {t('losesEveryStationInThisOrganization')}</>
           )}
         </p>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input
             type="hidden"
@@ -322,16 +313,16 @@ function InviteDialog({
   onClose: () => void;
   onInvited: (row: TeamRow) => void;
 }) {
+  const t = useTranslations('team');
   const titleId = useId();
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>Invite a colleague</DialogTitle>
+        <DialogTitle id={titleId}>{t('inviteAColleague')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="mb-4 text-sm text-muted-foreground">
-          They choose their own password, so it never travels outside their browser.
-        </p>
+          {t('theyChooseTheirOwnPasswordSo')}</p>
         {/* The dialog stays open after a successful invitation on purpose: the
             accept URL is shown once and cannot be shown again, so closing over
             it would lose the one copy that exists. */}
@@ -358,8 +349,7 @@ function InviteDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );

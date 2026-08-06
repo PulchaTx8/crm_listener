@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect } from 'react';
 import {
   provisionAction,
@@ -14,6 +15,7 @@ const INITIAL: CredentialState = { status: 'idle' };
 
 /** Shown once, on screen. Never written to a URL, a log or the database. */
 function CredentialNotice({ state }: { state: CredentialState }) {
+  const t = useTranslations('admin');
   if (state.status === 'error') {
     return <p className="text-sm text-destructive">{state.message}</p>;
   }
@@ -22,13 +24,11 @@ function CredentialNotice({ state }: { state: CredentialState }) {
   return (
     <div className="rounded-md border border-primary p-4">
       <p className="text-sm">
-        Provisional password for <strong>{state.email}</strong>, shown once:
+        {t('provisionalPasswordFor')}{' '}<strong>{state.email}</strong>, shown once:
       </p>
       <code className="mt-2 block break-all text-lg">{state.password}</code>
       <p className="mt-2 text-sm text-muted-foreground">
-        It expires in 7 days and must be changed on first sign-in. Copy it now — it is not stored
-        anywhere and cannot be shown again.
-      </p>
+        {t('itExpiresIn7DaysAnd')}</p>
     </div>
   );
 }
@@ -39,6 +39,7 @@ export function ProvisionForm({
   /** Reports the Station that was created, so the console can show its row. */
   onProvisioned?: (company: CustomerRow) => void;
 }) {
+  const t = useTranslations('admin');
   const [state, action, pending] = useActionState(provisionAction, INITIAL);
 
   useEffect(() => {
@@ -53,10 +54,10 @@ export function ProvisionForm({
     <div className="flex flex-col gap-4">
       <CredentialNotice state={state} />
       <form action={action} className="flex flex-col gap-3">
-        <Input name="organizationName" placeholder="Organization name" required />
-        <Input name="companyName" placeholder="Company (Station) name" required />
-        <Input name="ownerEmail" type="email" placeholder="Owner e-mail" required />
-        <Input name="ownerName" placeholder="Owner name (optional)" />
+        <Input name="organizationName" placeholder={t('organizationName')} required />
+        <Input name="companyName" placeholder={t('companyStationName')} required />
+        <Input name="ownerEmail" type="email" placeholder={t('ownerEMail')} required />
+        <Input name="ownerName" placeholder={t('ownerNameOptional')} />
         <Button type="submit" disabled={pending}>
           {pending ? 'Provisioning…' : 'Provision'}
         </Button>

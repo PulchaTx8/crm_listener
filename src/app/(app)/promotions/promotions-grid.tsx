@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -98,6 +99,7 @@ export function PromotionsGrid({
   powers: PromotionGridPowers;
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('promotions');
   const [grid, setGrid] = useState<RowState<PromotionSummary>>({
     rows: initialRows,
     total: initialTotal,
@@ -126,8 +128,7 @@ export function PromotionsGrid({
       {powers.create && (
         <div className="mt-4 flex justify-end">
           <Button type="button" onClick={() => setCreating(true)} data-testid="promotion-create">
-            Register promotion
-          </Button>
+            {t('registerPromotion')}</Button>
         </div>
       )}
 
@@ -141,8 +142,7 @@ export function PromotionsGrid({
                   active={nameSorted}
                   direction={nameSorted ? state.direction : 'asc'}
                 >
-                  Promotion
-                </SortLink>
+                  {t('promotion')}</SortLink>
               </TableHead>
               <TableHead aria-sort={ariaSort(startsSorted)}>
                 <SortLink
@@ -150,24 +150,22 @@ export function PromotionsGrid({
                   active={startsSorted}
                   direction={startsSorted ? state.direction : 'desc'}
                 >
-                  Window
-                </SortLink>
+                  {t('window')}</SortLink>
               </TableHead>
               {/* No sort link, and that is deliberate: Situation is computed
                   from three columns, and a keyset cursor must compare exactly
                   the column it orders by. It filters instead. */}
-              <TableHead>Situation</TableHead>
-              <TableHead>Hashtag</TableHead>
-              <TableHead>Quiz</TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead>{t('situation')}</TableHead>
+              <TableHead>{t('hashtag')}</TableHead>
+              <TableHead>{t('quiz')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {grid.rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="py-8 text-center text-muted-foreground">
-                  No promotion here yet.
-                </TableCell>
+                  {t('noPromotionHereYet')}</TableCell>
               </TableRow>
             ) : (
               grid.rows.map((promotion) => {
@@ -221,16 +219,14 @@ export function PromotionsGrid({
                                 destructive
                                 onSelect={() => setCancelling(promotion)}
                               >
-                                Cancel promotion…
-                              </DropdownMenuItem>
+                                {t('cancelPromotion')}</DropdownMenuItem>
                             )}
                             {powers.archive && (
                               <DropdownMenuItem
                                 destructive
                                 onSelect={() => setArchiving(promotion)}
                               >
-                                Archive promotion…
-                              </DropdownMenuItem>
+                                {t('archivePromotion')}</DropdownMenuItem>
                             )}
                           </DropdownMenu>
                         )}
@@ -347,6 +343,7 @@ function CancelPromotionDialog({
   onDismiss: () => void;
   onCancelled: () => void;
 }) {
+  const t = useTranslations('promotions');
   const titleId = useId();
   const [state, action, pending] = useActionState(cancelPromotionAction, INITIAL_CANCEL);
 
@@ -358,17 +355,15 @@ function CancelPromotionDialog({
   return (
     <Dialog open onClose={onDismiss} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Cancel this promotion?</DialogTitle>
+        <DialogTitle id={titleId}>{t('cancelThisPromotion')}</DialogTitle>
       </DialogHeader>
       <form action={action}>
         <DialogBody>
           <p className="text-sm">
-            {promotion.name} stops accepting entries straight away, before its end. It stays in the
-            list, marked cancelled, with the reason you give here.
-          </p>
+            {promotion.name} {t('stopsAcceptingEntriesStraightAwayBefore')}</p>
           <input type="hidden" name="promotionId" value={promotion.id} />
           <label className="mt-4 flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Why is it being cancelled?</span>
+            <span className="text-muted-foreground">{t('whyIsItBeingCancelled')}</span>
             <Textarea name="reason" rows={3} required data-testid="promotion-cancel-reason" />
           </label>
           {state.status === 'error' && (
@@ -377,8 +372,7 @@ function CancelPromotionDialog({
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onDismiss}>
-            Keep it running
-          </Button>
+            {t('keepItRunning')}</Button>
           <Button type="submit" disabled={pending} data-testid="promotion-cancel-confirm">
             {pending ? 'Cancelling…' : 'Cancel promotion'}
           </Button>
@@ -404,6 +398,7 @@ function ArchivePromotionDialog({
   onDismiss: () => void;
   onArchived: (id: string) => void;
 }) {
+  const t = useTranslations('promotions');
   const titleId = useId();
   const [state, action, pending] = useActionState(archivePromotionAction, INITIAL_ARCHIVE);
 
@@ -415,17 +410,13 @@ function ArchivePromotionDialog({
   return (
     <Dialog open onClose={onDismiss} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Archive this promotion?</DialogTitle>
+        <DialogTitle id={titleId}>{t('archiveThisPromotion')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          {promotion.name} leaves this list and everybody else&apos;s. The owner of this
-          Organization can still open it, and will see that you archived it and when.
-        </p>
+          {promotion.name} {t('leavesThisListAndEverybodyElse')}</p>
         <p className="mt-3 text-sm text-muted-foreground">
-          A promotion still inside its window cannot be archived — cancel it first. Archiving frees
-          its hashtag for another promotion.
-        </p>
+          {t('aPromotionStillInsideItsWindow')}</p>
         {state.status === 'error' && (
           <p className="mt-3 text-sm text-destructive" data-testid="promotion-archive-error">
             {state.message}
@@ -434,8 +425,7 @@ function ArchivePromotionDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onDismiss}>
-          Keep it
-        </Button>
+          {t('keepIt')}</Button>
         <form action={action}>
           <input type="hidden" name="promotionId" value={promotion.id} />
           <Button type="submit" disabled={pending} data-testid="promotion-archive-confirm">

@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,7 @@ export default async function ForgotPasswordPage({
 }: {
   searchParams: Promise<{ sent?: string }>;
 }) {
+  const t = await getTranslations('auth');
   const params = await searchParams;
 
   async function request(formData: FormData) {
@@ -30,10 +32,9 @@ export default async function ForgotPasswordPage({
     return (
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
-          <h1 className="text-xl font-semibold tracking-tight">Check your inbox</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t('checkYourInbox')}</h1>
           <p className="text-muted-foreground">
-            If that address belongs to an account, we sent a link to reset the password.
-          </p>
+            {t('ifThatAddressBelongsToAn')}</p>
         </CardContent>
       </Card>
     );
@@ -42,10 +43,10 @@ export default async function ForgotPasswordPage({
   return (
     <Card>
       <CardContent className="flex flex-col gap-5 pt-6">
-        <h1 className="text-xl font-semibold tracking-tight">Reset your password</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t('resetYourPassword')}</h1>
         <form action={request} className="flex flex-col gap-4">
-          <Input name="email" type="email" placeholder="E-mail" required />
-          <Button type="submit">Send the link</Button>
+          <Input name="email" type="email" placeholder={t('eMail')} required />
+          <Button type="submit">{t('sendTheLink')}</Button>
         </form>
       </CardContent>
     </Card>

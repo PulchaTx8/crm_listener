@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -41,14 +42,14 @@ export function QuizTab({
   canEdit: boolean;
   onSaved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [editing, setEditing] = useState<PromotionQuestion | 'new' | null>(null);
 
   return (
     <div className="flex flex-col gap-5">
       {questions.length === 0 && !editing && (
         <p className="text-sm text-muted-foreground">
-          This promotion has no quiz. A promotion does not need one.
-        </p>
+          {t('thisPromotionHasNoQuizA')}</p>
       )}
 
       <ul className="flex flex-col gap-2">
@@ -76,8 +77,7 @@ export function QuizTab({
               {canEdit && (
                 <div className="flex shrink-0 gap-1">
                   <Button type="button" variant="outline" onClick={() => setEditing(question)}>
-                    Edit
-                  </Button>
+                    {t('edit')}</Button>
                   <RemoveQuestionButton questionId={question.id} onRemoved={onSaved} />
                 </div>
               )}
@@ -90,8 +90,7 @@ export function QuizTab({
         <div>
           <Button type="button" variant="outline" onClick={() => setEditing('new')} data-testid="quiz-add">
             <Plus className="mr-1 size-4" aria-hidden="true" />
-            Add a question
-          </Button>
+            {t('addAQuestion')}</Button>
         </div>
       )}
 
@@ -109,9 +108,7 @@ export function QuizTab({
 
       {!canEdit && (
         <p className="text-sm text-muted-foreground">
-          You do not hold promotions.edit at this Station, so the quiz can be read here but not
-          changed.
-        </p>
+          {t('youDoNotHoldPromotionsEdit2')}</p>
       )}
     </div>
   );
@@ -124,6 +121,7 @@ function RemoveQuestionButton({
   questionId: string;
   onRemoved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [state, action, pending] = useActionState(removePromotionQuestionAction, INITIAL);
 
   useEffect(() => {
@@ -138,7 +136,7 @@ function RemoveQuestionButton({
         type="submit"
         variant="outline"
         disabled={pending}
-        aria-label="Remove this question"
+        aria-label={t('removeThisQuestion')}
         data-testid="quiz-remove"
       >
         <Trash2 className="size-4" aria-hidden="true" />
@@ -161,6 +159,7 @@ function QuestionForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [state, action, pending] = useActionState(savePromotionQuestionAction, INITIAL);
   const [kind, setKind] = useState<PromotionQuestionKind>(question?.kind ?? 'MULTIPLE_CHOICE');
   const [options, setOptions] = useState<DraftOption[]>(
@@ -183,7 +182,7 @@ function QuestionForm({
       {question && <input type="hidden" name="questionId" value={question.id} />}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Kind</span>
+        <span className="text-muted-foreground">{t('kind')}</span>
         <Select
           name="kind"
           value={kind}
@@ -200,7 +199,7 @@ function QuestionForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Question</span>
+        <span className="text-muted-foreground">{t('question')}</span>
         <Input
           name="prompt"
           defaultValue={question?.prompt ?? ''}
@@ -214,7 +213,7 @@ function QuestionForm({
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Menu title</span>
+              <span className="text-muted-foreground">{t('menuTitle')}</span>
               <Input
                 name="menuTitle"
                 defaultValue={question?.menuTitle ?? ''}
@@ -224,7 +223,7 @@ function QuestionForm({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Button label</span>
+              <span className="text-muted-foreground">{t('buttonLabel')}</span>
               <Input
                 name="buttonLabel"
                 defaultValue={question?.buttonLabel ?? ''}
@@ -236,7 +235,7 @@ function QuestionForm({
           </div>
 
           <fieldset className="flex flex-col gap-2">
-            <legend className="text-sm text-muted-foreground">Options</legend>
+            <legend className="text-sm text-muted-foreground">{t('options')}</legend>
             {options.map((option, index) => (
               <div key={index} className="flex items-center gap-2">
                 <Input
@@ -269,8 +268,7 @@ function QuestionForm({
                       }
                       data-testid="quiz-option-correct"
                     />
-                    right
-                  </label>
+                    {t('right')}</label>
                 )}
                 {options.length > 2 && (
                   <button
@@ -291,8 +289,7 @@ function QuestionForm({
                 onClick={() => setOptions((current) => [...current, { label: '', isCorrect: false }])}
                 data-testid="quiz-option-add"
               >
-                Add an option
-              </Button>
+                {t('addAnOption')}</Button>
             </div>
           </fieldset>
         </>
@@ -306,8 +303,7 @@ function QuestionForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <Button type="submit" disabled={pending} data-testid="quiz-save">
           {pending ? 'Saving…' : 'Save question'}
         </Button>

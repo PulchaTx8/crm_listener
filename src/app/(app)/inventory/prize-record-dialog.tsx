@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,7 @@ export function PrizeRecordDialog({
    */
   onLoaded?: (prize: PrizeSummary) => void;
 }) {
+  const t = useTranslations('inventory');
   const titleId = useId();
   const [record, setRecord] = useState<PrizeRecord | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -143,7 +145,7 @@ export function PrizeRecordDialog({
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -151,7 +153,7 @@ export function PrizeRecordDialog({
       </DialogHeader>
 
       {record && (
-        <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+        <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
           {PRIZE_TABS.map((name) => (
             <button
               key={name}
@@ -172,14 +174,13 @@ export function PrizeRecordDialog({
       )}
 
       <DialogBody>
-        {loading && <p className="text-sm text-muted-foreground">Loading the record…</p>}
+        {loading && <p className="text-sm text-muted-foreground">{t('loadingTheRecord')}</p>}
 
         {failure && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm text-destructive">{failure}</p>
             <Button type="button" variant="outline" onClick={() => setReloadToken((n) => n + 1)}>
-              Try again
-            </Button>
+              {t('tryAgain')}</Button>
           </div>
         )}
 
@@ -201,9 +202,7 @@ export function PrizeRecordDialog({
                   />
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    You do not hold inventory.catalogue at this Station, so this prize can be read
-                    here but not edited.
-                  </p>
+                    {t('youDoNotHoldInventoryCatalogue')}</p>
                 )}
               </div>
             )}
@@ -261,7 +260,7 @@ export function PrizeRecordDialog({
                           when the ledger moved into the dialog, left a stock
                           entry reading "50 · to Available" with nowhere named
                           for the stock to have come from. */}
-                      {movement.quantity} unit(s), {formatBucket(movement.fromBucket)} →{' '}
+                      {movement.quantity} {t('unitS')}{' '}{formatBucket(movement.fromBucket)} →{' '}
                       {formatBucket(movement.toBucket)}
                       <span className="block text-xs text-muted-foreground">
                         {formatDateTime(movement.createdAt)}
@@ -270,7 +269,7 @@ export function PrizeRecordDialog({
                     </li>
                   ))}
                   {record.movements.length === 0 && (
-                    <li className="text-sm text-muted-foreground">This prize has never moved.</li>
+                    <li className="text-sm text-muted-foreground">{t('thisPrizeHasNeverMoved')}</li>
                   )}
                 </ul>
               </div>
@@ -281,8 +280,7 @@ export function PrizeRecordDialog({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={requestClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -303,6 +301,7 @@ function PrizeDataForm({
   onDirty: (dirty: boolean) => void;
   onSaved: (prize: PrizeSummary) => void;
 }) {
+  const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(updatePrizeAction, INITIAL_SAVE);
 
   useEffect(() => {
@@ -320,14 +319,14 @@ function PrizeDataForm({
       <input type="hidden" name="prizeId" value={prize.id} />
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Name</span>
+        <span className="text-muted-foreground">{t('name')}</span>
         <Input name="name" defaultValue={prize.name} required maxLength={120} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Category</span>
+        <span className="text-muted-foreground">{t('category')}</span>
         <Select name="categoryId" defaultValue={prize.categoryId ?? ''}>
-          <option value="">Uncategorised</option>
+          <option value="">{t('uncategorised')}</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
@@ -337,26 +336,25 @@ function PrizeDataForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Internal code</span>
+        <span className="text-muted-foreground">{t('internalCode')}</span>
         <Input name="internalCode" defaultValue={prize.internalCode ?? ''} maxLength={40} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Description</span>
+        <span className="text-muted-foreground">{t('description')}</span>
         <Textarea name="description" defaultValue={prize.description ?? ''} />
       </label>
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="allowsReturnToStock" defaultChecked={prize.allowsReturnToStock} />
-        Allows return to stock
-      </label>
+        {t('allowsReturnToStock')}</label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Save'}
         </Button>
         {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
-        {state.status === 'saved' && <span className="text-sm text-muted-foreground">Saved.</span>}
+        {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}
       </div>
     </form>
   );

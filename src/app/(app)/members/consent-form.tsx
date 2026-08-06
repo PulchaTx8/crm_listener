@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect } from 'react';
 import { recordConsentAction, type ConsentFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ export function ConsentForm({
    */
   onRecorded?: () => void;
 }) {
+  const t = useTranslations('members');
   const [state, action, pending] = useActionState(recordConsentAction, INITIAL);
 
   useEffect(() => {
@@ -51,8 +53,7 @@ export function ConsentForm({
       <input type="hidden" name="memberId" value={memberId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        Station
-        <Select name="companyId" defaultValue={stations[0]?.companyId ?? ''} required>
+        {t('station')}<Select name="companyId" defaultValue={stations[0]?.companyId ?? ''} required>
           {stations.map((s) => (
             <option key={s.companyId} value={s.companyId}>
               {s.companyName}
@@ -62,8 +63,7 @@ export function ConsentForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Consent
-        <Select name="consentType" defaultValue="rules" required>
+        {t('consent')}<Select name="consentType" defaultValue="rules" required>
           {Object.entries(CONSENT_TYPE_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -73,23 +73,21 @@ export function ConsentForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Status
-        <Select name="granted" defaultValue="true" required>
-          <option value="true">Granted</option>
-          <option value="false">Withdrawn</option>
+        {t('status')}<Select name="granted" defaultValue="true" required>
+          <option value="true">{t('granted')}</option>
+          <option value="false">{t('withdrawn')}</option>
         </Select>
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Origin
-        <Input name="origin" maxLength={500} placeholder="Optional — e.g. signed at the front desk" />
+        {t('origin')}<Input name="origin" maxLength={500} placeholder={t('optionalEGSignedAtThe')} />
       </label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Record consent'}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">Consent recorded.</p>}
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('consentRecorded')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/lib/supabase/database.types';
 import { buildContentSecurityPolicy, CSP_NONCE_HEADER } from '@/lib/security/csp';
+import { localeCookieUpdate } from '@/i18n/locales';
 
 /**
  * Routes reachable without a session. Everything else redirects to /login.
@@ -52,6 +53,12 @@ export async function middleware(request: NextRequest) {
   const redirectWithCsp = (url: URL) => {
     const built = NextResponse.redirect(url);
     built.headers.set('Content-Security-Policy', policy);
+    // A redirect is a NEW response and starts with no cookies at all, so
+    // everything written onto `response` above has to be carried over by hand:
+    // the refreshed Supabase session from setAll, and the locale sync. Without
+    // this the three branches below silently drop both -- which for the locale
+    // is precisely the /change-password case its comment names.
+    for (const cookie of response.cookies.getAll()) built.cookies.set(cookie);
     return built;
   };
 
@@ -99,9 +106,39 @@ export async function middleware(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('must_change_password, provisional_expires_at')
+    .select('must_change_password, provisional_expires_at, locale')
     .eq('id', user.id)
     .single();
+
+  // Block 12a, D2. The profile is the choice that follows this person between
+  // browsers; the cookie is what rendering actually reads (src/i18n/request.ts).
+  // Synchronised HERE because this is the one place holding both — the row was
+  // already loaded for must_change_password, so the language costs no query at
+  // all, and the renderer can read a cookie and stop.
+  //
+  // Before the branches below on purpose: somebody being sent to
+  // /change-password should arrive there in their own language.
+  const cookieLocale = localeCookieUpdate({
+    profile: profile?.locale,
+    cookie: request.cookies.get('locale')?.value,
+  });
+  if (cookieLocale) {
+    // Onto the REQUEST too, following the setAll pattern above. What
+    // src/i18n/request.ts reads is the REQUEST's cookies; a response-only write
+    // renders THIS page in the old language and only takes effect on the next
+    // one. Rebuilding the response is what carries the amended request headers
+    // forward, so the cookies already on it have to be carried across the
+    // rebuild -- the session refresh lives there.
+    request.cookies.set('locale', cookieLocale);
+    const rebuilt = nextWithCsp();
+    for (const cookie of response.cookies.getAll()) rebuilt.cookies.set(cookie);
+    response = rebuilt;
+    response.cookies.set('locale', cookieLocale, {
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: 'lax',
+    });
+  }
 
   // A provisional password travels outside the system and is treated as
   // compromised, so it dies of old age (spec §6). Checked here rather than at

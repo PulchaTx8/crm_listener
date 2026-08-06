@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -49,6 +50,7 @@ export function ParticipationsTab({
   powers: PromotionRecordPowers;
   onSaved: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [pane, setPane] = useState<'none' | 'record' | 'import'>('none');
 
   const listHref = participationsHref({
@@ -77,20 +79,18 @@ export function ParticipationsTab({
             <p className="text-2xl font-semibold" data-testid="promotion-participations-valid">
               {counts.valid}
             </p>
-            <p className="text-sm text-muted-foreground">in the draw</p>
+            <p className="text-sm text-muted-foreground">{t('inTheDraw')}</p>
           </div>
           <div className="rounded-md border p-4">
             <p className="text-2xl font-semibold" data-testid="promotion-participations-refused">
               {counts.refused}
             </p>
-            <p className="text-sm text-muted-foreground">recorded and not in the draw</p>
+            <p className="text-sm text-muted-foreground">{t('recordedAndNotInTheDraw')}</p>
           </div>
         </div>
       ) : (
         <p className="text-sm text-muted-foreground" data-testid="promotion-participations-hidden">
-          You do not hold participations.view at this Station, so how many people have entered this
-          promotion is not shown here. It is not a count of nothing — it is a count you may not read.
-        </p>
+          {t('youDoNotHoldParticipationsView')}</p>
       )}
 
       {/* Design spec D5, said where the number is: a refused attempt was written
@@ -111,11 +111,7 @@ export function ParticipationsTab({
           screen is lying. */}
       {powers.participationsView && (
         <p className="text-xs text-muted-foreground" data-testid="promotion-participations-note">
-          An attempt that did not count — already entered, came back too soon, past their limit — is
-          on the record with the reason. Nothing is thrown away. Above about a thousand entries these
-          two figures become estimates, so they are kept cheap on a promotion of any size; the list
-          below counts exactly.
-        </p>
+          {t('anAttemptThatDidNotCount')}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -126,8 +122,7 @@ export function ParticipationsTab({
             onClick={() => setPane('record')}
             data-testid="promotion-participation-record-open"
           >
-            Record an entry
-          </Button>
+            {t('recordAnEntry')}</Button>
         )}
         {powers.participationsImport && pane !== 'import' && (
           <Button
@@ -136,8 +131,7 @@ export function ParticipationsTab({
             onClick={() => setPane('import')}
             data-testid="promotion-participation-import-open"
           >
-            Import a file
-          </Button>
+            {t('importAFile')}</Button>
         )}
         {/* Offered only to somebody who can read the list it leads to. Without
             participations.view here, that screen either redirects them off it or
@@ -152,16 +146,13 @@ export function ParticipationsTab({
             className="text-sm text-primary underline underline-offset-2"
             data-testid="promotion-participations-link"
           >
-            See every entry in this promotion
-          </Link>
+            {t('seeEveryEntryInThisPromotion')}</Link>
         )}
       </div>
 
       {!powers.participationsCreate && !powers.participationsImport && (
         <p className="text-sm text-muted-foreground">
-          You hold neither participations.create nor participations.import at this Station, so what
-          has been entered can be read here but nothing can be added.
-        </p>
+          {t('youHoldNeitherParticipationsCreateNor')}</p>
       )}
 
       {pane === 'record' && (

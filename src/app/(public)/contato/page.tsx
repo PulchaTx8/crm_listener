@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import type { Route } from 'next';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -12,6 +13,7 @@ export default async function ContactPage({
 }: {
   searchParams: Promise<{ sent?: string; error?: string }>;
 }) {
+  const t = await getTranslations('public');
   const params = await searchParams;
 
   async function submit(formData: FormData) {
@@ -48,15 +50,15 @@ export default async function ContactPage({
   if (params.sent) {
     return (
       <main className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Thank you</h1>
-        <p className="text-muted-foreground">We received your message and will be in touch.</p>
+        <h1 className="text-2xl font-semibold">{t('thankYou')}</h1>
+        <p className="text-muted-foreground">{t('weReceivedYourMessageAndWill')}</p>
       </main>
     );
   }
 
   return (
     <main className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Get in touch</h1>
+      <h1 className="text-2xl font-semibold">{t('getInTouch')}</h1>
       {params.error ? (
         <p className="text-sm text-destructive">
           {params.error === 'invalid'
@@ -65,12 +67,12 @@ export default async function ContactPage({
         </p>
       ) : null}
       <form action={submit} className="flex flex-col gap-4">
-        <Input name="name" placeholder="Your name" required />
-        <Input name="email" type="email" placeholder="E-mail" required />
-        <Input name="phone" placeholder="Phone (optional)" />
-        <Input name="companyName" placeholder="Company (optional)" />
-        <Textarea name="message" placeholder="How can we help?" rows={4} />
-        <Button type="submit">Send</Button>
+        <Input name="name" placeholder={t('yourName')} required />
+        <Input name="email" type="email" placeholder={t('eMail')} required />
+        <Input name="phone" placeholder={t('phoneOptional')} />
+        <Input name="companyName" placeholder={t('companyOptional')} />
+        <Textarea name="message" placeholder={t('howCanWeHelp')} rows={4} />
+        <Button type="submit">{t('send')}</Button>
       </form>
     </main>
   );

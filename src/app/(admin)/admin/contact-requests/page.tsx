@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 export const dynamic = 'force-dynamic';
 
 export default async function ContactRequestsPage() {
+  const t = await getTranslations('admin');
   const supabase = await createUserClient();
   const { data: requests } = await supabase
     .from('contact_requests')
@@ -17,12 +19,12 @@ export default async function ContactRequestsPage() {
 
   return (
     <>
-      <PageHeader title="Contact requests" description="Inbound interest from the public form." />
+      <PageHeader title={t('contactRequests')} description="Inbound interest from the public form." />
 
       {(requests ?? []).length === 0 ? (
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Nothing yet.</p>
+            <p className="text-sm text-muted-foreground">{t('nothingYet')}</p>
           </CardContent>
         </Card>
       ) : (

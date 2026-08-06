@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { decodeCursor } from '@/lib/keyset';
@@ -29,6 +30,7 @@ export default async function MembersPage({
 }: {
   searchParams: Promise<MemberListSearchParams>;
 }) {
+  const t = await getTranslations('members');
   const raw = await searchParams;
   const state = parseMemberListState(raw);
   const cursorParam = parseMemberListCursor(raw);
@@ -60,12 +62,11 @@ export default async function MembersPage({
   if (!organizationId) {
     return (
       <>
-        <PageHeader title="Members" />
+        <PageHeader title={t('members')} />
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
-              You do not belong to an organization yet.
-            </p>
+              {t('youDoNotBelongToAn')}</p>
           </CardContent>
         </Card>
       </>
@@ -177,7 +178,7 @@ export default async function MembersPage({
   return (
     <>
       <PageHeader
-        title="Members"
+        title={t('members')}
         description="The audience across every Station you can reach."
         action={
           <ExportDialog
@@ -200,9 +201,7 @@ export default async function MembersPage({
         <div className="mb-6 flex flex-col gap-2">
           {registrationCapped && (
             <p className="text-xs text-muted-foreground">
-              Showing {registrableStations.length + suspendedStations.length} of the Stations you
-              can register a listener at. Search by name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{registrableStations.length + suspendedStations.length} {t('ofTheStationsYouCanRegister')}</p>
           )}
           <StationSearchForm
             action="/members"
@@ -224,10 +223,7 @@ export default async function MembersPage({
           fetched, not one Postgres can answer while paging. */}
       {state.consent && (
         <p className="mt-4 text-xs text-muted-foreground" data-testid="member-consent-note">
-          Rules consent is checked after each page is read, so a page can show fewer than 50
-          listeners and no total is available while this filter is on. Previous and Next still
-          walk the whole audience.
-        </p>
+          {t('rulesConsentIsCheckedAfterEach')}</p>
       )}
 
       <MembersGrid
@@ -251,10 +247,11 @@ export default async function MembersPage({
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('members');
   return (
     <>
-      <PageHeader title="Members" />
+      <PageHeader title={t('members')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

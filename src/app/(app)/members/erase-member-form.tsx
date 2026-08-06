@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useState } from 'react';
 import { anonymizeMemberAction, type AnonymizeFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,7 @@ const REASON_LABELS = {
  * removed (the owner's ruling, cited in anonymize_member's own comment).
  */
 export function EraseMemberForm({ memberId }: { memberId: string }) {
+  const t = useTranslations('members');
   const [state, action, pending] = useActionState(anonymizeMemberAction, INITIAL);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -65,32 +67,17 @@ export function EraseMemberForm({ memberId }: { memberId: string }) {
 
       <div className="flex flex-col gap-2 text-sm">
         <p>
-          <strong>What survives:</strong> this listener&apos;s record stays, under the same id,
-          still linked to every Station they took part in. Every consent, note and block already
-          on file stays too — their dates, types and who recorded them are untouched. They will
-          still appear in your audience list, labelled &ldquo;Personal data erased&rdquo; instead
-          of their name.
-        </p>
+          <strong>{t('whatSurvives')}</strong> {t('thisListenerSRecordStaysUnder')}</p>
         <p>
-          <strong>What does not survive:</strong> their name, phone, e-mail, CPF, passport, birth
-          date, full address, how they found the station, and how they first contacted the
-          Station are permanently removed from this record. The free text is removed the same way
-          from three more places: the origin recorded with a consent, a note&apos;s body, and a
-          block&apos;s reason (and lift reason) — the consents, notes and blocks themselves stay,
-          only that text goes.
-        </p>
+          <strong>{t('whatDoesNotSurvive')}</strong> {t('theirNamePhoneEMailCpf')}</p>
         <p>
-          <strong>This cannot be undone.</strong> There is no function in this system that
-          restores what this removes, so there is nothing to offer instead of a plain warning.
-        </p>
+          <strong>{t('thisCannotBeUndone')}</strong> {t('thereIsNoFunctionInThis')}</p>
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
-        Why is this happening?
-        <Select name="reason" defaultValue="" required>
+        {t('whyIsThisHappening')}<Select name="reason" defaultValue="" required>
           <option value="" disabled>
-            Choose a reason
-          </option>
+            {t('chooseAReason')}</option>
           {Object.entries(REASON_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -98,10 +85,7 @@ export function EraseMemberForm({ memberId }: { memberId: string }) {
           ))}
         </Select>
         <span className="text-xs text-muted-foreground">
-          This choice is recorded in an unchangeable audit trail. There is no field for extra
-          detail on purpose — a free-text explanation would write exactly the kind of personal
-          detail this action removes right back into that trail.
-        </span>
+          {t('thisChoiceIsRecordedInAn')}</span>
       </label>
 
       <label className="flex items-start gap-2 text-sm">
@@ -111,9 +95,7 @@ export function EraseMemberForm({ memberId }: { memberId: string }) {
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        I understand this permanently removes this listener&apos;s personal data and cannot be
-        undone.
-      </label>
+        {t('iUnderstandThisPermanentlyRemovesThis')}</label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" variant="destructive" disabled={pending || !confirmed}>

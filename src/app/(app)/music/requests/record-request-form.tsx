@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
@@ -91,6 +92,7 @@ export function RecordRequestForm({
   canRegisterListeners: boolean;
   onCancel: () => void;
 }) {
+  const t = useTranslations('music');
   const [state, action, pending] = useActionState(recordRequestAction, INITIAL);
 
   const [pickedListener, setPickedListener] = useState<StationListener | null>(null);
@@ -189,15 +191,10 @@ export function RecordRequestForm({
     return (
       <div className="flex flex-col gap-3 rounded-md border p-4" data-testid="request-record-form">
         <p className="text-sm text-muted-foreground">
-          Recording a request by hand needs permission to see the audience at this Station, which
-          you do not hold. Both ways of naming a listener go through it: the picker reads the
-          audience, and typing somebody&apos;s details goes through the same deduplication before
-          anything is written. Nothing here would work without it, so it is not offered.
-        </p>
+          {t('recordingARequestByHandNeeds')}</p>
         <div>
           <Button type="button" variant="outline" onClick={onCancel}>
-            Close
-          </Button>
+            {t('close')}</Button>
         </div>
       </div>
     );
@@ -225,25 +222,23 @@ export function RecordRequestForm({
               {describeListener(pickedListener)}
             </span>
             <Button type="button" variant="outline" onClick={() => setPickedListener(null)}>
-              Choose somebody else
-            </Button>
+              {t('chooseSomebodyElse')}</Button>
           </div>
         ) : (
           <>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Find a listener at this Station</span>
+              <span className="text-muted-foreground">{t('findAListenerAtThisStation')}</span>
               <Input
                 value={listenerSearch}
                 onChange={(e) => setListenerSearch(e.target.value)}
-                placeholder="Name, phone or CPF digits"
+                placeholder={t('namePhoneOrCpfDigits')}
                 data-testid="request-listener-search"
               />
               {listenerCut && (
                 <span className="text-xs text-muted-foreground" data-testid="request-listener-cut">
-                  Showing the first matches. Narrow the search to reach the rest.
-                </span>
+                  {t('showingTheFirstMatchesNarrowThe')}</span>
               )}
-              {listenerSearching && <span className="text-xs text-muted-foreground">Looking…</span>}
+              {listenerSearching && <span className="text-xs text-muted-foreground">{t('looking')}</span>}
               {listenerSearchFailure && (
                 <span className="text-xs text-destructive">{listenerSearchFailure}</span>
               )}
@@ -270,20 +265,20 @@ export function RecordRequestForm({
                 resolveOrCreateMember find or register them — the same
                 deduplication the picker above reads from. */}
             <fieldset className="flex flex-col gap-3 rounded-md border border-dashed p-3">
-              <legend className="px-1 text-xs text-muted-foreground">Or enter who is asking</legend>
+              <legend className="px-1 text-xs text-muted-foreground">{t('orEnterWhoIsAsking')}</legend>
 
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted-foreground">Name</span>
+                <span className="text-muted-foreground">{t('name')}</span>
                 <Input name="fullName" maxLength={200} data-testid="request-full-name" />
               </label>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-muted-foreground">Phone</span>
+                  <span className="text-muted-foreground">{t('phone')}</span>
                   <Input name="phone" maxLength={40} data-testid="request-phone" />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-muted-foreground">E-mail</span>
+                  <span className="text-muted-foreground">{t('eMail')}</span>
                   <Input name="email" type="email" maxLength={160} data-testid="request-email" />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
@@ -291,23 +286,17 @@ export function RecordRequestForm({
                   <Input name="cpf" maxLength={20} data-testid="request-cpf" />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-muted-foreground">Passport</span>
+                  <span className="text-muted-foreground">{t('passport')}</span>
                   <Input name="passport" maxLength={40} data-testid="request-passport" />
                 </label>
               </div>
 
               <p className="text-xs text-muted-foreground">
-                A phone, e-mail, CPF or passport is what finds an existing listener, so at least one
-                of the four is needed. Without any, every request would register a fresh listener
-                nobody could ever be matched against again.
-              </p>
+                {t('aPhoneEMailCpfOr')}</p>
 
               {!canRegisterListeners && (
                 <p className="text-xs text-muted-foreground" data-testid="request-register-note">
-                  You cannot register listeners at this Station, so this only works for somebody who
-                  is already here. If nobody holds that identifier yet, the request will be refused
-                  rather than registering them.
-                </p>
+                  {t('youCannotRegisterListenersAtThis')}</p>
               )}
             </fieldset>
           </>
@@ -319,24 +308,22 @@ export function RecordRequestForm({
               {describeSong(pickedSong)}
             </span>
             <Button type="button" variant="outline" onClick={() => setPickedSong(null)}>
-              Choose another song
-            </Button>
+              {t('chooseAnotherSong')}</Button>
           </div>
         ) : (
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Which song</span>
+            <span className="text-muted-foreground">{t('whichSong')}</span>
             <Input
               value={songSearch}
               onChange={(e) => setSongSearch(e.target.value)}
-              placeholder="Title or code"
+              placeholder={t('titleOrCode')}
               data-testid="request-song-search"
             />
             {songCut && (
               <span className="text-xs text-muted-foreground" data-testid="request-song-cut">
-                Showing the first matches. Narrow the search to reach the rest.
-              </span>
+                {t('showingTheFirstMatchesNarrowThe')}</span>
             )}
-            {songSearching && <span className="text-xs text-muted-foreground">Looking…</span>}
+            {songSearching && <span className="text-xs text-muted-foreground">{t('looking')}</span>}
             {songSearchFailure && (
               <span className="text-xs text-destructive">{songSearchFailure}</span>
             )}
@@ -357,17 +344,15 @@ export function RecordRequestForm({
               </ul>
             )}
             <span className="text-xs text-muted-foreground">
-              A request always points at a song already in the catalogue — there is no free-text
-              alternative.
-            </span>
+              {t('aRequestAlwaysPointsAtA')}</span>
           </label>
         )}
 
         {shows.length > 0 && (
           <label className="flex w-72 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Programme (optional)</span>
+            <span className="text-muted-foreground">{t('programmeOptional')}</span>
             <Select name="showId" defaultValue="" data-testid="request-show-select">
-              <option value="">No programme</option>
+              <option value="">{t('noProgramme')}</option>
               {shows.map((show) => (
                 <option key={show.id} value={show.id}>
                   {show.name}
@@ -378,7 +363,7 @@ export function RecordRequestForm({
         )}
 
         <label className="flex w-72 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">When (optional)</span>
+          <span className="text-muted-foreground">{t('whenOptional')}</span>
           <Input
             type="datetime-local"
             value={whenLocal}
@@ -386,7 +371,7 @@ export function RecordRequestForm({
             data-testid="request-when"
           />
           <span className="text-xs text-muted-foreground">
-            Leave blank to record it as happening now, in this Station&apos;s local time ({timeZone}
+            {t('leaveBlankToRecordItAs')}{timeZone}
             ).
           </span>
         </label>
@@ -397,16 +382,14 @@ export function RecordRequestForm({
           className="flex flex-col gap-2 rounded-md border p-3"
           data-testid="request-record-outcome"
         >
-          <p className="text-sm">Request recorded.</p>
+          <p className="text-sm">{t('requestRecorded')}</p>
           {state.listener === 'created' && (
             <p className="text-xs text-muted-foreground" data-testid="request-listener-created">
-              Nobody at this Station held that identifier, so the listener was registered as well.
-            </p>
+              {t('nobodyAtThisStationHeldThat')}</p>
           )}
           <div>
             <Button type="button" variant="outline" onClick={recordAnother}>
-              Record another request
-            </Button>
+              {t('recordAnotherRequest')}</Button>
           </div>
         </div>
       )}
@@ -419,8 +402,7 @@ export function RecordRequestForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Close
-        </Button>
+          {t('close')}</Button>
         <Button type="submit" disabled={pending} data-testid="request-record-submit">
           {pending ? 'Recording…' : 'Record request'}
         </Button>

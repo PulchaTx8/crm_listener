@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Route } from 'next';
@@ -46,6 +47,7 @@ export default async function MaintenancePage({
 }: {
   searchParams: Promise<MaintenanceSearchParams>;
 }) {
+  const t = await getTranslations('music');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -126,7 +128,7 @@ export default async function MaintenancePage({
   return (
     <>
       <PageHeader
-        title="Maintenance"
+        title={t('maintenance')}
         description="Find duplicates, name the one that stays, and merge. This is the only irreversible action in the music catalogue."
       />
 
@@ -134,9 +136,7 @@ export default async function MaintenancePage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search
-              by name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/music/maintenance"
@@ -166,7 +166,7 @@ export default async function MaintenancePage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -186,7 +186,7 @@ export default async function MaintenancePage({
           gap docs/block-7a-report.md records against the Catalog screen's
           own tabs, which only carried `tab=` through a client-side history
           write and dropped it on a real Station-switch navigation. */}
-      <div aria-label="Record kind" className="mb-4 flex gap-1 border-b">
+      <div aria-label={t('recordKind')} className="mb-4 flex gap-1 border-b">
         {MUSIC_MERGE_KINDS.map((kind) => (
           <Link
             key={kind}
@@ -231,28 +231,29 @@ export default async function MaintenancePage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title="Maintenance" />
+      <PageHeader title={t('maintenance')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href="/music/maintenance" className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title="Maintenance" />
+      <PageHeader title={t('maintenance')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

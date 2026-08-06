@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { useActionState } from 'react';
 import {
@@ -67,6 +68,7 @@ export function RegisterMemberForm({
    */
   suspended?: SuspendedCompany[];
 }) {
+  const t = useTranslations('members');
   const [companyId, setCompanyId] = useState(stations[0]?.id ?? '');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -117,8 +119,7 @@ export function RegisterMemberForm({
     <div className="flex flex-col gap-4">
       <form action={checkAction} data-testid="member-check-form" className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          Station being registered at
-          <Select
+          {t('stationBeingRegisteredAt')}<Select
             name="companyId"
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
@@ -138,14 +139,10 @@ export function RegisterMemberForm({
         </label>
 
         <p className="text-xs text-muted-foreground">
-          Enter at least one of the four below, then check for an existing listener before
-          continuing — this Organization&apos;s audience is shared across every Station, so the
-          same person entering at two Stations must be one record, not two.
-        </p>
+          {t('enterAtLeastOneOfThe')}</p>
 
         <label className="flex flex-col gap-1 text-sm">
-          Phone
-          <Input
+          {t('phone')}<Input
             name="phone"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
@@ -155,8 +152,7 @@ export function RegisterMemberForm({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          E-mail
-          <Input
+          {t('eMail')}<Input
             name="email"
             type="email"
             value={email}
@@ -172,12 +168,11 @@ export function RegisterMemberForm({
             value={cpf}
             onChange={(e) => setCpf(e.target.value)}
             disabled={fieldsDisabled}
-            placeholder="000.000.000-00 or digits only"
+            placeholder={t('00000000000OrDigits')}
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Passport
-          <Input
+          {t('passport')}<Input
             name="passport"
             value={passport}
             onChange={(e) => setPassport(e.target.value)}
@@ -193,8 +188,7 @@ export function RegisterMemberForm({
             </Button>
           ) : (
             <Button type="button" variant="outline" onClick={() => setManualEditing(true)}>
-              Edit search
-            </Button>
+              {t('editSearch')}</Button>
           )}
         </div>
 
@@ -206,17 +200,14 @@ export function RegisterMemberForm({
       {checkState.status === 'checked' && checkState.outcome === 'visible' && !manualEditing && (
         <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
           <p>
-            A listener matching what you entered is already registered, and you can already see
-            their record.
-          </p>
+            {t('aListenerMatchingWhatYouEntered')}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => onOpenExisting(checkState.memberId)}
               className="underline underline-offset-2"
             >
-              View this listener
-            </button>
+              {t('viewThisListener')}</button>
             <form action={linkAction} className="flex items-center gap-2">
               <input type="hidden" name="memberId" value={checkState.memberId} />
               <input type="hidden" name="companyId" value={companyId} />
@@ -227,8 +218,7 @@ export function RegisterMemberForm({
           </div>
           {linkState.status === 'saved' && (
             <p className="mt-2 text-sm text-emerald-700">
-              Linked. This listener now also appears at the selected Station.
-            </p>
+              {t('linkedThisListenerNowAlsoAppears')}</p>
           )}
           {linkState.status === 'error' && (
             <p className="mt-2 text-sm text-destructive">{linkState.message}</p>
@@ -266,26 +256,16 @@ export function RegisterMemberForm({
           className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
         >
           <p>
-            A listener matching one of these details is already registered in your Organization,
-            and is not visible to you right now. This screen can&apos;t show you who it is or
-            where — that is by design, the same as it would be for anyone else&apos;s audience
-            you cannot reach.
-          </p>
+            {t('aListenerMatchingOneOfThese')}</p>
           <p className="mt-2">
-            Ask a colleague with broader access to look them up for you, or ask whoever manages
-            access in your Organization — they can resolve this whether it takes adding you to a
-            Station or something else on their side. Once your access changes, checking these
-            same details again may find the existing record instead of stopping here.
-          </p>
+            {t('askAColleagueWithBroaderAccess')}</p>
         </div>
       )}
 
       {showRegistrationStep && (
         <div className="flex flex-col gap-3 border-t pt-4">
           <p className="text-sm text-muted-foreground">
-            No existing listener matches what you entered. Continue below to finish registering
-            them.
-          </p>
+            {t('noExistingListenerMatchesWhatYou')}</p>
           <form
             action={registerAction}
             data-testid="register-member-form"
@@ -298,63 +278,48 @@ export function RegisterMemberForm({
             <input type="hidden" name="passport" value={passport} />
 
             <label className="flex flex-col gap-1 text-sm">
-              Name
-              <Input name="fullName" required maxLength={200} />
+              {t('name')}<Input name="fullName" required maxLength={200} />
             </label>
 
             <label className="flex flex-col gap-1 text-sm">
-              Birth date
-              <Input name="birthDate" type="date" />
+              {t('birthDate')}<Input name="birthDate" type="date" />
             </label>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
-                Address
-                <Input name="addressLine" maxLength={200} />
+                {t('address')}<Input name="addressLine" maxLength={200} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                Number
-                <Input name="addressNumber" maxLength={20} />
+                {t('number')}<Input name="addressNumber" maxLength={20} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                Complement
-                <Input name="addressComplement" maxLength={200} placeholder="Optional" />
+                {t('complement')}<Input name="addressComplement" maxLength={200} placeholder={t('optional')} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                Neighbourhood
-                <Input name="neighbourhood" maxLength={120} />
+                {t('neighbourhood')}<Input name="neighbourhood" maxLength={120} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                City
-                <Input name="city" maxLength={120} />
+                {t('city')}<Input name="city" maxLength={120} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                State
-                <Input name="state" maxLength={100} />
+                {t('state')}<Input name="state" maxLength={100} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                Postal code
-                <Input name="postalCode" maxLength={20} />
+                {t('postalCode')}<Input name="postalCode" maxLength={20} />
               </label>
             </div>
 
             <label className="flex flex-col gap-1 text-sm">
-              How they found the station
-              <Input name="discoverySource" maxLength={200} placeholder="Optional" />
+              {t('howTheyFoundTheStation')}<Input name="discoverySource" maxLength={200} placeholder={t('optional')} />
             </label>
 
             <fieldset className="flex flex-col gap-2 rounded-md border p-3">
               <legend className="px-1 text-xs uppercase tracking-wide text-muted-foreground">
-                First contact
-              </legend>
+                {t('firstContact')}</legend>
               <p className="text-xs text-muted-foreground">
-                Fill in both together if this listener messaged the Station before registering —
-                this is the evidence this product relies on for a listener who contacts the
-                Station first having authorised the reply. Neither can be edited once saved.
-              </p>
+                {t('fillInBothTogetherIfThis')}</p>
               <label className="flex flex-col gap-1 text-sm">
-                When
-                {/* No `name` here — see this component's own doc comment
+                {t('when')}{/* No `name` here — see this component's own doc comment
                     (C1) and block-form.tsx's identical fix for why the
                     conversion to an ISO instant has to happen in the
                     browser, not on the server. */}
@@ -367,8 +332,7 @@ export function RegisterMemberForm({
                 <input type="hidden" name="firstContactAt" value={firstContactAtIso} />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                Where (WhatsApp, phone call, in person…)
-                <Textarea name="firstContactOrigin" maxLength={200} placeholder="Optional" />
+                {t('whereWhatsappPhoneCallInPerson')}<Textarea name="firstContactOrigin" maxLength={200} placeholder={t('optional')} />
               </label>
             </fieldset>
 
@@ -378,14 +342,13 @@ export function RegisterMemberForm({
               </Button>
               {registerState.status === 'saved' && (
                 <p className="text-sm text-emerald-700">
-                  Registered.{' '}
+                  {t('registered2')}{' '}
                   <button
                     type="button"
                     onClick={() => registerState.memberId && onRegistered(registerState.memberId)}
                     className="underline underline-offset-2"
                   >
-                    View listener
-                  </button>
+                    {t('viewListener')}</button>
                 </p>
               )}
             </div>

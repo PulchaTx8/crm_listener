@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -66,6 +67,7 @@ export function MemberRecordDialog({
   /** A block that applies from now, so the grid can mark the row. */
   onBlocked: (memberId: string) => void;
 }) {
+  const t = useTranslations('members');
   const titleId = useId();
   const [record, setRecord] = useState<MemberRecord | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -145,7 +147,7 @@ export function MemberRecordDialog({
           <DialogTitle id={titleId}>{title}</DialogTitle>
           {detail && (
             <p className="text-xs text-muted-foreground">
-              Registered {formatDate(detail.createdAt)}
+              {t('registered')}{' '}{formatDate(detail.createdAt)}
               {erased ? ` · erased ${formatDate(detail.anonymizedAt as string)}` : ''}
             </p>
           )}
@@ -157,7 +159,7 @@ export function MemberRecordDialog({
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
@@ -165,7 +167,7 @@ export function MemberRecordDialog({
       </DialogHeader>
 
       {record && (
-        <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+        <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
           {MEMBER_TABS.map((name) => (
             <button
               key={name}
@@ -186,7 +188,7 @@ export function MemberRecordDialog({
       )}
 
       <DialogBody>
-        {loading && <p className="text-sm text-muted-foreground">Loading the record…</p>}
+        {loading && <p className="text-sm text-muted-foreground">{t('loadingTheRecord')}</p>}
 
         {failure && (
           <div className="flex flex-col items-start gap-3">
@@ -194,8 +196,7 @@ export function MemberRecordDialog({
             {/* The list behind this dialog is untouched and still usable, which
                 is why a failed record does not need to take the screen down. */}
             <Button type="button" variant="outline" onClick={() => setReloadToken((n) => n + 1)}>
-              Try again
-            </Button>
+              {t('tryAgain')}</Button>
           </div>
         )}
 
@@ -221,15 +222,14 @@ export function MemberRecordDialog({
                   <li key={station.companyId} className="flex items-center justify-between gap-3 rounded-md border p-3">
                     <span>{station.companyName}</span>
                     <span className="text-xs text-muted-foreground">
-                      Linked {formatDate(station.linkedAt)}
+                      {t('linked')}{' '}{formatDate(station.linkedAt)}
                       {station.blocked ? ' · blocked here' : ''}
                     </span>
                   </li>
                 ))}
                 {record.stations.length === 0 && (
                   <li className="text-sm text-muted-foreground">
-                    No Station you can reach has this listener linked to it.
-                  </li>
+                    {t('noStationYouCanReachHas')}</li>
                 )}
               </ul>
             )}
@@ -248,7 +248,7 @@ export function MemberRecordDialog({
                     </li>
                   ))}
                   {record.consents.length === 0 && (
-                    <li className="text-sm text-muted-foreground">Nothing recorded at a Station you can reach.</li>
+                    <li className="text-sm text-muted-foreground">{t('nothingRecordedAtAStationYou')}</li>
                   )}
                 </ul>
                 {powers.edit && !erased && (
@@ -270,7 +270,7 @@ export function MemberRecordDialog({
                   </li>
                 ))}
                 {record.notes.length === 0 && (
-                  <li className="text-sm text-muted-foreground">No note recorded at a Station you can reach.</li>
+                  <li className="text-sm text-muted-foreground">{t('noNoteRecordedAtAStation')}</li>
                 )}
                 {/* Read-only: add_member_note (0034) exists in the database and
                     in the service, and has never had an interface. Writing one
@@ -292,7 +292,7 @@ export function MemberRecordDialog({
                       {block.endsAt ? ` until ${formatDateTime(block.endsAt)}` : ', no end date'}
                       {block.liftedAt && (
                         <span className="block text-muted-foreground">
-                          Lifted {formatDateTime(block.liftedAt)}
+                          {t('lifted2')}{' '}{formatDateTime(block.liftedAt)}
                           {block.liftReason ? ` — ${block.liftReason}` : ''}
                         </span>
                       )}
@@ -307,7 +307,7 @@ export function MemberRecordDialog({
                     </li>
                   ))}
                   {record.blocks.length === 0 && (
-                    <li className="text-sm text-muted-foreground">No block on record.</li>
+                    <li className="text-sm text-muted-foreground">{t('noBlockOnRecord')}</li>
                   )}
                 </ul>
                 {powers.block && !erased && (
@@ -332,8 +332,7 @@ export function MemberRecordDialog({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={requestClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -361,6 +360,7 @@ function DataTab({
   onDirty: (dirty: boolean) => void;
   onSaved: (detail: MemberDetail) => void;
 }) {
+  const t = useTranslations('members');
   const [state, action, pending] = useActionState(updateMemberAction, INITIAL_SAVE);
 
   useEffect(() => {
@@ -376,9 +376,7 @@ function DataTab({
         <ReadOnlyIdentity detail={detail} />
         {detail.anonymizedAt && (
           <p className="text-sm text-muted-foreground">
-            This listener&apos;s personal data was erased, so the record can no longer be edited —
-            update_member refuses an erased listener.
-          </p>
+            {t('thisListenerSPersonalDataWas')}</p>
         )}
       </div>
     );
@@ -415,7 +413,7 @@ function DataTab({
             {pending ? 'Saving…' : 'Save'}
           </Button>
           {state.status === 'error' && <span className="text-sm text-destructive">{state.message}</span>}
-          {state.status === 'saved' && <span className="text-sm text-muted-foreground">Saved.</span>}
+          {state.status === 'saved' && <span className="text-sm text-muted-foreground">{t('saved')}</span>}
         </div>
       </form>
 

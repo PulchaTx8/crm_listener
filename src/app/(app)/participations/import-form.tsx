@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { STATUS_CLASSES, STATUS_LABELS } from '@/lib/participation-status';
@@ -470,6 +471,7 @@ export function ImportParticipationsForm({
   /** Called once a file has been written, so the tab re-reads its counts. */
   onImported: () => void;
 }) {
+  const t = useTranslations('participations');
   const [state, action, pending] = useActionState(importParticipationsAction, INITIAL);
   const [file, setFile] = useState<ParsedFile | null>(null);
   const [readFailure, setReadFailure] = useState<string | null>(null);
@@ -546,7 +548,7 @@ export function ImportParticipationsForm({
       {file && <input type="hidden" name="rows" value={JSON.stringify(file.rows)} />}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">The file</span>
+        <span className="text-muted-foreground">{t('theFile')}</span>
         <input
           type="file"
           accept=".csv,text/csv,text/plain"
@@ -555,10 +557,7 @@ export function ImportParticipationsForm({
           data-testid="participation-import-file"
         />
         <span className="text-xs text-muted-foreground">
-          A CSV with one header row naming its columns: a name, a phone and/or a CPF, and when each
-          person entered. The columns may be in any order. UTF-8 is what this reads first; a
-          Windows-1252 file from Excel is accepted too, and the panel below says which was used.
-        </span>
+          {t('aCsvWithOneHeaderRow')}</span>
       </label>
 
       {readFailure && <p className="text-sm text-destructive">{readFailure}</p>}
@@ -576,7 +575,7 @@ export function ImportParticipationsForm({
                 {file.mapping[key] ? (
                   <span className="text-foreground">{file.mapping[key]}</span>
                 ) : (
-                  <span>not found in this file</span>
+                  <span>{t('notFoundInThisFile')}</span>
                 )}
               </li>
             ))}
@@ -589,18 +588,14 @@ export function ImportParticipationsForm({
               noise the eye stops reading. */}
           {file.encoding === 'windows-1252' && (
             <p className="text-xs text-muted-foreground" data-testid="participation-import-encoding">
-              This file is not UTF-8, so it was read as Windows-1252 — what Excel writes on a machine
-              set to Portuguese. Check that the name below has its accents; if it does not, re-save
-              the file as CSV UTF-8 and choose it again.
-            </p>
+              {t('thisFileIsNotUtf8')}</p>
           )}
           <p className="text-xs text-muted-foreground">
-            {file.rows.length} {file.rows.length === 1 ? 'line' : 'lines'} under the header,
-            separated by “{file.delimiter}”.
+            {file.rows.length} {file.rows.length === 1 ? 'line' : 'lines'} {t('underTheHeaderSeparatedBy')}{file.delimiter}”.
             {file.rows[0] && (
               <>
                 {' '}
-                The first reads as{' '}
+                {t('theFirstReadsAs')}{' '}
                 <span className="text-foreground">{file.rows[0].fullName || '(no name)'}</span>,
                 entering{' '}
                 <span className="text-foreground">
@@ -616,33 +611,27 @@ export function ImportParticipationsForm({
 
           {missing.length > 0 && (
             <p className="text-sm text-destructive" data-testid="participation-import-missing">
-              This file has no column for {missing.map((key) => COLUMN_LABELS[key]).join(' or ')}.
+              {t('thisFileHasNoColumnFor')}{' '}{missing.map((key) => COLUMN_LABELS[key]).join(' or ')}.
               Its header row reads: {file.headers.join(', ') || '(empty)'}.
             </p>
           )}
           {noIdentifierColumn && (
             <p className="text-sm text-destructive">
-              This file has neither a phone column nor a CPF column, so no line in it can be matched
-              to a listener. Its header row reads: {file.headers.join(', ') || '(empty)'}.
+              {t('thisFileHasNeitherAPhone')}{' '}{file.headers.join(', ') || '(empty)'}.
             </p>
           )}
           {file.rows.length === 0 && missing.length === 0 && (
             <p className="text-sm text-destructive">
-              That file has a header row and nothing under it.
-            </p>
+              {t('thatFileHasAHeaderRow')}</p>
           )}
           {/* Fix-round finding #1: a stated refusal, naming the cap, in place
               of the silent one Next's default would have given this form —
               see IMPORT_ROWS_BODY_LIMIT_BYTES's own comment. */}
           {oversized && (
             <p className="text-sm text-destructive" data-testid="participation-import-oversize">
-              This file is too large to import in one go: its {file.rows.length}{' '}
-              {file.rows.length === 1 ? 'line sends' : 'lines send'} about{' '}
-              {(rowsPayloadBytes / (1024 * 1024)).toFixed(1)} MB to the server, and one import is
-              limited to {(IMPORT_ROWS_BODY_LIMIT_BYTES / (1024 * 1024)).toFixed(0)} MB. Split it into
-              at least {Math.ceil(rowsPayloadBytes / IMPORT_ROWS_BODY_LIMIT_BYTES)} smaller files and
-              import each one separately. Nothing from this file has been written.
-            </p>
+              {t('thisFileIsTooLargeTo')}{' '}{file.rows.length}{' '}
+              {file.rows.length === 1 ? 'line sends' : 'lines send'} {t('about')}{' '}
+              {(rowsPayloadBytes / (1024 * 1024)).toFixed(1)} {t('mbToTheServerAndOne')}{' '}{(IMPORT_ROWS_BODY_LIMIT_BYTES / (1024 * 1024)).toFixed(0)} {t('mbSplitItIntoAtLeast')}{' '}{Math.ceil(rowsPayloadBytes / IMPORT_ROWS_BODY_LIMIT_BYTES)} {t('smallerFilesAndImportEachOne')}</p>
           )}
         </div>
       )}
@@ -661,9 +650,7 @@ export function ImportParticipationsForm({
           className="rounded-md bg-amber-100 p-3 text-sm text-amber-900"
           data-testid="participation-import-answer-warning"
         >
-          This promotion draws only among listeners who answered correctly, and an imported line
-          carries no answer
-          {hasQuestions ? '' : ' — and this promotion has no quiz for anybody to answer'}. Every
+          {t('thisPromotionDrawsOnlyAmongListeners')}{hasQuestions ? '' : ' — and this promotion has no quiz for anybody to answer'}. Every
           entry from this file will be recorded and will count towards the rules, and none of them
           will be in the draw.
         </p>
@@ -671,10 +658,7 @@ export function ImportParticipationsForm({
 
       {!canRegisterListeners && (
         <p className="text-sm text-muted-foreground" data-testid="participation-import-members-note">
-          Importing registers the listeners it does not find, so it needs permission to register one
-          — which you do not hold at this Station. The file will be refused before its first line is
-          written.
-        </p>
+          {t('importingRegistersTheListenersItDoes')}</p>
       )}
 
       {state.status === 'error' && (
@@ -687,8 +671,7 @@ export function ImportParticipationsForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Close
-        </Button>
+          {t('close')}</Button>
         <Button type="submit" disabled={pending || !ready} data-testid="participation-import-submit">
           {pending ? 'Importing…' : 'Import'}
         </Button>
@@ -714,6 +697,7 @@ export function ImportParticipationsForm({
  * unreachable.
  */
 function ImportReport({ state }: { state: Extract<ImportParticipationsState, { status: 'done' }> }) {
+  const t = useTranslations('participations');
   const { result, unreadable } = state;
   const entered = result.recorded - result.duplicate - result.tooSoon - result.overLimit;
   const total = result.recorded + result.skipped + unreadable.length;
@@ -726,20 +710,19 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
       data-testid="participation-import-report"
     >
       <p className="text-sm">
-        <span data-testid="participation-import-entered">{entered}</span> of {total}{' '}
-        {total === 1 ? 'line' : 'lines'} entered the draw.
-      </p>
+        <span data-testid="participation-import-entered">{entered}</span> {t('of')}{' '}{total}{' '}
+        {total === 1 ? 'line' : 'lines'} {t('enteredTheDraw')}</p>
 
       <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-        <li>Recorded as already entered: {result.duplicate}</li>
-        <li>Recorded as came back too soon: {result.tooSoon}</li>
-        <li>Recorded as past their limit: {result.overLimit}</li>
-        <li data-testid="participation-import-skipped">Skipped by the import: {result.skipped}</li>
+        <li>{t('recordedAsAlreadyEntered')}{' '}{result.duplicate}</li>
+        <li>{t('recordedAsCameBackTooSoon')}{' '}{result.tooSoon}</li>
+        <li>{t('recordedAsPastTheirLimit')}{' '}{result.overLimit}</li>
+        <li data-testid="participation-import-skipped">{t('skippedByTheImport')}{' '}{result.skipped}</li>
         <li data-testid="participation-import-unreadable">
-          Lines that could not be read: {unreadable.length}
+          {t('linesThatCouldNotBeRead')}{' '}{unreadable.length}
         </li>
         <li data-testid="participation-import-created">
-          Listeners registered: {result.membersCreated}
+          {t('listenersRegistered')}{' '}{result.membersCreated}
         </li>
       </ul>
 
@@ -747,21 +730,19 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
         <ul className="flex flex-col gap-1 text-xs" data-testid="participation-import-problems">
           {unreadable.map((row) => (
             <li key={`unreadable-${row.line}`} className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">Line {row.line}</span>
+              <span className="font-medium">{t('line')}{' '}{row.line}</span>
               <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
-                not read
-              </span>
+                {t('notRead')}</span>
               <span className="text-muted-foreground">{row.reason}</span>
             </li>
           ))}
           {attention.map((row) => (
             <li key={`row-${row.line}`} className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">Line {row.line}</span>
+              <span className="font-medium">{t('line')}{' '}{row.line}</span>
               {row.outcome === 'skipped' ? (
                 <>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                    skipped
-                  </span>
+                    {t('skipped')}</span>
                   {/* An unrecognised reason renders itself rather than being
                       dressed as one of the three. The database's own word is a
                       worse sentence than a written one and a far better one than
@@ -787,11 +768,10 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
       {counted.length > 0 && (
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">
-            {counted.length} {counted.length === 1 ? 'line' : 'lines'} counted
-          </summary>
+            {counted.length} {counted.length === 1 ? 'line' : 'lines'} {t('counted')}</summary>
           <ul className="mt-1 flex flex-col gap-0.5">
             {counted.map((row) => (
-              <li key={`counted-${row.line}`}>Line {row.line} — counted</li>
+              <li key={`counted-${row.line}`}>{t('line')}{' '}{row.line} — counted</li>
             ))}
           </ul>
         </details>

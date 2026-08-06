@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { REQUESTED_FIELD_ORDER } from '@/schemas/promotions';
@@ -26,6 +27,7 @@ export function WhatsappFields({
   disabled: boolean;
   onDirty: () => void;
 }) {
+  const t = useTranslations('promotions');
   const [useArt, setUseArt] = useState(record?.useArt ?? false);
   const [artUrl, setArtUrl] = useState(record?.artUrl ?? '');
 
@@ -41,19 +43,18 @@ export function WhatsappFields({
           className="h-4 w-4 rounded border-input"
           data-testid="promotion-whatsapp-enabled"
         />
-        <span>Take part by WhatsApp</span>
+        <span>{t('takePartByWhatsapp')}</span>
       </label>
 
       {!enabled && (
         <p className="text-sm text-muted-foreground">
-          Turn this on to give the promotion a hashtag, a banner and the questions the bot asks.
-        </p>
+          {t('turnThisOnToGiveThe')}</p>
       )}
 
       {enabled && (
         <>
           <label className="flex w-72 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">Hashtag</span>
+            <span className="text-muted-foreground">{t('hashtag')}</span>
             <Input
               name="hashtag"
               defaultValue={record?.hashtag ?? ''}
@@ -64,9 +65,7 @@ export function WhatsappFields({
               data-testid="promotion-hashtag"
             />
             <span className="text-xs text-muted-foreground">
-              What a listener texts to take part. No two promotions running at the same time in
-              this Station may share one.
-            </span>
+              {t('whatAListenerTextsToTake')}</span>
           </label>
 
           <div className="flex flex-col gap-3 rounded-md border p-4">
@@ -86,26 +85,25 @@ export function WhatsappFields({
                 className="h-4 w-4 rounded border-input"
                 data-testid="promotion-use-art"
               />
-              <span>Send a banner with the reply</span>
+              <span>{t('sendABannerWithTheReply')}</span>
             </label>
 
             {useArt && (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <label className="flex flex-1 flex-col gap-1 text-sm">
-                  <span className="text-muted-foreground">Banner address</span>
+                  <span className="text-muted-foreground">{t('bannerAddress')}</span>
                   <Input
                     name="artUrl"
                     type="url"
                     value={artUrl}
                     onChange={(e) => setArtUrl(e.target.value)}
-                    placeholder="https://…"
+                    placeholder={t('https')}
                     required
                     disabled={disabled}
                     data-testid="promotion-art-url"
                   />
                   <span className="text-xs text-muted-foreground">
-                    WhatsApp fetches this image itself and only over https.
-                  </span>
+                    {t('whatsappFetchesThisImageItselfAnd')}</span>
                 </label>
 
                 {/* The preview is how a broken address is noticed here rather
@@ -114,7 +112,7 @@ export function WhatsappFields({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={artUrl}
-                    alt="Banner preview"
+                    alt={t('bannerPreview')}
                     className="h-24 w-40 rounded-md border object-contain"
                     data-testid="promotion-art-preview"
                   />
@@ -129,7 +127,7 @@ export function WhatsappFields({
               <Input
                 name="yesButtonLabel"
                 defaultValue={record?.yesButtonLabel ?? ''}
-                placeholder="Quero!"
+                placeholder={t('quero')}
                 maxLength={20}
                 disabled={disabled}
                 data-testid="promotion-yes-label"
@@ -140,7 +138,7 @@ export function WhatsappFields({
               <Input
                 name="noButtonLabel"
                 defaultValue={record?.noButtonLabel ?? ''}
-                placeholder="Agora não"
+                placeholder={t('agoraNO')}
                 maxLength={20}
                 disabled={disabled}
                 data-testid="promotion-no-label"
@@ -149,11 +147,9 @@ export function WhatsappFields({
           </div>
 
           <fieldset className="flex flex-col gap-2" data-testid="promotion-requested-fields">
-            <legend className="text-sm text-muted-foreground">Ask the listener for</legend>
+            <legend className="text-sm text-muted-foreground">{t('askTheListenerFor')}</legend>
             <p className="text-xs text-muted-foreground">
-              The bot asks for each ticked field, in this order, and writes the answer to the
-              listener&apos;s record.
-            </p>
+              {t('theBotAsksForEachTicked')}</p>
             <div className="grid gap-1 sm:grid-cols-2">
               {REQUESTED_FIELD_ORDER.map((field) => (
                 <label key={field} className="flex items-center gap-2 text-sm">

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -61,6 +62,7 @@ export function PickupsFilters({
    */
   canSearchByListener: boolean;
 }) {
+  const t = useTranslations('pickups');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
 
@@ -88,7 +90,7 @@ export function PickupsFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="pickups-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Listener</span>
+        <span className="text-muted-foreground">{t('listener')}</span>
         <Input
           type="search"
           value={search}
@@ -98,8 +100,8 @@ export function PickupsFilters({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Name or phone"
-          aria-label="Search by listener name or phone"
+          placeholder={t('nameOrPhone')}
+          aria-label={t('searchByListenerNameOrPhone')}
           // Points at the page's explanation, and only when there is one to
           // point at — the same wiring participations-filters.tsx carries for
           // its own disabled search input.
@@ -109,13 +111,13 @@ export function PickupsFilters({
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Promotion</span>
+        <span className="text-muted-foreground">{t('promotion')}</span>
         <Select
           value={state.promotionId ?? ''}
           onChange={(event) => navigate({ promotionId: event.target.value || undefined })}
           data-testid="pickup-promotion-filter"
         >
-          <option value="">Any promotion</option>
+          <option value="">{t('anyPromotion')}</option>
           {promotions.map((promotion) => (
             <option key={promotion.id} value={promotion.id}>
               {promotion.name}
@@ -125,13 +127,13 @@ export function PickupsFilters({
       </label>
 
       <label className="flex w-48 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Status</span>
+        <span className="text-muted-foreground">{t('status')}</span>
         <Select
           value={state.status}
           onChange={(event) => navigate({ status: event.target.value as PickupStatusFilter })}
           data-testid="pickup-status-filter"
         >
-          <option value={ANY_STATUS}>Any status</option>
+          <option value={ANY_STATUS}>{t('anyStatus')}</option>
           {PICKUP_STATUSES.map((status) => (
             <option key={status} value={status}>
               {STATUS_LABELS[status]}
@@ -156,8 +158,7 @@ export function PickupsFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="pickup-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

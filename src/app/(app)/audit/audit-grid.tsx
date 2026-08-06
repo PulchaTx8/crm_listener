@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import {
   Table,
   TableBody,
@@ -23,14 +24,13 @@ import type { AuditRow } from '@/schemas/audit';
  * this is the screen somebody opens when they are trying to establish what
  * happened, and it should not depend on a hydration succeeding.
  */
-export function AuditGrid({ rows }: { rows: AuditRow[] }) {
+export async function AuditGrid({ rows }: { rows: AuditRow[] }) {
+  const t = await getTranslations('audit');
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No audit entries match these filters. A member who holds{' '}
-        <code>audit.view</code> in no Organization sees this too — the trail is
-        filtered by what you may read, not by what exists.
-      </p>
+        {t('noAuditEntriesMatchTheseFilters')}{' '}
+        <code>{t('auditView')}</code> {t('inNoOrganizationSeesThisToo')}</p>
     );
   }
 
@@ -38,12 +38,12 @@ export function AuditGrid({ rows }: { rows: AuditRow[] }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>When</TableHead>
-          <TableHead>Who</TableHead>
-          <TableHead>What</TableHead>
-          <TableHead>Target</TableHead>
-          <TableHead>Station</TableHead>
-          <TableHead>Detail</TableHead>
+          <TableHead>{t('when')}</TableHead>
+          <TableHead>{t('who')}</TableHead>
+          <TableHead>{t('what')}</TableHead>
+          <TableHead>{t('target')}</TableHead>
+          <TableHead>{t('station')}</TableHead>
+          <TableHead>{t('detail')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -57,8 +57,7 @@ export function AuditGrid({ rows }: { rows: AuditRow[] }) {
               {actionLabel(row.action)}
               {row.succeeded ? null : (
                 <span className="ml-2 rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
-                  failed
-                </span>
+                  {t('failed2')}</span>
               )}
             </TableCell>
             <TableCell className="text-xs text-muted-foreground">
@@ -70,8 +69,7 @@ export function AuditGrid({ rows }: { rows: AuditRow[] }) {
               {row.detail && Object.keys(row.detail as object).length > 0 ? (
                 <details>
                   <summary className="cursor-pointer text-xs text-muted-foreground">
-                    show
-                  </summary>
+                    {t('show')}</summary>
                   <pre className="mt-1 max-w-md overflow-x-auto rounded bg-muted p-2 text-xs">
                     {JSON.stringify(row.detail, null, 2)}
                   </pre>

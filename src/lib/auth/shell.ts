@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { ICONS, type ShellUser } from '@/components/layout/app-shell';
 import type { NavSection } from '@/components/layout/sidebar-nav';
+import { getTranslations } from 'next-intl/server';
 
 /**
  * Everything the chrome needs, resolved once per request. Both the member area
@@ -11,6 +12,12 @@ import type { NavSection } from '@/components/layout/sidebar-nav';
  * re-checks in its own body.
  */
 export async function getShellContext(): Promise<{ sections: NavSection[]; user: ShellUser }> {
+  // Block 12a. The navigation is the one place a person sees every area of the
+  // product at once, so its wording is the first thing that has to speak their
+  // language. Fetched here because this function is already async and already
+  // the single builder of the tree.
+  const t = await getTranslations('nav');
+
   const supabase = await createUserClient();
 
   const {
@@ -25,8 +32,8 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
 
   const sections: NavSection[] = [
     {
-      label: 'Overview',
-      items: [{ href: '/app', label: 'My stations', icon: ICONS.radio }],
+      label: t('overview'),
+      items: [{ href: '/app', label: t('myStations'), icon: ICONS.radio }],
     },
     {
       // Visible to every member, including those holding members.view,
@@ -37,7 +44,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // it themselves regardless of that redirect, raising 42501 rather
       // than returning a page of zeros. Hiding a link is a courtesy; the
       // boundary is in the database.
-      label: 'Dashboards',
+      label: t('dashboards'),
       items: [
         // "... overview", not the bare domain word, and the same rule the
         // Inventory section below records for its own rename (Block 6d): a
@@ -51,9 +58,9 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // accessible name is, and tests/e2e/dashboards.spec.ts selects on
         // it by role and name, so its three getByRole('link') calls moved
         // with this.
-        { href: '/dashboards/audience', label: 'Audience overview', icon: ICONS.chart },
-        { href: '/dashboards/music', label: 'Music overview', icon: ICONS.music },
-        { href: '/dashboards/promotions', label: 'Promotions overview', icon: ICONS.megaphone },
+        { href: '/dashboards/audience', label: t('audienceOverview'), icon: ICONS.chart },
+        { href: '/dashboards/music', label: t('musicOverview'), icon: ICONS.music },
+        { href: '/dashboards/promotions', label: t('promotionsOverview'), icon: ICONS.megaphone },
       ],
     },
     {
@@ -71,8 +78,8 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // there is nothing to hide from somebody whose list is empty. The
       // boundary is on the export buttons, each guarded by its own domain's
       // permission, and in request_report (0127), which re-checks regardless.
-      label: 'Reports',
-      items: [{ href: '/reports', label: 'My reports', icon: ICONS.inbox }],
+      label: t('reports'),
+      items: [{ href: '/reports', label: t('myReports'), icon: ICONS.inbox }],
     },
     {
       // Block 10a. The Organization's record of itself, not the platform's --
@@ -84,8 +91,8 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // holding audit.view nowhere gets an empty page with a sentence saying
       // why, which is more useful to somebody who expected to see something
       // than a silent bounce to /app.
-      label: 'Administration',
-      items: [{ href: '/audit', label: 'Audit trail', icon: ICONS.shield }],
+      label: t('administration'),
+      items: [{ href: '/audit', label: t('auditTrail'), icon: ICONS.shield }],
     },
     {
       // Visible to every member, including those holding no inventory
@@ -95,7 +102,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // 0027/0028 (and the select policies in 0029) re-check has_permission
       // themselves regardless of that redirect. Hiding a link is a courtesy;
       // the boundary is in the database.
-      label: 'Inventory',
+      label: t('inventory'),
       items: [
         // Same href as before Block 6d, Task 10 — only the label changed,
         // from 'Inventory' to 'Stock', so no existing href anywhere breaks.
@@ -106,7 +113,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // name, one level up, and having both the section and its first item
         // spell the same word read as one link rendered twice; 'Stock' is
         // what this item actually lists.
-        { href: '/inventory', label: 'Stock', icon: ICONS.box },
+        { href: '/inventory', label: t('stock'), icon: ICONS.box },
         // Block 6d, Task 10. /inventory/movements redirects nobody by
         // itself — it opens on whichever Station listCompanyAccess resolves
         // inventory.view in, the same courtesy the item above already
@@ -122,7 +129,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // same non-adjacency that already lets box itself serve both
         // Inventory and Pickups) and reads reasonably as things moving in
         // and out, which a stock ledger is.
-        { href: '/inventory/movements', label: 'Movements', icon: ICONS.inbox },
+        { href: '/inventory/movements', label: t('movements'), icon: ICONS.inbox },
       ],
     },
     {
@@ -134,9 +141,9 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // policies (0035_rls_members.sql) filter every read underneath
       // regardless of that redirect. Hiding a link is a courtesy; the
       // boundary is in the database.
-      label: 'Audience',
+      label: t('audience'),
       items: [
-        { href: '/members', label: 'Members', icon: ICONS.headphones },
+        { href: '/members', label: t('members'), icon: ICONS.headphones },
         // Moved here from Promotions in Block 6c, on the owner's ruling: this
         // is the listing of PEOPLE taking part, and it is where the draw is
         // run from, so it belongs beside the audience rather than beside the
@@ -147,7 +154,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // read regardless, and the write RPCs re-check has_permission in their
         // own bodies (0054). Hiding a link is a courtesy; the boundary is in
         // the database.
-        { href: '/participations', label: 'Participations', icon: ICONS.ticket },
+        { href: '/participations', label: t('participations'), icon: ICONS.ticket },
       ],
     },
     {
@@ -157,9 +164,9 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // policies plus every RPC in 0042/0043 re-check has_permission
       // regardless of that redirect. Hiding a link is a courtesy; the boundary
       // is in the database.
-      label: 'Promotions',
+      label: t('promotions'),
       items: [
-        { href: '/promotions', label: 'Promotions', icon: ICONS.megaphone },
+        { href: '/promotions', label: t('promotions'), icon: ICONS.megaphone },
         // Block 6d, Task 9. /pickups redirects nobody by itself — it opens on
         // whichever Station listCompanyAccess resolves promotions.view in,
         // the same courtesy every item in this section already extends — and
@@ -170,7 +177,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // adjacent ROWS OF THIS SAME SECTION, where one icon on both would
         // read as one link rendered twice, while Inventory is a different
         // section entirely, so the two never appear side by side.
-        { href: '/pickups', label: 'Pickups', icon: ICONS.box },
+        { href: '/pickups', label: t('pickups'), icon: ICONS.box },
       ],
     },
     {
@@ -181,12 +188,12 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // select policies in 0099 cut every read to the Stations that do hold
       // it, and every RPC in 0100/0101 re-checks has_permission in its own
       // body. Hiding a link is a courtesy; the boundary is in the database.
-      label: 'Music',
+      label: t('music'),
       items: [
-        { href: '/music/songs', label: 'Songs', icon: ICONS.music },
-        { href: '/music/artists', label: 'Artists', icon: ICONS.users },
-        { href: '/music/catalog', label: 'Catalog', icon: ICONS.box },
-        { href: '/music/requests', label: 'Requests', icon: ICONS.ticket },
+        { href: '/music/songs', label: t('songs'), icon: ICONS.music },
+        { href: '/music/artists', label: t('artists'), icon: ICONS.users },
+        { href: '/music/catalog', label: t('catalog'), icon: ICONS.box },
+        { href: '/music/requests', label: t('requests'), icon: ICONS.ticket },
         // Last in the section on purpose: it is the destructive one, and a
         // sidebar is read top to bottom. Every other Music item above is a
         // place to build (register a song, an artist, a request); this is
@@ -197,7 +204,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // never sit adjacent — the same non-adjacency Pickups' reuse of
         // ICONS.box relies on, two comments above. Its guard-like shape
         // reads reasonably as the one screen in Music that asks for care.
-        { href: '/music/maintenance', label: 'Maintenance', icon: ICONS.shield },
+        { href: '/music/maintenance', label: t('maintenance'), icon: ICONS.shield },
       ],
     },
     {
@@ -208,12 +215,12 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // Stations that do hold it, and all four doors in 0113 re-check
       // templates.manage in their own bodies. Hiding a link is a courtesy; the
       // boundary is in the database.
-      label: 'Templates',
+      label: t('templates'),
       items: [
         // ICONS.message is new, and is the block's own: this is the one
         // section about WORDS rather than records, and nothing already
         // declared meant that (see the path's own comment in app-shell.tsx).
-        { href: '/templates/messages', label: 'Messages', icon: ICONS.message },
+        { href: '/templates/messages', label: t('messages'), icon: ICONS.message },
         // ICONS.megaphone rather than message again: these two sit on ADJACENT
         // ROWS OF THIS SAME SECTION, which is exactly the case the Audience
         // section's ticket/megaphone comment warns against — one icon on both
@@ -222,7 +229,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // non-adjacency that already lets box serve both Inventory and
         // Pickups. Its shape reads reasonably here: a registered template is
         // the only thing that lets a Station SPEAK FIRST rather than answer.
-        { href: '/templates/whatsapp', label: 'WhatsApp', icon: ICONS.megaphone },
+        { href: '/templates/whatsapp', label: t('whatsapp'), icon: ICONS.megaphone },
       ],
     },
     {
@@ -236,25 +243,25 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // create_role/update_role/delete_role re-check has_org_permission
       // themselves regardless of that redirect. Hiding a link is a courtesy;
       // the boundary is in the database.
-      label: 'Organization',
+      label: t('organization'),
       items: [
-        { href: '/team', label: 'Team', icon: ICONS.users },
-        { href: '/roles', label: 'Roles', icon: ICONS.shield },
+        { href: '/team', label: t('team'), icon: ICONS.users },
+        { href: '/roles', label: t('roles'), icon: ICONS.shield },
       ],
     },
   ];
 
   if (isAdmin) {
     sections.push({
-      label: 'Platform',
+      label: t('platform'),
       items: [
-        { href: '/admin/customers', label: 'Customers', icon: ICONS.building },
-        { href: '/admin/contact-requests', label: 'Contact requests', icon: ICONS.inbox },
+        { href: '/admin/customers', label: t('customers'), icon: ICONS.building },
+        { href: '/admin/contact-requests', label: t('contactRequests'), icon: ICONS.inbox },
         // Block 10a. In the PLATFORM section and not the app's, because the
         // three Meta credentials are installation-wide environment variables:
         // one app serves every Station, so the account being configured is the
         // platform's rather than any customer's (design D5/D7).
-        { href: '/admin/integrations', label: 'WhatsApp integrations', icon: ICONS.message },
+        { href: '/admin/integrations', label: t('whatsappIntegrations'), icon: ICONS.message },
       ],
     });
   }

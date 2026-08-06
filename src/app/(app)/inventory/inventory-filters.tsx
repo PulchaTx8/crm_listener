@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -27,6 +28,7 @@ export function InventoryFilters({
   state: InventoryListState;
   categories: PrizeCategorySummary[];
 }) {
+  const t = useTranslations('inventory');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   // Re-synced from the URL so browser back/forward leaves this input agreeing
@@ -48,7 +50,7 @@ export function InventoryFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="inventory-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Search</span>
+        <span className="text-muted-foreground">{t('search')}</span>
         <Input
           type="search"
           value={search}
@@ -57,21 +59,21 @@ export function InventoryFilters({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Name or code"
-          aria-label="Search prizes by name or code"
+          placeholder={t('nameOrCode')}
+          aria-label={t('searchPrizesByNameOrCode')}
           data-testid="prize-search-input"
         />
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Category</span>
+        <span className="text-muted-foreground">{t('category')}</span>
         <Select
           value={state.categoryId ?? ALL_CATEGORIES}
           onChange={(e) => navigate({ categoryId: e.target.value || undefined })}
           data-testid="prize-category-filter"
         >
-          <option value={ALL_CATEGORIES}>All categories</option>
-          <option value={UNCATEGORISED_FILTER}>Uncategorised</option>
+          <option value={ALL_CATEGORIES}>{t('allCategories')}</option>
+          <option value={UNCATEGORISED_FILTER}>{t('uncategorised')}</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
               {category.name}
@@ -93,8 +95,7 @@ export function InventoryFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="prize-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

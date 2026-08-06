@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
 
@@ -15,7 +16,8 @@ import { buttonVariants } from '@/components/ui/button';
  */
 export const dynamic = 'force-dynamic';
 
-export default function Home() {
+export default async function Home() {
+  const t = await getTranslations('public');
   return (
     <main className="flex flex-col gap-8">
       <div className="flex items-center gap-2">
@@ -33,29 +35,24 @@ export default function Home() {
             <path d="M12 12h.01M7.05 16.95a7 7 0 0 1 0-9.9M16.95 7.05a7 7 0 0 1 0 9.9M4.22 19.78a11 11 0 0 1 0-15.56M19.78 4.22a11 11 0 0 1 0 15.56" />
           </svg>
         </span>
-        <span className="text-lg font-semibold">PulchatX</span>
+        <span className="text-lg font-semibold">{t('pulchatx')}</span>
       </div>
 
       <div className="flex flex-col gap-4">
-        <h1 className="text-4xl font-bold tracking-tight">PulchatX</h1>
+        <h1 className="text-4xl font-bold tracking-tight">{t('pulchatx')}</h1>
         <p className="max-w-xl text-lg text-muted-foreground">
-          CRM for entertainment companies. Manage your audience relationship and the whole prize
-          distribution cycle of your promotions.
-        </p>
+          {t('crmForEntertainmentCompaniesManageYour')}</p>
         <p className="max-w-xl text-muted-foreground">
-          PulchatX is sold by subscription. Get in touch and we will set your account up.
-        </p>
+          {t('pulchatxIsSoldBySubscriptionGet')}</p>
       </div>
 
       <div className="flex gap-3">
         {/* Button has no asChild and the plan rules out adding Radix Slot for it,
             so the link carries the button styling directly. */}
         <Link href="/contato" className={buttonVariants()}>
-          Get in touch
-        </Link>
+          {t('getInTouch')}</Link>
         <Link href="/login" className={buttonVariants({ variant: 'outline' })}>
-          Sign in
-        </Link>
+          {t('signIn')}</Link>
       </div>
     </main>
   );

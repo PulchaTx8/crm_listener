@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState } from 'react';
 import { blockMemberAction, type BlockFormState } from './actions';
 import { Button } from '@/components/ui/button';
@@ -73,6 +74,7 @@ export function BlockForm({
    */
   onRecorded?: (appliesNow: boolean) => void;
 }) {
+  const t = useTranslations('members');
   const [state, action, pending] = useActionState(blockMemberAction, INITIAL);
   const [endsAtLocal, setEndsAtLocal] = useState('');
   // '' (nothing chosen) stays '' — blockMemberSchema's own optionalTimestamp
@@ -90,8 +92,7 @@ export function BlockForm({
       <input type="hidden" name="memberId" value={memberId} />
 
       <label className="flex flex-col gap-1 text-sm">
-        Kind
-        <Select name="kind" defaultValue="draw_ban" required>
+        {t('kind')}<Select name="kind" defaultValue="draw_ban" required>
           {Object.entries(BLOCK_KIND_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -101,8 +102,7 @@ export function BlockForm({
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Scope
-        {/* Defaults to the first Station, not "Whole Organization" (Task 9
+        {t('scope')}{/* Defaults to the first Station, not "Whole Organization" (Task 9
             review, minor): defaulting a destructive action to its widest
             blast radius is backwards, even though block_member's own
             has_org_permission gate refuses most delegates who would try it
@@ -115,18 +115,16 @@ export function BlockForm({
               {s.companyName}
             </option>
           ))}
-          <option value="">Whole Organization</option>
+          <option value="">{t('wholeOrganization')}</option>
         </Select>
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Reason
-        <Textarea name="reason" required maxLength={2000} placeholder="Why is this listener being blocked?" />
+        {t('reason')}<Textarea name="reason" required maxLength={2000} placeholder={t('whyIsThisListenerBeingBlocked')} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Ends
-        {/* No `name` here — this input is never submitted directly. Its value
+        {t('ends')}{/* No `name` here — this input is never submitted directly. Its value
             is a naive wall-clock string with no offset; converting it to an
             instant belongs in the browser (see this file's own doc comment,
             C1), not on the server, so `onChange` is what feeds the hidden
@@ -140,17 +138,14 @@ export function BlockForm({
         />
         <input type="hidden" name="endsAt" value={endsAtIso} />
         <span className="text-xs text-muted-foreground">
-          Leave blank for an indefinite block. A date here means the block stops applying once
-          that moment passes — nothing needs to run for that to happen, so it will not un-block
-          them a moment early or late.
-        </span>
+          {t('leaveBlankForAnIndefiniteBlock')}</span>
       </label>
 
       <div className="flex items-center gap-3">
         <Button type="submit" variant="destructive" disabled={pending}>
           {pending ? 'Saving…' : 'Block this listener'}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">Block recorded.</p>}
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('blockRecorded')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

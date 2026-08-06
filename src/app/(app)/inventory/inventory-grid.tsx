@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ export function InventoryGrid({
   powers: InventoryGridPowers;
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
+  const t = useTranslations('inventory');
   const [grid, setGrid] = useState<RowState<PrizeSummary>>({
     rows: initialRows,
     total: initialTotal,
@@ -89,20 +91,16 @@ export function InventoryGrid({
           {/* Two buttons rather than a menu hiding one of them: a Station has
               two creatable things and neither is the other's afterthought. */}
           <Button type="button" variant="outline" onClick={() => setCreating('category')}>
-            Register category
-          </Button>
+            {t('registerCategory')}</Button>
           <Button type="button" onClick={() => setCreating('prize')} data-testid="prize-create">
-            Register prize
-          </Button>
+            {t('registerPrize')}</Button>
         </div>
       )}
 
       <div className="mt-4 rounded-lg border">
         <Table>
           <caption className="px-3 py-2 text-left text-xs text-muted-foreground">
-            Delivered is a cumulative counter and sits outside physical stock, as does written
-            off, which this table leaves to each prize&apos;s own record.
-          </caption>
+            {t('deliveredIsACumulativeCounterAnd')}</caption>
           <TableHeader>
             <TableRow>
               <TableHead aria-sort={ariaSort(nameSorted)}>
@@ -111,28 +109,26 @@ export function InventoryGrid({
                   active={nameSorted}
                   direction={nameSorted ? state.direction : 'asc'}
                 >
-                  Prize
-                </SortLink>
+                  {t('prize')}</SortLink>
               </TableHead>
-              <TableHead>Code</TableHead>
-              <TableHead>Category</TableHead>
+              <TableHead>{t('code')}</TableHead>
+              <TableHead>{t('category')}</TableHead>
               <TableHead aria-sort={ariaSort(addedSorted)}>
                 <SortLink
                   href={inventorySortHref(state, 'created')}
                   active={addedSorted}
                   direction={addedSorted ? state.direction : 'desc'}
                 >
-                  Added
-                </SortLink>
+                  {t('added')}</SortLink>
               </TableHead>
-              <TableHead className="text-right">In stock</TableHead>
-              <TableHead className="text-right">Available</TableHead>
-              <TableHead className="text-right">Reserved</TableHead>
-              <TableHead className="text-right">Linked</TableHead>
-              <TableHead className="text-right">Awaiting pickup</TableHead>
-              <TableHead className="text-right">Pending return</TableHead>
-              <TableHead className="text-right">Delivered</TableHead>
-              <TableHead className="sticky right-0 bg-background text-right">Actions</TableHead>
+              <TableHead className="text-right">{t('inStock')}</TableHead>
+              <TableHead className="text-right">{t('available')}</TableHead>
+              <TableHead className="text-right">{t('reserved')}</TableHead>
+              <TableHead className="text-right">{t('linked')}</TableHead>
+              <TableHead className="text-right">{t('awaitingPickup')}</TableHead>
+              <TableHead className="text-right">{t('pendingReturn')}</TableHead>
+              <TableHead className="text-right">{t('delivered')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -182,8 +178,7 @@ export function InventoryGrid({
                           trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                         >
                           <DropdownMenuItem destructive onSelect={() => setArchiving(prize)}>
-                            Archive prize…
-                          </DropdownMenuItem>
+                            {t('archivePrize')}</DropdownMenuItem>
                         </DropdownMenu>
                       )}
                     </div>
@@ -262,6 +257,7 @@ function ArchivePrizeDialog({
   onCancel: () => void;
   onArchived: (id: string) => void;
 }) {
+  const t = useTranslations('inventory');
   const titleId = useId();
   const [state, action, pending] = useActionState(archivePrizeAction, INITIAL_ARCHIVE);
 
@@ -273,23 +269,21 @@ function ArchivePrizeDialog({
   return (
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>Archive this prize?</DialogTitle>
+        <DialogTitle id={titleId}>{t('archiveThisPrize')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          {prize.name} leaves the catalogue and every list in the app.{' '}
-          <strong>This cannot be undone here</strong> — not by you, not by support. Only direct
+          {prize.name} {t('leavesTheCatalogueAndEveryList')}{' '}
+          <strong>{t('thisCannotBeUndoneHere')}</strong> — not by you, not by support. Only direct
           database access can restore it.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
-          Its movement history stays in the ledger; what disappears is the prize itself.
-        </p>
+          {t('itsMovementHistoryStaysInThe')}</p>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+          {t('cancel')}</Button>
         <form action={action}>
           <input type="hidden" name="prizeId" value={prize.id} />
           <Button type="submit" disabled={pending} data-testid="prize-archive-confirm">
@@ -314,6 +308,7 @@ function CreateDialog({
   onClose: () => void;
   onPrizeCreated: (prizeId: string) => void;
 }) {
+  const t = useTranslations('inventory');
   const titleId = useId();
   return (
     <Dialog open={creating !== null} onClose={onClose} labelledBy={titleId}>
@@ -331,8 +326,7 @@ function CreateDialog({
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );

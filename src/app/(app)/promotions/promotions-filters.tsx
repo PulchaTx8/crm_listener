@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -35,6 +36,7 @@ export function PromotionsFilters({
   timeZone: string;
   canSeeArchived: boolean;
 }) {
+  const t = useTranslations('promotions');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   // Re-synced from the URL so browser back/forward leaves this input agreeing
@@ -56,7 +58,7 @@ export function PromotionsFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="promotions-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Search</span>
+        <span className="text-muted-foreground">{t('search')}</span>
         <Input
           type="search"
           value={search}
@@ -65,14 +67,14 @@ export function PromotionsFilters({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Name or hashtag"
-          aria-label="Search promotions by name or hashtag"
+          placeholder={t('nameOrHashtag')}
+          aria-label={t('searchPromotionsByNameOrHashtag')}
           data-testid="promotion-search-input"
         />
       </label>
 
       <label className="flex w-48 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Situation</span>
+        <span className="text-muted-foreground">{t('situation')}</span>
         <Select
           value={state.situation ?? ANY_SITUATION}
           onChange={(e) =>
@@ -80,7 +82,7 @@ export function PromotionsFilters({
           }
           data-testid="promotion-situation-filter"
         >
-          <option value={ANY_SITUATION}>Any situation</option>
+          <option value={ANY_SITUATION}>{t('anySituation')}</option>
           {SITUATION_ORDER.map((situation) => (
             <option key={situation} value={situation}>
               {SITUATION_LABELS[situation]}
@@ -90,23 +92,23 @@ export function PromotionsFilters({
       </label>
 
       <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Starting from</span>
+        <span className="text-muted-foreground">{t('startingFrom')}</span>
         <Input
           type="date"
           value={toZonedDate(state.startsFrom, timeZone)}
           onChange={(e) => navigate({ startsFrom: fromZonedDay(e.target.value, timeZone, false) })}
-          aria-label="Show promotions starting on or after this day"
+          aria-label={t('showPromotionsStartingOnOrAfter')}
           data-testid="promotion-from-filter"
         />
       </label>
 
       <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Starting until</span>
+        <span className="text-muted-foreground">{t('startingUntil')}</span>
         <Input
           type="date"
           value={toZonedDate(state.startsTo, timeZone)}
           onChange={(e) => navigate({ startsTo: fromZonedDay(e.target.value, timeZone, true) })}
-          aria-label="Show promotions starting on or before this day"
+          aria-label={t('showPromotionsStartingOnOrBefore')}
           data-testid="promotion-to-filter"
         />
       </label>
@@ -124,7 +126,7 @@ export function PromotionsFilters({
             data-testid="promotion-archived-filter"
             className="h-4 w-4 rounded border-input"
           />
-          <span className="text-muted-foreground">Include archived</span>
+          <span className="text-muted-foreground">{t('includeArchived')}</span>
         </label>
       )}
 
@@ -142,8 +144,7 @@ export function PromotionsFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="promotion-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

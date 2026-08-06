@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import {
   PageControls,
   Table,
@@ -29,7 +30,7 @@ const COLUMN_COUNT = 8;
  * place after their own actions succeed — this is a plain Server Component
  * with no client state at all: nothing on this screen ever changes a row.
  */
-export function MovementsGrid({
+export async function MovementsGrid({
   rows,
   total,
   timeZone,
@@ -43,27 +44,27 @@ export function MovementsGrid({
   previousHref: string | null;
   nextHref: string | null;
 }) {
+  const t = await getTranslations('inventory');
   return (
     <div className="mt-4 rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Date</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Prize</TableHead>
-            <TableHead>Quantity</TableHead>
-            <TableHead>From → To</TableHead>
-            <TableHead>Promotion</TableHead>
-            <TableHead>Actor</TableHead>
-            <TableHead>Note</TableHead>
+            <TableHead>{t('date')}</TableHead>
+            <TableHead>{t('type')}</TableHead>
+            <TableHead>{t('prize')}</TableHead>
+            <TableHead>{t('quantity')}</TableHead>
+            <TableHead>{t('fromTo')}</TableHead>
+            <TableHead>{t('promotion')}</TableHead>
+            <TableHead>{t('actor')}</TableHead>
+            <TableHead>{t('note')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={COLUMN_COUNT} className="py-8 text-center text-muted-foreground">
-                No movement matches these filters.
-              </TableCell>
+                {t('noMovementMatchesTheseFilters')}</TableCell>
             </TableRow>
           ) : (
             rows.map((row) => (

@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { logger } from '@/lib/logger';
@@ -16,6 +17,7 @@ export const dynamic = 'force-dynamic';
  * in the application ever wrote it.
  */
 export default async function IntegrationsPage() {
+  const t = await getTranslations('admin');
   const secrets = configuredSecrets();
 
   let rows: IntegrationRow[];
@@ -25,12 +27,11 @@ export default async function IntegrationsPage() {
     logger.error({ err: cause }, 'could not list integrations');
     return (
       <>
-        <PageHeader title="WhatsApp integrations" />
+        <PageHeader title={t('whatsappIntegrations')} />
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground">
-              The integrations could not be loaded.
-            </p>
+              {t('theIntegrationsCouldNotBeLoaded')}</p>
           </CardContent>
         </Card>
       </>
@@ -42,7 +43,7 @@ export default async function IntegrationsPage() {
   return (
     <>
       <PageHeader
-        title="WhatsApp integrations"
+        title={t('whatsappIntegrations')}
         description="One Meta app serves the whole installation; each Station carries its own number."
       />
 
@@ -55,15 +56,14 @@ export default async function IntegrationsPage() {
       */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Installation credentials</CardTitle>
+          <CardTitle>{t('installationCredentials')}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-1 text-sm">
           <SecretLine label="WHATSAPP_APP_SECRET" set={secrets.appSecret} />
           <SecretLine label="WHATSAPP_VERIFY_TOKEN" set={secrets.verifyToken} />
           <SecretLine label="WHATSAPP_ACCESS_TOKEN" set={secrets.accessToken} />
           <p className="mt-2 text-xs text-muted-foreground">
-            These are environment variables and are never stored in the database or shown here.
-            {allSecretsSet
+            {t('theseAreEnvironmentVariablesAndAre')}{allSecretsSet
               ? ' All three are set, so a Station that still receives nothing is a configuration below, not a credential.'
               : ' Until all three are set, no Station sends or receives anything, however it is configured below.'}
           </p>
@@ -83,13 +83,11 @@ export default async function IntegrationsPage() {
                 ) : null}
                 {row.integration_id && !row.enabled ? (
                   <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-                    disabled
-                  </span>
+                    {t('disabled')}</span>
                 ) : null}
                 {!row.integration_id ? (
                   <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">
-                    not connected
-                  </span>
+                    {t('notConnected')}</span>
                 ) : null}
               </CardTitle>
             </CardHeader>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -170,6 +171,7 @@ export function ParticipationsFilters({
    */
   canSearchByListener: boolean;
 }) {
+  const t = useTranslations('participations');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   /**
@@ -377,7 +379,7 @@ export function ParticipationsFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="participations-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Listener</span>
+        <span className="text-muted-foreground">{t('listener')}</span>
         <Input
           type="search"
           value={search}
@@ -390,8 +392,8 @@ export function ParticipationsFilters({
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Name, phone, or the CPF's last digits"
-          aria-label="Search entries by listener name, phone, or the CPF's last digits"
+          placeholder={t('namePhoneOrTheCpfS')}
+          aria-label={t('searchEntriesByListenerNamePhone')}
           // Points at the page's explanation, and only when there is one to point
           // at. A disabled input is out of the tab order, so this reaches the
           // readers that expose disabled controls in browse mode; the sentence
@@ -403,13 +405,13 @@ export function ParticipationsFilters({
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Promotion</span>
+        <span className="text-muted-foreground">{t('promotion')}</span>
         <Select
           value={state.promotionId ?? ''}
           onChange={(e) => navigate({ promotionId: e.target.value || undefined })}
           data-testid="participation-promotion-filter"
         >
-          <option value="">Any promotion</option>
+          <option value="">{t('anyPromotion')}</option>
           {promotions.map((promotion) => (
             <option key={promotion.id} value={promotion.id}>
               {promotion.name}
@@ -447,7 +449,7 @@ export function ParticipationsFilters({
       */}
       {answers.correctnessAvailable ? (
         <label className="flex w-44 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Quiz answer</span>
+          <span className="text-muted-foreground">{t('quizAnswer')}</span>
           <Select
             value={
               state.answeredCorrectly === undefined ? '' : state.answeredCorrectly ? 'yes' : 'no'
@@ -460,9 +462,9 @@ export function ParticipationsFilters({
             }
             data-testid="participation-answered-filter"
           >
-            <option value="">Any answer</option>
-            <option value="yes">Answered correctly</option>
-            <option value="no">Answered wrongly</option>
+            <option value="">{t('anyAnswer')}</option>
+            <option value="yes">{t('answeredCorrectly')}</option>
+            <option value="no">{t('answeredWrongly')}</option>
           </Select>
         </label>
       ) : null}
@@ -481,13 +483,13 @@ export function ParticipationsFilters({
       */}
       {answers.optionsAvailable ? (
         <label className="flex w-56 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Chose</span>
+          <span className="text-muted-foreground">{t('chose')}</span>
           <Select
             value={state.optionId ?? ''}
             onChange={(e) => navigate({ optionId: e.target.value || undefined })}
             data-testid="participation-option-filter"
           >
-            <option value="">Any option</option>
+            <option value="">{t('anyOption')}</option>
             {questions.map((question) => (
               <optgroup key={question.id} label={question.prompt}>
                 {question.options.map((option) => (
@@ -511,13 +513,13 @@ export function ParticipationsFilters({
         control is how somebody finds the ones that were.
       */}
       <label className="flex w-48 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Status</span>
+        <span className="text-muted-foreground">{t('status')}</span>
         <Select
           value={state.status}
           onChange={(e) => navigate({ status: e.target.value as ParticipationStatusFilter })}
           data-testid="participation-status-filter"
         >
-          <option value={ANY_STATUS}>Any status</option>
+          <option value={ANY_STATUS}>{t('anyStatus')}</option>
           {PARTICIPATION_STATUSES.map((status) => (
             <option key={status} value={status}>
               {STATUS_LABELS[status]}
@@ -527,7 +529,7 @@ export function ParticipationsFilters({
       </label>
 
       <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Source</span>
+        <span className="text-muted-foreground">{t('source')}</span>
         <Select
           value={state.source ?? ANY_SOURCE}
           onChange={(e) =>
@@ -535,7 +537,7 @@ export function ParticipationsFilters({
           }
           data-testid="participation-source-filter"
         >
-          <option value={ANY_SOURCE}>Any source</option>
+          <option value={ANY_SOURCE}>{t('anySource')}</option>
           {SOURCE_ORDER.map((source) => (
             <option key={source} value={source}>
               {SOURCE_LABELS[source]}
@@ -552,23 +554,23 @@ export function ParticipationsFilters({
         this screen does not filter on.
       */}
       <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Entered from</span>
+        <span className="text-muted-foreground">{t('enteredFrom')}</span>
         <Input
           type="date"
           value={toZonedDate(state.from, timeZone)}
           onChange={(e) => navigate({ from: fromZonedDay(e.target.value, timeZone, false) })}
-          aria-label="Show entries made on or after this day"
+          aria-label={t('showEntriesMadeOnOrAfter')}
           data-testid="participation-from-filter"
         />
       </label>
 
       <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Entered until</span>
+        <span className="text-muted-foreground">{t('enteredUntil')}</span>
         <Input
           type="date"
           value={toZonedDate(state.to, timeZone)}
           onChange={(e) => navigate({ to: fromZonedDay(e.target.value, timeZone, true) })}
-          aria-label="Show entries made on or before this day"
+          aria-label={t('showEntriesMadeOnOrBefore')}
           data-testid="participation-to-filter"
         />
       </label>
@@ -590,8 +592,7 @@ export function ParticipationsFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="participation-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

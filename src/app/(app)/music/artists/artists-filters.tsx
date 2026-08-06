@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -17,6 +18,7 @@ const DEBOUNCE_MS = 350;
  * edits the URL, and the Server Component asks Postgres a narrower question.
  */
 export function ArtistsFilters({ state }: { state: ArtistListState }) {
+  const t = useTranslations('music');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   // Re-synced from the URL so browser back/forward leaves this input agreeing
@@ -38,7 +40,7 @@ export function ArtistsFilters({ state }: { state: ArtistListState }) {
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="artists-filters">
       <label className="flex w-64 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Search</span>
+        <span className="text-muted-foreground">{t('search')}</span>
         <Input
           type="search"
           value={search}
@@ -47,8 +49,8 @@ export function ArtistsFilters({ state }: { state: ArtistListState }) {
             clearTimeout(timer.current);
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
-          placeholder="Artist name"
-          aria-label="Search artists by name"
+          placeholder={t('artistName')}
+          aria-label={t('searchArtistsByName')}
           data-testid="artist-search-input"
         />
       </label>
@@ -66,8 +68,7 @@ export function ArtistsFilters({ state }: { state: ArtistListState }) {
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="artist-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );

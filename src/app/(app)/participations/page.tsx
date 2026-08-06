@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -43,6 +44,7 @@ export default async function ParticipationsPage({
 }: {
   searchParams: Promise<ParticipationSearchParams>;
 }) {
+  const t = await getTranslations('participations');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -272,7 +274,7 @@ export default async function ParticipationsPage({
   return (
     <>
       <PageHeader
-        title="Participations"
+        title={t('participations')}
         description="Every entry recorded in the Station — the ones that counted, and the ones that did not."
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
@@ -292,9 +294,7 @@ export default async function ParticipationsPage({
         <div className="mb-4 flex flex-col gap-2">
           {capped && (
             <p className="text-xs text-muted-foreground">
-              Showing {viewable.length + suspended.length} of the Stations you can reach. Search by
-              name to reach one that is not listed.
-            </p>
+              {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
             action="/participations"
@@ -324,7 +324,7 @@ export default async function ParticipationsPage({
           {suspended.map((company) => (
             <span
               key={company.id}
-              title="Suspended — no data is available while the subscription is inactive."
+              title={t('suspendedNoDataIsAvailableWhile')}
               className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
             >
               {company.name} (suspended)
@@ -382,10 +382,7 @@ export default async function ParticipationsPage({
           */}
           {state.status === DEFAULT_PARTICIPATION_STATUS && (
             <p className="text-xs text-muted-foreground" data-testid="participation-status-note">
-              Showing only the entries that counted. An attempt that was refused — already
-              entered, came back too soon, past their limit — is recorded too, with the reason it
-              did not count. Pick “Any status” to see those as well.
-            </p>
+              {t('showingOnlyTheEntriesThatCounted')}</p>
           )}
 
           {/*
@@ -407,8 +404,7 @@ export default async function ParticipationsPage({
               className="text-xs text-muted-foreground"
               data-testid="participation-search-note"
             >
-              You cannot search by listener at this Station: that needs permission to see the
-              audience here, which you do not hold.{' '}
+              {t('youCannotSearchByListenerAt')}{' '}
               {searchTerm
                 ? `Your search for “${searchTerm}” was not applied, so the list below is every entry matching the other filters rather than an empty set of matches.`
                 : 'Every other filter still works.'}
@@ -420,9 +416,7 @@ export default async function ParticipationsPage({
               className="text-xs text-muted-foreground"
               data-testid="participation-promotions-capped"
             >
-              The promotion picker lists the first promotions by name and this Station has more, so
-              it is not the whole list.
-            </p>
+              {t('thePromotionPickerListsTheFirst')}</p>
           )}
 
           {promotionsError && (
@@ -452,28 +446,29 @@ export default async function ParticipationsPage({
   );
 }
 
-function NoStationMatch({ search }: { search: string }) {
+async function NoStationMatch({ search }: { search: string }) {
+  const t = await getTranslations('participations');
   return (
     <>
-      <PageHeader title="Participations" />
+      <PageHeader title={t('participations')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            No Station you can reach matches “{search}”.
+            {t('noStationYouCanReachMatches')}{search}”.
           </p>
           <Link href="/participations" className="text-sm text-primary underline underline-offset-2">
-            Clear the Station search
-          </Link>
+            {t('clearTheStationSearch')}</Link>
         </CardContent>
       </Card>
     </>
   );
 }
 
-function LoadError({ message }: { message: string }) {
+async function LoadError({ message }: { message: string }) {
+  const t = await getTranslations('participations');
   return (
     <>
-      <PageHeader title="Participations" />
+      <PageHeader title={t('participations')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

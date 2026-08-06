@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { decodeCursor, keysetFilter, keysetPage } from '@/lib/keyset';
 import { escapeLikePattern } from '@/lib/postgrest';
@@ -48,6 +49,7 @@ export default async function CustomersPage({
     tab?: string;
   }>;
 }) {
+  const t = await getTranslations('admin');
   const params = await searchParams;
   const supabase = await createUserClient();
 
@@ -217,7 +219,7 @@ export default async function CustomersPage({
   return (
     <>
       <PageHeader
-        title="Customers"
+        title={t('customers')}
         description="Provision a new customer, or manage an existing subscription."
       />
 

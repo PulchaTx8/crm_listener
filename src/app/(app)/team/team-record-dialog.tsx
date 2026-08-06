@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -100,6 +101,7 @@ export function TeamRecordDialog({
   onClose: () => void;
   onPatched: (row: TeamRow) => void;
 }) {
+  const t = useTranslations('team');
   const titleId = useId();
 
   if (missing || !row) {
@@ -110,17 +112,15 @@ export function TeamRecordDialog({
     return (
       <Dialog open={open} onClose={onClose} labelledBy={titleId} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle id={titleId}>Person</DialogTitle>
+          <DialogTitle id={titleId}>{t('person')}</DialogTitle>
         </DialogHeader>
         <DialogBody>
           <p className="text-sm text-destructive">
-            Nobody here by that address, or you do not have permission to see them.
-          </p>
+            {t('nobodyHereByThatAddressOr')}</p>
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Close
-          </Button>
+            {t('close')}</Button>
         </DialogFooter>
       </Dialog>
     );
@@ -144,14 +144,14 @@ export function TeamRecordDialog({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close record"
+          aria-label={t('closeRecord')}
           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
       </DialogHeader>
 
-      <div role="tablist" aria-label="Record sections" className="flex gap-1 border-b px-5">
+      <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
         {TEAM_TABS.map((name) => (
           <button
             key={name}
@@ -175,17 +175,17 @@ export function TeamRecordDialog({
           <div className="flex flex-col gap-4">
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-xs text-muted-foreground">Name</dt>
+                <dt className="text-xs text-muted-foreground">{t('name')}</dt>
                 <dd>{row.fullName ?? '—'}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">E-mail</dt>
+                <dt className="text-xs text-muted-foreground">{t('eMail')}</dt>
                 <dd>{row.email}</dd>
               </div>
               {row.kind === 'invitation' && (
                 <>
                   <div>
-                    <dt className="text-xs text-muted-foreground">Invited as</dt>
+                    <dt className="text-xs text-muted-foreground">{t('invitedAs')}</dt>
                     <dd>
                       {row.isOwner
                         ? 'Owner'
@@ -193,7 +193,7 @@ export function TeamRecordDialog({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-muted-foreground">Expires</dt>
+                    <dt className="text-xs text-muted-foreground">{t('expires')}</dt>
                     <dd>{formatDate(row.expiresAt)}</dd>
                   </div>
                 </>
@@ -220,9 +220,7 @@ export function TeamRecordDialog({
 
             {row.kind === 'invitation' && (
               <p className="text-sm text-muted-foreground">
-                Nothing here can be changed. To send this person in at a different role or into
-                different Stations, revoke this invitation and send another.
-              </p>
+                {t('nothingHereCanBeChangedTo')}</p>
             )}
           </div>
         )}
@@ -231,9 +229,7 @@ export function TeamRecordDialog({
           <>
             {row.kind === 'invitation' ? (
               <p className="text-sm text-muted-foreground">
-                Station access is granted when this invitation is accepted — the Stations it was
-                sent for are fixed in the invitation itself.
-              </p>
+                {t('stationAccessIsGrantedWhenThis')}</p>
             ) : row.orgRole === 'owner' ? (
               // An owner holds no company_memberships row by design: mapping the
               // Station list for them would render every one as "No access",
@@ -241,16 +237,13 @@ export function TeamRecordDialog({
               // assign_company_role refuses to give the owner a role at all, so
               // there is nothing here for a control to do.
               <p className="text-sm text-muted-foreground" data-testid="owner-access-label">
-                Owner — full access to every Station
-              </p>
+                {t('ownerFullAccessToEveryStation')}</p>
             ) : roles.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No roles yet. Create one on the Roles screen, then grant Station access here.
-              </p>
+                {t('noRolesYetCreateOneOn2')}</p>
             ) : manageableStations.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No Station here is one you may administer.
-              </p>
+                {t('noStationHereIsOneYou')}</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {manageableStations.map((station) => (
@@ -287,8 +280,7 @@ export function TeamRecordDialog({
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
+          {t('close')}</Button>
       </DialogFooter>
     </Dialog>
   );
@@ -306,6 +298,7 @@ function OrgRoleControl({
   row: TeamRow;
   onChanged: (role: 'owner' | 'member') => void;
 }) {
+  const t = useTranslations('team');
   const [state, action, pending] = useActionState(changeOrgRoleAction, IDLE);
   const [role, setRole] = useState<'owner' | 'member'>(row.orgRole ?? 'member');
 
@@ -318,15 +311,15 @@ function OrgRoleControl({
     <form action={action} className="flex flex-wrap items-end gap-2 border-t pt-4">
       <input type="hidden" name="membershipId" value={row.entityId} />
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Role in the Organization</span>
+        <span className="text-muted-foreground">{t('roleInTheOrganization')}</span>
         <Select
           name="role"
           value={role}
           onChange={(event) => setRole(event.target.value as 'owner' | 'member')}
           className="h-9 w-40 text-sm"
         >
-          <option value="owner">Owner</option>
-          <option value="member">Member</option>
+          <option value="owner">{t('owner')}</option>
+          <option value="member">{t('member')}</option>
         </Select>
       </label>
       <Button type="submit" variant="outline" disabled={pending}>
@@ -353,6 +346,7 @@ function StationAccessRow({
   onAssigned: (roleId: string) => void;
   onRemoved: () => void;
 }) {
+  const t = useTranslations('team');
   const [assignState, assign, assigning] = useActionState(assignCompanyRoleAction, IDLE);
   const [removeState, remove, removing] = useActionState(removeCompanyAccessAction, IDLE);
   const [roleId, setRoleId] = useState(assignedRoleId ?? '');
@@ -392,8 +386,7 @@ function StationAccessRow({
             className="h-9 w-40 text-sm"
           >
             <option value="" disabled>
-              No access
-            </option>
+              {t('noAccess')}</option>
             {roles.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name}

@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
@@ -57,6 +58,7 @@ export function MovementsFilters({
   /** The Station's own zone, so the day the operator picks is that Station's day. */
   timeZone: string;
 }) {
+  const t = useTranslations('inventory');
   const router = useRouter();
 
   function navigate(next: Partial<MovementListState>) {
@@ -69,7 +71,7 @@ export function MovementsFilters({
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="movements-filters">
       <label className="flex w-52 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Type</span>
+        <span className="text-muted-foreground">{t('type')}</span>
         <Select
           value={state.type ?? ''}
           onChange={(event) =>
@@ -79,7 +81,7 @@ export function MovementsFilters({
           }
           data-testid="movement-type-filter"
         >
-          <option value="">Any type</option>
+          <option value="">{t('anyType')}</option>
           {MOVEMENT_TYPES.map((type) => (
             <option key={type} value={type}>
               {MOVEMENT_TYPE_LABELS[type]}
@@ -89,13 +91,13 @@ export function MovementsFilters({
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Prize</span>
+        <span className="text-muted-foreground">{t('prize')}</span>
         <Select
           value={state.prizeId ?? ''}
           onChange={(event) => navigate({ prizeId: event.target.value || undefined })}
           data-testid="movement-prize-filter"
         >
-          <option value="">Any prize</option>
+          <option value="">{t('anyPrize')}</option>
           {prizes.map((prize) => (
             <option key={prize.id} value={prize.id}>
               {prize.name}
@@ -105,13 +107,13 @@ export function MovementsFilters({
       </label>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Promotion</span>
+        <span className="text-muted-foreground">{t('promotion')}</span>
         <Select
           value={state.promotionId ?? ''}
           onChange={(event) => navigate({ promotionId: event.target.value || undefined })}
           data-testid="movement-promotion-filter"
         >
-          <option value="">Any promotion</option>
+          <option value="">{t('anyPromotion')}</option>
           {promotions.map((promotion) => (
             <option key={promotion.id} value={promotion.id}>
               {promotion.name}
@@ -121,12 +123,12 @@ export function MovementsFilters({
       </label>
 
       <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">From</span>
+        <span className="text-muted-foreground">{t('from')}</span>
         <Input
           type="date"
           value={toZonedDate(state.from, timeZone)}
           onChange={(event) => navigate({ from: fromZonedDay(event.target.value, timeZone, false) })}
-          aria-label="Show movements recorded on or after this day"
+          aria-label={t('showMovementsRecordedOnOrAfter')}
           data-testid="movement-from-filter"
         />
       </label>
@@ -137,7 +139,7 @@ export function MovementsFilters({
           type="date"
           value={toZonedDate(state.to, timeZone)}
           onChange={(event) => navigate({ to: fromZonedDay(event.target.value, timeZone, true) })}
-          aria-label="Show movements recorded on or before this day"
+          aria-label={t('showMovementsRecordedOnOrBefore')}
           data-testid="movement-to-filter"
         />
       </label>
@@ -157,8 +159,7 @@ export function MovementsFilters({
           className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           data-testid="movement-clear-filters"
         >
-          Clear filters
-        </Link>
+          {t('clearFilters')}</Link>
       )}
     </div>
   );
