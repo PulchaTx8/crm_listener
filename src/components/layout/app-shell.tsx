@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SidebarNav, type NavSection } from './sidebar-nav';
+import { LocaleSelector } from './locale-selector';
 
 /** Feather-style path data, inlined to keep the shell dependency-free. */
 export const ICONS = {
@@ -102,6 +103,8 @@ export function AppShell({
             <span className="truncate text-sm text-white">{user.fullName ?? user.email}</span>
             <span className="text-xs text-sidebar-muted">{user.roleLabel}</span>
           </span>
+          {/* Block 12a, D4. Renders nothing until a second catalogue exists. */}
+          <LocaleSelector />
           <form action="/auth/signout" method="post" className="ml-auto">
             <button
               type="submit"

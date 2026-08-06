@@ -2,5 +2,9 @@
   "app": {
     "title": "PulchatX",
     "description": "CRM for entertainment companies"
+  },
+  "shell": {
+    "language": "Language",
+    "languageSave": "Save"
   }
 }
