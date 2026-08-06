@@ -219,6 +219,13 @@ const REQUIRED_TEST_FILES = [
   // exercise `for update skip locked`), report_runs' RLS against a colleague as
   // well as a stranger, and the withheld contract asserted as a SESSION rather
   // than by passing a user id as an argument the way 22_reports must.
+  // Block 10a. Two of these seven have no other proof anywhere: that a row with
+  // a NULL organization_id reaches the platform admin and nobody else -- the
+  // term a SECURITY DEFINER rewrite of list_audit_logs would have dropped
+  // first, silently -- and that audit.view is what separates a member who sees
+  // the trail from one who sees an empty page. That permission has existed
+  // since Block 1b and guarded nothing until now.
+  { path: 'tests/isolation/audit.test.ts', minTests: 7 },
   { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },
 ];
