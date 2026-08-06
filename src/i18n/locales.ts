@@ -27,25 +27,55 @@ export function isLocale(value: string | undefined | null): value is Locale {
 }
 
 /**
+ * Whether this value names a catalogue that EXISTS TODAY.
+ *
+ * The distance between this and isLocale is the whole point. `pt` is a locale
+ * the product will offer; it is not a locale the product can render until
+ * Block 12b writes `messages/pt.json`. Resolution must answer the second
+ * question, because what it returns becomes a filename in src/i18n/request.ts
+ * and a missing file there is a crashed render, not a fallback.
+ */
+export function isAvailable(
+  value: string | undefined | null,
+  available: readonly Locale[] = AVAILABLE_LOCALES,
+): value is Locale {
+  return isLocale(value) && available.includes(value);
+}
+
+/**
  * Profile, then cookie, then the browser, then English.
  *
  * Every input is untrusted -- the cookie is client-writable and the header is
  * whatever was sent -- so anything that is not one of the three is discarded
  * rather than passed along. A locale reaches a filename downstream
  * (src/i18n/request.ts), and that is reason enough.
+ *
+ * IT NEVER RETURNS A LANGUAGE WITHOUT A CATALOGUE. Each step is filtered by
+ * AVAILABLE_LOCALES rather than SUPPORTED_LOCALES, so a Brazilian browser
+ * sending `Accept-Language: pt-BR` is answered with English while `pt` is
+ * unwritten, instead of naming a file that is not there. Block 12b changes that
+ * answer by adding the catalogue and the constant, and nothing here.
  */
 export function resolveLocale(input: {
   profile?: string | null;
   cookie?: string | null;
   acceptLanguage?: string | null;
+  /**
+   * Defaults to AVAILABLE_LOCALES. Present so the ORDER can be asserted while
+   * only one catalogue exists -- with a single available language every branch
+   * below returns the same answer and the order is untestable.
+   */
+  available?: readonly Locale[];
 }): Locale {
-  if (isLocale(input.profile)) return input.profile;
-  if (isLocale(input.cookie)) return input.cookie;
+  const available = input.available ?? AVAILABLE_LOCALES;
 
-  const fromBrowser = preferredFromHeader(input.acceptLanguage);
+  if (isAvailable(input.profile, available)) return input.profile;
+  if (isAvailable(input.cookie, available)) return input.cookie;
+
+  const fromBrowser = preferredFromHeader(input.acceptLanguage, available);
   if (fromBrowser) return fromBrowser;
 
-  return DEFAULT_LOCALE;
+  return isAvailable(DEFAULT_LOCALE, available) ? DEFAULT_LOCALE : (available[0] ?? DEFAULT_LOCALE);
 }
 
 /**
@@ -72,8 +102,15 @@ export function localeCookieUpdate(input: {
  * Reads Accept-Language by QUALITY, not by position.
  * "fr-FR,fr;q=0.9,es;q=0.7" means "French, or Spanish if you must" -- answering
  * English there ignores a preference the browser stated plainly.
+ *
+ * Filtered by what is available, not by what is supported: this is the one
+ * input nobody in the product had to opt into, so it is the one that would
+ * reach every visitor at once.
  */
-function preferredFromHeader(header: string | null | undefined): Locale | null {
+function preferredFromHeader(
+  header: string | null | undefined,
+  available: readonly Locale[],
+): Locale | null {
   if (!header) return null;
 
   const ranked = header
@@ -91,7 +128,7 @@ function preferredFromHeader(header: string | null | undefined): Locale | null {
     .sort((a, b) => b.quality - a.quality);
 
   for (const entry of ranked) {
-    if (isLocale(entry.base)) return entry.base;
+    if (isAvailable(entry.base, available)) return entry.base;
   }
   return null;
 }

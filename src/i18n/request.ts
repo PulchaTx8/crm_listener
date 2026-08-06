@@ -14,6 +14,12 @@ import { resolveLocale, type Locale } from './locales';
  * The locale is resolved through the pure function in ./locales rather than
  * read straight out of the cookie, because the cookie is client-writable and
  * the value ends up in the import path below.
+ *
+ * THE IMPORT BELOW HAS NO FALLBACK, and resolveLocale is what makes that safe:
+ * it returns only languages AVAILABLE_LOCALES holds, and catalogue.test.ts
+ * pins a file to each of those. A resolution filtered by SUPPORTED_LOCALES
+ * instead would answer `pt` to any Brazilian browser and name a file that does
+ * not exist -- on every route, public ones included.
  */
 export default getRequestConfig(async () => {
   const [cookieStore, headerList] = await Promise.all([cookies(), headers()]);

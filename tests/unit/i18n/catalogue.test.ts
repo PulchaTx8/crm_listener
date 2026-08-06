@@ -41,6 +41,16 @@ describe('the message catalogues', () => {
     }
   });
 
+  it('has a file on disk for every answer resolveLocale can give', () => {
+    // The pure-function test asserts the same invariant against the constant;
+    // this one asserts it against the filesystem, which is what the import in
+    // src/i18n/request.ts actually reaches for. Both have to hold: the constant
+    // could open a language whose catalogue nobody wrote.
+    for (const locale of AVAILABLE_LOCALES) {
+      expect(() => load(locale), `messages/${locale}.json is missing`).not.toThrow();
+    }
+  });
+
   it('has no empty value anywhere', () => {
     // An empty string passes a key-parity check and renders as nothing at all,
     // which on screen is indistinguishable from a broken component.
