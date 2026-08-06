@@ -10,6 +10,7 @@ import {
   ValidationError,
 } from '@/lib/errors';
 import type { Database } from '@/lib/supabase/database.types';
+import { receiptExtension } from '@/lib/security/uploads';
 
 /** The bucket 0086 created. Named once, here, so a typo is one place. */
 export const RECEIPT_BUCKET = 'delivery-receipts';
@@ -98,15 +99,24 @@ export async function attachDeliveryReceipt(
   input: { winnerId: string; companyId: string; file: File },
 ): Promise<void> {
   const client = asCaller(accessToken);
-  const extension = input.file.name.includes('.')
-    ? input.file.name.slice(input.file.name.lastIndexOf('.'))
-    : '';
+  // Block 11b, D8. From the VALIDATED content type, never from input.file.name:
+  // that name comes from the client and this value is pasted straight into a
+  // storage key. Deriving it here ends the whole class of question without
+  // anybody having to reason about which strange filename does what.
+  const extension = receiptExtension(input.file.type);
+  if (!extension) {
+    // The bucket refuses it as well (0134) -- this is here so the failure is a
+    // sentence rather than a Storage error, and so nothing is uploaded first.
+    throw new InternalError('That file type cannot be stored as a receipt.');
+  }
   // <company_id>/<winner_id>/<uuid><ext> — the first segment is what both the
   // bucket policies and attach_delivery_receipt read to prove the Station.
   const path = `${input.companyId}/${input.winnerId}/${crypto.randomUUID()}${extension}`;
 
   const uploaded = await client.storage.from(RECEIPT_BUCKET).upload(path, input.file, {
-    contentType: input.file.type || 'application/octet-stream',
+    // From the same closed list. It used to be `input.file.type ||
+    // 'application/octet-stream'`, which stored whatever the browser claimed.
+    contentType: input.file.type,
     upsert: false,
   });
   if (uploaded.error) {

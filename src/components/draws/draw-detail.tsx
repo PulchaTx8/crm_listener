@@ -10,6 +10,7 @@ import type { DrawDetail } from '@/services/draws';
 // an operator in another state reading a draw as having happened an hour from
 // when the Station ran it (spec L2).
 import { formatInstant } from '@/app/(app)/promotions/format';
+import { RECEIPT_ACCEPT } from '@/lib/security/uploads';
 import { WinnerActions, type WinnerAction, type WinnerPowers } from './winner-actions';
 
 function formatDeadline(value: string | null, timeZone: string): string {
@@ -247,6 +248,9 @@ function ReceiptForm({
       <input
         type="file"
         name="receipt"
+        // Block 11b. Convenience, not a defence: it filters the file picker.
+        // What refuses a wrong file is the action, and behind it the bucket.
+        accept={RECEIPT_ACCEPT}
         aria-label="Receipt of the handover"
         data-testid="receipt-input"
         className="text-sm"

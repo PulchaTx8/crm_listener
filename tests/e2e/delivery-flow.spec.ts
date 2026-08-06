@@ -150,9 +150,25 @@ test('an operator hands a prize over, files the receipt, and undoes the delivery
   await expect(page.getByTestId('winner-deliver')).toHaveCount(0);
 
   // The receipt form appears only after the delivery is on the record (D1).
+  //
+  // Block 11b, D7: the wrong kind of file first. The bucket would refuse it too
+  // and that refusal is the real boundary; what is proved here is that the
+  // operator is told WHY, in a sentence, instead of reading a Storage error.
   await page.getByTestId('receipt-input').setInputFiles({
-    name: 'receipt.txt',
-    mimeType: 'text/plain',
+    name: 'not-a-receipt.html',
+    mimeType: 'text/html',
+    buffer: Buffer.from('<h1>not a receipt</h1>'),
+  });
+  await page.getByTestId('receipt-attach').click();
+  // By its text rather than by role: the screen carries more than one alert.
+  await expect(page.getByText(/must be an image/i)).toBeVisible();
+  await expect(page.getByTestId('winner-receipt')).toHaveCount(0);
+
+  // And then a file a receipt can actually be. Before Block 11b this was a
+  // text/plain receipt.txt, which the allow-list now refuses.
+  await page.getByTestId('receipt-input').setInputFiles({
+    name: 'receipt.jpg',
+    mimeType: 'image/jpeg',
     buffer: Buffer.from('signed by the winner'),
   });
   await page.getByTestId('receipt-attach').click();
