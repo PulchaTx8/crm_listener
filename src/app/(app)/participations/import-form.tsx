@@ -410,6 +410,20 @@ export function parseFile(
 export const IMPORT_ROWS_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
 /**
+ * Block 11b, D10. A ceiling on the FILE, not on the rows.
+ *
+ * This file never becomes a storage object -- it is parsed in the browser and
+ * posted as rows -- so it has no MIME question at all. What it can do is kill
+ * the tab: `arrayBuffer()` below pulls the whole thing into memory, and a
+ * mis-selected multi-gigabyte file takes the dialog with it, with no message.
+ *
+ * Above IMPORT_ROWS_BODY_LIMIT_BYTES on purpose. That constant is what actually
+ * caps an import, and it is measured against the SERIALISED rows; this one only
+ * has to stop a read that would never have finished.
+ */
+const IMPORT_FILE_MAX_BYTES = 20 * 1024 * 1024;
+
+/**
  * The exact byte count of what the hidden `rows` field below will send.
  *
  * `TextEncoder`, not the JSON string's own `.length` — a `.length` counts
@@ -498,6 +512,14 @@ export function ImportParticipationsForm({
     setReadFailure(null);
     if (!chosen) {
       setFile(null);
+      return;
+    }
+    // Block 11b, D10. Refused BEFORE the read, because the read is the damage.
+    if (chosen.size > IMPORT_FILE_MAX_BYTES) {
+      setFile(null);
+      setReadFailure(
+        `That file is ${Math.round(chosen.size / (1024 * 1024))} MB. An import file may be at most 20 MB — split it and import the parts.`,
+      );
       return;
     }
     try {
