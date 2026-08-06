@@ -143,7 +143,7 @@ export function BlockForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" variant="destructive" disabled={pending}>
-          {pending ? 'Saving…' : 'Block this listener'}
+          {pending ? t('saving') : t('blockThisListener')}
         </Button>
         {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('blockRecorded')}</p>}
       </div>

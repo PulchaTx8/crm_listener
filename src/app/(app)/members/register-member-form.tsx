@@ -184,7 +184,7 @@ export function RegisterMemberForm({
         <div className="flex items-center gap-3">
           {!fieldsLocked ? (
             <Button type="submit" disabled={checkPending}>
-              {checkPending ? 'Checking…' : 'Check for an existing listener'}
+              {checkPending ? t('checking') : t('checkForAnExistingListener')}
             </Button>
           ) : (
             <Button type="button" variant="outline" onClick={() => setManualEditing(true)}>
@@ -212,7 +212,7 @@ export function RegisterMemberForm({
               <input type="hidden" name="memberId" value={checkState.memberId} />
               <input type="hidden" name="companyId" value={companyId} />
               <Button type="submit" variant="outline" disabled={linkPending}>
-                {linkPending ? 'Linking…' : 'Link them to this Station instead of registering again'}
+                {linkPending ? t('linking') : t('linkThemToThisStationInstead')}
               </Button>
             </form>
           </div>
@@ -338,7 +338,7 @@ export function RegisterMemberForm({
 
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={registerPending}>
-                {registerPending ? 'Registering…' : 'Register listener'}
+                {registerPending ? t('registering') : t('registerListener')}
               </Button>
               {registerState.status === 'saved' && (
                 <p className="text-sm text-emerald-700">

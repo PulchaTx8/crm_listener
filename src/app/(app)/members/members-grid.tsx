@@ -403,7 +403,7 @@ function ArchiveDialog({
         <form action={action}>
           <input type="hidden" name="memberId" value={member.id} />
           <Button type="submit" disabled={pending} data-testid="member-archive-confirm">
-            {pending ? 'Archiving…' : 'Archive anyway'}
+            {pending ? t('archiving') : t('archiveAnyway')}
           </Button>
         </form>
       </DialogFooter>
