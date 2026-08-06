@@ -53,6 +53,12 @@ export async function middleware(request: NextRequest) {
   const redirectWithCsp = (url: URL) => {
     const built = NextResponse.redirect(url);
     built.headers.set('Content-Security-Policy', policy);
+    // A redirect is a NEW response and starts with no cookies at all, so
+    // everything written onto `response` above has to be carried over by hand:
+    // the refreshed Supabase session from setAll, and the locale sync. Without
+    // this the three branches below silently drop both -- which for the locale
+    // is precisely the /change-password case its comment names.
+    for (const cookie of response.cookies.getAll()) built.cookies.set(cookie);
     return built;
   };
 
@@ -117,6 +123,16 @@ export async function middleware(request: NextRequest) {
     cookie: request.cookies.get('locale')?.value,
   });
   if (cookieLocale) {
+    // Onto the REQUEST too, following the setAll pattern above. What
+    // src/i18n/request.ts reads is the REQUEST's cookies; a response-only write
+    // renders THIS page in the old language and only takes effect on the next
+    // one. Rebuilding the response is what carries the amended request headers
+    // forward, so the cookies already on it have to be carried across the
+    // rebuild -- the session refresh lives there.
+    request.cookies.set('locale', cookieLocale);
+    const rebuilt = nextWithCsp();
+    for (const cookie of response.cookies.getAll()) rebuilt.cookies.set(cookie);
+    response = rebuilt;
     response.cookies.set('locale', cookieLocale, {
       path: '/',
       maxAge: 60 * 60 * 24 * 365,
