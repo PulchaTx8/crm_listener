@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { WORKER_TICK_SECRET_FOR_TESTS } from '../whatsapp-test-env';
 
 /**
  * THE ACCEPTANCE JOURNEY — master spec §35.
@@ -32,8 +33,12 @@ const ownerPassword = `Accept-owner-${stamp}-chosen`;
 const colleagueEmail = `e2e-accept-colleague-${stamp}@example.test`;
 const colleaguePassword = `Accept-colleague-${stamp}-pw`;
 const organizationName = `Accept Org ${stamp}`;
-const stationOne = `Accept FM ${stamp}`;
-const stationTwo = `Accept AM ${stamp}`;
+// Alpha before Beta, deliberately. Every Station-scoped screen defaults to the
+// first Station this owner can reach, so naming them in order keeps the whole
+// journey on one Station without a switch on every screen -- and the second
+// exists to prove the cross-access block, which needs nothing in it.
+const stationOne = `Accept Alpha ${stamp}`;
+const stationTwo = `Accept Beta ${stamp}`;
 const roleName = `Accept Audience ${stamp}`;
 const listenerOne = `Accept Listener One ${stamp}`;
 const prizeName = `Accept Prize ${stamp}`;
@@ -52,6 +57,15 @@ test.beforeAll(async () => {
   createdUserIds.push(data.user.id);
   await admin.from('profiles').insert({ id: data.user.id, email: adminEmail });
   await admin.from('platform_admins').insert({ user_id: data.user.id });
+
+  // The invitation limiter is keyed by a hash of the CALLER'S IP, and every
+  // local test shares 127.0.0.1 -- ten accepted invitations per window across
+  // the whole suite and this journey's own iterations. Cleared here so a
+  // control that is working correctly cannot masquerade as a broken journey;
+  // the limiter itself is proved by tests/unit/rate-limit.test.ts and by
+  // tests/isolation/contact-requests.test.ts, so nothing is lost by resetting
+  // its counter before a run that is not about it.
+  await admin.from('rate_limit_counters').delete().like('key', 'invite-accept:%');
 });
 
 test.afterAll(async () => {
@@ -273,6 +287,10 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
 
   await test.step('a promotion is created and the prize committed to it', async () => {
     await ownerPage.goto('/promotions');
+    // No Station switch: this screen defaults to the first Station the owner
+    // reaches, which is where the listener above was registered. A promotion
+    // created at the other one refuses that listener's entry with a sentence
+    // about linking -- correct behaviour, and a confusing way to fail a test.
     await ownerPage.getByTestId('promotion-create').click();
 
     await ownerPage.getByTestId('promotion-name').fill(promotionName);
@@ -309,6 +327,127 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
     await linkForm.getByTestId('prize-link-save').click();
 
     await expect(ownerPage.getByTestId('promotion-prize-row')).toHaveCount(1, { timeout: 15_000 });
+  });
+
+  await test.step('an entry is recorded by hand', async () => {
+    await ownerPage.getByTestId('promotion-tab-participations').click();
+    await ownerPage.getByTestId('promotion-participation-record-open').click();
+    await expect(ownerPage.getByTestId('participation-record-form')).toBeVisible();
+    await ownerPage.getByTestId('participation-full-name').fill(listenerOne);
+    await ownerPage.getByTestId('participation-phone').fill(listenerOnePhone);
+    await ownerPage.getByTestId('participation-record-submit').click();
+
+    // The outcome, asserted. A submit that quietly refused would leave the draw
+    // below with nothing to draw from, and the failure would surface three
+    // stages later as "no winners" -- which is a much worse place to read it.
+    await expect(ownerPage.getByTestId('participation-record-status')).toHaveText('Counted', {
+      timeout: 15_000,
+    });
+    await expect(ownerPage.getByTestId('promotion-participations-valid')).toHaveText('1');
+  });
+
+  await test.step('the draw runs and produces a winner', async () => {
+    await ownerPage.getByTestId('promotion-tab-prizes').click();
+    await ownerPage.getByTestId('open-draws').click();
+    await expect(ownerPage).toHaveURL(/\/draws$/);
+
+    await expect(ownerPage.getByTestId('run-draw-dialog')).toBeVisible();
+    await ownerPage.getByTestId('run-draw').click();
+
+    const winners = ownerPage.getByTestId('draw-winners');
+    await expect(winners).toBeVisible({ timeout: 30_000 });
+
+    // The seed and the algorithm version are what make a draw auditable
+    // afterwards -- a winner without them is a name somebody typed.
+    await expect(ownerPage.getByTestId('draw-seed')).toHaveText(/^[0-9a-f]{64}$/);
+    await expect(ownerPage.getByTestId('winner-status-1')).toHaveText('AWAITING_PICKUP');
+  });
+
+  await test.step('the prize is delivered with a private receipt', async () => {
+    await ownerPage.getByTestId('winner-deliver').click();
+    await expect(ownerPage.getByTestId('winner-status-1')).toHaveText('DELIVERED', {
+      timeout: 15_000,
+    });
+
+    await ownerPage.getByTestId('receipt-input').setInputFiles({
+      name: 'receipt.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from('a photograph of the handover'),
+    });
+    await ownerPage.getByTestId('receipt-attach').click();
+    await expect(ownerPage.getByTestId('winner-receipt')).toBeVisible({ timeout: 15_000 });
+  });
+
+  await test.step('the prize goes back to stock and the ledger says so', async () => {
+    // §35's uncollected branch, through the screen an operator uses. The
+    // clock-driven RETURN_PENDING path -- where sweep_pickup_deadlines moves a
+    // winner rather than a person deciding to -- is deadline.spec.ts's, and
+    // this journey does not repeat it.
+    await ownerPage.getByTestId('winner-cancel_delivery').click();
+    await ownerPage.getByLabel('Reason').fill('the listener never came for it');
+    await ownerPage.getByRole('button', { name: 'Confirm' }).click();
+    await expect(ownerPage.getByTestId('winner-status-1')).toHaveText('AWAITING_PICKUP', {
+      timeout: 15_000,
+    });
+
+    await ownerPage.getByTestId('winner-return').click();
+    await ownerPage.getByLabel('Reason').fill('back on the shelf for the next promotion');
+    await ownerPage.getByRole('button', { name: 'Confirm' }).click();
+    await expect(ownerPage.getByTestId('winner-status-1')).toHaveText('RETURNED', {
+      timeout: 15_000,
+    });
+  });
+
+  await test.step('a report is requested and downloaded', async () => {
+    // Exported from the screen the data is on rather than from /reports: an
+    // export carries the filters currently in front of the operator, which is
+    // the whole reason the button lives there.
+    await ownerPage.goto('/members');
+    await ownerPage.getByRole('button', { name: 'Export', exact: true }).click();
+    await ownerPage.getByRole('button', { name: 'CSV', exact: true }).click();
+
+    await expect(ownerPage).toHaveURL(/\/reports/);
+    await expect(ownerPage.getByRole('heading', { name: 'My reports' })).toBeVisible();
+
+    // The worker. In production pg_cron fires this every ten seconds through
+    // pg_net; the local stack has no app.worker_tick_url, so it is driven here.
+    //
+    // A LOOP, not one call, and the reason is worth keeping: the drain claims
+    // ONE run per tick, so a database carrying queued runs from an earlier
+    // iteration hands this journey somebody else's work and leaves its own
+    // report Queued. A single tick passed its own assertions and still left the
+    // screen empty, which is a confusing way to learn that.
+    const download = ownerPage.getByRole('button', { name: 'Download' }).first();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const tick = await fetch('http://localhost:3000/api/worker/tick', {
+        method: 'POST',
+        headers: { 'x-worker-secret': WORKER_TICK_SECRET_FOR_TESTS },
+      });
+      expect(tick.ok, 'the worker tick refused').toBeTruthy();
+      const drained = (await tick.json()) as { reports?: { error?: string } };
+      expect(drained.reports?.error ?? null, 'the report drain reported an error').toBeNull();
+
+      await ownerPage.reload();
+      if (await download.isVisible().catch(() => false)) break;
+    }
+
+    await expect(download, 'the report never became downloadable').toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  await test.step('the audit trail carries what was done', async () => {
+    await ownerPage.goto('/audit');
+    await expect(ownerPage.getByRole('heading', { name: 'Audit trail' })).toBeVisible();
+
+    // Pseudonymised by construction -- ids, not names -- so what is asserted is
+    // that the work above reached the trail under its human label, read through
+    // audit_logs' own policies as this Organization's owner. `winner_transition`
+    // is what the delivery, the undo and the return each wrote.
+    await expect(ownerPage.getByText('Winner status changed').first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(ownerPage.getByText('Prize created').first()).toBeVisible();
   });
 
   await ownerContext.close();
