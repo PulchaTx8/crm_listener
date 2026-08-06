@@ -63,7 +63,7 @@ export function DrawsScreen({
                 >
                   {formatInstant(draw.drawnAt, timeZone)}
                   <span className="ml-1 text-muted-foreground">
-                    · {draw.winnerCount} {t('prize2')}{draw.winnerCount === 1 ? '' : 's'}
+                    · {t('prizesInDraw', { count: draw.winnerCount })}
                     {draw.status === 'CANCELLED' ? ' · cancelled' : ''}
                   </span>
                 </Link>

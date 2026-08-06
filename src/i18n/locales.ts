@@ -13,12 +13,16 @@ export const SUPPORTED_LOCALES = ['en', 'pt', 'es'] as const satisfies readonly 
 /**
  * The ones a person may choose TODAY.
  *
- * Block 12a ships the machinery and the English catalogue, so this holds one
- * entry and the selector renders nothing. Block 12b writes the other two
- * catalogues and opens it. That is what keeps anybody from choosing "Português"
- * and being handed English (D4).
+ * Block 12b writes `pt.json` and `es.json` and opens this to all three, which
+ * is the only change the gear beside the member's name needed to appear.
+ *
+ * NOTHING GOES IN HERE WITHOUT ITS CATALOGUE. resolveLocale filters on this
+ * constant and the answer becomes a filename, so a language named here with no
+ * `messages/<it>.json` beside it is a crashed render on every route, public
+ * ones included. `catalogue.test.ts` pins a file on disk for each entry, and it
+ * is the guard, not a formality.
  */
-export const AVAILABLE_LOCALES = ['en'] as const satisfies readonly Locale[];
+export const AVAILABLE_LOCALES = ['en', 'pt', 'es'] as const satisfies readonly Locale[];
 
 export const DEFAULT_LOCALE: Locale = 'en';
 
