@@ -36,19 +36,27 @@ a queue that is draining perfectly well.
 put in the frontend — the Content-Security-Policy and the upload validation — is
 in `main` and not yet in the running container.
 
-**2. Set `app.health_alert_url` on the hosted database.** One line, and it needs
-the production host, which is not recorded anywhere in this repository:
+**2. Set the three database settings.** Not one — three. Checking the first on
+2026-08-06 returned `null`, which means **the worker tick has been scheduled
+since Block 5a and has never done anything**: WhatsApp sending, storage erasures
+and report generation have never run in production. Nothing was lost, because the
+installation held no listeners and no winners; but it must be true before anybody
+uses it for real.
 
 ```sql
-alter database postgres set app.health_alert_url =
-  'https://<production-host>/api/worker/health-alert';
+alter database postgres set app.worker_tick_url    = 'https://<production-host>/api/worker/tick';
+alter database postgres set app.health_alert_url   = 'https://<production-host>/api/worker/health-alert';
+alter database postgres set app.worker_tick_secret = '<the exact value of WORKER_TICK_SECRET>';
 ```
 
-Until it is set, the `job-health-check` job runs hourly at :23 and posts nowhere.
-That is by construction — the statement is guarded by
-`where nullif(current_setting('app.health_alert_url', true), '') is not null` —
-so it is inert rather than broken. `app.worker_tick_secret` is already set and is
-reused.
+The production host is not recorded anywhere in this repository, and the secret
+must match the runtime environment variable **exactly** — a mismatch answers
+every tick with 401 and nothing else reports it.
+
+Until they are set, both jobs fire on schedule and leave immediately: each is
+guarded by `where nullif(current_setting(…), '') is not null`, so the state is
+inert rather than broken. Never set them to an empty string, which is equally
+inert and looks configured.
 
 **3. Set `ALERT_EMAIL`** in the EasyPanel **runtime** environment, never as a
 build arg. Unset, `/api/worker/health-alert` answers `{"configured": false}` and
@@ -84,13 +92,13 @@ The redeploy in §2 replaces the raw error with the sentence.
   application*, so **if the application is down, no alert leaves**. Something
   outside it has to watch `/api/health`.
 
-## 5. One number this repository refuses to state
+## 5. The backup story, now that the plan is known
 
-`docs/DEPLOYMENT.md` does not record the hosted project's plan, its backup
-retention window, or whether PITR is enabled — those are read from the Supabase
-dashboard. A number written here that nobody re-checks is worse than a pointer to
-where the truth is. When you read it, write it there **with the date you read
-it**.
+**The hosted project was on the Free plan on 2026-08-06.** No point-in-time
+recovery, and minimal backup retention. `docs/DEPLOYMENT.md` §6 carries the
+detail, along with a restore that was actually performed on the same day with row
+counts compared table by table.
 
-What that document does record is a restore that was actually performed on
-2026-08-06, with row counts compared table by table.
+**Before this installation holds a real audience's personal data, the plan is a
+decision to take.** On Free, the manual dump is close to the whole recovery
+story, and it only exists if somebody runs it.

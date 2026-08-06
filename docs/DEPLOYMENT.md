@@ -58,6 +58,24 @@ alter database postgres set app.worker_tick_secret = '<the same value as WORKER_
 | `app.health_alert_url` | every alert about a routine that has gone quiet |
 | `app.worker_tick_secret` | both of the above, answered 401 |
 
+**Observed on 2026-08-06: none of the three was set on `djbkdyesubkedxjwcohq`.**
+`select current_setting('app.worker_tick_url', true)` returned `null`, which
+means the tick has been scheduled since Block 5a and has never done anything —
+firing every ten seconds and leaving immediately, exactly as its guard intends.
+Nothing was lost, because the installation held no listeners and no winners at
+the time; but **this is the first thing to fix before anybody uses it for real**,
+and it is invisible until you go looking. Read all three back after setting them:
+
+```sql
+select current_setting('app.worker_tick_url', true),
+       current_setting('app.health_alert_url', true),
+       current_setting('app.worker_tick_secret', true);
+```
+
+**Set them or leave them unset — never blank.** Every guard tests
+`nullif(current_setting(…), '') is not null`, so an empty string is as inert as
+an absent one and looks configured to whoever reads it next.
+
 And in the runtime environment, `ALERT_EMAIL` — optional, and unset means no
 alerting at all, by design (`docs/block-11b-runbook.md`).
 
@@ -84,11 +102,19 @@ empty table that looks like a working screen with nothing in it.
 
 ### What the hosted project provides
 
-Read this from the Supabase dashboard → Database → Backups before you need it,
-and write down the plan, the retention window, and whether **PITR** is enabled or
-is a paid add-on. **This document deliberately does not state a value**: it would
-be a number nobody re-checked, and the difference between "seven days" and "none"
-is the whole conversation.
+**On 2026-08-06 the project was on the Free plan.** That is the answer to the
+question this section used to leave open, and it is not a comfortable one: on
+Free, Supabase offers **no point-in-time recovery**, and its backup retention is
+minimal — this is not a tier to hold a real audience's personal data on.
+
+**Before this installation carries live listener data, the plan is a decision to
+take.** Everything else in this document assumes a database somebody can restore;
+on Free, §6's manual dump is close to the whole of the recovery story, and it
+only exists if somebody runs it.
+
+Re-read it from the dashboard → Database → Backups when the plan changes, and
+record the plan, the retention window and the PITR state **with the date you read
+them**. A number nobody re-checks is worse than a pointer.
 
 ### Restoring
 
