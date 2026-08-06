@@ -35,9 +35,9 @@ select col_has_check('public', 'profiles', 'locale',
 --
 -- `grant update (full_name) on public.profiles to authenticated` (0006) is
 -- COLUMN-SCOPED. A new column on this table is writable by nobody until it is
--- named, and the failure is a silent no-op: an update that matches no granted
--- column is not an error, it is zero rows -- so the Server Action reports
--- success and the choice does not persist.
+-- named, and every language choice would come back 42501 -- which is why
+-- profile-locale.test.ts pins the negative side too: the grant has to cover
+-- `locale` and must not have widened to must_change_password along the way.
 -- ---------------------------------------------------------------------------
 select ok(
   has_column_privilege('authenticated', 'public.profiles', 'locale', 'update'),

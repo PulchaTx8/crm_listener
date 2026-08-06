@@ -18,9 +18,11 @@ comment on column public.profiles.locale is
 
 -- The UPDATE grant on this table is COLUMN-SCOPED: 0006 grants
 -- `update (full_name)` and nothing else. A new column is therefore writable by
--- nobody until it is named here, and the failure mode is the quiet one -- an
--- update that touches no granted column is not an error, it is zero rows, so
--- the Server Action reports success and the choice simply does not persist.
+-- nobody until it is named here, and without this line every language choice
+-- would be refused with 42501 -- loudly, which is the kinder of the two
+-- failures. (The quiet one belongs to RLS, which refuses by matching no row and
+-- raises nothing at all; that is why the Server Action reads the row back
+-- rather than trusting the absence of an error.)
 --
 -- Only this column. `must_change_password` and `provisional_expires_at` gate
 -- the account, and the account they gate does not get to write them.

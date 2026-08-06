@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
-import { AVAILABLE_LOCALES, isLocale } from '@/i18n/locales';
+import { isAvailable } from '@/i18n/locales';
 
 /**
  * Block 12a, D2. Records a language choice in both places it has to live: the
@@ -18,12 +18,13 @@ import { AVAILABLE_LOCALES, isLocale } from '@/i18n/locales';
  * them, which is the smaller half.
  */
 export async function setLocaleAction(formData: FormData): Promise<void> {
-  const chosen = formData.get('locale');
-  if (typeof chosen !== 'string' || !isLocale(chosen)) return;
   // Refuse a language the product cannot render yet, however it was submitted.
   // The select only offers what AVAILABLE_LOCALES holds; a form post is not
-  // obliged to agree with the select.
-  if (!(AVAILABLE_LOCALES as readonly string[]).includes(chosen)) return;
+  // obliged to agree with the select. isAvailable rather than isLocale, and the
+  // same predicate the resolution uses -- a choice this accepted but resolution
+  // would not is a cookie naming a catalogue that does not exist.
+  const chosen = formData.get('locale');
+  if (typeof chosen !== 'string' || !isAvailable(chosen)) return;
 
   const store = await cookies();
   store.set('locale', chosen, { path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'lax' });
@@ -32,14 +33,20 @@ export async function setLocaleAction(formData: FormData): Promise<void> {
     const supabase = await createUserClient();
     const { data } = await supabase.auth.getUser();
     if (data.user) {
-      const { error } = await supabase
+      // The row is READ BACK rather than trusted, and the .select() is what
+      // does it. An error RESULT is not a throw, and RLS refuses by matching no
+      // row rather than by failing -- so a policy that stopped this write would
+      // return no error and no row, and checking only `error` would call that
+      // success. (A missing column grant is the other failure and does raise:
+      // 42501. Both are covered here, by different halves of this check.)
+      const { data: updated, error } = await supabase
         .from('profiles')
         .update({ locale: chosen })
-        .eq('id', data.user.id);
-      // An error RESULT is not a throw, and RLS answers a forbidden update with
-      // zero rows rather than a failure -- so the row is read back rather than
-      // trusted. Without this a missing column grant looks exactly like success.
+        .eq('id', data.user.id)
+        .select('locale')
+        .maybeSingle();
       if (error) throw new Error(error.message);
+      if (updated?.locale !== chosen) throw new Error('the profile did not take the choice');
     }
   } catch (cause) {
     logger.error({ err: cause }, 'could not persist the locale choice to the profile');
