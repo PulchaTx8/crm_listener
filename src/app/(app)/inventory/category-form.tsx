@@ -22,7 +22,7 @@ export function CategoryForm({ companyId }: { companyId: string }) {
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Register category'}
+          {pending ? t('saving') : t('registerCategory')}
         </Button>
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">{t('categoryRegistered')}</p>

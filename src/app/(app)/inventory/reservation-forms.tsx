@@ -51,7 +51,7 @@ export function ReserveForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Reserve stock'}
+          {pending ? t('saving') : t('reserveStock')}
         </Button>
         {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('reserved2')}</p>}
       </div>
@@ -90,7 +90,7 @@ export function ReleaseForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Release reservation'}
+          {pending ? t('saving') : t('releaseReservation')}
         </Button>
         {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('released')}</p>}
       </div>

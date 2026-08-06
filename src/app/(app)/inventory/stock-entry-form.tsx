@@ -49,7 +49,7 @@ export function StockEntryForm({
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Add stock'}
+          {pending ? t('saving') : t('addStock')}
         </Button>
         {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('stockAdded')}</p>}
       </div>

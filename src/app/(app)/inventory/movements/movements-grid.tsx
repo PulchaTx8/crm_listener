@@ -75,7 +75,7 @@ export async function MovementsGrid({
                 <TableCell className="text-sm">{MOVEMENT_TYPE_LABELS[row.movementType]}</TableCell>
                 <TableCell className="text-sm">{row.prizeName}</TableCell>
                 <TableCell className="text-sm">
-                  {row.quantity} {row.quantity === 1 ? 'unit' : 'units'}
+                  {row.quantity} {t('unitsLabel', { count: row.quantity })}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-sm">
                   {formatBucket(row.fromBucket)} → {formatBucket(row.toBucket)}
@@ -101,7 +101,7 @@ export async function MovementsGrid({
       */}
       <PageControls
         total={total}
-        label={total === 1 ? 'movement' : 'movements'}
+        label={t('movementsLabel', { count: total })}
         previousHref={previousHref}
         nextHref={nextHref}
       />
