@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(17);
 
 -- Block 11a. The retention sweep, and the two lists it must never grow.
 
@@ -63,6 +63,19 @@ select ok(
 -- An UNPROCESSED erasure is an obligation this installation still owes
 -- somebody. 0087 gives that queue no give-up threshold for exactly that reason,
 -- and sweeping one by age would silently discharge it.
+-- THE ASSERTION THAT WOULD HAVE CAUGHT THE BUG THIS FILE COULD NOT.
+--
+-- The first version wrapped each delete in `begin … exception when others …
+-- end`, which opens a SUBTRANSACTION -- and a COMMIT inside one raises
+-- `cannot commit while a subtransaction is active`. Every table failed, every
+-- night, and this suite was green throughout, because it asserts the SOURCE and
+-- cannot execute a procedure that commits. tests/isolation/retention.test.ts
+-- now calls it; this keeps the handler from coming back.
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    not like '%exception when%',
+  'the sweep carries no exception handler, which would make its COMMITs fail');
+
 select ok(
   (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
     like '%processed_at is not null%',

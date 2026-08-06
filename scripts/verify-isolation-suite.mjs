@@ -225,6 +225,11 @@ const REQUIRED_TEST_FILES = [
   // first, silently -- and that audit.view is what separates a member who sees
   // the trail from one who sees an empty page. That permission has existed
   // since Block 1b and guarded nothing until now.
+  // Block 11a. The ONLY place in this repository that CALLS sweep_retention.
+  // 24_retention.test.sql asserts its source and cannot execute it -- the sweep
+  // commits, and pgTAP rolls every file back -- which is exactly how a version
+  // that deleted nothing at all stayed green.
+  { path: 'tests/isolation/retention.test.ts', minTests: 3 },
   { path: 'tests/isolation/audit.test.ts', minTests: 7 },
   { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },

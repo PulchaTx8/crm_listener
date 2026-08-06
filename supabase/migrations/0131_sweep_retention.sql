@@ -53,16 +53,31 @@
 -- statement. There is no workaround, so every reference below is qualified by
 -- hand.
 --
--- It commits PER TABLE. One table that cannot be swept -- a lock, a constraint
--- added by a later block -- must not roll back the other six, every night, for
--- ever. Same reasoning 0094 gives for committing per winner.
+-- It commits PER TABLE, so a table already swept stays swept even if a later
+-- one fails.
+--
+-- AND IT CARRIES NO EXCEPTION HANDLER, which is not an omission -- it is the
+-- correction of a version that had one per table and DELETED NOTHING AT ALL. A
+-- PL/pgSQL block with an `exception` clause opens a SUBTRANSACTION, and a COMMIT
+-- inside one raises `cannot commit while a subtransaction is active`. Every
+-- table failed that way, every night, logging a warning nobody reads -- and the
+-- pgTAP suite passed the whole time, because it asserts this procedure's SOURCE
+-- and cannot execute it (the file runs inside a transaction that pgTAP rolls
+-- back).
+--
+-- It was found by CALLING it. tests/isolation/retention.test.ts now does that
+-- on every run, which is the only place in this repository that can.
+--
+-- The cost of dropping the handlers, stated: a table that cannot be swept
+-- aborts the procedure, and the tables after it wait until tomorrow. That is
+-- strictly better than the alternative it replaced, which was all seven waiting
+-- for ever.
 
 create procedure public.sweep_retention()
 language plpgsql
 as $$
 declare
   v_deleted integer;
-  v_failed  integer := 0;
   v_total   integer := 0;
 begin
   -- 1. webhook_events, 90 days. The most sensitive and the highest volume:
@@ -74,122 +89,83 @@ begin
   -- processed in ninety days will not be processed, and keeping a listener's
   -- message text for ever because the code that should have read it had a bug
   -- is not a retention policy, it is an accident.
-  begin
-    delete from public.webhook_events
-     where received_at < now() - interval '90 days'
-       and status in ('DONE', 'FAILED');
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: webhook_events %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: webhook_events failed: %', sqlerrm;
-  end;
+  delete from public.webhook_events
+   where received_at < now() - interval '90 days'
+     and status in ('DONE', 'FAILED');
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: webhook_events %', v_deleted;
 
   -- 2. outbox_messages, 180 days. What was said to a listener, and when.
   -- Terminal states only -- a PENDING row is work not yet done, however old,
   -- and deleting it would silently drop a message somebody is waiting for.
-  begin
-    delete from public.outbox_messages
-     where created_at < now() - interval '180 days'
-       and status in ('SENT', 'FAILED');
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: outbox_messages %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: outbox_messages failed: %', sqlerrm;
-  end;
+  delete from public.outbox_messages
+   where created_at < now() - interval '180 days'
+     and status in ('SENT', 'FAILED');
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: outbox_messages %', v_deleted;
 
   -- 3. whatsapp_conversations, 180 days after they expired. `expires_at` is
   -- when the conversation window closed, so this is 180 days past the end of
   -- the conversation and not past its start.
-  begin
-    delete from public.whatsapp_conversations
-     where expires_at < now() - interval '180 days';
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: whatsapp_conversations %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: whatsapp_conversations failed: %', sqlerrm;
-  end;
+  delete from public.whatsapp_conversations
+   where expires_at < now() - interval '180 days';
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: whatsapp_conversations %', v_deleted;
 
   -- 4. contact_requests, 365 days. A visitor's name, e-mail, phone and message
   -- from the PUBLIC form -- personal data belonging to somebody who is not a
   -- customer and never became one. A year is long enough to follow up and far
   -- longer than anybody does.
-  begin
-    delete from public.contact_requests
-     where created_at < now() - interval '365 days';
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: contact_requests %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: contact_requests failed: %', sqlerrm;
-  end;
+  delete from public.contact_requests
+   where created_at < now() - interval '365 days';
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: contact_requests %', v_deleted;
 
   -- 5-7. Operational leftovers, 30 days. No personal data in any of them; they
   -- are swept for size rather than for law, and they are listed here so nobody
   -- has to wonder later whether their absence was deliberate.
 
-  begin
-    delete from public.rate_limit_counters
-     where reset_at < now() - interval '30 days';
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: rate_limit_counters %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: rate_limit_counters failed: %', sqlerrm;
-  end;
+  delete from public.rate_limit_counters
+   where reset_at < now() - interval '30 days';
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: rate_limit_counters %', v_deleted;
 
-  begin
-    delete from public.whatsapp_conversation_leases
-     where claimed_at < now() - interval '30 days';
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: whatsapp_conversation_leases %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: whatsapp_conversation_leases failed: %', sqlerrm;
-  end;
+  delete from public.whatsapp_conversation_leases
+   where claimed_at < now() - interval '30 days';
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: whatsapp_conversation_leases %', v_deleted;
 
   -- processed_at NOT NULL only: an unprocessed row is an erasure this
   -- installation still owes somebody, and 0087 is explicit that it has NO
   -- give-up threshold for exactly that reason. Sweeping one by age would
   -- silently discharge a legal obligation, which is the one thing that table
   -- exists to prevent.
-  begin
-    delete from public.storage_erasure_queue
-     where processed_at is not null
-       and processed_at < now() - interval '30 days';
-    get diagnostics v_deleted = row_count;
-    commit;
-    v_total := v_total + v_deleted;
-    raise notice 'retention: storage_erasure_queue %', v_deleted;
-  exception when others then
-    rollback; v_failed := v_failed + 1;
-    raise warning 'retention: storage_erasure_queue failed: %', sqlerrm;
-  end;
+  delete from public.storage_erasure_queue
+   where processed_at is not null
+     and processed_at < now() - interval '30 days';
+  get diagnostics v_deleted = row_count;
+  commit;
+  v_total := v_total + v_deleted;
+  raise notice 'retention: storage_erasure_queue %', v_deleted;
 
   -- Counted and said out loud. Block 11b hangs an alert off this; until then it
   -- is in the Postgres log, where the other three sweeps in this schema already
   -- report. NO audit row per deleted record, deliberately: one audit row per
   -- deleted webhook_events row would write more rows than the sweep removed,
   -- into the one table this file promises never to sweep.
-  if v_failed > 0 then
-    raise warning 'retention sweep: % row(s) deleted, % table(s) FAILED', v_total, v_failed;
-  else
-    raise notice 'retention sweep: % row(s) deleted across 7 tables', v_total;
-  end if;
+  raise notice 'retention sweep: % row(s) deleted across 7 tables', v_total;
 end;
 $$;
 
