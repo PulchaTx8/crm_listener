@@ -2262,6 +2262,80 @@ export type Database = {
           },
         ]
       }
+      report_runs: {
+        Row: {
+          attempts: number
+          byte_size: number | null
+          company_ids: string[]
+          expires_at: string | null
+          filters: Json
+          finished_at: string | null
+          format: Database["public"]["Enums"]["report_format"]
+          id: string
+          last_error: string | null
+          organization_id: string
+          payload: Json | null
+          report_type: Database["public"]["Enums"]["report_type"]
+          requested_at: string
+          requested_by: string
+          row_count: number | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["report_status"]
+          storage_path: string | null
+          withheld: string[]
+        }
+        Insert: {
+          attempts?: number
+          byte_size?: number | null
+          company_ids: string[]
+          expires_at?: string | null
+          filters?: Json
+          finished_at?: string | null
+          format: Database["public"]["Enums"]["report_format"]
+          id?: string
+          last_error?: string | null
+          organization_id: string
+          payload?: Json | null
+          report_type: Database["public"]["Enums"]["report_type"]
+          requested_at?: string
+          requested_by: string
+          row_count?: number | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["report_status"]
+          storage_path?: string | null
+          withheld?: string[]
+        }
+        Update: {
+          attempts?: number
+          byte_size?: number | null
+          company_ids?: string[]
+          expires_at?: string | null
+          filters?: Json
+          finished_at?: string | null
+          format?: Database["public"]["Enums"]["report_format"]
+          id?: string
+          last_error?: string | null
+          organization_id?: string
+          payload?: Json | null
+          report_type?: Database["public"]["Enums"]["report_type"]
+          requested_at?: string
+          requested_by?: string
+          row_count?: number | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["report_status"]
+          storage_path?: string | null
+          withheld?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "report_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       role_permissions: {
         Row: {
           permission_code: string
@@ -3056,6 +3130,36 @@ export type Database = {
           to_phone: string
         }[]
       }
+      claim_report_run: {
+        Args: never
+        Returns: {
+          attempts: number
+          byte_size: number | null
+          company_ids: string[]
+          expires_at: string | null
+          filters: Json
+          finished_at: string | null
+          format: Database["public"]["Enums"]["report_format"]
+          id: string
+          last_error: string | null
+          organization_id: string
+          payload: Json | null
+          report_type: Database["public"]["Enums"]["report_type"]
+          requested_at: string
+          requested_by: string
+          row_count: number | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["report_status"]
+          storage_path: string | null
+          withheld: string[]
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "report_runs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       clear_station_message_template: {
         Args: {
           p_company_id: string
@@ -3246,6 +3350,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      fail_report_run: {
+        Args: { p_error: string; p_run_id: string }
+        Returns: undefined
+      }
       find_member_by_identifier: {
         Args: {
           p_cpf_hash?: string
@@ -3255,6 +3363,16 @@ export type Database = {
           p_phone?: string
         }
         Returns: Json
+      }
+      finish_report_run: {
+        Args: {
+          p_byte_size: number
+          p_row_count: number
+          p_run_id: string
+          p_storage_path: string
+          p_withheld?: string[]
+        }
+        Returns: undefined
       }
       finish_whatsapp_event: {
         Args: {
@@ -3298,6 +3416,10 @@ export type Database = {
         Returns: Json
       }
       has_company_access: { Args: { p_company_id: string }; Returns: boolean }
+      has_company_access_for: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
       has_no_duplicates: { Args: { p_values: unknown }; Returns: boolean }
       has_org_permission: {
         Args: { p_organization_id: string; p_permission: string }
@@ -3305,6 +3427,10 @@ export type Database = {
       }
       has_permission: {
         Args: { p_company_id: string; p_permission: string }
+        Returns: boolean
+      }
+      has_permission_for: {
+        Args: { p_company_id: string; p_permission: string; p_user_id: string }
         Returns: boolean
       }
       import_participations: {
@@ -3322,8 +3448,17 @@ export type Database = {
       }
       is_org_member: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
+      is_owner_for: {
+        Args: { p_organization_id: string; p_user_id: string }
+        Returns: boolean
+      }
       is_owner_of_company: { Args: { p_company_id: string }; Returns: boolean }
+      is_owner_of_company_for: {
+        Args: { p_company_id: string; p_user_id: string }
+        Returns: boolean
+      }
       is_platform_admin: { Args: never; Returns: boolean }
+      is_platform_admin_for: { Args: { p_user_id: string }; Returns: boolean }
       lift_member_block: {
         Args: { p_block_id: string; p_reason: string }
         Returns: undefined
@@ -3753,6 +3888,129 @@ export type Database = {
         Args: { p_deadline_at: string; p_reason: string; p_winner_id: string }
         Returns: undefined
       }
+      report_guard: {
+        Args: {
+          p_company_ids: string[]
+          p_permission: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      report_page: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at?: string
+          p_cursor_id?: string
+          p_filters: Json
+          p_limit?: number
+          p_report_type: Database["public"]["Enums"]["report_type"]
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_listeners: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_movements: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_music_requests: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_participations: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      report_page_winners: {
+        Args: {
+          p_company_ids: string[]
+          p_cursor_at: string
+          p_cursor_id: string
+          p_filters: Json
+          p_limit: number
+          p_user_id: string
+        }
+        Returns: {
+          row_data: Json
+          sort_at: string
+          sort_id: string
+          total_count: number
+          withheld: string[]
+        }[]
+      }
+      request_report: {
+        Args: {
+          p_company_ids: string[]
+          p_filters?: Json
+          p_format: Database["public"]["Enums"]["report_format"]
+          p_organization_id: string
+          p_payload?: Json
+          p_report_type: Database["public"]["Enums"]["report_type"]
+        }
+        Returns: string
+      }
+      requeue_stalled_report_runs: { Args: never; Returns: number }
       reserve_stock: {
         Args: {
           p_company_id: string
@@ -4034,6 +4292,17 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+      report_format: "CSV" | "XLSX" | "PDF"
+      report_status: "QUEUED" | "RUNNING" | "READY" | "FAILED"
+      report_type:
+        | "LISTENERS"
+        | "PARTICIPATIONS"
+        | "WINNERS"
+        | "MUSIC_REQUESTS"
+        | "MOVEMENTS"
+        | "AUDIENCE_PANEL"
+        | "MUSIC_PANEL"
+        | "PROMOTIONS_PANEL"
       system_message_key:
         | "REFUSAL"
         | "ABANDON"
@@ -4244,6 +4513,18 @@ export const Constants = {
         "cpf",
         "passport",
         "discovery_source",
+      ],
+      report_format: ["CSV", "XLSX", "PDF"],
+      report_status: ["QUEUED", "RUNNING", "READY", "FAILED"],
+      report_type: [
+        "LISTENERS",
+        "PARTICIPATIONS",
+        "WINNERS",
+        "MUSIC_REQUESTS",
+        "MOVEMENTS",
+        "AUDIENCE_PANEL",
+        "MUSIC_PANEL",
+        "PROMOTIONS_PANEL",
       ],
       system_message_key: [
         "REFUSAL",

@@ -9,6 +9,8 @@ import { RedisConversationStore, connectRedis } from '@/lib/conversation/redis-s
 import { runTick } from '@/services/whatsapp';
 import { drainStorageErasures } from '@/lib/storage/erasure';
 import type { ErasureDrainResult } from '@/lib/storage/erasure';
+import { drainReportRuns } from '@/lib/reports/drain';
+import type { ReportDrainResult } from '@/lib/reports/drain';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -76,9 +78,22 @@ export async function POST(request: Request): Promise<Response> {
     erasures = { error: cause instanceof Error ? cause.message : 'unknown' };
   }
 
+  // Block 8b, the third drain. Wrapped exactly like the second and for the same
+  // reason, which this block sharpens: a report is the biggest and slowest thing
+  // this tick will ever do, so it is also the likeliest to throw -- and a
+  // listener waiting on a WhatsApp reply must not wait because somebody
+  // exported a spreadsheet. One run per tick, and its failure shows up as a
+  // standing count rather than as a 500 that loses the two drains above it.
+  let reports: ReportDrainResult | { error: string };
+  try {
+    reports = await drainReportRuns(supabase);
+  } catch (cause) {
+    reports = { error: cause instanceof Error ? cause.message : 'unknown' };
+  }
+
   // pg_net stores the response in net._http_response, so these counters are
   // the only account of a tick anybody can read afterwards.
-  return Response.json({ ...result, erasures });
+  return Response.json({ ...result, erasures, reports });
 }
 
 /**

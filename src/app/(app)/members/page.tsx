@@ -17,6 +17,8 @@ import { parseRecordParam, MEMBER_TABS } from '@/lib/record-params';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { StationSearchForm } from '../inventory/station-search-form';
+import { ExportDialog } from '@/components/reports/export-dialog';
+import { listenersReportFilters } from '@/lib/reports/list-filters';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
@@ -150,11 +152,44 @@ export default async function MembersPage({
     logger.error({ err: cause, organizationId }, 'could not resolve registration access');
   }
 
+  // Block 8b. Which Stations this caller may READ listeners in, which is a
+  // different question from which they may register one at, and the one the
+  // export needs: report_page_listeners takes Station ids, and this screen is
+  // Organization-scoped -- it shows the audience across everything reachable
+  // without ever naming the Stations that make it up.
+  //
+  // Folded into an empty list on failure, exactly as the call above is and for
+  // the same reason: this screen's purpose is the list below, and a failure
+  // resolving the export's scope should cost the export, not the page. An empty
+  // list simply disables the button.
+  //
+  // A caller reaching more than one Station will need reports.consolidated,
+  // which request_report (0127) enforces. That is correct rather than awkward:
+  // the file WOULD combine several radios' audiences into one document, which
+  // is exactly what that permission governs.
+  let exportableStations: ViewableCompany[] = [];
+  try {
+    ({ viewable: exportableStations } = await listCompanyAccess(supabase, 'members.view'));
+  } catch (cause) {
+    logger.error({ err: cause, organizationId }, 'could not resolve listener export scope');
+  }
+
   return (
     <>
       <PageHeader
         title="Members"
         description="The audience across every Station you can reach."
+        action={
+          <ExportDialog
+            reportType="LISTENERS"
+            companyIds={exportableStations.map((station) => station.id)}
+            filters={listenersReportFilters(state)}
+            // Disabled rather than hidden when there is no Station to export:
+            // a button that vanishes reads as a feature that does not exist,
+            // where a disabled one reads as one this caller cannot use here.
+            disabled={exportableStations.length === 0}
+          />
+        }
       />
 
       {/* The registration form itself now lives in a dialog the grid opens

@@ -13,6 +13,11 @@ vi.mock('@/services/whatsapp', () => ({ runTick }));
 const { drainStorageErasures } = vi.hoisted(() => ({ drainStorageErasures: vi.fn() }));
 vi.mock('@/lib/storage/erasure', () => ({ drainStorageErasures }));
 
+// Block 8b's report drain is the third one on this tick, and the one most
+// likely to throw: it is the biggest and slowest thing the tick does.
+const { drainReportRuns } = vi.hoisted(() => ({ drainReportRuns: vi.fn() }));
+vi.mock('@/lib/reports/drain', () => ({ drainReportRuns }));
+
 // The real client would need a service-role key and a URL. Neither is what is
 // under test here.
 vi.mock('@/lib/supabase/service-client', () => ({ createServiceClient: () => ({}) }));
@@ -41,12 +46,15 @@ const post = (headers: Record<string, string>) =>
   POST(new Request('http://localhost/api/worker/tick', { method: 'POST', headers }));
 
 const NO_ERASURES = { deleted: 0, failed: 0 };
+const NO_REPORTS = { requeued: 0, claimed: 0, ready: 0, failed: 0 };
 
 beforeEach(() => {
   runTick.mockReset();
   runTick.mockResolvedValue(EMPTY_TICK);
   drainStorageErasures.mockReset();
   drainStorageErasures.mockResolvedValue(NO_ERASURES);
+  drainReportRuns.mockReset();
+  drainReportRuns.mockResolvedValue(NO_REPORTS);
 });
 
 describe('POST /api/worker/tick', () => {
@@ -56,7 +64,11 @@ describe('POST /api/worker/tick', () => {
     expect(response.status).toBe(200);
     // pg_net stores the response in net._http_response, and these numbers are
     // the only account of a tick anybody can read afterwards.
-    expect(await response.json()).toEqual({ ...EMPTY_TICK, erasures: NO_ERASURES });
+    expect(await response.json()).toEqual({
+      ...EMPTY_TICK,
+      erasures: NO_ERASURES,
+      reports: NO_REPORTS,
+    });
     expect(runTick).toHaveBeenCalledTimes(1);
   });
 
@@ -73,7 +85,35 @@ describe('POST /api/worker/tick', () => {
     expect(await response.json()).toEqual({
       ...EMPTY_TICK,
       erasures: { error: 'storage is unreachable' },
+      reports: NO_REPORTS,
     });
+  });
+
+  it('reports a failing report drain instead of losing the tick with it', async () => {
+    // Block 8b. The same guarantee as the erasure drain above, and this block
+    // sharpens the reason: generating a report is the biggest and slowest thing
+    // the tick does, so it is the likeliest of the three to throw -- and a
+    // listener waiting on a WhatsApp reply must not wait because somebody
+    // exported a spreadsheet. The two counters computed above it survive.
+    drainReportRuns.mockRejectedValue(new Error('the bucket refused the upload'));
+
+    const response = await post({ 'x-worker-secret': SECRET });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ...EMPTY_TICK,
+      erasures: NO_ERASURES,
+      reports: { error: 'the bucket refused the upload' },
+    });
+    // The point of the whole assertion: the outbox still ran and still reported.
+    expect(runTick).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not drain reports when the secret is wrong', async () => {
+    const response = await post({ 'x-worker-secret': 'b-shared-secret-for-pg-cron' });
+
+    expect(response.status).toBe(401);
+    expect(drainReportRuns).not.toHaveBeenCalled();
   });
 
   // M1. This endpoint drains both queues and its authentication is one header.
