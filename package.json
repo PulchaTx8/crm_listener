@@ -18,7 +18,8 @@
     "test:isolation": "node scripts/verify-isolation-suite.mjs",
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
-    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts"
+    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
