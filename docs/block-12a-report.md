@@ -84,7 +84,7 @@ assertions are about the words a reader sees.
 | `npm run lint` | clean |
 | `npm run typecheck` | clean |
 | `npm run build` | clean |
-| `npm run test` | **898/898** in 70 files |
+| `npm run test` | **910/910** in 71 files |
 | `npm run db:test` | **1403/1403** in 29 files |
 | `npm run test:isolation` | **288/288**, 29 of 29 files accounted for |
 | `npx playwright test --workers=1` | **44/44, no journey edited** |
@@ -93,13 +93,61 @@ The isolation runner dropped a worker on one run — Block 4b's flake, local and
 Windows, mechanism unknown. It was re-run until complete rather than
 interpreted.
 
+`25_job_health` fails two subtests on a local stack that has been up for hours:
+its first case is named "nothing is unhealthy on a **freshly seeded** database",
+and `whatsapp-worker-tick` genuinely has gone quiet when nothing has ticked it
+since morning. CI starts a new container, which is why the number above is the
+one CI reports.
+
 ---
 
-## 5. What Block 12b inherits
+## 5. Three defects the review found after the gate was green
+
+Every gate above passed on the first commit of this branch, and the branch still
+carried a crash. They are recorded because each one is a class of failure the
+gate is structurally unable to see.
+
+**A language with no catalogue.** `resolveLocale` filtered on
+`SUPPORTED_LOCALES` — every language the product will ever offer — and its
+answer becomes a filename. `Accept-Language: pt-BR`, the default header of
+essentially every browser in this product's market, resolved to `pt` and named
+`messages/pt.json`, which this block does not write. A crashed render on every
+route, public ones included, for a visitor who chose nothing. The filter is now
+`AVAILABLE_LOCALES`, through a predicate named for the question it answers:
+`isAvailable`, "is there a catalogue for this TODAY".
+
+*Why nothing caught it.* `resolve-locale.test.ts` asserted that `pt` was the
+correct answer for a Brazilian browser and never exercised the import — the one
+test covering the line proved the bug correct. The journeys run under an English
+`Accept-Language`, so no journey ever asked the question. **A unit test of a pure
+function cannot see what its caller does with the value.**
+
+**A cookie that never left.** `redirectWithCsp` builds a fresh
+`NextResponse.redirect`, which starts with no cookies, and copied only the CSP
+header across. Every cookie written above it — the refreshed Supabase session,
+the locale sync — was dropped on all three redirect branches. The sync had been
+placed before those branches deliberately, so that "somebody being sent to
+/change-password should arrive there in their own language", and the delivery
+was thrown away three lines later. **Placement is not delivery.**
+
+**A comment describing a defence that was not there.** "The row is read back
+rather than trusted" — there was no `.select()`. The code now does what the
+comment always claimed. The `0135` and pgTAP comments were wrong in the opposite
+direction: a column-scoped grant that misses `locale` raises 42501, loudly, and
+the isolation test in this very block asserts exactly that. It is RLS that
+refuses in silence. **In a repository where comments are the design record, one
+asserting a guarantee that is absent is worse than no comment.**
+
+---
+
+## 6. What Block 12b inherits
 
 - **The two catalogues**, `pt.json` and `es.json`, at which point the key-parity
   guard stops being ceremony.
 - **`AVAILABLE_LOCALES`**, opened to all three, which makes the selector appear.
+  It is now also the constant the resolution filters on, so opening it without
+  writing the catalogue beside it is the crash of §5 again. `catalogue.test.ts`
+  is what stops that: it pins a file on disk for every entry.
 - **The date format following the language** (D5). It was deliberately held back:
   today's format is `en-GB`, which writes day/month, and the English locale
   writes month/day — so shipping it here would have flipped every date in the
@@ -112,7 +160,7 @@ interpreted.
 
 ---
 
-## 6. What this block deliberately did not touch
+## 7. What this block deliberately did not touch
 
 Anything the user is responsible for. WhatsApp templates and system messages —
 they edit those on the Templates screen, and the reader is the listener, in the
