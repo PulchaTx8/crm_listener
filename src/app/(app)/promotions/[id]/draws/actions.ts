@@ -13,6 +13,7 @@ import {
   returnPrize,
   writeOffPrize,
 } from '@/services/winners';
+import { describeReceiptRejection } from '@/lib/security/uploads';
 import { describePromotionsWriteError } from '../../errors';
 
 async function requireAccessToken(): Promise<string> {
@@ -118,6 +119,12 @@ export async function attachReceiptAction(
 ): Promise<string | null> {
   const file = formData.get('receipt');
   if (!(file instanceof File) || file.size === 0) return 'Choose a file.';
+  // Block 11b, D7. The bucket refuses these too (0134), and THAT is the real
+  // boundary -- no client can go around it. This exists so the operator reads
+  // "that file is 40 MB" instead of a raw Storage error, and so a refused file
+  // is never uploaded in the first place.
+  const rejection = describeReceiptRejection(file);
+  if (rejection) return rejection;
 
   try {
     const token = await requireAccessToken();

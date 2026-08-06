@@ -442,10 +442,15 @@ describe('erasing a listener reaches their delivery receipt', () => {
     expect(delivered.error).toBeNull();
 
     // A real object, in the real bucket, at the path the policies expect.
-    const path = `${customer.companyId}/${winnerId}/receipt.txt`;
+    // Block 11b: the bucket carries an allow-list now (0134), so a receipt has
+    // to be a type a receipt can actually be. The bytes are irrelevant -- what
+    // is stored, and what a browser would obey, is the declared type.
+    const path = `${customer.companyId}/${winnerId}/receipt.jpg`;
     const uploaded = await admin.storage
       .from('delivery-receipts')
-      .upload(path, new Blob(['a signature']), { contentType: 'text/plain' });
+      .upload(path, new Blob(['a signature'], { type: 'image/jpeg' }), {
+        contentType: 'image/jpeg',
+      });
     expect(uploaded.error).toBeNull();
 
     const attached = await operatorClient.rpc('attach_delivery_receipt', {
@@ -527,10 +532,11 @@ describe('block 6b across the HTTP boundary', () => {
 
     // The operator writes a receipt through the bucket's own policy, on their
     // own token. The service key would bypass the policy and prove nothing.
-    const path = `${customer.companyId}/${winnerId}/boundary.txt`;
+    // Block 11b: an accepted type, for the reason the case above gives.
+    const path = `${customer.companyId}/${winnerId}/boundary.jpg`;
     const uploaded = await operatorClient.storage
       .from('delivery-receipts')
-      .upload(path, new Blob(['ok']), { contentType: 'text/plain' });
+      .upload(path, new Blob(['ok'], { type: 'image/jpeg' }), { contentType: 'image/jpeg' });
     expect(uploaded.error, 'an operator holding winners.deliver may write a receipt').toBeNull();
 
     expect(

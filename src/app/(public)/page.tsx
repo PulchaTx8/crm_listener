@@ -1,6 +1,20 @@
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
 
+/**
+ * Block 11b, D1. Rendered per request so the CSP nonce exists at render time.
+ *
+ * `next build` prerendered this page, and prerendered HTML carries no request
+ * nonce -- so Next's inline bootstrap scripts shipped unstamped and the policy
+ * blocked every one of them. Nothing hydrates, and nothing says why: the
+ * violations are raised in the browser, which is exactly how Block 11a lost
+ * three days. This was the ONLY route in the application still static.
+ *
+ * The cost is rendering a page of static markup per request, which this product
+ * will never notice.
+ */
+export const dynamic = 'force-dynamic';
+
 export default function Home() {
   return (
     <main className="flex flex-col gap-8">

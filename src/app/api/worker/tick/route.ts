@@ -11,6 +11,7 @@ import { drainStorageErasures } from '@/lib/storage/erasure';
 import type { ErasureDrainResult } from '@/lib/storage/erasure';
 import { drainReportRuns } from '@/lib/reports/drain';
 import type { ReportDrainResult } from '@/lib/reports/drain';
+import type { Json } from '@/lib/supabase/database.types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -89,6 +90,35 @@ export async function POST(request: Request): Promise<Response> {
     reports = await drainReportRuns(supabase);
   } catch (cause) {
     reports = { error: cause instanceof Error ? cause.message : 'unknown' };
+  }
+
+  // Block 11b, D5. The tick's own heartbeat, written here because pg_cron
+  // cannot: its statement only ENQUEUES an HTTP request, so pg_cron reports
+  // success the moment pg_net accepts it -- with this application in the
+  // ground. Fifteen minutes without one of these is what the hourly health
+  // check reports.
+  //
+  // Wrapped like the two drains above it and for the same reason: a monitoring
+  // write that throws must not lose a tick that worked. The alternative is the
+  // monitor causing the outage it was installed to report.
+  try {
+    const { error } = await supabase.rpc('job_succeeded', {
+      p_job: 'whatsapp-worker-tick',
+      // Cast because the two drain results are plain data whose TYPES carry no
+      // index signature, which is what `Json` asks for -- not because anything
+      // here is unknown. The same object is already serialised into the
+      // response below.
+      p_counters: { ...result, erasures, reports } as unknown as Json,
+    });
+    // An error RESULT is not a throw. Without this line a missing grant leaves
+    // the heartbeat silently unwritten, and silence reads as health.
+    if (error) throw new Error(error.message);
+  } catch (cause) {
+    console.error(
+      `worker tick: could not stamp job_health: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
   }
 
   // pg_net stores the response in net._http_response, so these counters are

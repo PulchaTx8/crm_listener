@@ -7,6 +7,11 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SMTP_URL: z.string().url().optional(),
   MAIL_FROM: z.string().email().optional(),
+  // Block 11b. Where a failing scheduled routine is reported. OPTIONAL, like
+  // SMTP_URL above: a container refusing to boot because an alert address is
+  // missing would be a worse outage than the one it is trying to report. Unset
+  // means /api/worker/health-alert sends nothing and says so in its response.
+  ALERT_EMAIL: z.string().email().optional(),
   // Public base URL, used to build the password-reset callback link.
   NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
   // WhatsApp Cloud API. Optional so CI and `next build` run without them; the

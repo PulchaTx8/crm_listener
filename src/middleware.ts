@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/lib/supabase/database.types';
+import { buildContentSecurityPolicy, CSP_NONCE_HEADER } from '@/lib/security/csp';
 
 /**
  * Routes reachable without a session. Everything else redirects to /login.
@@ -14,7 +15,47 @@ const SIGN_OUT_PATH = '/auth/signout';
 const MEMBER_HOME = '/app';
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  // Block 11b. btoa rather than Buffer: this file runs on the Edge runtime.
+  const nonce = btoa(crypto.randomUUID());
+  const policy = buildContentSecurityPolicy(
+    nonce,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NODE_ENV !== 'production',
+  );
+
+  /**
+   * Snapshotted FRESH on every call, and that is the whole of Block 11b's fix.
+   *
+   * Supabase's setAll below writes cookies onto `request` and then rebuilds the
+   * response. A Headers object captured once would carry the cookie header from
+   * before that write -- and, worse, a rebuild that passes a bare `request`
+   * throws these headers away entirely, which is how Block 11a's nonce never
+   * reached the renderer.
+   */
+  const forwarded = () => {
+    const headers = new Headers(request.headers);
+    headers.set(CSP_NONCE_HEADER, nonce);
+    // THIS header, on the REQUEST, is what makes Next stamp the nonce onto its
+    // own inline bootstrap scripts. Setting only the response header renders a
+    // page whose bootstrap is blocked by the very policy the response
+    // announces -- silently, with nothing in any console the test can read.
+    headers.set('Content-Security-Policy', policy);
+    return headers;
+  };
+
+  const nextWithCsp = () => {
+    const built = NextResponse.next({ request: { headers: forwarded() } });
+    built.headers.set('Content-Security-Policy', policy);
+    return built;
+  };
+
+  const redirectWithCsp = (url: URL) => {
+    const built = NextResponse.redirect(url);
+    built.headers.set('Content-Security-Policy', policy);
+    return built;
+  };
+
+  let response = nextWithCsp();
 
   // Refreshing the session here is what makes the cookie-write guard in
   // user-client.ts safe: Server Components cannot write cookies, so without
@@ -27,7 +68,7 @@ export async function middleware(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll: (toSet) => {
           for (const { name, value } of toSet) request.cookies.set(name, value);
-          response = NextResponse.next({ request });
+          response = nextWithCsp();
           for (const { name, value, options } of toSet) {
             response.cookies.set(name, value, options);
           }
@@ -49,7 +90,7 @@ export async function middleware(request: NextRequest) {
 
   if (!user) {
     if (isPublic) return response;
-    return NextResponse.redirect(new URL('/login', request.url));
+    return redirectWithCsp(new URL('/login', request.url));
   }
 
   // Signing out must work even from behind the gate, or a user who cannot
@@ -69,20 +110,20 @@ export async function middleware(request: NextRequest) {
   const expiresAt = profile?.provisional_expires_at;
   if (profile?.must_change_password && expiresAt && Date.parse(expiresAt) <= Date.now()) {
     await supabase.auth.signOut();
-    return NextResponse.redirect(new URL('/login?error=expired', request.url));
+    return redirectWithCsp(new URL('/login?error=expired', request.url));
   }
 
   // The gate has no holes: while the flag is set, every path other than the
   // change screen itself redirects to it.
   if (profile?.must_change_password && path !== CHANGE_PASSWORD_PATH) {
-    return NextResponse.redirect(new URL(CHANGE_PASSWORD_PATH, request.url));
+    return redirectWithCsp(new URL(CHANGE_PASSWORD_PATH, request.url));
   }
 
   // And once it is clear, the change screen has nothing left to do. Everyone
   // lands on the member home; platform admins reach the console from there,
   // which keeps an is_platform_admin() round trip off every single request.
   if (!profile?.must_change_password && path === CHANGE_PASSWORD_PATH) {
-    return NextResponse.redirect(new URL(MEMBER_HOME, request.url));
+    return redirectWithCsp(new URL(MEMBER_HOME, request.url));
   }
 
   return response;
