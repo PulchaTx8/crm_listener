@@ -206,7 +206,7 @@ export function DrawDetailView({
             disabled={pending}
             data-testid="cancel-draw"
           >
-            {pending ? 'Cancelling…' : 'Cancel this draw'}
+            {pending ? t('cancelling') : t('cancelThisDraw')}
           </Button>
         </div>
       ) : null}
@@ -265,7 +265,7 @@ function ReceiptForm({
         disabled={pending}
         data-testid="receipt-attach"
       >
-        {pending ? 'Uploading…' : 'Attach receipt'}
+        {pending ? t('uploading') : t('attachReceipt')}
       </Button>
       {message ? (
         <span role="alert" className="text-sm text-destructive">

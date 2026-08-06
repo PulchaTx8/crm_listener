@@ -117,7 +117,7 @@ export function InviteForm({
         </fieldset>
 
         <Button type="submit" disabled={pending}>
-          {pending ? 'Sending…' : 'Send invitation'}
+          {pending ? t('sending') : t('sendInvitation')}
         </Button>
       </form>
     </div>

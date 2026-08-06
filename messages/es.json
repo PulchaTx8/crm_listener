@@ -153,7 +153,14 @@
     "whyItIsBeingCancelled": "Por qué se está cancelando",
     "receiptOfTheHandover": "Comprobante de la entrega",
     "leftToDraw": "por sortear",
-    "reason": "Motivo"
+    "reason": "Motivo",
+    "cancelling": "Cancelando…",
+    "uploading": "Subiendo…",
+    "drawing": "Sorteando…",
+    "saving": "Guardando…",
+    "attachReceipt": "Adjuntar comprobante",
+    "draw": "Sortear",
+    "confirm": "Confirmar"
   },
   "reports": {
     "myReports": "Mis informes",
@@ -169,7 +176,9 @@
     "failed": "Falló",
     "queued": "En cola…",
     "generating": "Generando…",
-    "ready": "Listo"
+    "ready": "Listo",
+    "preparing": "Preparando…",
+    "download": "Descargar"
   },
   "audit": {
     "action": "Acción",
@@ -196,7 +205,8 @@
     "show": "mostrar",
     "auditTrail": "Registro de auditoría",
     "theAuditTrailCouldNotBe": "No se pudo cargar el registro de auditoría. Inténtelo de nuevo.",
-    "olderEntries": "Registros anteriores"
+    "olderEntries": "Registros anteriores",
+    "entriesLabel": "{count, plural, one {registro} other {registros}}"
   },
   "pickups": {
     "pickups": "Retiros",
@@ -223,7 +233,10 @@
     "newDeadline": "Nuevo plazo",
     "theNewPickupDeadlineInThis": "El nuevo plazo de retiro, en la hora local de esta Emisora",
     "reasonReopeningTheDeadline": "Motivo — reabriendo el plazo",
-    "reason": "Motivo"
+    "reason": "Motivo",
+    "saving": "Guardando…",
+    "reopen": "Reabrir",
+    "prizesLabel": "{count, plural, one {premio} other {premios}}"
   },
   "templates": {
     "messages": "Mensajes",
@@ -260,7 +273,15 @@
     "thisStationStopsSending": "Esta Emisora deja de enviar",
     "messagesEntirelySilentlyBecauseAStation": "mensajes por completo — en silencio, porque una Emisora sin nada registrado es una Emisora que no envía nada, en lugar de un error que alguien vea.",
     "messagesAlreadySentKeepTheirOwn": "Los mensajes ya enviados conservan su propio texto y siguen legibles. Meta todavía guarda la aprobación de",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "saving": "Guardando…",
+    "restoring": "Restaurando…",
+    "removing": "Quitando…",
+    "save": "Guardar",
+    "restoreTheDefault": "Restaurar el valor por defecto",
+    "replaceWhatIsRecorded": "Reemplazar lo registrado",
+    "recordThisTemplate": "Registrar esta plantilla",
+    "removeAnyway": "Quitar de todos modos"
   },
   "dashboards": {
     "audience": "Audiencia",
@@ -335,7 +356,18 @@
     "roleInTheOrganization": "Rol en la Organización",
     "owner": "Propietario",
     "member": "Miembro",
-    "noAccess": "Sin acceso"
+    "noAccess": "Sin acceso",
+    "sending": "Enviando…",
+    "working": "Trabajando…",
+    "applying": "Aplicando…",
+    "removing": "Quitando…",
+    "sendInvitation": "Enviar invitación",
+    "revokeThisInvitation": "¿Revocar esta invitación?",
+    "removeThisPerson": "¿Quitar a esta persona?",
+    "revokeInvitationAction": "Revocar invitación",
+    "remove": "Quitar",
+    "apply": "Aplicar",
+    "peopleLabel": "{count, plural, one {persona o invitación} other {personas e invitaciones}}"
   },
   "roles": {
     "roles": "Roles",
@@ -362,7 +394,16 @@
     "heldBy": "en manos de",
     "deleteRole": "Eliminar rol…",
     "userSHold": "usuario(s) tienen",
-    "isHeldByNobodyAndWill": "no está en manos de nadie y será archivado. A quien se lo asigne después le hará falta un rol nuevo."
+    "isHeldByNobodyAndWill": "no está en manos de nadie y será archivado. A quien se lo asigne después le hará falta un rol nuevo.",
+    "saving": "Guardando…",
+    "deleting": "Eliminando…",
+    "saveChanges": "Guardar cambios",
+    "create": "Crear",
+    "cancel": "Cancelar",
+    "thisRoleIsInUse": "Este rol está en uso",
+    "deleteThisRole": "¿Eliminar este rol?",
+    "deleteRoleConfirm": "Eliminar rol",
+    "rolesLabel": "{count, plural, one {rol} other {roles}}"
   },
   "members": {
     "kind": "Tipo",

@@ -188,7 +188,7 @@ export function TeamGrid({
 
         <TableFooter>
           <span className="text-muted-foreground" data-testid="page-total">
-            {grid.total} {grid.total === 1 ? 'person or invitation' : 'people and invitations'}
+            {grid.total} {t('peopleLabel', { count: grid.total ?? 0 })}
           </span>
         </TableFooter>
       </div>
@@ -265,7 +265,7 @@ function RemoveDialog({
     <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
         <DialogTitle id={titleId}>
-          {isInvitation ? 'Revoke this invitation?' : 'Remove this person?'}
+          {isInvitation ? t('revokeThisInvitation') : t('removeThisPerson')}
         </DialogTitle>
       </DialogHeader>
       <DialogBody>
@@ -290,7 +290,7 @@ function RemoveDialog({
             value={row.entityId}
           />
           <Button type="submit" disabled={pending} data-testid="team-remove-confirm">
-            {pending ? 'Working…' : isInvitation ? 'Revoke invitation' : 'Remove'}
+            {pending ? t('working') : isInvitation ? t('revokeInvitationAction') : t('remove')}
           </Button>
         </form>
       </DialogFooter>

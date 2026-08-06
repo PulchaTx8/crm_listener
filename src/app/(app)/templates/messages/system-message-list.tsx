@@ -161,7 +161,7 @@ function MessageRow({
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" size="sm" disabled={savePending || clearPending}>
-              {savePending ? 'Saving…' : 'Save'}
+              {savePending ? t('saving') : t('save')}
             </Button>
             {/*
               A real button with its own action, never an empty save (spec §5).
@@ -178,7 +178,7 @@ function MessageRow({
                 disabled={savePending || clearPending}
                 data-testid={`system-message-clear-${row.key}`}
               >
-                {clearPending ? 'Restoring…' : 'Restore the default'}
+                {clearPending ? t('restoring') : t('restoreTheDefault')}
               </Button>
             )}
           </div>

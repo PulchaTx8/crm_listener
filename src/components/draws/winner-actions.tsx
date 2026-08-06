@@ -163,7 +163,7 @@ export function WinnerActions({
             onChange={(event) => setReason(event.target.value)}
           />
           <Button type="button" size="sm" disabled={pending} onClick={() => run(open)}>
-            {pending ? 'Saving…' : 'Confirm'}
+            {pending ? t('saving') : t('confirm')}
           </Button>
         </div>
       ) : null}

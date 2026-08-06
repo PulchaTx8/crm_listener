@@ -153,7 +153,14 @@
     "whyItIsBeingCancelled": "Why it is being cancelled",
     "receiptOfTheHandover": "Receipt of the handover",
     "leftToDraw": "left to draw",
-    "reason": "Reason"
+    "reason": "Reason",
+    "cancelling": "Cancelling…",
+    "uploading": "Uploading…",
+    "drawing": "Drawing…",
+    "saving": "Saving…",
+    "attachReceipt": "Attach receipt",
+    "draw": "Draw",
+    "confirm": "Confirm"
   },
   "reports": {
     "myReports": "My reports",
@@ -169,7 +176,9 @@
     "failed": "Failed",
     "queued": "Queued…",
     "generating": "Generating…",
-    "ready": "Ready"
+    "ready": "Ready",
+    "preparing": "Preparing…",
+    "download": "Download"
   },
   "audit": {
     "action": "Action",
@@ -196,7 +205,8 @@
     "show": "show",
     "auditTrail": "Audit trail",
     "theAuditTrailCouldNotBe": "The audit trail could not be loaded. Try again.",
-    "olderEntries": "Older entries"
+    "olderEntries": "Older entries",
+    "entriesLabel": "{count, plural, one {entry} other {entries}}"
   },
   "pickups": {
     "pickups": "Pickups",
@@ -223,7 +233,10 @@
     "newDeadline": "New deadline",
     "theNewPickupDeadlineInThis": "The new pickup deadline, in this Station's local time",
     "reasonReopeningTheDeadline": "Reason — reopening the deadline",
-    "reason": "Reason"
+    "reason": "Reason",
+    "saving": "Saving…",
+    "reopen": "Reopen",
+    "prizesLabel": "{count, plural, one {prize} other {prizes}}"
   },
   "templates": {
     "messages": "Messages",
@@ -260,7 +273,15 @@
     "thisStationStopsSending": "This Station stops sending",
     "messagesEntirelySilentlyBecauseAStation": "messages entirely — silently, because a Station with nothing registered is a Station that sends nothing rather than an error anybody sees.",
     "messagesAlreadySentKeepTheirOwn": "Messages already sent keep their own text and stay readable. Meta still holds the approval for",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "restoring": "Restoring…",
+    "removing": "Removing…",
+    "save": "Save",
+    "restoreTheDefault": "Restore the default",
+    "replaceWhatIsRecorded": "Replace what is recorded",
+    "recordThisTemplate": "Record this template",
+    "removeAnyway": "Remove anyway"
   },
   "dashboards": {
     "audience": "Audience",
@@ -335,7 +356,18 @@
     "roleInTheOrganization": "Role in the Organization",
     "owner": "Owner",
     "member": "Member",
-    "noAccess": "No access"
+    "noAccess": "No access",
+    "sending": "Sending…",
+    "working": "Working…",
+    "applying": "Applying…",
+    "removing": "Removing…",
+    "sendInvitation": "Send invitation",
+    "revokeThisInvitation": "Revoke this invitation?",
+    "removeThisPerson": "Remove this person?",
+    "revokeInvitationAction": "Revoke invitation",
+    "remove": "Remove",
+    "apply": "Apply",
+    "peopleLabel": "{count, plural, one {person or invitation} other {people and invitations}}"
   },
   "roles": {
     "roles": "Roles",
@@ -362,7 +394,16 @@
     "heldBy": "held by",
     "deleteRole": "Delete role…",
     "userSHold": "user(s) hold",
-    "isHeldByNobodyAndWill": "is held by nobody and will be archived. Anyone you assign it to afterwards will need a new role."
+    "isHeldByNobodyAndWill": "is held by nobody and will be archived. Anyone you assign it to afterwards will need a new role.",
+    "saving": "Saving…",
+    "deleting": "Deleting…",
+    "saveChanges": "Save changes",
+    "create": "Create",
+    "cancel": "Cancel",
+    "thisRoleIsInUse": "This role is in use",
+    "deleteThisRole": "Delete this role?",
+    "deleteRoleConfirm": "Delete role",
+    "rolesLabel": "{count, plural, one {role} other {roles}}"
   },
   "members": {
     "kind": "Kind",

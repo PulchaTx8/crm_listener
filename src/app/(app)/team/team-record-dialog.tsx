@@ -323,7 +323,7 @@ function OrgRoleControl({
         </Select>
       </label>
       <Button type="submit" variant="outline" disabled={pending}>
-        {pending ? 'Applying…' : 'Apply'}
+        {pending ? t('applying') : t('apply')}
       </Button>
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
     </form>
@@ -394,7 +394,7 @@ function StationAccessRow({
             ))}
           </Select>
           <Button type="submit" variant="outline" disabled={assigning}>
-            {assigning ? 'Applying…' : 'Apply'}
+            {assigning ? t('applying') : t('apply')}
           </Button>
         </form>
         {assignedRoleId ? (
@@ -402,7 +402,7 @@ function StationAccessRow({
             <input type="hidden" name="companyId" value={station.id} />
             <input type="hidden" name="userId" value={userId} />
             <Button type="submit" variant="outline" disabled={removing}>
-              {removing ? 'Removing…' : 'Remove'}
+              {removing ? t('removing') : t('remove')}
             </Button>
           </form>
         ) : null}

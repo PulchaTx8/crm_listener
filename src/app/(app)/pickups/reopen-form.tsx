@@ -83,7 +83,7 @@ export function ReopenForm({
         onClick={submit}
         data-testid="reopen-submit"
       >
-        {pending ? 'Saving…' : 'Reopen'}
+        {pending ? t('saving') : t('reopen')}
       </Button>
       {message ? (
         <p role="alert" className="text-sm text-destructive">
