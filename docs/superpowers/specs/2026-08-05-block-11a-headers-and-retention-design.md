@@ -1,0 +1,195 @@
+# Block 11a — The headers that were never sent, and the data that was never let go — Design Spec
+
+**Date:** 2026-08-05
+**Status:** approved by the owner
+**Splits:** master spec §11 Block 11 — this half ships the security headers and the retention cron (N7). **The CSP was implemented, tested and withdrawn (D2)** and belongs to Block 11b, alongside observability, alerting, the five documents, the controlled seed and the deploy runbook
+**Depends on:** Block 0 (`middleware.ts`), Block 5a (`webhook_events`, `outbox_messages`, `whatsapp_conversations`), Block 6b (`storage_erasure_queue`), Block 10a (the audit trail this block deliberately does not touch)
+**Branches from:** `block-10a` — the migration continues at `0131`
+
+---
+
+## 1. What this block is for
+
+**This application sends no security headers at all.** Neither `middleware.ts`
+nor `next.config.mjs` sets one: no CSP, no `X-Frame-Options`, no
+`Referrer-Policy`, no `X-Content-Type-Options`, no HSTS. Eighteen blocks have
+shipped a product that can be framed by any site on the internet and that leaks
+its full URL — including a `?record=<uuid>` — in the `Referer` of every outbound
+request. **Five of those six ship here; the CSP does not, for the reason D2
+records.**
+
+**And nothing is ever deleted for age.** Requirement N7 has been on the list
+since the master spec: a retention sweep that walks data whose deadline has
+expired and removes it. The raw Meta payload of every WhatsApp message this
+installation has ever received is still in `webhook_events`, in full, with the
+listener's phone number and message text — kept for ever because no code ever
+said otherwise.
+
+---
+
+## 2. Decisions
+
+### D1 — Static headers in `next.config.mjs`, the nonce CSP in `middleware.ts`
+
+The split is not stylistic. `middleware.ts`'s matcher **deliberately excludes**
+`/api/webhooks/` and `/api/worker/` — its header explains at length that
+including them would 307 Meta's verification handshake and silently stop both
+queues. Anything set only in the middleware therefore never reaches those two
+routes.
+
+So the headers that must apply everywhere — `X-Frame-Options`,
+`X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`,
+`Strict-Transport-Security` — go in `next.config.mjs`'s `headers()`, which
+applies to every route regardless of the matcher.
+
+The **CSP carries a per-request nonce**, which only the middleware can generate,
+so it lives there. That it does not reach the two machine routes costs nothing:
+both return JSON to a non-browser caller, and a CSP governs what a *document*
+may load.
+
+### D2 — ~~The CSP is nonce-based with `strict-dynamic`, and it ships enforcing~~ — **WITHDRAWN**
+
+**This decision was implemented, tested, and withdrawn. The CSP is not in this
+block.** The five headers of D1 are; the policy is not.
+
+What D2 said was that this codebase's Playwright suite — thirty-six journeys
+across every screen — is a better CSP test than a week of report-only telemetry
+nobody reads, and that if the suite passes the policy does not break the
+product. **The suite is what withdrew it.** Shipped with a nonce and
+`'strict-dynamic'`, the result was:
+
+    11 passed, 23 failed
+
+and **not one CSP error anywhere in the output**. The symptom was journeys timing
+out on clicks that did nothing, because no client component had hydrated. Three
+attempts to fix it, each plausible and each measured:
+
+1. Forwarding the nonce properly — `NextResponse.next({ request: { headers } })`
+   rather than mutating `request.headers` in place, which does not propagate.
+   No change.
+2. Dropping `'strict-dynamic'`, which makes a browser ignore `'self'` and so
+   puts every Next chunk at the mercy of the framework having stamped the nonce.
+   No change.
+3. Rebuilding the forwarded headers *after* the Supabase cookie write, since the
+   snapshot taken before it does not carry a refreshed session. No change.
+
+Next's App Router emits **inline** bootstrap scripts, and a `script-src`
+carrying a nonce blocks every inline script that does not have it. The nonce is
+not reaching the renderer in this application, and finding out why is a change
+whose whole subject is that — not a paragraph inside a block about headers and
+retention.
+
+**So the block ships the five headers and no CSP**, and the reason this is the
+right call rather than a retreat: a CSP that breaks the product is worse than
+no CSP, because it will be deleted in an incident by whoever is on call, along
+with whatever else looks suspicious. `X-Frame-Options: DENY` covers the framing
+half that `frame-ancestors` would have. **Block 11b owns the CSP**, with the
+nonce plumbing as its first task and this section as its brief.
+
+### D3 — Retention periods are fixed for the installation, not per Company
+
+§9's N7 says "according to the per-Company policy". That costs a
+`retention_policies` table, a screen to edit it, permissions for that screen, and
+twice the tests — all starting with every radio on the same default value. The
+owner ruled for fixed periods in code:
+
+| what | kept for | why |
+| --- | --- | --- |
+| `webhook_events` | **90 days** | Meta's raw payload: phone number and message text, in full. Its only use is reprocessing a failed ingestion, which happens within hours. |
+| `whatsapp_conversations` (closed) | **180 days** | Conversation state after it has ended. |
+| `outbox_messages` (terminal) | **180 days** | What was sent to a listener, and when. |
+| `contact_requests` | **365 days** | A visitor's e-mail from the public form. |
+| `rate_limit_counters` (reset) · `whatsapp_conversation_leases` (expired) · `storage_erasure_queue` (processed) | **30 days** | Operational leftovers holding no personal data. Swept for size, not for law. |
+
+A radio needing a different period is a conversation that has not happened. When
+it does, the table this block did not build is a migration, and the sweep reads
+it instead of the constant.
+
+### D4 — Business records are never swept, and the list is explicit
+
+Participations, winners, draws, inventory movements, promotions, members,
+prizes: **none of these has a retention period**, because they are what the radio
+must be able to prove afterwards. A prize delivered in 2024 and disputed in 2028
+needs its `winners` row and its `inventory_movements` chain.
+
+Personal data inside them is removed by **erasure** (`anonymize_member`, Block
+3), which is subject-driven and already built, not by age. The two mechanisms
+are different and this block adds nothing to the second.
+
+### D5 — `audit_logs` is kept for ever, and the sweep passes it by deliberately
+
+Block 10a's runbook flagged this as open; it is now closed the other way.
+
+The trail is **pseudonymised by construction** since Block 3 — it holds ids, not
+names — and it is the proof that erasures happened. **Deleting the record of a
+deletion is the worst available outcome in an audit**, and it is precisely the
+kind of event somebody asks about years later.
+
+So the sweep does not name `audit_logs`, and both the migration header and the
+runbook say so *positively* rather than by omission — an absence in a retention
+sweep reads as an oversight unless it is written down as a decision.
+
+### D6 — A procedure, committing per table, in `sweep_pickup_deadlines`' shape
+
+`0094`'s header proved it and `0128` restated it: a procedure that commits may
+carry **neither** `security definer` **nor** `set search_path`, because Postgres
+refuses transaction control inside either. Every reference is schema-qualified by
+hand.
+
+It commits **per table**, so one table that cannot be swept — a lock, a
+constraint added later — does not roll back the other six, every night, for ever.
+
+### D7 — It counts what it deleted, and says so
+
+Every sweep raises a `notice` naming each table and its row count, and a
+`warning` per table that failed. Block 11b will turn that into an alert; until
+then it is in the Postgres log, which is where the other three sweeps in this
+schema already report.
+
+**No audit row per deleted record**, deliberately: a sweep that writes one audit
+row per deleted `webhook_events` row would write more rows than it removed, into
+the one table this block promises never to sweep.
+
+---
+
+## 3. Migrations
+
+| # | contents |
+| --- | --- |
+| `0131` | `sweep_retention()` procedure and its `cron.schedule` (daily, 04:11) |
+
+---
+
+## 4. Verification
+
+**pgTAP** — the procedure exists and is a `procedure`; it carries neither
+`security definer` nor a `set` clause (D6, and the assertion that stops a future
+"hardening" from breaking every sweep at 04:11 where nobody is watching); its
+body **does not name `audit_logs`, `participations`, `winners`, `draws`,
+`members` or `inventory_movements`** (D4/D5 — asserted on the source, because a
+sweep that gained a table would otherwise be found by its damage); a row older
+than its period is deleted and one inside it is not, per table; the cron entry
+exists.
+
+**Vitest** — each of the five headers is declared with the value the design
+names, asserted on the VALUE rather than on the file's text.
+
+**Playwright** — `tests/e2e/headers.spec.ts` asserts the headers are ON THE
+WIRE, which is a different claim from the unit test's: a `headers()` block that
+never matched, or a proxy that stripped them, looks identical in the config. It
+also asserts them on `/api/health`, which the middleware's matcher excludes —
+the assertion that justifies D1's placement. And the whole existing suite runs,
+which is what withdrew D2.
+
+**The gate is the usual one:** `lint`, `typecheck`, `test`, `db:test`,
+`test:isolation`, `build`, `test:e2e`.
+
+---
+
+## 5. Out of scope
+
+**The Content-Security-Policy** (D2, withdrawn — Block 11b's first task, with
+the nonce plumbing as its subject); observability, error monitoring and the
+alert Block 11b will hang off D7's counters; the five documents; the controlled seed; the deploy and backup/PITR
+runbook; upload/MIME hardening (there is one upload path, delivery receipts, and
+it is Block 11b's to review); per-Company retention policy (D3).
