@@ -921,7 +921,6 @@
     "noStationYouCanReachMatches": "No Station you can reach matches “",
     "clearTheStationSearch": "Clear the Station search",
     "catalogue": "Catalogue",
-    "yet": "yet",
     "archive": "Archive",
     "legacyId2": "Legacy id:",
     "archiveThis": "Archive this",
@@ -1005,6 +1004,23 @@
     "archiveThisSong": "Archive this song?",
     "registerASong": "Register a song",
     "songRegistered": "Song registered.",
-    "viewSong": "View song"
+    "viewSong": "View song",
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "archiving": "Archiving…",
+    "recording": "Recording…",
+    "withdrawing": "Withdrawing…",
+    "merging": "Merging…",
+    "save": "Save",
+    "withdraw": "Withdraw",
+    "archiveAnyway": "Archive anyway",
+    "mergeComplete": "Merge complete",
+    "mergeTheseRecords": "Merge these records?",
+    "mergeAnyway": "Merge anyway",
+    "noneYet": "No {kind} yet.",
+    "noneYetAddFirst": "No {kind} yet — add the first one above.",
+    "artistsLabel": "{count, plural, one {artist} other {artists}}",
+    "songsLabel": "{count, plural, one {song} other {songs}}",
+    "requestsLabel": "{count, plural, one {request} other {requests}}"
   }
 }

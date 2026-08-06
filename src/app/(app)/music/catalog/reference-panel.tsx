@@ -64,7 +64,9 @@ export function ReferencePanel({
 
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No {title.toLowerCase()} {t('yet')}{manage ? ' — add the first one above.' : '.'}
+          {manage
+            ? t('noneYetAddFirst', { kind: title.toLowerCase() })
+            : t('noneYet', { kind: title.toLowerCase() })}
         </p>
       ) : (
         <ul className="flex flex-col divide-y" data-testid={`${kind.toLowerCase()}-list`}>
@@ -164,7 +166,7 @@ function EditableRow({
             aria-label={`${noun} name`}
           />
           <Button type="submit" variant="outline" size="sm" disabled={savePending}>
-            {savePending ? 'Saving…' : 'Save'}
+            {savePending ? t('saving') : t('save')}
           </Button>
         </form>
 
@@ -257,7 +259,7 @@ function ArchiveReferenceDialog({
           <input type="hidden" name="kind" value={kind} />
           <input type="hidden" name="id" value={item.id} />
           <Button type="submit" disabled={pending} data-testid={`${noun}-archive-confirm`}>
-            {pending ? 'Archiving…' : 'Archive anyway'}
+            {pending ? t('archiving') : t('archiveAnyway')}
           </Button>
         </form>
       </DialogFooter>

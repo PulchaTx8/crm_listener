@@ -921,7 +921,6 @@
     "noStationYouCanReachMatches": "Ninguna Emisora que usted alcanza coincide con “",
     "clearTheStationSearch": "Limpiar la búsqueda de Emisora",
     "catalogue": "Catálogo",
-    "yet": "todavía",
     "archive": "Archivar",
     "legacyId2": "Id heredado:",
     "archiveThis": "Archivar este",
@@ -1005,6 +1004,23 @@
     "archiveThisSong": "¿Archivar esta canción?",
     "registerASong": "Registrar una canción",
     "songRegistered": "Canción registrada.",
-    "viewSong": "Ver canción"
+    "viewSong": "Ver canción",
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "archiving": "Archivando…",
+    "recording": "Registrando…",
+    "withdrawing": "Retirando…",
+    "merging": "Fusionando…",
+    "save": "Guardar",
+    "withdraw": "Retirar",
+    "archiveAnyway": "Archivar de todos modos",
+    "mergeComplete": "Fusión completa",
+    "mergeTheseRecords": "¿Fusionar estas fichas?",
+    "mergeAnyway": "Fusionar de todos modos",
+    "noneYet": "Ningún {kind} todavía.",
+    "noneYetAddFirst": "Ningún {kind} todavía — agregue el primero arriba.",
+    "artistsLabel": "{count, plural, one {artista} other {artistas}}",
+    "songsLabel": "{count, plural, one {canción} other {canciones}}",
+    "requestsLabel": "{count, plural, one {pedido} other {pedidos}}"
   }
 }

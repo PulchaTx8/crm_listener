@@ -485,7 +485,7 @@ function ConfirmMergeDialog({
   return (
     <Dialog open onClose={state.ok === true ? onDone : onCancel} labelledBy={titleId} className="max-w-lg">
       <DialogHeader>
-        <DialogTitle id={titleId}>{state.ok === true ? 'Merge complete' : 'Merge these records?'}</DialogTitle>
+        <DialogTitle id={titleId}>{state.ok === true ? t('mergeComplete') : t('mergeTheseRecords')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
         {state.ok === true ? (
@@ -516,7 +516,7 @@ function ConfirmMergeDialog({
               ))}
               <input type="hidden" name="reason" value={reason} />
               <Button type="submit" disabled={pending} data-testid="maintenance-merge-confirm">
-                {pending ? 'Merging…' : 'Merge anyway'}
+                {pending ? t('merging') : t('mergeAnyway')}
               </Button>
             </form>
           </>

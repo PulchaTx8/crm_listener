@@ -158,7 +158,7 @@ export function ArtistsGrid({
 
         <PageControls
           total={grid.total}
-          label={grid.total === 1 ? 'artist' : 'artists'}
+          label={t('artistsLabel', { count: grid.total ?? 0 })}
           previousHref={previousHref}
           nextHref={nextHref}
         />
@@ -260,7 +260,7 @@ function ArchiveArtistDialog({
         <form action={action}>
           <input type="hidden" name="artistId" value={artist.id} />
           <Button type="submit" disabled={pending} data-testid="artist-archive-confirm">
-            {pending ? 'Archiving…' : 'Archive anyway'}
+            {pending ? t('archiving') : t('archiveAnyway')}
           </Button>
         </form>
       </DialogFooter>
@@ -334,7 +334,7 @@ function ArtistCreateForm({
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Register artist'}
+          {pending ? t('saving') : t('registerArtist')}
         </Button>
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">

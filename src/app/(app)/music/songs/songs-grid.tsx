@@ -188,7 +188,7 @@ export function SongsGrid({
 
         <PageControls
           total={grid.total}
-          label={grid.total === 1 ? 'song' : 'songs'}
+          label={t('songsLabel', { count: grid.total ?? 0 })}
           previousHref={previousHref}
           nextHref={nextHref}
         />
@@ -292,7 +292,7 @@ function ArchiveSongDialog({
         <form action={action}>
           <input type="hidden" name="songId" value={song.id} />
           <Button type="submit" disabled={pending} data-testid="song-archive-confirm">
-            {pending ? 'Archiving…' : 'Archive anyway'}
+            {pending ? t('archiving') : t('archiveAnyway')}
           </Button>
         </form>
       </DialogFooter>
@@ -370,7 +370,7 @@ function SongCreateForm({
       <SongFields artists={artists} labels={labels} genres={genres} />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Register song'}
+          {pending ? t('saving') : t('registerSong')}
         </Button>
         {state.status === 'saved' && (
           <p className="text-sm text-emerald-700">
