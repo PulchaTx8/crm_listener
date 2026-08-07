@@ -32,21 +32,28 @@ import {
  * rather than a 42501 — so naming the subject only in the permission branch
  * would leave that caller with one generic message ("Could not load the
  * movements...") rendered beside a ledger that loaded fine.
+ *
+ * `whatKey` is a CATALOGUE KEY rather than the phrase itself, and `t` is
+ * threaded in by the caller — every one of them already holds a translator
+ * for the `inventory` namespace at the point it catches, and reading one here
+ * would mean `getTranslations`, which is async, which is the one thing this
+ * file exists not to be.
  */
 export function describeMovementsReadError(
   cause: unknown,
-  what: string = 'the movements at this Station',
+  t: (key: string, values?: Record<string, string>) => string,
+  whatKey: string = 'theMovementsAtThisStation',
 ): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to view ${what}.`;
+    return t('youDoNotHavePermissionToView', { what: t(whatKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return `Could not load ${what}. Refresh the page and try again.`;
+  return t('couldNotLoad', { what: t(whatKey) });
 }

@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { prizeFormSchema, prizeUpdateSchema, movementFormSchema } from '@/schemas/inventory';
@@ -72,7 +73,7 @@ export async function createCategoryAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'create prize category failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'register categories') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionRegisterCategories') };
   }
 }
 
@@ -112,7 +113,7 @@ export async function createPrizeAction(
     return { status: 'saved', prizeId };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create prize failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'register prizes') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionRegisterPrizes') };
   }
 }
 
@@ -160,7 +161,7 @@ export async function recordStockEntryAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'record stock entry failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'add stock') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionAddStock') };
   }
 }
 
@@ -189,7 +190,7 @@ export async function recordStockExitAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'record stock exit failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'record a manual exit') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionRecordAManualExit') };
   }
 }
 
@@ -229,15 +230,16 @@ export async function adjustStockAction(
     // would tell someone who counted correctly and found nothing wrong that
     // something went wrong.
     if (movementId === null) {
+      const t = await getTranslations('inventory');
       return {
         status: 'no_change',
-        message: 'The count already matched what was booked — nothing needed recording.',
+        message: t('theCountAlreadyMatchedWhatWasBooked'),
       };
     }
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'adjust stock failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'adjust stock') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionAdjustStock') };
   }
 }
 
@@ -266,7 +268,7 @@ export async function reserveStockAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: data.prizeId }, 'reserve stock failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'reserve stock') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionReserveStock') };
   }
 }
 
@@ -297,7 +299,7 @@ export async function releaseReservationAction(
     logger.error({ err: cause, prizeId: data.prizeId }, 'release reservation failed');
     return {
       status: 'error',
-      message: describeInventoryWriteError(cause, 'release a reservation'),
+      message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionReleaseAReservation'),
     };
   }
 }
@@ -335,7 +337,7 @@ export async function runReconciliationAction(
     return { status: 'checked', rows, checkedAt: new Date().toISOString() };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'reconcile inventory failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'view inventory') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionViewInventory') };
   }
 }
 
@@ -379,7 +381,7 @@ export async function updatePrizeAction(
     return found ? { status: 'saved', prize: found.prize } : { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, prizeId: parsed.data.prizeId }, 'update prize failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'save this prize') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionSaveThisPrize') };
   }
 }
 
@@ -402,6 +404,6 @@ export async function archivePrizeAction(
     return { status: 'archived' };
   } catch (cause) {
     logger.error({ err: cause, prizeId }, 'archive prize failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, 'archive this prize') };
+    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionArchiveThisPrize') };
   }
 }

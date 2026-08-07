@@ -68,7 +68,7 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
                     <td className="px-3 py-2 text-muted-foreground">
                       {row.promotionName ?? '—'}
                     </td>
-                    <td className="px-3 py-2">{formatBucketName(row.bucket)}</td>
+                    <td className="px-3 py-2">{formatBucketName(row.bucket, t)}</td>
                     <td className="px-3 py-2">{row.stored}</td>
                     <td className="px-3 py-2">{row.computed}</td>
                   </tr>

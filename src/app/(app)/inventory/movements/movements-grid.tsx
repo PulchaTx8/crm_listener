@@ -9,7 +9,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { MovementRow } from '@/services/movements';
-import { formatBucket, MOVEMENT_TYPE_LABELS } from '../format';
+import { formatBucket, MOVEMENT_TYPE_LABEL_KEYS } from '../format';
 import { formatInstant } from '../../promotions/format';
 import { describeMovementActor, describeMovementPromotion } from './list-params';
 
@@ -72,16 +72,21 @@ export async function MovementsGrid({
                 <TableCell className="whitespace-nowrap text-sm">
                   {formatInstant(row.createdAt, timeZone)}
                 </TableCell>
-                <TableCell className="text-sm">{MOVEMENT_TYPE_LABELS[row.movementType]}</TableCell>
+                <TableCell className="text-sm">{t(MOVEMENT_TYPE_LABEL_KEYS[row.movementType])}</TableCell>
                 <TableCell className="text-sm">{row.prizeName}</TableCell>
                 <TableCell className="text-sm">
                   {row.quantity} {t('unitsLabel', { count: row.quantity })}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-sm">
-                  {formatBucket(row.fromBucket)} → {formatBucket(row.toBucket)}
+                  {formatBucket(row.fromBucket, t)} → {formatBucket(row.toBucket, t)}
                 </TableCell>
                 <TableCell className="text-sm">
-                  {describeMovementPromotion(row.promotionId, row.promotionName, row.promotionArchived)}
+                  {describeMovementPromotion(
+                    row.promotionId,
+                    row.promotionName,
+                    row.promotionArchived,
+                    t,
+                  )}
                 </TableCell>
                 <TableCell className="text-sm" data-testid="movement-actor">
                   {describeMovementActor(row.actorId, row.actorName)}

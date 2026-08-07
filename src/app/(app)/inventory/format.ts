@@ -1,14 +1,20 @@
 import type { InventoryBucket, InventoryMovementType, PrizeBalance } from '@/services/inventory';
 
-/** Every live bucket, in the order the two screens display them. */
-export const BUCKET_LABELS: Record<InventoryBucket, string> = {
-  available: 'Available',
-  reserved: 'Reserved',
-  linked: 'Linked',
-  awaiting_pickup: 'Awaiting pickup',
-  pending_return: 'Pending return',
-  delivered: 'Delivered',
-  written_off: 'Written off',
+/**
+ * Every live bucket, in the order the two screens display them.
+ *
+ * The values are CATALOGUE KEYS in the `inventory` namespace, not the words
+ * themselves. A module body has no request behind it, so it has no language
+ * either — every reader resolves them with a `t` it already holds.
+ */
+export const BUCKET_LABEL_KEYS: Record<InventoryBucket, string> = {
+  available: 'available',
+  reserved: 'reserved',
+  linked: 'linked',
+  awaiting_pickup: 'awaitingPickup',
+  pending_return: 'pendingReturn',
+  delivered: 'delivered',
+  written_off: 'writtenOff',
 };
 
 /**
@@ -17,35 +23,35 @@ export const BUCKET_LABELS: Record<InventoryBucket, string> = {
  * no `to`. Naming that in the ledger, rather than leaving the cell blank, is
  * what makes "outside the Station" as legible as any real bucket.
  */
-export function formatBucket(bucket: InventoryBucket | null): string {
-  return bucket === null ? 'outside the Station' : BUCKET_LABELS[bucket];
+export function formatBucket(bucket: InventoryBucket | null, t: (key: string) => string): string {
+  return t(bucket === null ? 'outsideTheStation' : BUCKET_LABEL_KEYS[bucket]);
 }
 
-/** Every movement type in 0026/0027/0028's vocabulary, spec §5. */
-export const MOVEMENT_TYPE_LABELS: Record<InventoryMovementType, string> = {
-  INITIAL_ENTRY: 'Initial entry',
-  PURCHASE_ENTRY: 'Purchase',
-  MANUAL_ENTRY: 'Manual entry',
-  MANUAL_EXIT: 'Manual exit',
-  ADJUSTMENT_POSITIVE: 'Adjustment (increase)',
-  ADJUSTMENT_NEGATIVE: 'Adjustment (decrease)',
-  RESERVATION: 'Reservation',
-  RESERVATION_RELEASE: 'Reservation release',
-  PROMOTION_LINK: 'Linked to promotion',
-  PROMOTION_UNLINK: 'Unlinked from promotion',
-  DRAW: 'Draw',
-  DRAW_CANCEL: 'Draw cancelled',
-  DELIVERY: 'Delivered to winner',
-  DELIVERY_CANCEL: 'Delivery undone',
-  RETURN_PENDING: 'Pending return',
+/** Every movement type in 0026/0027/0028's vocabulary, spec §5. Keys, as above. */
+export const MOVEMENT_TYPE_LABEL_KEYS: Record<InventoryMovementType, string> = {
+  INITIAL_ENTRY: 'initialEntry',
+  PURCHASE_ENTRY: 'purchase',
+  MANUAL_ENTRY: 'manualEntry',
+  MANUAL_EXIT: 'manualExit',
+  ADJUSTMENT_POSITIVE: 'adjustmentIncrease',
+  ADJUSTMENT_NEGATIVE: 'adjustmentDecrease',
+  RESERVATION: 'reservation',
+  RESERVATION_RELEASE: 'reservationRelease',
+  PROMOTION_LINK: 'linkedToPromotion',
+  PROMOTION_UNLINK: 'unlinkedFromPromotion',
+  DRAW: 'draw',
+  DRAW_CANCEL: 'drawCancelled',
+  DELIVERY: 'deliveredToWinner',
+  DELIVERY_CANCEL: 'deliveryUndone',
+  RETURN_PENDING: 'pendingReturn',
   // The inverse of RETURN_PENDING (0091/0092): the deadline reopen moves a
   // unit from pending_return back to awaiting_pickup. This label was missing
   // from the day the enum value landed (0091, Block 6d Task 1) because the
   // generated types file this Record is checked against had not been
   // regenerated since; Task 8 regenerates it and tsc surfaces the gap.
-  RETURN_PENDING_CANCEL: 'Deadline reopened',
-  RETURN_TO_STOCK: 'Returned to stock',
-  WRITE_OFF: 'Written off',
+  RETURN_PENDING_CANCEL: 'deadlineReopened',
+  RETURN_TO_STOCK: 'returnedToStock',
+  WRITE_OFF: 'writtenOff',
 };
 
 /**
@@ -94,8 +100,8 @@ export function formatDate(iso: string): string {
  * decremented by a draw (0045) — but the Promotion column beside it is what
  * tells the reader which is which, not a second spelling of the word.
  */
-const PROMOTION_COUNTER_LABELS: Record<string, string> = {
-  drawn: 'Drawn',
+const PROMOTION_COUNTER_LABEL_KEYS: Record<string, string> = {
+  drawn: 'drawn',
 };
 
 /**
@@ -115,10 +121,11 @@ const PROMOTION_COUNTER_LABELS: Record<string, string> = {
  * hypothetical, and between 0048 and PROMOTION_COUNTER_LABELS it was the
  * shipped rendering path for every `drawn` row on the screen.
  */
-export function formatBucketName(bucket: string): string {
-  return (
-    (BUCKET_LABELS as Record<string, string>)[bucket] ??
-    PROMOTION_COUNTER_LABELS[bucket] ??
-    bucket
-  );
+export function formatBucketName(bucket: string, t: (key: string) => string): string {
+  const key =
+    (BUCKET_LABEL_KEYS as Record<string, string>)[bucket] ?? PROMOTION_COUNTER_LABEL_KEYS[bucket];
+  // The bare-string fallback stays untranslated on purpose: it is a value SQL
+  // invented that no catalogue can have a word for, and `t` on an unknown key
+  // renders the key rather than the value.
+  return key ? t(key) : bucket;
 }

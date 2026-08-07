@@ -193,18 +193,23 @@ describe('describeMovementActor', () => {
 });
 
 describe('describeMovementPromotion', () => {
+  // The one catalogue key this function can reach, resolved the way a screen
+  // would. Asserting on the ENGLISH sentence rather than on the key keeps
+  // these tests reading as statements about what an operator sees.
+  const t = (key: string) => (key === 'archivedPromotion' ? '(archived promotion)' : key);
+
   it('renders "—" for a movement naming no promotion at all', () => {
-    expect(describeMovementPromotion(null, null, false)).toBe('—');
+    expect(describeMovementPromotion(null, null, false, t)).toBe('—');
   });
 
   it('renders the promotion name when one is visible', () => {
-    expect(describeMovementPromotion('promo-1', 'Summer Giveaway', false)).toBe(
+    expect(describeMovementPromotion('promo-1', 'Summer Giveaway', false, t)).toBe(
       'Summer Giveaway',
     );
   });
 
   it('renders "(archived promotion)" when the name was withheld for being archived', () => {
-    expect(describeMovementPromotion('promo-1', null, true)).toBe('(archived promotion)');
+    expect(describeMovementPromotion('promo-1', null, true, t)).toBe('(archived promotion)');
   });
 
   // Keyed off promotionArchived, never off promotionName being null: a row
@@ -214,7 +219,7 @@ describe('describeMovementPromotion', () => {
   // instead would still pass the case above, but would wrongly print the
   // name here.
   it('keys off promotionArchived alone, not off the name being null', () => {
-    expect(describeMovementPromotion('promo-1', 'should not show', true)).toBe(
+    expect(describeMovementPromotion('promo-1', 'should not show', true, t)).toBe(
       '(archived promotion)',
     );
   });

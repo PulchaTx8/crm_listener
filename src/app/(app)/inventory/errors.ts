@@ -4,6 +4,13 @@
 // themselves. Kept in their own file rather than made async, so a Server
 // Component (page.tsx, [prizeId]/page.tsx) can call describeInventoryReadError
 // directly without an unnecessary await, exactly as before.
+//
+// Which is also why `t` is a PARAMETER on both functions below rather than
+// something they read: reading it would mean `getTranslations`, which is
+// async, and every caller already holds a translator for the `inventory`
+// namespace at the point it catches. `actionKey` is a catalogue key for the
+// same reason — the phrase it names has to exist in three languages, and a
+// call site cannot pass a Portuguese verb it never had.
 import {
   BusinessRuleError,
   ConflictError,
@@ -26,19 +33,22 @@ import {
  * this one, since its 403 needs the same per-action wording the six mutating
  * actions get.
  */
-export function describeInventoryReadError(cause: unknown): string {
+export function describeInventoryReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to view inventory in this Station.';
+    return t('youDoNotHavePermissionToViewInventory');
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return 'Could not load the inventory. Refresh the page and try again.';
+  return t('couldNotLoadTheInventory');
 }
 
 /**
@@ -62,17 +72,21 @@ export function describeInventoryReadError(cause: unknown): string {
  * pass through verbatim — replacing any of them with something generic would
  * throw away the one number the person actually needed to read.
  */
-export function describeInventoryWriteError(cause: unknown, action: string): string {
+export function describeInventoryWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action} in this Station.`;
+    return t('youDoNotHavePermissionToHere', { action: t(actionKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }

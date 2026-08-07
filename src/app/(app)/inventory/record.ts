@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { logger } from '@/lib/logger';
 import { getPrizeById, getPrizeMovements } from '@/services/inventory';
 import type { MovementEntry, PrizeSummary } from '@/services/inventory';
@@ -41,6 +42,6 @@ export async function getPrizeRecordAction(prizeId: string): Promise<PrizeRecord
     };
   } catch (cause) {
     logger.error({ err: cause, prizeId }, 'could not load this prize record');
-    return { status: 'error', message: describeInventoryReadError(cause) };
+    return { status: 'error', message: describeInventoryReadError(cause, await getTranslations('inventory')) };
   }
 }

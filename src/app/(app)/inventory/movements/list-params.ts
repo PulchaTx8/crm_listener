@@ -1,6 +1,6 @@
 import type { InventoryMovementType } from '@/services/inventory';
 import type { MovementRow } from '@/services/movements';
-import { MOVEMENT_TYPE_LABELS } from '../format';
+import { MOVEMENT_TYPE_LABEL_KEYS } from '../format';
 
 /**
  * The movements screen's URL contract, the same reason every other list
@@ -12,7 +12,7 @@ import { MOVEMENT_TYPE_LABELS } from '../format';
  * which is `server-only`: a type is erased at build time, so movements-filters.tsx
  * — a client component — can import this module without pulling the service
  * across the boundary, the same reasoning pickups/list-params.ts gives for its
- * own type-only import of WinnerStatus. `MOVEMENT_TYPE_LABELS` (../format) is
+ * own type-only import of WinnerStatus. `MOVEMENT_TYPE_LABEL_KEYS` (../format) is
  * a VALUE, not a type, but format.ts carries no `server-only` marker of its
  * own — prize-record-dialog.tsx, a client component, already imports it
  * directly — so it crosses the boundary fine.
@@ -31,9 +31,9 @@ export interface MovementSearchParams {
 }
 
 /**
- * Every real movement type, in the order MOVEMENT_TYPE_LABELS (../format)
+ * Every real movement type, in the order MOVEMENT_TYPE_LABEL_KEYS (../format)
  * declares them. Derived from that Record's own keys rather than listed a
- * second time: MOVEMENT_TYPE_LABELS is a Record<InventoryMovementType,
+ * second time: MOVEMENT_TYPE_LABEL_KEYS is a Record<InventoryMovementType,
  * string>, which the compiler already refuses to leave incomplete or widen
  * with an extra key, and Object.keys over a string-keyed object literal
  * preserves declaration order. PICKUP_STATUSES and SOURCE_ORDER (the two
@@ -44,7 +44,7 @@ export interface MovementSearchParams {
  * grows) is exactly the drift this avoids.
  */
 export const MOVEMENT_TYPES: readonly InventoryMovementType[] = Object.keys(
-  MOVEMENT_TYPE_LABELS,
+  MOVEMENT_TYPE_LABEL_KEYS,
 ) as InventoryMovementType[];
 
 export interface MovementListState {
@@ -206,8 +206,9 @@ export function describeMovementPromotion(
   promotionId: MovementRow['promotionId'],
   promotionName: MovementRow['promotionName'],
   promotionArchived: MovementRow['promotionArchived'],
+  t: (key: string) => string,
 ): string {
   if (promotionId === null) return '—';
-  if (promotionArchived) return '(archived promotion)';
+  if (promotionArchived) return t('archivedPromotion');
   return promotionName ?? '—';
 }

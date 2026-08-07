@@ -166,7 +166,7 @@ export function InventoryGrid({
                     <div className="flex items-center justify-end gap-1">
                       <button
                         type="button"
-                        aria-label={`Edit ${prize.name}`}
+                        aria-label={t('editPrize', { name: prize.name })}
                         onClick={() => open(prize.id, 'data')}
                         className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
@@ -174,7 +174,7 @@ export function InventoryGrid({
                       </button>
                       {powers.catalogue && (
                         <DropdownMenu
-                          label={`Actions for ${prize.name}`}
+                          label={t('actionsForPrize', { name: prize.name })}
                           trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                         >
                           <DropdownMenuItem destructive onSelect={() => setArchiving(prize)}>

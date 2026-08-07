@@ -61,7 +61,7 @@ export default async function MovementsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve movements access');
-    return <LoadError message={describeMovementsReadError(cause)} />;
+    return <LoadError message={describeMovementsReadError(cause, t)} />;
   }
 
   const first = viewable[0];
@@ -109,7 +109,7 @@ export default async function MovementsPage({
     );
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the movements list');
-    return <LoadError message={describeMovementsReadError(cause)} />;
+    return <LoadError message={describeMovementsReadError(cause, t)} />;
   }
 
   // The prize picker's options: ONE page of prizes by name, never the whole
@@ -135,7 +135,7 @@ export default async function MovementsPage({
       { err: cause, companyId: selected.id },
       'could not read the prizes for the movements filter',
     );
-    prizesError = describeMovementsReadError(cause, 'the prizes in this Station');
+    prizesError = describeMovementsReadError(cause, t, 'thePrizesInThisStation');
   }
 
   // A prize filter pointing at something the picker did not offer — past the
@@ -151,7 +151,7 @@ export default async function MovementsPage({
       id: state.prizeId,
       name:
         page.rows.find((row) => row.prizeId === state.prizeId)?.prizeName ??
-        'The prize this list is filtered to',
+        t('thePrizeThisListIsFilteredTo'),
     });
   }
 
@@ -178,7 +178,7 @@ export default async function MovementsPage({
       { err: cause, companyId: selected.id },
       'could not read the promotions for the movements filter',
     );
-    promotionsError = describeMovementsReadError(cause, 'the promotions in this Station');
+    promotionsError = describeMovementsReadError(cause, t, 'thePromotionsInThisStation');
   }
 
   if (state.promotionId && !promotionOptions.some((p) => p.id === state.promotionId)) {
@@ -186,7 +186,7 @@ export default async function MovementsPage({
       id: state.promotionId,
       name:
         page.rows.find((row) => row.promotionId === state.promotionId)?.promotionName ??
-        'The promotion this list is filtered to',
+        t('thePromotionThisListIsFilteredTo'),
     });
   }
 
@@ -194,7 +194,7 @@ export default async function MovementsPage({
     <>
       <PageHeader
         title={t('movements')}
-        description="Every stock movement across this Station's prizes, newest first. Append-only: a mistake is corrected by recording a new movement, never by changing this one."
+        description={t('movementsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -219,7 +219,7 @@ export default async function MovementsPage({
             action="/inventory/movements"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

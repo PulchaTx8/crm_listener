@@ -18,9 +18,10 @@ import { AdjustmentForm } from './adjustment-form';
 import { ReleaseForm, ReserveForm } from './reservation-forms';
 import { StockEntryForm } from './stock-entry-form';
 import { StockExitForm } from './stock-exit-form';
-import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABELS } from './format';
+import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABEL_KEYS } from './format';
 
-const TAB_LABELS: Record<PrizeTab, string> = { data: 'Prize data', movements: 'Stock movements' };
+// Catalogue keys, not words: a module body has no request behind it.
+const TAB_LABEL_KEYS: Record<PrizeTab, string> = { data: 'prizeData', movements: 'stockMovements' };
 
 export interface PrizeRecordPowers {
   catalogue: boolean;
@@ -131,7 +132,7 @@ export function PrizeRecordDialog({
   }
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
     setDirty(false);
     onClose();
   }
@@ -165,7 +166,7 @@ export function PrizeRecordDialog({
                   : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
               }
             >
-              {TAB_LABELS[name]}
+              {t(TAB_LABEL_KEYS[name])}
             </button>
           ))}
         </div>
@@ -249,7 +250,7 @@ export function PrizeRecordDialog({
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.movements.map((movement) => (
                     <li key={movement.id} data-testid="movement-row" className="rounded-md border p-3">
-                      <span className="font-medium">{MOVEMENT_TYPE_LABELS[movement.movementType]}</span>
+                      <span className="font-medium">{t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}</span>
                       {' · '}
                       {/* Both ends of the transition, always — formatBucket
                           renders a null bucket as "outside the Station" (0026's
@@ -258,8 +259,8 @@ export function PrizeRecordDialog({
                           when the ledger moved into the dialog, left a stock
                           entry reading "50 · to Available" with nowhere named
                           for the stock to have come from. */}
-                      {movement.quantity} {t('unitS')}{' '}{formatBucket(movement.fromBucket)} →{' '}
-                      {formatBucket(movement.toBucket)}
+                      {movement.quantity} {t('unitS')}{' '}{formatBucket(movement.fromBucket, t)} →{' '}
+                      {formatBucket(movement.toBucket, t)}
                       <span className="block text-xs text-muted-foreground">
                         {formatDateTime(movement.createdAt)}
                         {movement.note ? ` — ${movement.note}` : ''}

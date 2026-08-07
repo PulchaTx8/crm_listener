@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
 import { fromZonedDay, toZonedDate } from '../../promotions/zone';
-import { MOVEMENT_TYPE_LABELS } from '../format';
+import { MOVEMENT_TYPE_LABEL_KEYS } from '../format';
 import {
   hasActiveMovementFilters,
   movementsHref,
@@ -84,7 +84,7 @@ export function MovementsFilters({
           <option value="">{t('anyType')}</option>
           {MOVEMENT_TYPES.map((type) => (
             <option key={type} value={type}>
-              {MOVEMENT_TYPE_LABELS[type]}
+              {t(MOVEMENT_TYPE_LABEL_KEYS[type])}
             </option>
           ))}
         </Select>
