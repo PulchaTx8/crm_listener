@@ -13,6 +13,9 @@ import {
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
+import { describeArtworkRejection } from '@/lib/security/artwork';
+import { readImageDimensions } from '@/lib/security/image-dimensions';
+import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
 import type { Database } from '@/lib/supabase/database.types';
 import { UNCATEGORISED_FILTER } from '@/schemas/inventory';
 import type { MovementFormInput, PrizeFormInput, PrizeUpdateInput } from '@/schemas/inventory';
@@ -71,6 +74,12 @@ export interface PrizeSummary {
   internalCode: string | null;
   description: string | null;
   allowsReturnToStock: boolean;
+  /**
+   * The picture that identifies this prize on the stock list and its record
+   * (Block 14). Internal: nothing sends it anywhere, which is why it is held to
+   * the thumb's tighter limits rather than to Meta's.
+   */
+  photoUrl: string | null;
   /** When the prize was registered — the inventory table's "Added" column and its second sort. */
   createdAt: string;
   balance: PrizeBalance;
@@ -118,7 +127,7 @@ const PRIZE_PAGE_SIZE = 50;
 
 /** The columns the inventory table renders. One constant, because the row read and the count read must agree. */
 const PRIZE_COLUMNS =
-  'id, name, category_id, internal_code, description, allows_return_to_stock, created_at';
+  'id, name, category_id, internal_code, description, allows_return_to_stock, photo_url, created_at';
 
 /** The one bound on a search term, exported so the page enforces the same number rather than a copy of it. */
 export const PRIZE_SEARCH_MAX_LENGTH = 100;
@@ -235,6 +244,7 @@ type PrizeRecord = {
   internal_code: string | null;
   description: string | null;
   allows_return_to_stock: boolean;
+  photo_url: string | null;
   created_at: string;
 };
 
@@ -293,6 +303,7 @@ async function withBalances(
     internalCode: prize.internal_code,
     description: prize.description,
     allowsReturnToStock: prize.allows_return_to_stock,
+    photoUrl: prize.photo_url,
     createdAt: prize.created_at,
     balance: balanceByPrize.get(prize.id) ?? ZERO_BALANCE,
   }));
@@ -603,4 +614,79 @@ function mapInventoryError(code: string | undefined, message: string): Error {
   if (code === 'P0002') return new NotFoundError(message);
   if (code === '42501') return new UnauthorizedError(message);
   return new InternalError(message);
+}
+
+// ---------------------------------------------------------------------------
+// The prize's photograph (Block 14).
+
+/**
+ * Uploads the object and then files it, IN THAT ORDER, so the row can never
+ * point at bytes that failed to arrive — that is a broken image on every screen
+ * that names the prize. A failed RPC leaves an object at a key derived from this
+ * prize: unreferenced, harmless, and overwritten by the next upload, because
+ * the key never changes.
+ *
+ * On the CALLER's token rather than the service key. The bucket policy in 0143
+ * checks inventory.catalogue against the Station in the path, and the service
+ * key would bypass the policy this block wrote and leave it proved by nothing.
+ *
+ * Validated as a `thumb`: a prize photograph identifies a row on a list and is
+ * held to the tighter of the two pixel ceilings. Nothing here sends it to
+ * WhatsApp, so none of Meta's rules decide anything about it — only the format
+ * and byte limits, which the bucket shares with the banner.
+ */
+export async function uploadPrizePhoto(
+  accessToken: string,
+  input: { companyId: string; prizeId: string; file: File },
+): Promise<string> {
+  const bytes = new Uint8Array(await input.file.arrayBuffer());
+  const rejection = describeArtworkRejection(
+    'thumb',
+    { type: input.file.type, size: input.file.size },
+    readImageDimensions(bytes),
+  );
+  // The bucket refuses the type and the size as well (0143). This is here so
+  // the failure is a sentence rather than a Storage error, so the pixel ceiling
+  // — which no bucket can express — is enforced somewhere a client cannot
+  // reach, and so nothing is uploaded first.
+  if (rejection) throw new ValidationError(rejection);
+
+  const key = artworkKey('prize-photos', input.companyId, input.prizeId);
+
+  const uploaded = await asCaller(accessToken)
+    .storage.from(ARTWORK_BUCKET)
+    .upload(key, input.file, {
+      // NOT optional: the key carries no extension, so an object uploaded with
+      // no content type is served back as application/octet-stream.
+      contentType: input.file.type,
+      // The whole point of a key derived from the record. Without this the
+      // SECOND upload for a prize fails instead of replacing the first.
+      upsert: true,
+    });
+  if (uploaded.error) {
+    throw new InternalError(`Could not upload the photograph: ${uploaded.error.message}`);
+  }
+
+  const url = artworkPublicUrl(getUserSupabaseConfig().url, key, Date.now());
+  const { error } = await asCaller(accessToken).rpc('set_prize_photo', {
+    p_prize_id: input.prizeId,
+    p_url: url,
+  });
+  if (error) throw mapInventoryError(error.code, error.message);
+  return url;
+}
+
+/**
+ * Clears the column and queues the object, in one transaction (0145).
+ *
+ * NOTHING HERE DELETES ANYTHING: the bucket has no delete policy for
+ * `authenticated`, deliberately, and the worker drains the queue through
+ * service_role. p_url is OMITTED rather than sent as null — 0145 gives it
+ * `default null` precisely so clearing needs no cast.
+ */
+export async function clearPrizePhoto(accessToken: string, prizeId: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_prize_photo', {
+    p_prize_id: prizeId,
+  });
+  if (error) throw mapInventoryError(error.code, error.message);
 }
