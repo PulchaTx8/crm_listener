@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(11);
 
 -- Block 14. The bucket is the barrier no client goes around, and the policies
 -- are what decide who writes. Asserted because configuration nobody asserts
@@ -60,6 +60,35 @@ select is(
       and policyname in ('artwork_insert', 'artwork_update')),
   2::bigint,
   'both write policies exist, because an upsert needs INSERT and UPDATE');
+
+-- THE POLICY NOBODY WOULD GUESS IS LOAD-BEARING, asserted so that tidying it
+-- away as "the bucket is public, why would reads need a policy" breaks a test
+-- rather than every upload.
+--
+-- storage-api sends a replacement as `insert ... on conflict do update`, and
+-- PostgreSQL applies SELECT policies to that statement whether or not a row
+-- actually conflicts. Without this, the FIRST upload of the FIRST picture fails
+-- with 42501 naming the insert.
+select is(
+  (select count(*) from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname = 'artwork_read'),
+  1::bigint,
+  'and a SELECT policy, without which on-conflict refuses every upload');
+
+-- The proof itself, rather than the policy's existence: the statement
+-- storage-api actually sends, run as an authenticated caller with no
+-- permission anywhere. It must fail on the WITH CHECK -- 42501 -- rather than
+-- on the absence of a readable row, and it must fail for a caller who may not
+-- write here at all.
+set local role authenticated;
+select throws_ok(
+  $$insert into storage.objects (bucket_id, name)
+    values ('artwork', 'promotion-thumbs/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222')
+    on conflict (bucket_id, name) do update set updated_at = now()$$,
+  '42501', null,
+  'a caller with no permission cannot upsert into the artwork bucket');
+reset role;
 
 select * from finish();
 rollback;

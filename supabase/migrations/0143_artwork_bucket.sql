@@ -103,9 +103,27 @@ create policy artwork_update
   using (bucket_id = 'artwork' and public.may_write_artwork(name))
   with check (bucket_id = 'artwork' and public.may_write_artwork(name));
 
--- No SELECT policy, and its absence is the feature: the bucket is public, so
--- reads go through the public endpoint and never reach RLS at all.
+-- A SELECT POLICY, WHICH THE UPLOAD ITSELF NEEDS. This is not for reading.
 --
+-- Replacing a picture means `upsert`, and storage-api sends that as
+-- `insert ... on conflict (bucket_id, name) do update`. PostgreSQL applies the
+-- table's SELECT policies to that statement -- it has to consider a row it may
+-- be about to update -- and with no SELECT policy applicable it refuses the
+-- whole statement with `42501: new row violates row-level security policy`,
+-- EVEN WHEN NO ROW CONFLICTS. So the very first upload of the very first
+-- picture fails, with an error naming the insert and pointing at nothing.
+--
+-- Measured, not reasoned: the same statement run by hand as `authenticated`
+-- fails with `on conflict` and succeeds without it. 0086's receipt upload never
+-- met this because it uses `upsert: false` -- a receipt may not be replaced.
+--
+-- It leaks nothing. The bucket is PUBLIC: every one of these objects is already
+-- served to anybody holding its URL, so admitting an authenticated operator to
+-- the row that names it gives away a path they could construct anyway.
+create policy artwork_read
+  on storage.objects for select to authenticated
+  using (bucket_id = 'artwork');
+
 -- No DELETE policy for authenticated, deliberately -- the shape 0123 chose.
 -- Clearing an image queues its object in storage_erasure_queue (0087) and the
 -- worker deletes it through service_role. A client that could delete here could
