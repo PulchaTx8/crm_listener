@@ -1,5 +1,5 @@
 begin;
-select plan(33);
+select plan(35);
 
 -- Block 13a: albums, the Deezer columns on songs, and the doors that write
 -- them.
@@ -60,6 +60,28 @@ select is(
     where table_schema = 'public' and table_name = 'albums'
       and grantee = 'authenticated' and privilege_type in ('INSERT','UPDATE','DELETE')),
   0, 'authenticated holds no direct write grant on albums');
+
+-- 0142. albums must read exactly like its siblings for service_role, and this
+-- is compared AGAINST songs rather than asserted as a literal: the grant the
+-- older tables have came from default privileges in force when 0098 ran, not
+-- from anything written down, so a literal here would be a second guess at the
+-- same fact. 0136 shipped without it and the failure was invisible on the
+-- hosted project (older, still auto-exposing) while /music/songs answered
+-- 42501 on a fresh local stack.
+select is(
+  (select count(*)::int from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'albums'
+      and grantee = 'service_role' and privilege_type = 'SELECT'),
+  (select count(*)::int from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'songs'
+      and grantee = 'service_role' and privilege_type = 'SELECT'),
+  'service_role reads albums exactly as it reads songs');
+
+-- anon holds nothing on albums, as on every other music table.
+select is(
+  (select count(*)::int from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'albums' and grantee = 'anon'),
+  0, 'anon holds nothing on albums');
 
 -- ---------------------------------------------------------------------------
 -- 12-16: the format checks. Each is here because the column feeds something
