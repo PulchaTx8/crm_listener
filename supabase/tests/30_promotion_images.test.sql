@@ -92,8 +92,15 @@ select lives_ok(
       'promotion-banners/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1')$$,
   'our own address is queued');
 
+-- Counted for THIS key rather than for the bucket. storage_erasure_queue is
+-- ordinary committed data: the e2e suite runs against this same database and
+-- leaves its own rows behind, so a count over `bucket = 'artwork'` passes on a
+-- fresh reset and fails on the second run of the day, naming a defect that is
+-- not there.
 select is(
-  (select count(*) from public.storage_erasure_queue where bucket = 'artwork'),
+  (select count(*) from public.storage_erasure_queue
+    where bucket = 'artwork'
+      and path = 'promotion-banners/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1'),
   1::bigint,
   'and exactly one row was written');
 
@@ -104,7 +111,9 @@ select lives_ok(
   'an address hosted elsewhere is accepted quietly');
 
 select is(
-  (select count(*) from public.storage_erasure_queue where bucket = 'artwork'),
+  (select count(*) from public.storage_erasure_queue
+    where bucket = 'artwork'
+      and path = 'promotion-banners/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1'),
   1::bigint,
   'and queued nothing, because a key naming no object would retry for ever');
 
