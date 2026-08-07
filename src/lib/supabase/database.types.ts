@@ -1802,6 +1802,7 @@ export type Database = {
           internal_code: string | null
           name: string
           organization_id: string
+          photo_url: string | null
           updated_at: string
         }
         Insert: {
@@ -1817,6 +1818,7 @@ export type Database = {
           internal_code?: string | null
           name: string
           organization_id: string
+          photo_url?: string | null
           updated_at?: string
         }
         Update: {
@@ -1832,6 +1834,7 @@ export type Database = {
           internal_code?: string | null
           name?: string
           organization_id?: string
+          photo_url?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -2205,6 +2208,7 @@ export type Database = {
           require_correct_answer: boolean
           site_integration_code: number | null
           starts_at: string
+          thumb_url: string | null
           updated_at: string
           use_art: boolean
           whatsapp_enabled: boolean
@@ -2236,6 +2240,7 @@ export type Database = {
           require_correct_answer?: boolean
           site_integration_code?: number | null
           starts_at: string
+          thumb_url?: string | null
           updated_at?: string
           use_art?: boolean
           whatsapp_enabled?: boolean
@@ -2267,6 +2272,7 @@ export type Database = {
           require_correct_answer?: boolean
           site_integration_code?: number | null
           starts_at?: string
+          thumb_url?: string | null
           updated_at?: string
           use_art?: boolean
           whatsapp_enabled?: boolean
@@ -3389,7 +3395,6 @@ export type Database = {
       create_promotion: {
         Args: {
           p_allow_multiple_entries?: boolean
-          p_art_url?: string
           p_call_to_action?: string
           p_company_id: string
           p_ends_at: string
@@ -3402,7 +3407,6 @@ export type Database = {
           p_require_correct_answer?: boolean
           p_site_integration_code?: number
           p_starts_at: string
-          p_use_art?: boolean
           p_whatsapp_enabled?: boolean
           p_yes_button_label?: string
         }
@@ -3479,6 +3483,10 @@ export type Database = {
           attempts: number
           id: string
         }[]
+      }
+      enqueue_artwork_erasure: {
+        Args: { p_key: string; p_url: string }
+        Returns: undefined
       }
       enqueue_pickup_reminder: {
         Args: { p_winner_id: string }
@@ -3870,6 +3878,7 @@ export type Database = {
           promotion_prize_id: string
         }[]
       }
+      may_write_artwork: { Args: { p_name: string }; Returns: boolean }
       member_block_active: {
         Args: {
           p_company_id: string
@@ -4328,6 +4337,18 @@ export type Database = {
         }
         Returns: string
       }
+      set_prize_photo: {
+        Args: { p_prize_id: string; p_url: string }
+        Returns: undefined
+      }
+      set_promotion_art: {
+        Args: { p_promotion_id: string; p_url: string }
+        Returns: undefined
+      }
+      set_promotion_thumb: {
+        Args: { p_promotion_id: string; p_url: string }
+        Returns: undefined
+      }
       set_station_message_template: {
         Args: {
           p_body: string
@@ -4421,7 +4442,6 @@ export type Database = {
       update_promotion: {
         Args: {
           p_allow_multiple_entries?: boolean
-          p_art_url?: string
           p_call_to_action?: string
           p_ends_at: string
           p_hashtag?: string
@@ -4434,7 +4454,6 @@ export type Database = {
           p_require_correct_answer?: boolean
           p_site_integration_code?: number
           p_starts_at: string
-          p_use_art?: boolean
           p_whatsapp_enabled?: boolean
           p_yes_button_label?: string
         }

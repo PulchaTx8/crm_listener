@@ -42,8 +42,13 @@ function readJpeg(bytes: Uint8Array): ImageDimensions | null {
   // past the ceiling this reader exists to enforce.
   let offset = 2;
   while (offset + 3 < bytes.length) {
-    if (bytes[offset] !== 0xff) return null;
+    const prefix = bytes[offset];
     const marker = bytes[offset + 1];
+    // Both are in range by the loop's own condition; the check is what tells
+    // the compiler so, and it costs nothing to be the one place this file
+    // admits it is walking a buffer it did not write.
+    if (prefix === undefined || marker === undefined) return null;
+    if (prefix !== 0xff) return null;
 
     // Fill bytes, and the standalone markers that carry no length.
     if (marker === 0xff) {
