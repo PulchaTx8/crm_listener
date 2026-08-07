@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -73,7 +74,7 @@ export async function searchRequestListenersAction(
     logger.error({ err: cause, companyId }, 'could not search the listeners of this station');
     return {
       status: 'error',
-      message: describeParticipationsReadError(cause, 'the listeners of this Station'),
+      message: describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectTheListenersOfThisStation'),
     };
   }
 }
@@ -92,7 +93,7 @@ export async function searchRequestSongsAction(
     return { status: 'ok', page: await searchSongs(companyId, search, token) };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'could not search songs for a request');
-    return { status: 'error', message: describeMusicReadError(cause) };
+    return { status: 'error', message: describeMusicReadError(cause, await getTranslations('music')) };
   }
 }
 
@@ -208,7 +209,7 @@ export async function recordRequestAction(
       );
       return {
         ok: false,
-        message: describeParticipationsWriteError(cause, 'register this listener at this Station'),
+        message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRegisterThisListenerAtThisStation'),
       };
     }
   }
@@ -233,8 +234,8 @@ export async function recordRequestAction(
       ok: false,
       listenerRegistered: registered,
       message: registered
-        ? `The listener was registered, but the request was not recorded. ${describeMusicWriteError(cause, 'record a request')} They are now linked to this Station, so pick them from the search above rather than typing them again.`
-        : describeMusicWriteError(cause, 'record a request'),
+        ? `The listener was registered, but the request was not recorded. ${describeMusicWriteError(cause, await getTranslations('music'), 'actionRecordARequest')} They are now linked to this Station, so pick them from the search above rather than typing them again.`
+        : describeMusicWriteError(cause, await getTranslations('music'), 'actionRecordARequest'),
     };
   }
 }
@@ -272,6 +273,6 @@ export async function archiveRequestAction(
     return { ok: true };
   } catch (cause) {
     logger.error({ err: cause, requestId }, 'withdraw request failed');
-    return { ok: false, message: describeMusicWriteError(cause, 'withdraw this request') };
+    return { ok: false, message: describeMusicWriteError(cause, await getTranslations('music'), 'actionWithdrawThisRequest') };
   }
 }

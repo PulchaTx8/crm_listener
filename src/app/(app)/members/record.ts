@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -81,6 +82,6 @@ export async function getMemberRecordAction(memberId: string): Promise<MemberRec
     return { status: 'ok', record: { detail, stations, consents, notes, blocks } };
   } catch (cause) {
     logger.error({ err: cause, memberId }, 'could not load this listener record');
-    return { status: 'error', message: describeMembersReadError(cause) };
+    return { status: 'error', message: describeMembersReadError(cause, await getTranslations('members')) };
   }
 }

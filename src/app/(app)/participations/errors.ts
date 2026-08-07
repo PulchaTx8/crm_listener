@@ -57,18 +57,19 @@ import {
  */
 export function describeParticipationsReadError(
   cause: unknown,
-  what: string = 'the entries in this Station',
+  t: (key: string, values?: Record<string, string>) => string,
+  whatKey: string = 'subjectTheEntriesInThisStation',
 ): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to view ${what}.`;
+    return t('youDoNotHavePermissionToView', { what: t(whatKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
-  return `Could not load ${what}. Refresh the page and try again.`;
+  return t('couldNotLoad', { what: t(whatKey) });
 }
 
 /**
@@ -97,15 +98,19 @@ export function describeParticipationsReadError(
  * advisory lock did not serialise two simultaneous entries and the operator's
  * next action is to look at what actually got written rather than to retry.
  */
-export function describeParticipationsWriteError(cause: unknown, action: string): string {
+export function describeParticipationsWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof ValidationError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'The promotion or the listener is no longer reachable from this Station. A listener registered at another Station of this Organization has to be linked to this one before an entry can be recorded for them.';
+    return t('thePromotionOrTheListenerIsNoLongerReachable');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action}.`;
+    return t('youDoNotHavePermissionTo', { action: t(actionKey) });
   }
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }

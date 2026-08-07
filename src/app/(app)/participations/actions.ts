@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -76,7 +77,7 @@ export async function searchStationListenersAction(
     // entries — sends them to ask for the wrong permission.
     return {
       status: 'error',
-      message: describeParticipationsReadError(cause, 'the listeners of this Station'),
+      message: describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectTheListenersOfThisStation'),
     };
   }
 }
@@ -242,7 +243,7 @@ export async function recordParticipationAction(
       // about the entry.
       return {
         status: 'error',
-        message: describeParticipationsWriteError(cause, 'register this listener at this Station'),
+        message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRegisterThisListenerAtThisStation'),
       };
     }
   }
@@ -272,8 +273,8 @@ export async function recordParticipationAction(
       attempted: true,
       listenerRegistered: registered,
       message: registered
-        ? `The listener was registered, but the entry was not recorded. ${describeParticipationsWriteError(cause, 'record an entry in this promotion')} They are now in this Station's audience, so pick them from the search above rather than typing them again.`
-        : describeParticipationsWriteError(cause, 'record an entry in this promotion'),
+        ? `The listener was registered, but the entry was not recorded. ${describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRecordAnEntryInThisPromotion')} They are now in this Station's audience, so pick them from the search above rather than typing them again.`
+        : describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRecordAnEntryInThisPromotion'),
     };
   }
 }
@@ -404,7 +405,7 @@ export async function importParticipationsAction(
     logger.error({ err: cause, promotionId, rows: rows.length }, 'import participations failed');
     return {
       status: 'error',
-      message: describeParticipationsWriteError(cause, 'import entries into this promotion'),
+      message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionImportEntriesIntoThisPromotion'),
     };
   }
 }
@@ -460,7 +461,7 @@ export async function prepareDrawHatAction(state: ParticipationListState): Promi
       { err: cause, promotionId: state.promotionId },
       'could not collect the hat for a draw',
     );
-    return { status: 'error', message: describeParticipationsReadError(cause, 'these entries') };
+    return { status: 'error', message: describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectTheseEntries') };
   }
 }
 
@@ -510,7 +511,7 @@ export async function runDrawFromListAction(
     );
     return {
       status: 'error',
-      message: describeParticipationsWriteError(cause, 'run a draw in this promotion'),
+      message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRunADrawInThisPromotion'),
     };
   }
 

@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -75,6 +76,6 @@ export async function mergeRecordsAction(_prev: MergeState, formData: FormData):
       { err: cause, companyId: result.data.companyId, kind: result.data.kind },
       'merge failed',
     );
-    return { ok: false, message: describeMergeError(cause) };
+    return { ok: false, message: describeMergeError(cause, await getTranslations('music')) };
   }
 }

@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -132,7 +133,7 @@ export async function createPromotionAction(
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create promotion failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'register a promotion'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionRegisterAPromotion'),
     };
   }
 }
@@ -155,7 +156,7 @@ export async function updatePromotionAction(
     return { status: 'saved', promotionId };
   } catch (cause) {
     logger.error({ err: cause, promotionId }, 'update promotion failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, 'edit this promotion') };
+    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisPromotion') };
   }
 }
 
@@ -184,7 +185,7 @@ export async function cancelPromotionAction(
     logger.error({ err: cause, promotionId }, 'cancel promotion failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'cancel this promotion'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionCancelThisPromotion'),
     };
   }
 }
@@ -209,7 +210,7 @@ export async function archivePromotionAction(
     logger.error({ err: cause, promotionId }, 'archive promotion failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'archive this promotion'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionArchiveThisPromotion'),
     };
   }
 }
@@ -258,7 +259,7 @@ export async function savePromotionQuestionAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, promotionId, questionId }, 'save promotion question failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, 'edit this quiz') };
+    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisQuiz') };
   }
 }
 
@@ -275,7 +276,7 @@ export async function removePromotionQuestionAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, questionId }, 'remove promotion question failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, 'edit this quiz') };
+    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisQuiz') };
   }
 }
 
@@ -341,7 +342,7 @@ export async function linkPrizeAction(
     logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'link prize failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'link this prize'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionLinkThisPrize'),
     };
   }
 }
@@ -363,7 +364,7 @@ export async function unlinkPrizeAction(
     logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'unlink prize failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'return this prize to stock'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionReturnThisPrizeToStock'),
     };
   }
 }
@@ -393,7 +394,7 @@ export async function searchLinkablePrizesAction(
     // link stock.
     return {
       status: 'error',
-      message: describePromotionsReadError(cause, 'the prizes available to link'),
+      message: describePromotionsReadError(cause, await getTranslations('promotions'), 'subjectThePrizesAvailableToLink'),
     };
   }
 }

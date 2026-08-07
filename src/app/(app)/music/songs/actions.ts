@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { songFormSchema, songUpdateSchema } from '@/schemas/music';
@@ -93,7 +94,7 @@ export async function createSongAction(
     return { status: 'saved', songId };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create song failed');
-    return { status: 'error', message: describeMusicWriteError(cause, 'register songs') };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), 'actionRegisterSongs') };
   }
 }
 
@@ -143,7 +144,7 @@ export async function updateSongAction(
     return found ? { status: 'saved', song: found.song } : { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, songId: parsed.data.songId }, 'update song failed');
-    return { status: 'error', message: describeMusicWriteError(cause, 'save this song') };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), 'actionSaveThisSong') };
   }
 }
 
@@ -166,6 +167,6 @@ export async function archiveSongAction(
     return { status: 'archived' };
   } catch (cause) {
     logger.error({ err: cause, songId }, 'archive song failed');
-    return { status: 'error', message: describeMusicWriteError(cause, 'archive this song') };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), 'actionArchiveThisSong') };
   }
 }

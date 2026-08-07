@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -44,7 +45,7 @@ export async function runDrawAction(
     return null;
   } catch (cause) {
     logger.error({ err: cause, promotionId }, 'run_draw failed');
-    return describePromotionsWriteError(cause, 'run a draw');
+    return describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionRunADraw');
   }
 }
 
@@ -60,7 +61,7 @@ export async function cancelDrawAction(
     return null;
   } catch (cause) {
     logger.error({ err: cause, drawId }, 'cancel_draw failed');
-    return describePromotionsWriteError(cause, 'cancel a draw');
+    return describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionCancelADraw');
   }
 }
 
@@ -107,7 +108,7 @@ export async function winnerActionAction(
     return null;
   } catch (cause) {
     logger.error({ err: cause, winnerId, action }, 'winner transition failed');
-    return describePromotionsWriteError(cause, 'change this prize');
+    return describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionChangeThisPrize');
   }
 }
 
@@ -133,6 +134,6 @@ export async function attachReceiptAction(
     return null;
   } catch (cause) {
     logger.error({ err: cause, winnerId }, 'attach_delivery_receipt failed');
-    return describePromotionsWriteError(cause, 'attach a receipt');
+    return describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionAttachAReceipt');
   }
 }

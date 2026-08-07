@@ -31,19 +31,23 @@ import {
  * permission, and it no longer is. Defaults to the original wording, so every
  * call site that does not pass `what` reads exactly as it always did.
  */
-export function describePromotionsReadError(cause: unknown, what: string = 'promotions here'): string {
+export function describePromotionsReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  whatKey: string = 'subjectPromotionsHere',
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to view ${what}.`;
+    return t('youDoNotHavePermissionToView', { what: t(whatKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs, and
   // its message may carry a raw database error — not something to show.
-  return 'Could not load promotions. Refresh the page and try again.';
+  return t('couldNotLoadPromotions');
 }
 
 /**
@@ -65,15 +69,19 @@ export function describePromotionsReadError(cause: unknown, what: string = 'prom
  * operator can act on. Replacing those with something generic would throw away
  * the only part of the message that helps.
  */
-export function describePromotionsWriteError(cause: unknown, action: string): string {
+export function describePromotionsWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof ValidationError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action}.`;
+    return t('youDoNotHavePermissionTo', { action: t(actionKey) });
   }
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }

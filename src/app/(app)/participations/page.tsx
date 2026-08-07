@@ -67,7 +67,7 @@ export default async function ParticipationsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve participations access');
-    return <LoadError message={describeParticipationsReadError(cause)} />;
+    return <LoadError message={describeParticipationsReadError(cause, await getTranslations('participations'))} />;
   }
 
   const first = viewable[0];
@@ -160,7 +160,7 @@ export default async function ParticipationsPage({
     );
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the participations list');
-    return <LoadError message={describeParticipationsReadError(cause)} />;
+    return <LoadError message={describeParticipationsReadError(cause, await getTranslations('participations'))} />;
   }
 
   // The promotion picker's options: ONE page of promotions by name, never the
@@ -198,7 +198,7 @@ export default async function ParticipationsPage({
       { err: cause, companyId: selected.id },
       'could not read the promotions for the participations filter',
     );
-    promotionsError = describeParticipationsReadError(cause, 'the promotions in this Station');
+    promotionsError = describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectThePromotionsInThisStation');
   }
 
   // A promotion filter pointing at something the picker did not offer — a

@@ -45,7 +45,7 @@ export default async function WhatsAppTemplatesPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve template access');
-    return <LoadError message={describeTemplateReadError(cause)} />;
+    return <LoadError message={describeTemplateReadError(cause, await getTranslations('templates'))} />;
   }
 
   const first = viewable[0];
@@ -66,7 +66,7 @@ export default async function WhatsAppTemplatesPage({
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the template registry');
-    return <LoadError message={describeTemplateReadError(cause)} />;
+    return <LoadError message={describeTemplateReadError(cause, await getTranslations('templates'))} />;
   }
 
   return (

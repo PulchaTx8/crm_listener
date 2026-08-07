@@ -64,7 +64,7 @@ export default async function PickupsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve pickups access');
-    return <LoadError message={describePickupsReadError(cause)} />;
+    return <LoadError message={describePickupsReadError(cause, await getTranslations('pickups'))} />;
   }
 
   const first = viewable[0];
@@ -130,7 +130,7 @@ export default async function PickupsPage({
     );
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the pickups list');
-    return <LoadError message={describePickupsReadError(cause)} />;
+    return <LoadError message={describePickupsReadError(cause, await getTranslations('pickups'))} />;
   }
 
   // The promotion picker's options: ONE page of promotions by name, never the
@@ -159,7 +159,7 @@ export default async function PickupsPage({
       { err: cause, companyId: selected.id },
       'could not read the promotions for the pickups filter',
     );
-    promotionsError = describePickupsReadError(cause, 'the promotions in this Station');
+    promotionsError = describePickupsReadError(cause, await getTranslations('pickups'), 'subjectThePromotionsInThisStation');
   }
 
   // A promotion filter pointing at something the picker did not offer — past

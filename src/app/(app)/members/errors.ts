@@ -33,19 +33,22 @@ import {
  * moment another read on this surface starts going through a gated call, the
  * same way is_member_blocked already has.
  */
-export function describeMembersReadError(cause: unknown): string {
+export function describeMembersReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to view the audience here.';
+    return t('youDoNotHavePermissionToViewTheAudience');
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return 'Could not load the audience. Refresh the page and try again.';
+  return t('couldNotLoadTheAudience');
 }
 
 /**
@@ -79,17 +82,21 @@ export function describeMembersReadError(cause: unknown): string {
  * use it — it is mapped defensively, for a foreign key that does not yet
  * exist.
  */
-export function describeMembersWriteError(cause: unknown, action: string): string {
+export function describeMembersWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action}.`;
+    return t('youDoNotHavePermissionTo', { action: t(actionKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }

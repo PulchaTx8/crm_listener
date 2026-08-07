@@ -53,7 +53,7 @@ export default async function PromotionsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve promotions access');
-    return <LoadError message={describePromotionsReadError(cause)} />;
+    return <LoadError message={describePromotionsReadError(cause, await getTranslations('promotions'))} />;
   }
 
   const first = viewable[0];
@@ -101,7 +101,7 @@ export default async function PromotionsPage({
     });
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the promotions list');
-    return <LoadError message={describePromotionsReadError(cause)} />;
+    return <LoadError message={describePromotionsReadError(cause, await getTranslations('promotions'))} />;
   }
 
   return (

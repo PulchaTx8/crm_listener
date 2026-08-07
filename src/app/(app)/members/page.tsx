@@ -78,7 +78,7 @@ export default async function MembersPage({
     canView = await canViewAudience(supabase, organizationId);
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not resolve audience access');
-    return <LoadError message={describeMembersReadError(cause)} />;
+    return <LoadError message={describeMembersReadError(cause, await getTranslations('members'))} />;
   }
 
   // A courtesy, not the boundary: every read below goes through RLS
@@ -96,7 +96,7 @@ export default async function MembersPage({
     powers = await getAudiencePowers(supabase, organizationId);
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not resolve audience powers');
-    return <LoadError message={describeMembersReadError(cause)} />;
+    return <LoadError message={describeMembersReadError(cause, await getTranslations('members'))} />;
   }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -127,7 +127,7 @@ export default async function MembersPage({
     );
   } catch (cause) {
     logger.error({ err: cause, organizationId }, 'could not load the audience');
-    return <LoadError message={describeMembersReadError(cause)} />;
+    return <LoadError message={describeMembersReadError(cause, await getTranslations('members'))} />;
   }
 
   // Rendered only as a courtesy, the same reasoning inventory/page.tsx gives

@@ -71,7 +71,7 @@ export default async function MaintenancePage({
     ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve music access');
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   const first = viewable[0];
@@ -122,7 +122,7 @@ export default async function MaintenancePage({
     // "...view the music catalogue..." sentence is the right one — a
     // Maintenance-specific wording (Task 9's first pass added one) would be
     // wrong in the opposite direction now.
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   return (

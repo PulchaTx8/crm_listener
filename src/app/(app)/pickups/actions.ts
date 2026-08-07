@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -82,7 +83,7 @@ export async function pickupWinnerAction(
     return { status: 'ok', winnerStatus };
   } catch (cause) {
     logger.error({ err: cause, winnerId, action }, 'winner transition failed on the pickups screen');
-    return { status: 'error', message: describePickupsWriteError(cause, 'change this prize') };
+    return { status: 'error', message: describePickupsWriteError(cause, await getTranslations('pickups'), 'actionChangeThisPrize') };
   }
 }
 
@@ -102,6 +103,6 @@ export async function reopenPickupAction(
     return { status: 'ok', winnerStatus: 'AWAITING_PICKUP', deadlineAt };
   } catch (cause) {
     logger.error({ err: cause, winnerId }, 'reopen_pickup_deadline failed');
-    return { status: 'error', message: describePickupsWriteError(cause, 'reopen this deadline') };
+    return { status: 'error', message: describePickupsWriteError(cause, await getTranslations('pickups'), 'actionReopenThisDeadline') };
   }
 }
