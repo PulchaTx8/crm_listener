@@ -77,7 +77,7 @@ export async function pickupWinnerAction(
     } else {
       return {
         status: 'error',
-        message: 'Reopening a deadline needs the form below, not this button.',
+        message: (await getTranslations('pickups'))('reopeningNeedsTheFormBelow'),
       };
     }
     return { status: 'ok', winnerStatus };

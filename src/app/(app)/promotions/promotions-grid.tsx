@@ -197,13 +197,13 @@ export function PromotionsGrid({
                     </TableCell>
                     <TableCell className="text-sm">{promotion.hashtag ?? '—'}</TableCell>
                     <TableCell className="text-sm">
-                      {formatQuestionCount(promotion.questionCount)}
+                      {formatQuestionCount(promotion.questionCount, t)}
                     </TableCell>
                     <TableCell className="sticky right-0 bg-background">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          aria-label={`Edit ${promotion.name}`}
+                          aria-label={t('editPromotion', { name: promotion.name })}
                           onClick={() => open(promotion.id, 'data')}
                           className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         >
@@ -211,7 +211,7 @@ export function PromotionsGrid({
                         </button>
                         {(powers.cancel || powers.archive) && (
                           <DropdownMenu
-                            label={`Actions for ${promotion.name}`}
+                            label={t('actionsForPromotion', { name: promotion.name })}
                             trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                           >
                             {powers.cancel && (

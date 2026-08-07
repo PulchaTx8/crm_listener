@@ -173,7 +173,7 @@ export default async function PickupsPage({
     promotionOptions.unshift({
       id: state.promotionId,
       name: page.rows.find((row) => row.promotionId === state.promotionId)?.promotionName
-        ?? 'The promotion this list is filtered to',
+        ?? t('thePromotionThisListIsFilteredTo'),
     });
   }
 
@@ -181,7 +181,7 @@ export default async function PickupsPage({
     <>
       <PageHeader
         title={t('pickups')}
-        description="Every prize awaiting collection across this Station's promotions, soonest deadline first."
+        description={t('pickupsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -206,7 +206,7 @@ export default async function PickupsPage({
             action="/pickups"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

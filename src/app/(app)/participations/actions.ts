@@ -212,7 +212,7 @@ export async function recordParticipationAction(
       if (!companyId) {
         return {
           status: 'error',
-          message: 'That promotion is no longer reachable. Reopen the record and try again.',
+          message: (await getTranslations('participations'))('thatPromotionIsNoLongerReachable'),
         };
       }
 
@@ -332,17 +332,18 @@ export async function importParticipationsAction(
   const promotionId = String(formData.get('promotionId') ?? '');
   if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
 
+  const t = await getTranslations('participations');
   let raw: unknown;
   try {
     raw = JSON.parse(String(formData.get('rows') ?? ''));
   } catch {
-    return { status: 'error', message: 'The file could not be read. Choose it again.' };
+    return { status: 'error', message: t('theFileCouldNotBeRead') };
   }
   if (!Array.isArray(raw)) {
-    return { status: 'error', message: 'The file could not be read. Choose it again.' };
+    return { status: 'error', message: t('theFileCouldNotBeRead') };
   }
   if (raw.length === 0) {
-    return { status: 'error', message: 'That file has a header row and nothing under it.' };
+    return { status: 'error', message: t('thatFileHasAHeaderRowAndNothingUnderIt') };
   }
 
   const rows: ImportRowInput[] = [];
@@ -363,7 +364,7 @@ export async function importParticipationsAction(
       : index + 2;
     unreadable.push({
       line,
-      reason: parsed.error.issues[0]?.message ?? 'This line could not be read.',
+      reason: parsed.error.issues[0]?.message ?? t('thisLineCouldNotBeRead'),
     });
   });
 
@@ -496,7 +497,7 @@ export async function runDrawFromListAction(
   if (participationIds.length === 0) {
     return {
       status: 'error',
-      message: 'Nobody in this list can be drawn. Widen the filters and try again.',
+      message: (await getTranslations('participations'))('nobodyInThisListCanBeDrawn'),
     };
   }
 

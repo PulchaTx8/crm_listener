@@ -262,8 +262,12 @@ function DeadlineText({
   const t = useTranslations('pickups');
   if (!deadlineAt) return <span>{t('noDeadline')}</span>;
 
-  const clock = describeDeadline(deadlineAt, status);
-  const overdue = clock.startsWith('overdue');
+  const clock = describeDeadline(deadlineAt, status, t);
+  // Read off the DATE, never off the sentence. This used to be
+  // `clock.startsWith('overdue')`, which asked an English question about text
+  // the catalogue now answers in three languages — the red would simply have
+  // stopped appearing in Portuguese and Spanish, silently.
+  const overdue = new Date(deadlineAt).getTime() - Date.now() <= 0;
 
   return (
     <span>

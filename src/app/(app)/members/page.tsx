@@ -179,7 +179,7 @@ export default async function MembersPage({
     <>
       <PageHeader
         title={t('members')}
-        description="The audience across every Station you can reach."
+        description={t('membersDescription')}
         action={
           <ExportDialog
             reportType="LISTENERS"
@@ -209,7 +209,7 @@ export default async function MembersPage({
             preserve={Object.fromEntries(
               new URLSearchParams(membersHref(state).split('?')[1] ?? ''),
             )}
-            label="Find a Station to register at"
+            label={t('findAStationToRegisterAt')}
           />
         </div>
       )}

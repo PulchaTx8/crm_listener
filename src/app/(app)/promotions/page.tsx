@@ -108,7 +108,7 @@ export default async function PromotionsPage({
     <>
       <PageHeader
         title={t('promotions')}
-        description="Every promotion in the Station, its window, and the quiz the bot asks."
+        description={t('promotionsDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -121,7 +121,7 @@ export default async function PromotionsPage({
             action="/promotions"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

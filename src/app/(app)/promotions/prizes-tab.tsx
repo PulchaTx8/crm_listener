@@ -242,7 +242,7 @@ function UnlinkControl({
         max={free}
         value={quantity}
         onChange={(e) => setQuantity(e.target.value)}
-        aria-label={`Units of ${prizeName} to return to stock`}
+        aria-label={t('unitsOfPrizeToReturn', { prize: prizeName })}
         className="w-20"
         data-testid={`prize-unlink-quantity-${prizeId}`}
       />
@@ -250,7 +250,7 @@ function UnlinkControl({
         type="submit"
         variant="outline"
         disabled={pending}
-        aria-label={`Return ${prizeName} to stock`}
+        aria-label={t('returnPrizeToStock', { prize: prizeName })}
         data-testid={`prize-unlink-${prizeId}`}
       >
         {pending ? t('returning') : t('returnAction')}

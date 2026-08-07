@@ -30,16 +30,16 @@ export const SITUATION_CLASSES: Record<PromotionSituation, string> = {
   cancelled: 'bg-destructive/10 text-destructive',
 };
 
-export const QUESTION_KIND_LABELS: Record<PromotionQuestionKind, string> = {
-  QUIZ: 'Quiz',
-  MULTIPLE_CHOICE: 'Poll',
-  ESSAY: 'Written answer',
+export const QUESTION_KIND_LABEL_KEYS: Record<PromotionQuestionKind, string> = {
+  QUIZ: 'questionKindQuiz',
+  MULTIPLE_CHOICE: 'questionKindPoll',
+  ESSAY: 'questionKindEssay',
 };
 
-export const QUESTION_KIND_HINTS: Record<PromotionQuestionKind, string> = {
-  QUIZ: 'Options, one of them the right answer.',
-  MULTIPLE_CHOICE: 'Options, none of them right or wrong.',
-  ESSAY: 'The listener types their own answer.',
+export const QUESTION_KIND_HINT_KEYS: Record<PromotionQuestionKind, string> = {
+  QUIZ: 'questionHintQuiz',
+  MULTIPLE_CHOICE: 'questionHintPoll',
+  ESSAY: 'questionHintEssay',
 };
 
 /**
@@ -47,15 +47,15 @@ export const QUESTION_KIND_HINTS: Record<PromotionQuestionKind, string> = {
  * column it fills. Reworded freely: these are labels, and the enum value
  * underneath is the contract.
  */
-export const REQUESTED_FIELD_LABELS: Record<RequestedField, string> = {
-  full_name: 'Full name',
-  address: 'Address',
-  city: 'City',
-  neighbourhood: 'Neighbourhood',
-  age: 'Age',
-  cpf: 'CPF',
-  passport: 'Passport',
-  discovery_source: 'How they found the Station',
+export const REQUESTED_FIELD_LABEL_KEYS: Record<RequestedField, string> = {
+  full_name: 'requestedFieldFullName',
+  address: 'requestedFieldAddress',
+  city: 'requestedFieldCity',
+  neighbourhood: 'requestedFieldNeighbourhood',
+  age: 'requestedFieldAge',
+  cpf: 'requestedFieldCpf',
+  passport: 'requestedFieldPassport',
+  discovery_source: 'requestedFieldDiscoverySource',
 };
 
 /**
@@ -80,8 +80,14 @@ export function formatInstant(instant: string, timeZone: string): string {
   }).format(new Date(instant));
 }
 
-/** "1 question" / "3 questions" / "No quiz" — the grid's own column. */
-export function formatQuestionCount(count: number): string {
-  if (count === 0) return 'No quiz';
-  return count === 1 ? '1 question' : `${count} questions`;
+/**
+ * "1 question" / "3 questions" / "No quiz" — the grid's own column, as a
+ * single ICU message with a `=0` case. English adds a letter for the plural
+ * and nothing else here does, so each language answers for itself.
+ */
+export function formatQuestionCount(
+  count: number,
+  t: (key: string, values?: Record<string, string | number | Date>) => string,
+): string {
+  return t('questionCount', { count });
 }

@@ -102,7 +102,7 @@ export async function winnerActionAction(
       // reopen_pickup_deadline (0093) requires. Block 6d Task 9 builds the
       // Pickups screen, the one place with a date beside the reason, and
       // reopens through its own action there instead.
-      return 'Reopening a deadline is not available from this screen.';
+      return (await getTranslations('promotions'))('reopeningNotAvailableHere');
     }
     revalidatePath(`/promotions/${promotionId}/draws`);
     return null;
@@ -119,7 +119,7 @@ export async function attachReceiptAction(
   formData: FormData,
 ): Promise<string | null> {
   const file = formData.get('receipt');
-  if (!(file instanceof File) || file.size === 0) return 'Choose a file.';
+  if (!(file instanceof File) || file.size === 0) return (await getTranslations('promotions'))('chooseAFile');
   // Block 11b, D7. The bucket refuses these too (0134), and THAT is the real
   // boundary -- no client can go around it. This exists so the operator reads
   // "that file is 40 MB" instead of a raw Storage error, and so a refused file

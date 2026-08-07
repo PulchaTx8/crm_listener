@@ -75,7 +75,7 @@ export function DrawPanel({
     // until the hat is in hand — and checked anyway, because returning "no hat"
     // is cheaper than an empty array reaching run_draw, which reads one as "draw
     // the whole promotion".
-    if (!hat) return 'The list has not been read yet. Close this and open it again.';
+    if (!hat) return t('theListHasNotBeenReadYet');
 
     const answer = await runDrawFromListAction(promotionId, units, hat.participationIds);
     if (answer.status === 'error') return answer.message;
@@ -95,7 +95,7 @@ export function DrawPanel({
     <div
       className="w-full rounded-lg border p-4"
       data-testid="draw-panel"
-      aria-label={`Run a draw in ${promotionName}`}
+      aria-label={t('runADrawIn', { promotion: promotionName })}
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="font-medium">{t('draw2')}{' '}{promotionName}</h2>
@@ -160,10 +160,8 @@ export function DrawPanel({
             <p className="text-xs text-muted-foreground" data-testid="draw-hat-excluded">
               {t('leftOut')}{' '}
               {[
-                hat.alreadyWon > 0
-                  ? `${hat.alreadyWon} who already won in this promotion`
-                  : null,
-                hat.notValid > 0 ? `${hat.notValid} whose entry did not count` : null,
+                hat.alreadyWon > 0 ? t('leftOutAlreadyWon', { count: hat.alreadyWon }) : null,
+                hat.notValid > 0 ? t('leftOutNotValid', { count: hat.notValid }) : null,
               ]
                 .filter(Boolean)
                 .join(', ')}

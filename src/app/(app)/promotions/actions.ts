@@ -120,9 +120,10 @@ export async function createPromotionAction(
   _prev: PromotionFormState,
   formData: FormData,
 ): Promise<PromotionFormState> {
+  const t = await getTranslations('promotions');
   const parsed = readPromotionForm(formData);
   if (!parsed.success) {
-    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -142,12 +143,13 @@ export async function updatePromotionAction(
   _prev: PromotionFormState,
   formData: FormData,
 ): Promise<PromotionFormState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
 
   const parsed = readPromotionForm(formData);
   if (!parsed.success) {
-    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -169,13 +171,14 @@ export async function cancelPromotionAction(
   _prev: CancelPromotionState,
   formData: FormData,
 ): Promise<CancelPromotionState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
   const reason = String(formData.get('reason') ?? '').trim();
 
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
   // cancel_promotion refuses this too; catching it here saves a round trip and
   // says it beside the field rather than at the top of the dialog.
-  if (!reason) return { status: 'error', message: 'Say why this promotion is being cancelled.' };
+  if (!reason) return { status: 'error', message: t('sayWhyThisPromotionIsBeingCancelled') };
 
   const token = await requireAccessToken();
   try {
@@ -199,8 +202,9 @@ export async function archivePromotionAction(
   _prev: ArchivePromotionState,
   formData: FormData,
 ): Promise<ArchivePromotionState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
 
   const token = await requireAccessToken();
   try {
@@ -224,9 +228,10 @@ export async function savePromotionQuestionAction(
   _prev: QuestionFormState,
   formData: FormData,
 ): Promise<QuestionFormState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
   const questionId = String(formData.get('questionId') ?? '') || null;
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
 
   const kind = String(formData.get('kind') ?? '') as PromotionQuestionKind;
   // Labels and their ticks arrive as two parallel lists. The tick list carries
@@ -267,8 +272,9 @@ export async function removePromotionQuestionAction(
   _prev: QuestionFormState,
   formData: FormData,
 ): Promise<QuestionFormState> {
+  const t = await getTranslations('promotions');
   const questionId = String(formData.get('questionId') ?? '');
-  if (!questionId) return { status: 'error', message: 'Which question? Reopen the record.' };
+  if (!questionId) return { status: 'error', message: t('whichQuestionReopenTheRecord') };
 
   const token = await requireAccessToken();
   try {
@@ -302,12 +308,15 @@ type PrizeLinkFormResult =
  * Both ids are guarded here rather than in each action, because both actions
  * post the same three fields through this one reader.
  */
-function readPrizeLinkForm(formData: FormData): PrizeLinkFormResult {
+function readPrizeLinkForm(
+  formData: FormData,
+  t: (key: string) => string,
+): PrizeLinkFormResult {
   const promotionId = String(formData.get('promotionId') ?? '');
-  if (!promotionId) return { success: false, message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { success: false, message: t('whichPromotionReopenTheRecord') };
 
   const prizeId = String(formData.get('prizeId') ?? '');
-  if (!prizeId) return { success: false, message: 'Choose a prize.' };
+  if (!prizeId) return { success: false, message: t('chooseAPrizeRequired') };
 
   const raw = String(formData.get('quantity') ?? '').trim();
   const parsed = promotionPrizeLinkSchema.safeParse({
@@ -320,7 +329,7 @@ function readPrizeLinkForm(formData: FormData): PrizeLinkFormResult {
     quantity: raw === '' ? Number.NaN : Number(raw),
   });
   if (!parsed.success) {
-    return { success: false, message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { success: false, message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
   return { success: true, data: parsed.data };
 }
@@ -329,7 +338,7 @@ export async function linkPrizeAction(
   _prev: PrizeLinkState,
   formData: FormData,
 ): Promise<PrizeLinkState> {
-  const parsed = readPrizeLinkForm(formData);
+  const parsed = readPrizeLinkForm(formData, await getTranslations('promotions'));
   if (!parsed.success) {
     return { status: 'error', message: parsed.message };
   }
@@ -351,7 +360,7 @@ export async function unlinkPrizeAction(
   _prev: PrizeLinkState,
   formData: FormData,
 ): Promise<PrizeLinkState> {
-  const parsed = readPrizeLinkForm(formData);
+  const parsed = readPrizeLinkForm(formData, await getTranslations('promotions'));
   if (!parsed.success) {
     return { status: 'error', message: parsed.message };
   }

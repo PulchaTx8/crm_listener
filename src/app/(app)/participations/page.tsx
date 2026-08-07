@@ -259,7 +259,7 @@ export default async function ParticipationsPage({
   if (state.promotionId && !promotionOptions.some((p) => p.id === state.promotionId)) {
     promotionOptions.unshift({
       id: state.promotionId,
-      name: record?.name ?? page.rows[0]?.promotionName ?? 'The promotion this list is filtered to',
+      name: record?.name ?? page.rows[0]?.promotionName ?? t('thePromotionThisListIsFilteredTo'),
       // Read off the record when there is one, and false when there is not.
       // The picker not listing a promotion says nothing about whether it asks a
       // quiz — it says the picker was cut, or the promotion is archived — so
@@ -275,7 +275,7 @@ export default async function ParticipationsPage({
     <>
       <PageHeader
         title={t('participations')}
-        description="Every entry recorded in the Station — the ones that counted, and the ones that did not."
+        description={t('participationsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -300,7 +300,7 @@ export default async function ParticipationsPage({
             action="/participations"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
