@@ -126,9 +126,7 @@ export function DrawPanel({
       {result && (
         <div className="space-y-2" data-testid="draw-panel-result">
           <p className="text-sm font-medium">
-            {result.winners.length === 1
-              ? 'One prize was awarded.'
-              : `${result.winners.length} prizes were awarded.`}
+            {t('prizesAwarded', { count: result.winners.length })}
           </p>
           <ul className="space-y-1 text-sm">
             {result.winners.map((winner) => (

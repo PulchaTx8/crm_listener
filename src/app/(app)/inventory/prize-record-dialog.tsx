@@ -104,9 +104,7 @@ export function PrizeRecordDialog({
       }
       setRecord(null);
       setFailure(
-        result.status === 'not-found'
-          ? 'No such prize, or you do not have permission to see this one.'
-          : result.message,
+        result.status === 'not-found' ? t('noSuchPrizeOrYouDo') : result.message,
       );
     });
     return () => {

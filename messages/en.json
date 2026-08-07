@@ -67,7 +67,9 @@
     "signIn": "Sign in",
     "yourAccountIsReadySignIn": "Your account is ready. Sign in with the password you just chose.",
     "password": "Password",
-    "forgotYourPassword": "Forgot your password?"
+    "forgotYourPassword": "Forgot your password?",
+    "yourProvisionalPasswordHasExpired": "Your provisional password has expired. Please contact us for a new one.",
+    "invalidCredentials": "Invalid credentials."
   },
   "public": {
     "thankYou": "Thank you",
@@ -82,7 +84,9 @@
     "pulchatx": "PulchatX",
     "crmForEntertainmentCompaniesManageYour": "CRM for entertainment companies. Manage your audience relationship and the whole prize distribution cycle of your promotions.",
     "pulchatxIsSoldBySubscriptionGet": "PulchatX is sold by subscription. Get in touch and we will set your account up.",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "pleaseCheckTheFieldsAndTry": "Please check the fields and try again.",
+    "somethingWentWrongPleaseTry": "Something went wrong. Please try again later."
   },
   "admin": {
     "contactRequests": "Contact requests",
@@ -146,7 +150,11 @@
     "suspendAction": "Suspend",
     "reactivateAction": "Reactivate",
     "save": "Save",
-    "connect": "Connect"
+    "connect": "Connect",
+    "allThreeCredentialsAreSet": "All three are set, so a Station that still receives nothing is a configuration below, not a credential.",
+    "untilAllThreeCredentialsAreSet": "Until all three are set, no Station sends or receives anything, however it is configured below.",
+    "secretConfigured": "configured",
+    "secretNotSet": "not set"
   },
   "draws": {
     "drawOf": "Draw of",
@@ -250,7 +258,9 @@
     "reason": "Reason",
     "saving": "Saving…",
     "reopen": "Reopen",
-    "prizesLabel": "{count, plural, one {prize} other {prizes}}"
+    "prizesLabel": "{count, plural, one {prize} other {prizes}}",
+    "yourSearchWasNotApplied": "Your search for “{term}” was not applied, so the list below is every prize matching the other filters rather than an empty set of matches.",
+    "everyOtherFilterStillWorks": "Every other filter still works."
   },
   "templates": {
     "messages": "Messages",
@@ -326,7 +336,14 @@
     "whyEntriesWereRefused": "Why entries were refused",
     "busiestPromotions": "Busiest promotions",
     "theseStationsDidNotMeasureThe": "These Stations did not measure the same period. A preset is resolved at each Station's own clock, and these clocks are far enough apart to land on different dates:",
-    "theseStationsDoNotShareA": "These Stations do not share a timezone. The period's dates are the same for all of them; the instants they begin and end are not."
+    "theseStationsDoNotShareA": "These Stations do not share a timezone. The period's dates are the same for all of them; the instants they begin and end are not.",
+    "onlyTheStationsListedAbove": "Only the Stations listed above — a search or the fifty-Station cap is narrowing them.",
+    "countsDistinctListenersOneReachable": "Counts distinct listeners: one reachable from two of the Stations selected counts once, so this is not the sum of their separate figures.",
+    "listenersAtThisStation": "Listeners at this Station",
+    "newInThePeriod": "New in the period",
+    "tookPartInThePeriod": "Took part in the period",
+    "listenersBarredInThePeriod": "Listeners barred in the period",
+    "notAvailable": "Not available."
   },
   "team": {
     "invitationSentTo": "Invitation sent to",
@@ -381,7 +398,12 @@
     "revokeInvitationAction": "Revoke invitation",
     "remove": "Remove",
     "apply": "Apply",
-    "peopleLabel": "{count, plural, one {person or invitation} other {people and invitations}}"
+    "peopleLabel": "{count, plural, one {person or invitation} other {people and invitations}}",
+    "active": "Active",
+    "roleUnavailable": "Role unavailable",
+    "onAcceptance": "On acceptance",
+    "everyStation": "Every Station",
+    "stationsLabel": "{count, plural, one {# Station} other {# Stations}}"
   },
   "roles": {
     "roles": "Roles",
@@ -542,7 +564,13 @@
     "erasePersonalDataPermanently": "Erase personal data permanently",
     "confirmLift": "Confirm lift",
     "checkForAnExistingListener": "Check for an existing listener",
-    "linkThemToThisStationInstead": "Link them to this Station instead of registering again"
+    "linkThemToThisStationInstead": "Link them to this Station instead of registering again",
+    "noListenerMatchesTheseFilters": "No listener matches these filters.",
+    "noListenerRegisteredYetAtA": "No listener registered yet at a Station you can reach.",
+    "noSuchListenerOrYouDo": "No such listener, or you do not have permission to see this one.",
+    "personalDataErased": "Personal data erased",
+    "notCountedWhileTheRulesConsent": "Not counted while the rules-consent filter is on",
+    "listenersLabel": "{count, plural, one {listener} other {listeners}}"
   },
   "participations": {
     "draw": "Draw",
@@ -643,7 +671,11 @@
     "linesLabel": "{count, plural, one {line} other {lines}}",
     "linesSend": "{count, plural, one {line sends} other {lines send}}",
     "importAnswerWarning": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw.",
-    "importAnswerWarningNoQuiz": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer — and this promotion has no quiz for anybody to answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw."
+    "importAnswerWarningNoQuiz": "This promotion draws only among listeners who answered correctly, and an imported line carries no answer — and this promotion has no quiz for anybody to answer. Every entry from this file will be recorded and will count towards the rules, and none of them will be in the draw.",
+    "prizesAwarded": "{count, plural, one {One prize was awarded.} other {# prizes were awarded.}}",
+    "atATimeSpelledInA": "at a time spelled in a way this screen cannot read",
+    "yourSearchWasNotApplied": "Your search for “{term}” was not applied, so the list below is every entry matching the other filters rather than an empty set of matches.",
+    "everyOtherFilterStillWorks": "Every other filter still works."
   },
   "inventory": {
     "theSystemCurrentlyShows": "The system currently shows",
@@ -757,7 +789,10 @@
     "registerAPrize": "Register a prize",
     "prizesLabel": "{count, plural, one {prize} other {prizes}}",
     "unitsLabel": "{count, plural, one {unit} other {units}}",
-    "movementsLabel": "{count, plural, one {movement} other {movements}}"
+    "movementsLabel": "{count, plural, one {movement} other {movements}}",
+    "noPrizeMatchesTheseFilters": "No prize matches these filters.",
+    "noPrizesAreRegisteredInThis": "No prizes are registered in this Station yet.",
+    "noSuchPrizeOrYouDo": "No such prize, or you do not have permission to see this one."
   },
   "promotions": {
     "promotions": "Promotions",
@@ -890,7 +925,8 @@
     "saveQuestion": "Save question",
     "registerAction": "Register",
     "cancelledSuffix": " · cancelled",
-    "promotionsLabel": "{count, plural, one {promotion} other {promotions}}"
+    "promotionsLabel": "{count, plural, one {promotion} other {promotions}}",
+    "noSuchPromotionOrYouDo": "No such promotion, or you do not have permission to see this one."
   },
   "music": {
     "closeRecord": "Close record",
@@ -1030,6 +1066,14 @@
     "noneYetAddFirst": "No {kind} yet — add the first one above.",
     "artistsLabel": "{count, plural, one {artist} other {artists}}",
     "songsLabel": "{count, plural, one {song} other {songs}}",
-    "requestsLabel": "{count, plural, one {request} other {requests}}"
+    "requestsLabel": "{count, plural, one {request} other {requests}}",
+    "noArtistMatchesTheseFilters": "No artist matches these filters.",
+    "noArtistsAreRegisteredInThis": "No artists are registered in this Station yet.",
+    "noSongMatchesTheseFilters": "No song matches these filters.",
+    "noSongsAreRegisteredInThis": "No songs are registered in this Station yet.",
+    "noSuchArtistOrYouDo": "No such artist, or you do not have permission to see this one.",
+    "noSuchSongOrYouDo": "No such song, or you do not have permission to see this one.",
+    "thisListenerHasSinceExercisedTheir": "This listener has since exercised their right to erasure — their name and phone are no longer stored.",
+    "withheldYouDoNotHoldMembersView": "Withheld — you do not hold members.view at this Station, so listener names and phones are hidden here."
   }
 }

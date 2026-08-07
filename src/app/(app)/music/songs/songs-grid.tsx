@@ -122,8 +122,8 @@ export function SongsGrid({
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
                   {hasActiveSongFilters(state)
-                    ? 'No song matches these filters.'
-                    : 'No songs are registered in this Station yet.'}
+                    ? t('noSongMatchesTheseFilters')
+                    : t('noSongsAreRegisteredInThis')}
                 </TableCell>
               </TableRow>
             ) : (

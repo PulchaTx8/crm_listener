@@ -123,29 +123,29 @@ export function TeamGrid({
                       <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                         {t('invitationPending')}</span>
                     ) : (
-                      'Active'
+                      t('active')
                     )}
                   </TableCell>
                   <TableCell>
                     {row.kind === 'invitation'
                       ? row.isOwner
-                        ? 'Owner'
+                        ? t('owner')
                         : // roles_select_org_member filters deleted_at is null, so a
                           // role archived after the invitation was sent comes back
                           // missing here — which is also exactly the case
                           // validate_invitation refuses on acceptance, so this
                           // fallback must not say "Member".
-                          (roleNameById.get(row.roleId ?? '') ?? 'Role unavailable')
+                          (roleNameById.get(row.roleId ?? '') ?? t('roleUnavailable'))
                       : row.orgRole === 'owner'
-                        ? 'Owner'
-                        : 'Member'}
+                        ? t('owner')
+                        : t('member')}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {row.kind === 'invitation'
-                      ? 'On acceptance'
+                      ? t('onAcceptance')
                       : row.orgRole === 'owner'
-                        ? 'Every Station'
-                        : `${row.access.length} Station(s)`}
+                        ? t('everyStation')
+                        : t('stationsLabel', { count: row.access.length })}
                   </TableCell>
                   <TableCell className="sticky right-0 bg-background">
                     <div className="flex items-center justify-end gap-1">

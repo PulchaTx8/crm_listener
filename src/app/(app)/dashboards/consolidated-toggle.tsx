@@ -82,11 +82,7 @@ export function ConsolidatedToggle({
         href={consolidatedHref as Route}
         aria-current={active ? 'page' : undefined}
         className={active ? ACTIVE_PILL : INACTIVE_PILL}
-        title={
-          complete
-            ? undefined
-            : 'Only the Stations listed above — a search or the fifty-Station cap is narrowing them.'
-        }
+        title={complete ? undefined : t('onlyTheStationsListedAbove')}
       >
         {complete
           ? `All stations (${consolidatedCompanyIds.length})`

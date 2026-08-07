@@ -63,9 +63,11 @@ export default async function IntegrationsPage() {
           <SecretLine label="WHATSAPP_VERIFY_TOKEN" set={secrets.verifyToken} />
           <SecretLine label="WHATSAPP_ACCESS_TOKEN" set={secrets.accessToken} />
           <p className="mt-2 text-xs text-muted-foreground">
-            {t('theseAreEnvironmentVariablesAndAre')}{allSecretsSet
-              ? ' All three are set, so a Station that still receives nothing is a configuration below, not a credential.'
-              : ' Until all three are set, no Station sends or receives anything, however it is configured below.'}
+            {/* Two whole sentences, not a key with an English clause glued on:
+                the second one is a sentence in its own right in every language,
+                and no other language puts it together the way English does. */}
+            {t('theseAreEnvironmentVariablesAndAre')}{' '}
+            {allSecretsSet ? t('allThreeCredentialsAreSet') : t('untilAllThreeCredentialsAreSet')}
           </p>
         </CardContent>
       </Card>
@@ -101,7 +103,11 @@ export default async function IntegrationsPage() {
   );
 }
 
-function SecretLine({ label, set }: { label: string; set: boolean }) {
+// Async because the state beside the variable name is the one thing here a
+// person reads rather than a credential name, and this component sits outside
+// the page's own `t`.
+async function SecretLine({ label, set }: { label: string; set: boolean }) {
+  const t = await getTranslations('admin');
   return (
     <span className="flex items-center gap-2">
       <span
@@ -113,7 +119,9 @@ function SecretLine({ label, set }: { label: string; set: boolean }) {
         aria-hidden
       />
       <code className="text-xs">{label}</code>
-      <span className="text-muted-foreground">{set ? 'configured' : 'not set'}</span>
+      <span className="text-muted-foreground">
+        {set ? t('secretConfigured') : t('secretNotSet')}
+      </span>
     </span>
   );
 }

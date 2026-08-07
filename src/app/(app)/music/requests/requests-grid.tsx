@@ -134,8 +134,8 @@ export function RequestsGrid({
                         className="text-muted-foreground"
                         title={
                           canFindListeners
-                            ? 'This listener has since exercised their right to erasure — their name and phone are no longer stored.'
-                            : 'Withheld — you do not hold members.view at this Station, so listener names and phones are hidden here.'
+                            ? t('thisListenerHasSinceExercisedTheir')
+                            : t('withheldYouDoNotHoldMembersView')
                         }
                         data-testid="request-listener-withheld"
                       >

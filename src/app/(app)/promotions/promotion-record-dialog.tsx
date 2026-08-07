@@ -229,9 +229,7 @@ export function PromotionRecordDialog({
       // re-read that may well be transient.
       setRecord((previous) => nextRecordAfterFailedRead(previous, recordId, result.status));
       setFailure(
-        result.status === 'not-found'
-          ? 'No such promotion, or you do not have permission to see this one.'
-          : result.message,
+        result.status === 'not-found' ? t('noSuchPromotionOrYouDo') : result.message,
       );
     });
     return () => {

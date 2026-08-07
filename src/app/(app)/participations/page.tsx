@@ -406,8 +406,8 @@ export default async function ParticipationsPage({
             >
               {t('youCannotSearchByListenerAt')}{' '}
               {searchTerm
-                ? `Your search for “${searchTerm}” was not applied, so the list below is every entry matching the other filters rather than an empty set of matches.`
-                : 'Every other filter still works.'}
+                ? t('yourSearchWasNotApplied', { term: searchTerm })
+                : t('everyOtherFilterStillWorks')}
             </p>
           )}
 

@@ -97,9 +97,7 @@ export function MemberRecordDialog({
       // Both facts collapse into one sentence on purpose (record.ts): telling
       // them apart would confirm to somebody pasting ids which ones are real.
       setFailure(
-        result.status === 'not-found'
-          ? 'No such listener, or you do not have permission to see this one.'
-          : result.message,
+        result.status === 'not-found' ? t('noSuchListenerOrYouDo') : result.message,
       );
     });
     return () => {
@@ -137,7 +135,7 @@ export function MemberRecordDialog({
   const detail = record?.detail;
   const erased = Boolean(detail?.anonymizedAt);
   const title = erased
-    ? 'Personal data erased'
+    ? t('personalDataErased')
     : (detail?.fullName ?? (loading ? t('loading') : t('listener')));
 
   return (

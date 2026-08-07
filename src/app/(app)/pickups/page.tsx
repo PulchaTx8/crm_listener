@@ -259,8 +259,8 @@ export default async function PickupsPage({
             >
               {t('youCannotSearchByListenerAt')}{' '}
               {state.search
-                ? `Your search for “${state.search}” was not applied, so the list below is every prize matching the other filters rather than an empty set of matches.`
-                : 'Every other filter still works.'}
+                ? t('yourSearchWasNotApplied', { term: state.search })
+                : t('everyOtherFilterStillWorks')}
             </p>
           )}
 

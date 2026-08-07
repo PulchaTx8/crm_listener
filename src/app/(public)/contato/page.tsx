@@ -62,8 +62,8 @@ export default async function ContactPage({
       {params.error ? (
         <p className="text-sm text-destructive">
           {params.error === 'invalid'
-            ? 'Please check the fields and try again.'
-            : 'Something went wrong. Please try again later.'}
+            ? t('pleaseCheckTheFieldsAndTry')
+            : t('somethingWentWrongPleaseTry')}
         </p>
       ) : null}
       <form action={submit} className="flex flex-col gap-4">

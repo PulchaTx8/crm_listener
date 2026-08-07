@@ -55,8 +55,8 @@ export default async function LoginPage({
       {params.error ? (
           <p className="text-sm text-destructive">
             {params.error === 'expired'
-              ? 'Your provisional password has expired. Please contact us for a new one.'
-              : 'Invalid credentials.'}
+              ? t('yourProvisionalPasswordHasExpired')
+              : t('invalidCredentials')}
           </p>
         ) : null}
         <form action={signIn} className="flex flex-col gap-4">
