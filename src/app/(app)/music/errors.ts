@@ -29,19 +29,22 @@ import {
  * function: collapsing it to a single generic message would have worked
  * until this moment and silently stopped being true at it.
  */
-export function describeMusicReadError(cause: unknown): string {
+export function describeMusicReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to view the music catalogue in this Station.';
+    return t('youDoNotHavePermissionToViewTheCatalogue');
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return 'Could not load the catalogue. Refresh the page and try again.';
+  return t('couldNotLoadTheCatalogue');
 }
 
 /**
@@ -71,21 +74,25 @@ export function describeMusicReadError(cause: unknown): string {
  * `action` phrase the caller already passed for the 403 case above (every
  * archive action in this block phrases it "archive this <kind>").
  */
-export function describeMusicWriteError(cause: unknown, action: string): string {
+export function describeMusicWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) {
-    return `You cannot ${action} yet — it still has other records registered against it. Move or archive them first.`;
+    return t('youCannotYetItStillHasRecords', { action: t(actionKey) });
   }
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action} in this Station.`;
+    return t('youDoNotHavePermissionToHere', { action: t(actionKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose: InternalError means the fault is ours, not theirs,
   // and its message may carry a raw database error — not something to show.
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }
 
 /**
@@ -96,17 +103,20 @@ export function describeMusicWriteError(cause: unknown, action: string): string 
  * another Station, and "refresh the page" is the correct advice for only the
  * first of those.
  */
-export function describeMergeError(cause: unknown): string {
+export function describeMergeError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
   if (cause instanceof NotFoundError) {
-    return 'One of the records you selected is no longer available — it may have been archived or merged by somebody else. Refresh the list and start again.';
+    return t('oneOfTheRecordsYouSelected');
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to merge records in this Station.';
+    return t('youDoNotHavePermissionToMerge');
   }
   if (cause instanceof ValidationError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof ConflictError) return cause.message;
-  return 'Could not merge. Refresh the page and try again.';
+  return t('couldNotMerge');
 }
 
 // describeMaintenanceReadError briefly lived here (Task 9's first pass):

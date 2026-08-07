@@ -2,7 +2,7 @@ import { useTranslations } from 'next-intl';
 import { Input, Select } from '@/components/ui/input';
 import { MUSIC_NATIONALITIES, MUSIC_VOCALS } from '@/schemas/music';
 import type { ReferenceSummary, SongSummary } from '@/services/music';
-import { NATIONALITY_LABELS, VOCAL_LABELS } from '../format';
+import { NATIONALITY_LABEL_KEYS, VOCAL_LABEL_KEYS } from '../format';
 
 /**
  * The song fields, shared between the create dialog (songs-grid.tsx) and the
@@ -35,6 +35,8 @@ export function SongFields({
   disabled?: boolean;
 }) {
   const t = useTranslations('music');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   return (
     <>
       <label className="flex flex-col gap-1 text-sm">
@@ -91,7 +93,7 @@ export function SongFields({
           <option value="">{t('unspecified')}</option>
           {MUSIC_NATIONALITIES.map((value) => (
             <option key={value} value={value}>
-              {NATIONALITY_LABELS[value]}
+              {tv(NATIONALITY_LABEL_KEYS[value])}
             </option>
           ))}
         </Select>
@@ -103,7 +105,7 @@ export function SongFields({
           <option value="">{t('unspecified')}</option>
           {MUSIC_VOCALS.map((value) => (
             <option key={value} value={value}>
-              {VOCAL_LABELS[value]}
+              {tv(VOCAL_LABEL_KEYS[value])}
             </option>
           ))}
         </Select>

@@ -14,7 +14,7 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
-import { NATIONALITY_LABELS, VOCAL_LABELS } from '../../music/format';
+import { NATIONALITY_LABEL_KEYS, VOCAL_LABEL_KEYS } from '../../music/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
@@ -36,11 +36,17 @@ const BASE = '/dashboards/music';
 // because the master spec never said which it meant and the two answer
 // different questions. Nothing on this panel is ever withheld (D13): every
 // table it reads answers to music.view alone.
-const CARD_SPECS: readonly CardSpec[] = [
-  { key: 'catalogue', label: 'Songs in the catalogue' },
-  { key: 'new_songs', label: 'Songs added in the period' },
-  { key: 'requests', label: 'Requests in the period' },
-];
+//
+// A function taking `t` rather than a module-level constant, for the reason
+// the audience panel's own cardSpecs already gives: a module body has no
+// request behind it, so it has no language either.
+function cardSpecs(t: (key: string) => string): CardSpec[] {
+  return [
+    { key: 'catalogue', label: t('songsInTheCatalogue') },
+    { key: 'new_songs', label: t('songsAddedInThePeriod') },
+    { key: 'requests', label: t('requestsInThePeriod') },
+  ];
+}
 
 export default async function MusicDashboardPage({
   searchParams,
@@ -54,6 +60,8 @@ export default async function MusicDashboardPage({
   }>;
 }) {
   const t = await getTranslations('dashboards');
+  // The shared enum vocabulary, which several screens render.
+  const tv = await getTranslations('vocab');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -72,7 +80,7 @@ export default async function MusicDashboardPage({
     ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve music dashboard access');
-    return <LoadError message={describeDashboardError(cause)} />;
+    return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
   const first = viewable[0];
@@ -122,7 +130,7 @@ export default async function MusicDashboardPage({
     dashboard = await getMusicDashboard(companyIds, selection);
   } catch (cause) {
     logger.error({ err: cause, companyIds }, 'could not load the music dashboard');
-    return <LoadError message={describeDashboardError(cause)} />;
+    return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
   // Whether the Station list above is the caller's WHOLE relationship or a
@@ -140,7 +148,7 @@ export default async function MusicDashboardPage({
     <>
       <PageHeader
         title={t('music')}
-        description="The catalogue, what the audience asked for, and how — one Station or several, side by side."
+        description={t('musicDescription')}
         // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
         // second set the dialog asks for: this panel's PDF must carry the
         // figures on this screen, and the only way to guarantee that is to
@@ -156,9 +164,16 @@ export default async function MusicDashboardPage({
               exactly the same list the cap does, including the one the
               consolidated toggle sums, and saying nothing about it left "All
               stations" standing over a filtered set. */}
+          {/* One whole message per branch, not a stem with a clause glued on:
+              the search phrase lands in the middle of the sentence in English
+              and nowhere near the middle in Portuguese. */}
           <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
-            {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}{stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
-            only the Stations listed here. Search by name to reach one that is not listed.
+            {stationSearch
+              ? t('stationScopeNoteFiltered', {
+                  count: viewable.length + suspended.length,
+                  search: stationSearch,
+                })
+              : t('stationScopeNote', { count: viewable.length + suspended.length })}
           </p>
           <StationSearchForm
             action={BASE}
@@ -168,7 +183,7 @@ export default async function MusicDashboardPage({
               ...(selection.from ? { from: selection.from } : {}),
               ...(selection.to ? { to: selection.to } : {}),
             }}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -228,7 +243,7 @@ export default async function MusicDashboardPage({
 
       <StationPeriodNote stations={dashboard.stations} />
 
-      <DashboardCards specs={CARD_SPECS} cards={dashboard.cards} withheld={dashboard.withheld} />
+      <DashboardCards specs={cardSpecs(t)} cards={dashboard.cards} withheld={dashboard.withheld} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -236,7 +251,7 @@ export default async function MusicDashboardPage({
             <CardTitle>{t('monthlyRequests')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <MonthlyBars data={dashboard.monthly} label="Monthly requests" />
+            <MonthlyBars data={dashboard.monthly} label={t('monthlyRequests')} />
           </CardContent>
         </Card>
 
@@ -245,14 +260,14 @@ export default async function MusicDashboardPage({
             <CardTitle>{t('domesticInternational')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* `key` is the raw music_nationality value; NATIONALITY_LABELS
+            {/* `key` is the raw music_nationality value; NATIONALITY_LABEL_KEYS
                 is the wording the Songs grid already uses (whole-branch
                 review, Important B2). The NOT_STATED bucket carries its own
                 human label from SQL and passes through untouched — it was the
                 mix of the two on one axis that gave this away. */}
             <BreakdownBars
-              data={withOperatorLabels(dashboard.breakdowns.nationality, NATIONALITY_LABELS)}
-              label="Domestic × international"
+              data={withOperatorLabels(dashboard.breakdowns.nationality, NATIONALITY_LABEL_KEYS, tv)}
+              label={t('domesticInternational')}
             />
           </CardContent>
         </Card>
@@ -263,8 +278,8 @@ export default async function MusicDashboardPage({
           </CardHeader>
           <CardContent>
             <BreakdownBars
-              data={withOperatorLabels(dashboard.breakdowns.vocal, VOCAL_LABELS)}
-              label="Vocal"
+              data={withOperatorLabels(dashboard.breakdowns.vocal, VOCAL_LABEL_KEYS, tv)}
+              label={t('vocal')}
             />
           </CardContent>
         </Card>
@@ -274,7 +289,7 @@ export default async function MusicDashboardPage({
             <CardTitle>{t('mostRequestedSongs')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <TopList data={dashboard.top.songs} label="Most requested songs" />
+            <TopList data={dashboard.top.songs} label={t('mostRequestedSongs')} />
           </CardContent>
         </Card>
 
@@ -283,7 +298,7 @@ export default async function MusicDashboardPage({
             <CardTitle>{t('mostRequestedGenres')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <TopList data={dashboard.top.genres} label="Most requested genres" />
+            <TopList data={dashboard.top.genres} label={t('mostRequestedGenres')} />
           </CardContent>
         </Card>
       </div>
@@ -299,7 +314,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href={BASE as Route} className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

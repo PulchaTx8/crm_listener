@@ -36,20 +36,21 @@ const INITIAL_ARCHIVE: ArchiveTemplateState = { status: 'idle' };
  * TOTAL over `TemplatePurpose`, so a second purpose added to 0110 fails to
  * compile here rather than rendering as a bare enum value with no contract.
  */
-const PURPOSE_DETAILS: Record<
-  TemplatePurpose,
-  { title: string; when: string; sends: string[] }
-> = {
-  PICKUP_REMINDER: {
-    title: 'Pickup reminder',
-    when: 'Sent once to a winner whose collection deadline falls within the next two days, days after the draw that produced it — which is outside WhatsApp’s 24-hour window, and the reason this purpose needs an approved template at all.',
-    sends: [
-      'The winner’s first name',
-      'The prize name',
-      'The deadline, as a date (DD/MM/YYYY) in this Station’s own timezone',
-    ],
-  },
-};
+function purposeDetails(
+  t: (key: string) => string,
+): Record<TemplatePurpose, { title: string; when: string; sends: string[] }> {
+  return {
+    PICKUP_REMINDER: {
+      title: t('purposePickupReminderTitle'),
+      when: t('purposePickupReminderWhen'),
+      sends: [
+        t('purposePickupReminderSendsFirstName'),
+        t('purposePickupReminderSendsPrize'),
+        t('purposePickupReminderSendsDeadline'),
+      ],
+    },
+  };
+}
 
 /**
  * One card per purpose this system can send, registered or not.
@@ -108,7 +109,7 @@ function PurposeCard({
   manage: boolean;
 }) {
   const t = useTranslations('templates');
-  const detail = PURPOSE_DETAILS[purpose];
+  const detail = purposeDetails(t)[purpose];
   const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   return (

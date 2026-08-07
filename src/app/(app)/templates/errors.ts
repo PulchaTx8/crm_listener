@@ -19,18 +19,21 @@ import {
  * replaces a default, and archiving a registry row leaves nothing pointing at
  * it, so the "still used by other rows" case music has simply has no analogue.
  */
-export function describeTemplateReadError(cause: unknown): string {
+export function describeTemplateReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof ValidationError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to view the message templates in this Station.';
+    return t('youDoNotHavePermissionToViewTheTemplates');
   }
   // Generic on purpose: InternalError means the fault is ours, not theirs, and
   // its message may carry a raw database error — not something to show.
-  return 'Could not load the templates. Refresh the page and try again.';
+  return t('couldNotLoadTheTemplates');
 }
 
 /**
@@ -53,16 +56,20 @@ export function describeTemplateReadError(cause: unknown): string {
  * ("template expects 2 variable(s), got 3") is more specific than anything
  * this function could invent.
  */
-export function describeTemplateWriteError(cause: unknown, action: string): string {
+export function describeTemplateWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof ValidationError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action} in this Station.`;
+    return t('youDoNotHavePermissionToHere', { action: t(actionKey) });
   }
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }
 
 /**
@@ -77,9 +84,12 @@ export function describeTemplateWriteError(cause: unknown, action: string): stri
  * done it. Separate for the same reason describeMergeError (music/errors.ts)
  * is separate from its own block's write describer.
  */
-export function describeClearMessageError(cause: unknown): string {
+export function describeClearMessageError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
   if (cause instanceof NotFoundError) {
-    return 'That text is already the system default — somebody else may have cleared it. Refresh the page.';
+    return t('thatTextIsAlreadyTheSystemDefault');
   }
-  return describeTemplateWriteError(cause, 'change the message templates');
+  return describeTemplateWriteError(cause, t, 'actionChangeTheMessageTemplates');
 }

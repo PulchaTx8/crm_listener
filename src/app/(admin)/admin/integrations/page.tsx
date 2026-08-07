@@ -44,7 +44,7 @@ export default async function IntegrationsPage() {
     <>
       <PageHeader
         title={t('whatsappIntegrations')}
-        description="One Meta app serves the whole installation; each Station carries its own number."
+        description={t('integrationsDescription')}
       />
 
       {/*

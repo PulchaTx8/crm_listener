@@ -1,6 +1,12 @@
 // Kept synchronous and free of 'use server' (mirrors templates/errors.ts and
 // music/errors.ts) so a Server Component — all three dashboard pages — can
 // call describeDashboardError directly without an unnecessary await.
+//
+// The three sentences below are catalogue keys, and `t` is THREADED IN by the
+// caller rather than read here. Reading it here would mean `getTranslations`,
+// which is async, and this file's whole reason for existing is that it is not
+// — every one of its callers already holds a `t` for the `dashboards`
+// namespace at the point it catches.
 import { UnauthorizedError, ValidationError } from '@/lib/errors';
 
 /**
@@ -28,10 +34,10 @@ import { UnauthorizedError, ValidationError } from '@/lib/errors';
  * comment asserting a case cannot happen is the comment that stops anyone
  * checking whether it can.
  */
-export function describeDashboardError(cause: unknown): string {
-  if (cause instanceof ValidationError) return 'That period is not valid.';
+export function describeDashboardError(cause: unknown, t: (key: string) => string): string {
+  if (cause instanceof ValidationError) return t('thatPeriodIsNotValid');
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to see this dashboard in every station selected.';
+    return t('youDoNotHavePermissionToSeeThisDashboard');
   }
-  return 'Could not load this dashboard. Refresh the page and try again.';
+  return t('couldNotLoadThisDashboard');
 }

@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -73,7 +74,7 @@ export async function searchRequestListenersAction(
     logger.error({ err: cause, companyId }, 'could not search the listeners of this station');
     return {
       status: 'error',
-      message: describeParticipationsReadError(cause, 'the listeners of this Station'),
+      message: describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectTheListenersOfThisStation'),
     };
   }
 }
@@ -92,7 +93,7 @@ export async function searchRequestSongsAction(
     return { status: 'ok', page: await searchSongs(companyId, search, token) };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'could not search songs for a request');
-    return { status: 'error', message: describeMusicReadError(cause) };
+    return { status: 'error', message: describeMusicReadError(cause, await getTranslations('music')) };
   }
 }
 
@@ -158,7 +159,7 @@ export async function recordRequestAction(
   });
 
   if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? (await getTranslations('music'))('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -196,7 +197,7 @@ export async function recordRequestAction(
         return {
           ok: false,
           message:
-            'That listener is registered at a Station you cannot reach. Ask somebody who can.',
+            (await getTranslations('music'))('thatListenerIsAtAStationYouCannotReach'),
         };
       }
       memberId = resolved.memberId;
@@ -208,7 +209,7 @@ export async function recordRequestAction(
       );
       return {
         ok: false,
-        message: describeParticipationsWriteError(cause, 'register this listener at this Station'),
+        message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRegisterThisListenerAtThisStation'),
       };
     }
   }
@@ -233,8 +234,14 @@ export async function recordRequestAction(
       ok: false,
       listenerRegistered: registered,
       message: registered
-        ? `The listener was registered, but the request was not recorded. ${describeMusicWriteError(cause, 'record a request')} They are now linked to this Station, so pick them from the search above rather than typing them again.`
-        : describeMusicWriteError(cause, 'record a request'),
+        ? (await getTranslations('music'))('registeredButRequestNotRecorded', {
+            reason: describeMusicWriteError(
+              cause,
+              await getTranslations('music'),
+              'actionRecordARequest',
+            ),
+          })
+        : describeMusicWriteError(cause, await getTranslations('music'), 'actionRecordARequest'),
     };
   }
 }
@@ -248,19 +255,30 @@ export type ArchiveRequestState = { ok: null } | { ok: true } | { ok: false; mes
  * than reaching the RPC as raw text and coming back as an opaque `22P02`,
  * the identical round trip requestFormSchema's own `requestedAt` guard
  * exists to close for the create side.
+ *
+ * A FUNCTION taking `t`, not a module-level constant, and that is not a style
+ * choice: a `const` here is evaluated when the module first loads, which is
+ * outside any request, and `getTranslations` reads `cookies()`. The whole
+ * requests route failed to initialise — every Server Action in this file
+ * included — for exactly one line of exactly that shape.
  */
-const archiveRequestSchema = z.object({
-  requestId: z.string().uuid('That request could not be identified. Reopen the list and try again.'),
-});
+function archiveRequestSchema(t: (key: string) => string) {
+  return z.object({
+    requestId: z.string().uuid(t('thatRequestCouldNotBeIdentified')),
+  });
+}
 
 /** Withdraws a mistyped manual entry — never a DELETE (0107's own comment on archive_music_request). */
 export async function archiveRequestAction(
   _prev: ArchiveRequestState,
   formData: FormData,
 ): Promise<ArchiveRequestState> {
-  const parsed = archiveRequestSchema.safeParse({ requestId: formData.get('requestId') ?? '' });
+  const t = await getTranslations('music');
+  const parsed = archiveRequestSchema(t).safeParse({
+    requestId: formData.get('requestId') ?? '',
+  });
   if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Missing request.' };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? t('missingRequest') };
   }
   const { requestId } = parsed.data;
 
@@ -272,6 +290,6 @@ export async function archiveRequestAction(
     return { ok: true };
   } catch (cause) {
     logger.error({ err: cause, requestId }, 'withdraw request failed');
-    return { ok: false, message: describeMusicWriteError(cause, 'withdraw this request') };
+    return { ok: false, message: describeMusicWriteError(cause, await getTranslations('music'), 'actionWithdrawThisRequest') };
   }
 }

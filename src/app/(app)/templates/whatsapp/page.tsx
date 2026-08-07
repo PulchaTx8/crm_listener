@@ -45,7 +45,7 @@ export default async function WhatsAppTemplatesPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve template access');
-    return <LoadError message={describeTemplateReadError(cause)} />;
+    return <LoadError message={describeTemplateReadError(cause, await getTranslations('templates'))} />;
   }
 
   const first = viewable[0];
@@ -66,14 +66,14 @@ export default async function WhatsAppTemplatesPage({
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the template registry');
-    return <LoadError message={describeTemplateReadError(cause)} />;
+    return <LoadError message={describeTemplateReadError(cause, await getTranslations('templates'))} />;
   }
 
   return (
     <>
       <PageHeader
         title={t('whatsappTemplates')}
-        description="The messages this Station may start a conversation with, as Meta approved them."
+        description={t('whatsappDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -86,7 +86,7 @@ export default async function WhatsAppTemplatesPage({
             action="/templates/whatsapp"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -155,7 +155,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link
             href="/templates/whatsapp"

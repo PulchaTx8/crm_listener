@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { referenceFormSchema, referenceUpdateSchema } from '@/schemas/music';
@@ -61,7 +62,7 @@ export async function createArtistAction(
     return { status: 'saved', artistId };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create artist failed');
-    return { status: 'error', message: describeMusicWriteError(cause, 'register artists') };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), 'actionRegisterArtists') };
   }
 }
 
@@ -106,7 +107,7 @@ export async function updateArtistAction(
     return found ? { status: 'saved', artist: found.artist } : { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, artistId: parsed.data.id }, 'update artist failed');
-    return { status: 'error', message: describeMusicWriteError(cause, 'save this artist') };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), 'actionSaveThisArtist') };
   }
 }
 
@@ -136,6 +137,6 @@ export async function archiveArtistAction(
     return { status: 'archived' };
   } catch (cause) {
     logger.error({ err: cause, artistId }, 'archive artist failed');
-    return { status: 'error', message: describeMusicWriteError(cause, 'archive this artist') };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), 'actionArchiveThisArtist') };
   }
 }

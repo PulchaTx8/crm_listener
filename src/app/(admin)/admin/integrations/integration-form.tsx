@@ -26,7 +26,7 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
     setError(null);
     const result = await saveIntegrationAction(formData);
     if (result.status === 'error') {
-      setError(result.message ?? 'The integration could not be saved.');
+      setError(result.message ?? t('theIntegrationCouldNotBeSaved'));
       return;
     }
     startTransition(() => router.refresh());
@@ -36,7 +36,7 @@ export function IntegrationForm({ row }: { row: IntegrationRow }) {
     setError(null);
     const result = await disableIntegrationAction(row.company_id);
     if (result.status === 'error') {
-      setError(result.message ?? 'The integration could not be disabled.');
+      setError(result.message ?? t('theIntegrationCouldNotBeDisabled'));
       return;
     }
     startTransition(() => router.refresh());

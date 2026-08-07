@@ -170,6 +170,15 @@ sweep and left deliberately, because widening again is how a pass never ends:
 
 Nothing above is conditional, and each renders coherently in English today.
 
+> **Superseded by Block 12c, and this list is why.** Everything named above is
+> now in the catalogue — but the list was **not** what was left. It is what the
+> two sweeps in this section could see. Neither had ever looked at a string
+> literal in a JSX *prop* (`description="…"`, `label="…"`), at the module-level
+> `Record`s holding this app's whole enum vocabulary, or at the nine
+> `describe*Error` functions. The real remainder was **451 strings**, not 38.
+> See `docs/block-12c-report.md` §2. The lesson §6.5 opens with — a sweep that
+> defines its own criterion of done reports done — applies to §6.5 as well.
+
 ---
 
 ## 7. The gate

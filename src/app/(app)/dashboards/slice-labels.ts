@@ -15,12 +15,13 @@ import type { Slice } from '@/schemas/dashboards';
  * between `key` and `label` is for. The database has no business holding the
  * English an operator reads; four Records in this codebase already do, each
  * beside the screen that owns the vocabulary, each with a comment explaining
- * its wording:
+ * its wording. They hold CATALOGUE KEYS in the shared `vocab` namespace, so
+ * one vocabulary answers in three languages rather than four copies of it:
  *
- *   - `@/lib/participation-status`         STATUS_LABELS  (participation_status)
- *   - `@/app/(app)/pickups/list-params`    STATUS_LABELS  (winner_status)
- *   - `@/app/(app)/members/format`         BLOCK_KIND_LABELS (member_block_kind)
- *   - `@/app/(app)/music/format`           NATIONALITY_LABELS, VOCAL_LABELS
+ *   - `@/lib/participation-status`         STATUS_LABEL_KEYS  (participation_status)
+ *   - `@/app/(app)/pickups/list-params`    STATUS_LABEL_KEYS  (winner_status)
+ *   - `@/app/(app)/members/format`         BLOCK_KIND_LABEL_KEYS (member_block_kind)
+ *   - `@/app/(app)/music/format`           NATIONALITY_LABEL_KEYS, VOCAL_LABEL_KEYS
  *
  * Reusing them rather than writing a fifth is the whole point: "Came back too
  * soon" appears on the participations grid and now on the promotions
@@ -35,10 +36,11 @@ import type { Slice } from '@/schemas/dashboards';
  */
 export function withOperatorLabels(
   slices: Slice[],
-  labels: Readonly<Record<string, string>>,
+  labelKeys: Readonly<Record<string, string>>,
+  t: (key: string) => string,
 ): Slice[] {
   return slices.map((slice) => {
-    const label = slice.key === undefined ? undefined : labels[slice.key];
-    return label === undefined ? slice : { ...slice, label };
+    const key = slice.key === undefined ? undefined : labelKeys[slice.key];
+    return key === undefined ? slice : { ...slice, label: t(key) };
   });
 }

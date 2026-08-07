@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -48,6 +49,6 @@ export async function getPromotionRecordAction(
     return { status: 'ok', record };
   } catch (cause) {
     logger.error({ err: cause, promotionId }, 'could not load this promotion record');
-    return { status: 'error', message: describePromotionsReadError(cause) };
+    return { status: 'error', message: describePromotionsReadError(cause, await getTranslations('promotions')) };
   }
 }

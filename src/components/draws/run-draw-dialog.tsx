@@ -39,20 +39,20 @@ export type DrawRequestResult =
 export function validateDrawRequest(input: {
   units: DrawUnitChoice[];
   allTaken?: boolean;
-}): DrawRequestResult {
+}, t: (key: string, values?: Record<string, string | number | Date>) => string): DrawRequestResult {
   const { units, allTaken = false } = input;
 
   for (const unit of units) {
     if (!Number.isInteger(unit.requested) || unit.requested < 0) {
       return {
         ok: false,
-        message: `The number of “${unit.prizeName}” has to be a whole number.`,
+        message: t('prizeCountMustBeWhole', { prize: unit.prizeName }),
       };
     }
     if (unit.requested > unit.available) {
       return {
         ok: false,
-        message: `“${unit.prizeName}” has ${unit.available} unit(s) left to draw.`,
+        message: t('prizeHasUnitsLeft', { prize: unit.prizeName, count: unit.available }),
       };
     }
   }
@@ -62,7 +62,7 @@ export function validateDrawRequest(input: {
   // rather than sent.
   const asked = units.filter((unit) => unit.requested > 0);
   if (asked.length === 0) {
-    return { ok: false, message: 'Choose at least one unit to draw.' };
+    return { ok: false, message: t('chooseAtLeastOneUnit') };
   }
 
   if (allTaken) return { ok: true, units: null };
@@ -99,7 +99,7 @@ export function RunDrawDialog({
   const allTaken = choices.every((unit) => unit.requested === unit.available);
 
   function submit() {
-    const validated = validateDrawRequest({ units: choices, allTaken });
+    const validated = validateDrawRequest({ units: choices, allTaken }, t);
     if (!validated.ok) {
       setMessage(validated.message);
       return;
@@ -126,7 +126,7 @@ export function RunDrawDialog({
               min={0}
               max={unit.available}
               value={unit.requested}
-              aria-label={`Units of ${unit.prizeName}`}
+              aria-label={t('unitsOfPrize', { prize: unit.prizeName })}
               onChange={(event) =>
                 setChoices((current) =>
                   current.map((row, i) =>

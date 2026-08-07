@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { STATUS_CLASSES, STATUS_LABELS } from '@/lib/participation-status';
+import { STATUS_CLASSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 // Both borrowed from the promotions screen rather than re-derived, on that
 // module's own rule: a second copy of a timezone conversion is how two controls
 // on one screen start disagreeing about which day something happened (spec L2).
@@ -43,11 +43,12 @@ const COLUMN_ALIASES = {
 
 export type ColumnKey = keyof typeof COLUMN_ALIASES;
 
-const COLUMN_LABELS: Record<ColumnKey, string> = {
-  fullName: 'Name',
-  phone: 'Phone',
-  cpf: 'CPF',
-  participatedAt: 'When they entered',
+// Catalogue keys, not the words: a module body has no request behind it.
+const COLUMN_LABEL_KEYS: Record<ColumnKey, string> = {
+  fullName: 'columnName',
+  phone: 'columnPhone',
+  cpf: 'columnCpf',
+  participatedAt: 'columnWhenTheyEntered',
 };
 
 /**
@@ -71,16 +72,33 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
  * anything that was not `no identifier` as "out of reach", so 0056's new reasons
  * would have rendered as an instruction to ask for a permission the operator
  * already held — and a fifth reason in Block 5 would do the same silently.
+ *
+ * Keyed by the database's own word, valued by a catalogue key: the wording has
+ * to exist in three languages, and this module body has no request behind it.
  */
-const SKIP_REASONS: Record<string, string> = {
-  'no identifier': 'no phone and no CPF, so there was nobody to match',
-  'listener is out of reach':
-    'that phone or CPF belongs to a listener at a Station you cannot see, so they cannot be entered or registered here',
-  'listener is at another station':
-    'that listener is registered at another Station of this Organization and is not linked to this one; link them and import again',
-  'outside the promotion window':
-    'this line is dated before the promotion opened or after it closed, so it could not be entered into it; check the date, or whether this file belongs to another promotion',
+const SKIP_REASON_KEYS: Record<string, string> = {
+  'no identifier': 'skipReasonNoIdentifier',
+  'listener is out of reach': 'skipReasonOutOfReach',
+  'listener is at another station': 'skipReasonAtAnotherStation',
+  'outside the promotion window': 'skipReasonOutsideWindow',
 };
+
+/**
+ * What the operator reads beside a skipped line. Three answers, in order: the
+ * written instruction for a reason this build knows, the database's own word
+ * for one it does not, and a last resort for a row that carries no reason at
+ * all. The middle case is the point — a fifth reason added in SQL renders its
+ * raw code, which is a worse sentence than a written one and a far better one
+ * than the wrong sentence.
+ */
+function describeSkipReason(
+  reason: string | null | undefined,
+  t: (key: string) => string,
+): string {
+  const key = reason ? SKIP_REASON_KEYS[reason] : undefined;
+  if (key) return t(key);
+  return reason ?? t('theImportCouldNotUseThisLine');
+}
 
 /**
  * One line of the file, mapped but not yet validated — importRowSchema does
@@ -520,7 +538,7 @@ export function ImportParticipationsForm({
     if (chosen.size > IMPORT_FILE_MAX_BYTES) {
       setFile(null);
       setReadFailure(
-        `That file is ${Math.round(chosen.size / (1024 * 1024))} MB. An import file may be at most 20 MB — split it and import the parts.`,
+        t('thatFileIsTooLarge', { mb: Math.round(chosen.size / (1024 * 1024)) }),
       );
       return;
     }
@@ -533,7 +551,7 @@ export function ImportParticipationsForm({
     } catch {
       setFile(null);
       setReadFailure(
-        'That file could not be read as text. It is neither UTF-8 nor Windows-1252 — re-save it from your spreadsheet as CSV UTF-8 and choose it again.',
+        t('thatFileCouldNotBeReadAsText'),
       );
     }
   }
@@ -571,7 +589,7 @@ export function ImportParticipationsForm({
           <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
             {(Object.keys(COLUMN_ALIASES) as ColumnKey[]).map((key) => (
               <li key={key}>
-                {COLUMN_LABELS[key]}:{' '}
+                {t(COLUMN_LABEL_KEYS[key])}:{' '}
                 {file.mapping[key] ? (
                   <span className="text-foreground">{file.mapping[key]}</span>
                 ) : (
@@ -596,7 +614,7 @@ export function ImportParticipationsForm({
               <>
                 {' '}
                 {t('theFirstReadsAs')}{' '}
-                <span className="text-foreground">{file.rows[0].fullName || '(no name)'}</span>,
+                <span className="text-foreground">{file.rows[0].fullName || t('noName')}</span>,
                 entering{' '}
                 <span className="text-foreground">
                   {file.rows[0].participatedAt
@@ -611,8 +629,10 @@ export function ImportParticipationsForm({
 
           {missing.length > 0 && (
             <p className="text-sm text-destructive" data-testid="participation-import-missing">
-              {t('thisFileHasNoColumnFor')}{' '}{missing.map((key) => COLUMN_LABELS[key]).join(' or ')}.
-              Its header row reads: {file.headers.join(', ') || '(empty)'}.
+              {t('thisFileHasNoColumnForFull', {
+                columns: missing.map((key) => t(COLUMN_LABEL_KEYS[key])).join(t('orSeparator')),
+                headers: file.headers.join(', ') || t('emptyHeaderRow'),
+              })}
             </p>
           )}
           {noIdentifierColumn && (
@@ -700,6 +720,8 @@ export function ImportParticipationsForm({
  */
 function ImportReport({ state }: { state: Extract<ImportParticipationsState, { status: 'done' }> }) {
   const t = useTranslations('participations');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const { result, unreadable } = state;
   const entered = result.recorded - result.duplicate - result.tooSoon - result.overLimit;
   const total = result.recorded + result.skipped + unreadable.length;
@@ -748,18 +770,16 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
                   {/* An unrecognised reason renders itself rather than being
                       dressed as one of the three. The database's own word is a
                       worse sentence than a written one and a far better one than
-                      the wrong sentence — see SKIP_REASONS. */}
+                      the wrong sentence — see SKIP_REASON_KEYS. */}
                   <span className="text-muted-foreground">
-                    {(row.reason && SKIP_REASONS[row.reason]) ??
-                      row.reason ??
-                      'the import could not use this line'}
+                    {describeSkipReason(row.reason, t)}
                   </span>
                 </>
               ) : (
                 <span
                   className={`rounded-full px-2 py-0.5 ${row.status ? STATUS_CLASSES[row.status] : ''}`}
                 >
-                  {row.status ? STATUS_LABELS[row.status] : ''}
+                  {row.status ? tv(STATUS_LABEL_KEYS[row.status]) : ''}
                 </span>
               )}
             </li>

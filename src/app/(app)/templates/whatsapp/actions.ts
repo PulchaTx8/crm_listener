@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -68,7 +69,7 @@ export async function registerTemplateAction(
     );
     return {
       status: 'error',
-      message: describeTemplateWriteError(cause, 'register an approved template'),
+      message: describeTemplateWriteError(cause, await getTranslations('templates'), 'actionRegisterAnApprovedTemplate'),
     };
   }
 }
@@ -91,7 +92,7 @@ export async function archiveTemplateAction(
   if (!parsed.success) {
     return {
       status: 'error',
-      message: 'That registration could not be identified. Refresh the page and try again.',
+      message: (await getTranslations('templates'))('thatRegistrationCouldNotBeIdentified'),
     };
   }
 
@@ -108,7 +109,7 @@ export async function archiveTemplateAction(
     );
     return {
       status: 'error',
-      message: describeTemplateWriteError(cause, 'remove a registered template'),
+      message: describeTemplateWriteError(cause, await getTranslations('templates'), 'actionRemoveARegisteredTemplate'),
     };
   }
 }

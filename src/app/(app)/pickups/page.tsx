@@ -64,7 +64,7 @@ export default async function PickupsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve pickups access');
-    return <LoadError message={describePickupsReadError(cause)} />;
+    return <LoadError message={describePickupsReadError(cause, await getTranslations('pickups'))} />;
   }
 
   const first = viewable[0];
@@ -130,7 +130,7 @@ export default async function PickupsPage({
     );
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the pickups list');
-    return <LoadError message={describePickupsReadError(cause)} />;
+    return <LoadError message={describePickupsReadError(cause, await getTranslations('pickups'))} />;
   }
 
   // The promotion picker's options: ONE page of promotions by name, never the
@@ -159,7 +159,7 @@ export default async function PickupsPage({
       { err: cause, companyId: selected.id },
       'could not read the promotions for the pickups filter',
     );
-    promotionsError = describePickupsReadError(cause, 'the promotions in this Station');
+    promotionsError = describePickupsReadError(cause, await getTranslations('pickups'), 'subjectThePromotionsInThisStation');
   }
 
   // A promotion filter pointing at something the picker did not offer — past
@@ -173,7 +173,7 @@ export default async function PickupsPage({
     promotionOptions.unshift({
       id: state.promotionId,
       name: page.rows.find((row) => row.promotionId === state.promotionId)?.promotionName
-        ?? 'The promotion this list is filtered to',
+        ?? t('thePromotionThisListIsFilteredTo'),
     });
   }
 
@@ -181,7 +181,7 @@ export default async function PickupsPage({
     <>
       <PageHeader
         title={t('pickups')}
-        description="Every prize awaiting collection across this Station's promotions, soonest deadline first."
+        description={t('pickupsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -206,7 +206,7 @@ export default async function PickupsPage({
             action="/pickups"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -301,7 +301,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/pickups" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

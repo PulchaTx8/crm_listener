@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import {
@@ -128,7 +129,7 @@ export async function checkMemberIdentifierAction(
     logger.error({ err: cause, organizationId }, 'check member identifier failed');
     return {
       status: 'error',
-      message: describeMembersWriteError(cause, 'check for an existing listener'),
+      message: describeMembersWriteError(cause, await getTranslations('members'), 'actionCheckForAnExistingListener'),
     };
   }
 }
@@ -174,7 +175,7 @@ export async function registerMemberAction(
     return { status: 'saved', memberId };
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'register member failed');
-    return { status: 'error', message: describeMembersWriteError(cause, 'register a listener') };
+    return { status: 'error', message: describeMembersWriteError(cause, await getTranslations('members'), 'actionRegisterAListener') };
   }
 }
 
@@ -214,7 +215,7 @@ export async function linkMemberToStationAction(
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'link member to station failed');
     return {
       status: 'error',
-      message: describeMembersWriteError(cause, 'link this listener to a Station'),
+      message: describeMembersWriteError(cause, await getTranslations('members'), 'actionLinkThisListenerToAStation'),
     };
   }
 }
@@ -253,7 +254,7 @@ export async function recordConsentAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'record member consent failed');
-    return { status: 'error', message: describeMembersWriteError(cause, 'record this consent') };
+    return { status: 'error', message: describeMembersWriteError(cause, await getTranslations('members'), 'actionRecordThisConsent') };
   }
 }
 
@@ -300,7 +301,7 @@ export async function blockMemberAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'block member failed');
-    return { status: 'error', message: describeMembersWriteError(cause, 'block this listener') };
+    return { status: 'error', message: describeMembersWriteError(cause, await getTranslations('members'), 'actionBlockThisListener') };
   }
 }
 
@@ -328,7 +329,7 @@ export async function liftMemberBlockAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, blockId: parsed.data.blockId }, 'lift member block failed');
-    return { status: 'error', message: describeMembersWriteError(cause, 'lift this block') };
+    return { status: 'error', message: describeMembersWriteError(cause, await getTranslations('members'), 'actionLiftThisBlock') };
   }
 }
 
@@ -364,7 +365,7 @@ export async function anonymizeMemberAction(
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'anonymize member failed');
     return {
       status: 'error',
-      message: describeMembersWriteError(cause, "erase this listener's personal data"),
+      message: describeMembersWriteError(cause, await getTranslations('members'), 'actionEraseThisListenersPersonalData'),
     };
   }
 }
@@ -419,7 +420,7 @@ export async function updateMemberAction(
     return detail ? { status: 'saved', detail } : { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, memberId: parsed.data.memberId }, 'update member failed');
-    return { status: 'error', message: describeMembersWriteError(cause, 'save this listener') };
+    return { status: 'error', message: describeMembersWriteError(cause, await getTranslations('members'), 'actionSaveThisListener') };
   }
 }
 
@@ -442,6 +443,6 @@ export async function archiveMemberAction(
     return { status: 'archived' };
   } catch (cause) {
     logger.error({ err: cause, memberId }, 'archive member failed');
-    return { status: 'error', message: describeMembersWriteError(cause, 'archive this listener') };
+    return { status: 'error', message: describeMembersWriteError(cause, await getTranslations('members'), 'actionArchiveThisListener') };
   }
 }

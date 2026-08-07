@@ -58,12 +58,12 @@ export const PICKUP_STATUSES: readonly WinnerStatus[] = [
  * this codebase carries, and named explicitly here because these five are
  * exactly the words an operator reads on the button and the filter both.
  */
-export const STATUS_LABELS: Record<WinnerStatus, string> = {
-  AWAITING_PICKUP: 'Awaiting pickup',
-  RETURN_PENDING: 'Return pending',
-  DELIVERED: 'Delivered',
-  RETURNED: 'Returned',
-  WRITTEN_OFF: 'Written off',
+export const STATUS_LABEL_KEYS: Record<WinnerStatus, string> = {
+  AWAITING_PICKUP: 'winnerAwaitingPickup',
+  RETURN_PENDING: 'winnerReturnPending',
+  DELIVERED: 'winnerDelivered',
+  RETURNED: 'winnerReturned',
+  WRITTEN_OFF: 'winnerWrittenOff',
 };
 
 /**
@@ -183,16 +183,24 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-/** Whole units only — "overdue by 1 day", never "1 day, 3 hours, 12 minutes". */
-function roughDuration(ms: number): string {
+/**
+ * Whole units only — "overdue by 1 day", never "1 day, 3 hours, 12 minutes".
+ *
+ * Each unit is an ICU plural rather than `minutes === 1 ? '' : 's'`: adding a
+ * letter is how English makes a plural and how nothing else here does.
+ */
+function roughDuration(ms: number, t: DeadlineTranslator): string {
   const minutes = Math.round(ms / MINUTE_MS);
-  if (minutes < 1) return 'under a minute';
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  if (minutes < 1) return t('durationUnderAMinute');
+  if (minutes < 60) return t('durationMinutes', { count: minutes });
   const hours = Math.round(ms / HOUR_MS);
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  if (hours < 24) return t('durationHours', { count: hours });
   const days = Math.round(ms / DAY_MS);
-  return `${days} day${days === 1 ? '' : 's'}`;
+  return t('durationDays', { count: days });
 }
+
+/** What both functions below need from the `pickups` namespace. */
+type DeadlineTranslator = (key: string, values?: Record<string, string | number | Date>) => string;
 
 /**
  * The deadline column's whole reason for existing (this task's own brief):
@@ -212,12 +220,16 @@ function roughDuration(ms: number): string {
  * — "overdue by 3 days" beside a Delivered badge would read as an alarm this
  * screen's own Status column already says is settled.
  */
-export function describeDeadline(deadlineAt: Date | string | null, status: WinnerStatus): string {
+export function describeDeadline(
+  deadlineAt: Date | string | null,
+  status: WinnerStatus,
+  t: DeadlineTranslator,
+): string {
   if (status === 'DELIVERED' || status === 'RETURNED' || status === 'WRITTEN_OFF') return '—';
-  if (!deadlineAt) return 'no deadline';
+  if (!deadlineAt) return t('noDeadline');
 
   const date = typeof deadlineAt === 'string' ? new Date(deadlineAt) : deadlineAt;
   const diffMs = date.getTime() - Date.now();
-  if (diffMs <= 0) return `overdue by ${roughDuration(-diffMs)}`;
-  return `due in ${roughDuration(diffMs)}`;
+  if (diffMs <= 0) return t('overdueBy', { duration: roughDuration(-diffMs, t) });
+  return t('dueIn', { duration: roughDuration(diffMs, t) });
 }

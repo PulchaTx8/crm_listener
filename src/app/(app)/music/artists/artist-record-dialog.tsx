@@ -25,7 +25,8 @@ import { DEFAULT_SONG_SORT, defaultDirectionFor as defaultSongDirectionFor, song
 import { updateArtistAction, type ArtistSaveState } from './actions';
 import { getArtistRecordAction, type ArtistRecord } from './record';
 
-const TAB_LABELS: Record<ArtistTab, string> = { data: 'Artist data', songs: 'Songs' };
+// Catalogue keys, not words: a module body has no request behind it.
+const TAB_LABEL_KEYS: Record<ArtistTab, string> = { data: 'artistData', songs: 'songs' };
 
 const INITIAL_SAVE: ArtistSaveState = { status: 'idle' };
 
@@ -109,7 +110,7 @@ export function ArtistRecordDialog({
   }, [recordId, reloadToken]);
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
     setDirty(false);
     onClose();
   }
@@ -145,7 +146,7 @@ export function ArtistRecordDialog({
                   : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
               }
             >
-              {TAB_LABELS[name]}
+              {t(TAB_LABEL_KEYS[name])}
             </button>
           ))}
         </div>

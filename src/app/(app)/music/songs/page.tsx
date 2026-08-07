@@ -49,7 +49,7 @@ export default async function SongsPage({
     ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve music access');
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   const first = viewable[0];
@@ -107,14 +107,14 @@ export default async function SongsPage({
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the songs list');
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   return (
     <>
       <PageHeader
         title={t('songs')}
-        description="The music catalogue, one song per row, with its artist, label and genre."
+        description={t('songsDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -127,7 +127,7 @@ export default async function SongsPage({
             action="/music/songs"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -194,7 +194,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/music/songs" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

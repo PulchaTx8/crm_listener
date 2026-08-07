@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -76,7 +77,7 @@ export async function searchStationListenersAction(
     // entries — sends them to ask for the wrong permission.
     return {
       status: 'error',
-      message: describeParticipationsReadError(cause, 'the listeners of this Station'),
+      message: describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectTheListenersOfThisStation'),
     };
   }
 }
@@ -211,7 +212,7 @@ export async function recordParticipationAction(
       if (!companyId) {
         return {
           status: 'error',
-          message: 'That promotion is no longer reachable. Reopen the record and try again.',
+          message: (await getTranslations('participations'))('thatPromotionIsNoLongerReachable'),
         };
       }
 
@@ -242,7 +243,7 @@ export async function recordParticipationAction(
       // about the entry.
       return {
         status: 'error',
-        message: describeParticipationsWriteError(cause, 'register this listener at this Station'),
+        message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRegisterThisListenerAtThisStation'),
       };
     }
   }
@@ -272,8 +273,14 @@ export async function recordParticipationAction(
       attempted: true,
       listenerRegistered: registered,
       message: registered
-        ? `The listener was registered, but the entry was not recorded. ${describeParticipationsWriteError(cause, 'record an entry in this promotion')} They are now in this Station's audience, so pick them from the search above rather than typing them again.`
-        : describeParticipationsWriteError(cause, 'record an entry in this promotion'),
+        ? (await getTranslations('participations'))('registeredButEntryNotRecorded', {
+            reason: describeParticipationsWriteError(
+              cause,
+              await getTranslations('participations'),
+              'actionRecordAnEntryInThisPromotion',
+            ),
+          })
+        : describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRecordAnEntryInThisPromotion'),
     };
   }
 }
@@ -331,17 +338,18 @@ export async function importParticipationsAction(
   const promotionId = String(formData.get('promotionId') ?? '');
   if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
 
+  const t = await getTranslations('participations');
   let raw: unknown;
   try {
     raw = JSON.parse(String(formData.get('rows') ?? ''));
   } catch {
-    return { status: 'error', message: 'The file could not be read. Choose it again.' };
+    return { status: 'error', message: t('theFileCouldNotBeRead') };
   }
   if (!Array.isArray(raw)) {
-    return { status: 'error', message: 'The file could not be read. Choose it again.' };
+    return { status: 'error', message: t('theFileCouldNotBeRead') };
   }
   if (raw.length === 0) {
-    return { status: 'error', message: 'That file has a header row and nothing under it.' };
+    return { status: 'error', message: t('thatFileHasAHeaderRowAndNothingUnderIt') };
   }
 
   const rows: ImportRowInput[] = [];
@@ -362,7 +370,7 @@ export async function importParticipationsAction(
       : index + 2;
     unreadable.push({
       line,
-      reason: parsed.error.issues[0]?.message ?? 'This line could not be read.',
+      reason: parsed.error.issues[0]?.message ?? t('thisLineCouldNotBeRead'),
     });
   });
 
@@ -404,7 +412,7 @@ export async function importParticipationsAction(
     logger.error({ err: cause, promotionId, rows: rows.length }, 'import participations failed');
     return {
       status: 'error',
-      message: describeParticipationsWriteError(cause, 'import entries into this promotion'),
+      message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionImportEntriesIntoThisPromotion'),
     };
   }
 }
@@ -460,7 +468,7 @@ export async function prepareDrawHatAction(state: ParticipationListState): Promi
       { err: cause, promotionId: state.promotionId },
       'could not collect the hat for a draw',
     );
-    return { status: 'error', message: describeParticipationsReadError(cause, 'these entries') };
+    return { status: 'error', message: describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectTheseEntries') };
   }
 }
 
@@ -495,7 +503,7 @@ export async function runDrawFromListAction(
   if (participationIds.length === 0) {
     return {
       status: 'error',
-      message: 'Nobody in this list can be drawn. Widen the filters and try again.',
+      message: (await getTranslations('participations'))('nobodyInThisListCanBeDrawn'),
     };
   }
 
@@ -510,7 +518,7 @@ export async function runDrawFromListAction(
     );
     return {
       status: 'error',
-      message: describeParticipationsWriteError(cause, 'run a draw in this promotion'),
+      message: describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRunADrawInThisPromotion'),
     };
   }
 

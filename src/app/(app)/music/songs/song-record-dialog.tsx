@@ -14,7 +14,8 @@ import { updateSongAction, type SongSaveState } from './actions';
 import { getSongRecordAction, type SongRecord } from './record';
 import { SongFields } from './song-fields';
 
-const TAB_LABELS: Record<SongTab, string> = { data: 'Song data' };
+// Catalogue keys, not words: a module body has no request behind it.
+const TAB_LABEL_KEYS: Record<SongTab, string> = { data: 'songData' };
 
 const INITIAL_SAVE: SongSaveState = { status: 'idle' };
 
@@ -93,7 +94,7 @@ export function SongRecordDialog({
   }, [recordId, reloadToken]);
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
     setDirty(false);
     onClose();
   }
@@ -127,7 +128,7 @@ export function SongRecordDialog({
                   : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
               }
             >
-              {TAB_LABELS[name]}
+              {t(TAB_LABEL_KEYS[name])}
             </button>
           ))}
         </div>

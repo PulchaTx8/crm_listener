@@ -17,7 +17,7 @@ import { BlockForm } from './block-form';
 import { ConsentForm } from './consent-form';
 import { EraseMemberForm } from './erase-member-form';
 import { LiftBlockButton } from './lift-block-button';
-import { BLOCK_KIND_LABELS, CONSENT_TYPE_LABELS, formatCalendarDate, formatDate, formatDateTime } from './format';
+import { BLOCK_KIND_LABEL_KEYS, CONSENT_TYPE_LABEL_KEYS, formatCalendarDate, formatDate, formatDateTime } from './format';
 
 const TAB_LABELS: Record<MemberTab, string> = {
   data: 'Data',
@@ -68,6 +68,8 @@ export function MemberRecordDialog({
   onBlocked: (memberId: string) => void;
 }) {
   const t = useTranslations('members');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const titleId = useId();
   const [record, setRecord] = useState<MemberRecord | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -127,7 +129,7 @@ export function MemberRecordDialog({
   function requestClose() {
     // ESC and a backdrop click both land here. Silently discarding a half-typed
     // record is the same failure as losing it to a network error.
-    if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
     setDirty(false);
     onClose();
   }
@@ -237,7 +239,7 @@ export function MemberRecordDialog({
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.consents.map((consent) => (
                     <li key={consent.id} className="rounded-md border p-3">
-                      <span className="font-medium">{CONSENT_TYPE_LABELS[consent.consentType]}</span>
+                      <span className="font-medium">{tv(CONSENT_TYPE_LABEL_KEYS[consent.consentType])}</span>
                       {' · '}
                       {consent.granted ? t('granted') : t('withdrawn')}
                       {' · '}
@@ -282,12 +284,14 @@ export function MemberRecordDialog({
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.blocks.map((block) => (
                     <li key={block.id} data-testid="member-block-row" className="rounded-md border p-3">
-                      <span className="font-medium">{BLOCK_KIND_LABELS[block.kind]}</span>
+                      <span className="font-medium">{tv(BLOCK_KIND_LABEL_KEYS[block.kind])}</span>
                       {' · '}
                       {block.companyId ? t('oneStation') : t('wholeOrganization')}
-                      {' · from '}
+                      {t('blockFrom')}
                       {formatDateTime(block.startsAt)}
-                      {block.endsAt ? ` until ${formatDateTime(block.endsAt)}` : ', no end date'}
+                      {block.endsAt
+                        ? t('blockUntil', { when: formatDateTime(block.endsAt) })
+                        : t('blockNoEndDate')}
                       {block.liftedAt && (
                         <span className="block text-muted-foreground">
                           {t('lifted2')}{' '}{formatDateTime(block.liftedAt)}
@@ -389,22 +393,26 @@ function DataTab({
         className="grid gap-3 sm:grid-cols-2"
       >
         <input type="hidden" name="memberId" value={detail.id} />
-        <Field name="fullName" label="Name" defaultValue={detail.fullName ?? ''} required />
-        <Field name="phone" label="Phone" defaultValue={detail.phone ?? ''} />
-        <Field name="email" label="E-mail" defaultValue={detail.email ?? ''} />
+        <Field name="fullName" label={t('fieldName')} defaultValue={detail.fullName ?? ''} required />
+        <Field name="phone" label={t('fieldPhone')} defaultValue={detail.phone ?? ''} />
+        <Field name="email" label={t('fieldEmail')} defaultValue={detail.email ?? ''} />
         {/* The stored CPF is a hash; only its last three digits are readable,
             so this field is for replacing the number, never for showing it. */}
-        <Field name="cpf" label={`CPF${detail.cpfLastDigits ? ` (on file: ···${detail.cpfLastDigits})` : ''}`} defaultValue="" />
-        <Field name="passport" label="Passport" defaultValue={detail.passport ?? ''} />
-        <Field name="birthDate" label="Date of birth" type="date" defaultValue={detail.birthDate ?? ''} />
-        <Field name="addressLine" label="Address" defaultValue={detail.addressLine ?? ''} />
-        <Field name="addressNumber" label="Number" defaultValue={detail.addressNumber ?? ''} />
-        <Field name="addressComplement" label="Complement" defaultValue={detail.addressComplement ?? ''} />
-        <Field name="neighbourhood" label="Neighbourhood" defaultValue={detail.neighbourhood ?? ''} />
-        <Field name="city" label="City" defaultValue={detail.city ?? ''} />
-        <Field name="state" label="State" defaultValue={detail.state ?? ''} />
-        <Field name="postalCode" label="Postcode" defaultValue={detail.postalCode ?? ''} />
-        <Field name="discoverySource" label="How they found us" defaultValue={detail.discoverySource ?? ''} />
+        <Field name="cpf" label={
+            detail.cpfLastDigits
+              ? t('fieldCpfOnFile', { digits: detail.cpfLastDigits })
+              : t('fieldCpf')
+          } defaultValue="" />
+        <Field name="passport" label={t('fieldPassport')} defaultValue={detail.passport ?? ''} />
+        <Field name="birthDate" label={t('fieldDateOfBirth')} type="date" defaultValue={detail.birthDate ?? ''} />
+        <Field name="addressLine" label={t('fieldAddress')} defaultValue={detail.addressLine ?? ''} />
+        <Field name="addressNumber" label={t('fieldNumber')} defaultValue={detail.addressNumber ?? ''} />
+        <Field name="addressComplement" label={t('fieldComplement')} defaultValue={detail.addressComplement ?? ''} />
+        <Field name="neighbourhood" label={t('fieldNeighbourhood')} defaultValue={detail.neighbourhood ?? ''} />
+        <Field name="city" label={t('fieldCity')} defaultValue={detail.city ?? ''} />
+        <Field name="state" label={t('fieldState')} defaultValue={detail.state ?? ''} />
+        <Field name="postalCode" label={t('fieldPostcode')} defaultValue={detail.postalCode ?? ''} />
+        <Field name="discoverySource" label={t('fieldHowTheyFoundUs')} defaultValue={detail.discoverySource ?? ''} />
 
         <div className="sm:col-span-2 flex items-center gap-3">
           <Button type="submit" disabled={pending}>
@@ -425,13 +433,14 @@ function DataTab({
 }
 
 function ReadOnlyIdentity({ detail }: { detail: MemberDetail }) {
+  const t = useTranslations('members');
   const rows: [string, string | null][] = [
-    ['Phone', detail.phone],
-    ['E-mail', detail.email],
-    ['CPF', detail.cpfLastDigits ? `···${detail.cpfLastDigits}` : null],
-    ['Passport', detail.passport],
-    ['Date of birth', detail.birthDate ? formatCalendarDate(detail.birthDate) : null],
-    ['City', detail.city],
+    [t('fieldPhone'), detail.phone],
+    [t('fieldEmail'), detail.email],
+    [t('fieldCpf'), detail.cpfLastDigits ? `···${detail.cpfLastDigits}` : null],
+    [t('fieldPassport'), detail.passport],
+    [t('fieldDateOfBirth'), detail.birthDate ? formatCalendarDate(detail.birthDate) : null],
+    [t('fieldCity'), detail.city],
   ];
   return (
     <dl className="grid gap-2 text-sm sm:grid-cols-2">

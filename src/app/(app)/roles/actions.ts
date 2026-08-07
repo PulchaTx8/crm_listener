@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { roleFormSchema } from '@/schemas/roles';
@@ -80,19 +81,19 @@ async function requireAccessToken(): Promise<string> {
  * for them to fix beyond trying again, so it gets the generic fallback rather
  * than a raw database message.
  */
-function describeRoleError(cause: unknown): string {
+function describeRoleError(cause: unknown, t: (key: string) => string): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That role no longer exists. Refresh the page and try again.';
+    return t('thatRoleNoLongerExists');
   }
   if (cause instanceof UnauthorizedError) {
-    return 'You do not have permission to manage roles.';
+    return t('youDoNotHavePermissionToManageRoles');
   }
   if (cause instanceof ValidationError) return cause.message;
   // Generic on purpose, and worded to fit both callers: InternalError means
   // the fault is ours, not the caller's, whether they were saving or deleting.
-  return 'Something went wrong. Try again.';
+  return t('somethingWentWrong');
 }
 
 export async function saveRoleAction(
@@ -142,7 +143,7 @@ export async function saveRoleAction(
     };
   } catch (cause) {
     logger.error({ err: cause }, 'save role failed');
-    return { status: 'error', message: describeRoleError(cause) };
+    return { status: 'error', message: describeRoleError(cause, await getTranslations('roles')) };
   }
 }
 
@@ -170,6 +171,6 @@ export async function deleteRoleAction(
     return { status: 'deleted' };
   } catch (cause) {
     logger.error({ err: cause }, 'delete role failed');
-    return { status: 'error', message: describeRoleError(cause) };
+    return { status: 'error', message: describeRoleError(cause, await getTranslations('roles')) };
   }
 }

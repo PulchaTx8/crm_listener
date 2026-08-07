@@ -220,7 +220,7 @@ export default async function CustomersPage({
     <>
       <PageHeader
         title={t('customers')}
-        description="Provision a new customer, or manage an existing subscription."
+        description={t('customersDescription')}
       />
 
       <CustomersGrid

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { REQUESTED_FIELD_ORDER } from '@/schemas/promotions';
 import type { PromotionDetail } from '@/services/promotions';
-import { REQUESTED_FIELD_LABELS } from './format';
+import { REQUESTED_FIELD_LABEL_KEYS } from './format';
 
 /**
  * The WhatsApp tab's fields. Presentational, like PromotionFields, and part of
@@ -134,7 +134,7 @@ export function WhatsappFields({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">“No” button</span>
+              <span className="text-muted-foreground">{t('noButton')}</span>
               <Input
                 name="noButtonLabel"
                 defaultValue={record?.noButtonLabel ?? ''}
@@ -161,7 +161,7 @@ export function WhatsappFields({
                     disabled={disabled}
                     className="h-4 w-4 rounded border-input"
                   />
-                  <span>{REQUESTED_FIELD_LABELS[field]}</span>
+                  <span>{t(REQUESTED_FIELD_LABEL_KEYS[field])}</span>
                 </label>
               ))}
             </div>

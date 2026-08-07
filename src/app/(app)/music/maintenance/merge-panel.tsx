@@ -35,12 +35,12 @@ const DEBOUNCE_MS = 350;
  * cannot silently drift apart — a renamed kind is a type error in both
  * places at once, not a quiet bug in one of them.
  */
-const KIND_LABELS: Record<MusicMergeKind, string> = {
-  SONG: 'songs',
-  ARTIST: 'artists',
-  LABEL: 'labels',
-  GENRE: 'genres',
-  SHOW: 'shows',
+const KIND_LABEL_KEYS: Record<MusicMergeKind, string> = {
+  SONG: 'kindSongs',
+  ARTIST: 'kindArtists',
+  LABEL: 'kindLabels',
+  GENRE: 'kindGenres',
+  SHOW: 'kindShows',
 };
 
 /**
@@ -50,19 +50,35 @@ const KIND_LABELS: Record<MusicMergeKind, string> = {
  * repoint songs. This is what turns a bare childCount into "412 requests" —
  * the number that makes naming the survivor a decision, not a coin flip.
  */
-const CHILD_NOUN: Record<MusicMergeKind, string> = {
-  SONG: 'requests',
-  ARTIST: 'songs',
-  LABEL: 'songs',
-  GENRE: 'songs',
-  SHOW: 'requests',
+/** The same two child kinds as a bare plural noun, for the column head. */
+const CHILD_NOUN_KEYS: Record<MusicMergeKind, string> = {
+  SONG: 'kindRequests',
+  ARTIST: 'kindSongs',
+  LABEL: 'kindSongs',
+  GENRE: 'kindSongs',
+  SHOW: 'kindRequests',
 };
 
-/** "412 requests", "3 songs", "0 songs" — singular only at exactly one, and the codebase's own `en-GB` thousands grouping (PageControls' identical `toLocaleString('en-GB')`). */
-export function childCountLabel(kind: MusicMergeKind, count: number): string {
-  const noun = CHILD_NOUN[kind];
-  const word = count === 1 ? noun.slice(0, -1) : noun;
-  return `${count.toLocaleString('en-GB')} ${word}`;
+const CHILD_COUNT_KEYS: Record<MusicMergeKind, string> = {
+  SONG: 'childCountRequests',
+  ARTIST: 'childCountSongs',
+  LABEL: 'childCountSongs',
+  GENRE: 'childCountSongs',
+  SHOW: 'childCountRequests',
+};
+
+/**
+ * "412 requests", "3 songs", "0 songs" — an ICU plural per child noun rather
+ * than `noun.slice(0, -1)`, which is English pluralisation written into the
+ * code: nothing else here makes a plural by dropping a letter, and the number
+ * itself groups by the reader's locale rather than always `en-GB`.
+ */
+export function childCountLabel(
+  kind: MusicMergeKind,
+  count: number,
+  t: (key: string, values?: Record<string, string | number | Date>) => string,
+): string {
+  return t(CHILD_COUNT_KEYS[kind], { count });
 }
 
 // ---------------------------------------------------------------------------
@@ -154,10 +170,13 @@ export function mergeConfirmationText(
   kind: MusicMergeKind,
   survivor: MergeCandidate,
   losers: readonly MergeCandidate[],
+  t: (key: string, values?: Record<string, string | number | Date>) => string,
 ): string {
-  const moved = childrenMovedByMerge(losers);
-  const record = losers.length === 1 ? 'record' : 'records';
-  return `Merge ${losers.length} ${record} into “${survivor.label}”? ${childCountLabel(kind, moved)} will move. This cannot be undone.`;
+  return t('mergeConfirmation', {
+    count: losers.length,
+    survivor: survivor.label,
+    moved: childCountLabel(kind, childrenMovedByMerge(losers), t),
+  });
 }
 
 const INITIAL_MERGE: MergeState = { ok: null };
@@ -227,7 +246,7 @@ export function MergePanel({
 
   const losers = losersOf(staging);
   const survivor = staging.staged.find((c) => c.id === staging.survivorId) ?? null;
-  const kindLabel = KIND_LABELS[state.kind];
+  const kindLabel = t(KIND_LABEL_KEYS[state.kind]);
   const stagedIds = new Set(staging.staged.map((c) => c.id));
 
   return (
@@ -237,14 +256,16 @@ export function MergePanel({
           className="rounded-md border border-dashed p-3 text-sm text-muted-foreground"
           data-testid="maintenance-readonly-notice"
         >
-          {t('youCanSeeThisStationS')}{' '}{kindLabel}, but merging them needs a permission you do
-          not hold here — <strong>{t('musicMerge')}</strong>. Ask somebody who holds it to collapse the
-          duplicates, or to grant it to you.
+          {t.rich('youCanSeeButCannotMerge', {
+            kind: kindLabel,
+            permission: 'music.merge',
+            b: (chunks) => <strong>{chunks}</strong>,
+          })}
         </p>
       )}
 
       <label className="flex w-72 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('search')}{' '}{kindLabel}</span>
+        <span className="text-muted-foreground">{t('searchKind', { kind: kindLabel })}</span>
         <Input
           type="search"
           value={search}
@@ -254,7 +275,7 @@ export function MergePanel({
             timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
           }}
           placeholder={t('name')}
-          aria-label={`Search ${kindLabel} by name`}
+          aria-label={t('searchKindByName', { kind: kindLabel })}
           data-testid="maintenance-search-input"
         />
       </label>
@@ -270,8 +291,10 @@ export function MergePanel({
               )}
               <TableHead>{t('name')}</TableHead>
               {/* Uppercased by TableHead's own CSS regardless of the case
-                  passed in — no need to capitalise CHILD_NOUN by hand. */}
-              <TableHead>{CHILD_NOUN[state.kind]}</TableHead>
+                  passed in — no need to capitalise the noun by hand. A bare
+                  plural noun, not the counted message: a column head names
+                  the kind and shows no number. */}
+              <TableHead>{t(CHILD_NOUN_KEYS[state.kind])}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -281,7 +304,9 @@ export function MergePanel({
                   colSpan={canMerge ? 3 : 2}
                   className="py-8 text-center text-muted-foreground"
                 >
-                  {state.search ? `No ${kindLabel} match “${state.search}”.` : `No ${kindLabel} yet.`}
+                  {state.search
+                    ? t('noKindMatch', { kind: kindLabel, search: state.search })
+                    : t('noKindYet', { kind: kindLabel })}
                 </TableCell>
               </TableRow>
             ) : (
@@ -294,7 +319,7 @@ export function MergePanel({
                         className="h-4 w-4 rounded border-input"
                         checked={stagedIds.has(candidate.id)}
                         onChange={() => dispatch({ type: 'toggle', candidate })}
-                        aria-label={`Stage ${candidate.label} for merge`}
+                        aria-label={t('stageCandidateForMerge', { name: candidate.label })}
                         data-testid="maintenance-candidate-checkbox"
                       />
                     </TableCell>
@@ -306,7 +331,7 @@ export function MergePanel({
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {childCountLabel(state.kind, candidate.childCount)}
+                    {childCountLabel(state.kind, candidate.childCount, t)}
                   </TableCell>
                 </TableRow>
               ))
@@ -341,7 +366,7 @@ export function MergePanel({
                       )}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {childCountLabel(state.kind, candidate.childCount)}
+                      {childCountLabel(state.kind, candidate.childCount, t)}
                     </span>
                   </span>
                 </label>
@@ -494,7 +519,7 @@ function ConfirmMergeDialog({
           </p>
         ) : (
           <p className="text-sm" data-testid="maintenance-merge-confirmation-text">
-            {mergeConfirmationText(kind, survivor, losers)}
+            {mergeConfirmationText(kind, survivor, losers, t)}
           </p>
         )}
         {state.ok === false && <p className="mt-3 text-sm text-destructive">{state.message}</p>}

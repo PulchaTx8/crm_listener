@@ -73,7 +73,7 @@ export default async function AuditPage({
     <>
       <PageHeader
         title={t('auditTrail')}
-        description="What has been done in this Organization, by whom, and when. Filtered by what you may read."
+        description={t('auditDescription')}
       />
 
       <Card className="mb-4">

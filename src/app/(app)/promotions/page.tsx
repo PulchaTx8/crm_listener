@@ -53,7 +53,7 @@ export default async function PromotionsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve promotions access');
-    return <LoadError message={describePromotionsReadError(cause)} />;
+    return <LoadError message={describePromotionsReadError(cause, await getTranslations('promotions'))} />;
   }
 
   const first = viewable[0];
@@ -101,14 +101,14 @@ export default async function PromotionsPage({
     });
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the promotions list');
-    return <LoadError message={describePromotionsReadError(cause)} />;
+    return <LoadError message={describePromotionsReadError(cause, await getTranslations('promotions'))} />;
   }
 
   return (
     <>
       <PageHeader
         title={t('promotions')}
-        description="Every promotion in the Station, its window, and the quiz the bot asks."
+        description={t('promotionsDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -121,7 +121,7 @@ export default async function PromotionsPage({
             action="/promotions"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -191,7 +191,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/promotions" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

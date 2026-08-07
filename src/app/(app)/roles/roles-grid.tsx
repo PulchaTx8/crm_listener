@@ -132,7 +132,7 @@ export function RolesGrid({
                         <Pencil className="size-4" aria-hidden="true" />
                       </button>
                       <DropdownMenu
-                        label={`Actions for ${role.name}`}
+                        label={t('actionsForRole', { name: role.name })}
                         trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                       >
                         {/* Offered even for a role somebody holds, where

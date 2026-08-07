@@ -133,7 +133,7 @@ export function ArtistsGrid({
                     <div className="flex items-center justify-end gap-1">
                       <button
                         type="button"
-                        aria-label={`Edit ${artist.name}`}
+                        aria-label={t('editArtist', { name: artist.name })}
                         onClick={() => open(artist.id, 'data')}
                         className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
@@ -141,7 +141,7 @@ export function ArtistsGrid({
                       </button>
                       {manage && (
                         <DropdownMenu
-                          label={`Actions for ${artist.name}`}
+                          label={t('actionsForArtist', { name: artist.name })}
                           trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                         >
                           <DropdownMenuItem destructive onSelect={() => setArchiving(artist)}>

@@ -25,12 +25,12 @@ const INITIAL: RecordRequestState = { ok: null };
 const SEARCH_DEBOUNCE_MS = 350;
 
 /** How a picked listener reads in the confirmation line — the same shape describeListener has on the participation form. */
-function describeListener(listener: StationListener): string {
+function describeListener(listener: StationListener, t: (key: string) => string): string {
   const identifiers = [
     listener.phone,
     listener.cpfLastDigits ? `···${listener.cpfLastDigits}` : null,
   ].filter(Boolean);
-  const name = listener.fullName ?? 'Unnamed listener';
+  const name = listener.fullName ?? t('unnamedListener');
   return identifiers.length ? `${name} — ${identifiers.join(' · ')}` : name;
 }
 
@@ -219,7 +219,7 @@ export function RecordRequestForm({
         {pickedListener ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 p-3">
             <span className="text-sm" data-testid="request-picked-listener">
-              {describeListener(pickedListener)}
+              {describeListener(pickedListener, t)}
             </span>
             <Button type="button" variant="outline" onClick={() => setPickedListener(null)}>
               {t('chooseSomebodyElse')}</Button>
@@ -254,7 +254,7 @@ export function RecordRequestForm({
                       className="w-full rounded-md border px-3 py-2 text-left text-sm ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       data-testid="request-listener-option"
                     >
-                      {describeListener(listener)}
+                      {describeListener(listener, t)}
                     </button>
                   </li>
                 ))}

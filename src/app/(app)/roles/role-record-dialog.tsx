@@ -13,9 +13,10 @@ import type { PermissionEntry, RoleSummary } from '@/services/roles';
 import { ROLE_TABS, type RoleTab } from '@/lib/record-params';
 import { saveRoleAction, type RoleFormState, type SavedRole } from './actions';
 
-const TAB_LABELS: Record<RoleTab, string> = {
-  data: 'Role data',
-  powers: 'Powers',
+// Catalogue keys, not words: a module body has no request behind it.
+const TAB_LABEL_KEYS: Record<RoleTab, string> = {
+  data: 'tabRoleData',
+  powers: 'tabPowers',
 };
 
 const INITIAL_SAVE: RoleFormState = { status: 'idle' };
@@ -71,7 +72,7 @@ export function RoleRecordDialog({
   }, [state]);
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
     setDirty(false);
     onClose();
   }
@@ -108,7 +109,7 @@ export function RoleRecordDialog({
     <Dialog open={open} onClose={requestClose} labelledBy={titleId}>
       <DialogHeader>
         <div className="flex flex-col gap-1">
-          <DialogTitle id={titleId}>{role ? role.name : 'New role'}</DialogTitle>
+          <DialogTitle id={titleId}>{role ? role.name : t('newRole')}</DialogTitle>
           {role && (
             <p className="text-xs text-muted-foreground">
               {role.permissionCodes.length} {t('permissionSHeldBy')}{' '}{role.holders} {t('userS')}</p>
@@ -138,7 +139,7 @@ export function RoleRecordDialog({
                 : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
             }
           >
-            {TAB_LABELS[name]}
+            {t(TAB_LABEL_KEYS[name])}
           </button>
         ))}
       </div>

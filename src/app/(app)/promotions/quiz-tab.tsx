@@ -11,7 +11,7 @@ import {
   savePromotionQuestionAction,
   type QuestionFormState,
 } from './actions';
-import { QUESTION_KIND_HINTS, QUESTION_KIND_LABELS } from './format';
+import { QUESTION_KIND_HINT_KEYS, QUESTION_KIND_LABEL_KEYS } from './format';
 
 const INITIAL: QuestionFormState = { status: 'idle' };
 const KINDS: PromotionQuestionKind[] = ['QUIZ', 'MULTIPLE_CHOICE', 'ESSAY'];
@@ -59,7 +59,7 @@ export function QuizTab({
               <div className="flex flex-col gap-1">
                 <span className="text-sm font-medium">{question.prompt}</span>
                 <span className="text-xs text-muted-foreground">
-                  {question.position}. {QUESTION_KIND_LABELS[question.kind]}
+                  {question.position}. {t(QUESTION_KIND_LABEL_KEYS[question.kind])}
                 </span>
                 {question.options.length > 0 && (
                   <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
@@ -191,11 +191,11 @@ function QuestionForm({
         >
           {KINDS.map((value) => (
             <option key={value} value={value}>
-              {QUESTION_KIND_LABELS[value]}
+              {t(QUESTION_KIND_LABEL_KEYS[value])}
             </option>
           ))}
         </Select>
-        <span className="text-xs text-muted-foreground">{QUESTION_KIND_HINTS[kind]}</span>
+        <span className="text-xs text-muted-foreground">{t(QUESTION_KIND_HINT_KEYS[kind])}</span>
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
@@ -247,7 +247,7 @@ function QuestionForm({
                     )
                   }
                   maxLength={24}
-                  placeholder={`Option ${index + 1}`}
+                  placeholder={t('optionNumber', { number: index + 1 })}
                   data-testid="quiz-option-label"
                 />
                 {/* The value is the INDEX, not a boolean per row: an unticked
@@ -273,7 +273,7 @@ function QuestionForm({
                 {options.length > 2 && (
                   <button
                     type="button"
-                    aria-label={`Remove option ${index + 1}`}
+                    aria-label={t('removeOption', { number: index + 1 })}
                     onClick={() => setOptions((current) => current.filter((_, i) => i !== index))}
                     className="rounded-md p-1.5 hover:bg-accent"
                   >

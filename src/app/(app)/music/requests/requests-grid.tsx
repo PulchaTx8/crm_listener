@@ -25,9 +25,11 @@ const BASE_COLUMN_COUNT = 6;
 
 const INITIAL_ARCHIVE: ArchiveRequestState = { ok: null };
 
-const CHANNEL_LABELS: Record<RequestSummary['channel'], string> = {
-  MANUAL: 'Entered by hand',
-  IMPORT: 'From a file',
+// The shared `vocab` keys, not a second wording: this column and the
+// participations grid answer the same question about the same two channels.
+const CHANNEL_LABEL_KEYS: Record<RequestSummary['channel'], string> = {
+  MANUAL: 'sourceManual',
+  IMPORT: 'sourceImport',
 };
 
 /**
@@ -70,6 +72,8 @@ export function RequestsGrid({
   canRegisterListeners: boolean;
 }) {
   const t = useTranslations('music');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const [recording, setRecording] = useState(false);
   const [archiving, setArchiving] = useState<RequestSummary | null>(null);
 
@@ -174,14 +178,14 @@ export function RequestsGrid({
                   </TableCell>
                   <TableCell className="text-sm">{request.artistName}</TableCell>
                   <TableCell className="text-sm">{request.showName ?? '—'}</TableCell>
-                  <TableCell className="text-sm">{CHANNEL_LABELS[request.channel]}</TableCell>
+                  <TableCell className="text-sm">{tv(CHANNEL_LABEL_KEYS[request.channel])}</TableCell>
                   <TableCell className="whitespace-nowrap text-sm">
                     {formatInstant(request.requestedAt, timeZone)}
                   </TableCell>
                   {canRequest && (
                     <TableCell className="sticky right-0 bg-background text-right">
                       <DropdownMenu
-                        label={`Actions for the request for ${request.songTitle}`}
+                        label={t('actionsForRequest', { title: request.songTitle })}
                         trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                       >
                         <DropdownMenuItem destructive onSelect={() => setArchiving(request)}>

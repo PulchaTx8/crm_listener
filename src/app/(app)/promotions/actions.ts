@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
@@ -119,9 +120,10 @@ export async function createPromotionAction(
   _prev: PromotionFormState,
   formData: FormData,
 ): Promise<PromotionFormState> {
+  const t = await getTranslations('promotions');
   const parsed = readPromotionForm(formData);
   if (!parsed.success) {
-    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -132,7 +134,7 @@ export async function createPromotionAction(
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create promotion failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'register a promotion'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionRegisterAPromotion'),
     };
   }
 }
@@ -141,12 +143,13 @@ export async function updatePromotionAction(
   _prev: PromotionFormState,
   formData: FormData,
 ): Promise<PromotionFormState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
 
   const parsed = readPromotionForm(formData);
   if (!parsed.success) {
-    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -155,7 +158,7 @@ export async function updatePromotionAction(
     return { status: 'saved', promotionId };
   } catch (cause) {
     logger.error({ err: cause, promotionId }, 'update promotion failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, 'edit this promotion') };
+    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisPromotion') };
   }
 }
 
@@ -168,13 +171,14 @@ export async function cancelPromotionAction(
   _prev: CancelPromotionState,
   formData: FormData,
 ): Promise<CancelPromotionState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
   const reason = String(formData.get('reason') ?? '').trim();
 
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
   // cancel_promotion refuses this too; catching it here saves a round trip and
   // says it beside the field rather than at the top of the dialog.
-  if (!reason) return { status: 'error', message: 'Say why this promotion is being cancelled.' };
+  if (!reason) return { status: 'error', message: t('sayWhyThisPromotionIsBeingCancelled') };
 
   const token = await requireAccessToken();
   try {
@@ -184,7 +188,7 @@ export async function cancelPromotionAction(
     logger.error({ err: cause, promotionId }, 'cancel promotion failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'cancel this promotion'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionCancelThisPromotion'),
     };
   }
 }
@@ -198,8 +202,9 @@ export async function archivePromotionAction(
   _prev: ArchivePromotionState,
   formData: FormData,
 ): Promise<ArchivePromotionState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
 
   const token = await requireAccessToken();
   try {
@@ -209,7 +214,7 @@ export async function archivePromotionAction(
     logger.error({ err: cause, promotionId }, 'archive promotion failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'archive this promotion'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionArchiveThisPromotion'),
     };
   }
 }
@@ -223,9 +228,10 @@ export async function savePromotionQuestionAction(
   _prev: QuestionFormState,
   formData: FormData,
 ): Promise<QuestionFormState> {
+  const t = await getTranslations('promotions');
   const promotionId = String(formData.get('promotionId') ?? '');
   const questionId = String(formData.get('questionId') ?? '') || null;
-  if (!promotionId) return { status: 'error', message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
 
   const kind = String(formData.get('kind') ?? '') as PromotionQuestionKind;
   // Labels and their ticks arrive as two parallel lists. The tick list carries
@@ -258,7 +264,7 @@ export async function savePromotionQuestionAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, promotionId, questionId }, 'save promotion question failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, 'edit this quiz') };
+    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisQuiz') };
   }
 }
 
@@ -266,8 +272,9 @@ export async function removePromotionQuestionAction(
   _prev: QuestionFormState,
   formData: FormData,
 ): Promise<QuestionFormState> {
+  const t = await getTranslations('promotions');
   const questionId = String(formData.get('questionId') ?? '');
-  if (!questionId) return { status: 'error', message: 'Which question? Reopen the record.' };
+  if (!questionId) return { status: 'error', message: t('whichQuestionReopenTheRecord') };
 
   const token = await requireAccessToken();
   try {
@@ -275,7 +282,7 @@ export async function removePromotionQuestionAction(
     return { status: 'saved' };
   } catch (cause) {
     logger.error({ err: cause, questionId }, 'remove promotion question failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, 'edit this quiz') };
+    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisQuiz') };
   }
 }
 
@@ -301,12 +308,15 @@ type PrizeLinkFormResult =
  * Both ids are guarded here rather than in each action, because both actions
  * post the same three fields through this one reader.
  */
-function readPrizeLinkForm(formData: FormData): PrizeLinkFormResult {
+function readPrizeLinkForm(
+  formData: FormData,
+  t: (key: string) => string,
+): PrizeLinkFormResult {
   const promotionId = String(formData.get('promotionId') ?? '');
-  if (!promotionId) return { success: false, message: 'Which promotion? Reopen the record.' };
+  if (!promotionId) return { success: false, message: t('whichPromotionReopenTheRecord') };
 
   const prizeId = String(formData.get('prizeId') ?? '');
-  if (!prizeId) return { success: false, message: 'Choose a prize.' };
+  if (!prizeId) return { success: false, message: t('chooseAPrizeRequired') };
 
   const raw = String(formData.get('quantity') ?? '').trim();
   const parsed = promotionPrizeLinkSchema.safeParse({
@@ -319,7 +329,7 @@ function readPrizeLinkForm(formData: FormData): PrizeLinkFormResult {
     quantity: raw === '' ? Number.NaN : Number(raw),
   });
   if (!parsed.success) {
-    return { success: false, message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { success: false, message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
   return { success: true, data: parsed.data };
 }
@@ -328,7 +338,7 @@ export async function linkPrizeAction(
   _prev: PrizeLinkState,
   formData: FormData,
 ): Promise<PrizeLinkState> {
-  const parsed = readPrizeLinkForm(formData);
+  const parsed = readPrizeLinkForm(formData, await getTranslations('promotions'));
   if (!parsed.success) {
     return { status: 'error', message: parsed.message };
   }
@@ -341,7 +351,7 @@ export async function linkPrizeAction(
     logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'link prize failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'link this prize'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionLinkThisPrize'),
     };
   }
 }
@@ -350,7 +360,7 @@ export async function unlinkPrizeAction(
   _prev: PrizeLinkState,
   formData: FormData,
 ): Promise<PrizeLinkState> {
-  const parsed = readPrizeLinkForm(formData);
+  const parsed = readPrizeLinkForm(formData, await getTranslations('promotions'));
   if (!parsed.success) {
     return { status: 'error', message: parsed.message };
   }
@@ -363,7 +373,7 @@ export async function unlinkPrizeAction(
     logger.error({ err: cause, promotionId: parsed.data.promotionId }, 'unlink prize failed');
     return {
       status: 'error',
-      message: describePromotionsWriteError(cause, 'return this prize to stock'),
+      message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionReturnThisPrizeToStock'),
     };
   }
 }
@@ -393,7 +403,7 @@ export async function searchLinkablePrizesAction(
     // link stock.
     return {
       status: 'error',
-      message: describePromotionsReadError(cause, 'the prizes available to link'),
+      message: describePromotionsReadError(cause, await getTranslations('promotions'), 'subjectThePrizesAvailableToLink'),
     };
   }
 }

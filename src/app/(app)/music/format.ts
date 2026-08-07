@@ -21,19 +21,19 @@ export function formatDuration(seconds: number | null): string {
 }
 
 /** Every value music_nationality (0098) carries. */
-export const NATIONALITY_LABELS: Record<
+export const NATIONALITY_LABEL_KEYS: Record<
   Database['public']['Enums']['music_nationality'],
   string
 > = {
-  DOMESTIC: 'Domestic',
-  INTERNATIONAL: 'International',
+  DOMESTIC: 'nationalityDomestic',
+  INTERNATIONAL: 'nationalityInternational',
 };
 
 /** Every value music_vocal (0098) carries. */
-export const VOCAL_LABELS: Record<Database['public']['Enums']['music_vocal'], string> = {
-  MALE: 'Male',
-  FEMALE: 'Female',
-  DUO: 'Duo',
-  GROUP: 'Group',
-  INSTRUMENTAL: 'Instrumental',
+export const VOCAL_LABEL_KEYS: Record<Database['public']['Enums']['music_vocal'], string> = {
+  MALE: 'vocalMale',
+  FEMALE: 'vocalFemale',
+  DUO: 'vocalDuo',
+  GROUP: 'vocalGroup',
+  INSTRUMENTAL: 'vocalInstrumental',
 };

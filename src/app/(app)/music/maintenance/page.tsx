@@ -71,7 +71,7 @@ export default async function MaintenancePage({
     ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve music access');
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   const first = viewable[0];
@@ -122,14 +122,14 @@ export default async function MaintenancePage({
     // "...view the music catalogue..." sentence is the right one — a
     // Maintenance-specific wording (Task 9's first pass added one) would be
     // wrong in the opposite direction now.
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   return (
     <>
       <PageHeader
         title={t('maintenance')}
-        description="Find duplicates, name the one that stays, and merge. This is the only irreversible action in the music catalogue."
+        description={t('maintenanceDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -142,7 +142,7 @@ export default async function MaintenancePage({
             action="/music/maintenance"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -239,7 +239,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/music/maintenance" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

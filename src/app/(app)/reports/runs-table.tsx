@@ -52,7 +52,7 @@ export function RunsTable({ runs }: { runs: ReportRun[] }) {
     try {
       const result = await downloadReportAction(runId);
       if (!result.ok || !result.url) {
-        setError(result.error ?? 'The download link could not be created.');
+        setError(result.error ?? t('theDownloadLinkCouldNotBeCreated'));
         // The row may have expired since the page rendered.
         startTransition(() => router.refresh());
         return;

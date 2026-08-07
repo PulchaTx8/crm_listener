@@ -8,10 +8,11 @@ import { Select } from '@/components/ui/input';
 
 const INITIAL: AnonymizeFormState = { status: 'idle' };
 
-const REASON_LABELS = {
-  subject_request: 'The listener asked to have their data erased',
-  court_order: 'A court ordered it',
-  internal_policy: 'Internal policy requires it',
+// Catalogue keys, not the sentences: a module body has no request behind it.
+const REASON_LABEL_KEYS = {
+  subject_request: 'eraseReasonSubjectRequest',
+  court_order: 'eraseReasonCourtOrder',
+  internal_policy: 'eraseReasonInternalPolicy',
 } as const;
 
 /**
@@ -78,9 +79,9 @@ export function EraseMemberForm({ memberId }: { memberId: string }) {
         {t('whyIsThisHappening')}<Select name="reason" defaultValue="" required>
           <option value="" disabled>
             {t('chooseAReason')}</option>
-          {Object.entries(REASON_LABELS).map(([value, label]) => (
+          {Object.entries(REASON_LABEL_KEYS).map(([value, labelKey]) => (
             <option key={value} value={value}>
-              {label}
+              {t(labelKey)}
             </option>
           ))}
         </Select>

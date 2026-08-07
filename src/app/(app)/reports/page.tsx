@@ -26,7 +26,7 @@ export default async function ReportsPage() {
     <>
       <PageHeader
         title={t('myReports')}
-        description="Exports you have asked for. A file is kept for seven days, then erased — the record of the export stays."
+        description={t('reportsDescription')}
       />
       <Card>
         <CardContent className="pt-6">

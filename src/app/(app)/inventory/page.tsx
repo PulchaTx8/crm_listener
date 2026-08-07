@@ -53,7 +53,7 @@ export default async function InventoryPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve inventory access');
-    return <LoadError message={describeInventoryReadError(cause)} />;
+    return <LoadError message={describeInventoryReadError(cause, t)} />;
   }
 
   const first = viewable[0];
@@ -107,14 +107,14 @@ export default async function InventoryPage({
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the inventory list');
-    return <LoadError message={describeInventoryReadError(cause)} />;
+    return <LoadError message={describeInventoryReadError(cause, t)} />;
   }
 
   return (
     <>
       <PageHeader
         title={t('inventory')}
-        description="Every prize in the Station, with its balance broken out by bucket."
+        description={t('inventoryDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -127,7 +127,7 @@ export default async function InventoryPage({
             action="/inventory"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -206,7 +206,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/inventory" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

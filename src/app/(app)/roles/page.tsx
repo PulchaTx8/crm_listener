@@ -53,7 +53,7 @@ export default async function RolesPage({
     <>
       <PageHeader
         title={t('roles')}
-        description="A role is a set of powers you assign to someone in a Station."
+        description={t('rolesDescription')}
       />
 
       <RolesGrid

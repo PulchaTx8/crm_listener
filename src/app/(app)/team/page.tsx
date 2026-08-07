@@ -210,7 +210,7 @@ export default async function TeamPage({
     <>
       <PageHeader
         title={t('team')}
-        description="Invite colleagues and decide what each of them may do."
+        description={t('teamDescription')}
       />
 
       <TeamGrid

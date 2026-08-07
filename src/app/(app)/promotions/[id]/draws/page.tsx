@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -31,6 +32,7 @@ export default async function PromotionDrawsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  const t = await getTranslations('promotions');
   const { data: session } = await supabase.auth.getSession();
   const token = session.session?.access_token;
   if (!token) redirect('/login');
@@ -74,7 +76,7 @@ export default async function PromotionDrawsPage({
     const openId = selectedDrawId ?? draws[0]?.id ?? null;
     if (openId) detail = await getDraw(token, openId);
   } catch {
-    readError = 'The draws of this promotion could not be read.';
+    readError = t('theDrawsCouldNotBeRead');
   }
 
   // The bucket is private, so a path is not a link. One short-lived signed URL
@@ -100,13 +102,13 @@ export default async function PromotionDrawsPage({
   return (
     <>
       <PageHeader
-        title={`Draws — ${record.name}`}
-        description="Who won, by when they must collect, and how anybody can check the draw."
+        title={t('drawsTitle', { name: record.name })}
+        description={t('drawsDescription')}
       />
       <Card>
         <CardContent className="space-y-6 pt-6">
           <Link href="/promotions" className="text-sm underline">
-            ← Back to promotions
+            {t('backToPromotions')}
           </Link>
 
           {readError ? (

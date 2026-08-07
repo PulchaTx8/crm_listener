@@ -81,7 +81,7 @@ export default async function RequestsPage({
     ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve music access');
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   const first = viewable[0];
@@ -152,14 +152,14 @@ export default async function RequestsPage({
     );
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the requests list');
-    return <LoadError message={describeMusicReadError(cause)} />;
+    return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
   return (
     <>
       <PageHeader
         title={t('requests')}
-        description="What listeners asked for, newest first."
+        description={t('requestsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -184,7 +184,7 @@ export default async function RequestsPage({
             action="/music/requests"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -245,7 +245,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/music/requests" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

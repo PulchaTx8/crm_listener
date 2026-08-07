@@ -67,7 +67,7 @@ export default async function ParticipationsPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve participations access');
-    return <LoadError message={describeParticipationsReadError(cause)} />;
+    return <LoadError message={describeParticipationsReadError(cause, await getTranslations('participations'))} />;
   }
 
   const first = viewable[0];
@@ -160,7 +160,7 @@ export default async function ParticipationsPage({
     );
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the participations list');
-    return <LoadError message={describeParticipationsReadError(cause)} />;
+    return <LoadError message={describeParticipationsReadError(cause, await getTranslations('participations'))} />;
   }
 
   // The promotion picker's options: ONE page of promotions by name, never the
@@ -198,7 +198,7 @@ export default async function ParticipationsPage({
       { err: cause, companyId: selected.id },
       'could not read the promotions for the participations filter',
     );
-    promotionsError = describeParticipationsReadError(cause, 'the promotions in this Station');
+    promotionsError = describeParticipationsReadError(cause, await getTranslations('participations'), 'subjectThePromotionsInThisStation');
   }
 
   // A promotion filter pointing at something the picker did not offer — a
@@ -259,7 +259,7 @@ export default async function ParticipationsPage({
   if (state.promotionId && !promotionOptions.some((p) => p.id === state.promotionId)) {
     promotionOptions.unshift({
       id: state.promotionId,
-      name: record?.name ?? page.rows[0]?.promotionName ?? 'The promotion this list is filtered to',
+      name: record?.name ?? page.rows[0]?.promotionName ?? t('thePromotionThisListIsFilteredTo'),
       // Read off the record when there is one, and false when there is not.
       // The picker not listing a promotion says nothing about whether it asks a
       // quiz — it says the picker was cut, or the promotion is archived — so
@@ -275,7 +275,7 @@ export default async function ParticipationsPage({
     <>
       <PageHeader
         title={t('participations')}
-        description="Every entry recorded in the Station — the ones that counted, and the ones that did not."
+        description={t('participationsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -300,7 +300,7 @@ export default async function ParticipationsPage({
             action="/participations"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -454,7 +454,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href="/participations" className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

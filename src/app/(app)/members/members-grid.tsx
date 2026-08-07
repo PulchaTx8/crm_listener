@@ -46,9 +46,9 @@ export interface MemberPowers {
 const INITIAL_ARCHIVE: ArchiveMemberState = { status: 'idle' };
 
 /** What the grid shows for a row whose name is absent or erased. */
-function displayName(member: MemberListRow): string {
-  if (member.anonymizedAt) return 'Personal data erased';
-  return member.fullName ?? 'Unnamed listener';
+function displayName(member: MemberListRow, t: (key: string) => string): string {
+  if (member.anonymizedAt) return t('personalDataErased');
+  return member.fullName ?? t('unnamedListener');
 }
 
 /**
@@ -209,7 +209,7 @@ export function MembersGrid({
             ) : (
               grid.rows.map((member) => {
                 const age = ageFromBirthDate(member.birthDate);
-                const name = displayName(member);
+                const name = displayName(member, t);
                 return (
                   <TableRow key={member.id} data-testid="member-row">
                     <TableCell className="font-medium">
@@ -245,7 +245,7 @@ export function MembersGrid({
                         {powers.edit && (
                           <button
                             type="button"
-                            aria-label={`Edit ${name}`}
+                            aria-label={t('editListener', { name })}
                             onClick={() => open(member.id, 'data')}
                             className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                           >
@@ -254,7 +254,7 @@ export function MembersGrid({
                         )}
                         {(powers.block || powers.archive || powers.erase) && (
                           <DropdownMenu
-                            label={`Actions for ${name}`}
+                            label={t('actionsForListener', { name })}
                             trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                           >
                             {powers.block && (
@@ -385,9 +385,8 @@ function ArchiveDialog({
       </DialogHeader>
       <DialogBody>
         <p className="text-sm">
-          {displayName(member)} {t('leavesEveryListInTheApp')}{' '}
-          <strong>{t('thisCannotBeUndoneHere')}</strong> — not by you, not by support. Only direct
-          database access can restore it.
+          {displayName(member, t)} {t('leavesEveryListInTheApp')}{' '}
+          <strong>{t('thisCannotBeUndoneHere')}</strong> {t('notByYouNotBySupport')}
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
           {t('toBarSomeoneFromDrawsWithout')}</p>

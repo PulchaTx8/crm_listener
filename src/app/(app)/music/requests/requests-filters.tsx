@@ -15,9 +15,10 @@ const DEBOUNCE_MS = 350;
 const ANY_SHOW = '';
 const ANY_CHANNEL = '';
 
-const CHANNEL_LABELS: Record<(typeof MUSIC_REQUEST_CHANNELS)[number], string> = {
-  MANUAL: 'Entered by hand',
-  IMPORT: 'From a file',
+// The shared `vocab` keys — see requests-grid.tsx's own note.
+const CHANNEL_LABEL_KEYS: Record<(typeof MUSIC_REQUEST_CHANNELS)[number], string> = {
+  MANUAL: 'sourceManual',
+  IMPORT: 'sourceImport',
 };
 
 /**
@@ -61,6 +62,8 @@ export function RequestsFilters({
   canSearchByListener: boolean;
 }) {
   const t = useTranslations('music');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const router = useRouter();
   const noteId = useId();
   const [search, setSearch] = useState(state.search ?? '');
@@ -135,7 +138,7 @@ export function RequestsFilters({
           <option value={ANY_CHANNEL}>{t('anyChannel')}</option>
           {MUSIC_REQUEST_CHANNELS.map((channel) => (
             <option key={channel} value={channel}>
-              {CHANNEL_LABELS[channel]}
+              {tv(CHANNEL_LABEL_KEYS[channel])}
             </option>
           ))}
         </Select>

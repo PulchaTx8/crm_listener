@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -35,13 +36,40 @@ import { describeMusicWriteError } from '../errors';
 // patches happened to be applied on the client.
 // ---------------------------------------------------------------------------
 
-/** Singular, lower case, for the `action` phrase describeMusicWriteError expects — "register labels", "save this genre", "archive this show". */
-const NOUN: Record<MusicReferenceKind, string> = {
-  LABEL: 'label',
-  GENRE: 'genre',
-  ARTIST: 'artist',
-  SHOW: 'show',
-};
+/**
+ * One WHOLE action phrase per kind and per verb, as a catalogue key —
+ * deliberately not a noun this file splices into `register ${noun}s`.
+ *
+ * That splice was English grammar written into the code, the same defect §4 of
+ * the Block 12b report names: English pluralises by adding a letter and puts
+ * one demonstrative in front of every noun, and neither is true elsewhere.
+ * "save this label" is *salvar esta gravadora* and "save this genre" is
+ * *salvar este gênero* — the article agrees with the noun's gender, so no stem
+ * plus noun can assemble both.
+ */
+const ACTION_KEYS: Record<MusicReferenceKind, { register: string; save: string; archive: string }> =
+  {
+    LABEL: {
+      register: 'actionRegisterLabels',
+      save: 'actionSaveThisLabel',
+      archive: 'actionArchiveThisLabel',
+    },
+    GENRE: {
+      register: 'actionRegisterGenres',
+      save: 'actionSaveThisGenre',
+      archive: 'actionArchiveThisGenre',
+    },
+    ARTIST: {
+      register: 'actionRegisterArtists',
+      save: 'actionSaveThisArtist',
+      archive: 'actionArchiveThisArtist',
+    },
+    SHOW: {
+      register: 'actionRegisterShows',
+      save: 'actionSaveThisShow',
+      archive: 'actionArchiveThisShow',
+    },
+  };
 
 /**
  * The three kinds this screen's own forms ever submit — narrower than
@@ -49,7 +77,7 @@ const NOUN: Record<MusicReferenceKind, string> = {
  * own kind and never appears in a hidden `kind` input anywhere under
  * catalog/ (reference-tabs.tsx's KIND_FOR_TAB only maps to these three).
  * archiveReferenceAction validates against this tuple rather than against
- * NOUN's keys (a superset), so its own validator cannot admit a case this
+ * ACTION_KEYS's keys (a superset), so its own validator cannot admit a case this
  * screen's UI has no way to produce — even though create_music_reference and
  * update_music_reference's re-checked permission would still refuse an
  * ARTIST request from a caller who has no business making one either way.
@@ -101,7 +129,7 @@ export async function createReferenceAction(
     );
     return {
       status: 'error',
-      message: describeMusicWriteError(cause, `register ${NOUN[parsed.data.kind]}s`),
+      message: describeMusicWriteError(cause, await getTranslations('music'), ACTION_KEYS[parsed.data.kind].register),
     };
   }
 }
@@ -143,7 +171,7 @@ export async function updateReferenceAction(
     );
     return {
       status: 'error',
-      message: describeMusicWriteError(cause, `save this ${NOUN[parsed.data.kind]}`),
+      message: describeMusicWriteError(cause, await getTranslations('music'), ACTION_KEYS[parsed.data.kind].save),
     };
   }
 }
@@ -177,6 +205,6 @@ export async function archiveReferenceAction(
     return { status: 'archived' };
   } catch (cause) {
     logger.error({ err: cause, id, kind }, 'archive music reference failed');
-    return { status: 'error', message: describeMusicWriteError(cause, `archive this ${NOUN[kind]}`) };
+    return { status: 'error', message: describeMusicWriteError(cause, await getTranslations('music'), ACTION_KEYS[kind].archive) };
   }
 }

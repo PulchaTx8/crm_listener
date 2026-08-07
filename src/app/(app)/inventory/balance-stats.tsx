@@ -23,12 +23,12 @@ export function BalanceStats({ balance, compact }: { balance: PrizeBalance; comp
             : 'flex flex-wrap gap-x-8 gap-y-3 text-sm'
         }
       >
-        <Stat label="Available" value={balance.available} />
-        <Stat label="Reserved" value={balance.reserved} />
-        <Stat label="Linked" value={balance.linked} />
-        <Stat label="Awaiting pickup" value={balance.awaitingPickup} />
-        <Stat label="Pending return" value={balance.pendingReturn} />
-        <Stat label="Physical total" value={physical} emphasize />
+        <Stat label={t('available')} value={balance.available} />
+        <Stat label={t('reserved')} value={balance.reserved} />
+        <Stat label={t('linked')} value={balance.linked} />
+        <Stat label={t('awaitingPickup')} value={balance.awaitingPickup} />
+        <Stat label={t('pendingReturn')} value={balance.pendingReturn} />
+        <Stat label={t('physicalTotal')} value={physical} emphasize />
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-2 text-xs text-muted-foreground">
         <span>{t('deliveredCumulativeOutsidePhysicalStock')}{' '}{balance.delivered}</span>

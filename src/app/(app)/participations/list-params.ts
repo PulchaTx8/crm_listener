@@ -61,10 +61,10 @@ export const DEFAULT_PARTICIPATION_STATUS: ParticipationStatusFilter = 'VALID';
  * arrived and decides nothing about who may write it (0054) — so these are
  * labels over a contract that lives in the database.
  */
-export const SOURCE_LABELS: Record<ParticipationSource, string> = {
-  MANUAL: 'Entered by hand',
-  IMPORT: 'From a file',
-  WHATSAPP: 'From WhatsApp',
+export const SOURCE_LABEL_KEYS: Record<ParticipationSource, string> = {
+  MANUAL: 'sourceManual',
+  IMPORT: 'sourceImport',
+  WHATSAPP: 'sourceWhatsapp',
 };
 
 export const SOURCE_ORDER: ParticipationSource[] = ['MANUAL', 'IMPORT', 'WHATSAPP'];

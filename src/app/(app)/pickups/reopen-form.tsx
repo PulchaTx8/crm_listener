@@ -39,11 +39,11 @@ export function ReopenForm({
   function submit() {
     const instant = fromZonedWallClock(deadline, timeZone);
     if (!instant) {
-      setMessage('Choose the new deadline.');
+      setMessage(t('chooseTheNewDeadline'));
       return;
     }
     if (reason.trim().length === 0) {
-      setMessage('Give a reason.');
+      setMessage(t('giveAReason'));
       return;
     }
     setMessage(null);

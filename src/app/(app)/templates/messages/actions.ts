@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
@@ -71,7 +72,7 @@ export async function saveSystemMessageAction(
       { err: cause, companyId: parsed.data.companyId, key: parsed.data.key },
       'save a system message override failed',
     );
-    return { status: 'error', message: describeTemplateWriteError(cause, 'change this text') };
+    return { status: 'error', message: describeTemplateWriteError(cause, await getTranslations('templates'), 'actionChangeThisText') };
   }
 }
 
@@ -96,7 +97,7 @@ export async function clearSystemMessageAction(
   if (!parsed.success) {
     return {
       status: 'error',
-      message: 'That text could not be identified. Refresh the page and try again.',
+      message: (await getTranslations('templates'))('thatTextCouldNotBeIdentified'),
     };
   }
 
@@ -111,6 +112,6 @@ export async function clearSystemMessageAction(
       { err: cause, companyId: parsed.data.companyId, key: parsed.data.key },
       'clear a system message override failed',
     );
-    return { status: 'error', message: describeClearMessageError(cause) };
+    return { status: 'error', message: describeClearMessageError(cause, await getTranslations('templates')) };
   }
 }

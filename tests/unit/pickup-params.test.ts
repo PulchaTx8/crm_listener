@@ -1,3 +1,4 @@
+import { createTranslator } from 'next-intl';
 import { describe, expect, it } from 'vitest';
 import { decodeCursor } from '@/lib/keyset';
 import {
@@ -8,6 +9,18 @@ import {
   parsePickupListState,
   pickupsHref,
 } from '@/app/(app)/pickups/list-params';
+import en from '../../messages/en.json';
+
+/**
+ * The REAL English catalogue through next-intl's own formatter, so these
+ * assertions pin what messages/en.json says as well as what describeDeadline
+ * decides — the wording used to live in the function body, and moving it out
+ * must not move it out of the test's reach.
+ */
+const t = createTranslator({ locale: 'en', messages: en, namespace: 'pickups' }) as unknown as (
+  key: string,
+  values?: Record<string, string | number | Date>,
+) => string;
 
 describe('parsePickupListState', () => {
   it('reads every filter off the URL', () => {
@@ -141,24 +154,24 @@ describe('describeDeadline', () => {
   // operator a prize is fine for that whole hour -- this asserts the function
   // reads the DATE instead.
   it('renders an expired deadline as overdue even while the row is still AWAITING_PICKUP', () => {
-    expect(describeDeadline(new Date(Date.now() - 86_400_000), 'AWAITING_PICKUP'))
+    expect(describeDeadline(new Date(Date.now() - 86_400_000), 'AWAITING_PICKUP', t))
       .toMatch(/overdue/i);
   });
 
   it('renders an expired deadline as overdue for RETURN_PENDING too, the status the clock itself sets', () => {
-    expect(describeDeadline(new Date(Date.now() - 3_600_000), 'RETURN_PENDING')).toMatch(
+    expect(describeDeadline(new Date(Date.now() - 3_600_000), 'RETURN_PENDING', t)).toMatch(
       /overdue/i,
     );
   });
 
   it('does not call a future deadline overdue', () => {
-    const description = describeDeadline(new Date(Date.now() + 3_600_000), 'AWAITING_PICKUP');
+    const description = describeDeadline(new Date(Date.now() + 3_600_000), 'AWAITING_PICKUP', t);
     expect(description).not.toMatch(/overdue/i);
     expect(description).toMatch(/due/i);
   });
 
   it('reads "no deadline" for a winner whose prize sets none, rather than treating null as overdue', () => {
-    expect(describeDeadline(null, 'AWAITING_PICKUP')).toBe('no deadline');
+    expect(describeDeadline(null, 'AWAITING_PICKUP', t)).toBe('no deadline');
   });
 
   // A prize that has already left this list for good (winner-actions.tsx's
@@ -170,13 +183,13 @@ describe('describeDeadline', () => {
   // could otherwise be over-read to mean.
   it('does not call a resolved winner overdue, even with a deadline long past', () => {
     const longPast = new Date(Date.now() - 30 * 86_400_000);
-    expect(describeDeadline(longPast, 'DELIVERED')).not.toMatch(/overdue/i);
-    expect(describeDeadline(longPast, 'RETURNED')).not.toMatch(/overdue/i);
-    expect(describeDeadline(longPast, 'WRITTEN_OFF')).not.toMatch(/overdue/i);
+    expect(describeDeadline(longPast, 'DELIVERED', t)).not.toMatch(/overdue/i);
+    expect(describeDeadline(longPast, 'RETURNED', t)).not.toMatch(/overdue/i);
+    expect(describeDeadline(longPast, 'WRITTEN_OFF', t)).not.toMatch(/overdue/i);
   });
 
   it('accepts the instant as a string, the shape a row actually carries over the wire', () => {
-    expect(describeDeadline(new Date(Date.now() - 86_400_000).toISOString(), 'AWAITING_PICKUP'))
+    expect(describeDeadline(new Date(Date.now() - 86_400_000).toISOString(), 'AWAITING_PICKUP', t))
       .toMatch(/overdue/i);
   });
 });

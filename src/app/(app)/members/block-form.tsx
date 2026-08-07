@@ -5,7 +5,7 @@ import { useActionState, useEffect, useState } from 'react';
 import { blockMemberAction, type BlockFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
-import { BLOCK_KIND_LABELS } from './format';
+import { BLOCK_KIND_LABEL_KEYS } from './format';
 import type { MemberStationRow } from '@/services/members';
 
 const INITIAL: BlockFormState = { status: 'idle' };
@@ -75,6 +75,8 @@ export function BlockForm({
   onRecorded?: (appliesNow: boolean) => void;
 }) {
   const t = useTranslations('members');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const [state, action, pending] = useActionState(blockMemberAction, INITIAL);
   const [endsAtLocal, setEndsAtLocal] = useState('');
   // '' (nothing chosen) stays '' — blockMemberSchema's own optionalTimestamp
@@ -93,9 +95,9 @@ export function BlockForm({
 
       <label className="flex flex-col gap-1 text-sm">
         {t('kind')}<Select name="kind" defaultValue="draw_ban" required>
-          {Object.entries(BLOCK_KIND_LABELS).map(([value, label]) => (
+          {Object.entries(BLOCK_KIND_LABEL_KEYS).map(([value, labelKey]) => (
             <option key={value} value={value}>
-              {label}
+              {tv(labelKey)}
             </option>
           ))}
         </Select>

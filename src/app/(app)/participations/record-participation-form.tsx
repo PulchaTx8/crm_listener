@@ -8,7 +8,7 @@ import { Input, Select, Textarea } from '@/components/ui/input';
 // cannot cross the client boundary out of a `server-only` module — the rule
 // prizes-tab.tsx states at length for LINKABLE_PRIZE_PAGE_SIZE, and the reason
 // @/lib/participation-status exists at all.
-import { STATUS_CLASSES, STATUS_LABELS, STATUS_MEANINGS } from '@/lib/participation-status';
+import { STATUS_CLASSES, STATUS_LABEL_KEYS, STATUS_MEANING_KEYS } from '@/lib/participation-status';
 import { STATION_LISTENER_PAGE_SIZE } from '@/lib/station-listeners';
 import type { PromotionQuestion } from '@/services/promotions';
 import type { StationListener } from '@/services/participations';
@@ -34,12 +34,12 @@ const INITIAL: RecordParticipationState = { status: 'idle' };
 const SEARCH_DEBOUNCE_MS = 350;
 
 /** How a picked listener reads in the confirmation line. */
-function describeListener(listener: StationListener): string {
+function describeListener(listener: StationListener, t: (key: string) => string): string {
   const identifiers = [
     listener.phone,
     listener.cpfLastDigits ? `···${listener.cpfLastDigits}` : null,
   ].filter(Boolean);
-  const name = listener.fullName ?? 'Unnamed listener';
+  const name = listener.fullName ?? t('unnamedListener');
   return identifiers.length ? `${name} — ${identifiers.join(' · ')}` : name;
 }
 
@@ -82,6 +82,8 @@ export function RecordParticipationForm({
   onRecorded: () => void;
 }) {
   const t = useTranslations('participations');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const [state, action, pending] = useActionState(recordParticipationAction, INITIAL);
 
   const [picked, setPicked] = useState<StationListener | null>(null);
@@ -194,7 +196,7 @@ export function RecordParticipationForm({
         {picked ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 p-3">
             <span className="text-sm" data-testid="participation-picked-listener">
-              {describeListener(picked)}
+              {describeListener(picked, t)}
             </span>
             <Button type="button" variant="outline" onClick={() => setPicked(null)}>
               {t('chooseSomebodyElse')}</Button>
@@ -234,7 +236,7 @@ export function RecordParticipationForm({
                       className="w-full rounded-md border px-3 py-2 text-left text-sm ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       data-testid="participation-listener-option"
                     >
-                      {describeListener(listener)}
+                      {describeListener(listener, t)}
                     </button>
                   </li>
                 ))}
@@ -359,9 +361,9 @@ export function RecordParticipationForm({
             className={`w-fit rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[state.outcome]}`}
             data-testid="participation-record-status"
           >
-            {STATUS_LABELS[state.outcome]}
+            {tv(STATUS_LABEL_KEYS[state.outcome])}
           </span>
-          <p className="text-sm">{STATUS_MEANINGS[state.outcome]}</p>
+          <p className="text-sm">{tv(STATUS_MEANING_KEYS[state.outcome])}</p>
           {state.listener === 'created' && (
             <p className="text-xs text-muted-foreground" data-testid="participation-listener-created">
               {t('nobodyAtThisStationHeldThat')}</p>

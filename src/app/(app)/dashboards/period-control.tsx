@@ -9,11 +9,14 @@ import type { Period } from '@/schemas/dashboards';
 import { exclusiveEnd, inclusiveEnd, periodHref, withStationSearch } from './period';
 import type { PeriodPreset, PeriodSelection } from './period';
 
-const PRESETS: readonly { preset: PeriodPreset; label: string }[] = [
-  { preset: 'current_month', label: 'Current month' },
-  { preset: 'previous_month', label: 'Previous month' },
-  { preset: 'current_year', label: 'Current year' },
-  { preset: 'custom', label: 'Custom range' },
+// The preset order D5 names. The label is a CATALOGUE KEY rather than the word
+// itself: this list is module-level, and a module body has no request behind
+// it, so it has no language either.
+const PRESETS: readonly { preset: PeriodPreset; labelKey: string }[] = [
+  { preset: 'current_month', labelKey: 'currentMonth' },
+  { preset: 'previous_month', labelKey: 'previousMonth' },
+  { preset: 'current_year', labelKey: 'currentYear' },
+  { preset: 'custom', labelKey: 'customRange' },
 ];
 
 const ACTIVE_PILL = 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground';
@@ -95,7 +98,7 @@ export function PeriodControl({
 
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2" data-testid="period-control">
-      {PRESETS.map(({ preset, label }) => {
+      {PRESETS.map(({ preset, labelKey }) => {
         const isActive = selection.preset === preset;
         const target: PeriodSelection =
           preset === 'custom' ? customFor(from, to) : { preset, from: null, to: null };
@@ -106,7 +109,7 @@ export function PeriodControl({
             aria-current={isActive ? 'page' : undefined}
             className={isActive ? ACTIVE_PILL : INACTIVE_PILL}
           >
-            {label}
+            {t(labelKey)}
           </Link>
         );
       })}
@@ -134,7 +137,7 @@ export function PeriodControl({
                 means to the person filling it in. The exclusive bound the URL
                 and the RPC use is one day later, and customFor is where the
                 two meet. */}
-            <span title={t('theLastDayIncludedInThe')}>To</span>
+            <span title={t('theLastDayIncludedInThe')}>{t('to')}</span>
             <input
               type="date"
               value={to}

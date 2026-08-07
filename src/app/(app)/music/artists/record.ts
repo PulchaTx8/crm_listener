@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { logger } from '@/lib/logger';
 import { getArtistById, getArtistSongs } from '@/services/music';
 import type { ArtistSongSummary, ArtistSummary } from '@/services/music';
@@ -54,6 +55,6 @@ export async function getArtistRecordAction(artistId: string): Promise<ArtistRec
     };
   } catch (cause) {
     logger.error({ err: cause, artistId }, 'could not load this artist record');
-    return { status: 'error', message: describeMusicReadError(cause) };
+    return { status: 'error', message: describeMusicReadError(cause, await getTranslations('music')) };
   }
 }

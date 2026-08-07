@@ -39,18 +39,19 @@ import {
  */
 export function describePickupsReadError(
   cause: unknown,
-  what: string = 'the pickups at this Station',
+  t: (key: string, values?: Record<string, string>) => string,
+  whatKey: string = 'subjectThePickupsAtThisStation',
 ): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'That could not be found. Refresh the page and try again.';
+    return t('thatCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to view ${what}.`;
+    return t('youDoNotHavePermissionToView', { what: t(whatKey) });
   }
   if (cause instanceof ValidationError) return cause.message;
-  return `Could not load ${what}. Refresh the page and try again.`;
+  return t('couldNotLoad', { what: t(whatKey) });
 }
 
 /**
@@ -66,15 +67,19 @@ export function describePickupsReadError(
  * all — an unknown id there answers 42501 instead, on purpose, so it does not
  * extend that leak — but the branch still has to exist for its four siblings.
  */
-export function describePickupsWriteError(cause: unknown, action: string): string {
+export function describePickupsWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
   if (cause instanceof ConflictError) return cause.message;
   if (cause instanceof ValidationError) return cause.message;
   if (cause instanceof BusinessRuleError) return cause.message;
   if (cause instanceof NotFoundError) {
-    return 'This prize could not be found. Refresh the page and try again.';
+    return t('thisPrizeCouldNotBeFound');
   }
   if (cause instanceof UnauthorizedError) {
-    return `You do not have permission to ${action}.`;
+    return t('youDoNotHavePermissionTo', { action: t(actionKey) });
   }
-  return 'Could not save. Refresh the page and try again.';
+  return t('couldNotSave');
 }

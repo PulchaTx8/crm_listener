@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import { AppError } from '@/lib/errors';
@@ -34,14 +35,14 @@ export async function requestReportAction(formData: FormData): Promise<ActionRes
     .filter(Boolean);
 
   if (companyIds.length === 0) {
-    return { ok: false, error: 'Pick at least one Station before exporting.' };
+    return { ok: false, error: (await getTranslations('reports'))('pickAtLeastOneStation') };
   }
 
   let parsedFilters: unknown;
   try {
     parsedFilters = JSON.parse(String(formData.get('filters') ?? '{}'));
   } catch {
-    return { ok: false, error: 'The filters on this screen could not be read.' };
+    return { ok: false, error: (await getTranslations('reports'))('theFiltersCouldNotBeRead') };
   }
 
   const parsed = reportRequestSchema.safeParse({
@@ -53,7 +54,7 @@ export async function requestReportAction(formData: FormData): Promise<ActionRes
   if (!parsed.success) {
     // The first issue, in the operator's terms. A Zod tree here would be a wall
     // of text about a dialog with two controls.
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'That report cannot be requested.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? (await getTranslations('reports'))('thatReportCannotBeRequested') };
   }
 
   // Derived here, never sent by the client. 0127 checks that every named
@@ -68,7 +69,7 @@ export async function requestReportAction(formData: FormData): Promise<ActionRes
   } catch (cause) {
     if (cause instanceof AppError) return { ok: false, error: cause.message };
     logger.error({ err: cause }, 'could not resolve the organization for a report request');
-    return { ok: false, error: 'The report could not be queued. Try again.' };
+    return { ok: false, error: (await getTranslations('reports'))('theReportCouldNotBeQueued') };
   }
 
   try {
@@ -76,7 +77,7 @@ export async function requestReportAction(formData: FormData): Promise<ActionRes
   } catch (cause) {
     if (cause instanceof AppError) return { ok: false, error: cause.message };
     logger.error({ err: cause }, 'requestReportAction failed');
-    return { ok: false, error: 'The report could not be queued. Try again.' };
+    return { ok: false, error: (await getTranslations('reports'))('theReportCouldNotBeQueued') };
   }
 
   revalidatePath('/reports');
@@ -99,11 +100,11 @@ async function organizationOf(companyIds: string[]): Promise<string> {
     .select('organization_id')
     .in('id', companyIds);
 
-  if (error) throw new ValidationError('Those Stations could not be read.');
+  if (error) throw new ValidationError((await getTranslations('reports'))('thoseStationsCouldNotBeRead'));
 
   const organizations = new Set((data ?? []).map((row) => row.organization_id));
   if (organizations.size !== 1 || (data ?? []).length !== companyIds.length) {
-    throw new ValidationError('Those Stations are not all yours to export together.');
+    throw new ValidationError((await getTranslations('reports'))('thoseStationsAreNotAllYours'));
   }
   return [...organizations][0] as string;
 }
@@ -124,13 +125,13 @@ export async function downloadReportAction(runId: string): Promise<ActionResult>
         // The distinction matters to the operator: an expired report was
         // generated successfully and its file has since been erased, which is
         // a different thing from one that failed.
-        error: 'That report has expired. Its file was erased after seven days — request it again.',
+        error: (await getTranslations('reports'))('thatReportHasExpired'),
       };
     }
     return { ok: true, url };
   } catch (cause) {
     if (cause instanceof AppError) return { ok: false, error: cause.message };
     logger.error({ err: cause }, 'downloadReportAction failed');
-    return { ok: false, error: 'The download link could not be created.' };
+    return { ok: false, error: (await getTranslations('reports'))('theDownloadLinkCouldNotBeCreated') };
   }
 }
