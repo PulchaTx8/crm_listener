@@ -322,33 +322,30 @@ select is(public.is_owner_of_company(gen_random_uuid()), false,
 -- entirely, so a stray grant on either is a direct read into another Station's
 -- prize names and figures, restrained only by the has_permission call in the
 -- body.
--- Seventeen argument types as of 0055, not sixteen — the same correction its
--- sibling below needed, and for the same reason. 0055 gives D1's ceiling to BOTH
--- write doors rather than only to update_promotion, because one field of one
--- form built by one shared argument builder cannot sensibly exist on one of
--- them. Left at sixteen this pair does not merely go stale: has_function_privilege
--- RAISES rather than returning false when handed a signature that does not
--- exist, and the whole file aborts here.
+-- FIFTEEN argument types as of 0144, having been seventeen as of 0055 and
+-- sixteen before that. Each move corrected this pair, and each time the same way:
+-- has_function_privilege RAISES rather than returning false when handed a
+-- signature that does not exist, so a stale pin aborts the whole file at this
+-- line. That is the good failure — the grid notices the signature has moved
+-- under it. 0144 removed p_use_art and p_art_url, because the banner is
+-- uploaded rather than typed and a wholesale replace would delete it on every
+-- ordinary Save; set_promotion_art is its only writer now.
 select ok(
-  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'anon may not call create_promotion');
 select ok(
-  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'authenticated may call create_promotion');
 
--- Seventeen argument types as of 0055, not sixteen. This pair did not merely
--- need rewording: it ERRORED, because has_function_privilege raises rather than
--- returning false when the signature it is handed does not exist at all, and
--- the whole file aborted at this line. That is the good failure — the grid
--- noticed the signature had moved under it. The bad one would have been a pair
--- that went on passing against a sixteen-argument twin the drop in 0055 forgot
--- to remove, which is why 02_permissions.test.sql counts pg_proc entries by
+-- Fifteen here too, for the reason above. The bad failure this pair cannot see
+-- is a pin that goes on passing against a SEVENTEEN-argument twin a drop forgot
+-- to remove — which is why 02_permissions.test.sql counts pg_proc entries by
 -- name for this function: no signature pin, here or there, can see a twin.
 select ok(
-  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'anon may not call update_promotion');
 select ok(
-  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer)', 'EXECUTE'),
   'authenticated may call update_promotion');
 
 select ok(
