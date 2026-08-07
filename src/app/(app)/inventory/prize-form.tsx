@@ -5,6 +5,7 @@ import { useActionState } from 'react';
 import { createPrizeAction, type PrizeFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
+import { ImageUploadField } from '@/components/media/image-upload-field';
 import type { PrizeCategorySummary } from '@/services/inventory';
 
 const INITIAL: PrizeFormState = { status: 'idle' };
@@ -25,6 +26,19 @@ export function PrizeForm({
   return (
     <form action={action} data-testid="prize-form" className="flex flex-col gap-3">
       <input type="hidden" name="companyId" value={companyId} />
+
+      {/* Settled after the prize is registered, not with it: the storage key is
+          derived from the prize's id, which does not exist until the row does.
+          See settlePrizePhoto in ./actions.ts. */}
+      <ImageUploadField
+        name="photo"
+        kind="thumb"
+        currentUrl={null}
+        disabled={pending}
+        onDirty={() => undefined}
+        label={t('prizePicture')}
+        hint={t('shownOnTheStockList')}
+      />
 
       <label className="flex flex-col gap-1 text-sm">
         {t('name')}<Input name="name" required maxLength={120} />

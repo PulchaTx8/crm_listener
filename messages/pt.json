@@ -1083,7 +1083,9 @@
     "actionArchiveThisPrize": "arquivar este prêmio",
     "archivedPromotion": "(promoção arquivada)",
     "theCountAlreadyMatchedWhatWasBooked": "A contagem já batia com o que estava lançado — não havia nada a registrar.",
-    "picture": "Imagem"
+    "picture": "Imagem",
+    "prizePicture": "Imagem do prêmio",
+    "shownOnTheStockList": "Aparece na lista de estoque e nesta ficha."
   },
   "promotions": {
     "promotions": "Promoções",

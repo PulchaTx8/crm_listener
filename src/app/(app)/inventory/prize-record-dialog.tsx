@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select, Textarea } from '@/components/ui/input';
+import { ImageUploadField } from '@/components/media/image-upload-field';
 import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
@@ -316,6 +317,16 @@ function PrizeDataForm({
       className="flex flex-col gap-3"
     >
       <input type="hidden" name="prizeId" value={prize.id} />
+
+      <ImageUploadField
+        name="photo"
+        kind="thumb"
+        currentUrl={prize.photoUrl}
+        disabled={pending}
+        onDirty={() => onDirty(true)}
+        label={t('prizePicture')}
+        hint={t('shownOnTheStockList')}
+      />
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">{t('name')}</span>

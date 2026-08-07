@@ -1083,7 +1083,9 @@
     "actionArchiveThisPrize": "archive this prize",
     "archivedPromotion": "(archived promotion)",
     "theCountAlreadyMatchedWhatWasBooked": "The count already matched what was booked — nothing needed recording.",
-    "picture": "Picture"
+    "picture": "Picture",
+    "prizePicture": "Prize picture",
+    "shownOnTheStockList": "Shown on the stock list and on this record."
   },
   "promotions": {
     "promotions": "Promotions",
