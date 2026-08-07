@@ -1536,7 +1536,11 @@
     "registerAlbum": "Register album",
     "upc": "UPC",
     "noAlbumsAreRegistered": "No album is registered in this Station yet.",
-    "poweredByDeezer": "Search results and cover art from Deezer"
+    "poweredByDeezer": "Search results and cover art from Deezer",
+    "referenceAlbumsDescription": "Albums registered in this Station. Most arrive with a song from Deezer; renaming one here is how a title it supplied stops being permanent.",
+    "actionRegisterAlbums": "register albums",
+    "actionSaveThisAlbum": "save this album",
+    "actionArchiveThisAlbum": "archive this album"
   },
   "vocab": {
     "participationCounted": "Counted",

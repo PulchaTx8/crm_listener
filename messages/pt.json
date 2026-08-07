@@ -1536,7 +1536,11 @@
     "registerAlbum": "Cadastrar álbum",
     "upc": "UPC",
     "noAlbumsAreRegistered": "Nenhum álbum cadastrado nesta Station ainda.",
-    "poweredByDeezer": "Resultados e capas fornecidos pelo Deezer"
+    "poweredByDeezer": "Resultados e capas fornecidos pelo Deezer",
+    "referenceAlbumsDescription": "Álbuns cadastrados nesta Station. A maioria chega junto com uma música vinda do Deezer; renomear aqui é como um título que ele forneceu deixa de ser definitivo.",
+    "actionRegisterAlbums": "cadastrar álbuns",
+    "actionSaveThisAlbum": "salvar este álbum",
+    "actionArchiveThisAlbum": "arquivar este álbum"
   },
   "vocab": {
     "participationCounted": "Contou",

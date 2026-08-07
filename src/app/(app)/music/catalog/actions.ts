@@ -6,7 +6,15 @@ import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { referenceFormSchema, referenceUpdateSchema } from '@/schemas/music';
 import type { MusicReferenceKind } from '@/schemas/music';
-import { archiveMusicReference, createMusicReference, updateMusicReference } from '@/services/music';
+import { z } from 'zod';
+import {
+  archiveAlbum,
+  archiveMusicReference,
+  createAlbum,
+  createMusicReference,
+  updateAlbum,
+  updateMusicReference,
+} from '@/services/music';
 import { logger } from '@/lib/logger';
 import { describeMusicWriteError } from '../errors';
 
@@ -101,10 +109,61 @@ export interface ReferenceFormState {
   message?: string;
 }
 
+// ---------------------------------------------------------------------------
+// ALBUM is a fourth TAB on this screen and NOT a fourth music_reference_kind.
+//
+// 0137's own header argues that widening the enum would be wrong: the 0100
+// trio exists because four tables have identical columns — a name and a legacy
+// handle — and albums do not. They carry a UPC, a Deezer id, a cover hash and
+// a release date, so folding them in would push four album-only parameters
+// into every genre and label call.
+//
+// What the three actions below share with albums is the SCREEN, not the RPC:
+// a list of names, renamed and archived in place. So the routing happens here,
+// at the one place both paths already pass through, and the database keeps the
+// separate doors 0137 gave it.
+// ---------------------------------------------------------------------------
+
+/** A one-field name, bounded as the reference tables' own column is. */
+const albumNameSchema = z.object({
+  companyId: z.string().uuid(),
+  title: z.string().trim().min(1, 'Give the album a title.').max(160),
+});
+
+function isAlbum(formData: FormData): boolean {
+  return formData.get('kind') === 'ALBUM';
+}
+
 export async function createReferenceAction(
   _prev: ReferenceFormState,
   formData: FormData,
 ): Promise<ReferenceFormState> {
+  if (isAlbum(formData)) {
+    const parsed = albumNameSchema.safeParse({
+      companyId: formData.get('companyId'),
+      title: formData.get('name'),
+    });
+    if (!parsed.success) {
+      return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    }
+    const token = await requireAccessToken();
+    try {
+      await createAlbum(parsed.data, token);
+      revalidatePath('/music/catalog');
+      return { status: 'saved' };
+    } catch (cause) {
+      logger.error({ err: cause, companyId: parsed.data.companyId }, 'create album failed');
+      return {
+        status: 'error',
+        message: describeMusicWriteError(
+          cause,
+          await getTranslations('music'),
+          'actionRegisterAlbums',
+        ),
+      };
+    }
+  }
+
   const parsed = referenceFormSchema.safeParse({
     companyId: formData.get('companyId'),
     kind: formData.get('kind'),
@@ -148,6 +207,32 @@ export async function updateReferenceAction(
   _prev: ReferenceFormState,
   formData: FormData,
 ): Promise<ReferenceFormState> {
+  if (isAlbum(formData)) {
+    const albumId = String(formData.get('id') ?? '');
+    const title = String(formData.get('name') ?? '').trim();
+    if (!albumId || !title) return { status: 'error', message: 'Check the form.' };
+
+    const token = await requireAccessToken();
+    try {
+      // Renames and nothing else — 0141 removed update_album's UPC parameter
+      // precisely because this form has no field for it, and an omitted
+      // parameter is indistinguishable to the RPC from a cleared one.
+      await updateAlbum({ albumId, title }, token);
+      revalidatePath('/music/catalog');
+      return { status: 'saved' };
+    } catch (cause) {
+      logger.error({ err: cause, albumId }, 'update album failed');
+      return {
+        status: 'error',
+        message: describeMusicWriteError(
+          cause,
+          await getTranslations('music'),
+          'actionSaveThisAlbum',
+        ),
+      };
+    }
+  }
+
   const parsed = referenceUpdateSchema.safeParse({
     kind: formData.get('kind'),
     id: formData.get('id'),
@@ -192,9 +277,30 @@ export async function archiveReferenceAction(
   _prev: ArchiveReferenceState,
   formData: FormData,
 ): Promise<ArchiveReferenceState> {
+  const id = String(formData.get('id') ?? '');
+
+  if (isAlbum(formData)) {
+    if (!id) return { status: 'error', message: 'Missing record.' };
+    const token = await requireAccessToken();
+    try {
+      await archiveAlbum(id, token);
+      revalidatePath('/music/catalog');
+      return { status: 'archived' };
+    } catch (cause) {
+      logger.error({ err: cause, id }, 'archive album failed');
+      return {
+        status: 'error',
+        message: describeMusicWriteError(
+          cause,
+          await getTranslations('music'),
+          'actionArchiveThisAlbum',
+        ),
+      };
+    }
+  }
+
   const kindRaw = formData.get('kind');
   const kind = typeof kindRaw === 'string' && isCatalogReferenceKind(kindRaw) ? kindRaw : null;
-  const id = String(formData.get('id') ?? '');
   if (!kind || !id) return { status: 'error', message: 'Missing record.' };
 
   const token = await requireAccessToken();

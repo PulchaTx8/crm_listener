@@ -4375,7 +4375,7 @@ export type Database = {
         Returns: undefined
       }
       update_album: {
-        Args: { p_album_id: string; p_title: string; p_upc?: string }
+        Args: { p_album_id: string; p_title: string }
         Returns: undefined
       }
       update_member: {

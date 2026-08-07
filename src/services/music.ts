@@ -539,6 +539,42 @@ export async function unlinkSongFromDeezer(
   if (error) throw mapMusicError(error.code, error.message);
 }
 
+/** Registers an album typed by hand. The Deezer path goes through create_song_from_deezer instead, which resolves or creates one atomically with the song. */
+export async function createAlbum(
+  input: { companyId: string; title: string },
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('create_album', {
+    p_company_id: input.companyId,
+    p_title: input.title,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('create_album returned no id');
+  return data;
+}
+
+/**
+ * Renames an album. That is ALL it does — 0141 removed the UPC parameter 0137
+ * had, because the catalogue panel is a one-field row and an omitted parameter
+ * there is indistinguishable, to the RPC, from a cleared one. The UPC, the
+ * cover and the Deezer id all come from the Deezer path alone.
+ */
+export async function updateAlbum(
+  input: { albumId: string; title: string },
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('update_album', {
+    p_album_id: input.albumId,
+    p_title: input.title,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+export async function archiveAlbum(albumId: string, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('archive_album', { p_album_id: albumId });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
 /**
  * The cover hash for a set of songs, by song id.
  *

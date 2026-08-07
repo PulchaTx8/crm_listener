@@ -1,5 +1,5 @@
 begin;
-select plan(31);
+select plan(33);
 
 -- Block 13a: albums, the Deezer columns on songs, and the doors that write
 -- them.
@@ -243,6 +243,31 @@ select is(
      from public.albums a join resolved_album r on r.id = a.id),
   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|Transa',
   'the resolver matches a hand-typed album by folded title, fills in the cover it lacked, and leaves the operator''s spelling alone');
+
+-- ---------------------------------------------------------------------------
+-- 32-33: update_album renames and NOTHING else (0141).
+--
+-- The catalogue panel that edits albums is a one-field row, so every rename
+-- calls this function with nothing but a title. 0137 gave it a p_upc
+-- defaulting to null and wrote it unconditionally — which would have erased
+-- the UPC of every Deezer-registered album on its first rename, exactly the
+-- defect 0102 had to correct for legacy_id. Pinned across every overload of
+-- the name, because a CREATE OR REPLACE that left both would satisfy a check
+-- that only looked at one.
+-- ---------------------------------------------------------------------------
+
+select is(
+  (select count(*)::int
+     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'update_album'),
+  1, 'exactly one update_album exists — the old signature was dropped, not left beside the new one');
+
+select is(
+  (select pg_get_function_arguments(p.oid)
+     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'update_album'),
+  'p_album_id uuid, p_title text',
+  'update_album takes an id and a title, and nothing that could clear the UPC or the cover');
 
 select * from finish();
 rollback;
