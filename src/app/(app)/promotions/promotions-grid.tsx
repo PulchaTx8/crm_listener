@@ -71,6 +71,7 @@ function toSummary(record: PromotionDetail): PromotionSummary {
     whatsappEnabled: record.whatsappEnabled,
     hashtag: record.hashtag,
     siteIntegrationCode: record.siteIntegrationCode,
+    thumbUrl: record.thumbUrl,
     questionCount: record.questions.length,
     // Counted off the record the dialog already holds, so a patched row and a
     // freshly listed one agree on this too. QUIZ is the only kind with a right

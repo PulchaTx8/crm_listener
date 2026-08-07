@@ -106,14 +106,15 @@ export const promotionFormSchema = z
       .optional()
       .transform((v) => (v === null || v === '' ? undefined : v)),
 
-    useArt: z.boolean(),
-    artUrl: z
-      .string()
-      .trim()
-      .max(2000)
-      .nullable()
-      .optional()
-      .transform((v) => (v === null || v === '' ? undefined : v)),
+    // NEITHER PICTURE IS IN THIS SCHEMA, and their absence is the decision
+    // Block 14 turns on. set_promotion_art and set_promotion_thumb are their
+    // only writers (0144); create_promotion and update_promotion no longer take
+    // them at all. A field validated here would be a field this form believes
+    // it is saving, and the wholesale replace would clear it on every Save.
+    //
+    // The tick that used to accompany the banner is gone with it: use_art is set
+    // from the presence of the address, which is what promotions_art_shape has
+    // always required.
 
     yesButtonLabel: z
       .string()
@@ -183,10 +184,14 @@ export const promotionFormSchema = z
       });
     }
     if (!v.whatsappEnabled) {
+      // The banner is deliberately not in this list any more. It is not a field
+      // of this form, and the rule that a promotion with WhatsApp off may not
+      // carry one is enforced where it can actually be enforced: set_promotion_art
+      // refuses it with a sentence, and update_promotion clears the column and
+      // queues the object when WhatsApp is switched off (0144).
       const stray = (
         [
           ['hashtag', v.hashtag],
-          ['artUrl', v.artUrl],
           ['yesButtonLabel', v.yesButtonLabel],
           ['noButtonLabel', v.noButtonLabel],
         ] as const
@@ -196,13 +201,6 @@ export const promotionFormSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [path],
-          message: 'Turn WhatsApp on for this promotion, or leave this empty.',
-        });
-      }
-      if (v.useArt) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['useArt'],
           message: 'Turn WhatsApp on for this promotion, or leave this empty.',
         });
       }
@@ -226,33 +224,11 @@ export const promotionFormSchema = z
       });
     }
 
-    // promotions_art_shape: the tick and the field move together, so the row
-    // can never say one thing and show another.
-    if (v.useArt && v.artUrl === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['artUrl'],
-        message: 'Give the address of the banner, or untick the image.',
-      });
-    }
-    if (!v.useArt && v.artUrl !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['artUrl'],
-        message: 'Tick the image to use a banner, or leave the address empty.',
-      });
-    }
-
-    // promotions_art_https. WhatsApp fetches this image itself and will not
-    // fetch over http; without this the failure surfaces at send time in
-    // Block 5, where nothing points back to this field.
-    if (v.artUrl !== undefined && !v.artUrl.startsWith('https://')) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['artUrl'],
-        message: 'WhatsApp only fetches images over https, so the address must start with https://.',
-      });
-    }
+    // promotions_art_shape and promotions_art_https were mirrored here until
+    // Block 14, and both are gone for the same reason: there is no address on
+    // this form to check. The tick and the field cannot disagree when there is
+    // neither, and the https rule now protects nothing a client can influence —
+    // the address is built on the server from the upload's own result.
 
     // promotions_requested_fields_distinct
     if (new Set(v.requestedFields).size !== v.requestedFields.length) {

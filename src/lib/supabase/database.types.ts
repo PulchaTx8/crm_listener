@@ -4338,15 +4338,15 @@ export type Database = {
         Returns: string
       }
       set_prize_photo: {
-        Args: { p_prize_id: string; p_url: string }
+        Args: { p_prize_id: string; p_url?: string }
         Returns: undefined
       }
       set_promotion_art: {
-        Args: { p_promotion_id: string; p_url: string }
+        Args: { p_promotion_id: string; p_url?: string }
         Returns: undefined
       }
       set_promotion_thumb: {
-        Args: { p_promotion_id: string; p_url: string }
+        Args: { p_promotion_id: string; p_url?: string }
         Returns: undefined
       }
       set_station_message_template: {

@@ -22,7 +22,10 @@ alter table public.prizes
   add constraint prizes_photo_shape
   check (photo_url is null or photo_url ~ '^https?://');
 
-create function public.set_prize_photo(p_prize_id uuid, p_url text)
+-- `default null` for the reason 0144's two setters give: an omitted argument
+-- clears the photograph and queues its object, and without the default the
+-- generated types would not let the service express that at all.
+create function public.set_prize_photo(p_prize_id uuid, p_url text default null)
 returns void
 language plpgsql
 security definer

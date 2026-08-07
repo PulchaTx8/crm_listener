@@ -173,8 +173,9 @@ describe('the promotion record', () => {
           name: 'Delegate promotion',
           whatsappEnabled: true,
           hashtag: '#DELEGADO',
-          useArt: true,
-          artUrl: 'https://example.test/banner.jpg',
+          // No banner here as of Block 14: it is not a field of this form and
+          // create_promotion does not take one. A promotion is born without
+          // pictures because neither storage key exists until the row does.
           yesButtonLabel: 'Quero!',
           noButtonLabel: 'Agora não',
           requestedFields: ['full_name', 'address', 'city'],

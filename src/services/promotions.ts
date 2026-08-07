@@ -14,6 +14,13 @@ import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
 import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
+import {
+  describeArtworkRejection,
+  type ArtworkKind,
+} from '@/lib/security/artwork';
+import { readImageDimensions } from '@/lib/security/image-dimensions';
+import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
+import type { ArtworkSlot } from '@/lib/storage/artwork-keys';
 import type { Database } from '@/lib/supabase/database.types';
 import type { PromotionSituation } from '@/lib/promotion-situation';
 // The promotion record carries the fifth tab's two counts, so it reads them
@@ -83,6 +90,13 @@ export interface PromotionSummary {
    * questions but no gabarito.
    */
   quizQuestionCount: number;
+  /**
+   * The picture that identifies this promotion on the list (Block 14). NOT the
+   * banner: `art_url` is what Meta fetches, is held to different limits and is
+   * not read here at all — a list has no use for it and would download fifty
+   * full-size ones.
+   */
+  thumbUrl: string | null;
   /** Non-null only for the owner and the platform admin: nobody else's read returns an archived row (0044). */
   deletedAt: string | null;
 }
@@ -117,6 +131,7 @@ type PromotionRow = {
   cancelled_at: string | null;
   whatsapp_enabled: boolean;
   hashtag: string | null;
+  thumb_url: string | null;
   site_integration_code: number | null;
   deleted_at: string | null;
 };
@@ -139,7 +154,7 @@ export async function listPromotionsPage(
     let q = supabase
       .from('promotions')
       .select(
-        'id,name,starts_at,ends_at,cancelled_at,whatsapp_enabled,hashtag,site_integration_code,deleted_at',
+        'id,name,starts_at,ends_at,cancelled_at,whatsapp_enabled,hashtag,site_integration_code,thumb_url,deleted_at',
         options,
       )
       .eq('company_id', params.companyId);
@@ -239,6 +254,7 @@ async function withQuestionCounts(
     whatsappEnabled: row.whatsapp_enabled,
     hashtag: row.hashtag,
     siteIntegrationCode: row.site_integration_code,
+    thumbUrl: row.thumb_url,
     questionCount,
     quizQuestionCount,
     deletedAt: row.deleted_at,
@@ -323,8 +339,11 @@ export interface PromotionDetail {
   callToAction: string | null;
   whatsappEnabled: boolean;
   hashtag: string | null;
+  /** Set from the presence of the banner and never independently (0144); the screen no longer offers a tick for it. */
   useArt: boolean;
   artUrl: string | null;
+  /** The picture that identifies this promotion inside the system. Never sent anywhere. */
+  thumbUrl: string | null;
   yesButtonLabel: string | null;
   noButtonLabel: string | null;
   requestedFields: RequestedField[];
@@ -491,6 +510,7 @@ export async function getPromotionRecord(
     hashtag: promotion.hashtag,
     useArt: promotion.use_art,
     artUrl: promotion.art_url,
+    thumbUrl: promotion.thumb_url,
     yesButtonLabel: promotion.yes_button_label,
     noButtonLabel: promotion.no_button_label,
     requestedFields: promotion.requested_fields,
@@ -595,8 +615,18 @@ function promotionRpcArgs(input: PromotionFormInput) {
     p_require_correct_answer: input.requireCorrectAnswer,
     p_whatsapp_enabled: input.whatsappEnabled,
     p_hashtag: input.hashtag,
-    p_use_art: input.useArt,
-    p_art_url: input.artUrl,
+    // p_use_art and p_art_url are GONE from both doors (0144), and their absence
+    // here is not cosmetic. update_promotion replaces every field it takes, and
+    // the banner is now uploaded rather than typed — so a p_art_url left on this
+    // builder would post null on every ordinary Save and delete the banner.
+    //
+    // NOTHING IN TYPESCRIPT CATCHES THIS. The result of this function is spread
+    // into `.rpc()`, and a spread is not subject to excess-property checking, so
+    // an argument the function no longer has type-checks perfectly and fails at
+    // runtime as PGRST202 — PostgREST cannot resolve the overload, which maps to
+    // InternalError and reaches the operator as "Could not save". That is the
+    // same trap 0055's header describes from the other direction, and it is why
+    // the pgTAP in 30_promotion_images asserts the parameter is absent.
     p_yes_button_label: input.yesButtonLabel,
     p_no_button_label: input.noButtonLabel,
     p_requested_fields: input.requestedFields,
@@ -755,6 +785,98 @@ export async function unlinkPrizeFromPromotion(
     p_promotion_id: input.promotionId,
     p_prize_id: input.prizeId,
     p_quantity: input.quantity,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// The two pictures (Block 14).
+
+const SLOT_FOR: Record<ArtworkKind, ArtworkSlot> = {
+  thumb: 'promotion-thumbs',
+  banner: 'promotion-banners',
+};
+
+const SETTER_FOR = {
+  thumb: 'set_promotion_thumb',
+  banner: 'set_promotion_art',
+} as const;
+
+/**
+ * Uploads the object and then files it, IN THAT ORDER.
+ *
+ * The same order attachDeliveryReceipt takes, for a different reason: the row
+ * must never point at bytes that failed to arrive, because that is a broken
+ * image on every screen and, for the banner, a message Meta refuses to send. If
+ * the RPC below fails instead, what is left is an object at a key derived from
+ * this promotion — unreferenced, harmless, and overwritten by the next upload,
+ * because the key never changes.
+ *
+ * The upload runs on the CALLER's token rather than the service key, so the
+ * bucket policy written in 0143 is the boundary rather than a decoration — the
+ * reasoning 0086 gives for the receipt, unchanged.
+ */
+export async function uploadPromotionImage(
+  accessToken: string,
+  input: { kind: ArtworkKind; companyId: string; promotionId: string; file: File },
+): Promise<string> {
+  const bytes = new Uint8Array(await input.file.arrayBuffer());
+  const rejection = describeArtworkRejection(
+    input.kind,
+    { type: input.file.type, size: input.file.size },
+    readImageDimensions(bytes),
+  );
+  // The bucket refuses the type and the size as well (0143). This is here so
+  // the failure is a sentence rather than a Storage error, so the pixel ceiling
+  // — which no bucket can express — is enforced somewhere a client cannot
+  // reach, and so nothing is uploaded first.
+  if (rejection) throw new ValidationError(rejection);
+
+  const key = artworkKey(SLOT_FOR[input.kind], input.companyId, input.promotionId);
+
+  const uploaded = await asCaller(accessToken)
+    .storage.from(ARTWORK_BUCKET)
+    .upload(key, input.file, {
+      // From the validated list, and NOT optional: the key carries no
+      // extension, so an object uploaded with no content type is served back as
+      // application/octet-stream and Meta refuses the image.
+      contentType: input.file.type,
+      // The whole point of a key derived from the record. Without this the
+      // SECOND upload for a promotion fails instead of replacing the first,
+      // which is the accumulation this block was asked to prevent.
+      upsert: true,
+    });
+  if (uploaded.error) {
+    throw new InternalError(`Could not upload the image: ${uploaded.error.message}`);
+  }
+
+  const url = artworkPublicUrl(getUserSupabaseConfig().url, key, Date.now());
+  const { error } = await asCaller(accessToken).rpc(SETTER_FOR[input.kind], {
+    p_promotion_id: input.promotionId,
+    p_url: url,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
+  return url;
+}
+
+/**
+ * Clears the column and queues the object, in one transaction (0144).
+ *
+ * NOTHING HERE DELETES ANYTHING. The bucket has no delete policy for
+ * `authenticated`, deliberately: a client that could reach it could take a
+ * Station's banner off the air without leaving a row saying so. The worker
+ * drains the queue through service_role, which is where 0087 put that power.
+ */
+export async function clearPromotionImage(
+  accessToken: string,
+  input: { kind: ArtworkKind; promotionId: string },
+): Promise<void> {
+  // p_url is OMITTED rather than sent as null, and that is the setter's own
+  // contract: 0144 gives it `default null` precisely so clearing can be
+  // expressed without a cast. PostgREST leaves out what is not sent and the
+  // function's default applies.
+  const { error } = await asCaller(accessToken).rpc(SETTER_FOR[input.kind], {
+    p_promotion_id: input.promotionId,
   });
   if (error) throw mapPromotionError(error.code, error.message);
 }

@@ -105,7 +105,12 @@ revoke execute on function public.enqueue_artwork_erasure(text, text) from publi
 -- question". The thumb joins that list by the same argument -- nobody entered a
 -- promotion because of the picture beside it on a list screen.
 
-create function public.set_promotion_thumb(p_promotion_id uuid, p_url text)
+-- `default null`, and it is not decoration: this is how CLEARING is expressed.
+-- Without it the generated TypeScript types the argument `string` and the
+-- service cannot pass null at all without a cast — and a cast is how a caller
+-- ends up passing the string "null". An omitted argument clears the picture,
+-- deliberately.
+create function public.set_promotion_thumb(p_promotion_id uuid, p_url text default null)
 returns void
 language plpgsql
 security definer
@@ -148,7 +153,9 @@ comment on function public.set_promotion_thumb(uuid, text) is
 revoke execute on function public.set_promotion_thumb(uuid, text) from public;
 grant execute on function public.set_promotion_thumb(uuid, text) to authenticated;
 
-create function public.set_promotion_art(p_promotion_id uuid, p_url text)
+-- `default null` for the reason set_promotion_thumb gives above: an omitted
+-- argument clears the banner and queues its object.
+create function public.set_promotion_art(p_promotion_id uuid, p_url text default null)
 returns void
 language plpgsql
 security definer
