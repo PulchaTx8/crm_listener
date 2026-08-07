@@ -8,7 +8,12 @@ import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
-import { listMusicReferences, listMusicRequestsPage, SONG_SEARCH_MAX_LENGTH } from '@/services/music';
+import {
+  coversForSongs,
+  listMusicReferences,
+  listMusicRequestsPage,
+  SONG_SEARCH_MAX_LENGTH,
+} from '@/services/music';
 import type { ReferenceSummary, RequestListPage } from '@/services/music';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
@@ -222,6 +227,7 @@ export default async function RequestsPage({
       <RequestsGrid
         rows={page.rows}
         total={page.total}
+        covers={await coversForSongs(page.rows.map((row) => row.songId))}
         previousHref={
           page.previousCursor ? requestHref(state, { side: 'before', value: page.previousCursor }) : null
         }

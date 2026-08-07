@@ -7,7 +7,9 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getMusicDashboard } from '@/services/dashboards';
-import type { MusicDashboard } from '@/schemas/dashboards';
+import type { MusicDashboard, Slice } from '@/schemas/dashboards';
+import { coversForSongs } from '@/services/music';
+import { coverUrl } from '@/lib/integrations/deezer/cover';
 import { MonthlyBars } from '@/components/charts/monthly-bars';
 import { BreakdownBars } from '@/components/charts/breakdown-bars';
 import { TopList } from '@/components/charts/top-list';
@@ -289,7 +291,17 @@ export default async function MusicDashboardPage({
             <CardTitle>{t('mostRequestedSongs')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <TopList data={dashboard.top.songs} label={t('mostRequestedSongs')} />
+            {/*
+              get_music_dashboard (0119) returns title and count and no cover.
+              Rather than DROP + CREATE a 290-line SECURITY INVOKER function
+              with its own test suite to add one field, the covers for the ten
+              rows it did return are read here, in one scoped query.
+            */}
+            <TopList
+              data={dashboard.top.songs}
+              label={t('mostRequestedSongs')}
+              covers={await songCoverUrls(dashboard.top.songs)}
+            />
           </CardContent>
         </Card>
 
@@ -336,4 +348,27 @@ async function LoadError({ message }: { message: string }) {
       </Card>
     </>
   );
+}
+
+/**
+ * Cover URLs for the ten songs the aggregate ranked, keyed by song id.
+ *
+ * URLs rather than hashes, because the consumer is an SVG `<image href>` inside
+ * a chart tick and coverUrl is a server-safe pure function — building them here
+ * keeps the client component free of the CDN host, which lives in exactly two
+ * places (cover.ts and the CSP) and should not gain a third.
+ *
+ * Songs with no album, or with one this caller cannot read, are simply absent
+ * from the map and their row renders the plain label it always did.
+ */
+async function songCoverUrls(slices: Slice[]): Promise<Map<string, string>> {
+  const ids = slices.map((slice) => slice.id).filter((id): id is string => Boolean(id));
+  const hashes = await coversForSongs(ids);
+
+  const urls = new Map<string, string>();
+  for (const [songId, md5] of hashes) {
+    const url = coverUrl(md5, 56);
+    if (url) urls.set(songId, url);
+  }
+  return urls;
 }

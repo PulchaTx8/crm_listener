@@ -19,6 +19,7 @@ import { MERGE_REASON_MAX_LENGTH } from '@/schemas/music';
 import type { MusicMergeKind } from '@/schemas/music';
 import type { MergeCandidate } from '@/services/music';
 import { maintenanceHref } from './list-params';
+import { SongThumb } from '@/components/music/song-thumb';
 import type { MaintenanceState } from './list-params';
 import { mergeRecordsAction } from './actions';
 import type { MergeState } from './actions';
@@ -204,10 +205,13 @@ const INITIAL_MERGE: MergeState = { ok: null };
 export function MergePanel({
   state,
   candidates,
+  covers,
   canMerge,
 }: {
   state: MaintenanceState;
   candidates: MergeCandidate[];
+  /** Cover hash by song id, empty for every kind but SONG. list_merge_candidates (0108) returns no cover, so services/music.ts's coversForSongs fetches them for the page in one query. */
+  covers: Map<string, string | null>;
   canMerge: boolean;
 }) {
   const t = useTranslations('music');
@@ -325,10 +329,28 @@ export function MergePanel({
                     </TableCell>
                   )}
                   <TableCell>
-                    <span className="text-sm">{candidate.label}</span>
-                    {candidate.subLabel && (
-                      <span className="ml-2 text-xs text-muted-foreground">{candidate.subLabel}</span>
-                    )}
+                    {/*
+                      Songs only — the four short lists have no cover, and an
+                      empty square beside every genre would be noise. On this
+                      screen the cover is not decoration: telling two
+                      near-identical rows apart is the entire purpose of the
+                      page, and two "Sozinho" by "Caetano Veloso" from
+                      different albums are exactly what an operator is here to
+                      resolve.
+                    */}
+                    <span className="flex items-center gap-2">
+                      {state.kind === 'SONG' && (
+                        <SongThumb coverMd5={covers.get(candidate.id) ?? null} />
+                      )}
+                      <span>
+                        <span className="text-sm">{candidate.label}</span>
+                        {candidate.subLabel && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {candidate.subLabel}
+                          </span>
+                        )}
+                      </span>
+                    </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {childCountLabel(state.kind, candidate.childCount, t)}

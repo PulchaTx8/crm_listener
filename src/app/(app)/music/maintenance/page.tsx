@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { listMergeCandidates } from '@/services/music';
+import { coversForSongs, listMergeCandidates } from '@/services/music';
 import type { MergeCandidate } from '@/services/music';
 import { MUSIC_MERGE_KINDS } from '@/schemas/music';
 import type { MusicMergeKind } from '@/schemas/music';
@@ -225,6 +225,13 @@ export default async function MaintenancePage({
         key={`${state.companyId}:${state.kind}`}
         state={state}
         candidates={candidates}
+        // Only for songs: the four short lists have no album, so asking for
+        // their covers would be a query that can only ever answer nothing.
+        covers={
+          state.kind === 'SONG'
+            ? await coversForSongs(candidates.map((candidate) => candidate.id))
+            : new Map()
+        }
         canMerge={permissions.merge}
       />
     </>

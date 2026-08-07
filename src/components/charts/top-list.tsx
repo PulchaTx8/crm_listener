@@ -23,7 +23,22 @@ import {
  * whatever `top.songs` etc. already resolved in SQL. This component neither
  * re-sorts by count nor trims the list to a "top N" of its own.
  */
-export function TopList({ data, label }: { data: Slice[]; label: string }) {
+export function TopList({
+  data,
+  label,
+  covers,
+}: {
+  data: Slice[];
+  label: string;
+  /**
+   * Cover URL by slice id (Block 13a) — supplied only by the Music
+   * dashboard's songs list; genres, promotions and discovery sources have no
+   * cover and pass nothing, which leaves the axis exactly as it was.
+   */
+  covers?: Map<string, string>;
+}) {
+  const withCovers = covers !== undefined && covers.size > 0;
+
   return (
     <figure aria-label={label} className="h-80 w-full" data-testid="chart-top-list">
       <ResponsiveContainer width="100%" height="100%">
@@ -36,8 +51,10 @@ export function TopList({ data, label }: { data: Slice[]; label: string }) {
           <YAxis
             type="category"
             dataKey="label"
-            width={140}
-            tick={CHART_AXIS_TICK}
+            width={withCovers ? 170 : 140}
+            tick={
+              withCovers ? <CoverTick data={data} covers={covers as Map<string, string>} /> : CHART_AXIS_TICK
+            }
             tickLine={false}
             axisLine={false}
           />
@@ -53,5 +70,67 @@ export function TopList({ data, label }: { data: Slice[]; label: string }) {
         </BarChart>
       </ResponsiveContainer>
     </figure>
+  );
+}
+
+/**
+ * A category tick that draws the album cover before the title.
+ *
+ * THE DATUM IS FOUND BY INDEX, NOT BY LABEL. Recharts hands a tick only the
+ * axis VALUE — here the song's title — and two songs in one top ten can share
+ * a title (a studio cut and a live version, which is exactly the pair a radio
+ * has). Matching on the title would then draw one song's cover beside the
+ * other's row, and a wrong cover is worse than no cover: it is a confident
+ * claim that happens to be false. `payload.index` addresses the row itself.
+ *
+ * Falls back to the plain label whenever the index is out of range or the song
+ * has no cover, so this can only ever degrade to what the axis rendered
+ * before.
+ */
+function CoverTick(props: {
+  data: Slice[];
+  covers: Map<string, string>;
+  x?: number;
+  y?: number;
+  payload?: { value?: string | number; index?: number };
+}) {
+  const { data, covers, x = 0, y = 0, payload } = props;
+
+  const datum = typeof payload?.index === 'number' ? data[payload.index] : undefined;
+  const url = datum?.id ? covers.get(datum.id) : undefined;
+  const text = String(payload?.value ?? '');
+
+  const SIZE = 20;
+  // The axis is right-aligned at x, so the whole tick is laid out leftwards
+  // from it: the cover sits furthest left, the title between it and the bar.
+  const imageX = x - 160;
+  const textX = url ? imageX + SIZE + 6 : x - 4;
+
+  return (
+    <g>
+      {url && (
+        <image
+          href={url}
+          x={imageX}
+          y={y - SIZE / 2}
+          width={SIZE}
+          height={SIZE}
+          preserveAspectRatio="xMidYMid slice"
+          // Decorative: the title is rendered right beside it, and a screen
+          // reader announcing the cover before the title is noise.
+          aria-hidden="true"
+        />
+      )}
+      <text
+        x={textX}
+        y={y}
+        textAnchor={url ? 'start' : 'end'}
+        dominantBaseline="central"
+        fill={CHART_AXIS_TICK.fill}
+        fontSize={CHART_AXIS_TICK.fontSize}
+      >
+        {text}
+      </text>
+    </g>
   );
 }

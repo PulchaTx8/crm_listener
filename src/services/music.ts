@@ -13,6 +13,7 @@ import {
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
+import { logger } from '@/lib/logger';
 import type { Database } from '@/lib/supabase/database.types';
 import { SONG_SEARCH_MAX_LENGTH } from '@/schemas/music';
 import type {
@@ -539,6 +540,52 @@ export async function unlinkSongFromDeezer(
 }
 
 /**
+ * The cover hash for a set of songs, by song id.
+ *
+ * THREE SCREENS READ THEIR ROWS FROM AN RPC -- the Requests list (0107), the
+ * Music dashboard (0119) and the merge panel (0108) -- and each returns a
+ * fixed set of columns with no cover among them. Widening those three would
+ * mean DROP + CREATE on three long SECURITY DEFINER/INVOKER functions, each
+ * with its own tests and its own reasoning, to add one field apiece. This
+ * costs one extra scoped query per page instead, over at most a page's worth
+ * of ids.
+ *
+ * It is NOT an N+1: one query for the whole page, called once. The Block 3b
+ * finding this codebase already carries -- 102 queries measured down to 5 --
+ * is the reason that distinction is spelled out rather than assumed.
+ *
+ * RLS applies exactly as it does everywhere else: a song or an album this
+ * caller cannot read simply does not appear in the map, and its screen renders
+ * the fallback.
+ */
+export async function coversForSongs(
+  songIds: string[],
+): Promise<Map<string, string | null>> {
+  const unique = [...new Set(songIds)];
+  if (unique.length === 0) return new Map();
+
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('songs')
+    .select('id, albums(cover_md5)')
+    .in('id', unique);
+
+  // A failed cover read must not take a whole list down with it. The screens
+  // fall back to the music-note icon, which is a rendering they already have
+  // for every song typed by hand.
+  if (error) {
+    logger.warn({ err: error }, 'could not read covers for songs');
+    return new Map();
+  }
+
+  const covers = new Map<string, string | null>();
+  for (const row of (data ?? []) as { id: string; albums: { cover_md5: string | null } | null }[]) {
+    covers.set(row.id, row.albums?.cover_md5 ?? null);
+  }
+  return covers;
+}
+
+/**
  * Which of a set of Deezer track ids this Station already has (design D9).
  * ONE query for the whole result page, not one per row — the N+1 Block 3b
  * measured at 102 queries and fixed to 5 is the reason this is not a `.map`.
@@ -708,6 +755,8 @@ export interface ArtistSongSummary {
   id: string;
   title: string;
   createdAt: string;
+  /** Null when the song has no album, or has one this caller cannot read — both render as the fallback icon. */
+  coverMd5: string | null;
 }
 
 export interface ArtistSongsPage {
@@ -731,7 +780,9 @@ export async function getArtistSongs(
   const supabase = await createUserClient();
   const { data, error } = await supabase
     .from('songs')
-    .select('id, title, created_at')
+    // A direct select on songs, so the cover comes through an embed here
+    // rather than through coversForSongs — no second query needed.
+    .select('id, title, created_at, albums(cover_md5)')
     .eq('company_id', companyId)
     .eq('artist_id', artistId)
     .is('deleted_at', null)
@@ -745,7 +796,14 @@ export async function getArtistSongs(
   const windowed = hasMore ? rows.slice(0, ARTIST_SONGS_CAP) : rows;
 
   return {
-    rows: windowed.map((row) => ({ id: row.id, title: row.title, createdAt: row.created_at })),
+    rows: windowed.map((row) => ({
+      id: row.id,
+      title: row.title,
+      createdAt: row.created_at,
+      // `?.` for the reason SONG_COLUMNS records: an archived album is
+      // invisible through RLS while album_id still names it.
+      coverMd5: (row as { albums: { cover_md5: string | null } | null }).albums?.cover_md5 ?? null,
+    })),
     hasMore,
   };
 }
@@ -1097,7 +1155,7 @@ export async function archiveMusicRequest(requestId: string, accessToken: string
   if (error) throw mapMusicError(error.code, error.message);
 }
 
-const SONG_OPTION_COLUMNS = 'id, title, artists(name)';
+const SONG_OPTION_COLUMNS = 'id, title, artists(name), albums(cover_md5)';
 
 /**
  * Left a plain string rather than `as const`, for the identical reason
@@ -1109,6 +1167,7 @@ const SONG_OPTION_COLUMNS = 'id, title, artists(name)';
  */
 type SongOptionRow = Pick<Database['public']['Tables']['songs']['Row'], 'id' | 'title'> & {
   artists: { name: string } | null;
+  albums: { cover_md5: string | null } | null;
 };
 
 export interface SongOption {
@@ -1122,6 +1181,8 @@ export interface SongOption {
    * trusted to look obviously right.
    */
   artistName: string | null;
+  /** The album cover, for the picker's thumb. Null for a song with no album, and for one whose album RLS hides. */
+  coverMd5: string | null;
 }
 
 /** Turns one fetched row into the option the picker renders. Exported for the reason its own doc comment gives. */
@@ -1130,6 +1191,7 @@ export function toSongOption(row: SongOptionRow): SongOption {
     songId: row.id,
     title: row.title,
     artistName: row.artists?.name ?? null,
+    coverMd5: row.albums?.cover_md5 ?? null,
   };
 }
 
