@@ -85,8 +85,8 @@ export function ConsolidatedToggle({
         title={complete ? undefined : t('onlyTheStationsListedAbove')}
       >
         {complete
-          ? `All stations (${consolidatedCompanyIds.length})`
-          : `Stations listed (${consolidatedCompanyIds.length})`}
+          ? t('allStations', { count: consolidatedCompanyIds.length })
+          : t('stationsListed', { count: consolidatedCompanyIds.length })}
       </Link>
     </div>
   );

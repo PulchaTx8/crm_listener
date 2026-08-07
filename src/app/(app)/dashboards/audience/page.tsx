@@ -86,7 +86,7 @@ export default async function AudienceDashboardPage({
     ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'members.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve audience dashboard access');
-    return <LoadError message={describeDashboardError(cause)} />;
+    return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
   const first = viewable[0];
@@ -140,7 +140,7 @@ export default async function AudienceDashboardPage({
     dashboard = await getAudienceDashboard(companyIds, selection);
   } catch (cause) {
     logger.error({ err: cause, companyIds }, 'could not load the audience dashboard');
-    return <LoadError message={describeDashboardError(cause)} />;
+    return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
   // Whether the Station list above is the caller's WHOLE relationship or a
@@ -158,7 +158,7 @@ export default async function AudienceDashboardPage({
     <>
       <PageHeader
         title={t('audience')}
-        description="Who is listening, how many are new, and who is barred — one Station or several, side by side."
+        description={t('audienceDescription')}
         // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
         // second set the dialog asks for: this panel's PDF must carry the
         // figures on this screen, and the only way to guarantee that is to
@@ -174,9 +174,16 @@ export default async function AudienceDashboardPage({
               exactly the same list the cap does, including the one the
               consolidated toggle sums, and saying nothing about it left "All
               stations" standing over a filtered set. */}
+          {/* One whole message per branch, not a stem with a clause glued on:
+              the search phrase lands in the middle of the sentence in English
+              and nowhere near the middle in Portuguese. */}
           <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
-            {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}{stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
-            only the Stations listed here. Search by name to reach one that is not listed.
+            {stationSearch
+              ? t('stationScopeNoteFiltered', {
+                  count: viewable.length + suspended.length,
+                  search: stationSearch,
+                })
+              : t('stationScopeNote', { count: viewable.length + suspended.length })}
           </p>
           <StationSearchForm
             action={BASE}
@@ -186,7 +193,7 @@ export default async function AudienceDashboardPage({
               ...(selection.from ? { from: selection.from } : {}),
               ...(selection.to ? { to: selection.to } : {}),
             }}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -258,7 +265,7 @@ export default async function AudienceDashboardPage({
             <CardTitle>{t('monthlyArrivals')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <MonthlyBars data={dashboard.monthly} label="Monthly arrivals" />
+            <MonthlyBars data={dashboard.monthly} label={t('monthlyArrivals')} />
           </CardContent>
         </Card>
 
@@ -281,7 +288,7 @@ export default async function AudienceDashboardPage({
                 invented here. */}
             <BreakdownBars
               data={withOperatorLabels(dashboard.breakdowns.blocks_by_kind, BLOCK_KIND_LABELS)}
-              label="Barred by kind"
+              label={t('barredByKind')}
             />
           </CardContent>
         </Card>
@@ -291,7 +298,7 @@ export default async function AudienceDashboardPage({
             <CardTitle>{t('howTheyWereFound')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <TopList data={dashboard.top.discovery_source} label="How they were found" />
+            <TopList data={dashboard.top.discovery_source} label={t('howTheyWereFound')} />
           </CardContent>
         </Card>
 
@@ -300,7 +307,7 @@ export default async function AudienceDashboardPage({
             <CardTitle>{t('firstContact')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <TopList data={dashboard.top.first_contact_origin} label="First contact" />
+            <TopList data={dashboard.top.first_contact_origin} label={t('firstContact')} />
           </CardContent>
         </Card>
       </div>
@@ -316,7 +323,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href={BASE as Route} className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>

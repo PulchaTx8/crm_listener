@@ -39,14 +39,20 @@ const BASE = '/dashboards/promotions';
 // `distinct_participants` are withheld together without participations.view
 // (D13); the prize cycle (`awarded`, `overdue`) is unaffected, because
 // `winners` answers to promotions.view alone.
-const CARD_SPECS: readonly CardSpec[] = [
-  { key: 'live_now', label: 'On air now' },
-  { key: 'ended', label: 'Ended in the period' },
-  { key: 'participations', label: 'Participations' },
-  { key: 'distinct_participants', label: 'Distinct listeners taking part' },
-  { key: 'awarded', label: 'Prizes awarded' },
-  { key: 'overdue', label: 'Overdue and uncollected' },
-];
+//
+// A function taking `t` rather than a module-level constant, for the reason
+// the audience panel's own cardSpecs already gives: a module body has no
+// request behind it, so it has no language either.
+function cardSpecs(t: (key: string) => string): CardSpec[] {
+  return [
+    { key: 'live_now', label: t('onAirNow') },
+    { key: 'ended', label: t('endedInThePeriod') },
+    { key: 'participations', label: t('participations') },
+    { key: 'distinct_participants', label: t('distinctListenersTakingPart') },
+    { key: 'awarded', label: t('prizesAwarded') },
+    { key: 'overdue', label: t('overdueAndUncollected') },
+  ];
+}
 
 export default async function PromotionsDashboardPage({
   searchParams,
@@ -82,7 +88,7 @@ export default async function PromotionsDashboardPage({
     ));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve promotions dashboard access');
-    return <LoadError message={describeDashboardError(cause)} />;
+    return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
   const first = viewable[0];
@@ -135,7 +141,7 @@ export default async function PromotionsDashboardPage({
     dashboard = await getPromotionsDashboard(companyIds, selection);
   } catch (cause) {
     logger.error({ err: cause, companyIds }, 'could not load the promotions dashboard');
-    return <LoadError message={describeDashboardError(cause)} />;
+    return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
   // Whether the Station list above is the caller's WHOLE relationship or a
@@ -164,7 +170,7 @@ export default async function PromotionsDashboardPage({
     <>
       <PageHeader
         title={t('promotions')}
-        description="What is on air, who took part, and how the prize cycle is moving — one Station or several, side by side."
+        description={t('promotionsDescription')}
         // Block 8b. The Stations and the period ALREADY RESOLVED above, not a
         // second set the dialog asks for: this panel's PDF must carry the
         // figures on this screen, and the only way to guarantee that is to
@@ -180,9 +186,16 @@ export default async function PromotionsDashboardPage({
               exactly the same list the cap does, including the one the
               consolidated toggle sums, and saying nothing about it left "All
               stations" standing over a filtered set. */}
+          {/* One whole message per branch, not a stem with a clause glued on:
+              the search phrase lands in the middle of the sentence in English
+              and nowhere near the middle in Portuguese. */}
           <p className="text-xs text-muted-foreground" data-testid="station-scope-note">
-            {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}{stationSearch ? ` that match “${stationSearch}”` : ''}. A consolidated view covers
-            only the Stations listed here. Search by name to reach one that is not listed.
+            {stationSearch
+              ? t('stationScopeNoteFiltered', {
+                  count: viewable.length + suspended.length,
+                  search: stationSearch,
+                })
+              : t('stationScopeNote', { count: viewable.length + suspended.length })}
           </p>
           <StationSearchForm
             action={BASE}
@@ -192,7 +205,7 @@ export default async function PromotionsDashboardPage({
               ...(selection.from ? { from: selection.from } : {}),
               ...(selection.to ? { to: selection.to } : {}),
             }}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}
@@ -252,7 +265,7 @@ export default async function PromotionsDashboardPage({
 
       <StationPeriodNote stations={dashboard.stations} />
 
-      <DashboardCards specs={CARD_SPECS} cards={dashboard.cards} withheld={dashboard.withheld} />
+      <DashboardCards specs={cardSpecs(t)} cards={dashboard.cards} withheld={dashboard.withheld} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -261,7 +274,7 @@ export default async function PromotionsDashboardPage({
           </CardHeader>
           <CardContent>
             {dashboard.monthly ? (
-              <MonthlyBars data={dashboard.monthly} label="Monthly participations" />
+              <MonthlyBars data={dashboard.monthly} label={t('monthlyParticipations')} />
             ) : (
               <WithheldFigure needs={neededFor('monthly')} />
             )}
@@ -279,7 +292,7 @@ export default async function PromotionsDashboardPage({
                 One vocabulary for winner_status, not two. */}
             <SplitDonut
               data={withOperatorLabels(dashboard.breakdowns.prize_cycle, WINNER_STATUS_LABELS)}
-              label="The prize cycle"
+              label={t('thePrizeCycle')}
             />
           </CardContent>
         </Card>
@@ -295,7 +308,7 @@ export default async function PromotionsDashboardPage({
                   dashboard.breakdowns.participation_status,
                   PARTICIPATION_STATUS_LABELS,
                 )}
-                label="Why entries were refused"
+                label={t('whyEntriesWereRefused')}
               />
             ) : (
               <WithheldFigure needs={neededFor('participation_status')} />
@@ -309,7 +322,7 @@ export default async function PromotionsDashboardPage({
           </CardHeader>
           <CardContent>
             {dashboard.top.promotions ? (
-              <TopList data={dashboard.top.promotions} label="Busiest promotions" />
+              <TopList data={dashboard.top.promotions} label={t('busiestPromotions')} />
             ) : (
               <WithheldFigure needs={neededFor('promotions')} />
             )}
@@ -328,7 +341,7 @@ async function NoStationMatch({ search }: { search: string }) {
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
-            {t('noStationYouCanReachMatches')}{search}”.
+            {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link href={BASE as Route} className="text-sm text-primary underline underline-offset-2">
             {t('clearTheStationSearch')}</Link>
