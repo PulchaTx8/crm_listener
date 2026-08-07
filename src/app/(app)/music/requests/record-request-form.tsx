@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
+import { SongThumb } from '@/components/music/song-thumb';
 import type { ReferenceSummary, SongOption } from '@/services/music';
 import type { StationListener } from '@/services/participations';
 // The Station-zone conversion comes from the promotions screen's own module,
@@ -304,7 +305,8 @@ export function RecordRequestForm({
 
         {pickedSong ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 p-3">
-            <span className="text-sm" data-testid="request-picked-song">
+            <span className="flex items-center gap-2 text-sm" data-testid="request-picked-song">
+              <SongThumb coverMd5={pickedSong.coverMd5} />
               {describeSong(pickedSong)}
             </span>
             <Button type="button" variant="outline" onClick={() => setPickedSong(null)}>
@@ -334,9 +336,10 @@ export function RecordRequestForm({
                     <button
                       type="button"
                       onClick={() => setPickedSong(song)}
-                      className="w-full rounded-md border px-3 py-2 text-left text-sm ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       data-testid="request-song-option"
                     >
+                      <SongThumb coverMd5={song.coverMd5} />
                       {describeSong(song)}
                     </button>
                   </li>

@@ -16,22 +16,35 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SongThumb } from '@/components/music/song-thumb';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { SONG_TABS, type SongTab } from '@/lib/record-params';
 import type { ReferenceSummary, SongSummary } from '@/services/music';
 import { formatDuration } from '../format';
 import { archiveSongAction, createSongAction, type ArchiveSongState, type SongFormState } from './actions';
+import { registerFromDeezerAction } from './deezer-actions';
+import { DeezerTab } from './deezer-tab';
 import { hasActiveSongFilters, songSortHref } from './list-params';
 import type { SongListState } from './list-params';
-import { SongFields } from './song-fields';
+import { SongFields, type DeezerPrefill } from './song-fields';
 import { SongRecordDialog } from './song-record-dialog';
 
-/** How many columns the empty-state row has to span, actions included. */
-const COLUMN_COUNT = 8;
+/**
+ * How many columns the empty-state row has to span, actions included. Nine
+ * since Block 13a added the cover — a number that has to be raised by hand
+ * with every column, or the "no songs" row stops spanning the table.
+ */
+const COLUMN_COUNT = 9;
 
 const INITIAL_ARCHIVE: ArchiveSongState = { status: 'idle' };
 const INITIAL_CREATE: SongFormState = { status: 'idle' };
+
+/** The create dialog's own tab labels. Catalogue keys, not words: a module body has no request behind it. */
+const CREATE_TAB_LABEL_KEYS: Record<SongTab, string> = {
+  data: 'songData',
+  deezer: 'deezerSearch',
+};
 
 export function SongsGrid({
   initialRows,
@@ -42,6 +55,7 @@ export function SongsGrid({
   artists,
   labels,
   genres,
+  albums,
   manage,
   initialRecord,
 }: {
@@ -53,6 +67,7 @@ export function SongsGrid({
   artists: ReferenceSummary[];
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
+  albums: ReferenceSummary[];
   /** Whether the caller holds music.manage at this Station — a courtesy gate; create_song/update_song/archive_song each re-check it themselves. */
   manage: boolean;
   initialRecord: { recordId: string | null; tab: string | null };
@@ -93,6 +108,12 @@ export function SongsGrid({
         <Table>
           <TableHeader>
             <TableRow>
+              {/* No visible label: the covers are a column of pictures beside
+                  the titles they belong to, and a "Cover" heading over them
+                  would be read aloud on every row for nothing. */}
+              <TableHead className="w-12">
+                <span className="sr-only">{t('cover')}</span>
+              </TableHead>
               <TableHead aria-sort={ariaSort(titleSorted)}>
                 <SortLink
                   href={songSortHref(state, 'title')}
@@ -129,6 +150,9 @@ export function SongsGrid({
             ) : (
               grid.rows.map((song) => (
                 <TableRow key={song.id} data-testid="song-row">
+                  <TableCell>
+                    <SongThumb coverMd5={song.coverMd5} />
+                  </TableCell>
                   <TableCell className="font-medium">
                     <button
                       type="button"
@@ -200,9 +224,12 @@ export function SongsGrid({
         artists={artists}
         labels={labels}
         genres={genres}
+        albums={albums}
+        companyId={state.companyId}
         manage={manage}
         onTab={setTab}
         onClose={close}
+        onOpenExisting={(songId) => open(songId)}
         onSaved={(song) => setGrid((current) => applyRowPatch(current, { kind: 'save', row: song }))}
         onLoaded={(song) => {
           // A song registered a moment ago: its record was opened on the id
@@ -232,10 +259,19 @@ export function SongsGrid({
           artists={artists}
           labels={labels}
           genres={genres}
+          albums={albums}
           onClose={() => setCreating(false)}
           onCreated={(songId) => {
             setCreating(false);
             pendingCreate.current = songId;
+            open(songId);
+          }}
+          onOpenExisting={(songId) => {
+            // A recording this Station already holds: close the create dialog
+            // and show the record that already exists, rather than leaving the
+            // operator on a search result for a song they were about to
+            // duplicate.
+            setCreating(false);
             open(songId);
           }}
         />
@@ -300,39 +336,109 @@ function ArchiveSongDialog({
   );
 }
 
+/**
+ * Two tabs since Block 13a: the record, and a Deezer search that fills it.
+ *
+ * The tab state is local rather than in the URL, unlike the record dialog's.
+ * A create dialog has no record to deep-link TO — `?record=<uuid>&tab=` names
+ * a row that does not exist yet — so putting it in the query string would put
+ * a value there that nothing could restore.
+ */
 function CreateSongDialog({
   open,
   companyId,
   artists,
   labels,
   genres,
+  albums,
   onClose,
   onCreated,
+  onOpenExisting,
 }: {
   open: boolean;
   companyId: string;
   artists: ReferenceSummary[];
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
+  albums: ReferenceSummary[];
   onClose: () => void;
   onCreated: (songId: string) => void;
+  onOpenExisting: (songId: string) => void;
 }) {
   const t = useTranslations('music');
   const titleId = useId();
+  const [tab, setTab] = useState<SongTab>('data');
+  const [prefill, setPrefill] = useState<DeezerPrefill | null>(null);
+
+  // Every opening starts clean. Without this, a dialog closed with a Deezer
+  // prefill still on it reopens carrying the previous track's fields — which
+  // reads as the form having registered nothing and kept the data, the most
+  // alarming possible way for a create dialog to behave.
+  useEffect(() => {
+    if (!open) {
+      setTab('data');
+      setPrefill(null);
+    }
+  }, [open]);
+
   return (
     <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
         <DialogTitle id={titleId}>{t('registerASong')}</DialogTitle>
       </DialogHeader>
+
+      <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
+        {SONG_TABS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            aria-selected={tab === name}
+            onClick={() => setTab(name)}
+            data-testid={`create-tab-${name}`}
+            className={
+              tab === name
+                ? 'border-b-2 border-primary px-3 py-2 text-sm font-medium'
+                : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
+            }
+          >
+            {t(CREATE_TAB_LABEL_KEYS[name])}
+          </button>
+        ))}
+      </div>
+
       <DialogBody>
-        <SongCreateForm
-          companyId={companyId}
-          artists={artists}
-          labels={labels}
-          genres={genres}
-          onCreated={onCreated}
-        />
+        {tab === 'data' && (
+          <SongCreateForm
+            // Keyed on the track, because `defaultValue` is read once per
+            // mount: without this, a second Register click on the Deezer tab
+            // would change the props and fill in nothing at all.
+            key={prefill?.deezerTrackId ?? 'blank'}
+            companyId={companyId}
+            artists={artists}
+            labels={labels}
+            genres={genres}
+            albums={albums}
+            prefill={prefill}
+            onCreated={onCreated}
+          />
+        )}
+
+        {tab === 'deezer' && (
+          <DeezerTab
+            companyId={companyId}
+            mode="register"
+            onPrefill={(found) => {
+              setPrefill(found);
+              // Back to the record, filled — the flow the owner described.
+              // Nothing has been written yet.
+              setTab('data');
+            }}
+            onOpenExisting={onOpenExisting}
+          />
+        )}
       </DialogBody>
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
           {t('close')}</Button>
@@ -353,21 +459,44 @@ function SongCreateForm({
   artists,
   labels,
   genres,
+  albums,
+  prefill,
   onCreated,
 }: {
   companyId: string;
   artists: ReferenceSummary[];
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
+  albums: ReferenceSummary[];
+  prefill?: DeezerPrefill | null;
   onCreated: (songId: string) => void;
 }) {
   const t = useTranslations('music');
-  const [state, action, pending] = useActionState(createSongAction, INITIAL_CREATE);
+
+  // TWO ACTIONS, ONE FORM, chosen by whether the Deezer tab filled it.
+  //
+  // They are not interchangeable and neither could serve both paths: the
+  // ordinary form posts artist/label/genre/album as IDS chosen from this
+  // Station's catalogue, and the Deezer form posts them as NAMES that
+  // create_song_from_deezer (0139) resolves or creates atomically. SongFields
+  // renders the matching controls for each. The dialog remounts this component
+  // on `key` whenever the prefill changes, so the action never switches under
+  // a form that is already filled.
+  const [state, action, pending] = useActionState(
+    prefill ? registerFromDeezerAction : createSongAction,
+    INITIAL_CREATE,
+  );
 
   return (
     <form action={action} data-testid="song-create-form" className="flex flex-col gap-3">
       <input type="hidden" name="companyId" value={companyId} />
-      <SongFields artists={artists} labels={labels} genres={genres} />
+      <SongFields
+        artists={artists}
+        labels={labels}
+        genres={genres}
+        albums={albums}
+        prefill={prefill}
+      />
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? t('saving') : t('registerSong')}

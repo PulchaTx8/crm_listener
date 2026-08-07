@@ -28,7 +28,7 @@ import { ReferencePanel } from './reference-panel';
  * union, so renaming a tab in one file without the other is a type error, not
  * a quiet bug.
  */
-export const CATALOG_TABS = ['labels', 'genres', 'shows'] as const;
+export const CATALOG_TABS = ['labels', 'genres', 'shows', 'albums'] as const;
 export type CatalogTab = (typeof CATALOG_TABS)[number];
 
 // `noun` stays a bare English word because its only remaining use is a
@@ -52,9 +52,19 @@ const TAB_COPY: Record<
     noun: 'show',
     descriptionKey: 'referenceShowsDescription',
   },
+  // Block 13a. An album is not one of 0100's four reference kinds — it has a
+  // UPC, a cover hash and a Deezer id of its own (0136) — but on THIS screen
+  // it is the same thing they are: a list of names, renamed and archived in
+  // place. The tab is here so a name Deezer supplied is not permanent, since
+  // the register path is the only other way an album is ever created.
+  albums: {
+    labelKey: 'albums',
+    noun: 'album',
+    descriptionKey: 'referenceAlbumsDescription',
+  },
 };
 
-const KIND_FOR_TAB = { labels: 'LABEL', genres: 'GENRE', shows: 'SHOW' } as const;
+const KIND_FOR_TAB = { labels: 'LABEL', genres: 'GENRE', shows: 'SHOW', albums: 'ALBUM' } as const;
 
 /**
  * Holds the three reference panels and the tab that picks which one shows.
@@ -93,6 +103,7 @@ export function ReferenceTabs({
   labels,
   genres,
   shows,
+  albums,
 }: {
   companyId: string;
   /** Whether the caller holds music.manage at this Station — a courtesy gate; create_music_reference/update_music_reference/archive_music_reference each re-check it themselves. */
@@ -101,6 +112,7 @@ export function ReferenceTabs({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   shows: ReferenceSummary[];
+  albums: ReferenceSummary[];
 }) {
   const t = useTranslations('music');
   const [tab, setTabState] = useState<CatalogTab>(initialTab);
@@ -123,7 +135,7 @@ export function ReferenceTabs({
     window.history.replaceState(null, '', search ? `?${search}` : window.location.pathname);
   }
 
-  const itemsByTab: Record<CatalogTab, ReferenceSummary[]> = { labels, genres, shows };
+  const itemsByTab: Record<CatalogTab, ReferenceSummary[]> = { labels, genres, shows, albums };
 
   return (
     <div className="flex flex-col gap-4">

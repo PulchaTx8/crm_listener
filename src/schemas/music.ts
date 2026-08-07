@@ -48,6 +48,25 @@ const blankToUndefined = (v: unknown) =>
 
 const optionalUuid = z.preprocess(blankToUndefined, z.string().uuid().optional());
 
+/**
+ * Two letters of country, three alphanumerics of registrant, two digits of
+ * year and five of designation — 0138's `songs_isrc_shape`, restated here so
+ * the refusal arrives as a field message instead of a round trip.
+ *
+ * Folded to upper case BEFORE the check, and 0138/0140 fold it again before
+ * storing. An operator reading a code off a sleeve will not shift-lock, and
+ * the database check accepts upper case only — so without this a perfectly
+ * correct ISRC typed in lower case is refused as malformed, which is the kind
+ * of message that makes people distrust a form.
+ */
+const isrc = z.preprocess(
+  (v) => (typeof v === 'string' ? v.trim().toUpperCase() || undefined : blankToUndefined(v)),
+  z
+    .string()
+    .regex(/^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/, 'An ISRC looks like BRPGD9800678.')
+    .optional(),
+);
+
 export const referenceFormSchema = z.object({
   companyId: z.string().uuid(),
   kind: z.enum(MUSIC_REFERENCE_KINDS),
@@ -82,6 +101,13 @@ export const songFormSchema = z.object({
   artistId: z.string().uuid('Choose an artist — a song without one is a draft.'),
   labelId: optionalUuid,
   genreId: optionalUuid,
+  // Block 13a. Both hand-editable (design D7), and both reach create_song
+  // (0140) and update_song (0138). There is deliberately no deezerTrackId
+  // beside them: that column has one write path, 0139's two doors, and a
+  // schema field for it would be the first step back towards the hole 0102
+  // closed for legacy_id.
+  albumId: optionalUuid,
+  isrc,
   // Same reasoning as optionalUuid above: an untouched select posts '', and
   // an enum check refuses it before any transform could normalise it away.
   nationality: z.preprocess(blankToUndefined, z.enum(MUSIC_NATIONALITIES).optional()),
@@ -122,6 +148,34 @@ export const songUpdateSchema = songFormSchema
   .extend({ songId: z.string().uuid() });
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
+
+/**
+ * What the Deezer register form posts (Block 13a).
+ *
+ * Names, not ids — create_song_from_deezer (0139) resolves or creates all four
+ * references inside the same transaction as the song, so a failure anywhere
+ * leaves no orphan artist behind. The bounds match the reference tables' own
+ * `name` column bound above.
+ *
+ * There is deliberately NO deezerTrackId here. The track id, the album id, the
+ * cover hash, the UPC and the release date are not things a person types and
+ * are not validated as if they were: they travel in hidden fields the tab
+ * filled, and 0139 is the only write path to any of them (design D6).
+ */
+export const deezerRegistrationSchema = z.object({
+  title: z.string().trim().min(1, 'Give the song a title.').max(200),
+  artistName: z
+    .string()
+    .trim()
+    .min(1, 'A song without an artist is a draft — name one.')
+    .max(160),
+  labelName: optionalText(160),
+  genreName: optionalText(160),
+  albumTitle: optionalText(160),
+  isrc,
+});
+
+export type DeezerRegistrationInput = z.infer<typeof deezerRegistrationSchema>;
 
 /** The five 0105's music_merge_kind carries. Shows are here on the owner's 2026-08-04 ruling. */
 export const MUSIC_MERGE_KINDS = ['SONG', 'ARTIST', 'LABEL', 'GENRE', 'SHOW'] as const;

@@ -34,6 +34,69 @@ export type Database = {
   }
   public: {
     Tables: {
+      albums: {
+        Row: {
+          company_id: string
+          cover_md5: string | null
+          created_at: string
+          created_by: string | null
+          deezer_album_id: number | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          organization_id: string
+          release_date: string | null
+          title: string
+          upc: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          cover_md5?: string | null
+          created_at?: string
+          created_by?: string | null
+          deezer_album_id?: number | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          organization_id: string
+          release_date?: string | null
+          title: string
+          upc?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          cover_md5?: string | null
+          created_at?: string
+          created_by?: string | null
+          deezer_album_id?: number | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          organization_id?: string
+          release_date?: string | null
+          title?: string
+          upc?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "albums_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "albums_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       artists: {
         Row: {
           company_id: string
@@ -2493,15 +2556,18 @@ export type Database = {
       }
       songs: {
         Row: {
+          album_id: string | null
           artist_id: string
           company_id: string
           created_at: string
           created_by: string | null
+          deezer_track_id: number | null
           deleted_at: string | null
           duration_seconds: number | null
           genre_id: string | null
           id: string
           internal_code: string | null
+          isrc: string | null
           label_id: string | null
           legacy_id: string | null
           nationality: Database["public"]["Enums"]["music_nationality"] | null
@@ -2511,15 +2577,18 @@ export type Database = {
           vocal: Database["public"]["Enums"]["music_vocal"] | null
         }
         Insert: {
+          album_id?: string | null
           artist_id: string
           company_id: string
           created_at?: string
           created_by?: string | null
+          deezer_track_id?: number | null
           deleted_at?: string | null
           duration_seconds?: number | null
           genre_id?: string | null
           id?: string
           internal_code?: string | null
+          isrc?: string | null
           label_id?: string | null
           legacy_id?: string | null
           nationality?: Database["public"]["Enums"]["music_nationality"] | null
@@ -2529,15 +2598,18 @@ export type Database = {
           vocal?: Database["public"]["Enums"]["music_vocal"] | null
         }
         Update: {
+          album_id?: string | null
           artist_id?: string
           company_id?: string
           created_at?: string
           created_by?: string | null
+          deezer_track_id?: number | null
           deleted_at?: string | null
           duration_seconds?: number | null
           genre_id?: string | null
           id?: string
           internal_code?: string | null
+          isrc?: string | null
           label_id?: string | null
           legacy_id?: string | null
           nationality?: Database["public"]["Enums"]["music_nationality"] | null
@@ -2547,6 +2619,13 @@ export type Database = {
           vocal?: Database["public"]["Enums"]["music_vocal"] | null
         }
         Relationships: [
+          {
+            foreignKeyName: "songs_album_company_fk"
+            columns: ["album_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "albums"
+            referencedColumns: ["id", "company_id"]
+          },
           {
             foreignKeyName: "songs_artist_company_fk"
             columns: ["artist_id", "company_id"]
@@ -3075,6 +3154,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      archive_album: { Args: { p_album_id: string }; Returns: undefined }
       archive_member: { Args: { p_member_id: string }; Returns: undefined }
       archive_message_template: { Args: { p_id: string }; Returns: undefined }
       archive_music_reference: {
@@ -3225,6 +3305,18 @@ export type Database = {
         }
         Returns: Json
       }
+      create_album: {
+        Args: {
+          p_company_id: string
+          p_cover_md5?: string
+          p_deezer_album_id?: number
+          p_legacy_id?: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
+        }
+        Returns: string
+      }
       create_invitation: {
         Args: {
           p_company_ids: string[]
@@ -3327,16 +3419,36 @@ export type Database = {
       }
       create_song: {
         Args: {
+          p_album_id?: string
           p_artist_id: string
           p_company_id: string
           p_duration_seconds?: number
           p_genre_id?: string
           p_internal_code?: string
+          p_isrc?: string
           p_label_id?: string
           p_legacy_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
           p_title: string
           p_vocal?: Database["public"]["Enums"]["music_vocal"]
+        }
+        Returns: string
+      }
+      create_song_from_deezer: {
+        Args: {
+          p_album_title?: string
+          p_artist_name: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_genre_name?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
         }
         Returns: string
       }
@@ -3527,6 +3639,19 @@ export type Database = {
           p_quantity: number
         }
         Returns: string
+      }
+      link_song_to_deezer: {
+        Args: {
+          p_album_title?: string
+          p_cover_md5?: string
+          p_deezer_album_id?: number
+          p_deezer_track_id: number
+          p_isrc?: string
+          p_release_date?: string
+          p_song_id: string
+          p_upc?: string
+        }
+        Returns: undefined
       }
       list_audit_logs: {
         Args: {
@@ -4140,6 +4265,17 @@ export type Database = {
           to_date: string
         }[]
       }
+      resolve_or_create_album: {
+        Args: {
+          p_company_id: string
+          p_cover_md5: string
+          p_deezer_album_id: number
+          p_release_date: string
+          p_title: string
+          p_upc: string
+        }
+        Returns: string
+      }
       resolve_or_create_member: {
         Args: {
           p_company_id: string
@@ -4151,6 +4287,14 @@ export type Database = {
           p_phone?: string
         }
         Returns: Json
+      }
+      resolve_or_create_reference: {
+        Args: {
+          p_company_id: string
+          p_kind: Database["public"]["Enums"]["music_reference_kind"]
+          p_name: string
+        }
+        Returns: string
       }
       return_prize: {
         Args: { p_reason: string; p_winner_id: string }
@@ -4226,6 +4370,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      unlink_song_from_deezer: {
+        Args: { p_song_id: string }
+        Returns: undefined
+      }
+      update_album: {
+        Args: { p_album_id: string; p_title: string }
+        Returns: undefined
+      }
       update_member: {
         Args: {
           p_address_complement?: string
@@ -4299,10 +4451,12 @@ export type Database = {
       }
       update_song: {
         Args: {
+          p_album_id?: string
           p_artist_id: string
           p_duration_seconds?: number
           p_genre_id?: string
           p_internal_code?: string
+          p_isrc?: string
           p_label_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
           p_song_id: string

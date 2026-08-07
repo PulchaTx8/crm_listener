@@ -175,6 +175,23 @@ const REQUIRED_TEST_FILES = [
   // either, for the identical reason as everything else in this file: it
   // runs as superuser with a null auth.uid().
   { path: 'tests/isolation/music-merge.test.ts', minTests: 11 },
+  // Block 13a, Task 11: the Deezer doors. Two of these prove things no
+  // permission check could and no pgTAP assertion can reach.
+  //
+  // The orphan case is design D3 itself: a blank title raises AFTER the artist
+  // has been resolved and inserted, and in one transaction that insert
+  // unwinds. Written from four round trips in Node it would not, and the
+  // Station would be left holding an artist nobody registered, with nothing to
+  // explain it. The only way to see that is to make the write fail halfway and
+  // then look.
+  //
+  // The duplicate case reads the CONSTRAINT NAME off the 23505 --
+  // songs_deezer_live, which 0139 deliberately does not catch -- because that
+  // name is what the application tells apart from songs_legacy_unique to say
+  // which of the two happened. A test that only checked the code would pass
+  // over create_song's handler reporting the wrong column, which is the
+  // precise defect that kept the Deezer path out of create_song.
+  { path: 'tests/isolation/deezer.test.ts', minTests: 10 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for

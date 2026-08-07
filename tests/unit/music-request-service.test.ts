@@ -44,14 +44,43 @@ describe('toSongOption', () => {
   // function is what has to keep it to one blank cell instead of the whole
   // search failing.
   it('reports the artist name when the embed resolved', () => {
-    const option = toSongOption({ id: 'song-1', title: 'Sozinho', artists: { name: 'Caetano' } });
-    expect(option).toEqual({ songId: 'song-1', title: 'Sozinho', artistName: 'Caetano' });
+    const option = toSongOption({
+      id: 'song-1',
+      title: 'Sozinho',
+      artists: { name: 'Caetano' },
+      albums: { cover_md5: '2a0f6ac6bc05458fb072275653f01dd2' },
+    });
+    expect(option).toEqual({
+      songId: 'song-1',
+      title: 'Sozinho',
+      artistName: 'Caetano',
+      coverMd5: '2a0f6ac6bc05458fb072275653f01dd2',
+    });
   });
 
   it('reports the artist as unreadable, not the song, when RLS hides the embed', () => {
-    const option = toSongOption({ id: 'song-2', title: 'A song whose artist RLS hides', artists: null });
+    const option = toSongOption({
+      id: 'song-2',
+      title: 'A song whose artist RLS hides',
+      artists: null,
+      albums: null,
+    });
     expect(option.artistName).toBeNull();
     expect(option.songId).toBe('song-2');
     expect(option.title).toBe('A song whose artist RLS hides');
+  });
+
+  // Block 13a. The album embed is null twice over — a song typed by hand has
+  // no album at all, and an archived album is invisible while album_id still
+  // names it. Both render as the fallback icon, which is the honest rendering
+  // of both.
+  it('leaves the cover null for a song with no readable album', () => {
+    const option = toSongOption({
+      id: 'song-3',
+      title: 'Typed by hand',
+      artists: { name: 'Someone' },
+      albums: null,
+    });
+    expect(option.coverMd5).toBeNull();
   });
 });

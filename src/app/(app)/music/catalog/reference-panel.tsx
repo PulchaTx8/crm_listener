@@ -7,6 +7,16 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/c
 import { Input } from '@/components/ui/input';
 import type { ReferenceSummary } from '@/services/music';
 import type { MusicReferenceKind } from '@/schemas/music';
+
+/**
+ * What this SCREEN's rows can be. Wider than MusicReferenceKind by exactly one
+ * member, and the difference is deliberate: an album is not one of 0100's four
+ * "a name and nothing else" tables — it carries a UPC, a cover hash and a
+ * Deezer id (0136) — but on this screen it behaves identically, so it shares
+ * the panel. catalog/actions.ts routes ALBUM to its own RPCs; the database
+ * enum is untouched.
+ */
+export type CatalogKind = MusicReferenceKind | 'ALBUM';
 import {
   archiveReferenceAction,
   createReferenceAction,
@@ -42,7 +52,8 @@ export function ReferencePanel({
   companyId,
   manage,
 }: {
-  kind: MusicReferenceKind;
+  /** Block 13a widened this: ALBUM is a fourth TAB, not a fourth music_reference_kind — see catalog/actions.ts for why the routing lives there and not in the enum. */
+  kind: CatalogKind;
   /** Singular, lower case — "label", "genre", "show" — used in this panel's own copy. */
   noun: string;
   title: string;
@@ -90,7 +101,8 @@ function AddRow({
   noun,
   companyId,
 }: {
-  kind: MusicReferenceKind;
+  /** Block 13a widened this: ALBUM is a fourth TAB, not a fourth music_reference_kind — see catalog/actions.ts for why the routing lives there and not in the enum. */
+  kind: CatalogKind;
   noun: string;
   companyId: string;
 }) {
@@ -142,7 +154,8 @@ function EditableRow({
   noun,
   item,
 }: {
-  kind: MusicReferenceKind;
+  /** Block 13a widened this: ALBUM is a fourth TAB, not a fourth music_reference_kind — see catalog/actions.ts for why the routing lives there and not in the enum. */
+  kind: CatalogKind;
   noun: string;
   item: ReferenceSummary;
 }) {
@@ -224,7 +237,8 @@ function ArchiveReferenceDialog({
   item,
   onClose,
 }: {
-  kind: MusicReferenceKind;
+  /** Block 13a widened this: ALBUM is a fourth TAB, not a fourth music_reference_kind — see catalog/actions.ts for why the routing lives there and not in the enum. */
+  kind: CatalogKind;
   noun: string;
   item: ReferenceSummary;
   /** Closes the dialog — called both on Cancel and, via the effect below, once the archive itself succeeds. */

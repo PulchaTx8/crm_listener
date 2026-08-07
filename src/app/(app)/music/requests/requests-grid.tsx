@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { SongThumb } from '@/components/music/song-thumb';
 import type { ReferenceSummary, RequestSummary } from '@/services/music';
 import { formatInstant } from '../../promotions/format';
 import { archiveRequestAction, type ArchiveRequestState } from './actions';
@@ -48,6 +49,7 @@ const CHANNEL_LABEL_KEYS: Record<RequestSummary['channel'], string> = {
 export function RequestsGrid({
   rows,
   total,
+  covers,
   previousHref,
   nextHref,
   companyId,
@@ -58,6 +60,14 @@ export function RequestsGrid({
   canRegisterListeners,
 }: {
   rows: RequestSummary[];
+  /**
+   * Cover hash by song id (Block 13a). A map rather than a field on the row
+   * because these rows come from list_music_requests (0107), whose returned
+   * columns carry no cover — widening that function would have meant DROP +
+   * CREATE on a long RPC to add one field. services/music.ts's coversForSongs
+   * fetches them for the page in one query instead.
+   */
+  covers: Map<string, string | null>;
   total: number;
   previousHref: string | null;
   nextHref: string | null;
@@ -157,8 +167,11 @@ export function RequestsGrid({
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className={request.songArchived ? 'text-muted-foreground' : undefined}>
-                      {request.songTitle}
+                    <span className="flex items-center gap-2">
+                      <SongThumb coverMd5={covers.get(request.songId) ?? null} />
+                      <span className={request.songArchived ? 'text-muted-foreground' : undefined}>
+                        {request.songTitle}
+                      </span>
                     </span>
                     {/*
                       archive_song is deliberately never refused over a live

@@ -13,6 +13,7 @@ import type { ArtistSummary } from '@/services/music';
 // grid that opens this dialog reads it too and a Server Component elsewhere
 // cannot import a value out of a client module. See src/lib/record-params.ts.
 import { ARTIST_TABS, withRecord, type ArtistTab } from '@/lib/record-params';
+import { SongThumb } from '@/components/music/song-thumb';
 // songHref is the Songs screen's own link builder (songs/list-params.ts),
 // imported rather than re-hand-rolled here: it is the one place that knows
 // how to spell a /music/songs URL, including carrying `station=` — the same
@@ -344,7 +345,8 @@ function ArtistSongsTab({ record, stationSearch }: { record: ArtistRecord; stati
       ) : (
         <ul className="flex flex-col divide-y" data-testid="artist-songs-list">
           {record.songs.map((song) => (
-            <li key={song.id} className="py-2">
+            <li key={song.id} className="flex items-center gap-2 py-2">
+              <SongThumb coverMd5={song.coverMd5} />
               <Link
                 href={
                   songLinkHref(record.companyId, stationSearch, record.artist.id, song.id) as Route

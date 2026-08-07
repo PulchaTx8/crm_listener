@@ -86,7 +86,13 @@ export type TeamTab = (typeof TEAM_TABS)[number];
 export const CUSTOMER_TABS = ['customer', 'stations', 'owner'] as const;
 export type CustomerTab = (typeof CUSTOMER_TABS)[number];
 
-export const SONG_TABS = ['data'] as const;
+/**
+ * Two since Block 13a, where Block 7 had one. song-record-dialog.tsx's tab
+ * strip already mapped over this tuple rather than hard-coding 'data' — its
+ * own comment predicted exactly this change, and it cost an entry and a label
+ * rather than a rewrite.
+ */
+export const SONG_TABS = ['data', 'deezer'] as const;
 export type SongTab = (typeof SONG_TABS)[number];
 
 /**

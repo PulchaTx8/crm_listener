@@ -39,7 +39,23 @@ export function buildContentSecurityPolicy(
     // of them. Inline style is a far smaller class of risk than inline script,
     // and pretending otherwise would cost a rewrite of working screens.
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob: ${origin}`,
+    // cdn-images.dzcdn.net is where every album cover in this product comes
+    // from (Block 13a, design D4). The host is named here and in exactly one
+    // other place -- src/lib/integrations/deezer/cover.ts, which builds the
+    // URL -- because nothing stores a Deezer URL. If one moves, both move.
+    `img-src 'self' data: blob: ${origin} https://cdn-images.dzcdn.net`,
+    // NEW IN BLOCK 13a, and the reason it has to exist at all: there was no
+    // media-src before, so audio fell back to default-src 'self' and every
+    // 30-second preview in the Deezer tab was blocked -- silently, which in a
+    // search results list reads as "this track has no preview" rather than as
+    // a policy refusing it.
+    //
+    // The wildcard is deliberate. Deezer's preview host has moved between
+    // `cdns-preview-N.dzcdn.net` and `cdnt-preview.dzcdn.net` over the years,
+    // and a literal host would break the tab on a day nobody deployed
+    // anything. The subdomain wildcard costs the ability to load media from
+    // any dzcdn.net host, which is Deezer's own CDN and nothing else.
+    "media-src 'self' https://*.dzcdn.net",
     "font-src 'self' data:",
     // MUST carry the Supabase origin: supabase-js talks to the project from the
     // browser, and the realtime socket uses ws(s). Without this every
