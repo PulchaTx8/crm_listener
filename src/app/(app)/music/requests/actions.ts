@@ -255,19 +255,30 @@ export type ArchiveRequestState = { ok: null } | { ok: true } | { ok: false; mes
  * than reaching the RPC as raw text and coming back as an opaque `22P02`,
  * the identical round trip requestFormSchema's own `requestedAt` guard
  * exists to close for the create side.
+ *
+ * A FUNCTION taking `t`, not a module-level constant, and that is not a style
+ * choice: a `const` here is evaluated when the module first loads, which is
+ * outside any request, and `getTranslations` reads `cookies()`. The whole
+ * requests route failed to initialise — every Server Action in this file
+ * included — for exactly one line of exactly that shape.
  */
-const archiveRequestSchema = z.object({
-  requestId: z.string().uuid((await getTranslations('music'))('thatRequestCouldNotBeIdentified')),
-});
+function archiveRequestSchema(t: (key: string) => string) {
+  return z.object({
+    requestId: z.string().uuid(t('thatRequestCouldNotBeIdentified')),
+  });
+}
 
 /** Withdraws a mistyped manual entry — never a DELETE (0107's own comment on archive_music_request). */
 export async function archiveRequestAction(
   _prev: ArchiveRequestState,
   formData: FormData,
 ): Promise<ArchiveRequestState> {
-  const parsed = archiveRequestSchema.safeParse({ requestId: formData.get('requestId') ?? '' });
+  const t = await getTranslations('music');
+  const parsed = archiveRequestSchema(t).safeParse({
+    requestId: formData.get('requestId') ?? '',
+  });
   if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? (await getTranslations('music'))('missingRequest') };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? t('missingRequest') };
   }
   const { requestId } = parsed.data;
 

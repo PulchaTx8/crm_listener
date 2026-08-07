@@ -169,7 +169,7 @@ warning. Two more of the same shape are fixed: the audience archive dialog's
 | --- | --- |
 | `npm run typecheck` | clean |
 | `npm run lint` | clean |
-| `npm test` | **909 passed**, 71 files |
+| `npm test` | **912 passed**, 72 files (three of them new, §9.1) |
 | `npm run build` | clean, from a removed `.next` |
 | Catalogue parity | en 1,489 · pt 1,489 · es 1,489, **no gaps in either direction** |
 | Every literal `t('key')` resolves | **1,503 checked, 0 missing** |
@@ -178,11 +178,43 @@ warning. Two more of the same shape are fixed: the audience archive dialog's
 | Every removed English literal still in `en.json` | 246 checked, 2 expected absences (`"No quiz"` is inside an ICU `=0` branch; `"Enums"` was a type index) |
 | Each replaced literal vs. its new key's value | **105 pairs, 0 drifted** |
 
-**`npm run test:e2e` did not run here.** It needs the local Supabase stack and
-Docker is not running on this machine; CI runs it on this PR. That matters more
-than usual for this branch — the suite asserts roughly a hundred English
-strings and this pass moved most of them out of the code — so **a red e2e job
-is the expected way to find anything above that is wrong.**
+**`npm run test:e2e` could not run here** — it needs the local Supabase stack
+and Docker is not running on this machine. CI ran it, **and it went red**
+(§9.1). That is the whole reason the note above was written rather than
+skipped.
+
+### 9.1 What e2e caught, and why nothing else could
+
+One line, and it took a whole route down:
+
+```ts
+const archiveRequestSchema = z.object({
+  requestId: z.string().uuid((await getTranslations('music'))('thatRequestCouldNotBeIdentified')),
+});
+```
+
+`getTranslations` reads `cookies()`. A **module body** is evaluated when the
+module first loads, which is outside any request — so `cookies()` threw, and
+`src/app/(app)/music/requests/actions.ts` failed to initialise. Not that one
+string: **every Server Action in the file**, including the song picker the
+manual-entry form calls per keystroke. `music-requests.spec.ts` failed on
+`request-song-option` never appearing. 46 of 47 journeys passed.
+
+This is §3's own rule — a module body has no request behind it — broken by the
+automated pass that was applying it. It is worth saying plainly: **I wrote the
+comment and then broke the rule two files away.**
+
+Nothing else could see it. `tsc` allows it (top-level `await` is legal ESM).
+Lint allows it. The key resolves, so key-resolution passed. The message
+formats, so formatting passed. Parity passed. **And a brace-counting sweep
+called the file clean, because the call sits three braces deep inside a Zod
+object** — depth is not scope.
+
+So the check now asks the **AST**: is there a translator call with no function
+between it and the top of the module? It lives in
+`tests/unit/i18n/usage.test.ts` alongside the other two checks this pass needed
+often enough to keep, and it was verified the only way a guard can be —
+**by putting the defect back and watching it go red.**
 
 ### The check that earned its place
 
