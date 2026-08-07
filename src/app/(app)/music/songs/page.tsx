@@ -7,7 +7,7 @@ import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
-import { listMusicReferences, listSongsPage, SONG_SEARCH_MAX_LENGTH } from '@/services/music';
+import { listAlbums, listMusicReferences, listSongsPage, SONG_SEARCH_MAX_LENGTH } from '@/services/music';
 import type { ReferenceSummary, SongListPage } from '@/services/music';
 import { STATION_SEARCH_MAX_LENGTH, listCompanyAccess } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
@@ -84,13 +84,18 @@ export default async function SongsPage({
   let artists: ReferenceSummary[];
   let labels: ReferenceSummary[];
   let genres: ReferenceSummary[];
+  let albums: ReferenceSummary[];
   let page: SongListPage;
   let permissions: MusicPermissions;
   try {
-    [artists, labels, genres, page, permissions] = await Promise.all([
+    [artists, labels, genres, albums, page, permissions] = await Promise.all([
       listMusicReferences(selected.id, 'ARTIST'),
       listMusicReferences(selected.id, 'LABEL'),
       listMusicReferences(selected.id, 'GENRE'),
+      // Its own function rather than a fourth listMusicReferences: albums are
+      // not one of 0100's four "a name and nothing else" lists — they carry a
+      // UPC, a Deezer id and a cover hash (0136).
+      listAlbums(selected.id),
       listSongsPage({
         companyId: selected.id,
         // The same bound the service enforces on its own argument, imported
@@ -179,6 +184,7 @@ export default async function SongsPage({
         artists={artists}
         labels={labels}
         genres={genres}
+        albums={albums}
         manage={permissions.manage}
         initialRecord={parseRecordParam(params as Record<string, string | undefined>, SONG_TABS)}
       />

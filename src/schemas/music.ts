@@ -149,6 +149,34 @@ export const songUpdateSchema = songFormSchema
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
 
+/**
+ * What the Deezer register form posts (Block 13a).
+ *
+ * Names, not ids — create_song_from_deezer (0139) resolves or creates all four
+ * references inside the same transaction as the song, so a failure anywhere
+ * leaves no orphan artist behind. The bounds match the reference tables' own
+ * `name` column bound above.
+ *
+ * There is deliberately NO deezerTrackId here. The track id, the album id, the
+ * cover hash, the UPC and the release date are not things a person types and
+ * are not validated as if they were: they travel in hidden fields the tab
+ * filled, and 0139 is the only write path to any of them (design D6).
+ */
+export const deezerRegistrationSchema = z.object({
+  title: z.string().trim().min(1, 'Give the song a title.').max(200),
+  artistName: z
+    .string()
+    .trim()
+    .min(1, 'A song without an artist is a draft — name one.')
+    .max(160),
+  labelName: optionalText(160),
+  genreName: optionalText(160),
+  albumTitle: optionalText(160),
+  isrc,
+});
+
+export type DeezerRegistrationInput = z.infer<typeof deezerRegistrationSchema>;
+
 /** The five 0105's music_merge_kind carries. Shows are here on the owner's 2026-08-04 ruling. */
 export const MUSIC_MERGE_KINDS = ['SONG', 'ARTIST', 'LABEL', 'GENRE', 'SHOW'] as const;
 export type MusicMergeKind = (typeof MUSIC_MERGE_KINDS)[number];
