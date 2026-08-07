@@ -14,7 +14,7 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
-import { NATIONALITY_LABELS, VOCAL_LABELS } from '../../music/format';
+import { NATIONALITY_LABEL_KEYS, VOCAL_LABEL_KEYS } from '../../music/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
@@ -60,6 +60,8 @@ export default async function MusicDashboardPage({
   }>;
 }) {
   const t = await getTranslations('dashboards');
+  // The shared enum vocabulary, which several screens render.
+  const tv = await getTranslations('vocab');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -258,13 +260,13 @@ export default async function MusicDashboardPage({
             <CardTitle>{t('domesticInternational')}</CardTitle>
           </CardHeader>
           <CardContent>
-            {/* `key` is the raw music_nationality value; NATIONALITY_LABELS
+            {/* `key` is the raw music_nationality value; NATIONALITY_LABEL_KEYS
                 is the wording the Songs grid already uses (whole-branch
                 review, Important B2). The NOT_STATED bucket carries its own
                 human label from SQL and passes through untouched — it was the
                 mix of the two on one axis that gave this away. */}
             <BreakdownBars
-              data={withOperatorLabels(dashboard.breakdowns.nationality, NATIONALITY_LABELS)}
+              data={withOperatorLabels(dashboard.breakdowns.nationality, NATIONALITY_LABEL_KEYS, tv)}
               label={t('domesticInternational')}
             />
           </CardContent>
@@ -276,7 +278,7 @@ export default async function MusicDashboardPage({
           </CardHeader>
           <CardContent>
             <BreakdownBars
-              data={withOperatorLabels(dashboard.breakdowns.vocal, VOCAL_LABELS)}
+              data={withOperatorLabels(dashboard.breakdowns.vocal, VOCAL_LABEL_KEYS, tv)}
               label={t('vocal')}
             />
           </CardContent>

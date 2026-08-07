@@ -14,7 +14,7 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
-import { BLOCK_KIND_LABELS } from '../../members/format';
+import { BLOCK_KIND_LABEL_KEYS } from '../../members/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
@@ -68,6 +68,8 @@ export default async function AudienceDashboardPage({
   }>;
 }) {
   const t = await getTranslations('dashboards');
+  // The shared enum vocabulary, which several screens render.
+  const tv = await getTranslations('vocab');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -282,12 +284,12 @@ export default async function AudienceDashboardPage({
               <p className="mb-2 text-xs text-muted-foreground">
                 {t('countsDistinctListenersAnOrganizationWide')}</p>
             )}
-            {/* `key` is the raw member_block_kind value; BLOCK_KIND_LABELS is
+            {/* `key` is the raw member_block_kind value; BLOCK_KIND_LABEL_KEYS is
                 the wording the audience record already uses for the same two
                 (whole-branch review, Important B2) — not a second vocabulary
                 invented here. */}
             <BreakdownBars
-              data={withOperatorLabels(dashboard.breakdowns.blocks_by_kind, BLOCK_KIND_LABELS)}
+              data={withOperatorLabels(dashboard.breakdowns.blocks_by_kind, BLOCK_KIND_LABEL_KEYS, tv)}
               label={t('barredByKind')}
             />
           </CardContent>

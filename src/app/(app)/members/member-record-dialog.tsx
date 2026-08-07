@@ -17,7 +17,7 @@ import { BlockForm } from './block-form';
 import { ConsentForm } from './consent-form';
 import { EraseMemberForm } from './erase-member-form';
 import { LiftBlockButton } from './lift-block-button';
-import { BLOCK_KIND_LABELS, CONSENT_TYPE_LABELS, formatCalendarDate, formatDate, formatDateTime } from './format';
+import { BLOCK_KIND_LABEL_KEYS, CONSENT_TYPE_LABEL_KEYS, formatCalendarDate, formatDate, formatDateTime } from './format';
 
 const TAB_LABELS: Record<MemberTab, string> = {
   data: 'Data',
@@ -68,6 +68,8 @@ export function MemberRecordDialog({
   onBlocked: (memberId: string) => void;
 }) {
   const t = useTranslations('members');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const titleId = useId();
   const [record, setRecord] = useState<MemberRecord | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -237,7 +239,7 @@ export function MemberRecordDialog({
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.consents.map((consent) => (
                     <li key={consent.id} className="rounded-md border p-3">
-                      <span className="font-medium">{CONSENT_TYPE_LABELS[consent.consentType]}</span>
+                      <span className="font-medium">{tv(CONSENT_TYPE_LABEL_KEYS[consent.consentType])}</span>
                       {' · '}
                       {consent.granted ? t('granted') : t('withdrawn')}
                       {' · '}
@@ -282,7 +284,7 @@ export function MemberRecordDialog({
                 <ul className="flex flex-col gap-2 text-sm">
                   {record.blocks.map((block) => (
                     <li key={block.id} data-testid="member-block-row" className="rounded-md border p-3">
-                      <span className="font-medium">{BLOCK_KIND_LABELS[block.kind]}</span>
+                      <span className="font-medium">{tv(BLOCK_KIND_LABEL_KEYS[block.kind])}</span>
                       {' · '}
                       {block.companyId ? t('oneStation') : t('wholeOrganization')}
                       {' · from '}

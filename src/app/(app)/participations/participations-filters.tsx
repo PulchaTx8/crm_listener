@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
 import { answerFilterState } from '@/lib/participations/answer-filter';
-import { PARTICIPATION_STATUSES, STATUS_LABELS } from '@/lib/participation-status';
+import { PARTICIPATION_STATUSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 import type { ParticipationSource } from '@/services/participations';
 // The Station-zone conversions come from the promotions screen's module rather
 // than being re-derived here, on that module's own stated rule: a second copy of
@@ -20,7 +20,7 @@ import {
   hasActiveParticipationFilters,
   participationsHref,
   SEARCH_NOTE_ID,
-  SOURCE_LABELS,
+  SOURCE_LABEL_KEYS,
   SOURCE_ORDER,
 } from './list-params';
 import type { ParticipationListState, ParticipationStatusFilter } from './list-params';
@@ -172,6 +172,8 @@ export function ParticipationsFilters({
   canSearchByListener: boolean;
 }) {
   const t = useTranslations('participations');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   /**
@@ -522,7 +524,7 @@ export function ParticipationsFilters({
           <option value={ANY_STATUS}>{t('anyStatus')}</option>
           {PARTICIPATION_STATUSES.map((status) => (
             <option key={status} value={status}>
-              {STATUS_LABELS[status]}
+              {tv(STATUS_LABEL_KEYS[status])}
             </option>
           ))}
         </Select>
@@ -540,7 +542,7 @@ export function ParticipationsFilters({
           <option value={ANY_SOURCE}>{t('anySource')}</option>
           {SOURCE_ORDER.map((source) => (
             <option key={source} value={source}>
-              {SOURCE_LABELS[source]}
+              {tv(SOURCE_LABEL_KEYS[source])}
             </option>
           ))}
         </Select>

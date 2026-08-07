@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { STATUS_CLASSES, STATUS_LABELS } from '@/lib/participation-status';
+import { STATUS_CLASSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 import type { ParticipationSummary } from '@/services/participations';
 // The Station-zone instant formatter comes from the promotions screen's module
 // rather than being re-derived here, on that module's own rule: an operator in
@@ -19,7 +19,7 @@ import type { ParticipationSummary } from '@/services/participations';
 // explicitly, which is also what keeps this client component's server render and
 // its hydrated DOM agreeing about the day.
 import { formatInstant } from '../promotions/format';
-import { SOURCE_LABELS } from './list-params';
+import { SOURCE_LABEL_KEYS } from './list-params';
 
 /** How many columns the empty-state row has to span. */
 const COLUMN_COUNT = 6;
@@ -54,6 +54,8 @@ export function ParticipationsGrid({
   nextHref: string | null;
 }) {
   const t = useTranslations('participations');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   return (
     <div className="mt-4 rounded-lg border">
       <Table>
@@ -119,10 +121,10 @@ export function ParticipationsGrid({
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[entry.status]}`}
                     data-testid="participation-status"
                   >
-                    {STATUS_LABELS[entry.status]}
+                    {tv(STATUS_LABEL_KEYS[entry.status])}
                   </span>
                 </TableCell>
-                <TableCell className="text-sm">{SOURCE_LABELS[entry.source]}</TableCell>
+                <TableCell className="text-sm">{tv(SOURCE_LABEL_KEYS[entry.source])}</TableCell>
                 <TableCell className="whitespace-nowrap text-sm">
                   {formatInstant(entry.participatedAt, timeZone)}
                 </TableCell>

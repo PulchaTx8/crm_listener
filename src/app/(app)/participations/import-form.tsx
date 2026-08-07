@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { STATUS_CLASSES, STATUS_LABELS } from '@/lib/participation-status';
+import { STATUS_CLASSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 // Both borrowed from the promotions screen rather than re-derived, on that
 // module's own rule: a second copy of a timezone conversion is how two controls
 // on one screen start disagreeing about which day something happened (spec L2).
@@ -700,6 +700,8 @@ export function ImportParticipationsForm({
  */
 function ImportReport({ state }: { state: Extract<ImportParticipationsState, { status: 'done' }> }) {
   const t = useTranslations('participations');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const { result, unreadable } = state;
   const entered = result.recorded - result.duplicate - result.tooSoon - result.overLimit;
   const total = result.recorded + result.skipped + unreadable.length;
@@ -759,7 +761,7 @@ function ImportReport({ state }: { state: Extract<ImportParticipationsState, { s
                 <span
                   className={`rounded-full px-2 py-0.5 ${row.status ? STATUS_CLASSES[row.status] : ''}`}
                 >
-                  {row.status ? STATUS_LABELS[row.status] : ''}
+                  {row.status ? tv(STATUS_LABEL_KEYS[row.status]) : ''}
                 </span>
               )}
             </li>

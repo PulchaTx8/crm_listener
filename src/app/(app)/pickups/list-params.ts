@@ -58,12 +58,12 @@ export const PICKUP_STATUSES: readonly WinnerStatus[] = [
  * this codebase carries, and named explicitly here because these five are
  * exactly the words an operator reads on the button and the filter both.
  */
-export const STATUS_LABELS: Record<WinnerStatus, string> = {
-  AWAITING_PICKUP: 'Awaiting pickup',
-  RETURN_PENDING: 'Return pending',
-  DELIVERED: 'Delivered',
-  RETURNED: 'Returned',
-  WRITTEN_OFF: 'Written off',
+export const STATUS_LABEL_KEYS: Record<WinnerStatus, string> = {
+  AWAITING_PICKUP: 'winnerAwaitingPickup',
+  RETURN_PENDING: 'winnerReturnPending',
+  DELIVERED: 'winnerDelivered',
+  RETURNED: 'winnerReturned',
+  WRITTEN_OFF: 'winnerWrittenOff',
 };
 
 /**

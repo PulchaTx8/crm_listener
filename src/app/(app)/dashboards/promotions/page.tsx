@@ -14,8 +14,8 @@ import { TopList } from '@/components/charts/top-list';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
-import { STATUS_LABELS as PARTICIPATION_STATUS_LABELS } from '@/lib/participation-status';
-import { STATUS_LABELS as WINNER_STATUS_LABELS } from '../../pickups/list-params';
+import { STATUS_LABEL_KEYS as PARTICIPATION_STATUS_KEYS } from '@/lib/participation-status';
+import { STATUS_LABEL_KEYS as WINNER_STATUS_KEYS } from '../../pickups/list-params';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
@@ -66,6 +66,8 @@ export default async function PromotionsDashboardPage({
   }>;
 }) {
   const t = await getTranslations('dashboards');
+  // The shared enum vocabulary, which several screens render.
+  const tv = await getTranslations('vocab');
   const params = await searchParams;
   // The same bound listCompanyAccess enforces on its own argument, imported
   // rather than copied.
@@ -287,11 +289,11 @@ export default async function PromotionsDashboardPage({
           </CardHeader>
           <CardContent>
             {/* `key` is the raw winner_status value; the pickups screen's own
-                STATUS_LABELS is the wording an operator already reads on that
+                STATUS_LABEL_KEYS is the wording an operator already reads on that
                 list's badges and buttons (whole-branch review, Important B2).
                 One vocabulary for winner_status, not two. */}
             <SplitDonut
-              data={withOperatorLabels(dashboard.breakdowns.prize_cycle, WINNER_STATUS_LABELS)}
+              data={withOperatorLabels(dashboard.breakdowns.prize_cycle, WINNER_STATUS_KEYS, tv)}
               label={t('thePrizeCycle')}
             />
           </CardContent>
@@ -306,7 +308,8 @@ export default async function PromotionsDashboardPage({
               <SplitDonut
                 data={withOperatorLabels(
                   dashboard.breakdowns.participation_status,
-                  PARTICIPATION_STATUS_LABELS,
+                  PARTICIPATION_STATUS_KEYS,
+                  tv,
                 )}
                 label={t('whyEntriesWereRefused')}
               />

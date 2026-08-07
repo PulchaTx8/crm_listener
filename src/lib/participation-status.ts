@@ -46,11 +46,11 @@ export const PARTICIPATION_STATUSES: readonly ParticipationStatus[] = [
  * answers, and a wrong answer refuses nobody (participation_status' own
  * comment in 0052).
  */
-export const STATUS_LABELS: Record<ParticipationStatus, string> = {
-  VALID: 'Counted',
-  DUPLICATE: 'Already entered',
-  TOO_SOON: 'Came back too soon',
-  OVER_LIMIT: 'Past their limit',
+export const STATUS_LABEL_KEYS: Record<ParticipationStatus, string> = {
+  VALID: 'participationCounted',
+  DUPLICATE: 'participationAlreadyEntered',
+  TOO_SOON: 'participationCameBackTooSoon',
+  OVER_LIMIT: 'participationPastTheirLimit',
 };
 
 /**
@@ -72,14 +72,11 @@ export const STATUS_LABELS: Record<ParticipationStatus, string> = {
  * the import telling an operator two different things about one status — the
  * same drift apply_participation is shared to prevent underneath.
  */
-export const STATUS_MEANINGS: Record<ParticipationStatus, string> = {
-  VALID: 'Recorded, and in the draw.',
-  DUPLICATE:
-    'Recorded. This listener had already entered and this promotion takes one entry each, so this one is on the record but not in the draw.',
-  TOO_SOON:
-    'Recorded. This listener entered again sooner than this promotion allows, so this one is on the record but not in the draw.',
-  OVER_LIMIT:
-    'Recorded. This listener has used every entry this promotion allows them, so this one is on the record but not in the draw.',
+export const STATUS_MEANING_KEYS: Record<ParticipationStatus, string> = {
+  VALID: 'participationMeaningCounted',
+  DUPLICATE: 'participationMeaningAlreadyEntered',
+  TOO_SOON: 'participationMeaningCameBackTooSoon',
+  OVER_LIMIT: 'participationMeaningPastTheirLimit',
 };
 
 /**

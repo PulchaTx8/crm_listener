@@ -5,7 +5,7 @@ import { useActionState, useEffect } from 'react';
 import { recordConsentAction, type ConsentFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
-import { CONSENT_TYPE_LABELS } from './format';
+import { CONSENT_TYPE_LABEL_KEYS } from './format';
 import type { MemberStationRow } from '@/services/members';
 
 const INITIAL: ConsentFormState = { status: 'idle' };
@@ -41,6 +41,8 @@ export function ConsentForm({
   onRecorded?: () => void;
 }) {
   const t = useTranslations('members');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const [state, action, pending] = useActionState(recordConsentAction, INITIAL);
 
   useEffect(() => {
@@ -64,9 +66,9 @@ export function ConsentForm({
 
       <label className="flex flex-col gap-1 text-sm">
         {t('consent')}<Select name="consentType" defaultValue="rules" required>
-          {Object.entries(CONSENT_TYPE_LABELS).map(([value, label]) => (
+          {Object.entries(CONSENT_TYPE_LABEL_KEYS).map(([value, labelKey]) => (
             <option key={value} value={value}>
-              {label}
+              {tv(labelKey)}
             </option>
           ))}
         </Select>

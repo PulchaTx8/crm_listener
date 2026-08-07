@@ -20,7 +20,7 @@ import {
 import type { PickupRow } from '@/services/pickups';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { formatInstant } from '../promotions/format';
-import { describeDeadline, STATUS_CLASSES, STATUS_LABELS } from './list-params';
+import { describeDeadline, STATUS_CLASSES, STATUS_LABEL_KEYS } from './list-params';
 import type { PickupActionResult } from './actions';
 import { ReopenForm } from './reopen-form';
 
@@ -74,6 +74,8 @@ export function PickupsGrid({
   onReopen: (winnerId: string, deadlineAt: string, reason: string) => Promise<PickupActionResult>;
 }) {
   const t = useTranslations('pickups');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const [grid, setGrid] = useState<RowState<PickupGridRow>>({
     rows: initialRows.map(toGridRow),
     total: initialTotal,
@@ -188,7 +190,7 @@ export function PickupsGrid({
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[row.status]}`}
                       data-testid="pickup-status"
                     >
-                      {STATUS_LABELS[row.status]}
+                      {tv(STATUS_LABEL_KEYS[row.status])}
                     </span>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm" data-testid="pickup-deadline">

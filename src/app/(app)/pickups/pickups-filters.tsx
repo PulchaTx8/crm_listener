@@ -13,7 +13,7 @@ import {
   PICKUP_STATUSES,
   pickupsHref,
   SEARCH_NOTE_ID,
-  STATUS_LABELS,
+  STATUS_LABEL_KEYS,
 } from './list-params';
 import type { PickupListState, PickupStatusFilter } from './list-params';
 
@@ -63,6 +63,8 @@ export function PickupsFilters({
   canSearchByListener: boolean;
 }) {
   const t = useTranslations('pickups');
+  // The shared enum vocabulary, which several screens render.
+  const tv = useTranslations('vocab');
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
 
@@ -136,7 +138,7 @@ export function PickupsFilters({
           <option value={ANY_STATUS}>{t('anyStatus')}</option>
           {PICKUP_STATUSES.map((status) => (
             <option key={status} value={status}>
-              {STATUS_LABELS[status]}
+              {tv(STATUS_LABEL_KEYS[status])}
             </option>
           ))}
         </Select>
