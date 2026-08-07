@@ -81,9 +81,7 @@ export function SongRecordDialog({
       }
       setRecord(null);
       setFailure(
-        result.status === 'not-found'
-          ? 'No such song, or you do not have permission to see this one.'
-          : result.message,
+        result.status === 'not-found' ? t('noSuchSongOrYouDo') : result.message,
       );
     });
     return () => {

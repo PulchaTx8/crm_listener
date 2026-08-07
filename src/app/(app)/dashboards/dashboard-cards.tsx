@@ -45,7 +45,7 @@ export async function WithheldFigure({ needs }: { needs?: string }) {
             {t('needs')}{' '}<code className="font-mono">{needs}</code>.
           </>
         ) : (
-          'Not available.'
+          t('notAvailable')
         )}
       </p>
     </div>

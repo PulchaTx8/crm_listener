@@ -42,15 +42,17 @@ const BASE = '/dashboards/audience';
 // a listener reachable from two selected Stations is one listener. Only
 // `barred` used to say so, and only under its own chart, which made a
 // property of the whole panel read as a quirk of that one bar.
-function cardSpecs(consolidated: boolean): CardSpec[] {
-  const note = consolidated
-    ? 'Counts distinct listeners: one reachable from two of the Stations selected counts once, so this is not the sum of their separate figures.'
-    : undefined;
+// `t` is threaded in rather than read here because this sits outside the page
+// component: the caveat and the four labels it hangs under render in the same
+// tile, and a tile with a translated caveat over an English label reads worse
+// than either language on its own.
+function cardSpecs(consolidated: boolean, t: (key: string) => string): CardSpec[] {
+  const note = consolidated ? t('countsDistinctListenersOneReachable') : undefined;
   return [
-    { key: 'listeners', label: 'Listeners at this Station', note },
-    { key: 'new_listeners', label: 'New in the period', note },
-    { key: 'took_part', label: 'Took part in the period', note },
-    { key: 'barred', label: 'Listeners barred in the period', note },
+    { key: 'listeners', label: t('listenersAtThisStation'), note },
+    { key: 'new_listeners', label: t('newInThePeriod'), note },
+    { key: 'took_part', label: t('tookPartInThePeriod'), note },
+    { key: 'barred', label: t('listenersBarredInThePeriod'), note },
   ];
 }
 
@@ -245,7 +247,7 @@ export default async function AudienceDashboardPage({
       <StationPeriodNote stations={dashboard.stations} />
 
       <DashboardCards
-        specs={cardSpecs(dashboard.stations.length > 1)}
+        specs={cardSpecs(dashboard.stations.length > 1, t)}
         cards={dashboard.cards}
         withheld={dashboard.withheld}
       />

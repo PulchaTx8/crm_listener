@@ -601,7 +601,7 @@ export function ImportParticipationsForm({
                 <span className="text-foreground">
                   {file.rows[0].participatedAt
                     ? formatInstant(file.rows[0].participatedAt, timeZone)
-                    : 'at a time spelled in a way this screen cannot read'}
+                    : t('atATimeSpelledInA')}
                 </span>
                 . Times are read as this Station&apos;s local time, and a date with no time of day
                 is read as midnight.

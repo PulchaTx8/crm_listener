@@ -67,7 +67,9 @@
     "signIn": "Iniciar sesión",
     "yourAccountIsReadySignIn": "Su cuenta está lista. Inicie sesión con la contraseña que acaba de elegir.",
     "password": "Contraseña",
-    "forgotYourPassword": "¿Olvidó su contraseña?"
+    "forgotYourPassword": "¿Olvidó su contraseña?",
+    "yourProvisionalPasswordHasExpired": "Su contraseña provisional ha caducado. Contáctenos para obtener una nueva.",
+    "invalidCredentials": "Credenciales inválidas."
   },
   "public": {
     "thankYou": "Gracias",
@@ -82,7 +84,9 @@
     "pulchatx": "PulchatX",
     "crmForEntertainmentCompaniesManageYour": "CRM para empresas de entretenimiento. Gestione la relación con su audiencia y todo el ciclo de entrega de premios de sus promociones.",
     "pulchatxIsSoldBySubscriptionGet": "PulchatX se vende por suscripción. Contáctenos y configuramos su cuenta.",
-    "signIn": "Iniciar sesión"
+    "signIn": "Iniciar sesión",
+    "pleaseCheckTheFieldsAndTry": "Revise los campos e inténtelo de nuevo.",
+    "somethingWentWrongPleaseTry": "Algo salió mal. Inténtelo de nuevo más tarde."
   },
   "admin": {
     "contactRequests": "Solicitudes de contacto",
@@ -146,7 +150,11 @@
     "suspendAction": "Suspender",
     "reactivateAction": "Reactivar",
     "save": "Guardar",
-    "connect": "Conectar"
+    "connect": "Conectar",
+    "allThreeCredentialsAreSet": "Las tres están definidas, así que una Emisora que aún no recibe nada es una configuración de abajo, no una credencial.",
+    "untilAllThreeCredentialsAreSet": "Mientras las tres no estén definidas, ninguna Emisora envía ni recibe nada, sea cual sea la configuración de abajo.",
+    "secretConfigured": "definida",
+    "secretNotSet": "sin definir"
   },
   "draws": {
     "drawOf": "Sorteo del",
@@ -250,7 +258,9 @@
     "reason": "Motivo",
     "saving": "Guardando…",
     "reopen": "Reabrir",
-    "prizesLabel": "{count, plural, one {premio} other {premios}}"
+    "prizesLabel": "{count, plural, one {premio} other {premios}}",
+    "yourSearchWasNotApplied": "Su búsqueda de “{term}” no se aplicó, así que la lista de abajo trae todos los premios que cumplen los otros filtros, y no un conjunto vacío de resultados.",
+    "everyOtherFilterStillWorks": "Todos los demás filtros siguen funcionando."
   },
   "templates": {
     "messages": "Mensajes",
@@ -326,7 +336,14 @@
     "whyEntriesWereRefused": "Por qué se rechazaron participaciones",
     "busiestPromotions": "Promociones con más movimiento",
     "theseStationsDidNotMeasureThe": "Estas Emisoras no midieron el mismo período. Un preajuste se resuelve en el reloj de cada Emisora, y estos relojes están lo bastante lejos como para caer en fechas distintas:",
-    "theseStationsDoNotShareA": "Estas Emisoras no comparten una zona horaria. Las fechas del período son las mismas para todas; los instantes en que empiezan y terminan, no."
+    "theseStationsDoNotShareA": "Estas Emisoras no comparten una zona horaria. Las fechas del período son las mismas para todas; los instantes en que empiezan y terminan, no.",
+    "onlyTheStationsListedAbove": "Solo las Emisoras listadas arriba — una búsqueda o el límite de cincuenta Emisoras está restringiendo la lista.",
+    "countsDistinctListenersOneReachable": "Cuenta oyentes distintos: uno alcanzable desde dos de las Emisoras seleccionadas cuenta una vez, así que esto no es la suma de sus cifras separadas.",
+    "listenersAtThisStation": "Oyentes en esta Emisora",
+    "newInThePeriod": "Nuevos en el período",
+    "tookPartInThePeriod": "Participaron en el período",
+    "listenersBarredInThePeriod": "Oyentes vetados en el período",
+    "notAvailable": "No disponible."
   },
   "team": {
     "invitationSentTo": "Invitación enviada a",
@@ -381,7 +398,12 @@
     "revokeInvitationAction": "Revocar invitación",
     "remove": "Quitar",
     "apply": "Aplicar",
-    "peopleLabel": "{count, plural, one {persona o invitación} other {personas e invitaciones}}"
+    "peopleLabel": "{count, plural, one {persona o invitación} other {personas e invitaciones}}",
+    "active": "Activo",
+    "roleUnavailable": "Rol no disponible",
+    "onAcceptance": "Al aceptar",
+    "everyStation": "Todas las Emisoras",
+    "stationsLabel": "{count, plural, one {# Emisora} other {# Emisoras}}"
   },
   "roles": {
     "roles": "Roles",
@@ -542,7 +564,13 @@
     "erasePersonalDataPermanently": "Borrar datos personales permanentemente",
     "confirmLift": "Confirmar levantamiento",
     "checkForAnExistingListener": "Verificar si el oyente ya existe",
-    "linkThemToThisStationInstead": "Vincularlo a esta Emisora en lugar de registrarlo de nuevo"
+    "linkThemToThisStationInstead": "Vincularlo a esta Emisora en lugar de registrarlo de nuevo",
+    "noListenerMatchesTheseFilters": "Ningún oyente coincide con estos filtros.",
+    "noListenerRegisteredYetAtA": "Ningún oyente registrado todavía en una Emisora que usted alcanza.",
+    "noSuchListenerOrYouDo": "Oyente inexistente, o no tiene permiso para ver este.",
+    "personalDataErased": "Datos personales borrados",
+    "notCountedWhileTheRulesConsent": "No contado mientras el filtro de consentimiento de las reglas está activo",
+    "listenersLabel": "{count, plural, one {oyente} other {oyentes}}"
   },
   "participations": {
     "draw": "Sorteo",
@@ -643,7 +671,11 @@
     "linesLabel": "{count, plural, one {línea} other {líneas}}",
     "linesSend": "{count, plural, one {línea envía} other {líneas envían}}",
     "importAnswerWarning": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo.",
-    "importAnswerWarningNoQuiz": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta — y esta promoción no tiene quiz para que nadie responda. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo."
+    "importAnswerWarningNoQuiz": "Esta promoción sortea solo entre oyentes que respondieron correctamente, y una línea importada no trae respuesta — y esta promoción no tiene quiz para que nadie responda. Cada participación de este archivo se registrará y contará para las reglas, y ninguna de ellas estará en el sorteo.",
+    "prizesAwarded": "{count, plural, one {Se sorteó un premio.} other {Se sortearon # premios.}}",
+    "atATimeSpelledInA": "a una hora escrita de un modo que esta pantalla no puede leer",
+    "yourSearchWasNotApplied": "Su búsqueda de “{term}” no se aplicó, así que la lista de abajo trae todas las participaciones que cumplen los otros filtros, y no un conjunto vacío de resultados.",
+    "everyOtherFilterStillWorks": "Todos los demás filtros siguen funcionando."
   },
   "inventory": {
     "theSystemCurrentlyShows": "El sistema muestra hoy",
@@ -757,7 +789,10 @@
     "registerAPrize": "Registrar un premio",
     "prizesLabel": "{count, plural, one {premio} other {premios}}",
     "unitsLabel": "{count, plural, one {unidad} other {unidades}}",
-    "movementsLabel": "{count, plural, one {movimiento} other {movimientos}}"
+    "movementsLabel": "{count, plural, one {movimiento} other {movimientos}}",
+    "noPrizeMatchesTheseFilters": "Ningún premio coincide con estos filtros.",
+    "noPrizesAreRegisteredInThis": "Ningún premio registrado en esta Emisora todavía.",
+    "noSuchPrizeOrYouDo": "Premio inexistente, o no tiene permiso para ver este."
   },
   "promotions": {
     "promotions": "Promociones",
@@ -890,7 +925,8 @@
     "saveQuestion": "Guardar pregunta",
     "registerAction": "Registrar",
     "cancelledSuffix": " · cancelado",
-    "promotionsLabel": "{count, plural, one {promoción} other {promociones}}"
+    "promotionsLabel": "{count, plural, one {promoción} other {promociones}}",
+    "noSuchPromotionOrYouDo": "Promoción inexistente, o no tiene permiso para ver esta."
   },
   "music": {
     "closeRecord": "Cerrar ficha",
@@ -1030,6 +1066,14 @@
     "noneYetAddFirst": "Ningún {kind} todavía — agregue el primero arriba.",
     "artistsLabel": "{count, plural, one {artista} other {artistas}}",
     "songsLabel": "{count, plural, one {canción} other {canciones}}",
-    "requestsLabel": "{count, plural, one {pedido} other {pedidos}}"
+    "requestsLabel": "{count, plural, one {pedido} other {pedidos}}",
+    "noArtistMatchesTheseFilters": "Ningún artista coincide con estos filtros.",
+    "noArtistsAreRegisteredInThis": "Ningún artista registrado en esta Emisora todavía.",
+    "noSongMatchesTheseFilters": "Ninguna canción coincide con estos filtros.",
+    "noSongsAreRegisteredInThis": "Ninguna canción registrada en esta Emisora todavía.",
+    "noSuchArtistOrYouDo": "Artista inexistente, o no tiene permiso para ver este.",
+    "noSuchSongOrYouDo": "Canción inexistente, o no tiene permiso para ver esta.",
+    "thisListenerHasSinceExercisedTheir": "Este oyente ejerció después su derecho de supresión — su nombre y teléfono ya no están guardados.",
+    "withheldYouDoNotHoldMembersView": "Retenido — no tiene members.view en esta Emisora, así que los nombres y teléfonos de oyentes quedan ocultos aquí."
   }
 }

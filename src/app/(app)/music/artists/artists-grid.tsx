@@ -111,8 +111,8 @@ export function ArtistsGrid({
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
                   {hasActiveArtistFilters(state)
-                    ? 'No artist matches these filters.'
-                    : 'No artists are registered in this Station yet.'}
+                    ? t('noArtistMatchesTheseFilters')
+                    : t('noArtistsAreRegisteredInThis')}
                 </TableCell>
               </TableRow>
             ) : (

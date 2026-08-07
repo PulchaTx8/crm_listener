@@ -202,8 +202,8 @@ export function MembersGrid({
                     and nobody matches what was asked for. */}
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
                   {hasActiveFilters(state)
-                    ? 'No listener matches these filters.'
-                    : 'No listener registered yet at a Station you can reach.'}
+                    ? t('noListenerMatchesTheseFilters')
+                    : t('noListenerRegisteredYetAtA')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -287,10 +287,8 @@ export function MembersGrid({
           total={grid.total}
           label={
             grid.total === null
-              ? 'Not counted while the rules-consent filter is on'
-              : grid.total === 1
-                ? 'listener'
-                : 'listeners'
+              ? t('notCountedWhileTheRulesConsent')
+              : t('listenersLabel', { count: grid.total })
           }
           previousHref={previousHref}
           nextHref={nextHref}

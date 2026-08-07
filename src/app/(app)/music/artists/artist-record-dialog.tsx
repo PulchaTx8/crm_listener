@@ -97,9 +97,7 @@ export function ArtistRecordDialog({
       }
       setRecord(null);
       setFailure(
-        result.status === 'not-found'
-          ? 'No such artist, or you do not have permission to see this one.'
-          : result.message,
+        result.status === 'not-found' ? t('noSuchArtistOrYouDo') : result.message,
       );
     });
     return () => {

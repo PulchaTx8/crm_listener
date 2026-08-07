@@ -136,8 +136,8 @@ export function InventoryGrid({
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-sm text-muted-foreground">
                   {hasActiveInventoryFilters(state)
-                    ? 'No prize matches these filters.'
-                    : 'No prizes are registered in this Station yet.'}
+                    ? t('noPrizeMatchesTheseFilters')
+                    : t('noPrizesAreRegisteredInThis')}
                 </TableCell>
               </TableRow>
             ) : (
