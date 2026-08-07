@@ -34,6 +34,27 @@ describe('the content security policy', () => {
     );
   });
 
+  it('admits the Deezer cover CDN as an image source', () => {
+    // Block 13a. Every album cover in this product is served from here; the
+    // URL is built in src/lib/integrations/deezer/cover.ts, which is the only
+    // other place that knows this host. The two must agree.
+    expect(directive('img-src')).toBe(
+      "img-src 'self' data: blob: https://abcdefghijklm.supabase.co https://cdn-images.dzcdn.net",
+    );
+  });
+
+  it('admits Deezer preview audio through a media-src of its own', () => {
+    // A NEW DIRECTIVE in Block 13a, and the reason it must exist: without
+    // media-src, audio falls back to default-src 'self' and every 30-second
+    // preview is blocked with nothing on screen to say why.
+    //
+    // The wildcard is deliberate. Deezer's preview host has moved between
+    // `cdns-preview-N.dzcdn.net` and `cdnt-preview.dzcdn.net` over time, and a
+    // literal host would break the search tab on a day nobody deployed
+    // anything.
+    expect(directive('media-src')).toBe("media-src 'self' https://*.dzcdn.net");
+  });
+
   it('allows inline style deliberately', () => {
     // In CSP this keyword also covers the style ATTRIBUTE, which React emits for
     // every style={{...}} prop -- the Block 8a charts are made of them.
