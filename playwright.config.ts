@@ -24,6 +24,22 @@ export default defineConfig({
   // "upload the report on failure" step had nothing to upload and every failed
   // run had to be diagnosed by reading the diff and guessing.
   reporter: isCI ? [['dot'], ['html', { open: 'never' }]] : 'list',
+  // SERIAL LOCALLY, PARALLEL IN CI, and the split is the same one `command`
+  // below already makes for the same underlying reason.
+  //
+  // CI builds for production, where every route is compiled before the first
+  // request. Locally the server is `next dev`, which compiles each route the
+  // first time it is asked for — and Playwright's default worker count sends a
+  // dozen journeys at it at once, all of them landing on an uncompiled /app.
+  // Every one then fails its 5-second `toHaveURL` and reports as sitting on
+  // /login, which reads as a broken sign-in and is a cold compiler.
+  //
+  // Measured: a full local run failed 24 of 48 with that signature, and every
+  // failing spec passed on its own; the same suite at --workers=1 passed 48 of
+  // 48. Three wrong hypotheses were paid for before the worker count was
+  // noticed, which is why this is a setting with a comment rather than a note
+  // in somebody's head.
+  workers: isCI ? undefined : 1,
   webServer: {
     // A production build in CI, the dev server locally.
     //
@@ -54,6 +70,16 @@ export default defineConfig({
     // secrets: tests/whatsapp-test-env.ts is the one place both this server
     // and the spec that signs requests against it read them from, so the two
     // can never disagree about what they are.
-    env: { SKIP_ENV_VALIDATION: '1', ...LOCAL_SUPABASE_ENV, ...WHATSAPP_TEST_ENV },
+    // DEEZER_FAKE keeps the Deezer tab off api.deezer.com. Without it the
+    // suite would spend the platform's shared per-IP rate limit on every CI
+    // run, need a third party to be up to go green, and assert against a
+    // catalogue that can change under it. Opt-in by design: an unset value
+    // is the real client, so no deployment can silently serve fixtures.
+    env: {
+      SKIP_ENV_VALIDATION: '1',
+      DEEZER_FAKE: '1',
+      ...LOCAL_SUPABASE_ENV,
+      ...WHATSAPP_TEST_ENV,
+    },
   },
 });

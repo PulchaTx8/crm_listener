@@ -118,15 +118,30 @@ export function DeezerTab({
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">{t('songTitleFilter')}</span>
-          <Input value={track} onChange={(e) => setTrack(e.target.value)} maxLength={100} />
+          <Input
+            value={track}
+            onChange={(e) => setTrack(e.target.value)}
+            maxLength={100}
+            data-testid="deezer-filter-track"
+          />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">{t('artistFilter')}</span>
-          <Input value={artist} onChange={(e) => setArtist(e.target.value)} maxLength={100} />
+          <Input
+            value={artist}
+            onChange={(e) => setArtist(e.target.value)}
+            maxLength={100}
+            data-testid="deezer-filter-artist"
+          />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">{t('albumFilter')}</span>
-          <Input value={album} onChange={(e) => setAlbum(e.target.value)} maxLength={100} />
+          <Input
+            value={album}
+            onChange={(e) => setAlbum(e.target.value)}
+            maxLength={100}
+            data-testid="deezer-filter-album"
+          />
         </label>
       </div>
 

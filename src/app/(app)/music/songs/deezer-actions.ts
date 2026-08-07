@@ -3,7 +3,7 @@
 import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { createDeezerClient } from '@/lib/integrations/deezer/client';
+import { deezerTransport } from '@/lib/integrations/deezer';
 import type { DeezerFailureReason, DeezerSearchFilters } from '@/lib/integrations/deezer/transport';
 import { InMemoryRateLimiter } from '@/lib/rate-limit';
 import { ConflictError } from '@/lib/errors';
@@ -43,7 +43,10 @@ import { describeMusicWriteError } from '../errors';
 const limiter = new InMemoryRateLimiter();
 const SEARCHES_PER_MINUTE = 30;
 
-const client = createDeezerClient();
+// Resolved once per module, not per call: the choice cannot change between
+// two requests of the same process. See the function's own comment for why
+// the fake is opt-IN rather than a fallback.
+const client = deezerTransport();
 
 async function requireSession(): Promise<{ userId: string; token: string }> {
   const supabase = await createUserClient();
