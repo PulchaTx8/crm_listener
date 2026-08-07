@@ -11,8 +11,9 @@ one of three languages, and the interface is in that language from the next
 paint. The choice is written to the cookie *and* to `profiles.locale`, so it
 follows the person into a browser that has never seen them.
 
-**Two catalogues.** `messages/pt.json` and `messages/es.json`, 864 keys each, at
-exact parity with English.
+**Two catalogues.** `messages/pt.json` and `messages/es.json`, at exact parity
+with English — 864 keys when the branch opened, **1038** by the end of the two
+passes §6 and §6.5 describe.
 
 **`AVAILABLE_LOCALES`** open to all three — the single line the gear needed to
 appear, and the line that cannot move alone (§3).
@@ -93,6 +94,9 @@ All of them are in the catalogue now — **864 keys became 995** — and the swe
 that found them returns one site, `'invitationId' : 'membershipId'`, which is a
 form field name rather than anything a person reads.
 
+**That last sentence was true of the sweep and false of the screen**, which is
+the whole lesson of §6.5.
+
 Three of them were not simply moved:
 
 - **Count labels became ICU plurals.** `total === 1 ? 'role' : 'roles'` picks by
@@ -105,16 +109,66 @@ Three of them were not simply moved:
 - **The import answer warning** was a key, a conditional clause, and then bare
   JSX text continuing the same sentence. Also one whole message per branch.
 
+---
+
+## 6.5 The sweep matched one line, and Prettier writes two
+
+The regex behind "returns one site" was `? '…' : '…'` **on a single line**. Any
+ternary whose branches did not fit the line budget — which is every branch
+longer than about forty characters, because Prettier breaks them onto their own
+lines — never matched it. The pass that used that sweep therefore fixed
+`pending ? 'Saving…' : 'Save'` everywhere and left the long sentences untouched,
+and the sweep then reported the screen was clean.
+
+**31 sites in 20 files survived it**, all of them text a person reads:
+
+- **Every empty state that distinguishes "no matches" from "none yet"** —
+  inventory, listeners, artists and songs. Four screens, eight sentences, and
+  §6 above claims empty-state messages as done.
+- **The "No such X, or you do not have permission to see this one." behind all
+  five record dialogs** — the message a person gets when a record is refused.
+- **The admin console's credential card**, which was *the same half-sentence
+  defect §6 describes*: `t('theseAreEnvironment…')` with an English clause glued
+  on by ternary, exactly like the import warning. Its `SecretLine` also printed
+  `configured` / `not set` from a component with no `t` in scope.
+- **Sign-in and the public contact form** — the expired-password and
+  invalid-credentials errors, and both contact-form failures. The two screens a
+  person meets before they have an interface language at all.
+- **The withheld-listener tooltips** in music requests, one of which explains an
+  erasure under the LGPD, and **the audience panel's distinct-listener caveat**.
+
+Where a sibling in the *same expression* was still English, it came too — a
+sentence half in one language is worse than either. `team-grid.tsx` was already
+rendering `{t('invitationPending')}` beside a bare `'Active'`; the audience
+tiles would have carried a translated caveat under an English label.
+
+**995 keys became 1038.** Three more became ICU plurals for the same reason §4
+gives — `${row.access.length} Station(s)` was English hedging its own plural,
+and now each language answers for itself.
+
 ### What is still inline
 
 **38 strings live in template literals** — `` `Actions for ${prize.name}` ``,
-`` `No ${kindLabel} match “${state.search}”.` `` — across 27 files. The ternary
-sweep never saw them. Alongside those: `mergeConfirmationText` and
+`` `No ${kindLabel} match “${state.search}”.` `` — across 27 files. Neither
+sweep saw them. Alongside those: `mergeConfirmationText` and
 `childCountLabel` in `merge-panel.tsx`, which are exported pure helpers with
 their own unit tests, so translating them changes a signature and its callers;
 and `table.tsx`, whose sort announcement (`, sorted descending`) and
 `toLocaleString('en-GB')` are shared-primitive concerns that belong with D5's
 date and number work rather than with this pass.
+
+Three classes that are **not** conditional text, found by the line-oriented
+sweep and left deliberately, because widening again is how a pass never ends:
+
+- **13 `label:` constants** in the dashboards' module-level spec lists
+  (`music`, `promotions`, `period-control`). The audience four moved only
+  because the caveat above them did.
+- **`SKIP_REASONS`** in `import-form.tsx` — four refusal reasons in a lookup
+  map, and `movements/page.tsx`'s two `??` fallbacks for a picker whose row has
+  gone.
+- **`template-registry.tsx`'s three variable descriptions.**
+
+Nothing above is conditional, and each renders coherently in English today.
 
 ---
 
@@ -133,7 +187,32 @@ date and number work rather than with this pass.
 No migration in this block, and no SQL changed — the database gates are here
 because a green branch says so, not because anything in them moved.
 
-**A local-workflow trap worth knowing.** Running `db:test` *after* the e2e suite
+Every row was re-run after §6.5, on the tree being merged — not inherited from
+the run that produced this table the first time.
+
+**The local trap that cost the most, with its real signature.** Running
+`npm run build` while a `next dev` server is alive is already recorded as
+"the dev server 404s on chunks". It is narrower and nastier than that: the JS
+chunks keep resolving, because dev rebuilds them on demand. **The stylesheet
+does not.** `/_next/static/css/app/layout.css` returns 404 and the page renders
+with no CSS at all.
+
+That matters here because `app-shell.tsx` carries a second, mobile-only
+`<header className="… md:hidden">` that links **every** nav item. With no CSS,
+`md:hidden` hides nothing, the header joins the accessibility tree at every
+viewport, and each sidebar link now exists twice — so `getByRole('link', …)`
+raises a strict-mode violation on screens nobody touched. **23 of 47 journeys
+failed that way**, with errors that read exactly like application defects. The
+cure is `rm -rf .next` and a dev server started after it, and the tell is to
+`curl` the `layout.css` href before believing any of it.
+
+One journey — `dashboards.spec.ts`'s round trip — failed once more on the first
+run after that cleanup, inside React's dev-only `buildFakeCallStack`
+(`frame.join is not a function`), with no 5xx on the wire. It did not reproduce:
+that spec passes 4/4 alone and the full suite is 47/47. Recorded rather than
+explained.
+
+**A second local-workflow trap.** Running `db:test` *after* the e2e suite
 on the same stack fails `15_music_rpcs`: its fixture and
 `music-catalogue.spec.ts` both use the song title *Águas de Março*, and the
 pgTAP assertion reads it back with an unscoped `where title = …` subquery. After
