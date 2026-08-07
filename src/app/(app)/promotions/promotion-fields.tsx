@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Input, Textarea } from '@/components/ui/input';
+import { ImageUploadField } from '@/components/media/image-upload-field';
 import type { PromotionDetail } from '@/services/promotions';
 import { fromZonedWallClock, toZonedDateTime } from './zone';
 
@@ -38,6 +39,21 @@ export function PromotionFields({
 
   return (
     <div className="flex flex-col gap-5" onInput={onDirty} onChange={onDirty}>
+      {/* The promotion's own picture, and NOT the banner. This one identifies
+          the promotion inside the system — the list, this record — and is never
+          sent to anybody; the banner Meta fetches lives on the WhatsApp tab,
+          where the rest of what Meta sees lives. Two different pictures with
+          two different limits, which is why they are two fields. */}
+      <ImageUploadField
+        name="thumb"
+        kind="thumb"
+        currentUrl={record?.thumbUrl ?? null}
+        disabled={disabled}
+        onDirty={onDirty}
+        label={t('promotionPicture')}
+        hint={t('shownOnTheListAndTheRecord')}
+      />
+
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-sm sm:col-span-2">
           <span className="text-muted-foreground">{t('promotion')}</span>

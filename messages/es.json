@@ -1186,11 +1186,8 @@
     "takePartByWhatsapp": "Participar por WhatsApp",
     "turnThisOnToGiveThe": "Active esto para darle a la promoción un hashtag, un banner y las preguntas que hace el bot.",
     "whatAListenerTextsToTake": "Lo que un oyente escribe para participar. Dos promociones activas al mismo tiempo en esta Emisora no pueden compartir uno.",
-    "sendABannerWithTheReply": "Enviar un banner con la respuesta",
-    "bannerAddress": "Dirección del banner",
     "https": "https://…",
     "whatsappFetchesThisImageItselfAnd": "WhatsApp busca esta imagen por su cuenta y solo por https.",
-    "bannerPreview": "Vista previa del banner",
     "quero": "Quero!",
     "agoraNO": "Agora não",
     "askTheListenerFor": "Pedir al oyente",
@@ -1272,7 +1269,10 @@
     "chooseAPrizeRequired": "Elija un premio.",
     "sayWhyThisPromotionIsBeingCancelled": "Indique por qué se está cancelando esta promoción.",
     "whichQuestionReopenTheRecord": "¿Qué pregunta? Vuelva a abrir el registro.",
-    "picture": "Imagen"
+    "picture": "Imagen",
+    "promotionPicture": "Imagen de la promoción",
+    "shownOnTheListAndTheRecord": "Aparece en la lista y en esta ficha. Nunca se envía a nadie.",
+    "bannerSentWithTheReply": "Banner enviado en la respuesta"
   },
   "music": {
     "closeRecord": "Cerrar ficha",
