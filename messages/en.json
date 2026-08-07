@@ -11,7 +11,11 @@
     "tagline": "CRM",
     "sortedAscending": ", sorted ascending",
     "sortedDescending": ", sorted descending",
-    "notSorted": ", not sorted"
+    "notSorted": ", not sorted",
+    "noPictureYet": "No picture",
+    "removePicture": "Remove picture",
+    "largePicturesAreReduced": "Large pictures are reduced automatically.",
+    "thatPictureCouldNotBeRead": "That picture could not be read. Save it again as a JPEG or a PNG."
   },
   "nav": {
     "administration": "Administration",
@@ -1078,7 +1082,8 @@
     "actionSaveThisPrize": "save this prize",
     "actionArchiveThisPrize": "archive this prize",
     "archivedPromotion": "(archived promotion)",
-    "theCountAlreadyMatchedWhatWasBooked": "The count already matched what was booked — nothing needed recording."
+    "theCountAlreadyMatchedWhatWasBooked": "The count already matched what was booked — nothing needed recording.",
+    "picture": "Picture"
   },
   "promotions": {
     "promotions": "Promotions",
@@ -1266,7 +1271,8 @@
     "noButton": "“No” button",
     "chooseAPrizeRequired": "Choose a prize.",
     "sayWhyThisPromotionIsBeingCancelled": "Say why this promotion is being cancelled.",
-    "whichQuestionReopenTheRecord": "Which question? Reopen the record."
+    "whichQuestionReopenTheRecord": "Which question? Reopen the record.",
+    "picture": "Picture"
   },
   "music": {
     "closeRecord": "Close record",

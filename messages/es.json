@@ -11,7 +11,11 @@
     "tagline": "CRM",
     "sortedAscending": ", ordenado ascendente",
     "sortedDescending": ", ordenado descendente",
-    "notSorted": ", sin ordenar"
+    "notSorted": ", sin ordenar",
+    "noPictureYet": "Sin imagen",
+    "removePicture": "Quitar imagen",
+    "largePicturesAreReduced": "Las imágenes grandes se reducen automáticamente.",
+    "thatPictureCouldNotBeRead": "No se pudo leer esa imagen. Guárdela de nuevo como JPEG o PNG."
   },
   "nav": {
     "administration": "Administración",
@@ -1078,7 +1082,8 @@
     "actionSaveThisPrize": "guardar este premio",
     "actionArchiveThisPrize": "archivar este premio",
     "archivedPromotion": "(promoción archivada)",
-    "theCountAlreadyMatchedWhatWasBooked": "El conteo ya coincidía con lo registrado — no hubo nada que anotar."
+    "theCountAlreadyMatchedWhatWasBooked": "El conteo ya coincidía con lo registrado — no hubo nada que anotar.",
+    "picture": "Imagen"
   },
   "promotions": {
     "promotions": "Promociones",
@@ -1266,7 +1271,8 @@
     "noButton": "Botón “No”",
     "chooseAPrizeRequired": "Elija un premio.",
     "sayWhyThisPromotionIsBeingCancelled": "Indique por qué se está cancelando esta promoción.",
-    "whichQuestionReopenTheRecord": "¿Qué pregunta? Vuelva a abrir el registro."
+    "whichQuestionReopenTheRecord": "¿Qué pregunta? Vuelva a abrir el registro.",
+    "picture": "Imagen"
   },
   "music": {
     "closeRecord": "Cerrar ficha",

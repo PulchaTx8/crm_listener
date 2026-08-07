@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ImageThumb } from '@/components/media/image-thumb';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { situationOf } from '@/lib/promotion-situation';
@@ -40,7 +41,9 @@ import { PromotionRecordDialog } from './promotion-record-dialog';
 import { RegisterPromotionForm } from './register-promotion-form';
 
 /** How many columns the empty-state row has to span, actions included. */
-const COLUMN_COUNT = 6;
+// Seven since Block 14 added the picture. Read by the empty state's colSpan,
+// which is why it is a constant rather than a number typed twice.
+const COLUMN_COUNT = 7;
 
 const INITIAL_CANCEL: CancelPromotionState = { status: 'idle' };
 const INITIAL_ARCHIVE: ArchivePromotionState = { status: 'idle' };
@@ -137,6 +140,13 @@ export function PromotionsGrid({
         <Table>
           <TableHeader>
             <TableRow>
+              {/* Labelled for a screen reader rather than left empty: an
+                  unlabelled header cell reads as a column with no name, and the
+                  pictures themselves carry alt="" because the promotion's name
+                  is in the very next cell. */}
+              <TableHead>
+                <span className="sr-only">{t('picture')}</span>
+              </TableHead>
               <TableHead aria-sort={ariaSort(nameSorted)}>
                 <SortLink
                   href={promotionSortHref(state, 'name')}
@@ -173,6 +183,9 @@ export function PromotionsGrid({
                 const situation = situationOf(promotion);
                 return (
                   <TableRow key={promotion.id} data-testid="promotion-row">
+                    <TableCell>
+                      <ImageThumb url={promotion.thumbUrl} icon="promotion" />
+                    </TableCell>
                     <TableCell>
                       <button
                         type="button"
