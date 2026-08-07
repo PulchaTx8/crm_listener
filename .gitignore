@@ -51,6 +51,10 @@ desktop.ini
 # Claude local settings (keep shared settings.json, ignore local overrides)
 .claude/settings.local.json
 
+# Owner's private working folder — source documents, art, spec drafts. Kept on
+# disk beside the code for convenience; never part of the repository.
+/Arte/
+
 # Subagent-driven-development scratch
 .superpowers/
 
