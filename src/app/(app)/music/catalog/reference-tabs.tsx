@@ -38,17 +38,17 @@ const TAB_COPY: Record<
   { labelKey: string; noun: string; descriptionKey: string }
 > = {
   labels: {
-    labelKey: 'catalogueLists',
+    labelKey: 'tabLabels',
     noun: 'label',
     descriptionKey: 'referenceLabelsDescription',
   },
   genres: {
-    labelKey: 'kindGenres',
+    labelKey: 'tabGenres',
     noun: 'genre',
     descriptionKey: 'referenceGenresDescription',
   },
   shows: {
-    labelKey: 'kindShows',
+    labelKey: 'tabShows',
     noun: 'show',
     descriptionKey: 'referenceShowsDescription',
   },

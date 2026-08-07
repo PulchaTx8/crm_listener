@@ -1493,7 +1493,10 @@
     "thatRequestCouldNotBeIdentified": "That request could not be identified. Reopen the list and try again.",
     "missingRequest": "Missing request.",
     "unnamedListener": "Unnamed listener",
-    "kindRequests": "requests"
+    "kindRequests": "requests",
+    "tabLabels": "Labels",
+    "tabGenres": "Genres",
+    "tabShows": "Shows"
   },
   "vocab": {
     "participationCounted": "Counted",

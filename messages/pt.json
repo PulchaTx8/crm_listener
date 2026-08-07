@@ -1493,7 +1493,10 @@
     "thatRequestCouldNotBeIdentified": "Não foi possível identificar esse pedido. Reabra a lista e tente novamente.",
     "missingRequest": "Pedido ausente.",
     "unnamedListener": "Ouvinte sem nome",
-    "kindRequests": "pedidos"
+    "kindRequests": "pedidos",
+    "tabLabels": "Gravadoras",
+    "tabGenres": "Gêneros",
+    "tabShows": "Programas"
   },
   "vocab": {
     "participationCounted": "Contou",
