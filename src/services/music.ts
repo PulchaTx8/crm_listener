@@ -86,6 +86,31 @@ export async function listMusicReferences(
   return (data ?? []).map((row) => ({ id: row.id, name: row.name, legacyId: row.legacy_id }));
 }
 
+/**
+ * The album picker's options — the same shape and the same RLS consequence as
+ * listMusicReferences above, but not folded into it: albums live in their own
+ * table with their own columns (0136), and REFERENCE_TABLES maps the four
+ * lists that are a name and nothing else.
+ *
+ * `title` is aliased to `name` here so a caller can hand this straight to the
+ * same <Select> the other three pickers use. The alias is the whole reason
+ * this function returns ReferenceSummary rather than a shape of its own.
+ */
+export async function listAlbums(companyId: string): Promise<ReferenceSummary[]> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select('id, title, legacy_id')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .order('title');
+
+  if (error) throw new InternalError(`Could not read the album list: ${error.message}`);
+
+  return (data ?? []).map((row) => ({ id: row.id, name: row.title, legacyId: row.legacy_id }));
+}
+
 // ---------------------------------------------------------------------------
 // Songs
 // ---------------------------------------------------------------------------
@@ -128,7 +153,7 @@ export const SONG_PAGE_SIZE = 50;
  * below.
  */
 const SONG_COLUMNS =
-  'id, title, artist_id, label_id, genre_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, artists(name), record_labels(name), music_genres(name)';
+  'id, title, artist_id, label_id, genre_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, album_id, deezer_track_id, isrc, artists(name), record_labels(name), music_genres(name), albums(title, cover_md5)';
 
 type SongRow = Pick<
   Database['public']['Tables']['songs']['Row'],
@@ -143,11 +168,25 @@ type SongRow = Pick<
   | 'internal_code'
   | 'legacy_id'
   | 'created_at'
+  | 'album_id'
+  | 'deezer_track_id'
+  | 'isrc'
 > & {
   /** Null when the artist row is hidden by RLS — an archived artist. Never null because the song has no artist: artist_id is NOT NULL and 0101 refuses a song without one. */
   artists: { name: string } | null;
   record_labels: { name: string } | null;
   music_genres: { name: string } | null;
+  /**
+   * Null for TWO different reasons, unlike the three above: the song may have
+   * no album at all (album_id is nullable — a song typed by hand has none), or
+   * the album may be archived and so unreadable through 0136's policy while
+   * album_id still names it. Typed nullable by hand for the reason
+   * SONG_COLUMNS' comment sets out at length: supabase-js infers an embed's
+   * nullability from the foreign-key column, which is the wrong question, and
+   * `as const` here would endorse `row.albums.title` and hide the bug behind a
+   * green typecheck.
+   */
+  albums: { title: string; cover_md5: string | null } | null;
 };
 
 export interface SongSummary {
@@ -173,9 +212,27 @@ export interface SongSummary {
   internalCode: string | null;
   legacyId: string | null;
   createdAt: string;
+  albumId: string | null;
+  /**
+   * Null means either "no album" or "an album this caller cannot read". The
+   * screens render both as no cover, which is the honest rendering of both —
+   * unlike artistName above, where the two facts differ and the grid says so.
+   */
+  albumTitle: string | null;
+  /** Deezer's md5_image. src/lib/integrations/deezer/cover.ts turns it into a URL; nothing stores one (Block 13a, design D4). */
+  coverMd5: string | null;
+  /** Read-only in every screen: 0139's two doors are the only write path (design D6). */
+  deezerTrackId: number | null;
+  isrc: string | null;
 }
 
-function toSongSummary(row: SongRow): SongSummary {
+/**
+ * Exported for the unit suite, and for one case in particular: an album hidden
+ * by RLS arrives as `albums: null` with `album_id` still set, and getting that
+ * wrong for artists once cost a whole Station's Songs screen (see
+ * SONG_COLUMNS). A test that cannot reach this function cannot pin that.
+ */
+export function toSongSummary(row: SongRow): SongSummary {
   return {
     id: row.id,
     title: row.title,
@@ -195,6 +252,14 @@ function toSongSummary(row: SongRow): SongSummary {
     internalCode: row.internal_code,
     legacyId: row.legacy_id,
     createdAt: row.created_at,
+    albumId: row.album_id,
+    // `?.` for the same reason as the three above it, and one more besides:
+    // the album is optional on a song, so this embed is legitimately null on
+    // every hand-typed record in the catalogue.
+    albumTitle: row.albums?.title ?? null,
+    coverMd5: row.albums?.cover_md5 ?? null,
+    deezerTrackId: row.deezer_track_id,
+    isrc: row.isrc,
   };
 }
 
@@ -343,6 +408,11 @@ export async function createSong(input: SongFormInput, accessToken: string): Pro
     p_duration_seconds: input.durationSeconds ?? undefined,
     p_internal_code: input.internalCode,
     p_legacy_id: input.legacyId,
+    // Block 13a (0140). SongFields is one component shared by this form and
+    // the edit form, so without these two the create dialog would render an
+    // album select and an ISRC input that quietly discarded what was typed.
+    p_album_id: input.albumId,
+    p_isrc: input.isrc,
   });
   if (error) throw mapMusicError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('create_song returned no id');
@@ -372,8 +442,128 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_vocal: input.vocal,
     p_duration_seconds: input.durationSeconds ?? undefined,
     p_internal_code: input.internalCode,
+    // Both hand-editable (design D7), and both sent on EVERY call: 0138 keeps
+    // the convention that every field is set on every call, so an omitted
+    // album here blanks the one already stored.
+    //
+    // There is deliberately no p_deezer_track_id beside them. 0138 has no such
+    // parameter, and adding one would undo design D6 — the code and the cover
+    // travel together, and 0139's two doors are the only write path.
+    p_album_id: input.albumId ?? undefined,
+    p_isrc: input.isrc ?? undefined,
   });
   if (error) throw mapMusicError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// The Deezer doors (0139). Each takes what the tab found and nothing the
+// operator typed — see each function's own comment in the migration.
+// ---------------------------------------------------------------------------
+
+export interface DeezerRegistration {
+  companyId: string;
+  title: string;
+  artistName: string;
+  labelName?: string | null;
+  genreName?: string | null;
+  albumTitle?: string | null;
+  deezerTrackId: number;
+  deezerAlbumId?: number | null;
+  isrc?: string | null;
+  upc?: string | null;
+  coverMd5?: string | null;
+  releaseDate?: string | null;
+  durationSeconds?: number | null;
+}
+
+/** Resolves or creates artist, label, genre and album and inserts the song — all in one transaction (design D3). Returns the new song's id. */
+export async function createSongFromDeezer(
+  input: DeezerRegistration,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('create_song_from_deezer', {
+    p_company_id: input.companyId,
+    p_title: input.title,
+    p_artist_name: input.artistName,
+    p_label_name: input.labelName ?? undefined,
+    p_genre_name: input.genreName ?? undefined,
+    p_album_title: input.albumTitle ?? undefined,
+    p_deezer_track_id: input.deezerTrackId,
+    p_deezer_album_id: input.deezerAlbumId ?? undefined,
+    p_isrc: input.isrc ?? undefined,
+    p_upc: input.upc ?? undefined,
+    p_cover_md5: input.coverMd5 ?? undefined,
+    p_release_date: input.releaseDate ?? undefined,
+    p_duration_seconds: input.durationSeconds ?? undefined,
+  });
+
+  if (error) throw mapMusicError(error.code, error.message);
+  return data as string;
+}
+
+export interface DeezerLink {
+  songId: string;
+  deezerTrackId: number;
+  albumTitle?: string | null;
+  deezerAlbumId?: number | null;
+  upc?: string | null;
+  coverMd5?: string | null;
+  releaseDate?: string | null;
+  isrc?: string | null;
+}
+
+/** Writes the Deezer id, the album and (only if absent) the ISRC onto a song that already exists. Touches nothing the operator typed. */
+export async function linkSongToDeezer(input: DeezerLink, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('link_song_to_deezer', {
+    p_song_id: input.songId,
+    p_deezer_track_id: input.deezerTrackId,
+    p_album_title: input.albumTitle ?? undefined,
+    p_deezer_album_id: input.deezerAlbumId ?? undefined,
+    p_upc: input.upc ?? undefined,
+    p_cover_md5: input.coverMd5 ?? undefined,
+    p_release_date: input.releaseDate ?? undefined,
+    p_isrc: input.isrc ?? undefined,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+/** Clears the Deezer id alone. The album and the ISRC survive — unlinking is not a statement that either was wrong. */
+export async function unlinkSongFromDeezer(
+  songId: string,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('unlink_song_from_deezer', {
+    p_song_id: songId,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+/**
+ * Which of a set of Deezer track ids this Station already has (design D9).
+ * ONE query for the whole result page, not one per row — the N+1 Block 3b
+ * measured at 102 queries and fixed to 5 is the reason this is not a `.map`.
+ */
+export async function findSongsByDeezerIds(
+  companyId: string,
+  deezerTrackIds: number[],
+): Promise<Map<number, string>> {
+  if (deezerTrackIds.length === 0) return new Map();
+
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('songs')
+    .select('id, deezer_track_id')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .in('deezer_track_id', deezerTrackIds);
+
+  if (error) throw new InternalError(`Could not check registered songs: ${error.message}`);
+
+  const found = new Map<number, string>();
+  for (const row of data ?? []) {
+    if (row.deezer_track_id !== null) found.set(row.deezer_track_id, row.id);
+  }
+  return found;
 }
 
 /**

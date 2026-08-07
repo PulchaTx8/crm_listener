@@ -81,6 +81,8 @@ export async function createSongAction(
     durationSeconds: readDurationSeconds(formData),
     internalCode: formData.get('internalCode') || null,
     legacyId: formData.get('legacyId') || null,
+    albumId: formData.get('albumId') || null,
+    isrc: formData.get('isrc') || null,
   });
 
   if (!parsed.success) {
@@ -127,6 +129,11 @@ export async function updateSongAction(
     vocal: formData.get('vocal') || null,
     durationSeconds: readDurationSeconds(formData),
     internalCode: formData.get('internalCode') || null,
+    // Block 13a. Read here and NOT deezerTrackId, which has no schema field
+    // and no RPC parameter — the shape 0102 settled for legacy_id, applied
+    // before it could cost anything a second time.
+    albumId: formData.get('albumId') || null,
+    isrc: formData.get('isrc') || null,
   });
 
   if (!parsed.success) {
