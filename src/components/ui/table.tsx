@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import * as React from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -106,9 +107,12 @@ export function SortLink({
   direction: 'asc' | 'desc';
   children: React.ReactNode;
 }) {
+  const t = useTranslations('shell');
+  // A whole message per state rather than a stem plus a word: the two orders
+  // are not the same phrase with one word swapped in every language.
   const stateLabel = active
-    ? `, sorted ${direction === 'desc' ? 'descending' : 'ascending'}`
-    : ', not sorted';
+    ? t(direction === 'desc' ? 'sortedDescending' : 'sortedAscending')
+    : t('notSorted');
 
   return (
     <Link

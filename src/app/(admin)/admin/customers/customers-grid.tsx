@@ -173,7 +173,7 @@ export function CustomersGrid({
                         <Pencil className="size-4" aria-hidden="true" />
                       </button>
                       <DropdownMenu
-                        label={`Actions for ${row.name}`}
+                        label={t('actionsForCustomer', { name: row.name })}
                         trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                       >
                         <DropdownMenuItem onSelect={() => open(row.id, 'stations')}>
@@ -195,7 +195,7 @@ export function CustomersGrid({
         </Table>
 
         <PageControls
-          label="Newest customers first"
+          label={t('newestCustomersFirst')}
           previousHref={previousHref}
           nextHref={nextHref}
         />

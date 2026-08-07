@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
@@ -27,6 +28,7 @@ export const dynamic = 'force-dynamic';
  * is_platform_admin itself.
  */
 export default async function MemberHomePage() {
+  const t = await getTranslations('app');
   const supabase = await createUserClient();
 
   const { data: companies, error: companiesError } = await supabase
@@ -42,8 +44,8 @@ export default async function MemberHomePage() {
   return (
     <>
       <PageHeader
-        title="Your stations"
-        description="Audience, prize and promotion features arrive in the next release."
+        title={t('yourStations')}
+        description={t('yourStationsDescription')}
       />
 
       {list.length === 0 ? (

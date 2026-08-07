@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 
-const MESSAGES: Record<string, string> = {
-  short: 'The password must be at least 10 characters.',
-  mismatch: 'The two passwords do not match.',
-  failed: 'Could not change the password. Please try again.',
+// The `?error=` codes this page answers, as catalogue keys — a module body has
+// no request behind it, so it has no language either.
+const MESSAGE_KEYS: Record<string, string> = {
+  short: 'thePasswordMustBeAtLeast10',
+  mismatch: 'theTwoPasswordsDoNotMatch',
+  failed: 'couldNotChangeThePassword',
 };
 
 export default async function ChangePasswordPage({
@@ -48,7 +50,7 @@ export default async function ChangePasswordPage({
         <p className="text-muted-foreground">
           {t('yourAccountWasCreatedWithA')}</p>
         {params.error ? (
-          <p className="text-sm text-destructive">{MESSAGES[params.error] ?? MESSAGES.failed}</p>
+          <p className="text-sm text-destructive">{t((params.error && MESSAGE_KEYS[params.error]) || 'couldNotChangeThePassword')}</p>
         ) : null}
         <form action={change} className="flex flex-col gap-4">
           <Input name="password" type="password" placeholder={t('newPassword')} required />

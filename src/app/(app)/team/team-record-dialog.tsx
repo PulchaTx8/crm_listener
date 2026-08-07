@@ -17,9 +17,10 @@ import {
   type TeamActionState,
 } from './actions';
 
-const TAB_LABELS: Record<TeamTab, string> = {
-  person: 'Person',
-  access: 'Per-Station access',
+// Catalogue keys, not words: a module body has no request behind it.
+const TAB_LABEL_KEYS: Record<TeamTab, string> = {
+  person: 'tabPerson',
+  access: 'tabPerStationAccess',
 };
 
 const IDLE: TeamActionState = { status: 'idle' };
@@ -165,7 +166,7 @@ export function TeamRecordDialog({
                 : 'border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground'
             }
           >
-            {TAB_LABELS[name]}
+            {t(TAB_LABEL_KEYS[name])}
           </button>
         ))}
       </div>
@@ -188,8 +189,8 @@ export function TeamRecordDialog({
                     <dt className="text-xs text-muted-foreground">{t('invitedAs')}</dt>
                     <dd>
                       {row.isOwner
-                        ? 'Owner'
-                        : (roleNameById.get(row.roleId ?? '') ?? 'Role unavailable')}
+                        ? t('owner')
+                        : (roleNameById.get(row.roleId ?? '') ?? t('roleUnavailable'))}
                     </dd>
                   </div>
                   <div>
@@ -380,7 +381,7 @@ function StationAccessRow({
           <input type="hidden" name="userId" value={userId} />
           <Select
             name="roleId"
-            aria-label={`Role at ${station.name}`}
+            aria-label={t('roleAtStation', { station: station.name })}
             value={roleId}
             onChange={(event) => setRoleId(event.target.value)}
             className="h-9 w-40 text-sm"

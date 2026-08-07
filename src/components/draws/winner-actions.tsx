@@ -78,12 +78,13 @@ export function availableWinnerActions(input: {
   return [];
 }
 
-const LABELS: Record<WinnerAction, string> = {
-  deliver: 'Hand over',
-  cancel_delivery: 'Undo the handover',
-  return: 'Return to stock',
-  write_off: 'Write off',
-  reopen: 'Reopen the deadline',
+// Catalogue keys, not words: a module body has no request behind it.
+const LABEL_KEYS: Record<WinnerAction, string> = {
+  deliver: 'actionHandOver',
+  cancel_delivery: 'actionUndoTheHandover',
+  return: 'actionReturnToStock',
+  write_off: 'actionWriteOff',
+  reopen: 'actionReopenTheDeadline',
 };
 
 /** Every one but handing over needs a reason on the record. */
@@ -120,7 +121,7 @@ export function WinnerActions({
   function run(action: WinnerAction) {
     if (NEEDS_REASON[action] && reason.trim().length === 0) {
       setOpen(action);
-      setMessage('Give a reason.');
+      setMessage(t('giveAReason'));
       return;
     }
     setMessage(null);
@@ -149,7 +150,7 @@ export function WinnerActions({
               NEEDS_REASON[action] && open !== action ? setOpen(action) : run(action)
             }
           >
-            {LABELS[action]}
+            {t(LABEL_KEYS[action])}
           </Button>
         ))}
       </div>
@@ -158,7 +159,7 @@ export function WinnerActions({
         <div className="flex gap-2">
           <Input
             value={reason}
-            placeholder={`Reason — ${LABELS[open].toLowerCase()}`}
+            placeholder={t(`reasonFor`, { action: t(LABEL_KEYS[open]).toLowerCase() })}
             aria-label={t('reason')}
             onChange={(event) => setReason(event.target.value)}
           />

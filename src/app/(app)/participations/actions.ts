@@ -273,7 +273,13 @@ export async function recordParticipationAction(
       attempted: true,
       listenerRegistered: registered,
       message: registered
-        ? `The listener was registered, but the entry was not recorded. ${describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRecordAnEntryInThisPromotion')} They are now in this Station's audience, so pick them from the search above rather than typing them again.`
+        ? (await getTranslations('participations'))('registeredButEntryNotRecorded', {
+            reason: describeParticipationsWriteError(
+              cause,
+              await getTranslations('participations'),
+              'actionRecordAnEntryInThisPromotion',
+            ),
+          })
         : describeParticipationsWriteError(cause, await getTranslations('participations'), 'actionRecordAnEntryInThisPromotion'),
     };
   }

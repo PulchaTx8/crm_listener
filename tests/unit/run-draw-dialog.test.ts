@@ -1,5 +1,17 @@
+import { createTranslator } from 'next-intl';
 import { describe, expect, it } from 'vitest';
 import { validateDrawRequest, type DrawUnitChoice } from '@/components/draws/run-draw-dialog';
+import en from '../../messages/en.json';
+
+/**
+ * The REAL English catalogue through next-intl's own formatter. The refusals
+ * these rules produce used to be written in the function body; asserting them
+ * through the catalogue keeps them pinned now that they live there.
+ */
+const t = createTranslator({ locale: 'en', messages: en, namespace: 'draws' }) as unknown as (
+  key: string,
+  values?: Record<string, string | number | Date>,
+) => string;
 
 /**
  * The run-draw dialog's own rules, tested as a pure function rather than
@@ -25,7 +37,7 @@ function choice(over: Partial<DrawUnitChoice> = {}): DrawUnitChoice {
 
 describe('validateDrawRequest', () => {
   it('accepts a request for everything that is available', () => {
-    const result = validateDrawRequest({ units: [choice()] });
+    const result = validateDrawRequest({ units: [choice()] }, t);
 
     expect(result.ok).toBe(true);
     expect(result.ok && result.units).toEqual([
@@ -36,7 +48,7 @@ describe('validateDrawRequest', () => {
   it('refuses more units than are available', () => {
     const result = validateDrawRequest({
       units: [choice({ available: 2, requested: 3 })],
-    });
+    }, t);
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.message).toContain('Bicycle');
@@ -55,7 +67,7 @@ describe('validateDrawRequest', () => {
           requested: 1,
         }),
       ],
-    });
+    }, t);
 
     expect(result.ok).toBe(true);
     expect(result.ok && result.units).toEqual([
@@ -66,7 +78,7 @@ describe('validateDrawRequest', () => {
   it('refuses a draw of nothing at all', () => {
     const result = validateDrawRequest({
       units: [choice({ requested: 0 })],
-    });
+    }, t);
 
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.message).toMatch(/at least one unit/i);
@@ -75,7 +87,7 @@ describe('validateDrawRequest', () => {
   it('refuses a fractional quantity rather than letting Postgres round it', () => {
     const result = validateDrawRequest({
       units: [choice({ requested: 1.5 })],
-    });
+    }, t);
 
     expect(result.ok).toBe(false);
   });
@@ -95,7 +107,7 @@ describe('validateDrawRequest', () => {
         }),
       ],
       allTaken: true,
-    });
+    }, t);
 
     expect(result.ok).toBe(true);
     expect(result.ok && result.units).toBeNull();

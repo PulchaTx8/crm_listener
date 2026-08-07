@@ -19,7 +19,7 @@ export default async function ContactRequestsPage() {
 
   return (
     <>
-      <PageHeader title={t('contactRequests')} description="Inbound interest from the public form." />
+      <PageHeader title={t('contactRequests')} description={t('contactRequestsDescription')} />
 
       {(requests ?? []).length === 0 ? (
         <Card>

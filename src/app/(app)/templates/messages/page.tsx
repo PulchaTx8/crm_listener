@@ -82,7 +82,7 @@ export default async function SystemMessagesPage({
     <>
       <PageHeader
         title={t('messages')}
-        description="Everything the bot says on its own — in this Station’s words, or the system’s."
+        description={t('messagesDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -95,7 +95,7 @@ export default async function SystemMessagesPage({
             action="/templates/messages"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

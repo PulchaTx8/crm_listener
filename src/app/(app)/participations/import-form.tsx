@@ -538,7 +538,7 @@ export function ImportParticipationsForm({
     if (chosen.size > IMPORT_FILE_MAX_BYTES) {
       setFile(null);
       setReadFailure(
-        `That file is ${Math.round(chosen.size / (1024 * 1024))} MB. An import file may be at most 20 MB — split it and import the parts.`,
+        t('thatFileIsTooLarge', { mb: Math.round(chosen.size / (1024 * 1024)) }),
       );
       return;
     }
@@ -551,7 +551,7 @@ export function ImportParticipationsForm({
     } catch {
       setFile(null);
       setReadFailure(
-        'That file could not be read as text. It is neither UTF-8 nor Windows-1252 — re-save it from your spreadsheet as CSV UTF-8 and choose it again.',
+        t('thatFileCouldNotBeReadAsText'),
       );
     }
   }
@@ -614,7 +614,7 @@ export function ImportParticipationsForm({
               <>
                 {' '}
                 {t('theFirstReadsAs')}{' '}
-                <span className="text-foreground">{file.rows[0].fullName || '(no name)'}</span>,
+                <span className="text-foreground">{file.rows[0].fullName || t('noName')}</span>,
                 entering{' '}
                 <span className="text-foreground">
                   {file.rows[0].participatedAt

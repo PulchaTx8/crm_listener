@@ -1,12 +1,17 @@
 {
   "app": {
     "title": "PulchatX",
-    "description": "CRM para empresas de entretenimento"
+    "description": "CRM para empresas de entretenimento",
+    "yourStations": "Suas emissoras",
+    "yourStationsDescription": "Os recursos de audiência, prêmios e promoções chegam na próxima versão."
   },
   "shell": {
     "language": "Idioma",
     "signOut": "Sair",
-    "tagline": "CRM"
+    "tagline": "CRM",
+    "sortedAscending": ", ordenado crescente",
+    "sortedDescending": ", ordenado decrescente",
+    "notSorted": ", não ordenado"
   },
   "nav": {
     "administration": "Administração",
@@ -69,7 +74,12 @@
     "password": "Senha",
     "forgotYourPassword": "Esqueceu sua senha?",
     "yourProvisionalPasswordHasExpired": "Sua senha provisória expirou. Entre em contato conosco para receber uma nova.",
-    "invalidCredentials": "Credenciais inválidas."
+    "invalidCredentials": "Credenciais inválidas.",
+    "pleaseCheckTheFields": "Confira os campos e tente novamente.",
+    "thePasswordMustBeAtLeast10": "A senha precisa ter ao menos 10 caracteres.",
+    "theTwoPasswordsDoNotMatch": "As duas senhas não coincidem.",
+    "couldNotCompleteTheInvitation": "Não foi possível concluir o convite. Peça um novo.",
+    "couldNotChangeThePassword": "Não foi possível alterar a senha. Tente novamente."
   },
   "public": {
     "thankYou": "Obrigado",
@@ -154,7 +164,15 @@
     "allThreeCredentialsAreSet": "As três estão definidas, então uma Emissora que ainda não recebe nada é uma configuração abaixo, não uma credencial.",
     "untilAllThreeCredentialsAreSet": "Enquanto as três não estiverem definidas, nenhuma Emissora envia ou recebe nada, seja qual for a configuração abaixo.",
     "secretConfigured": "definida",
-    "secretNotSet": "não definida"
+    "secretNotSet": "não definida",
+    "customersDescription": "Cadastre um novo cliente ou gerencie uma assinatura existente.",
+    "contactRequestsDescription": "Interesse recebido pelo formulário público.",
+    "integrationsDescription": "Um único app da Meta serve toda a instalação; cada Emissora tem o próprio número.",
+    "newestCustomersFirst": "Clientes mais recentes primeiro",
+    "actionsForCustomer": "Ações para {name}",
+    "couldNotAddTheStation": "Não foi possível adicionar a Emissora. Confira o nome e tente novamente.",
+    "theIntegrationCouldNotBeSaved": "Não foi possível salvar a integração.",
+    "theIntegrationCouldNotBeDisabled": "Não foi possível desativar a integração."
   },
   "draws": {
     "drawOf": "Sorteio de",
@@ -182,7 +200,21 @@
     "saving": "Salvando…",
     "attachReceipt": "Anexar comprovante",
     "draw": "Sortear",
-    "confirm": "Confirmar"
+    "confirm": "Confirmar",
+    "noDeadline": "sem prazo",
+    "listenerWithNoName": "ouvinte {id} (sem nome no cadastro)",
+    "giveAReasonForTheCancellation": "Dê um motivo para o cancelamento.",
+    "actionHandOver": "Entregar",
+    "actionUndoTheHandover": "Desfazer a entrega",
+    "actionReturnToStock": "Devolver ao estoque",
+    "actionWriteOff": "Dar baixa",
+    "actionReopenTheDeadline": "Reabrir o prazo",
+    "giveAReason": "Dê um motivo.",
+    "prizeCountMustBeWhole": "A quantidade de “{prize}” tem de ser um número inteiro.",
+    "prizeHasUnitsLeft": "“{prize}” tem {count, plural, one {# unidade} other {# unidades}} para sortear.",
+    "chooseAtLeastOneUnit": "Escolha ao menos uma unidade para sortear.",
+    "unitsOfPrize": "Unidades de {prize}",
+    "reasonFor": "Motivo — {action}"
   },
   "reports": {
     "myReports": "Meus relatórios",
@@ -200,7 +232,17 @@
     "generating": "Gerando…",
     "ready": "Pronto",
     "preparing": "Preparando…",
-    "download": "Baixar"
+    "download": "Baixar",
+    "reportsDescription": "As exportações que você pediu. Um arquivo fica guardado por sete dias e depois é apagado — o registro da exportação permanece.",
+    "pickAtLeastOneStation": "Escolha ao menos uma Emissora antes de exportar.",
+    "theFiltersCouldNotBeRead": "Não foi possível ler os filtros desta tela.",
+    "thatReportCannotBeRequested": "Esse relatório não pode ser solicitado.",
+    "theReportCouldNotBeQueued": "Não foi possível enfileirar o relatório. Tente novamente.",
+    "theReportCouldNotBeQueuedShort": "Não foi possível enfileirar o relatório.",
+    "thoseStationsCouldNotBeRead": "Não foi possível ler essas Emissoras.",
+    "thoseStationsAreNotAllYours": "Nem todas essas Emissoras são suas para exportar juntas.",
+    "thatReportHasExpired": "Esse relatório expirou. O arquivo foi apagado após sete dias — peça-o de novo.",
+    "theDownloadLinkCouldNotBeCreated": "Não foi possível criar o link de download."
   },
   "audit": {
     "action": "Ação",
@@ -228,7 +270,8 @@
     "auditTrail": "Trilha de auditoria",
     "theAuditTrailCouldNotBe": "Não foi possível carregar a trilha de auditoria. Tente de novo.",
     "olderEntries": "Registros anteriores",
-    "entriesLabel": "{count, plural, one {registro} other {registros}}"
+    "entriesLabel": "{count, plural, one {registro} other {registros}}",
+    "auditDescription": "O que foi feito nesta Organização, por quem e quando. Filtrado pelo que você pode ler."
   },
   "pickups": {
     "pickups": "Retiradas",
@@ -337,7 +380,38 @@
     "actionChangeTheMessageTemplates": "alterar os modelos de mensagem",
     "actionChangeThisText": "alterar este texto",
     "actionRegisterAnApprovedTemplate": "cadastrar um modelo aprovado",
-    "actionRemoveARegisteredTemplate": "remover um modelo cadastrado"
+    "actionRemoveARegisteredTemplate": "remover um modelo cadastrado",
+    "messagesDescription": "Tudo o que o bot diz por conta própria — nas palavras desta Emissora, ou nas do sistema.",
+    "whatsappDescription": "As mensagens com que esta Emissora pode iniciar uma conversa, como a Meta as aprovou.",
+    "findAStation": "Encontrar uma Emissora",
+    "fieldWhen": "Perguntado enquanto uma promoção recebe participações, e só quando essa promoção pede {field}.",
+    "fieldFullName": "o nome completo",
+    "fieldStreetAddress": "o endereço",
+    "fieldCity": "a cidade",
+    "fieldNeighbourhood": "o bairro",
+    "fieldDateOfBirth": "a data de nascimento",
+    "fieldCpf": "o CPF",
+    "fieldPassportNumber": "o número do passaporte",
+    "fieldDiscoverySource": "como conheceu a Emissora",
+    "messageRefusalTitle": "Recusando um convite",
+    "messageRefusalWhen": "Enviada quando um ouvinte aperta o botão “não” em um convite de promoção. A conversa termina aí e nada é inscrito.",
+    "messageAbandonTitle": "Desistindo de uma conversa",
+    "messageAbandonWhen": "Enviada após três respostas inaproveitáveis à mesma pergunta. A conversa termina e o ouvinte é avisado de que pode recomeçar.",
+    "messageFullNameTitle": "Pedindo o nome completo",
+    "messageAddressTitle": "Pedindo o endereço",
+    "messageCityTitle": "Pedindo a cidade",
+    "messageNeighbourhoodTitle": "Pedindo o bairro",
+    "messageAgeTitle": "Pedindo a data de nascimento",
+    "messageCpfTitle": "Pedindo o CPF",
+    "messagePassportTitle": "Pedindo o número do passaporte",
+    "messageDiscoverySourceTitle": "Perguntando como conheceu a Emissora",
+    "purposePickupReminderTitle": "Lembrete de retirada",
+    "purposePickupReminderWhen": "Enviado uma vez a um ganhador cujo prazo de retirada cai nos próximos dois dias, dias depois do sorteio que o produziu — o que está fora da janela de 24 horas do WhatsApp, e a razão pela qual este propósito precisa de um modelo aprovado.",
+    "purposePickupReminderSendsFirstName": "O primeiro nome do ganhador",
+    "purposePickupReminderSendsPrize": "O nome do prêmio",
+    "purposePickupReminderSendsDeadline": "O prazo, como data (DD/MM/AAAA) no fuso horário desta Emissora",
+    "thatTextCouldNotBeIdentified": "Não foi possível identificar esse texto. Atualize a página e tente novamente.",
+    "thatRegistrationCouldNotBeIdentified": "Não foi possível identificar esse cadastro. Atualize a página e tente novamente."
   },
   "dashboards": {
     "audience": "Audiência",
@@ -460,7 +534,18 @@
     "roleUnavailable": "Cargo indisponível",
     "onAcceptance": "Na aceitação",
     "everyStation": "Todas as Emissoras",
-    "stationsLabel": "{count, plural, one {# Emissora} other {# Emissoras}}"
+    "stationsLabel": "{count, plural, one {# Emissora} other {# Emissoras}}",
+    "teamDescription": "Convide colegas e decida o que cada um pode fazer.",
+    "youDoNotHavePermissionInThisOrganization": "Você não tem permissão para fazer isso nesta Organização.",
+    "thatRecordNoLongerExists": "Esse registro não existe mais. Atualize a página e tente novamente.",
+    "somethingWentWrong": "Algo deu errado. Tente novamente.",
+    "checkTheAddressRoleAndStations": "Confira o endereço, o cargo e as Emissoras.",
+    "thatAddressAlreadyHasAnAccount": "Esse endereço já tem uma conta ou um convite pendente.",
+    "couldNotSendTheInvitation": "Não foi possível enviar o convite.",
+    "tabPerson": "Pessoa",
+    "tabPerStationAccess": "Acesso por Emissora",
+    "roleAtStation": "Cargo em {station}",
+    "actionsForPerson": "Ações para {person}"
   },
   "roles": {
     "roles": "Cargos",
@@ -496,7 +581,16 @@
     "thisRoleIsInUse": "Este cargo está em uso",
     "deleteThisRole": "Excluir este cargo?",
     "deleteRoleConfirm": "Excluir cargo",
-    "rolesLabel": "{count, plural, one {cargo} other {cargos}}"
+    "rolesLabel": "{count, plural, one {cargo} other {cargos}}",
+    "rolesDescription": "Um cargo é um conjunto de poderes que você atribui a alguém em uma Emissora.",
+    "thatRoleNoLongerExists": "Esse cargo não existe mais. Atualize a página e tente novamente.",
+    "youDoNotHavePermissionToManageRoles": "Você não tem permissão para gerenciar cargos.",
+    "somethingWentWrong": "Algo deu errado. Tente novamente.",
+    "tabRoleData": "Dados do cargo",
+    "tabPowers": "Poderes",
+    "newRole": "Novo cargo",
+    "discardTheChangesYouHaveNotSaved": "Descartar as alterações que você não salvou?",
+    "actionsForRole": "Ações para {name}"
   },
   "members": {
     "kind": "Tipo",

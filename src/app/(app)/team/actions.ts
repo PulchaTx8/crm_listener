@@ -1,5 +1,6 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { createInvitationSchema } from '@/schemas/invitations';
@@ -71,17 +72,20 @@ async function requireAccessToken(): Promise<string> {
  * the reader nothing they can act on, so those are rewritten. Anything else is
  * our fault rather than theirs and gets the generic line.
  */
-function describeTeamError(error: { code?: string; message: string }): string {
+function describeTeamError(
+  error: { code?: string; message: string },
+  t: (key: string) => string,
+): string {
   switch (error.code) {
     case '42501':
-      return 'You do not have permission to do that in this Organization.';
+      return t('youDoNotHavePermissionInThisOrganization');
     case 'P0002':
-      return 'That record no longer exists. Refresh the page and try again.';
+      return t('thatRecordNoLongerExists');
     case '23503':
     case '22023':
       return error.message;
     default:
-      return 'Something went wrong. Try again.';
+      return t('somethingWentWrong');
   }
 }
 
@@ -104,7 +108,7 @@ export async function inviteAction(_prev: InviteState, formData: FormData): Prom
     // verbatim here, not collapsed into one generic sentence.
     return {
       status: 'error',
-      message: parsed.error.issues[0]?.message ?? 'Check the address, role and Stations.',
+      message: parsed.error.issues[0]?.message ?? (await getTranslations('team'))('checkTheAddressRoleAndStations'),
     };
   }
 
@@ -146,8 +150,8 @@ export async function inviteAction(_prev: InviteState, formData: FormData): Prom
     logger.error({ err: cause }, 'invitation failed');
     const message =
       cause instanceof Error && /already has an account|already/i.test(cause.message)
-        ? 'That address already has an account or a pending invitation.'
-        : 'Could not send the invitation.';
+        ? (await getTranslations('team'))('thatAddressAlreadyHasAnAccount')
+        : (await getTranslations('team'))('couldNotSendTheInvitation');
     return { status: 'error', message };
   }
 }
@@ -179,7 +183,7 @@ export async function changeOrgRoleAction(
   });
   if (error) {
     logger.error({ err: error }, 'change_org_role failed');
-    return { status: 'error', message: describeTeamError(error) };
+    return { status: 'error', message: describeTeamError(error, await getTranslations('team')) };
   }
   return { status: 'done' };
 }
@@ -207,7 +211,7 @@ export async function assignCompanyRoleAction(
   });
   if (error) {
     logger.error({ err: error }, 'assign_company_role failed');
-    return { status: 'error', message: describeTeamError(error) };
+    return { status: 'error', message: describeTeamError(error, await getTranslations('team')) };
   }
   return { status: 'done' };
 }
@@ -223,7 +227,7 @@ export async function removeCompanyAccessAction(
   });
   if (error) {
     logger.error({ err: error }, 'remove_company_access failed');
-    return { status: 'error', message: describeTeamError(error) };
+    return { status: 'error', message: describeTeamError(error, await getTranslations('team')) };
   }
   return { status: 'done' };
 }
@@ -238,7 +242,7 @@ export async function removeMemberAction(
   });
   if (error) {
     logger.error({ err: error }, 'remove_member failed');
-    return { status: 'error', message: describeTeamError(error) };
+    return { status: 'error', message: describeTeamError(error, await getTranslations('team')) };
   }
   return { status: 'done' };
 }

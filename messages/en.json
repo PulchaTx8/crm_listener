@@ -1,12 +1,17 @@
 {
   "app": {
     "title": "PulchatX",
-    "description": "CRM for entertainment companies"
+    "description": "CRM for entertainment companies",
+    "yourStations": "Your stations",
+    "yourStationsDescription": "Audience, prize and promotion features arrive in the next release."
   },
   "shell": {
     "language": "Language",
     "signOut": "Sign out",
-    "tagline": "CRM"
+    "tagline": "CRM",
+    "sortedAscending": ", sorted ascending",
+    "sortedDescending": ", sorted descending",
+    "notSorted": ", not sorted"
   },
   "nav": {
     "administration": "Administration",
@@ -69,7 +74,12 @@
     "password": "Password",
     "forgotYourPassword": "Forgot your password?",
     "yourProvisionalPasswordHasExpired": "Your provisional password has expired. Please contact us for a new one.",
-    "invalidCredentials": "Invalid credentials."
+    "invalidCredentials": "Invalid credentials.",
+    "pleaseCheckTheFields": "Please check the fields and try again.",
+    "thePasswordMustBeAtLeast10": "The password must be at least 10 characters.",
+    "theTwoPasswordsDoNotMatch": "The two passwords do not match.",
+    "couldNotCompleteTheInvitation": "Could not complete the invitation. Please ask for a new one.",
+    "couldNotChangeThePassword": "Could not change the password. Please try again."
   },
   "public": {
     "thankYou": "Thank you",
@@ -154,7 +164,15 @@
     "allThreeCredentialsAreSet": "All three are set, so a Station that still receives nothing is a configuration below, not a credential.",
     "untilAllThreeCredentialsAreSet": "Until all three are set, no Station sends or receives anything, however it is configured below.",
     "secretConfigured": "configured",
-    "secretNotSet": "not set"
+    "secretNotSet": "not set",
+    "customersDescription": "Provision a new customer, or manage an existing subscription.",
+    "contactRequestsDescription": "Inbound interest from the public form.",
+    "integrationsDescription": "One Meta app serves the whole installation; each Station carries its own number.",
+    "newestCustomersFirst": "Newest customers first",
+    "actionsForCustomer": "Actions for {name}",
+    "couldNotAddTheStation": "Could not add the Station. Check the name and try again.",
+    "theIntegrationCouldNotBeSaved": "The integration could not be saved.",
+    "theIntegrationCouldNotBeDisabled": "The integration could not be disabled."
   },
   "draws": {
     "drawOf": "Draw of",
@@ -182,7 +200,21 @@
     "saving": "Saving…",
     "attachReceipt": "Attach receipt",
     "draw": "Draw",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "noDeadline": "no deadline",
+    "listenerWithNoName": "listener {id} (no name on record)",
+    "giveAReasonForTheCancellation": "Give a reason for the cancellation.",
+    "actionHandOver": "Hand over",
+    "actionUndoTheHandover": "Undo the handover",
+    "actionReturnToStock": "Return to stock",
+    "actionWriteOff": "Write off",
+    "actionReopenTheDeadline": "Reopen the deadline",
+    "giveAReason": "Give a reason.",
+    "prizeCountMustBeWhole": "The number of “{prize}” has to be a whole number.",
+    "prizeHasUnitsLeft": "“{prize}” has {count, plural, one {# unit} other {# units}} left to draw.",
+    "chooseAtLeastOneUnit": "Choose at least one unit to draw.",
+    "unitsOfPrize": "Units of {prize}",
+    "reasonFor": "Reason — {action}"
   },
   "reports": {
     "myReports": "My reports",
@@ -200,7 +232,17 @@
     "generating": "Generating…",
     "ready": "Ready",
     "preparing": "Preparing…",
-    "download": "Download"
+    "download": "Download",
+    "reportsDescription": "Exports you have asked for. A file is kept for seven days, then erased — the record of the export stays.",
+    "pickAtLeastOneStation": "Pick at least one Station before exporting.",
+    "theFiltersCouldNotBeRead": "The filters on this screen could not be read.",
+    "thatReportCannotBeRequested": "That report cannot be requested.",
+    "theReportCouldNotBeQueued": "The report could not be queued. Try again.",
+    "theReportCouldNotBeQueuedShort": "The report could not be queued.",
+    "thoseStationsCouldNotBeRead": "Those Stations could not be read.",
+    "thoseStationsAreNotAllYours": "Those Stations are not all yours to export together.",
+    "thatReportHasExpired": "That report has expired. Its file was erased after seven days — request it again.",
+    "theDownloadLinkCouldNotBeCreated": "The download link could not be created."
   },
   "audit": {
     "action": "Action",
@@ -228,7 +270,8 @@
     "auditTrail": "Audit trail",
     "theAuditTrailCouldNotBe": "The audit trail could not be loaded. Try again.",
     "olderEntries": "Older entries",
-    "entriesLabel": "{count, plural, one {entry} other {entries}}"
+    "entriesLabel": "{count, plural, one {entry} other {entries}}",
+    "auditDescription": "What has been done in this Organization, by whom, and when. Filtered by what you may read."
   },
   "pickups": {
     "pickups": "Pickups",
@@ -337,7 +380,38 @@
     "actionChangeTheMessageTemplates": "change the message templates",
     "actionChangeThisText": "change this text",
     "actionRegisterAnApprovedTemplate": "register an approved template",
-    "actionRemoveARegisteredTemplate": "remove a registered template"
+    "actionRemoveARegisteredTemplate": "remove a registered template",
+    "messagesDescription": "Everything the bot says on its own — in this Station’s words, or the system’s.",
+    "whatsappDescription": "The messages this Station may start a conversation with, as Meta approved them.",
+    "findAStation": "Find a Station",
+    "fieldWhen": "Asked while a promotion collects entries, and only when that promotion requests the {field}.",
+    "fieldFullName": "full name",
+    "fieldStreetAddress": "street address",
+    "fieldCity": "city",
+    "fieldNeighbourhood": "neighbourhood",
+    "fieldDateOfBirth": "date of birth",
+    "fieldCpf": "CPF",
+    "fieldPassportNumber": "passport number",
+    "fieldDiscoverySource": "discovery source",
+    "messageRefusalTitle": "Declining an invitation",
+    "messageRefusalWhen": "Sent when a listener presses the “no” button on a promotion invitation. The conversation ends there and nothing is entered.",
+    "messageAbandonTitle": "Giving up on a conversation",
+    "messageAbandonWhen": "Sent after three unusable answers to the same question. The conversation ends and the listener is told they can start again.",
+    "messageFullNameTitle": "Asking for the full name",
+    "messageAddressTitle": "Asking for the address",
+    "messageCityTitle": "Asking for the city",
+    "messageNeighbourhoodTitle": "Asking for the neighbourhood",
+    "messageAgeTitle": "Asking for the date of birth",
+    "messageCpfTitle": "Asking for the CPF",
+    "messagePassportTitle": "Asking for the passport number",
+    "messageDiscoverySourceTitle": "Asking how they found the Station",
+    "purposePickupReminderTitle": "Pickup reminder",
+    "purposePickupReminderWhen": "Sent once to a winner whose collection deadline falls within the next two days, days after the draw that produced it — which is outside WhatsApp’s 24-hour window, and the reason this purpose needs an approved template at all.",
+    "purposePickupReminderSendsFirstName": "The winner’s first name",
+    "purposePickupReminderSendsPrize": "The prize name",
+    "purposePickupReminderSendsDeadline": "The deadline, as a date (DD/MM/YYYY) in this Station’s own timezone",
+    "thatTextCouldNotBeIdentified": "That text could not be identified. Refresh the page and try again.",
+    "thatRegistrationCouldNotBeIdentified": "That registration could not be identified. Refresh the page and try again."
   },
   "dashboards": {
     "audience": "Audience",
@@ -460,7 +534,18 @@
     "roleUnavailable": "Role unavailable",
     "onAcceptance": "On acceptance",
     "everyStation": "Every Station",
-    "stationsLabel": "{count, plural, one {# Station} other {# Stations}}"
+    "stationsLabel": "{count, plural, one {# Station} other {# Stations}}",
+    "teamDescription": "Invite colleagues and decide what each of them may do.",
+    "youDoNotHavePermissionInThisOrganization": "You do not have permission to do that in this Organization.",
+    "thatRecordNoLongerExists": "That record no longer exists. Refresh the page and try again.",
+    "somethingWentWrong": "Something went wrong. Try again.",
+    "checkTheAddressRoleAndStations": "Check the address, role and Stations.",
+    "thatAddressAlreadyHasAnAccount": "That address already has an account or a pending invitation.",
+    "couldNotSendTheInvitation": "Could not send the invitation.",
+    "tabPerson": "Person",
+    "tabPerStationAccess": "Per-Station access",
+    "roleAtStation": "Role at {station}",
+    "actionsForPerson": "Actions for {person}"
   },
   "roles": {
     "roles": "Roles",
@@ -496,7 +581,16 @@
     "thisRoleIsInUse": "This role is in use",
     "deleteThisRole": "Delete this role?",
     "deleteRoleConfirm": "Delete role",
-    "rolesLabel": "{count, plural, one {role} other {roles}}"
+    "rolesLabel": "{count, plural, one {role} other {roles}}",
+    "rolesDescription": "A role is a set of powers you assign to someone in a Station.",
+    "thatRoleNoLongerExists": "That role no longer exists. Refresh the page and try again.",
+    "youDoNotHavePermissionToManageRoles": "You do not have permission to manage roles.",
+    "somethingWentWrong": "Something went wrong. Try again.",
+    "tabRoleData": "Role data",
+    "tabPowers": "Powers",
+    "newRole": "New role",
+    "discardTheChangesYouHaveNotSaved": "Discard the changes you have not saved?",
+    "actionsForRole": "Actions for {name}"
   },
   "members": {
     "kind": "Kind",

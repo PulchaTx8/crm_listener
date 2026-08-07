@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ export function ExportDialog({
   disabled?: boolean;
 }) {
   const router = useRouter();
+  const t = useTranslations('reports');
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -63,7 +65,7 @@ export function ExportDialog({
 
     const result = await requestReportAction(data);
     if (!result.ok) {
-      setError(result.error ?? 'The report could not be queued.');
+      setError(result.error ?? t('theReportCouldNotBeQueuedShort'));
       return;
     }
     setOpen(false);

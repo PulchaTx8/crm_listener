@@ -162,7 +162,7 @@ export function TeamGrid({
                         <Pencil className="size-4" aria-hidden="true" />
                       </button>
                       <DropdownMenu
-                        label={`Actions for ${displayPerson(row)}`}
+                        label={t('actionsForPerson', { person: displayPerson(row) })}
                         trigger={<MoreVertical className="size-4" aria-hidden="true" />}
                       >
                         {row.kind === 'member' ? (

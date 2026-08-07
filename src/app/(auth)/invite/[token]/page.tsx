@@ -11,11 +11,13 @@ import { Input } from '@/components/ui/input';
 
 export const dynamic = 'force-dynamic';
 
-const MESSAGES: Record<string, string> = {
-  invalid: 'Please check the fields and try again.',
-  short: 'The password must be at least 10 characters.',
-  mismatch: 'The two passwords do not match.',
-  failed: 'Could not complete the invitation. Please ask for a new one.',
+// The `?error=` codes this page answers, as catalogue keys — a module body has
+// no request behind it, so it has no language either.
+const MESSAGE_KEYS: Record<string, string> = {
+  invalid: 'pleaseCheckTheFields',
+  short: 'thePasswordMustBeAtLeast10',
+  mismatch: 'theTwoPasswordsDoNotMatch',
+  failed: 'couldNotCompleteTheInvitation',
 };
 
 export default async function AcceptInvitationPage({
@@ -90,7 +92,7 @@ export default async function AcceptInvitationPage({
           </p>
         </div>
         {query.error ? (
-          <p className="text-sm text-destructive">{MESSAGES[query.error] ?? MESSAGES.failed}</p>
+          <p className="text-sm text-destructive">{t((query.error && MESSAGE_KEYS[query.error]) || 'couldNotCompleteTheInvitation')}</p>
         ) : null}
         <form action={accept} className="flex flex-col gap-4">
           <Input name="fullName" placeholder={t('yourNameOptional')} />

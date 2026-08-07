@@ -21,8 +21,11 @@ const INITIAL: SystemMessageState = { status: 'idle' };
  * once here rather than eight times below, so the eight cannot drift into
  * eight subtly different explanations of the same rule.
  */
-function fieldWhen(field: string): string {
-  return `Asked while a promotion collects entries, and only when that promotion requests the ${field}.`;
+// The field is a catalogue key rather than the noun itself: Portuguese and
+// Spanish carry the article with it (*o CPF*, *a cidade*), which no English
+// stem can supply.
+function fieldWhen(fieldKey: string, t: (key: string, values?: Record<string, string>) => string): string {
+  return t('fieldWhen', { field: t(fieldKey) });
 }
 
 /**
@@ -37,27 +40,28 @@ function fieldWhen(field: string): string {
  * Portuguese and stay Portuguese: they are what a listener reads, which is the
  * one exception this block exists for.
  */
-const MESSAGE_LABELS: Record<SystemMessageKey, { title: string; when: string }> = {
-  REFUSAL: {
-    title: 'Declining an invitation',
-    when: 'Sent when a listener presses the “no” button on a promotion invitation. The conversation ends there and nothing is entered.',
-  },
-  ABANDON: {
-    title: 'Giving up on a conversation',
-    when: 'Sent after three unusable answers to the same question. The conversation ends and the listener is told they can start again.',
-  },
-  FULL_NAME: { title: 'Asking for the full name', when: fieldWhen('full name') },
-  ADDRESS: { title: 'Asking for the address', when: fieldWhen('street address') },
-  CITY: { title: 'Asking for the city', when: fieldWhen('city') },
-  NEIGHBOURHOOD: { title: 'Asking for the neighbourhood', when: fieldWhen('neighbourhood') },
-  AGE: { title: 'Asking for the date of birth', when: fieldWhen('date of birth') },
-  CPF: { title: 'Asking for the CPF', when: fieldWhen('CPF') },
-  PASSPORT: { title: 'Asking for the passport number', when: fieldWhen('passport number') },
-  DISCOVERY_SOURCE: {
-    title: 'Asking how they found the Station',
-    when: fieldWhen('discovery source'),
-  },
-};
+function messageLabels(
+  t: (key: string, values?: Record<string, string>) => string,
+): Record<SystemMessageKey, { title: string; when: string }> {
+  return {
+    REFUSAL: { title: t('messageRefusalTitle'), when: t('messageRefusalWhen') },
+    ABANDON: { title: t('messageAbandonTitle'), when: t('messageAbandonWhen') },
+    FULL_NAME: { title: t('messageFullNameTitle'), when: fieldWhen('fieldFullName', t) },
+    ADDRESS: { title: t('messageAddressTitle'), when: fieldWhen('fieldStreetAddress', t) },
+    CITY: { title: t('messageCityTitle'), when: fieldWhen('fieldCity', t) },
+    NEIGHBOURHOOD: {
+      title: t('messageNeighbourhoodTitle'),
+      when: fieldWhen('fieldNeighbourhood', t),
+    },
+    AGE: { title: t('messageAgeTitle'), when: fieldWhen('fieldDateOfBirth', t) },
+    CPF: { title: t('messageCpfTitle'), when: fieldWhen('fieldCpf', t) },
+    PASSPORT: { title: t('messagePassportTitle'), when: fieldWhen('fieldPassportNumber', t) },
+    DISCOVERY_SOURCE: {
+      title: t('messageDiscoverySourceTitle'),
+      when: fieldWhen('fieldDiscoverySource', t),
+    },
+  };
+}
 
 /**
  * The ten texts, whether this Station has overridden them or not.
@@ -111,7 +115,7 @@ function MessageRow({
   const t = useTranslations('templates');
   const [saveState, saveAction, savePending] = useActionState(saveSystemMessageAction, INITIAL);
   const [clearState, clearAction, clearPending] = useActionState(clearSystemMessageAction, INITIAL);
-  const label = MESSAGE_LABELS[row.key];
+  const label = messageLabels(t)[row.key];
 
   // Two forms, two states, and the newest error wins. Both cannot be pending
   // at once — a save and a clear on the same row are a single operator's two

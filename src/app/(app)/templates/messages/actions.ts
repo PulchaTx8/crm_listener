@@ -97,7 +97,7 @@ export async function clearSystemMessageAction(
   if (!parsed.success) {
     return {
       status: 'error',
-      message: 'That text could not be identified. Refresh the page and try again.',
+      message: (await getTranslations('templates'))('thatTextCouldNotBeIdentified'),
     };
   }
 

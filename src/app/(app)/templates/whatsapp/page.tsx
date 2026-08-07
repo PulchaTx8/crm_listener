@@ -73,7 +73,7 @@ export default async function WhatsAppTemplatesPage({
     <>
       <PageHeader
         title={t('whatsappTemplates')}
-        description="The messages this Station may start a conversation with, as Meta approved them."
+        description={t('whatsappDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -86,7 +86,7 @@ export default async function WhatsAppTemplatesPage({
             action="/templates/whatsapp"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

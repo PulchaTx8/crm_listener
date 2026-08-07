@@ -1,5 +1,7 @@
 'use server';
 
+import { getTranslations } from 'next-intl/server';
+
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { provisionCustomerSchema } from '@/schemas/provisioning';
@@ -220,7 +222,7 @@ export async function addCompanyAction(
     logger.error({ err: error }, 'add_company failed');
     return {
       status: 'error',
-      message: 'Could not add the Station. Check the name and try again.',
+      message: (await getTranslations('admin'))('couldNotAddTheStation'),
     };
   }
   return {

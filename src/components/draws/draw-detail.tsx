@@ -14,11 +14,11 @@ import { formatInstant } from '@/app/(app)/promotions/format';
 import { RECEIPT_ACCEPT } from '@/lib/security/uploads';
 import { WinnerActions, type WinnerAction, type WinnerPowers } from './winner-actions';
 
-function formatDeadline(value: string | null, timeZone: string): string {
+function formatDeadline(value: string | null, timeZone: string, t: (key: string) => string): string {
   // Null is not missing data: it means this winner has NO deadline, because
   // neither the promotion nor the prize set one (spec 6). Saying "no deadline"
   // is the whole point — a blank would read as a value nobody filled in.
-  if (!value) return 'no deadline';
+  if (!value) return t('noDeadline');
   return formatInstant(value, timeZone);
 }
 
@@ -28,8 +28,12 @@ function formatDeadline(value: string | null, timeZone: string): string {
  * ordinary way this happens — get_draw returns the name to anybody who may see
  * the draw at all, so a blank here is never "you are not allowed to know".
  */
-function listenerLabel(name: string | null, memberId: string): string {
-  return name ?? `listener ${memberId.slice(0, 8)} (no name on record)`;
+function listenerLabel(
+  name: string | null,
+  memberId: string,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  return name ?? t('listenerWithNoName', { id: memberId.slice(0, 8) });
 }
 
 /**
@@ -74,7 +78,7 @@ export function DrawDetailView({
 
   function submitCancel() {
     if (reason.trim().length === 0) {
-      setMessage('Give a reason for the cancellation.');
+      setMessage(t('giveAReasonForTheCancellation'));
       return;
     }
     setMessage(null);
@@ -112,10 +116,10 @@ export function DrawDetailView({
             <li key={winner.id} className="border-b py-2">
               <div className="flex justify-between gap-4">
                 <span>
-                  {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId)}
+                  {winner.awardedRank}. {listenerLabel(winner.memberName, winner.memberId, t)}
                 </span>
                 <span className="text-sm text-muted-foreground">
-                  {winner.prizeName} · {formatDeadline(winner.deadlineAt, timeZone)} ·{' '}
+                  {winner.prizeName} · {formatDeadline(winner.deadlineAt, timeZone, t)} ·{' '}
                   <span data-testid={`winner-status-${winner.awardedRank}`}>{winner.status}</span>
                 </span>
               </div>

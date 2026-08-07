@@ -92,7 +92,7 @@ export async function archiveTemplateAction(
   if (!parsed.success) {
     return {
       status: 'error',
-      message: 'That registration could not be identified. Refresh the page and try again.',
+      message: (await getTranslations('templates'))('thatRegistrationCouldNotBeIdentified'),
     };
   }
 

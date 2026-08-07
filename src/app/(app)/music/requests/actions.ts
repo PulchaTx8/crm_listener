@@ -159,7 +159,7 @@ export async function recordRequestAction(
   });
 
   if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? (await getTranslations('music'))('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -197,7 +197,7 @@ export async function recordRequestAction(
         return {
           ok: false,
           message:
-            'That listener is registered at a Station you cannot reach. Ask somebody who can.',
+            (await getTranslations('music'))('thatListenerIsAtAStationYouCannotReach'),
         };
       }
       memberId = resolved.memberId;
@@ -234,7 +234,13 @@ export async function recordRequestAction(
       ok: false,
       listenerRegistered: registered,
       message: registered
-        ? `The listener was registered, but the request was not recorded. ${describeMusicWriteError(cause, await getTranslations('music'), 'actionRecordARequest')} They are now linked to this Station, so pick them from the search above rather than typing them again.`
+        ? (await getTranslations('music'))('registeredButRequestNotRecorded', {
+            reason: describeMusicWriteError(
+              cause,
+              await getTranslations('music'),
+              'actionRecordARequest',
+            ),
+          })
         : describeMusicWriteError(cause, await getTranslations('music'), 'actionRecordARequest'),
     };
   }
@@ -251,7 +257,7 @@ export type ArchiveRequestState = { ok: null } | { ok: true } | { ok: false; mes
  * exists to close for the create side.
  */
 const archiveRequestSchema = z.object({
-  requestId: z.string().uuid('That request could not be identified. Reopen the list and try again.'),
+  requestId: z.string().uuid((await getTranslations('music'))('thatRequestCouldNotBeIdentified')),
 });
 
 /** Withdraws a mistyped manual entry — never a DELETE (0107's own comment on archive_music_request). */
@@ -261,7 +267,7 @@ export async function archiveRequestAction(
 ): Promise<ArchiveRequestState> {
   const parsed = archiveRequestSchema.safeParse({ requestId: formData.get('requestId') ?? '' });
   if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Missing request.' };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? (await getTranslations('music'))('missingRequest') };
   }
   const { requestId } = parsed.data;
 
