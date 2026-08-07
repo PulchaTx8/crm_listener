@@ -129,7 +129,7 @@ export default async function MaintenancePage({
     <>
       <PageHeader
         title={t('maintenance')}
-        description="Find duplicates, name the one that stays, and merge. This is the only irreversible action in the music catalogue."
+        description={t('maintenanceDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -142,7 +142,7 @@ export default async function MaintenancePage({
             action="/music/maintenance"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

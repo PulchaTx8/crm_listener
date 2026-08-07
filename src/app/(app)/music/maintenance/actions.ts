@@ -53,6 +53,7 @@ export type MergeState = { ok: null } | { ok: true; message: string } | { ok: fa
  * reasoning for adding describeMergeError in the first place).
  */
 export async function mergeRecordsAction(_prev: MergeState, formData: FormData): Promise<MergeState> {
+  const t = await getTranslations('music');
   const result = mergeFormSchema.safeParse({
     companyId: formData.get('companyId'),
     kind: formData.get('kind'),
@@ -62,7 +63,7 @@ export async function mergeRecordsAction(_prev: MergeState, formData: FormData):
   });
 
   if (!result.success) {
-    return { ok: false, message: result.error.issues[0]?.message ?? 'Check the form.' };
+    return { ok: false, message: result.error.issues[0]?.message ?? t('checkTheForm') };
   }
 
   const token = await requireAccessToken();
@@ -70,7 +71,7 @@ export async function mergeRecordsAction(_prev: MergeState, formData: FormData):
   try {
     const moved = await mergeMusicRecords(result.data, token);
     revalidatePath('/music/maintenance');
-    return { ok: true, message: `Merged. ${moved} record(s) moved to the surviving entry.` };
+    return { ok: true, message: t('mergeResult', { count: moved }) };
   } catch (cause) {
     logger.error(
       { err: cause, companyId: result.data.companyId, kind: result.data.kind },

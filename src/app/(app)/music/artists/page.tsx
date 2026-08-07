@@ -104,7 +104,7 @@ export default async function ArtistsPage({
     <>
       <PageHeader
         title={t('artists')}
-        description="Everyone credited on a song in this Station's catalogue."
+        description={t('artistsDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -117,7 +117,7 @@ export default async function ArtistsPage({
             action="/music/artists"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

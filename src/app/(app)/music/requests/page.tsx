@@ -159,7 +159,7 @@ export default async function RequestsPage({
     <>
       <PageHeader
         title={t('requests')}
-        description="What listeners asked for, newest first."
+        description={t('requestsDescription')}
         // Block 8b. The filters ALREADY on this screen, translated into the
         // report's vocabulary by list-filters.ts -- never a second set the
         // dialog asks for. The operator has expressed the question by
@@ -184,7 +184,7 @@ export default async function RequestsPage({
             action="/music/requests"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

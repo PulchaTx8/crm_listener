@@ -109,7 +109,7 @@ export function ArtistRecordDialog({
   }, [recordId, reloadToken]);
 
   function requestClose() {
-    if (dirty && !window.confirm('Discard the changes you have not saved?')) return;
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
     setDirty(false);
     onClose();
   }

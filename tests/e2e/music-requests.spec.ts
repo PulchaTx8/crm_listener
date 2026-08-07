@@ -274,7 +274,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   );
   await ownerPage.getByTestId('maintenance-merge-confirm').click();
   await expect(ownerPage.getByTestId('maintenance-merge-result')).toHaveText(
-    'Merged. 1 record(s) moved to the surviving entry.',
+    'Merged. 1 record moved to the surviving entry.',
   );
   await ownerPage.getByTestId('maintenance-merge-done').click();
 

@@ -114,7 +114,7 @@ export default async function SongsPage({
     <>
       <PageHeader
         title={t('songs')}
-        description="The music catalogue, one song per row, with its artist, label and genre."
+        description={t('songsDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -127,7 +127,7 @@ export default async function SongsPage({
             action="/music/songs"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

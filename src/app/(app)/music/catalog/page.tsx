@@ -129,7 +129,7 @@ export default async function CatalogPage({
     <>
       <PageHeader
         title={t('catalogue')}
-        description="Labels, genres and shows — the short lists a song or a request is built from."
+        description={t('catalogueDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -142,7 +142,7 @@ export default async function CatalogPage({
             action="/music/catalog"
             value={stationSearch ?? ''}
             preserve={{}}
-            label="Find a Station"
+            label={t('findAStation')}
           />
         </div>
       )}

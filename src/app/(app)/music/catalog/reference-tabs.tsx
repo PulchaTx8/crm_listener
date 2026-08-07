@@ -31,21 +31,26 @@ import { ReferencePanel } from './reference-panel';
 export const CATALOG_TABS = ['labels', 'genres', 'shows'] as const;
 export type CatalogTab = (typeof CATALOG_TABS)[number];
 
-const TAB_COPY: Record<CatalogTab, { label: string; noun: string; description: string }> = {
+// `noun` stays a bare English word because its only remaining use is a
+// `data-testid`; every word a person reads is a catalogue key beside it.
+const TAB_COPY: Record<
+  CatalogTab,
+  { labelKey: string; noun: string; descriptionKey: string }
+> = {
   labels: {
-    label: 'Labels',
+    labelKey: 'catalogueLists',
     noun: 'label',
-    description: 'Record labels a song can be credited to.',
+    descriptionKey: 'referenceLabelsDescription',
   },
   genres: {
-    label: 'Genres',
+    labelKey: 'kindGenres',
     noun: 'genre',
-    description: 'Genres a song can be filed under.',
+    descriptionKey: 'referenceGenresDescription',
   },
   shows: {
-    label: 'Shows',
+    labelKey: 'kindShows',
     noun: 'show',
-    description: 'Shows a listener can name a music request against.',
+    descriptionKey: 'referenceShowsDescription',
   },
 };
 
@@ -137,7 +142,7 @@ export function ReferenceTabs({
             }
             data-testid={`catalog-tab-${name}`}
           >
-            {TAB_COPY[name].label}
+            {t(TAB_COPY[name].labelKey)}
           </button>
         ))}
       </div>
@@ -149,8 +154,8 @@ export function ReferenceTabs({
         key={tab}
         kind={KIND_FOR_TAB[tab]}
         noun={TAB_COPY[tab].noun}
-        title={TAB_COPY[tab].label}
-        description={TAB_COPY[tab].description}
+        title={t(TAB_COPY[tab].labelKey)}
+        description={t(TAB_COPY[tab].descriptionKey)}
         items={itemsByTab[tab]}
         companyId={companyId}
         manage={manage}

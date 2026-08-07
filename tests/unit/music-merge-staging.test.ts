@@ -1,3 +1,4 @@
+import { createTranslator } from 'next-intl';
 import { describe, expect, it } from 'vitest';
 import {
   EMPTY_STAGING,
@@ -9,6 +10,18 @@ import {
   mergeConfirmationText,
 } from '@/app/(app)/music/maintenance/merge-panel';
 import type { MergeCandidate } from '@/services/music';
+import en from '../../messages/en.json';
+
+/**
+ * The REAL English catalogue, through next-intl's own formatter — not a stub
+ * that would only prove the test agrees with itself. So these assertions now
+ * also pin what messages/en.json says, which is the half that used to live in
+ * the function body.
+ */
+const t = createTranslator({ locale: 'en', messages: en, namespace: 'music' }) as unknown as (
+  key: string,
+  values?: Record<string, string | number | Date>,
+) => string;
 
 /**
  * The Maintenance screen's staging area, tested as pure functions rather
@@ -173,29 +186,29 @@ describe('childrenMovedByMerge', () => {
 
 describe('childCountLabel', () => {
   it('names the right noun for a song merge — requests, not songs', () => {
-    expect(childCountLabel('SONG', 412)).toBe('412 requests');
+    expect(childCountLabel('SONG', 412, t)).toBe('412 requests');
   });
 
   it('names the right noun for an artist/label/genre merge — songs, not requests', () => {
-    expect(childCountLabel('ARTIST', 3)).toBe('3 songs');
-    expect(childCountLabel('LABEL', 3)).toBe('3 songs');
-    expect(childCountLabel('GENRE', 3)).toBe('3 songs');
+    expect(childCountLabel('ARTIST', 3, t)).toBe('3 songs');
+    expect(childCountLabel('LABEL', 3, t)).toBe('3 songs');
+    expect(childCountLabel('GENRE', 3, t)).toBe('3 songs');
   });
 
   it('a show merge moves requests, the same as a song merge', () => {
-    expect(childCountLabel('SHOW', 7)).toBe('7 requests');
+    expect(childCountLabel('SHOW', 7, t)).toBe('7 requests');
   });
 
   it('keeps the noun singular for exactly one', () => {
-    expect(childCountLabel('SONG', 1)).toBe('1 request');
+    expect(childCountLabel('SONG', 1, t)).toBe('1 request');
   });
 
   it('zero is shown plainly, not hidden as a dash', () => {
-    expect(childCountLabel('GENRE', 0)).toBe('0 songs');
+    expect(childCountLabel('GENRE', 0, t)).toBe('0 songs');
   });
 
   it('formats a large count with the codebase house locale', () => {
-    expect(childCountLabel('SONG', 1234)).toBe('1,234 requests');
+    expect(childCountLabel('SONG', 1234, t)).toBe('1,234 requests');
   });
 });
 
@@ -206,7 +219,7 @@ describe('mergeConfirmationText', () => {
       candidate({ id: '22222222-0000-0000-0000-000000000002', childCount: 400 }),
       candidate({ id: '33333333-0000-0000-0000-000000000003', childCount: 12 }),
     ];
-    expect(mergeConfirmationText('SONG', survivor, losers)).toBe(
+    expect(mergeConfirmationText('SONG', survivor, losers, t)).toBe(
       'Merge 2 records into “Sozinho”? 412 requests will move. This cannot be undone.',
     );
   });
@@ -214,7 +227,7 @@ describe('mergeConfirmationText', () => {
   it('uses the child noun for the kind — songs, not requests, for an artist merge', () => {
     const survivor = candidate({ label: 'Caetano' });
     const losers = [candidate({ id: '22222222-0000-0000-0000-000000000002', childCount: 3 })];
-    expect(mergeConfirmationText('ARTIST', survivor, losers)).toBe(
+    expect(mergeConfirmationText('ARTIST', survivor, losers, t)).toBe(
       'Merge 1 record into “Caetano”? 3 songs will move. This cannot be undone.',
     );
   });
@@ -222,7 +235,7 @@ describe('mergeConfirmationText', () => {
   it('keeps every noun singular when the count is exactly one', () => {
     const survivor = candidate({ label: 'Sozinho' });
     const losers = [candidate({ id: '22222222-0000-0000-0000-000000000002', childCount: 1 })];
-    expect(mergeConfirmationText('SONG', survivor, losers)).toBe(
+    expect(mergeConfirmationText('SONG', survivor, losers, t)).toBe(
       'Merge 1 record into “Sozinho”? 1 request will move. This cannot be undone.',
     );
   });
@@ -230,7 +243,7 @@ describe('mergeConfirmationText', () => {
   it('says plainly that zero will move — a legitimate outcome, not hidden', () => {
     const survivor = candidate({ label: 'Sozinho' });
     const losers = [candidate({ id: '22222222-0000-0000-0000-000000000002', childCount: 0 })];
-    expect(mergeConfirmationText('SONG', survivor, losers)).toBe(
+    expect(mergeConfirmationText('SONG', survivor, losers, t)).toBe(
       'Merge 1 record into “Sozinho”? 0 requests will move. This cannot be undone.',
     );
   });
