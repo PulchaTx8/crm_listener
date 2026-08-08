@@ -40,7 +40,11 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="mx-auto w-full max-w-sm">{children}</div>
       </div>
 
-      <div className="px-4 pb-8 lg:order-1 lg:overflow-y-auto lg:p-6">
+      {/* ONE PADDING VALUE ON ALL FOUR SIDES, at every width. The panel is a
+          card floating on the page background, so an inset that differs by edge
+          reads as a mistake rather than as rhythm. `p-6` also lines the card up
+          with the form column's own `px-6` when the two are stacked. */}
+      <div className="p-6 lg:order-1 lg:overflow-y-auto">
         <BrandPanel />
       </div>
     </div>
