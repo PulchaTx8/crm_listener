@@ -49,13 +49,21 @@ test('the panel shows the picture from the branding bucket, actually loaded', as
   await expect(hero).toBeVisible();
 
   // THE VERSION STAMP, without which an operator who replaces this picture goes
-  // on seeing the old one for the hour Storage caches it.
-  await expect(hero).toHaveAttribute('src', /\?v=\d+$/);
+  // on seeing the old one for the hour Storage caches it. It is the object's
+  // ETag, so it is an opaque string rather than a number.
+  await expect(hero).toHaveAttribute('src', /\?v=.+$/);
 
   // naturalWidth, not merely "the element is on the page". An <img> whose
   // source 404s is still visible and still has the right src — it is a broken
   // icon — and this is the difference between the tag being right and the
   // picture having arrived. It is also what fails if seed:branding did not run.
+  //
+  // THIS IS ALSO THE REGRESSION TEST FOR THE HOSTED FAILURE, and it needs no
+  // setup to be one. 0147 removed every policy naming this bucket, so the
+  // database this runs against has none — and the picture appears anyway. The
+  // first version of login-hero.ts read the object's row through RLS and
+  // rendered nothing when it could not, which is exactly what a database
+  // without those policies produced.
   await expect
     .poll(async () => hero.evaluate((img: HTMLImageElement) => img.naturalWidth))
     .toBeGreaterThan(0);

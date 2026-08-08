@@ -1,0 +1,40 @@
+-- supabase/migrations/0147_branding_read_policy_removed.sql
+
+-- The policy 0146 added, withdrawn, because the thing that needed it stopped
+-- needing it -- and because needing it at all was the defect.
+--
+-- WHAT WENT WRONG. 0146 gave `anon` SELECT on storage.objects for this bucket so
+-- that the sign-in page could read the object's `updated_at` and hang it on the
+-- image URL as a cache stamp. src/lib/branding/login-hero.ts then treated a
+-- failed read as "there is no picture" and rendered none.
+--
+-- On the hosted project the bucket was created by hand in the dashboard and the
+-- image uploaded to it, while this repository's migrations had not been applied
+-- -- so there was no policy, the read came back empty, and THE PICTURE DID NOT
+-- APPEAR. The object was fine; it served 200 to anybody who asked for it
+-- directly. A cache optimisation had removed the feature it was optimising.
+--
+-- WHAT REPLACED IT. login-hero.ts now sends a HEAD to the object's own public
+-- address and reads the ETag off the response. `/object/public/` consults no
+-- policy at all -- that is what `public = true` on the bucket buys -- so the
+-- picture now appears wherever the object exists, whether or not this database
+-- has ever heard of these migrations. MEASURED against the hosted project: an
+-- existing object answers 200 with ETag and Last-Modified, a missing one
+-- answers 400.
+--
+-- WHY DROP IT RATHER THAN LEAVE IT. It grants nothing dangerous -- the bucket is
+-- public, so it admits a caller to a row naming a file they can already fetch --
+-- but nothing reads it any more, and a grant with no reader is a grant whose
+-- purpose the next person has to reconstruct. 32_branding_bucket.test.sql
+-- asserts its absence so it cannot drift back in as "surely reads need a
+-- policy".
+--
+-- `if exists` deliberately: on a database where 0146 has not run this is a
+-- no-op rather than an error, which is exactly the situation that produced this
+-- migration.
+drop policy if exists branding_read on storage.objects;
+
+-- The BUCKET stays as 0146 left it -- public, 5 MiB, PNG/JPEG/WebP. Only the
+-- policy goes. A bucket created by hand in the dashboard has none of those
+-- limits, so running 0146 against such a project is still worth doing; its
+-- insert is `on conflict do update` for that reason.
