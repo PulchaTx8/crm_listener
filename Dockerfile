@@ -17,6 +17,21 @@ ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+# Version skew protection. Next inlines this during `next build` and compares it
+# against what a client sends, answering a mismatch with a hard navigation
+# instead of `Failed to find Server Action` — see next.config.mjs for the whole
+# reasoning. It MUST arrive here rather than only at runtime, for the same
+# reason the two variables above must: a value set at runtime does not reach a
+# bundle that was already compiled.
+#
+# It has to CHANGE per build to mean anything. Pass the commit sha.
+#
+# NOT a secret, unlike the two rules below it: a commit sha in an image layer
+# gives away nothing. NEXT_SERVER_ACTIONS_ENCRYPTION_KEY, which is the OTHER
+# half of skew handling, is the opposite — it is a secret and belongs in the
+# runtime environment only, never as an ARG here.
+ARG NEXT_DEPLOYMENT_ID
+ENV NEXT_DEPLOYMENT_ID=$NEXT_DEPLOYMENT_ID
 # Deliberately scoped to the build stage: the secrets do not exist during
 # `next build`. If it leaks into runtime, `src/lib/env.ts` falls into the loose
 # branch and the app starts with no configuration, failing on the first query.
