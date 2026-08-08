@@ -22,7 +22,14 @@ export async function BrandPanel() {
   const hero = await getLoginHeroUrl();
 
   return (
-    <div className="flex flex-col gap-8 rounded-2xl bg-muted px-8 py-10 lg:px-12 lg:py-14">
+    /* `lg:min-h-full` FILLS THE COLUMN. The card is only as tall as its
+       contents, and on a wide screen that left the gap under it several times
+       the 24px inset above and beside it — the card looked dropped into the
+       column rather than fitted to it. `min-` and not `h-full`: a picture taller
+       than the viewport still grows the card and scrolls its column. Below `lg`
+       there is no column height to fill, and the percentage would resolve
+       against nothing, so the class is scoped to the breakpoint. */
+    <div className="flex flex-col gap-8 rounded-2xl bg-muted px-8 py-10 lg:min-h-full lg:px-12 lg:py-14">
       {/* Hidden here on a narrow screen because the layout renders the mark
           above the form instead — see (auth)/layout.tsx for why the form comes
           first there. */}
