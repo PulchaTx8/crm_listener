@@ -11,7 +11,11 @@
     "tagline": "CRM",
     "sortedAscending": ", sorted ascending",
     "sortedDescending": ", sorted descending",
-    "notSorted": ", not sorted"
+    "notSorted": ", not sorted",
+    "noPictureYet": "No picture",
+    "removePicture": "Remove picture",
+    "largePicturesAreReduced": "Large pictures are reduced automatically.",
+    "thatPictureCouldNotBeRead": "That picture could not be read. Save it again as a JPEG or a PNG."
   },
   "nav": {
     "administration": "Administration",
@@ -1078,7 +1082,10 @@
     "actionSaveThisPrize": "save this prize",
     "actionArchiveThisPrize": "archive this prize",
     "archivedPromotion": "(archived promotion)",
-    "theCountAlreadyMatchedWhatWasBooked": "The count already matched what was booked — nothing needed recording."
+    "theCountAlreadyMatchedWhatWasBooked": "The count already matched what was booked — nothing needed recording.",
+    "picture": "Picture",
+    "prizePicture": "Prize picture",
+    "shownOnTheStockList": "Shown on the stock list and on this record."
   },
   "promotions": {
     "promotions": "Promotions",
@@ -1181,11 +1188,8 @@
     "takePartByWhatsapp": "Take part by WhatsApp",
     "turnThisOnToGiveThe": "Turn this on to give the promotion a hashtag, a banner and the questions the bot asks.",
     "whatAListenerTextsToTake": "What a listener texts to take part. No two promotions running at the same time in this Station may share one.",
-    "sendABannerWithTheReply": "Send a banner with the reply",
-    "bannerAddress": "Banner address",
     "https": "https://…",
     "whatsappFetchesThisImageItselfAnd": "WhatsApp fetches this image itself and only over https.",
-    "bannerPreview": "Banner preview",
     "quero": "Quero!",
     "agoraNO": "Agora não",
     "askTheListenerFor": "Ask the listener for",
@@ -1266,7 +1270,11 @@
     "noButton": "“No” button",
     "chooseAPrizeRequired": "Choose a prize.",
     "sayWhyThisPromotionIsBeingCancelled": "Say why this promotion is being cancelled.",
-    "whichQuestionReopenTheRecord": "Which question? Reopen the record."
+    "whichQuestionReopenTheRecord": "Which question? Reopen the record.",
+    "picture": "Picture",
+    "promotionPicture": "Promotion picture",
+    "shownOnTheListAndTheRecord": "Shown on the list and on this record. Never sent to anyone.",
+    "bannerSentWithTheReply": "Banner sent with the reply"
   },
   "music": {
     "closeRecord": "Close record",

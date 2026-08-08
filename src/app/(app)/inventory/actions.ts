@@ -7,6 +7,7 @@ import { prizeFormSchema, prizeUpdateSchema, movementFormSchema } from '@/schema
 import {
   adjustStock,
   archivePrize,
+  clearPrizePhoto,
   createPrize,
   createPrizeCategory,
   getPrizeById,
@@ -16,6 +17,7 @@ import {
   releaseReservation,
   reserveStock,
   updatePrize,
+  uploadPrizePhoto,
 } from '@/services/inventory';
 import type { PrizeSummary, ReconciliationRow } from '@/services/inventory';
 import { logger } from '@/lib/logger';
@@ -89,6 +91,51 @@ export interface PrizeFormState {
   prizeId?: string;
 }
 
+/**
+ * The photograph does not travel with the rest of the form, and cannot.
+ *
+ * update_prize does not take it (0145) and createPrize has no record to key an
+ * upload against — the storage key is derived from the prize's id, which does
+ * not exist until the row does. So both actions save the prize first and settle
+ * the picture against the id afterwards.
+ *
+ * A photograph that fails therefore leaves a prize that SAVED, which is the
+ * right way round: losing a whole catalogue entry over an image would be worse
+ * than a prize with no picture yet.
+ *
+ * `photoCleared` is what tells "left alone" from "taken away". An empty file
+ * input looks identical to a deliberate removal, so without that flag every
+ * Save would either clear the photograph or none ever would.
+ *
+ * Reports the resulting address so a caller holding a summary can patch it
+ * rather than read the prize a second time: `undefined` means untouched, `null`
+ * means cleared.
+ */
+async function settlePrizePhoto(
+  token: string,
+  companyId: string,
+  prizeId: string,
+  formData: FormData,
+  t: Awaited<ReturnType<typeof getTranslations>>,
+): Promise<{ ok: true; url?: string | null } | { ok: false; message: string }> {
+  const file = formData.get('photo');
+  const cleared = formData.get('photoCleared') === 'on';
+
+  try {
+    if (file instanceof File && file.size > 0) {
+      return { ok: true, url: await uploadPrizePhoto(token, { companyId, prizeId, file }) };
+    }
+    if (cleared) {
+      await clearPrizePhoto(token, prizeId);
+      return { ok: true, url: null };
+    }
+    return { ok: true };
+  } catch (cause) {
+    logger.error({ err: cause, prizeId }, 'prize photograph failed');
+    return { ok: false, message: describeInventoryWriteError(cause, t, 'actionSaveThisPrize') };
+  }
+}
+
 export async function createPrizeAction(
   _prev: PrizeFormState,
   formData: FormData,
@@ -108,13 +155,26 @@ export async function createPrizeAction(
 
   const token = await requireAccessToken();
 
+  let prizeId: string;
   try {
-    const prizeId = await createPrize(parsed.data, token);
-    return { status: 'saved', prizeId };
+    prizeId = await createPrize(parsed.data, token);
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create prize failed');
     return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionRegisterPrizes') };
   }
+
+  // The prize exists from here on, so the failure below carries its id: the
+  // screen still offers "View prize", and the operator retries the picture
+  // without retyping the catalogue entry.
+  const photo = await settlePrizePhoto(
+    token,
+    parsed.data.companyId,
+    prizeId,
+    formData,
+    await getTranslations('inventory'),
+  );
+  if (!photo.ok) return { status: 'error', message: photo.message, prizeId };
+  return { status: 'saved', prizeId };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,17 +432,37 @@ export async function updatePrizeAction(
 
   const token = await requireAccessToken();
 
+  let found: Awaited<ReturnType<typeof getPrizeById>>;
   try {
     await updatePrize(parsed.data, token);
     // Re-read rather than echo the form: the balance buckets the grid shows
     // come from the ledger, not from anything this write touched, and the row
-    // has to keep showing them.
-    const found = await getPrizeById(parsed.data.prizeId);
-    return found ? { status: 'saved', prize: found.prize } : { status: 'saved' };
+    // has to keep showing them. It also hands over the Station, which the
+    // photograph's storage key needs and this form does not carry.
+    found = await getPrizeById(parsed.data.prizeId);
   } catch (cause) {
     logger.error({ err: cause, prizeId: parsed.data.prizeId }, 'update prize failed');
     return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionSaveThisPrize') };
   }
+
+  if (!found) return { status: 'saved' };
+
+  const photo = await settlePrizePhoto(
+    token,
+    found.companyId,
+    parsed.data.prizeId,
+    formData,
+    await getTranslations('inventory'),
+  );
+  if (!photo.ok) return { status: 'error', message: photo.message, prize: found.prize };
+
+  // Patched from what the upload returned rather than read a second time. The
+  // row the grid patches itself with must carry the new picture, or the list
+  // goes on showing the old one until the record is reopened — the same defect
+  // Block 3c fixed for every other field on this dialog.
+  const prize =
+    photo.url === undefined ? found.prize : { ...found.prize, photoUrl: photo.url };
+  return { status: 'saved', prize };
 }
 
 export interface ArchivePrizeState {

@@ -13,7 +13,6 @@ const base = {
   allowMultipleEntries: false,
   requireCorrectAnswer: false,
   whatsappEnabled: false,
-  useArt: false,
   requestedFields: [],
 };
 
@@ -155,39 +154,21 @@ describe('promotionFormSchema', () => {
     expect(r.success).toBe(false);
   });
 
-  it('requires an art url when the art box is ticked', () => {
-    const r = promotionFormSchema.safeParse({ ...whatsapp, useArt: true });
-    expect(r.success).toBe(false);
-  });
-
-  it('refuses an art url when the art box is unticked', () => {
-    const r = promotionFormSchema.safeParse({
-      ...whatsapp,
-      artUrl: 'https://example.test/b.jpg',
-    });
-    expect(r.success).toBe(false);
-  });
-
-  // The WhatsApp Cloud API fetches this image itself and will not fetch over
-  // http, so an http url would validate here, preview fine in the browser, and
-  // fail only at send time in Block 5.
-  it('refuses an http art url', () => {
-    const r = promotionFormSchema.safeParse({
-      ...whatsapp,
-      useArt: true,
-      artUrl: 'http://example.test/b.jpg',
-    });
-    expect(r.success).toBe(false);
-  });
-
-  it('accepts an https art url', () => {
-    const r = promotionFormSchema.safeParse({
-      ...whatsapp,
-      useArt: true,
-      artUrl: 'https://example.test/b.jpg',
-    });
-    expect(r.success).toBe(true);
-  });
+  // FOUR CASES ABOUT THE BANNER USED TO SIT HERE — the tick without an address,
+  // the address without the tick, http refused, https accepted — and Block 14
+  // removed them rather than reworded them. The banner is no longer a field of
+  // this form: it is uploaded, and set_promotion_art is its only writer (0144).
+  //
+  // The rules did not disappear with the cases. `promotions_art_shape` still
+  // forces use_art and art_url to agree, and set_promotion_art is what sets both
+  // — from the presence of the address, so they cannot disagree. The refusal a
+  // promotion with WhatsApp off gets is asserted in
+  // supabase/tests/30_promotion_images.test.sql, where it can be asserted
+  // against the function that actually enforces it.
+  //
+  // Deleted rather than left passing vacuously: two of these four went on
+  // reporting success against a schema that no longer looks at the field, which
+  // is the shape of a test that guards nothing.
 
   it('refuses requested fields while WhatsApp is off', () => {
     const r = promotionFormSchema.safeParse({ ...base, requestedFields: ['city'] });

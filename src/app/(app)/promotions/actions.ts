@@ -10,9 +10,11 @@ import {
   questionFormSchema,
 } from '@/schemas/promotions';
 import type { PromotionPrizeLinkInput, RequestedField } from '@/schemas/promotions';
+import type { ArtworkKind } from '@/lib/security/artwork';
 import {
   archivePromotion,
   cancelPromotion,
+  clearPromotionImage,
   createPromotion,
   linkPrizeToPromotion,
   listLinkablePrizes,
@@ -20,6 +22,7 @@ import {
   savePromotionQuestion,
   unlinkPrizeFromPromotion,
   updatePromotion,
+  uploadPromotionImage,
 } from '@/services/promotions';
 import type { LinkablePrizePage, PromotionQuestionKind } from '@/services/promotions';
 import { describePromotionsReadError, describePromotionsWriteError } from './errors';
@@ -62,7 +65,6 @@ function readOptionalNumber(raw: FormDataEntryValue | null): number | undefined 
 
 function readPromotionForm(formData: FormData) {
   const whatsappEnabled = formData.get('whatsappEnabled') === 'on';
-  const useArt = formData.get('useArt') === 'on';
 
   return promotionFormSchema.safeParse({
     companyId: formData.get('companyId'),
@@ -96,8 +98,9 @@ function readPromotionForm(formData: FormData) {
     // an open tab can still post what it was holding, and the promotion's own
     // check would then reject a submission the operator believes is coherent.
     hashtag: whatsappEnabled ? formData.get('hashtag') || null : null,
-    useArt: whatsappEnabled ? useArt : false,
-    artUrl: whatsappEnabled && useArt ? formData.get('artUrl') || null : null,
+    // The two pictures are NOT read here. They are not fields of this schema
+    // and neither RPC takes them; settlePromotionImages handles both against
+    // the saved record. See its own comment for why that has to come second.
     yesButtonLabel: whatsappEnabled ? formData.get('yesButtonLabel') || null : null,
     noButtonLabel: whatsappEnabled ? formData.get('noButtonLabel') || null : null,
     requestedFields: whatsappEnabled ? readRequestedFields(formData) : [],
@@ -116,6 +119,54 @@ export interface PromotionFormState {
   promotionId?: string;
 }
 
+/**
+ * The two pictures do not travel with the rest of the form, and cannot.
+ *
+ * update_promotion no longer takes them (0144) and create_promotion never has a
+ * record to key an upload against — the storage key is derived from the
+ * promotion's id, which does not exist until the row does. So both actions save
+ * the promotion first and settle each picture against the id afterwards.
+ *
+ * A picture that fails therefore leaves a promotion that SAVED. That is the
+ * right way round — the alternative is losing a whole form's worth of typing
+ * over an image — and it is why the caller keeps returning `promotionId`
+ * alongside the failure: the dialog still refreshes onto the promotion that
+ * exists, and the operator can try the picture again without retyping anything.
+ *
+ * `<field>Cleared` is what tells "left alone" from "taken away". An empty file
+ * input looks identical to a deliberate removal, so without that flag every
+ * Save would either clear the picture or none ever would.
+ */
+async function settlePromotionImages(
+  token: string,
+  companyId: string,
+  promotionId: string,
+  formData: FormData,
+  t: Awaited<ReturnType<typeof getTranslations>>,
+): Promise<string | null> {
+  const fields: ReadonlyArray<{ kind: ArtworkKind; field: string }> = [
+    { kind: 'thumb', field: 'thumb' },
+    { kind: 'banner', field: 'art' },
+  ];
+
+  for (const { kind, field } of fields) {
+    const file = formData.get(field);
+    const cleared = formData.get(`${field}Cleared`) === 'on';
+
+    try {
+      if (file instanceof File && file.size > 0) {
+        await uploadPromotionImage(token, { kind, companyId, promotionId, file });
+      } else if (cleared) {
+        await clearPromotionImage(token, { kind, promotionId });
+      }
+    } catch (cause) {
+      logger.error({ err: cause, promotionId, kind }, 'promotion image failed');
+      return describePromotionsWriteError(cause, t, 'actionEditThisPromotion');
+    }
+  }
+  return null;
+}
+
 export async function createPromotionAction(
   _prev: PromotionFormState,
   formData: FormData,
@@ -127,9 +178,9 @@ export async function createPromotionAction(
   }
 
   const token = await requireAccessToken();
+  let promotionId: string;
   try {
-    const promotionId = await createPromotion(parsed.data, token);
-    return { status: 'saved', promotionId };
+    promotionId = await createPromotion(parsed.data, token);
   } catch (cause) {
     logger.error({ err: cause, companyId: parsed.data.companyId }, 'create promotion failed');
     return {
@@ -137,6 +188,17 @@ export async function createPromotionAction(
       message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionRegisterAPromotion'),
     };
   }
+
+  // The promotion exists from here on, so every exit below carries its id.
+  const failure = await settlePromotionImages(
+    token,
+    parsed.data.companyId,
+    promotionId,
+    formData,
+    t,
+  );
+  if (failure) return { status: 'error', message: failure, promotionId };
+  return { status: 'saved', promotionId };
 }
 
 export async function updatePromotionAction(
@@ -155,11 +217,25 @@ export async function updatePromotionAction(
   const token = await requireAccessToken();
   try {
     await updatePromotion(promotionId, parsed.data, token);
-    return { status: 'saved', promotionId };
   } catch (cause) {
     logger.error({ err: cause, promotionId }, 'update promotion failed');
     return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisPromotion') };
   }
+
+  // AFTER the update, never before, and the order matters in one direction
+  // only: switching WhatsApp off clears the banner and queues its object
+  // (0144), so an upload settled first would be undone by the very save that
+  // followed it — and the operator would be looking at a picture the row no
+  // longer has.
+  const failure = await settlePromotionImages(
+    token,
+    parsed.data.companyId,
+    promotionId,
+    formData,
+    t,
+  );
+  if (failure) return { status: 'error', message: failure, promotionId };
+  return { status: 'saved', promotionId };
 }
 
 export interface CancelPromotionState {

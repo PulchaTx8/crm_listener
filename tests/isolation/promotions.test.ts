@@ -173,8 +173,9 @@ describe('the promotion record', () => {
           name: 'Delegate promotion',
           whatsappEnabled: true,
           hashtag: '#DELEGADO',
-          useArt: true,
-          artUrl: 'https://example.test/banner.jpg',
+          // No banner here as of Block 14: it is not a field of this form and
+          // create_promotion does not take one. A promotion is born without
+          // pictures because neither storage key exists until the row does.
           yesButtonLabel: 'Quero!',
           noButtonLabel: 'Agora não',
           requestedFields: ['full_name', 'address', 'city'],
@@ -186,10 +187,18 @@ describe('the promotion record', () => {
 
       const record = await getPromotionRecord(promotionId, token);
       expect(record?.name).toBe('Delegate promotion');
-      expect(record?.useArt).toBe(true);
-      expect(record?.artUrl).toBe('https://example.test/banner.jpg');
       expect(record?.requestedFields).toEqual(['full_name', 'address', 'city']);
       expect(record?.minHoursBetweenEntries).toBe(24);
+
+      // A PROMOTION IS BORN WITHOUT PICTURES, and this asserts it rather than
+      // merely stopping asserting the opposite. Neither storage key exists
+      // until the row does, so create_promotion stopped taking the banner in
+      // Block 14 (0144) and the registering action uploads afterwards, against
+      // the id that comes back. use_art follows the address it has always been
+      // constrained to agree with (promotions_art_shape).
+      expect(record?.useArt).toBe(false);
+      expect(record?.artUrl).toBeNull();
+      expect(record?.thumbUrl).toBeNull();
     });
 
     /**

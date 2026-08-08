@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ImageThumb } from '@/components/media/image-thumb';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
@@ -29,7 +30,9 @@ import { PrizeRecordDialog } from './prize-record-dialog';
 import { PrizeForm } from './prize-form';
 
 /** How many columns the empty-state row has to span, actions included. */
-const COLUMN_COUNT = 12;
+// Thirteen since Block 14 added the picture. Read by the empty state's colSpan,
+// which is why it is a constant rather than a number typed twice.
+const COLUMN_COUNT = 13;
 
 export interface InventoryGridPowers {
   catalogue: boolean;
@@ -103,6 +106,13 @@ export function InventoryGrid({
             {t('deliveredIsACumulativeCounterAnd')}</caption>
           <TableHeader>
             <TableRow>
+              {/* Labelled for a screen reader rather than left empty: an
+                  unlabelled header cell reads as a column with no name, and the
+                  pictures themselves carry alt="" because the prize's name is
+                  in the very next cell. */}
+              <TableHead>
+                <span className="sr-only">{t('picture')}</span>
+              </TableHead>
               <TableHead aria-sort={ariaSort(nameSorted)}>
                 <SortLink
                   href={inventorySortHref(state, 'name')}
@@ -143,6 +153,9 @@ export function InventoryGrid({
             ) : (
               grid.rows.map((prize) => (
                 <TableRow key={prize.id} data-testid="prize-row">
+                  <TableCell>
+                    <ImageThumb url={prize.photoUrl} icon="prize" />
+                  </TableCell>
                   <TableCell className="font-medium">
                     <button
                       type="button"

@@ -11,7 +11,11 @@
     "tagline": "CRM",
     "sortedAscending": ", ordenado crescente",
     "sortedDescending": ", ordenado decrescente",
-    "notSorted": ", não ordenado"
+    "notSorted": ", não ordenado",
+    "noPictureYet": "Sem imagem",
+    "removePicture": "Remover imagem",
+    "largePicturesAreReduced": "Imagens grandes são reduzidas automaticamente.",
+    "thatPictureCouldNotBeRead": "Não foi possível ler essa imagem. Salve novamente como JPEG ou PNG."
   },
   "nav": {
     "administration": "Administração",
@@ -1078,7 +1082,10 @@
     "actionSaveThisPrize": "salvar este prêmio",
     "actionArchiveThisPrize": "arquivar este prêmio",
     "archivedPromotion": "(promoção arquivada)",
-    "theCountAlreadyMatchedWhatWasBooked": "A contagem já batia com o que estava lançado — não havia nada a registrar."
+    "theCountAlreadyMatchedWhatWasBooked": "A contagem já batia com o que estava lançado — não havia nada a registrar.",
+    "picture": "Imagem",
+    "prizePicture": "Imagem do prêmio",
+    "shownOnTheStockList": "Aparece na lista de estoque e nesta ficha."
   },
   "promotions": {
     "promotions": "Promoções",
@@ -1181,11 +1188,8 @@
     "takePartByWhatsapp": "Participar pelo WhatsApp",
     "turnThisOnToGiveThe": "Ligue isto para dar à promoção uma hashtag, um banner e as perguntas que o bot faz.",
     "whatAListenerTextsToTake": "O que um ouvinte manda por mensagem para participar. Duas promoções rodando ao mesmo tempo nesta Emissora não podem compartilhar uma.",
-    "sendABannerWithTheReply": "Enviar um banner com a resposta",
-    "bannerAddress": "Endereço do banner",
     "https": "https://…",
     "whatsappFetchesThisImageItselfAnd": "O WhatsApp busca esta imagem por conta própria e só por https.",
-    "bannerPreview": "Prévia do banner",
     "quero": "Quero!",
     "agoraNO": "Agora não",
     "askTheListenerFor": "Pedir ao ouvinte",
@@ -1266,7 +1270,11 @@
     "noButton": "Botão “Não”",
     "chooseAPrizeRequired": "Escolha um prêmio.",
     "sayWhyThisPromotionIsBeingCancelled": "Diga por que esta promoção está sendo cancelada.",
-    "whichQuestionReopenTheRecord": "Qual pergunta? Reabra o registro."
+    "whichQuestionReopenTheRecord": "Qual pergunta? Reabra o registro.",
+    "picture": "Imagem",
+    "promotionPicture": "Imagem da promoção",
+    "shownOnTheListAndTheRecord": "Aparece na lista e nesta ficha. Nunca é enviada a ninguém.",
+    "bannerSentWithTheReply": "Banner enviado na resposta"
   },
   "music": {
     "closeRecord": "Fechar ficha",

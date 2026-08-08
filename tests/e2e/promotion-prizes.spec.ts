@@ -94,8 +94,17 @@ function countListRenders(page: Page): string[] {
   return renders;
 }
 
-/** The index of the Available column on /inventory: Prize, Code, Category, Added, In stock, Available. */
-const AVAILABLE_COLUMN = 5;
+/**
+ * The index of the Available column on /inventory: Picture, Prize, Code,
+ * Category, Added, In stock, Available.
+ *
+ * Six until Block 14 put the prize's photograph in the first column. That move
+ * is exactly the one the comment on availableCell predicts, and
+ * assertAvailableHeader is what caught it — the locator had slid onto In stock,
+ * which holds the same figure throughout this journey, so the assertion at the
+ * end would have gone on passing while measuring nothing.
+ */
+const AVAILABLE_COLUMN = 6;
 
 /**
  * The Available cell of a prize's row on /inventory.
