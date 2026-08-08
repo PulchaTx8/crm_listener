@@ -8,6 +8,37 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+
+  /**
+   * What happens to somebody who had a screen open when a deploy landed.
+   *
+   * Every Server Action carries an id minted during `next build`, and a new
+   * build mints new ones. A browser holding a page from the previous image
+   * posts an id the running image has never heard of, and Next answers
+   * `Failed to find Server Action "<id>"` — which reached the hosted
+   * environment on 2026-08-07. The operator meets it at the moment they press
+   * Save, on a form they have just filled in, and nothing on screen suggests
+   * that reloading is the way out.
+   *
+   * With a deployment id configured, Next compares the client's against the
+   * server's — the `x-nextjs-deployment-id` header — and answers a mismatch
+   * with a HARD NAVIGATION rather than a dead action: the page reloads onto the
+   * running build. The Save is still lost, and that is not nothing; what is
+   * gained is that the screen recovers itself instead of stopping.
+   *
+   * FROM THE ENVIRONMENT, and it must CHANGE per build — the Dockerfile takes
+   * it as a build arg (`NEXT_DEPLOYMENT_ID`) and EasyPanel should pass the
+   * commit sha. A literal here would be the same value on every build, which is
+   * the same as having none. Undefined locally, where `next dev` recompiles in
+   * place and there is no second build to be skewed against.
+   *
+   * What it does to the output, MEASURED on Next 15.1 rather than taken from
+   * the docs: every asset URL gains `?dpl=<id>`, and the generated BUILD_ID is
+   * left alone. (Next's canary replaces the build id with a constant when this
+   * is set; this version does not, and a comment claiming otherwise would be
+   * the kind that outlives its own truth.)
+   */
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   // Top-level since Next 15.5; `experimental.typedRoutes` is deprecated.
   typedRoutes: true,
   experimental: {

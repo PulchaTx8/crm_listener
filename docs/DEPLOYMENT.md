@@ -161,7 +161,64 @@ succeeded, producing a **330 MB** image. It is the cheapest possible answer to
 "is the deploy reproducible", and it fails loudly if a dependency, the Node
 version or a build arg has drifted.
 
-## 8. Rollback
+## 8. What a deploy does to somebody who is using the app
+
+**The symptom, reported on 2026-08-07:** an operator presses Save and gets
+
+```
+Failed to find Server Action "40495d…". This request might be from an
+older or newer deployment.
+```
+
+**Why.** Every Server Action carries an id minted during `next build`, and a new
+build mints new ones. A browser holding a page from the previous image posts an
+id the running image has never heard of. It is not a bug in the action, and
+nothing about the form is wrong — the page is simply older than the server.
+
+**The two halves of the fix, and only one of them lives in this repository.**
+
+**1. `NEXT_DEPLOYMENT_ID` — a build arg, wired (`next.config.mjs`, `Dockerfile`).**
+Pass **the commit sha** in EasyPanel's *Build args* tab, beside the two
+`NEXT_PUBLIC_*` ones:
+
+```
+NEXT_DEPLOYMENT_ID=<commit sha of what is being built>
+```
+
+It must **change on every build** or it means nothing — skew is detected by the
+value differing. With it set, Next compares the client's id against the
+server's and answers a mismatch with a **hard navigation**: the screen reloads
+onto the running build instead of failing. The Save is still lost; what is
+gained is that the screen recovers itself.
+
+Measured on Next 15.1, not assumed: with it set, every asset URL gains
+`?dpl=<id>` and the generated `BUILD_ID` is left alone.
+
+**2. `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` — a runtime secret, NOT wired here.**
+Next encrypts the variables a Server Action closes over, with a key generated
+**per build** unless this is set. While two images serve traffic at once — which
+is what a rolling deploy is — a request encrypted by one and decrypted by the
+other fails. Set it in EasyPanel's **Environment** tab, never as a build arg:
+
+```
+NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=<32 random bytes, base64>
+```
+
+Generate it once and keep it: `openssl rand -base64 32`. It is a **secret**, and
+a build arg is baked into the image layers — the same rule this document already
+states for `SUPABASE_SERVICE_ROLE_KEY`.
+
+**What neither half fixes.** A deploy still interrupts whoever was mid-form.
+Rolling the new container up before the old one goes down shortens the window;
+nothing closes it. If interrupting an operator mid-form is unacceptable, deploys
+belong outside the hours the station uses the system.
+
+**If the error persists rather than appearing once after a deploy**, this is not
+skew: it means two containers from **different images** are serving traffic at
+the same time and the proxy is alternating between them. Check the service's
+replica count and that no container from the previous deploy is still running.
+
+## 9. Rollback
 
 Redeploying the previous image rolls back **the application** and nothing else.
 **A migration is not rolled back by a redeploy** — the schema stays where it is,
