@@ -99,8 +99,8 @@ test('a request survives a merge of the song it named, reached from the sidebar'
 }) => {
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText('Platform admin')).toBeVisible();
@@ -130,8 +130,8 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   const ownerPage = await ownerContext.newPage();
 
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(ownerPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
 

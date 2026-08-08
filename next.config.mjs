@@ -41,6 +41,15 @@ const nextConfig = {
   deploymentId: process.env.NEXT_DEPLOYMENT_ID,
   // Top-level since Next 15.5; `experimental.typedRoutes` is deprecated.
   typedRoutes: true,
+
+  // THE `/` REDIRECT IS NOT HERE, and the reason is the `headers()` block at
+  // the bottom of this file. A `redirects()` entry is answered in the routing
+  // layer BEFORE the middleware, and MEASURED against this application, that
+  // response carries none of the five headers below and no CSP — while the
+  // same redirect issued from src/middleware.ts carries all six. `/` is the
+  // single most likely first request anybody makes against this product, and
+  // it is the one response where Strict-Transport-Security is worth the most.
+  // So the redirect lives in the middleware; see the top of its body.
   experimental: {
     serverActions: {
       // Fix-round finding: the participations import posts its whole parsed

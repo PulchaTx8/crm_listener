@@ -76,6 +76,9 @@
     "signIn": "Iniciar sesión",
     "yourAccountIsReadySignIn": "Su cuenta está lista. Inicie sesión con la contraseña que acaba de elegir.",
     "password": "Contraseña",
+    "accessYourAccount": "Acceda a su cuenta",
+    "showPassword": "Mostrar la contraseña",
+    "hidePassword": "Ocultar la contraseña",
     "forgotYourPassword": "¿Olvidó su contraseña?",
     "yourProvisionalPasswordHasExpired": "Su contraseña provisional ha caducado. Contáctenos para obtener una nueva.",
     "invalidCredentials": "Credenciales inválidas.",
@@ -98,7 +101,6 @@
     "pulchatx": "PulchatX",
     "crmForEntertainmentCompaniesManageYour": "CRM para empresas de entretenimiento. Gestione la relación con su audiencia y todo el ciclo de entrega de premios de sus promociones.",
     "pulchatxIsSoldBySubscriptionGet": "PulchatX se vende por suscripción. Contáctenos y configuramos su cuenta.",
-    "signIn": "Iniciar sesión",
     "pleaseCheckTheFieldsAndTry": "Revise los campos e inténtelo de nuevo.",
     "somethingWentWrongPleaseTry": "Algo salió mal. Inténtelo de nuevo más tarde."
   },

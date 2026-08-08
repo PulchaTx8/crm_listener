@@ -50,8 +50,8 @@ test.afterAll(async () => {
 
 async function signIn(page: import('@playwright/test').Page) {
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(email);
-  await page.getByPlaceholder('Password').fill(password);
+  await page.getByLabel('E-mail', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 }
@@ -125,7 +125,11 @@ test('a browser asking for Portuguese is answered in Portuguese before anybody s
   const page = await context.newPage();
 
   await page.goto('/login');
-  await expect(page.getByRole('heading', { name: 'Entrar' })).toBeVisible();
+  // 'Acesse sua conta', not 'Entrar'. The heading and the submit button used to
+  // be the same string; when this screen was redrawn the heading became its own
+  // sentence and the button kept 'Entrar'. The role is what pins this to the
+  // heading, so the name had to follow it.
+  await expect(page.getByRole('heading', { name: 'Acesse sua conta' })).toBeVisible();
 
   await context.close();
 });

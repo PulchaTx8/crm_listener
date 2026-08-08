@@ -38,8 +38,8 @@ test.afterAll(async () => {
 test('an owner invites a colleague who joins with their own password', async ({ page }) => {
   // --- provision an Owner to do the inviting ------------------------------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -68,8 +68,8 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   const ownerPage = await ownerContext.newPage();
 
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(ownerPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
 
@@ -128,8 +128,8 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   if (inviteeProfile) createdUserIds.push(inviteeProfile.id);
 
   // --- the invitee signs in with the password they chose -------------------
-  await inviteePage.getByPlaceholder('E-mail').fill(inviteeEmail);
-  await inviteePage.getByPlaceholder('Password').fill(inviteePassword);
+  await inviteePage.getByLabel('E-mail', { exact: true }).fill(inviteeEmail);
+  await inviteePage.getByLabel('Password', { exact: true }).fill(inviteePassword);
   await inviteePage.getByRole('button', { name: 'Sign in' }).click();
 
   // Straight to /app: they chose their own password, so there is no gate.

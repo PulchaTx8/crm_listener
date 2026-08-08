@@ -9,7 +9,11 @@ import { localeCookieUpdate } from '@/i18n/locales';
  * `/auth/callback` must be here: someone arriving from a password-reset e-mail
  * has no session yet, and bouncing them would leave the code unexchanged.
  */
-const PUBLIC_PATHS = ['/', '/contato', '/login', '/forgot-password', '/auth/callback', '/api/health'];
+// `/` IS NOT HERE ANY MORE, and its absence is not an oversight. The body
+// redirects it to /login before this list is consulted, so an entry would say
+// that `/` is a public page somebody can be shown — which it stopped being when
+// the landing page was deleted.
+const PUBLIC_PATHS = ['/contato', '/login', '/forgot-password', '/auth/callback', '/api/health'];
 
 const CHANGE_PASSWORD_PATH = '/change-password';
 const SIGN_OUT_PATH = '/auth/signout';
@@ -63,6 +67,34 @@ export async function middleware(request: NextRequest) {
   };
 
   let response = nextWithCsp();
+
+  /**
+   * The front door. There is no landing page any more: what it said now sits
+   * beside the sign-in form, in the panel the (auth) layout draws, so `/` has
+   * nothing left to render.
+   *
+   * HERE RATHER THAN IN next.config.mjs's `redirects()`, and MEASURED rather
+   * than assumed: a config redirect is answered before this file ever runs, and
+   * that response carries neither the CSP nor any of the five static headers
+   * from `headers()` — 0 of 6, against 6 of 6 for the line below. On the one
+   * request most likely to be somebody's first contact with this product,
+   * that is the wrong trade for a saved hop.
+   *
+   * BEFORE THE SUPABASE CLIENT IS EVEN BUILT, which is the whole reason this
+   * sits at the top of the body rather than beside the redirects further down.
+   * `/` has the same answer for a visitor with a session and one without, so
+   * asking Supabase Auth who they are would be a network round trip whose
+   * result is discarded — paid by every anonymous visitor who ever types the
+   * bare domain.
+   *
+   * The consequence, and it is deliberate: somebody who still holds a session
+   * and types `/` lands on the sign-in screen rather than on /app. That is
+   * already what `/login` does for them, and changing it is a rule about where
+   * a signed-in person belongs, which is not this block's business.
+   */
+  if (request.nextUrl.pathname === '/') {
+    return redirectWithCsp(new URL('/login', request.url));
+  }
 
   // Refreshing the session here is what makes the cookie-write guard in
   // user-client.ts safe: Server Components cannot write cookies, so without

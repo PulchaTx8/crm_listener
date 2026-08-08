@@ -71,6 +71,11 @@ jobs:
       # server is started by playwright.config.ts, pointed at this stack.
       - run: supabase start
       - run: npm ci
+      # The sign-in screen's picture lives in a Storage bucket, and `supabase
+      # start` leaves that bucket empty — SQL cannot put bytes in one. Without
+      # this, login.spec.ts's assertion that the picture renders fails on a
+      # missing object rather than on anything the branch changed.
+      - run: npm run seed:branding
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4

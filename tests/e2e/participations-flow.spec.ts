@@ -558,8 +558,8 @@ test('an entry recorded from the fifth tab moves the count, leaves the list behi
   // The same sequence promotion-prizes.spec.ts performs in its own first test,
   // and through the same real screens.
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -585,8 +585,8 @@ test('an entry recorded from the fifth tab moves the count, leaves the list behi
   const ownerContext = await browser.newContext();
   const ownerPage = await ownerContext.newPage();
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(entryOwnerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(provisionalPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(entryOwnerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(provisionalPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
   await ownerPage.getByPlaceholder('New password').fill(entryOwnerPassword);
@@ -756,8 +756,8 @@ test('the list opens on the entries that counted and says so, and Any status bri
   const context = await browser.newContext();
   const managerPage = await context.newPage();
   await managerPage.goto('/login');
-  await managerPage.getByPlaceholder('E-mail').fill(managerEmail);
-  await managerPage.getByPlaceholder('Password').fill(world.managerPassword);
+  await managerPage.getByLabel('E-mail', { exact: true }).fill(managerEmail);
+  await managerPage.getByLabel('Password', { exact: true }).fill(world.managerPassword);
   await managerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(managerPage).toHaveURL(/\/app$/);
 
@@ -825,8 +825,8 @@ test('a delegate who cannot see the audience is told their search was dropped, a
   const managerContext = await browser.newContext();
   const managerPage = await managerContext.newPage();
   await managerPage.goto('/login');
-  await managerPage.getByPlaceholder('E-mail').fill(managerEmail);
-  await managerPage.getByPlaceholder('Password').fill(world.managerPassword);
+  await managerPage.getByLabel('E-mail', { exact: true }).fill(managerEmail);
+  await managerPage.getByLabel('Password', { exact: true }).fill(world.managerPassword);
   await managerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(managerPage).toHaveURL(/\/app$/);
 
@@ -844,8 +844,8 @@ test('a delegate who cannot see the audience is told their search was dropped, a
   const readerContext = await browser.newContext();
   const readerPage = await readerContext.newPage();
   await readerPage.goto('/login');
-  await readerPage.getByPlaceholder('E-mail').fill(readerEmail);
-  await readerPage.getByPlaceholder('Password').fill(world.readerPassword);
+  await readerPage.getByLabel('E-mail', { exact: true }).fill(readerEmail);
+  await readerPage.getByLabel('Password', { exact: true }).fill(world.readerPassword);
   await readerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(readerPage).toHaveURL(/\/app$/);
 
@@ -898,8 +898,8 @@ test('a Station chip and a page turn both beat a search still waiting to fire', 
   const context = await browser.newContext();
   const managerPage = await context.newPage();
   await managerPage.goto('/login');
-  await managerPage.getByPlaceholder('E-mail').fill(managerEmail);
-  await managerPage.getByPlaceholder('Password').fill(world.managerPassword);
+  await managerPage.getByLabel('E-mail', { exact: true }).fill(managerEmail);
+  await managerPage.getByLabel('Password', { exact: true }).fill(world.managerPassword);
   await managerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(managerPage).toHaveURL(/\/app$/);
 
@@ -1007,8 +1007,8 @@ test('the fifth tab offers a delegate only what they hold, and names what it is 
   const readerContext = await browser.newContext();
   const readerPage = await readerContext.newPage();
   await readerPage.goto('/login');
-  await readerPage.getByPlaceholder('E-mail').fill(readerEmail);
-  await readerPage.getByPlaceholder('Password').fill(world.readerPassword);
+  await readerPage.getByLabel('E-mail', { exact: true }).fill(readerEmail);
+  await readerPage.getByLabel('Password', { exact: true }).fill(world.readerPassword);
   await readerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(readerPage).toHaveURL(/\/app$/);
 
@@ -1040,8 +1040,8 @@ test('the fifth tab offers a delegate only what they hold, and names what it is 
   const blindContext = await browser.newContext();
   const blindPage = await blindContext.newPage();
   await blindPage.goto('/login');
-  await blindPage.getByPlaceholder('E-mail').fill(promotionsOnlyEmail);
-  await blindPage.getByPlaceholder('Password').fill(world.promotionsOnlyPassword);
+  await blindPage.getByLabel('E-mail', { exact: true }).fill(promotionsOnlyEmail);
+  await blindPage.getByLabel('Password', { exact: true }).fill(world.promotionsOnlyPassword);
   await blindPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(blindPage).toHaveURL(/\/app$/);
 
@@ -1085,8 +1085,8 @@ test('a promotion opened under another Station is refused, with the way to open 
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(managerEmail);
-  await page.getByPlaceholder('Password').fill(world.managerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(managerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(world.managerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 

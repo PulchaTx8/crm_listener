@@ -225,3 +225,47 @@ Redeploying the previous image rolls back **the application** and nothing else.
 and the older image may not understand it. If a migration has to be undone, that
 is a new migration, written deliberately, with the same care as the one that
 caused the problem.
+
+## 10. The picture on the sign-in screen
+
+The panel beside the sign-in form shows one image, and it is meant to be
+replaced periodically without a deploy.
+
+**Where it lives:** Supabase Storage, bucket `branding`, object `login-hero.png`.
+
+| | |
+|---|---|
+| Bucket | `branding` (public) |
+| Object | `login-hero.png` — one fixed key, always this name |
+| Public address | `<SUPABASE_URL>/storage/v1/object/public/branding/login-hero.png` |
+| Recommended size | **912 × 456** (2:1) |
+| Accepted formats | PNG, JPEG, WebP — max 5 MB |
+
+**How to replace it:** Supabase dashboard → **Storage** → bucket `branding` →
+select `login-hero.png` → **Replace file** (or delete it and upload a new file
+with exactly that name). The change is live on the next page load.
+
+**It is deliberately NOT in `public/`.** The Dockerfile copies `public/` into the
+image, so a file there can only be changed by a commit and a rebuild — which is
+the opposite of what this image is for.
+
+**No screen in the application uploads it, and that is on purpose.** Migration
+`0146_branding_bucket.sql` gives the bucket no write policy at all, so no
+signed-in member of any Station can replace it. The dashboard acts as
+`service_role` and is not subject to those policies, which makes it the only
+door. Locally, `npm run seed:branding` uploads
+`supabase/seed-assets/login-hero.png` through the same door; it refuses to run
+against anything but a local stack.
+
+**Why the address carries `?v=`.** Storage serves this object with
+`cache-control: max-age=3600`, so a browser holding the old picture would keep
+showing it for an hour after a replacement. `src/lib/branding/login-hero.ts`
+reads the object's `updated_at` and appends it to the URL, which makes every
+replacement a new address and therefore a new cache entry.
+
+**If the bucket is empty**, the panel renders its text and button with no
+picture. That is the state of a brand-new environment, not a fault.
+
+**A note on transparency:** the image is drawn on the panel's light grey
+surface. A PNG with an opaque background renders as a rectangle of that colour;
+one with real transparency blends into the panel.
