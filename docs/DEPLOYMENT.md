@@ -257,11 +257,23 @@ door. Locally, `npm run seed:branding` uploads
 `supabase/seed-assets/login-hero.png` through the same door; it refuses to run
 against anything but a local stack.
 
-**Why the address carries `?v=`.** Storage serves this object with
-`cache-control: max-age=3600`, so a browser holding the old picture would keep
-showing it for an hour after a replacement. `src/lib/branding/login-hero.ts`
-reads the object's `updated_at` and appends it to the URL, which makes every
-replacement a new address and therefore a new cache entry.
+**It needs no migration to have been run, and no policy to exist.** The page
+sends a `HEAD` to the object's own public address, which `public = true` serves
+without consulting RLS at all. So a bucket made by hand in the dashboard, on a
+project whose migrations are behind, still shows its picture. That was not true
+of the first version: it read the object's row through RLS to build the cache
+stamp below, and rendered **no picture at all** when the policy was missing —
+which is precisely what happened the first time this reached a hosted project.
+`0147_branding_read_policy_removed.sql` withdrew that policy once the dependency
+was gone.
+
+**Why the address carries `?v=`.** Storage serves this object with a
+`cache-control` chosen at upload (`max-age=3600` when the uploader names none),
+so a browser holding the old picture would keep showing it for an hour after a
+replacement. `src/lib/branding/login-hero.ts` reads the object's `ETag` off that
+same `HEAD` and appends it, which makes every replacement a new address and
+therefore a new cache entry. If the response carries no `ETag` and no
+`Last-Modified`, the picture is rendered **unstamped** rather than not at all.
 
 **If the bucket is empty**, the panel renders its text and button with no
 picture. That is the state of a brand-new environment, not a fault.

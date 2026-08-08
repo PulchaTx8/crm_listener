@@ -1,14 +1,20 @@
 begin;
-select plan(11);
+select plan(10);
 
 -- The bucket behind the sign-in screen's picture. Asserted rather than trusted,
 -- for 29's reason: configuration nobody asserts returns to its default on the
 -- next `db reset`, invisibly, because the image simply starts working again.
 --
--- What is different here, and what most of this file is about: THE READER HAS
--- NO SESSION. Every other bucket in this database is read by somebody who has
--- signed in. This one is read by somebody looking at the screen where they
--- sign in, so `anon` is the role that matters and `anon` is what is proved.
+-- WHAT THIS FILE NO LONGER ASSERTS, AND WHY THAT IS THE POINT. It used to prove
+-- that `anon` could read these rows, because the sign-in page read the object's
+-- updated_at through storage.objects to build a cache stamp -- and rendered no
+-- picture at all when that read came back empty. On the hosted project, where
+-- the bucket had been made by hand and these migrations had never run, that is
+-- exactly what happened. 0147 withdrew the policy and login-hero.ts now asks
+-- the object's own public address instead, which consults no policy. So the
+-- assertions below are about the bucket and about WRITES; reading is settled
+-- over HTTP, by tests/e2e/login.spec.ts, which checks the picture actually
+-- loaded rather than that a row was visible.
 
 select is(
   (select public from storage.buckets where id = 'branding'),
@@ -39,63 +45,55 @@ select is(
   false,
   'the delivery receipt stays private, for 0086''s reason');
 
+-- ---------------------------------------------------------------------------
+-- NO POLICY AT ALL MENTIONS THIS BUCKET, and the absence is the design.
+--
+-- Writes: the operator replaces the picture through the dashboard, as
+-- service_role. A policy admitting `authenticated` would hand every member of
+-- every Station the front door of the product, since this object belongs to no
+-- tenant and its path carries no company id to scope against.
+--
+-- Reads: withdrawn by 0147. The assertion is here so that "surely reading needs
+-- a policy" cannot quietly put it back -- it would be dead grant, and the
+-- feature that once depended on it is what broke because of that dependency.
 select is(
   (select count(*) from pg_policies
     where schemaname = 'storage' and tablename = 'objects'
       and policyname = 'branding_read'),
-  1::bigint,
-  'the read policy exists, without which the cache stamp cannot be read');
+  0::bigint,
+  '0146''s read policy is gone, because nothing reads these rows any more');
 
--- THE ABSENCE IS THE DESIGN, so the absence is asserted. Nothing subject to RLS
--- writes here -- the operator replaces the picture through the dashboard, as
--- service_role -- and a policy admitting `authenticated` would hand every
--- member of every Station the front door of the product, since this object
--- belongs to no tenant and its path carries no company id to scope against.
 select is(
   (select count(*) from pg_policies
     where schemaname = 'storage' and tablename = 'objects'
-      and cmd <> 'SELECT'
-      and qual || coalesce(with_check, '') like '%branding%'),
+      and coalesce(qual, '') || coalesce(with_check, '') like '%branding%'),
   0::bigint,
-  'and NO write policy mentions this bucket, which is the design, not an omission');
+  'and no policy of any kind names this bucket');
 
 -- ---------------------------------------------------------------------------
 -- The proofs themselves, run as the roles that actually arrive.
 --
--- Two rows, in two buckets, so that what is proved is that the policy is SCOPED
--- rather than merely present: a policy written `using (true)` would pass an
--- "anon can read branding" assertion and hand anon every delivery receipt in
--- the database.
---
--- A PROBE NAME, NOT 'login-hero.png', AND NOT A ROW COUNT. This file first
--- inserted the real key and asserted `count(*) = 1`, which passed against an
--- empty bucket and failed the moment `npm run seed:branding` had been run on
--- the same database -- a unique-violation on the insert, and a plan that ran
--- seven of eleven. Whether a developer has seeded their own machine is not
--- something these assertions are entitled to have an opinion about, so nothing
--- below depends on what else the bucket holds.
-insert into storage.objects (bucket_id, name)
-values ('branding', 'pgtap-probe'),
-       ('artwork', 'promotion-thumbs/11111111-1111-1111-1111-111111111111/pgtap-probe');
-
+-- A PROBE NAME, NOT 'login-hero.png'. This file first inserted the real key,
+-- which passed against an empty bucket and failed the moment
+-- `npm run seed:branding` had been run on the same database -- a unique
+-- violation, and a plan that ran seven of eleven. Whether a developer has
+-- seeded their own machine is not something these assertions are entitled to
+-- have an opinion about.
 set local role anon;
-
-select is(
-  (select count(*) from storage.objects
-    where bucket_id = 'branding' and name = 'pgtap-probe'),
-  1::bigint,
-  'a caller with no session can read a branding object, which is the point');
-
-select is(
-  (select count(*) from storage.objects where bucket_id = 'artwork'),
-  0::bigint,
-  'and sees nothing in the neighbouring bucket, so the policy is scoped');
 
 select throws_ok(
   $$insert into storage.objects (bucket_id, name)
     values ('branding', 'pgtap-write-probe')$$,
   '42501', null,
   'a caller with no session cannot write here');
+
+-- The bytes are still served to that same caller over HTTP, which is the whole
+-- design: `public = true` on the bucket is what the sign-in screen relies on,
+-- and it is decided by storage-api rather than by any policy this can see.
+select is(
+  (select count(*) from storage.objects where bucket_id = 'branding'),
+  0::bigint,
+  'and reads no rows through SQL, which the picture no longer depends on');
 
 reset role;
 set local role authenticated;
