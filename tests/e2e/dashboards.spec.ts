@@ -332,8 +332,8 @@ test('the round trip: a known figure, the period switch that changes it, a rende
   const cspViolations = await collectCspViolations(page);
 
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerInitialPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerInitialPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   // provision_customer sets must_change_password (0016) regardless of how the
   // password was chosen — the trap Block 5a's own handoff describes, cleared
@@ -386,8 +386,8 @@ test('a caller missing participations.view sees the permission named beside real
   page,
 }) => {
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(delegateWithheldEmail);
-  await page.getByPlaceholder('Password').fill(delegateWithheldPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(delegateWithheldEmail);
+  await page.getByLabel('Password', { exact: true }).fill(delegateWithheldPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -419,8 +419,8 @@ test('a Station search matching nothing is not the same screen as holding the pe
 }) => {
   // --- a real Station, searched into oblivion -------------------------------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(delegateSearchEmail);
-  await page.getByPlaceholder('Password').fill(delegateSearchPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(delegateSearchEmail);
+  await page.getByLabel('Password', { exact: true }).fill(delegateSearchPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -440,8 +440,8 @@ test('a Station search matching nothing is not the same screen as holding the pe
   const outsiderContext = await browser.newContext();
   const outsiderPage = await outsiderContext.newPage();
   await outsiderPage.goto('/login');
-  await outsiderPage.getByPlaceholder('E-mail').fill(delegateOutsiderEmail);
-  await outsiderPage.getByPlaceholder('Password').fill(delegateOutsiderPassword);
+  await outsiderPage.getByLabel('E-mail', { exact: true }).fill(delegateOutsiderEmail);
+  await outsiderPage.getByLabel('Password', { exact: true }).fill(delegateOutsiderPassword);
   await outsiderPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(outsiderPage).toHaveURL(/\/app$/);
 
@@ -460,8 +460,8 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
 }) => {
   // --- eligible: the toggle renders, and the note follows the choice --------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(delegateConsolidatedEmail);
-  await page.getByPlaceholder('Password').fill(delegateConsolidatedPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(delegateConsolidatedEmail);
+  await page.getByLabel('Password', { exact: true }).fill(delegateConsolidatedPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -539,8 +539,8 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   const weakContext = await browser.newContext();
   const weakPage = await weakContext.newPage();
   await weakPage.goto('/login');
-  await weakPage.getByPlaceholder('E-mail').fill(delegateWeakEmail);
-  await weakPage.getByPlaceholder('Password').fill(delegateWeakPassword);
+  await weakPage.getByLabel('E-mail', { exact: true }).fill(delegateWeakEmail);
+  await weakPage.getByLabel('Password', { exact: true }).fill(delegateWeakPassword);
   await weakPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(weakPage).toHaveURL(/\/app$/);
 

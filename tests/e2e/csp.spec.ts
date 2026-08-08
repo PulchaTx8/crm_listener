@@ -15,10 +15,13 @@ import { collectCspViolations } from './csp-violations';
  * Content-Security-Policy header it can read the nonce out of; forwarding
  * `x-nonce` alone leaves the renderer with nothing.
  */
-// `/login` is where every journey in this suite begins, and `/` is the one
-// route `next build` still prerendered when this block started -- prerendered
-// HTML has no request nonce, so its bootstrap shipped unstamped. Both, so the
-// regression cannot come back through either door.
+// `/login` is where every journey in this suite begins. `/` was the one route
+// `next build` still prerendered when Block 11b started -- prerendered HTML has
+// no request nonce, so its bootstrap shipped unstamped -- and it is now a
+// redirect onto /login, which `request.get` follows. It is kept in the loop
+// deliberately: what it proves has changed from "the prerendered page is
+// stamped" to "the whole front-door path ends on a stamped page", and that is
+// still a door the regression could come back through.
 for (const path of ['/login', '/']) {
   test(`every script tag delivered by ${path} carries the nonce`, async ({ request }) => {
     const response = await request.get(path);

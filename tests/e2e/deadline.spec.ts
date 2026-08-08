@@ -236,8 +236,8 @@ test('the deadline expires, an operator reopens it and hands the prize over, and
   test.setTimeout(90_000);
 
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page).toHaveURL(/\/change-password$/);

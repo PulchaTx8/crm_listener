@@ -66,8 +66,8 @@ test('a Station takes its own voice and records the template that lets it speak 
 }) => {
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText('Platform admin')).toBeVisible();
@@ -97,8 +97,8 @@ test('a Station takes its own voice and records the template that lets it speak 
   const ownerPage = await ownerContext.newPage();
 
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(ownerPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
 

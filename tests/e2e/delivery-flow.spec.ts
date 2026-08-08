@@ -124,8 +124,8 @@ test('an operator hands a prize over, files the receipt, and undoes the delivery
   page,
 }) => {
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page).toHaveURL(/\/change-password$/);

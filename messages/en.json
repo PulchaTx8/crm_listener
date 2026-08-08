@@ -76,6 +76,9 @@
     "signIn": "Sign in",
     "yourAccountIsReadySignIn": "Your account is ready. Sign in with the password you just chose.",
     "password": "Password",
+    "accessYourAccount": "Access your account",
+    "showPassword": "Show the password",
+    "hidePassword": "Hide the password",
     "forgotYourPassword": "Forgot your password?",
     "yourProvisionalPasswordHasExpired": "Your provisional password has expired. Please contact us for a new one.",
     "invalidCredentials": "Invalid credentials.",
@@ -98,7 +101,6 @@
     "pulchatx": "PulchatX",
     "crmForEntertainmentCompaniesManageYour": "CRM for entertainment companies. Manage your audience relationship and the whole prize distribution cycle of your promotions.",
     "pulchatxIsSoldBySubscriptionGet": "PulchatX is sold by subscription. Get in touch and we will set your account up.",
-    "signIn": "Sign in",
     "pleaseCheckTheFieldsAndTry": "Please check the fields and try again.",
     "somethingWentWrongPleaseTry": "Something went wrong. Please try again later."
   },

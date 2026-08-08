@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
+import { PasswordInput } from '@/components/ui/password-input';
 
 export default async function LoginPage({
   searchParams,
@@ -45,28 +45,54 @@ export default async function LoginPage({
   }
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-5 pt-6">
-        <h1 className="text-xl font-semibold tracking-tight">{t('signIn')}</h1>
-        {params.invited ? (
-        <p className="text-sm text-muted-foreground">
-          {t('yourAccountIsReadySignIn')}</p>
+    <div className="flex flex-col gap-6">
+      <h1 className="text-2xl font-semibold tracking-tight">{t('accessYourAccount')}</h1>
+
+      {params.invited ? (
+        <p className="text-sm text-muted-foreground">{t('yourAccountIsReadySignIn')}</p>
       ) : null}
       {params.error ? (
-          <p className="text-sm text-destructive">
-            {params.error === 'expired'
-              ? t('yourProvisionalPasswordHasExpired')
-              : t('invalidCredentials')}
-          </p>
-        ) : null}
-        <form action={signIn} className="flex flex-col gap-4">
-          <Input name="email" type="email" placeholder={t('eMail')} required />
-          <Input name="password" type="password" placeholder={t('password')} required />
-          <Button type="submit">{t('signIn')}</Button>
-        </form>
-        <Link href="/forgot-password" className="text-sm underline">
-          {t('forgotYourPassword')}</Link>
-      </CardContent>
-    </Card>
+        <p className="text-sm text-destructive">
+          {params.error === 'expired'
+            ? t('yourProvisionalPasswordHasExpired')
+            : t('invalidCredentials')}
+        </p>
+      ) : null}
+
+      <form action={signIn} className="flex flex-col gap-4">
+        {/* VISIBLE LABELS, and no placeholder repeating them. A placeholder is
+            the field's only description until the first keystroke and nothing
+            at all after it, which is the state a field spends its whole life
+            in. `htmlFor`/`id` rather than wrapping: the password field renders
+            its own <div> for the reveal button, so a wrapping label would take
+            the button's click as a click on the input. */}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="email" className="text-sm font-medium">
+            {t('eMail')}
+          </label>
+          <Input id="email" name="email" type="email" autoComplete="email" required />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="password" className="text-sm font-medium">
+            {t('password')}
+          </label>
+          <PasswordInput
+            id="password"
+            name="password"
+            autoComplete="current-password"
+            required
+          />
+        </div>
+
+        <Link href="/forgot-password" className="self-start text-sm text-primary hover:underline">
+          {t('forgotYourPassword')}
+        </Link>
+
+        <Button type="submit" className="mt-2 w-full">
+          {t('signIn')}
+        </Button>
+      </form>
+    </div>
   );
 }

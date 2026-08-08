@@ -85,8 +85,8 @@ test('an administrator connects a Station, and the owner reads it in the trail',
 }) => {
   // --- The platform console -------------------------------------------------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(adminEmail);
-  await page.getByPlaceholder('Password').fill(adminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(adminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(adminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   // Wait for the login to land before navigating: the admin's own
   // must_change_password gate is clear, so the change screen bounces them to
@@ -135,8 +135,8 @@ test('an administrator connects a Station, and the owner reads it in the trail',
   await page.context().clearCookies();
 
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerInitialPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerInitialPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/change-password$/);
   await page.getByPlaceholder('New password').fill(ownerChosenPassword);

@@ -83,8 +83,8 @@ async function trackUser(email: string): Promise<string> {
 
 async function signIn(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(email);
-  await page.getByPlaceholder('Password').fill(password);
+  await page.getByLabel('E-mail', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 

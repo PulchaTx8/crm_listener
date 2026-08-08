@@ -174,8 +174,8 @@ test.afterAll(async () => {
 
 test('an operator filters the participants list and draws over what is left', async ({ page }) => {
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // provision_customer marks the owner's password provisional, so the first

@@ -98,8 +98,8 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
 
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -178,8 +178,8 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   const ownerPage = await ownerContext.newPage();
 
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(ownerPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
 
@@ -293,8 +293,8 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   if (!delegateAProfile) throw new Error(`no profile row for ${delegateAEmail}`);
   createdUserIds.push(delegateAProfile.id);
 
-  await delegateAPage.getByPlaceholder('E-mail').fill(delegateAEmail);
-  await delegateAPage.getByPlaceholder('Password').fill(delegateAPassword);
+  await delegateAPage.getByLabel('E-mail', { exact: true }).fill(delegateAEmail);
+  await delegateAPage.getByLabel('Password', { exact: true }).fill(delegateAPassword);
   await delegateAPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(delegateAPage).toHaveURL(/\/app$/);
 
@@ -442,8 +442,8 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   if (!delegateBProfile) throw new Error(`no profile row for ${delegateBEmail}`);
   createdUserIds.push(delegateBProfile.id);
 
-  await delegateBPage.getByPlaceholder('E-mail').fill(delegateBEmail);
-  await delegateBPage.getByPlaceholder('Password').fill(delegateBPassword);
+  await delegateBPage.getByLabel('E-mail', { exact: true }).fill(delegateBEmail);
+  await delegateBPage.getByLabel('Password', { exact: true }).fill(delegateBPassword);
   await delegateBPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(delegateBPage).toHaveURL(/\/app$/);
 

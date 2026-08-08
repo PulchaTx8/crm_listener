@@ -91,8 +91,8 @@ test('the promotion record opens over a list that is never re-queried', async ({
 }) => {
   // --- seed a customer and an owner ----------------------------------------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -118,8 +118,8 @@ test('the promotion record opens over a list that is never re-queried', async ({
   const ownerContext = await browser.newContext();
   const ownerPage = await ownerContext.newPage();
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(provisionalPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(provisionalPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
   await ownerPage.getByPlaceholder('New password').fill(ownerPassword);
@@ -270,8 +270,8 @@ test('a promotion is cancelled with a reason, and only then archived', async ({ 
   const page = await context.newPage();
 
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -351,8 +351,8 @@ test('a record address typed straight into the bar opens on the tab it names', a
   const page = await context.newPage();
 
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 

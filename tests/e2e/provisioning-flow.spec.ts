@@ -46,8 +46,8 @@ test.afterAll(async () => {
 test('provision a customer, sign in, change the password, then suspend', async ({ page }) => {
   // --- the admin signs in and reaches the console -------------------------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // The admin's own gate is clear, so the change screen bounces them onward.
@@ -124,8 +124,8 @@ test('provision a customer, sign in, change the password, then suspend', async (
   const customerPage = await customer.newPage();
 
   await customerPage.goto('/login');
-  await customerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await customerPage.getByPlaceholder('Password').fill(provisionalPassword);
+  await customerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await customerPage.getByLabel('Password', { exact: true }).fill(provisionalPassword);
   await customerPage.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(customerPage).toHaveURL(/\/change-password$/);

@@ -49,8 +49,8 @@ test.afterAll(async () => {
 test('an owner composes a role and assigns it per Station', async ({ page, browser }) => {
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -79,8 +79,8 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   const ownerPage = await ownerContext.newPage();
 
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(ownerPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
 
@@ -178,8 +178,8 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   if (!inviteeProfile) throw new Error(`no profile row for ${inviteeEmail}`);
   createdUserIds.push(inviteeProfile.id);
 
-  await inviteePage.getByPlaceholder('E-mail').fill(inviteeEmail);
-  await inviteePage.getByPlaceholder('Password').fill(inviteePassword);
+  await inviteePage.getByLabel('E-mail', { exact: true }).fill(inviteeEmail);
+  await inviteePage.getByLabel('Password', { exact: true }).fill(inviteePassword);
   await inviteePage.getByRole('button', { name: 'Sign in' }).click();
   await expect(inviteePage).toHaveURL(/\/app$/);
 

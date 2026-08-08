@@ -60,8 +60,8 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
 }) => {
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(platformAdminEmail);
-  await page.getByPlaceholder('Password').fill(platformAdminPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
@@ -97,8 +97,8 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   const ownerPage = await ownerContext.newPage();
 
   await ownerPage.goto('/login');
-  await ownerPage.getByPlaceholder('E-mail').fill(ownerEmail);
-  await ownerPage.getByPlaceholder('Password').fill(ownerPassword);
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await ownerPage.getByRole('button', { name: 'Sign in' }).click();
   await expect(ownerPage).toHaveURL(/\/change-password$/);
 
@@ -195,8 +195,8 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   if (!delegateProfile) throw new Error(`no profile row for ${delegateEmail}`);
   createdUserIds.push(delegateProfile.id);
 
-  await delegatePage.getByPlaceholder('E-mail').fill(delegateEmail);
-  await delegatePage.getByPlaceholder('Password').fill(delegatePassword);
+  await delegatePage.getByLabel('E-mail', { exact: true }).fill(delegateEmail);
+  await delegatePage.getByLabel('Password', { exact: true }).fill(delegatePassword);
   await delegatePage.getByRole('button', { name: 'Sign in' }).click();
   await expect(delegatePage).toHaveURL(/\/app$/);
 

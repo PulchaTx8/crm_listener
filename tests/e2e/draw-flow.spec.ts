@@ -146,8 +146,8 @@ test('an operator runs a draw on a closed promotion and sees the winner and the 
   page,
 }) => {
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // provision_customer marks the owner's password provisional, so the first

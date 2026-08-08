@@ -19,7 +19,8 @@
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
     "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts",
-    "seed:demo": "node scripts/seed-demo.mjs"
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "seed:branding": "node scripts/seed-branding.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",

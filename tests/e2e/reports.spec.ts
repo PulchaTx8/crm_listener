@@ -148,8 +148,8 @@ test('a listeners export goes from the screen to a downloaded file', async ({ pa
   // first login goes through the change-password screen -- the same path
   // dashboards.spec.ts walks.
   await page.goto('/login');
-  await page.getByPlaceholder('E-mail').fill(ownerEmail);
-  await page.getByPlaceholder('Password').fill(ownerInitialPassword);
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerInitialPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
   // provision_customer sets must_change_password (0016) regardless of how the
   // password was chosen -- the trap Block 5a's handoff describes, cleared here
