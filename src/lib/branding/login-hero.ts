@@ -1,5 +1,6 @@
 import 'server-only';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
+import { logger } from '@/lib/logger';
 
 /**
  * The picture on the sign-in screen: where it is, and how a replacement of it
@@ -125,12 +126,34 @@ export async function getLoginHeroUrl(): Promise<string | null> {
     // 400 rather than 404 is what Storage answers for a missing key, measured;
     // treating the whole error range the same way means neither has to be
     // guessed at.
-    if (!probe.ok) return null;
+    if (!probe.ok) {
+      // SAID OUT LOUD, because the silence is what cost the time.
+      //
+      // An operator uploads the picture, reloads, and sees the screen exactly
+      // as before. Nothing on the page, and until this line nothing in the
+      // logs, distinguished "the object is missing" from "the bucket is
+      // missing" from "this app is pointed at a different Supabase project
+      // altogether" -- which is what it turned out to be the first time, and it
+      // took reading the CSP off the live response to find out.
+      //
+      // The address is the whole diagnosis: it names the project, the bucket
+      // and the key, so whoever reads this line can see at a glance which of
+      // the three is wrong. It is not a secret -- it is a public URL, and it is
+      // already in the HTML whenever this succeeds.
+      logger.warn(
+        { address, status: probe.status },
+        'sign-in picture not served; the panel will render without it',
+      );
+      return null;
+    }
     return loginHeroPublicUrl(origin, versionStampFrom(probe.headers));
-  } catch {
+  } catch (cause) {
     // Storage being unreachable must not take the sign-in screen down with it.
     // Somebody in that situation probably cannot sign in either, but they
-    // should meet the form and its error message rather than a 500.
+    // should meet the form and its error message rather than a 500 -- and the
+    // reason belongs in the log rather than nowhere, which is the same lesson
+    // the contact form learned (see (public)/contato/page.tsx).
+    logger.warn({ err: cause, address }, 'could not reach the sign-in picture');
     return null;
   }
 }
