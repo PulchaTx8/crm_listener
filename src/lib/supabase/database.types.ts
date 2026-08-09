@@ -1409,6 +1409,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           deleted_at: string | null
+          external_id: string | null
           id: string
           legacy_id: string | null
           member_id: string
@@ -1424,6 +1425,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          external_id?: string | null
           id?: string
           legacy_id?: string | null
           member_id: string
@@ -1439,6 +1441,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          external_id?: string | null
           id?: string
           legacy_id?: string | null
           member_id?: string
@@ -2663,6 +2666,7 @@ export type Database = {
           deezer_track_id: number | null
           deleted_at: string | null
           duration_seconds: number | null
+          external_id: string | null
           genre_id: string | null
           id: string
           internal_code: string | null
@@ -2684,6 +2688,7 @@ export type Database = {
           deezer_track_id?: number | null
           deleted_at?: string | null
           duration_seconds?: number | null
+          external_id?: string | null
           genre_id?: string | null
           id?: string
           internal_code?: string | null
@@ -2705,6 +2710,7 @@ export type Database = {
           deezer_track_id?: number | null
           deleted_at?: string | null
           duration_seconds?: number | null
+          external_id?: string | null
           genre_id?: string | null
           id?: string
           internal_code?: string | null
@@ -4685,7 +4691,7 @@ export type Database = {
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
       music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
-      music_request_channel: "MANUAL" | "IMPORT"
+      music_request_channel: "MANUAL" | "IMPORT" | "API"
       music_vocal: "MALE" | "FEMALE" | "DUO" | "GROUP" | "INSTRUMENTAL"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
@@ -4906,7 +4912,7 @@ export const Constants = {
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
       music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
-      music_request_channel: ["MANUAL", "IMPORT"],
+      music_request_channel: ["MANUAL", "IMPORT", "API"],
       music_vocal: ["MALE", "FEMALE", "DUO", "GROUP", "INSTRUMENTAL"],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
