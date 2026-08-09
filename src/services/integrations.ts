@@ -54,6 +54,23 @@ export async function listIntegrations(): Promise<IntegrationRow[]> {
   return (data ?? []) as unknown as IntegrationRow[];
 }
 
+/**
+ * Block 16. One Station's integration, in listIntegrations' exact columns.
+ *
+ * The Stations screen reads this for every Station it lists, before knowing
+ * which record will be opened — the dialog opens from the page's read rather
+ * than fetching on open (spec §9). A Station with no integration comes back as
+ * one row of nulls, as the list does, so no caller has to tell an absence apart
+ * from an empty record.
+ */
+export async function getIntegration(companyId: string): Promise<IntegrationRow | null> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase.rpc('get_integration', { p_company_id: companyId });
+  if (error) throw mapIntegrationError(error.code, error.message);
+  const rows = (data ?? []) as unknown as IntegrationRow[];
+  return rows[0] ?? null;
+}
+
 export async function upsertIntegration(input: {
   companyId: string;
   phoneNumberId: string;
