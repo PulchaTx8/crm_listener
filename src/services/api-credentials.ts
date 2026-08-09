@@ -106,6 +106,50 @@ export async function listApiCredentials(
   }));
 }
 
+/**
+ * Every named Station's keys, grouped by Station, in ONE call.
+ *
+ * The Stations screen reads the keys of every Station it lists before knowing
+ * which record will be opened — the dialog opens from the page's read, never
+ * from a fetch of its own. Calling listApiCredentials once per row would be a
+ * query per row: the N+1 Block 3b measured at 102 queries and cut to 5, and one
+ * that would look fine on a two-Station group and be slow on a customer with
+ * nine.
+ *
+ * A Station with no keys is absent from the map rather than present with an
+ * empty array; callers read it with `?? []`, which is the same shape an empty
+ * array would have given them and one fewer thing for this function to fabricate.
+ */
+export async function listApiCredentialsFor(
+  companyIds: string[],
+  accessToken: string,
+): Promise<Map<string, ApiCredentialRow[]>> {
+  const grouped = new Map<string, ApiCredentialRow[]>();
+  if (companyIds.length === 0) return grouped;
+
+  const { data, error } = await asCaller(accessToken).rpc('list_api_credentials_for', {
+    p_company_ids: companyIds,
+  });
+  if (error) throw mapCredentialError(error.code, error.message);
+
+  for (const row of data ?? []) {
+    const rows = grouped.get(row.company_id) ?? [];
+    rows.push({
+      id: row.id,
+      name: row.name,
+      tokenPrefix: row.token_prefix,
+      scopes: row.scopes ?? [],
+      expiresAt: row.expires_at,
+      lastUsedAt: row.last_used_at,
+      revokedAt: row.revoked_at,
+      createdAt: row.created_at,
+    });
+    grouped.set(row.company_id, rows);
+  }
+
+  return grouped;
+}
+
 export async function revokeApiCredential(
   credentialId: string,
   accessToken: string,

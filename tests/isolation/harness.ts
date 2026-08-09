@@ -37,9 +37,20 @@ export interface ProvisionedCustomer {
 }
 
 /**
- * Creates a real auth user, marks it a platform admin only if asked, then
- * calls the real provision_customer RPC as that admin. Mirrors what the
- * application does, so the tests exercise the production path.
+ * Creates a real auth user, marks it a platform admin, then provisions a
+ * customer as that admin. Mirrors what the application does, so the tests
+ * exercise the production path.
+ *
+ * TWO CALLS SINCE BLOCK 16, WHERE THERE USED TO BE ONE. provision_customer
+ * created an Organization and a Company together and was dropped in 0157,
+ * precisely because a customer's Station count is not known when the customer is
+ * taken on. The console now provisions the group and adds each radio afterwards,
+ * and this does the same — so what the two hundred call sites below get back is
+ * unchanged, and the sequence they exercise is the one the console performs.
+ *
+ * The name stays `provisionCustomer` deliberately: a customer with one Station
+ * is what these tests need, and renaming it would touch every file in this
+ * directory to say nothing new.
  */
 export async function provisionCustomer(label: string): Promise<ProvisionedCustomer> {
   const adminUser = await createUser(`admin-${label}@example.test`);
@@ -51,21 +62,24 @@ export async function provisionCustomer(label: string): Promise<ProvisionedCusto
   const owner = await createUser(`owner-${label}@example.test`);
 
   const adminClient = await signInAs(adminUser.email, adminUser.password);
-  const { data, error } = await adminClient.rpc('provision_customer', {
+  const { data: organizationId, error } = await adminClient.rpc('provision_organization', {
     p_user_id: owner.userId,
     p_organization_name: `Org ${label}`,
-    p_company_name: `Company ${label}`,
+  });
+  if (error) throw new Error(`provision_organization failed: ${error.message}`);
+  if (typeof organizationId !== 'string') {
+    throw new Error('provision_organization returned no organization id');
+  }
+
+  const { data: companyId, error: companyError } = await adminClient.rpc('add_company', {
+    p_organization_id: organizationId,
+    p_name: `Company ${label}`,
     p_timezone: 'America/Sao_Paulo',
   });
-  if (error) throw new Error(`provision_customer failed: ${error.message}`);
+  if (companyError) throw new Error(`add_company failed: ${companyError.message}`);
+  if (typeof companyId !== 'string') throw new Error('add_company returned no company id');
 
-  const result = data as { organization_id: string; company_id: string };
-  return {
-    ...owner,
-    organizationId: result.organization_id,
-    companyId: result.company_id,
-    adminClient,
-  };
+  return { ...owner, organizationId, companyId, adminClient };
 }
 
 export async function createUser(
