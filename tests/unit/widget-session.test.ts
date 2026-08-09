@@ -3,7 +3,11 @@ import { mintSession, readSession, type WidgetClaims } from '@/lib/widget/sessio
 
 const SECRET = 'a'.repeat(48);
 const claims: WidgetClaims = {
-  installationId: '11111111-1111-1111-1111-111111111111',
+  // The public key, not a row id: no code path in this product can produce
+  // `widget_installations.id` (0159 revokes the table's ACL and no door in 0161
+  // returns it), and the key is 1:1 with the live row anyway. See the field's
+  // own comment in src/lib/widget/session.ts.
+  publicKey: 'pw_AAAAAAAAAAAAAAAAAAAAAA',
   companyId: '22222222-2222-2222-2222-222222222222',
   organizationId: '33333333-3333-3333-3333-333333333333',
   memberId: '44444444-4444-4444-4444-444444444444',

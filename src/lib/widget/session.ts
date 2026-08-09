@@ -6,7 +6,39 @@ export const WIDGET_SESSION_COOKIE = 'pw_session';
 export const WIDGET_SESSION_SECONDS = 1800;
 
 export interface WidgetClaims {
-  installationId: string;
+  /**
+   * WHICH INSTALLATION THIS SESSION BELONGS TO, and it is the PUBLIC KEY rather
+   * than `widget_installations.id`.
+   *
+   * The design spec (§7) and this interface's first draft both said
+   * `installationId`, and Task 10 found that no code path can produce one. The
+   * table has RLS on and its ACL revoked (0159, whose own comment says
+   * `createServiceClient().from('widget_installations')` fails with 42501 —
+   * measured, and it does), so the row is reachable only inside a SECURITY
+   * DEFINER body; and of the doors in 0161, `widget_frame_context` returns
+   * `{found, origins}`, `widget_request_code` returns a verification id, and
+   * `widget_verify_code` returns the member, the company and the organization.
+   * None of them returns the installation's id. Adding a door that does would
+   * be a migration, and 0159–0162 are shipped.
+   *
+   * The public key answers the same question and answers it better. It is 1:1
+   * with the live row (`widget_installations_key_unique`, 0159, partial on
+   * `deleted_at is null`), it is what the URL of the page already carries, and
+   * comparing it costs the page NO LOOKUP AT ALL — which is what D5 chose a
+   * signed token over a session row for in the first place.
+   *
+   * WHAT IT IS FOR: the cookie's `Path` is `/w`, one path for every
+   * installation this deployment serves, so a browser that identified at
+   * Station A presents that same cookie to Station B's widget. The signature
+   * proves the token was minted by us; only this field proves it was minted
+   * HERE. Removing it would not break a single test today and would silently
+   * make every Station's session valid at every other Station.
+   *
+   * NOT A SECRET, and it does not need to be: 0159's own column comment says
+   * the key travels in the `src` of a public iframe. It names a Station inside
+   * a payload that is already signed; it proves nothing on its own.
+   */
+  publicKey: string;
   companyId: string;
   organizationId: string;
   memberId: string;
