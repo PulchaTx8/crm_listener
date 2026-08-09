@@ -3,7 +3,9 @@
     "title": "PulchatX",
     "description": "CRM for entertainment companies",
     "yourStations": "Your stations",
-    "yourStationsDescription": "Audience, prize and promotion features arrive in the next release."
+    "yourStationsDescription": "Audience, prize and promotion features arrive in the next release.",
+    "noStationLinkedYet": "No station is linked to your account yet. Please contact us.",
+    "suspendedNoDataAvailable": "Suspended — no data is available while the subscription is inactive."
   },
   "shell": {
     "language": "Language",
