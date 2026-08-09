@@ -15,7 +15,7 @@
 - **Migrations are numbered `0154`–`0157`** and are append-only. Never edit a shipped migration.
 - **`0155` contains the two `ALTER TYPE ... ADD VALUE` statements and nothing else.** `ADD VALUE` cannot share a transaction with a statement that uses the value.
 - **Tables that hold credentials or installation state get RLS on and NO policy**, following `integrations` (0057) and `api_credentials` (0148). This schema revokes the default ACL, so `createServiceClient().from(...)` fails with `42501` by design. Every reader is inside a `SECURITY DEFINER` body.
-- **A secret is hashed in Node before it reaches the database**, never passed raw as an RPC argument — an RPC argument lands in query logs and in backups.
+- **A secret is hashed in Node before it reaches the database**, never passed raw as an RPC argument — an RPC argument lands in query logs and in backups. **One exception, and only one:** `widget_request_code`'s `p_code_plain` (Task 4), because the message is sent by the worker draining `outbox_messages` and the outbox is *in* the database. What the rule protects — the stored credential — is kept whole: `widget_verifications` holds only the digest. Task 4 carries the full argument; no other door may claim this exception.
 - **Every user-visible string goes through `next-intl`**, in all three of `messages/en.json`, `messages/pt-BR.json`, `messages/es.json`. No hardcoded copy in a component.
 - **Code, comments, commit messages and docs are in English.** Listener-facing copy is translated.
 - **Comments explain why, not what.** A comment that justifies a decision must name the alternative rejected.
@@ -176,6 +176,26 @@ Create `supabase/migrations/0154_widget_installations.sql`:
 -- It identifies a Station. It authenticates nobody. The visitor is
 -- authenticated by the code in 0156, and by nothing else.
 
+-- A CHECK may not contain a subquery, and asking "does every element of this
+-- array match" needs one. `has_no_duplicates` (0040) is the precedent and its
+-- comment is the reasoning: an immutable function is the only way to state the
+-- rule in the schema rather than in prose.
+create or replace function public.are_origins(p_values text[])
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = pg_catalog
+as $$
+  select p_values is null
+      or not exists (
+        select 1 from unnest(p_values) as v
+         where v !~ '^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$');
+$$;
+
+comment on function public.are_origins(text[]) is
+  'True when every entry is a scheme and a host, with an optional port, and nothing else -- the grammar a browser matches frame-ancestors against. Exists because a CHECK cannot contain a subquery.';
+
 create table public.widget_installations (
   id              uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations (id),
@@ -206,12 +226,13 @@ create table public.widget_installations (
   -- looser here fails later as "the widget will not load", which is a much
   -- worse failure than a refused write -- nothing logs it and nobody can see it
   -- from a screen.
+  --
+  -- Through a function because A CHECK MAY NOT CONTAIN A SUBQUERY and testing
+  -- every element of an array needs one. 0040 hit this exact wall and its
+  -- comment states the cure: wrapping it in an immutable function is the only
+  -- way to state the rule in the schema rather than in prose.
   constraint widget_installations_origins_shape
-    check (allowed_origins <@ (
-      select coalesce(array_agg(o), '{}'::text[])
-        from unnest(allowed_origins) o
-       where o ~ '^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$'
-    ))
+    check (public.are_origins(allowed_origins))
 );
 
 -- Partial on deleted_at, the shape message_templates (0110) uses and for the
@@ -1271,7 +1292,8 @@ git commit -m "feat(widget): the console configures it, and says when it cannot 
 
 **Files:**
 - Create: `tests/e2e/widget.spec.ts`, `tests/isolation/widget.test.ts`
-- Modify: `scripts/seed-demo.mjs` (an enabled installation for the demo Station)
+
+**Do not modify `scripts/seed-demo.mjs`.** The journey creates its own installation through `upsert_widget_installation` (Task 6) in a `beforeAll`, and tears it down after. This is not only to avoid a file that has uncommitted work in it: a test that depends on the demo dataset breaks the day somebody changes the demo, with nothing in the diff to explain why.
 
 - [ ] **Step 1: Write the isolation test**
 
