@@ -3290,6 +3290,15 @@ export type Database = {
         Args: { p_path: string; p_winner_id: string }
         Returns: undefined
       }
+      authenticate_api_credential: {
+        Args: { p_scope: string; p_token_hash: string }
+        Returns: {
+          company_id: string
+          credential_id: string
+          organization_id: string
+          scope_ok: boolean
+        }[]
+      }
       backfill_member_field_confirmations: { Args: never; Returns: undefined }
       block_member: {
         Args: {
@@ -3719,6 +3728,17 @@ export type Database = {
       }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_for: { Args: { p_user_id: string }; Returns: boolean }
+      issue_api_credential: {
+        Args: {
+          p_company_id: string
+          p_expires_at?: string
+          p_name: string
+          p_scopes: string[]
+          p_token_hash: string
+          p_token_prefix: string
+        }
+        Returns: string
+      }
       job_started: { Args: { p_job: string }; Returns: undefined }
       job_succeeded: {
         Args: { p_counters?: Json; p_job: string }
@@ -3753,6 +3773,19 @@ export type Database = {
           p_upc?: string
         }
         Returns: undefined
+      }
+      list_api_credentials: {
+        Args: { p_company_id: string }
+        Returns: {
+          created_at: string
+          expires_at: string
+          id: string
+          last_used_at: string
+          name: string
+          revoked_at: string
+          scopes: string[]
+          token_prefix: string
+        }[]
       }
       list_audit_logs: {
         Args: {
@@ -4405,6 +4438,10 @@ export type Database = {
       return_promotion_prizes: {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
         Returns: number
+      }
+      revoke_api_credential: {
+        Args: { p_credential_id: string }
+        Returns: undefined
       }
       revoke_invitation: {
         Args: { p_invitation_id: string }
