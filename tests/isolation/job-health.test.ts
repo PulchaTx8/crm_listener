@@ -80,6 +80,10 @@ describe('Block 11b — the scheduled routines report their own health', () => {
       'webhook_events',
       'whatsapp_conversation_leases',
       'whatsapp_conversations',
+      // Block 17a: 0161 extends sweep_retention with one more table -- see its
+      // migration comment for why it reproduces this procedure's 0133 body
+      // rather than its superseded 0131 one.
+      'widget_verifications',
     ]);
   }, 60_000);
 

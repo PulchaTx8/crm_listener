@@ -3160,6 +3160,67 @@ export type Database = {
           },
         ]
       }
+      widget_verifications: {
+        Row: {
+          attempts: number
+          code_hash: string
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          installation_id: string
+          organization_id: string
+          phone: string
+        }
+        Insert: {
+          attempts?: number
+          code_hash: string
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          installation_id: string
+          organization_id: string
+          phone: string
+        }
+        Update: {
+          attempts?: number
+          code_hash?: string
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          installation_id?: string
+          organization_id?: string
+          phone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_verifications_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "widget_verifications_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "widget_installations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_verifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       winner_status_history: {
         Row: {
           changed_at: string
@@ -5026,6 +5087,7 @@ export type Database = {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string
       }
+      widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
