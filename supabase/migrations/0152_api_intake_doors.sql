@@ -401,3 +401,98 @@ revoke execute on function public.apply_song_intake(
   uuid, uuid, uuid, text, text, text, text, text, text,
   public.music_nationality, public.music_vocal, integer, text, text,
   bigint, bigint, text, text, date) from public;
+
+-- ---------------------------------------------------------------------------
+-- api_register_song. The public half of endpoint 1.
+--
+-- THE GATE IS THE CREDENTIAL'S SCOPE, NOT has_permission (design D1).
+-- has_permission is has_permission_for(auth.uid(), ...) since 0121, and there
+-- is no auth.uid() on this path -- the route calls with the service key. Asking
+-- it here would refuse every call, always, and the refusal would look to a
+-- customer like a problem with their roles.
+--
+-- p_company_id AND p_org BOTH ARRIVE AND NEITHER IS USED. The Station is
+-- re-read from the credential row, and the arguments are only checked against
+-- it. The route already resolved the Station from authenticate_api_credential,
+-- so passing them is redundant -- which is the point: a door that TRUSTS a
+-- caller-supplied company_id is one bug in the route away from writing into
+-- another Station, and that is precisely what the isolation suite exists to
+-- catch. Here the mismatch is caught in the database instead.
+-- ---------------------------------------------------------------------------
+
+create function public.api_register_song(
+  p_credential_id    uuid,
+  p_company_id       uuid,
+  p_org              uuid,
+  p_external_id      text,
+  p_title            text,
+  p_artist_name      text,
+  p_label_name       text    default null,
+  p_genre_name       text    default null,
+  p_album_title      text    default null,
+  p_nationality      public.music_nationality default null,
+  p_vocal            public.music_vocal default null,
+  p_duration_seconds integer default null,
+  p_isrc             text    default null,
+  p_internal_code    text    default null,
+  p_deezer_track_id  bigint  default null,
+  p_deezer_album_id  bigint  default null,
+  p_upc              text    default null,
+  p_cover_md5        text    default null,
+  p_release_date     date    default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_company uuid;
+  v_org     uuid;
+begin
+  -- One gated query, 0093's idiom: an unknown credential, a revoked one, an
+  -- expired one, a suspended Station and a missing scope are all the same
+  -- refusal from outside.
+  select c.company_id, c.organization_id into v_company, v_org
+  from public.api_credentials c
+  join public.api_credential_scopes s
+    on s.credential_id = c.id and s.permission_code = 'music.manage'
+  join public.companies co
+    on co.id = c.company_id and co.deleted_at is null and co.status = 'active'
+  where c.id = p_credential_id
+    and c.revoked_at is null
+    and (c.expires_at is null or c.expires_at > now());
+
+  if not found then
+    raise log 'api_register_song denied: credential=%', p_credential_id;
+    raise exception 'permission denied: music.manage required' using errcode = '42501';
+  end if;
+
+  -- A mismatch is a fault in the ROUTE, not in the caller, and it must be loud
+  -- rather than silently writing wherever the credential happens to point.
+  if v_company <> p_company_id or v_org <> p_org then
+    raise log 'api_register_song station mismatch: credential=% asked=%',
+      p_credential_id, p_company_id;
+    raise exception 'permission denied: music.manage required' using errcode = '42501';
+  end if;
+
+  return public.apply_song_intake(
+    v_company, v_org, null,
+    p_external_id, p_title, p_artist_name, p_label_name, p_genre_name,
+    p_album_title, p_nationality, p_vocal, p_duration_seconds, p_isrc,
+    p_internal_code, p_deezer_track_id, p_deezer_album_id, p_upc,
+    p_cover_md5, p_release_date);
+end;
+$$;
+
+comment on function public.api_register_song is
+  'Block 15, endpoint 1. Gated on the credential''s music.manage scope, never on has_permission -- there is no auth.uid() on this path. The Station comes from the credential row; p_company_id and p_org are checked against it and never used, so a fault in the route cannot write into another Station. The actor in audit_logs is null: 0004 allows it, and 0129 states that a null there does not mean "the system did it", which is why the detail names the credential.';
+
+revoke execute on function public.api_register_song(
+  uuid, uuid, uuid, text, text, text, text, text, text,
+  public.music_nationality, public.music_vocal, integer, text, text,
+  bigint, bigint, text, text, date) from public;
+grant execute on function public.api_register_song(
+  uuid, uuid, uuid, text, text, text, text, text, text,
+  public.music_nationality, public.music_vocal, integer, text, text,
+  bigint, bigint, text, text, date) to service_role;

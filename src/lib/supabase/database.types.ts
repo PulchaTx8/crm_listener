@@ -3144,6 +3144,30 @@ export type Database = {
         }
         Returns: undefined
       }
+      api_register_song: {
+        Args: {
+          p_album_title?: string
+          p_artist_name: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_credential_id: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_external_id: string
+          p_genre_name?: string
+          p_internal_code?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_org: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
+        }
+        Returns: Json
+      }
       apply_draw: {
         Args: {
           p_company_id: string
@@ -3247,6 +3271,30 @@ export type Database = {
           p_participated_at: string
           p_promotion_id: string
           p_source: Database["public"]["Enums"]["participation_source"]
+        }
+        Returns: Json
+      }
+      apply_song_intake: {
+        Args: {
+          p_actor: string
+          p_album_title?: string
+          p_artist_name: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_external_id: string
+          p_genre_name?: string
+          p_internal_code?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_org: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
         }
         Returns: Json
       }
@@ -4388,6 +4436,17 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      resolve_album_tracked: {
+        Args: {
+          p_company_id: string
+          p_cover_md5: string
+          p_deezer_album_id: number
+          p_release_date: string
+          p_title: string
+          p_upc: string
+        }
+        Returns: Record<string, unknown>
+      }
       resolve_dashboard_period: {
         Args: {
           p_from: string
@@ -4436,6 +4495,14 @@ export type Database = {
           p_name: string
         }
         Returns: string
+      }
+      resolve_reference_tracked: {
+        Args: {
+          p_company_id: string
+          p_kind: Database["public"]["Enums"]["music_reference_kind"]
+          p_name: string
+        }
+        Returns: Record<string, unknown>
       }
       return_prize: {
         Args: { p_reason: string; p_winner_id: string }

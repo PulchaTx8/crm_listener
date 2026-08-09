@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(19);
 
 -- Block 15. What the two API endpoints write, and the two facts that make a
 -- retry harmless.
@@ -131,6 +131,37 @@ select throws_ok(
       null, null, '   ', 'Daft Punk', null, null, null,
       null, null, null, null, null, null, null, null, null, null)$$,
   '22023', null, 'a blank title is refused');
+
+-- The song door (0152) -----------------------------------------------------
+
+select has_function('public', 'api_register_song', 'the song door exists');
+
+select is(
+  (select count(*) from information_schema.role_routine_grants
+    where routine_schema = 'public' and routine_name = 'api_register_song'
+      and grantee in ('anon', 'authenticated')),
+  0::bigint, 'and no browser role may call it');
+
+-- The scope is checked against the CREDENTIAL, never against auth.uid(). There
+-- is no session on this path at all -- pgTAP has none, and neither does the
+-- route, which calls with the service key -- so this is the call that proves
+-- the API does not depend on one.
+insert into public.api_credentials
+  (id, organization_id, company_id, name, token_prefix, token_hash)
+values
+  ('00000000-0000-0000-0000-0000000000c2',
+   '00000000-0000-0000-0000-0000000000a2',
+   '00000000-0000-0000-0000-0000000000b2',
+   'Intake key', 'ptx_eeeeffff', repeat('e', 64));
+
+select throws_ok(
+  $$select public.api_register_song(
+      '00000000-0000-0000-0000-0000000000c2',
+      '00000000-0000-0000-0000-0000000000b2',
+      '00000000-0000-0000-0000-0000000000a2',
+      'EXT-9', 'Scopeless', 'Nobody', null, null, null,
+      null, null, null, null, null, null, null, null, null, null)$$,
+  '42501', null, 'a credential without music.manage is refused');
 
 select * from finish();
 rollback;
