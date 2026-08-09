@@ -7,6 +7,19 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { provisionCustomerSchema } from '@/schemas/provisioning';
 import { provisionCustomer, regenerateProvisionalPassword } from '@/services/provisioning';
 import { logger } from '@/lib/logger';
+import { ValidationError } from '@/lib/errors';
+import { khzFromInput } from '@/lib/frequency';
+import {
+  clearCompanyThumb,
+  setCompanyThumb,
+  updateCompanyProfile,
+} from '@/services/company-profile';
+import {
+  issueApiCredential,
+  listApiCredentials,
+  revokeApiCredential,
+  type ApiCredentialRow,
+} from '@/services/api-credentials';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
@@ -229,4 +242,157 @@ export async function addCompanyAction(
     status: 'done',
     company: typeof data === 'string' ? await readCompanyRow(data, null) : undefined,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Block 15. The Station's own record, and its machine keys.
+//
+// Everything below is gated in the DATABASE on is_platform_admin() -- 0153 and
+// 0149 each check it before doing any work -- so these actions carry no gate of
+// their own. That is the same division every other action in this file follows.
+// ---------------------------------------------------------------------------
+
+export interface StationProfileState {
+  status: 'idle' | 'saved' | 'error';
+  message?: string;
+  /** What was stored, so the form can show the picture it now has. */
+  thumbUrl?: string | null;
+}
+
+/**
+ * Saves the Station's record and settles its picture, in that order.
+ *
+ * TWO CALLS, NOT ONE, and the database is what makes it two:
+ * update_company_profile writes every field it takes on every call, so a picture
+ * on that list would be cleared by the next ordinary save. 0144 and 0145 each
+ * document the defect; 0153's set_company_thumb is this block's answer to it.
+ *
+ * The picture is settled AFTER the fields, so a validation failure on the record
+ * does not leave an upload behind that no column points at.
+ */
+export async function saveStationProfileAction(
+  _prev: StationProfileState,
+  formData: FormData,
+): Promise<StationProfileState> {
+  const t = await getTranslations('admin');
+  const companyId = String(formData.get('companyId') ?? '');
+  if (!companyId) return { status: 'error', message: t('checkTheForm') };
+
+  const band = String(formData.get('broadcastBand') ?? '');
+  const parsedBand = band === 'FM' || band === 'AM' || band === 'WEB' ? band : null;
+
+  const coordinate = (name: string): number | null => {
+    const raw = String(formData.get(name) ?? '').trim().replace(',', '.');
+    if (!raw) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  const text = (name: string): string | null => String(formData.get(name) ?? '').trim() || null;
+
+  const token = await requireAccessToken();
+
+  try {
+    await updateCompanyProfile(
+      {
+        companyId,
+        addressLine: text('addressLine'),
+        addressNumber: text('addressNumber'),
+        addressComplement: text('addressComplement'),
+        neighbourhood: text('neighbourhood'),
+        city: text('city'),
+        state: text('state'),
+        postalCode: text('postalCode'),
+        broadcastBand: parsedBand,
+        frequencyKhz: khzFromInput(parsedBand, String(formData.get('frequency') ?? '')),
+        latitude: coordinate('latitude'),
+        longitude: coordinate('longitude'),
+      },
+      token,
+    );
+
+    // The control posts `thumbCleared` so that "left alone" and "taken away" are
+    // distinguishable; without it an empty file input and a deliberate removal
+    // look identical, and every save would clear the picture or none ever would.
+    const cleared = formData.get('thumbCleared') === 'on';
+    const file = formData.get('thumb');
+
+    if (cleared) {
+      await clearCompanyThumb(companyId, token);
+      return { status: 'saved', thumbUrl: null };
+    }
+
+    if (file instanceof File && file.size > 0) {
+      const url = await setCompanyThumb({ companyId, file }, token);
+      return { status: 'saved', thumbUrl: url };
+    }
+
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'save station profile failed');
+    return {
+      status: 'error',
+      message: cause instanceof ValidationError ? cause.message : t('couldNotSaveTheStation'),
+    };
+  }
+}
+
+export interface ApiKeyState {
+  status: 'idle' | 'issued' | 'revoked' | 'error';
+  message?: string;
+  /** Shown ONCE, and never again: the database holds only its SHA-256. */
+  secret?: string;
+  rows?: ApiCredentialRow[];
+}
+
+export async function issueApiKeyAction(
+  _prev: ApiKeyState,
+  formData: FormData,
+): Promise<ApiKeyState> {
+  const t = await getTranslations('admin');
+  const companyId = String(formData.get('companyId') ?? '');
+  const name = String(formData.get('name') ?? '').trim();
+  const scopes = formData.getAll('scopes').map(String);
+  const expiresAt = String(formData.get('expiresAt') ?? '').trim() || null;
+
+  if (!companyId || !name || scopes.length === 0) {
+    return { status: 'error', message: t('aKeyNeedsANameAndAtLeastOneScope') };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    const issued = await issueApiCredential({ companyId, name, scopes, expiresAt }, token);
+    return {
+      status: 'issued',
+      secret: issued.secret,
+      rows: await listApiCredentials(companyId, token),
+    };
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'issue api key failed');
+    return {
+      status: 'error',
+      message: cause instanceof ValidationError ? cause.message : t('couldNotIssueTheKey'),
+    };
+  }
+}
+
+export async function revokeApiKeyAction(
+  _prev: ApiKeyState,
+  formData: FormData,
+): Promise<ApiKeyState> {
+  const t = await getTranslations('admin');
+  const companyId = String(formData.get('companyId') ?? '');
+  const credentialId = String(formData.get('credentialId') ?? '');
+  if (!companyId || !credentialId) return { status: 'error', message: t('checkTheForm') };
+
+  const token = await requireAccessToken();
+
+  try {
+    await revokeApiCredential(credentialId, token);
+    return { status: 'revoked', rows: await listApiCredentials(companyId, token) };
+  } catch (cause) {
+    logger.error({ err: cause, credentialId }, 'revoke api key failed');
+    return { status: 'error', message: t('couldNotRevokeTheKey') };
+  }
 }

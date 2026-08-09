@@ -465,6 +465,53 @@ export async function seedIntegration(
 }
 
 /**
+ * Block 15. Puts an API credential and its scopes in place, for the same reason
+ * seedIntegration exists and by the same route.
+ *
+ * THROUGH THE SUPERUSER CONNECTION, because there is no other. api_credentials
+ * has RLS enabled and no policy (0148), and this schema revokes the default ACL,
+ * so `admin.from('api_credentials')` -- service role and all -- answers 42501 by
+ * design. The only door is issue_api_credential, and that is gated on
+ * is_platform_admin(), which reads auth.uid(); this harness holds no platform
+ * admin session, and giving it one to seed a fixture would be a wider change
+ * than the fixture is worth.
+ *
+ * The hash is passed in rather than generated here so a test can hold the
+ * matching secret when it wants one; the tests below only ever need the
+ * credential id.
+ */
+export async function seedApiCredential(
+  customer: ProvisionedCustomer,
+  tokenHash: string,
+  scopes: string[],
+  companyId: string = customer.companyId,
+): Promise<string> {
+  const rows = await superuserQuery<{ id: string }>(
+    'seedApiCredential',
+    `insert into public.api_credentials
+       (organization_id, company_id, name, token_prefix, token_hash)
+     values ($1, $2, 'isolation fixture', 'ptx_aaaabbbb', $3)
+     returning id`,
+    [customer.organizationId, companyId, tokenHash],
+  );
+  if (rows.length !== 1) {
+    throw new Error(`seedApiCredential: expected to insert exactly one row, got ${rows.length}`);
+  }
+  const credentialId = rows[0]!.id;
+
+  for (const scope of scopes) {
+    await superuserQuery(
+      'seedApiCredential:scope',
+      `insert into public.api_credential_scopes (credential_id, permission_code)
+       values ($1, $2)`,
+      [credentialId, scope],
+    );
+  }
+
+  return credentialId;
+}
+
+/**
  * Adds `delta` directly to one bucket of one inventory_balances row, entirely
  * outside apply_inventory_movement — which is the one write no client can
  * make through the API, by design. 0029 revokes insert/update/delete from

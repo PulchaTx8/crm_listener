@@ -86,3 +86,23 @@ solved once by hand:
 From then on `/admin` is reachable and everything else is born through the
 interface. **There is no UI for this and that is deliberate** — a screen that
 creates platform admins is a screen that can be tricked into creating one.
+
+
+## Permission codes as API scopes (Block 15)
+
+An API credential's scopes are **permission codes**, not a private vocabulary:
+`api_credential_scopes.permission_code` is a foreign key against
+`public.permissions`, so a scope nobody defined is refused by Postgres rather
+than by application code somebody has to remember to write.
+
+They are checked differently, though, and the difference matters when reading
+the doors in `0152`. A screen asks `has_permission(code, company)`, which since
+`0121` is `has_permission_for(auth.uid(), …)`. **An API caller has no
+`auth.uid()`** — the route calls with the service key — so the doors check
+whether the *credential row* holds the scope instead. Asking `has_permission`
+there would refuse every call, always, and the refusal would look to a customer
+like a problem with their roles.
+
+The consequence to keep in mind: granting a role a permission does **not** give
+any API key that permission, and revoking it does not take it away from one. The
+two subjects are separate. Keys are managed in `/admin/customers`, per Station.

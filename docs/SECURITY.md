@@ -115,7 +115,40 @@ writing tests: **every local test shares `127.0.0.1`**, so a suite that grows
 past ten accepted invitations in a window starts failing on a control that is
 working correctly.
 
-## 9. Reporting a problem
+## 9. API credentials (Block 15)
+
+The two external intake endpoints (`docs/API.md`) authenticate on a per-Station
+key presented as `Authorization: Bearer ptx_…`.
+
+- **Only the SHA-256 is stored.** `api_credentials.token_hash` carries a CHECK
+  refusing anything that is not 64 lowercase hex characters, so a raw secret
+  written into that column is rejected by the database. The plaintext is shown
+  once at issue and exists nowhere afterwards.
+- **The token is hashed in Node, before it reaches the database** — never passed
+  to an RPC in the clear, for the reason the WhatsApp webhook already records for
+  the `wamid`: an RPC argument lands in query logs and in backups.
+- **No constant-time comparison, and that is correct.** Nothing on this path
+  compares a secret to a secret: what arrives is hashed first and what is stored
+  is a hash, so the lookup is an indexed equality over the digest of a 256-bit
+  value. The `timingSafeEqual` in `/api/worker/tick` exists because that secret
+  lives in the environment and is compared byte for byte.
+- **`api_credentials` and `api_credential_scopes` have RLS on and no policy**,
+  and no table grant. `createServiceClient().from('api_credentials')` fails with
+  42501 by design; every reader is inside a `SECURITY DEFINER` body.
+- **A key is a bearer token.** Scoping is per Station and per permission code;
+  revocation is per key and takes effect immediately; expiry is optional. There
+  is **no IP allowlist** in this version — if a key leaks, revoke it.
+- **A suspended or deleted Station stops its own keys**, without anyone having to
+  remember to revoke them.
+- Issuing, revoking and every write the endpoints make are recorded in
+  `audit_logs`. For an API caller `actor_id` is null and the credential is named
+  in `detail`; a null there does not mean "the system did it".
+
+Rate limiting for these endpoints is per credential rather than per IP — an
+automation has one address — and uses the Postgres limiter so the counter is
+shared across instances.
+
+## 10. Reporting a problem
 
 There is no public security contact configured. Report privately to the
 repository owner rather than in an issue.

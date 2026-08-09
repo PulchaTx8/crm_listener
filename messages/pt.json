@@ -3,7 +3,9 @@
     "title": "PulchatX",
     "description": "CRM para empresas de entretenimento",
     "yourStations": "Suas emissoras",
-    "yourStationsDescription": "Os recursos de audiência, prêmios e promoções chegam na próxima versão."
+    "yourStationsDescription": "Os recursos de audiência, prêmios e promoções chegam na próxima versão.",
+    "noStationLinkedYet": "Nenhuma emissora está vinculada à sua conta ainda. Fale com a gente.",
+    "suspendedNoDataAvailable": "Suspensa — nenhum dado fica disponível enquanto a assinatura estiver inativa."
   },
   "shell": {
     "language": "Idioma",
@@ -178,7 +180,45 @@
     "actionsForCustomer": "Ações para {name}",
     "couldNotAddTheStation": "Não foi possível adicionar a Emissora. Confira o nome e tente novamente.",
     "theIntegrationCouldNotBeSaved": "Não foi possível salvar a integração.",
-    "theIntegrationCouldNotBeDisabled": "Não foi possível desativar a integração."
+    "theIntegrationCouldNotBeDisabled": "Não foi possível desativar a integração.",
+    "checkTheForm": "Confira o formulário.",
+    "couldNotSaveTheStation": "Não foi possível salvar a emissora.",
+    "aKeyNeedsANameAndAtLeastOneScope": "Uma chave precisa de um nome e de pelo menos um escopo.",
+    "couldNotIssueTheKey": "Não foi possível emitir a chave.",
+    "couldNotRevokeTheKey": "Não foi possível revogar a chave.",
+    "frequency": "Frequência",
+    "frequencyInMhz": "Frequência (MHz)",
+    "frequencyInKhz": "Frequência (kHz)",
+    "stationPicture": "Imagem da emissora",
+    "shownOnTheStationCard": "Aparece no cartão da emissora.",
+    "band": "Faixa",
+    "webOnly": "Só web",
+    "street": "Logradouro",
+    "number": "Número",
+    "complement": "Complemento",
+    "neighbourhood": "Bairro",
+    "city": "Cidade",
+    "state": "Estado",
+    "postalCode": "CEP",
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "bothCoordinatesOrNeither": "Informe latitude e longitude juntas, ou deixe as duas em branco.",
+    "saving": "Salvando…",
+    "saved": "Salvo.",
+    "copyThisKeyNow": "Copie esta chave agora.",
+    "copy": "Copiar",
+    "copied": "Copiada",
+    "itWillNotBeShownAgain": "Ela não será mostrada de novo.",
+    "revoke": "Revogar",
+    "revokedOn": "Revogada em {date}",
+    "lastUsedOn": "Usada pela última vez em {date}",
+    "neverUsed": "Nunca usada",
+    "thisStationHasNoKeys": "Esta emissora ainda não tem chaves.",
+    "keyName": "Nome da chave",
+    "whatThisKeyMayDo": "O que esta chave pode fazer",
+    "expiresOptional": "Validade (opcional)",
+    "issuing": "Emitindo…",
+    "issueAKey": "Emitir chave"
   },
   "draws": {
     "drawOf": "Sorteio de",
@@ -1580,6 +1620,7 @@
     "vocalInstrumental": "Instrumental",
     "sourceManual": "Digitada à mão",
     "sourceImport": "De um arquivo",
-    "sourceWhatsapp": "Do WhatsApp"
+    "sourceWhatsapp": "Do WhatsApp",
+    "sourceApi": "Por integração"
   }
 }

@@ -19,6 +19,8 @@ import {
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { CUSTOMER_TABS, type CustomerTab } from '@/lib/record-params';
+import type { StationProfile } from './station-form';
+import type { ApiCredentialRow } from '@/services/api-credentials';
 import {
   reactivateAction,
   suspendAction,
@@ -48,6 +50,8 @@ export function CustomersGrid({
   previousHref,
   nextHref,
   initialRecord,
+  openProfile,
+  openCredentials,
 }: {
   initialRows: CustomerRow[];
   initialStationsByOrganization: Record<string, StationBrief[]>;
@@ -55,6 +59,11 @@ export function CustomersGrid({
   previousHref: string | null;
   nextHref: string | null;
   initialRecord: { recordId: string | null; tab: string | null };
+  // Block 15. Read on the server for the record the address names, and only
+  // that one -- the same rule the rest of this dialog follows: nothing is
+  // fetched when it opens.
+  openProfile: StationProfile | null;
+  openCredentials: ApiCredentialRow[];
 }) {
   const t = useTranslations('admin');
   const [grid, setGrid] = useState<RowState<CustomerRow>>({
@@ -210,6 +219,8 @@ export function CustomersGrid({
             ? (stations[openRow.organizationId] ?? []).filter((s) => s.id !== openRow.id)
             : []
         }
+        profile={openProfile}
+        credentials={openCredentials}
         tab={(tab as CustomerTab) ?? 'customer'}
         onTab={setTab}
         onClose={close}

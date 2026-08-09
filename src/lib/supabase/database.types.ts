@@ -97,6 +97,99 @@ export type Database = {
           },
         ]
       }
+      api_credential_scopes: {
+        Row: {
+          credential_id: string
+          permission_code: string
+        }
+        Insert: {
+          credential_id: string
+          permission_code: string
+        }
+        Update: {
+          credential_id?: string
+          permission_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_credential_scopes_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "api_credentials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_credential_scopes_permission_code_fkey"
+            columns: ["permission_code"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      api_credentials: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          id: string
+          last_used_at: string | null
+          name: string
+          organization_id: string
+          revoked_at: string | null
+          revoked_by: string | null
+          token_hash: string
+          token_prefix: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          last_used_at?: string | null
+          name: string
+          organization_id: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          token_hash: string
+          token_prefix: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          id?: string
+          last_used_at?: string | null
+          name?: string
+          organization_id?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          token_hash?: string
+          token_prefix?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_credentials_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "api_credentials_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       artists: {
         Row: {
           company_id: string
@@ -204,44 +297,80 @@ export type Database = {
       }
       companies: {
         Row: {
+          address_complement: string | null
+          address_line: string | null
+          address_number: string | null
+          broadcast_band: Database["public"]["Enums"]["broadcast_band"] | null
+          city: string | null
           created_at: string
           deleted_at: string | null
+          frequency_khz: number | null
           id: string
+          latitude: number | null
+          longitude: number | null
           name: string
+          neighbourhood: string | null
           organization_id: string
+          postal_code: string | null
           provisioned_at: string
           provisioned_by: string | null
+          state: string | null
           status: Database["public"]["Enums"]["company_status"]
           suspended_at: string | null
           suspension_reason: string | null
+          thumb_url: string | null
           timezone: string
           updated_at: string
         }
         Insert: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          frequency_khz?: number | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           name: string
+          neighbourhood?: string | null
           organization_id: string
+          postal_code?: string | null
           provisioned_at?: string
           provisioned_by?: string | null
+          state?: string | null
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          thumb_url?: string | null
           timezone?: string
           updated_at?: string
         }
         Update: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          frequency_khz?: number | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           name?: string
+          neighbourhood?: string | null
           organization_id?: string
+          postal_code?: string | null
           provisioned_at?: string
           provisioned_by?: string | null
+          state?: string | null
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          thumb_url?: string | null
           timezone?: string
           updated_at?: string
         }
@@ -1316,6 +1445,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           deleted_at: string | null
+          external_id: string | null
           id: string
           legacy_id: string | null
           member_id: string
@@ -1331,6 +1461,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          external_id?: string | null
           id?: string
           legacy_id?: string | null
           member_id: string
@@ -1346,6 +1477,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          external_id?: string | null
           id?: string
           legacy_id?: string | null
           member_id?: string
@@ -2570,6 +2702,7 @@ export type Database = {
           deezer_track_id: number | null
           deleted_at: string | null
           duration_seconds: number | null
+          external_id: string | null
           genre_id: string | null
           id: string
           internal_code: string | null
@@ -2591,6 +2724,7 @@ export type Database = {
           deezer_track_id?: number | null
           deleted_at?: string | null
           duration_seconds?: number | null
+          external_id?: string | null
           genre_id?: string | null
           id?: string
           internal_code?: string | null
@@ -2612,6 +2746,7 @@ export type Database = {
           deezer_track_id?: number | null
           deleted_at?: string | null
           duration_seconds?: number | null
+          external_id?: string | null
           genre_id?: string | null
           id?: string
           internal_code?: string | null
@@ -3045,6 +3180,59 @@ export type Database = {
         }
         Returns: undefined
       }
+      api_record_music_request: {
+        Args: {
+          p_album_title?: string
+          p_artist_name?: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_credential_id: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_genre_name?: string
+          p_internal_code?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_listener_name?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_org: string
+          p_phone: string
+          p_release_date?: string
+          p_request_external_id?: string
+          p_requested_at?: string
+          p_show_name?: string
+          p_song_external_id?: string
+          p_title?: string
+          p_upc?: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
+        }
+        Returns: Json
+      }
+      api_register_song: {
+        Args: {
+          p_album_title?: string
+          p_artist_name: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_credential_id: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_external_id?: string
+          p_genre_name?: string
+          p_internal_code?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_org: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
+        }
+        Returns: Json
+      }
       apply_draw: {
         Args: {
           p_company_id: string
@@ -3151,6 +3339,30 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_song_intake: {
+        Args: {
+          p_actor: string
+          p_album_title?: string
+          p_artist_name: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_external_id: string
+          p_genre_name?: string
+          p_internal_code?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_org: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
+        }
+        Returns: Json
+      }
       apply_winner_transition: {
         Args: {
           p_deadline_at?: string
@@ -3196,6 +3408,15 @@ export type Database = {
       attach_delivery_receipt: {
         Args: { p_path: string; p_winner_id: string }
         Returns: undefined
+      }
+      authenticate_api_credential: {
+        Args: { p_scope: string; p_token_hash: string }
+        Returns: {
+          company_id: string
+          credential_id: string
+          organization_id: string
+          scope_ok: boolean
+        }[]
       }
       backfill_member_field_confirmations: { Args: never; Returns: undefined }
       block_member: {
@@ -3626,6 +3847,17 @@ export type Database = {
       }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_admin_for: { Args: { p_user_id: string }; Returns: boolean }
+      issue_api_credential: {
+        Args: {
+          p_company_id: string
+          p_expires_at?: string
+          p_name: string
+          p_scopes: string[]
+          p_token_hash: string
+          p_token_prefix: string
+        }
+        Returns: string
+      }
       job_started: { Args: { p_job: string }; Returns: undefined }
       job_succeeded: {
         Args: { p_counters?: Json; p_job: string }
@@ -3660,6 +3892,19 @@ export type Database = {
           p_upc?: string
         }
         Returns: undefined
+      }
+      list_api_credentials: {
+        Args: { p_company_id: string }
+        Returns: {
+          created_at: string
+          expires_at: string
+          id: string
+          last_used_at: string
+          name: string
+          revoked_at: string
+          scopes: string[]
+          token_prefix: string
+        }[]
       }
       list_audit_logs: {
         Args: {
@@ -4256,6 +4501,17 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      resolve_album_tracked: {
+        Args: {
+          p_company_id: string
+          p_cover_md5: string
+          p_deezer_album_id: number
+          p_release_date: string
+          p_title: string
+          p_upc: string
+        }
+        Returns: Record<string, unknown>
+      }
       resolve_dashboard_period: {
         Args: {
           p_from: string
@@ -4305,6 +4561,14 @@ export type Database = {
         }
         Returns: string
       }
+      resolve_reference_tracked: {
+        Args: {
+          p_company_id: string
+          p_kind: Database["public"]["Enums"]["music_reference_kind"]
+          p_name: string
+        }
+        Returns: Record<string, unknown>
+      }
       return_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -4312,6 +4576,10 @@ export type Database = {
       return_promotion_prizes: {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
         Returns: number
+      }
+      revoke_api_credential: {
+        Args: { p_credential_id: string }
+        Returns: undefined
       }
       revoke_invitation: {
         Args: { p_invitation_id: string }
@@ -4336,6 +4604,10 @@ export type Database = {
           p_question_id?: string
         }
         Returns: string
+      }
+      set_company_thumb: {
+        Args: { p_company_id: string; p_url?: string }
+        Returns: undefined
       }
       set_prize_photo: {
         Args: { p_prize_id: string; p_url?: string }
@@ -4397,6 +4669,23 @@ export type Database = {
       }
       update_album: {
         Args: { p_album_id: string; p_title: string }
+        Returns: undefined
+      }
+      update_company_profile: {
+        Args: {
+          p_address_complement?: string
+          p_address_line?: string
+          p_address_number?: string
+          p_broadcast_band?: Database["public"]["Enums"]["broadcast_band"]
+          p_city?: string
+          p_company_id: string
+          p_frequency_khz?: number
+          p_latitude?: number
+          p_longitude?: number
+          p_neighbourhood?: string
+          p_postal_code?: string
+          p_state?: string
+        }
         Returns: undefined
       }
       update_member: {
@@ -4514,6 +4803,7 @@ export type Database = {
       }
     }
     Enums: {
+      broadcast_band: "FM" | "AM" | "WEB"
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
       draw_status: "COMPLETED" | "CANCELLED"
@@ -4555,7 +4845,7 @@ export type Database = {
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
       music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
-      music_request_channel: "MANUAL" | "IMPORT"
+      music_request_channel: "MANUAL" | "IMPORT" | "API"
       music_vocal: "MALE" | "FEMALE" | "DUO" | "GROUP" | "INSTRUMENTAL"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
@@ -4732,6 +5022,7 @@ export const Constants = {
   },
   public: {
     Enums: {
+      broadcast_band: ["FM", "AM", "WEB"],
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
       draw_status: ["COMPLETED", "CANCELLED"],
@@ -4776,7 +5067,7 @@ export const Constants = {
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
       music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
-      music_request_channel: ["MANUAL", "IMPORT"],
+      music_request_channel: ["MANUAL", "IMPORT", "API"],
       music_vocal: ["MALE", "FEMALE", "DUO", "GROUP", "INSTRUMENTAL"],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
