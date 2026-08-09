@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(32);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000201', 'Org widget verify');
@@ -198,6 +198,199 @@ select is(
       and c.consent_type = 'identification'
       and c.origin = 'web-widget'),
   1::bigint, 'and their consent to being identified is on the record');
+
+-- ---------------------------------------------------------------------------
+-- THE EXPIRED CODE. Spec Sec.9 names it as one of the six proofs this file owes
+-- and it was not asserted anywhere in the repository -- 0161's step 3 could
+-- have been deleted and every gate would still have gone green.
+--
+-- The clock is moved rather than waited on: the TTL is ten minutes and a pgTAP
+-- file cannot sleep for it. `expires_at` is an ordinary column, so pushing it
+-- an hour into the past is the same state the ten-minute default reaches on
+-- its own, reached immediately.
+-- ---------------------------------------------------------------------------
+select public.widget_request_code('pw_enabledkey012345678901', '+5511999996666',
+                                  repeat('d', 64), '111111');
+
+update public.widget_verifications
+   set expires_at = now() - interval '1 hour'
+ where phone = '+5511999996666';
+
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999996666',
+                            repeat('d', 64), 'Late Visitor') ->> 'reason',
+  'expired', 'a code past its expiry is refused, by name');
+
+-- THE RIGHT hash was presented above, which is what makes this assertion mean
+-- something: the expiry is checked in step 3, BEFORE the comparison in step 5,
+-- so a correct code that arrived too late identifies nobody. Reversing those
+-- two steps would leave this listener created and this case still passing on
+-- the reason string alone.
+select is(
+  (select count(*) from public.members
+    where organization_id = '00000000-0000-0000-0000-000000000201'
+      and phone_normalized = public.normalize_phone('+5511999996666')),
+  0::bigint, 'and nobody was identified by it');
+
+-- ---------------------------------------------------------------------------
+-- THE ANONYMISED LISTENER. The other of spec Sec.9's six that nothing asserted:
+-- `listener_anonymized` appeared in no test in this repository at all.
+-- 0161's step 7 calls it "precisely what the erasure was for", which is the
+-- LGPD claim this product makes in docs/SECURITY.md.
+--
+-- anonymized_at IS SET DIRECTLY, the convention 09_draws and 20_dashboards
+-- already use for this column, and here it is more than a convention:
+-- anonymize_member (0034, rewritten in 0087) nulls `phone` along with every
+-- other identifier, so a listener erased through the product's own door can no
+-- longer be FOUND by apply_member_candidates at all and would take the
+-- "unknown visitor" path instead. That makes step 7 a guard against a member
+-- row carrying anonymized_at with identifiers still on it -- a partial erasure,
+-- a hand-repaired row, a future door that scrubs less -- rather than a branch
+-- the erasure door reaches today. Which is exactly why it needs a test: it is
+-- unreachable from the outside, so nothing but this would notice its removal.
+-- ---------------------------------------------------------------------------
+update public.members
+   set anonymized_at = now()
+ where organization_id = '00000000-0000-0000-0000-000000000201'
+   and phone_normalized = public.normalize_phone('+5511999997777');
+
+select public.widget_request_code('pw_enabledkey012345678901', '+5511999997777',
+                                  repeat('e', 64), '222222');
+
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999997777',
+                            repeat('e', 64), 'Maria Silva') ->> 'reason',
+  'listener_anonymized', 'a listener who exercised erasure is refused, not recreated');
+
+-- Burned anyway, and that is the sharp half. Step 6 stamps consumed_at BEFORE
+-- the listener is even looked up, so this refusal is not a retryable failure:
+-- the visitor cannot simply present the same six digits again.
+-- Named by its digest rather than by the phone: the happy path above already
+-- spent one code for this number, so counting every consumed row for it would
+-- pass whether this refusal burned anything or not.
+select is(
+  (select count(*) from public.widget_verifications
+    where phone = '+5511999997777'
+      and code_hash = repeat('e', 64)
+      and consumed_at is not null),
+  1::bigint, 'and the code is spent all the same, so it cannot be replayed');
+
+-- Nothing past step 7 ran. The consent count is still the ONE the happy path
+-- wrote above -- a second row here would mean fresh activity recorded against
+-- somebody who asked to be forgotten, which is the whole thing the branch
+-- exists to prevent.
+select is(
+  (select count(*) from public.member_consents c
+     join public.members m on m.id = c.member_id
+    where m.anonymized_at is not null
+      and c.consent_type = 'identification'),
+  1::bigint, 'and no fresh consent was recorded against them');
+
+-- ---------------------------------------------------------------------------
+-- widget_frame_context's THIRD refusal cause. Its comment promises one answer
+-- for an unknown key, a disabled installation and an ARCHIVED one; the first
+-- two are asserted above and the third was not, so `deleted_at is null` could
+-- have been dropped from the lookup unnoticed -- and an archived installation
+-- that still frames is a hole nothing on any screen would show.
+-- ---------------------------------------------------------------------------
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000201',
+   'Station widget verify archived', 'America/Sao_Paulo');
+insert into public.widget_installations
+  (id, organization_id, company_id, public_key, enabled, allowed_origins, deleted_at)
+values
+  ('00000000-0000-0000-0000-000000000210',
+   '00000000-0000-0000-0000-000000000201',
+   '00000000-0000-0000-0000-000000000209',
+   'pw_archivedkey01234567890', true, array['https://archived.radio.com.br'], now());
+
+select is(
+  public.widget_frame_context('pw_archivedkey01234567890'),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  'and so does an archived installation, enabled though it still reads');
+
+-- ---------------------------------------------------------------------------
+-- 0164. THE SUSPENDED STATION, and the BLOCKED ORGANIZATION after it.
+--
+-- Station 000...202 has been answering every door in this file, so suspending
+-- it now is a before/after on one fixture rather than a new one: everything
+-- else about it -- the installation, the enabled integration, the registered
+-- template -- is exactly what it was three assertions ago, so the only thing
+-- these refusals can be about is the subscription.
+--
+-- The column is written directly rather than through suspend_company (0007):
+-- that door is gated on a platform-admin session this file has none of, and
+-- the doors under test read the COLUMN. 37_organization_blocking.test.sql
+-- makes the same split -- it proves block_organization's gate and nothing
+-- about what the flag then does.
+-- ---------------------------------------------------------------------------
+update public.companies
+   set status = 'suspended'
+ where id = '00000000-0000-0000-0000-000000000202';
+
+select is(
+  public.widget_frame_context('pw_enabledkey012345678901'),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  'a suspended Station stops being framable, with no installation edit at all');
+
+-- THE ONE THAT COSTS MONEY. widget_request_code is the endpoint whose own
+-- comment says so: every call past it makes Meta bill this Station, which is
+-- the Station that stopped paying.
+select is(
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999995555',
+                             repeat('f', 64), '333333') ->> 'reason',
+  'unknown_installation', 'and it cannot spend the money it stopped paying for');
+
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999995555',
+                            repeat('f', 64), 'Suspended Visitor') ->> 'reason',
+  'unknown_installation', 'and identifies nobody either');
+
+-- THE CONTROL, without which the three above would pass just as well against a
+-- typo in the public key. Nothing is restored except the subscription.
+update public.companies
+   set status = 'active'
+ where id = '00000000-0000-0000-0000-000000000202';
+
+select is(
+  public.widget_frame_context('pw_enabledkey012345678901') ->> 'found',
+  'true', 'and it comes back the moment the subscription does');
+
+-- Block 16's lock, one level up. suspend_company does not touch this column and
+-- block_organization does not touch companies.status, so the two conditions are
+-- genuinely independent and each needs its own case.
+--
+-- suspended_by AND suspension_reason travel with the timestamp because
+-- organizations_block_shape (0154) requires the pair -- "a block with no author
+-- is a block nobody can be asked about afterwards" -- so a bare `set
+-- suspended_at = now()` is refused by the schema, which is what
+-- block_organization (0156) writes all three for.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000211', 'widget-blocker@example.test');
+
+update public.organizations
+   set suspended_at      = now(),
+       suspended_by      = '00000000-0000-0000-0000-000000000211',
+       suspension_reason = 'blocked while a widget was live'
+ where id = '00000000-0000-0000-0000-000000000201';
+
+select is(
+  public.widget_frame_context('pw_enabledkey012345678901'),
+  jsonb_build_object('found', false, 'origins', '[]'::jsonb),
+  'a blocked Organization stops its Stations being framed');
+
+select is(
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999994444',
+                             repeat('0', 64), '444444') ->> 'reason',
+  'unknown_installation', 'and cannot send a code');
+
+-- The one that is not about money: steps 8, 9 and 10 WRITE. Without this join
+-- a blocked Organization went on gaining listeners, links and consents after
+-- somebody deliberately blocked it.
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999994444',
+                            repeat('0', 64), 'Blocked Visitor') ->> 'reason',
+  'unknown_installation', 'and cannot gain a listener while it is blocked');
 
 select * from finish();
 rollback;
