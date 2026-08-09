@@ -937,7 +937,7 @@ git commit -m "feat(widget): the console doors, and the warning the tab reads"
   - `generatePublicKey(): string` — `pw_` + 16 random bytes base64url (22 chars).
   - `mintSession(claims: WidgetClaims, secret: string): string` — **two parameters, no clock.** `exp` arrives inside `claims` and must not be overridden, so a `now` here would have nothing to compute and would fail this repo's `no-unused-vars` lint. Only `readSession` needs a clock, to judge expiry.
   - `readSession(token: string, secret: string, now?: number): WidgetClaims | null`
-  - `interface WidgetClaims { installationId: string; companyId: string; organizationId: string; memberId: string; phone: string; exp: number }`
+  - `interface WidgetClaims { publicKey: string; companyId: string; organizationId: string; memberId: string; phone: string; exp: number }` — **`publicKey`, not an installation id.** Nothing can produce an installation id: `service_role` gets 42501 on `widget_installations` by design (0159 RLS on, no policy) and no door in 0161 returns the row id. The public key is 1:1 with the live row, is already in the page URL, and needs no lookup to compare.
   - `WIDGET_SESSION_COOKIE = 'pw_session'`, `WIDGET_SESSION_SECONDS = 1800`
 
 - [ ] **Step 1: Write the failing tests**
