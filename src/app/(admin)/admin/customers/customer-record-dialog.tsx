@@ -12,11 +12,15 @@ import { Input } from '@/components/ui/input';
 import { CUSTOMER_TABS, type CustomerTab } from '@/lib/record-params';
 import { addCompanyAction, type CustomerActionState, type CustomerRow } from './actions';
 import { RegenerateForm } from './credential-forms';
+import { StationForm, type StationProfile } from './station-form';
+import { ApiKeysTab } from './api-keys-tab';
+import type { ApiCredentialRow } from '@/services/api-credentials';
 
 const TAB_LABELS: Record<CustomerTab, string> = {
   customer: 'Customer',
   stations: 'Stations',
   owner: 'Owner',
+  keys: 'API keys',
 };
 
 const IDLE: CustomerActionState = { status: 'idle' };
@@ -31,21 +35,32 @@ export interface StationBrief {
 /**
  * One customer's record, over the console's list.
  *
- * The Customer tab has no Save button, and that is a finding rather than an
- * omission: no migration defines update_company or a rename, so there is
- * nothing on a Station that this console may edit. What the tabs carry are the
- * operations — add_company here, the provisional password next door — and the
- * suspend/reactivate pair, which is a status change rather than a field, lives
- * in the row menu beside the record.
+ * THE CUSTOMER TAB GAINED A SAVE BUTTON IN BLOCK 15, and the comment that used
+ * to stand here explained why it had none: no migration defined update_company
+ * or a rename, so there was nothing on a Station this console could edit. 0153
+ * changes that — a Station now has an address, a band, a dial frequency, a place
+ * and a picture, and this is where they are edited (design D9: the card at /app
+ * displays, the console edits).
+ *
+ * WHAT IS STILL NOT EDITABLE HERE, deliberately: the name, the timezone and the
+ * status. D10 left the first two exactly where they were, and a status change is
+ * not a field — suspend and reactivate stay in the row menu beside the record.
+ *
+ * The picture has a writer of its own (set_company_thumb) because
+ * update_company_profile replaces every field it takes, so a picture on that
+ * list would be cleared by the next ordinary save — the defect 0144 and 0145
+ * each document.
  *
  * Nothing is fetched when this opens: page.tsx already read every field it
- * shows, siblings included.
+ * shows, siblings, the Station's record and its keys included.
  */
 export function CustomerRecordDialog({
   open,
   row,
   missing,
   siblings,
+  profile,
+  credentials,
   tab,
   onTab,
   onClose,
@@ -56,6 +71,9 @@ export function CustomerRecordDialog({
   /** An address that named no Station on this page. */
   missing?: boolean;
   siblings: StationBrief[];
+  /** Block 15. Null only while no record is open. */
+  profile: StationProfile | null;
+  credentials: ApiCredentialRow[];
   tab: CustomerTab;
   onTab: (tab: CustomerTab) => void;
   onClose: () => void;
@@ -158,6 +176,14 @@ export function CustomerRecordDialog({
             </div>
           </dl>
         )}
+
+        {tab === 'customer' && profile && (
+          <div className="mt-6 border-t pt-5">
+            <StationForm companyId={row.id} profile={profile} />
+          </div>
+        )}
+
+        {tab === 'keys' && <ApiKeysTab companyId={row.id} initialRows={credentials} />}
 
         {tab === 'stations' && (
           <div className="flex flex-col gap-4">

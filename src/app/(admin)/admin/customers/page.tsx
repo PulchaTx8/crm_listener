@@ -8,6 +8,8 @@ import { PageHeader } from '@/components/layout/app-shell';
 import type { CustomerRow } from './actions';
 import type { StationBrief } from './customer-record-dialog';
 import { CustomersGrid } from './customers-grid';
+import type { StationProfile } from './station-form';
+import type { ApiCredentialRow } from '@/services/api-credentials';
 
 // Renders from the caller's session cookies, so it can never be static. Stated
 // explicitly rather than inferred from cookies(): the Supabase client is built
@@ -216,6 +218,66 @@ export default async function CustomersPage({
     owner: ownerByOrganization.get(c.organization_id) ?? null,
   }));
 
+  // Block 15. Read HERE rather than when the dialog opens, the rule the rest of
+  // this record follows: page.tsx already read every field the dialog shows, and
+  // a client-side fetch on open would be a second way for the same screen to be
+  // wrong.
+  //
+  // Only for the record the address names. Reading a profile for all
+  // twenty-five rows would be twenty-five sets of columns nobody is looking at,
+  // and reading the keys for all of them would be a query per row.
+  const record = parseRecordParam(params, CUSTOMER_TABS);
+
+  let openProfile: StationProfile | null = null;
+  let openCredentials: ApiCredentialRow[] = [];
+
+  if (record.recordId) {
+    const { data: profileRow, error: profileError } = await supabase
+      .from('companies')
+      // prettier-ignore
+      .select('address_line, address_number, address_complement, neighbourhood, city, state, postal_code, broadcast_band, frequency_khz, latitude, longitude, thumb_url')
+      .eq('id', record.recordId)
+      .maybeSingle();
+
+    if (profileError) logger.error({ err: profileError }, 'could not load the station profile');
+
+    if (profileRow) {
+      openProfile = {
+        addressLine: profileRow.address_line,
+        addressNumber: profileRow.address_number,
+        addressComplement: profileRow.address_complement,
+        neighbourhood: profileRow.neighbourhood,
+        city: profileRow.city,
+        state: profileRow.state,
+        postalCode: profileRow.postal_code,
+        broadcastBand: profileRow.broadcast_band,
+        frequencyKhz: profileRow.frequency_khz,
+        latitude: profileRow.latitude,
+        longitude: profileRow.longitude,
+        thumbUrl: profileRow.thumb_url,
+      };
+    }
+
+    // A failure here is logged and swallowed: the rest of the record is
+    // readable, and an empty keys tab beats an error page over the whole
+    // console.
+    const { data: keyRows, error: keysError } = await supabase.rpc('list_api_credentials', {
+      p_company_id: record.recordId,
+    });
+    if (keysError) logger.error({ err: keysError }, 'could not load the station keys');
+
+    openCredentials = (keyRows ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      tokenPrefix: row.token_prefix,
+      scopes: row.scopes ?? [],
+      expiresAt: row.expires_at,
+      lastUsedAt: row.last_used_at,
+      revokedAt: row.revoked_at,
+      createdAt: row.created_at,
+    }));
+  }
+
   return (
     <>
       <PageHeader
@@ -231,7 +293,9 @@ export default async function CustomersPage({
           previousCursor ? customersHref(search, { side: 'before', value: previousCursor }) : null
         }
         nextHref={nextCursor ? customersHref(search, { side: 'after', value: nextCursor }) : null}
-        initialRecord={parseRecordParam(params, CUSTOMER_TABS)}
+        initialRecord={record}
+        openProfile={openProfile}
+        openCredentials={openCredentials}
       />
     </>
   );

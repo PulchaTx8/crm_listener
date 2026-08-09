@@ -83,7 +83,13 @@ export type RoleTab = (typeof ROLE_TABS)[number];
 export const TEAM_TABS = ['person', 'access'] as const;
 export type TeamTab = (typeof TEAM_TABS)[number];
 
-export const CUSTOMER_TABS = ['customer', 'stations', 'owner'] as const;
+/**
+ * `keys` is APPENDED rather than inserted, and the position is load-bearing for
+ * the same reason PROMOTION_TABS records: parseRecordParam falls back to
+ * `tabs[0]` for an unknown `tab=`, so the first element is the tab a record
+ * opens on, and inserting would change where every existing link lands.
+ */
+export const CUSTOMER_TABS = ['customer', 'stations', 'owner', 'keys'] as const;
 export type CustomerTab = (typeof CUSTOMER_TABS)[number];
 
 /**
