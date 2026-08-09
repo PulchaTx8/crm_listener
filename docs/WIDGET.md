@@ -149,9 +149,26 @@ The page has exactly two states, decided server-side with no round trip: a
 visitor this deployment cannot name (by a valid, non-expired session cookie
 scoped to this installation) gets the identify form; one it can gets the menu.
 
-**An unknown key, a disabled installation, or one with no origins gets a
-plain 404** — the same answer for all three, deliberately, so probing a public
-key learns nothing an `<iframe src>` did not already say.
+**An unknown key, a disabled installation, or an archived one all get a plain
+404** — one answer for three causes, deliberately, so probing a public key
+learns nothing an `<iframe src>` did not already say.
+
+**An installation with no origins configured is a different case, and it
+does not 404.** `widget_frame_context` (`0161`) decides whether an
+installation is `found` by matching the key, `enabled`, and `deleted_at is
+null` — it never looks at `allowed_origins`. So the page exists, is enabled,
+and answers normally: visited directly, at its own URL, it renders the
+identify form exactly like any other widget. What refuses is *framing*, not
+the page — the allowlist is read separately to build the CSP's
+`frame-ancestors` value, and an empty list becomes `'none'`
+(`frameAncestorsValue`, `src/lib/widget/origins.ts`), so the page cannot be
+framed by anything at all.
+
+**This is the first thing to check when a widget loads fine at its own URL
+but stays blank inside an iframe on the Station's site**: open the console's
+Widget tab and look at the origin list before looking anywhere else. A page
+that works alone and a blank iframe is the signature of an empty or wrong
+allowlist, not of a broken installation.
 
 **The identify flow:**
 

@@ -29,7 +29,7 @@ pgTAP runs as superuser with a null `auth.uid()`, so **it never exercises RLS at
 all**. `supabase/tests/*.sql` proves catalogue and logic; it cannot prove a
 policy.
 
-`tests/isolation/*.test.ts` — 28 files — issues the real reads and writes over
+`tests/isolation/*.test.ts` — 33 files — issues the real reads and writes over
 HTTP as the roles that make them, which is the only place a missing grant or a
 wrong policy actually shows up. Its runner (`npm run test:isolation`) fails the
 run if a single file goes unreported, because a file that did not run is a
