@@ -338,13 +338,20 @@ precisely what the erasure was for.
 The consent recorded here covers identification — the basis for holding a name and
 a telephone number — and not the promotion's own consent step (D7).
 
+`member_consent_type` (0032) holds three values and none of them is this one:
+`rules` is agreement to a *promotion's* rules, which is 17c's business. A fourth,
+`identification`, is added, and the row carries `origin = 'web-widget'` so an
+audit can tell a number typed on a Station's website apart from one that arrived
+over WhatsApp. The table has been append-only since 0032 — a withdrawal is a new
+row — and nothing here changes that.
+
 The menu has two buttons, disabled until 17b and 17c land.
 
 ---
 
 ## 9. How it is proved
 
-**pgTAP** — `36_widget_installations.test.sql`, `37_widget_verification.test.sql`:
+**pgTAP** — `39_widget_installations.test.sql`, `40_widget_verification.test.sql`:
 a disabled installation refused; an expired code; the fifth attempt burning the
 row; a code issued against Station A failing to verify at Station B; the listener
 link written; an anonymised listener refused.
@@ -368,13 +375,15 @@ Station B.
 | | |
 | --- | --- |
 | `0154` | `widget_installations`; RLS on, no policy |
-| `0155` | `alter type public.template_purpose add value 'WEB_VERIFICATION'` — **alone in its file** |
+| `0155` | `template_purpose add value 'WEB_VERIFICATION'` and `member_consent_type add value 'identification'` — **the two `ADD VALUE`s and nothing else** |
 | `0156` | `widget_verifications`, and the doors: lookup by key, request a code, verify a code, identify |
 | `0157` | the console doors, gated on `is_platform_admin()` |
 
-`0155` is alone for the Postgres reason 0082, 0091 and 0151 already paid for:
-`ADD VALUE` cannot share a transaction with a statement that uses the value.
-Separate files are separate transactions, and `0156` uses it.
+`0155` carries no statement other than the two, for the Postgres reason 0082,
+0091 and 0151 already paid for: `ADD VALUE` cannot share a transaction with a
+statement that **uses** the value. The two may share this file because neither
+uses the other's; `0156` uses both, and is a separate file therefore a separate
+transaction.
 
 ---
 
