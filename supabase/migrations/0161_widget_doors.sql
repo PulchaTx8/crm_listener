@@ -82,7 +82,148 @@ comment on function public.widget_frame_context(text) is
   'The origins one installation may be framed by, for the Edge middleware to build frame-ancestors from. Answers {"found": false, "origins": []} for an unknown key, a disabled installation and an archived one alike -- one answer for three causes, so probing learns nothing, and so the caller has exactly one refusal branch to get right. GRANTED TO anon deliberately (spec §4.3): the middleware holds the anon key and runs before any session exists.';
 
 -- ---------------------------------------------------------------------------
--- The retention sweep, extended for one more table.
+-- Door 2: mint a verification. The CODE ITSELF NEVER ARRIVES HERE -- only its
+-- SHA-256, hashed in Node. An RPC argument lands in query logs and in backups,
+-- which is the rule the WhatsApp webhook already follows for the wamid, and it
+-- matters more for six digits than for a 256-bit token: a code in a log is a
+-- code somebody can still use for the next ten minutes.
+--
+-- p_code_plain IS THE ONE DELIBERATE EXCEPTION to that same rule, bounded
+-- rather than a crack in it, and this comment exists so nobody "fixes" it back
+-- into a hash. The rule protects the STORED credential -- widget_verifications
+-- holds only the SHA-256 (widget_verifications_hash_shape, above), so a
+-- database dump yields no usable code -- and that property is kept whole here
+-- too. The plaintext exists in exactly one place, outbox_messages.template_variables,
+-- reachable only by service_role and by nobody through PostgREST, pruned by
+-- sweep_retention's 180-day outbox_messages sweep same as the rest of that
+-- row, and worthless ten minutes after issue or after one use, whichever comes
+-- first. That is a different risk class from an API key with no expiry, which
+-- is why credentials.ts's comment (src/lib/api/credentials.ts:26-30) and this
+-- one reach different answers for what looks like the same rule. It has to
+-- travel as an argument because the message is sent by the worker draining
+-- outbox_messages, itself inside the database -- the six digits have to
+-- arrive there somehow, and an RPC argument is how every other row in that
+-- table gets built too.
+--
+-- THE REFUSALS ARE NAMED, and that is what the console tab reads to warn an
+-- operator (spec §5). "It did not work" would leave a Station enabled and
+-- silent, with the failure surfacing to a listener staring at an empty box.
+-- ---------------------------------------------------------------------------
+create function public.widget_request_code(
+  p_public_key   text,
+  p_phone        text,
+  p_code_hash    text,
+  p_code_plain   text,
+  p_ttl_seconds  integer default 600
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_install     public.widget_installations;
+  v_integration uuid;
+  v_template    public.message_templates;
+  v_id          uuid;
+  v_outbox_id   uuid;
+begin
+  select * into v_install
+    from public.widget_installations
+   where public_key = p_public_key and enabled and deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'unknown_installation',
+                              'verification_id', null);
+  end if;
+
+  select id into v_integration
+    from public.integrations
+   where company_id = v_install.company_id
+     and provider = 'WHATSAPP'
+     and deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'no_integration',
+                              'verification_id', null);
+  end if;
+
+  select * into v_template
+    from public.message_templates
+   where company_id = v_install.company_id
+     and purpose = 'WEB_VERIFICATION'
+     and deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'no_template',
+                              'verification_id', null);
+  end if;
+
+  insert into public.widget_verifications
+    (organization_id, company_id, installation_id, phone, code_hash, expires_at)
+  values
+    (v_install.organization_id, v_install.company_id, v_install.id,
+     p_phone, p_code_hash,
+     now() + make_interval(secs => p_ttl_seconds))
+  returning id into v_id;
+
+  -- The dedupe key is the VERIFICATION, not the phone: two codes legitimately
+  -- requested a minute apart are two messages, and collapsing them on the
+  -- number would silently drop the second -- leaving a visitor typing a code
+  -- that was superseded.
+  --
+  -- p_body is null, ON PURPOSE, not a placeholder for the masked text. When
+  -- p_template_purpose is given, 0111's enqueue_whatsapp_outbound ignores its
+  -- p_body argument entirely and renders `body` itself from p_template_variables
+  -- (D6: "rendering happens HERE and only here", so the audit copy can never
+  -- disagree with what was actually sent) -- so any value passed here would be
+  -- silently discarded, and passing null says so instead of hiding it behind a
+  -- value that looks used.
+  v_outbox_id := public.enqueue_whatsapp_outbound(
+    v_integration,
+    p_phone,
+    null,
+    null,
+    v_id::text || ':widget-verification',
+    'WEB_VERIFICATION',
+    -- THE ONLY PLACE THE SIX DIGITS EXIST outside the visitor's handset.
+    -- sendTemplate (src/services/whatsapp.ts) builds Meta's template
+    -- parameters from THIS column, not from `body` -- so this is also the
+    -- value that actually reaches the phone. See the header comment on this
+    -- function for why the raw value is an argument here when it is
+    -- forbidden everywhere else in this codebase.
+    jsonb_build_array(p_code_plain));
+
+  if v_outbox_id is not null then
+    -- enqueue_whatsapp_outbound just wrote `body` as the template rendered
+    -- WITH THE LIVE CODE, because D6 renders body and template_variables from
+    -- the same source on purpose so they cannot drift for an ordinary send.
+    -- A verification code is not an ordinary send: `body` is never pruned
+    -- (0059's comment on the column is explicit that this is deliberate, so
+    -- an operator can still answer "what were they told" after retention has
+    -- taken the phone number), which means a live code left in it would
+    -- outlive every mechanism meant to expire the code itself. Overwritten
+    -- here, in the SAME transaction as the insert above -- under Postgres's
+    -- default read-committed isolation nothing outside this function can see
+    -- a row before this function returns, so the unmasked value this
+    -- statement replaces is never visible to a concurrent reader and never
+    -- durable. jsonb_build_array(p_code_plain) alone remains as the one place
+    -- the six digits live in the database, exactly as the header comment
+    -- above requires.
+    update public.outbox_messages
+       set body = replace(v_template.body, '{{1}}', '******')
+     where id = v_outbox_id;
+  end if;
+
+  return jsonb_build_object('ok', true, 'reason', null, 'verification_id', v_id);
+end;
+$$;
+
+revoke execute on function public.widget_request_code(text, text, text, text, integer) from public;
+grant execute on function public.widget_request_code(text, text, text, text, integer) to service_role;
+
+comment on function public.widget_request_code(text, text, text, text, integer) is
+  'Mints a verification row and enqueues the WhatsApp code that proves the phone typed into a Station''s widget is reachable. Refuses by NAME -- unknown_installation, no_integration, no_template -- rather than one generic failure, because the console tab (spec §5) reads the reason to tell an operator why an enabled widget is silent. Does not rate-limit: spec §6.3''s limits are keyed by IP as well as by phone, and the database has no idea what an IP is, so that lives in the server action''s PostgresRateLimiter instead (Task 10). p_code_plain is the one deliberate, bounded exception to this codebase''s rule that a raw secret never travels as an RPC argument -- see the header comment above this function for the full reasoning, and do not "fix" it into a hash. `body` on the outbox row this leaves is overwritten to the MASKED text immediately after enqueue_whatsapp_outbound writes it live: 0111''s D6 renders body from the same template_variables that carry the real code, which is correct for an ordinary template send and wrong for a code that must not outlive its own ten-minute expiry in a column 0059 never prunes.';
 --
 -- create or replace, IN A NEW FILE, because both 0131 and 0133 are shipped and
 -- migrations are append-only.

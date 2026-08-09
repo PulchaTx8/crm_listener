@@ -5088,6 +5088,16 @@ export type Database = {
         Returns: string
       }
       widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
+      widget_request_code: {
+        Args: {
+          p_code_hash: string
+          p_code_plain: string
+          p_phone: string
+          p_public_key: string
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined

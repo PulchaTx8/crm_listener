@@ -1,5 +1,5 @@
 begin;
-select plan(7);
+select plan(11);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000201', 'Org widget verify');
@@ -72,6 +72,53 @@ select ok(
   (select prosrc from pg_proc where proname = 'sweep_retention')
     like '%widget_verifications%',
   'the retention sweep deletes verification rows too');
+
+-- A Station with no WhatsApp integration cannot send anything, and saying so
+-- here is what stops the console showing an enabled widget that silently never
+-- delivers a code.
+select is(
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
+                             repeat('a', 64), '123456') ->> 'reason',
+  'no_integration', 'without a WhatsApp integration the door refuses, by name');
+
+-- enabled explicitly true: it defaults to false (0057, "a half-configured row
+-- cannot start taking traffic"), and enqueue_whatsapp_outbound refuses a
+-- disabled integration outright ("integration not found or switched off"),
+-- which the door being tested does not itself pre-check.
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, waba_id, display_phone_number, enabled)
+values
+  ('00000000-0000-0000-0000-000000000205',
+   '00000000-0000-0000-0000-000000000201',
+   '00000000-0000-0000-0000-000000000202',
+   'WHATSAPP', '111222333', '444555666', '+551130000000', true);
+
+select is(
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
+                             repeat('a', 64), '123456') ->> 'reason',
+  'no_template', 'and without an approved template it still refuses, differently');
+
+insert into public.message_templates
+  (organization_id, company_id, purpose, name, language, body, variables)
+values
+  ('00000000-0000-0000-0000-000000000201',
+   '00000000-0000-0000-0000-000000000202',
+   'WEB_VERIFICATION', 'web_verification', 'pt_BR',
+   'Seu codigo e {{1}}.', '["code"]'::jsonb);
+
+select is(
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
+                             repeat('a', 64), '123456') ->> 'ok',
+  'true', 'with both in place the code is enqueued');
+
+-- The message left through the outbox rather than from the request path (D8):
+-- outbox_messages already carries the dedupe key that collapses a double click,
+-- already has the retention story for a phone number in the clear, and already
+-- retries.
+select is(
+  (select count(*) from public.outbox_messages
+    where template_name = 'web_verification'),
+  1::bigint, 'and it left as a template row on the existing outbox');
 
 select * from finish();
 rollback;
