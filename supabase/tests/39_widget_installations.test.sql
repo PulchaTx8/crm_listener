@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(23);
 
 -- Block 17a, design D4. The public key is NOT a secret: it sits in the src of
 -- an iframe on a public web page. Everything that actually defends this door is
@@ -64,6 +64,19 @@ select lives_ok($$
      set allowed_origins = array['https://radio.com.br', 'https://www.radio.com.br']
    where id = '00000000-0000-0000-0000-000000000101'$$,
   'two well-formed origins are accepted');
+
+-- widget_installations_key_shape, the negative case. It is what makes
+-- publicKeySchema (src/schemas/widget.ts) safe to duplicate the same regex in
+-- Node: that duplication is defended by a comment saying the CHECK is the
+-- authority, and an authority nothing asserts is a comment. A short key is the
+-- sharp case rather than a wrong prefix -- `pw_` plus twenty-two characters is
+-- exactly what generatePublicKey produces, and a bound nothing tests is a bound
+-- that survives being loosened to `pw_%`.
+select throws_ok($$
+  update public.widget_installations
+     set public_key = 'pw_tooshort'
+   where id = '00000000-0000-0000-0000-000000000101'$$,
+  '23514', null, 'a key that is not pw_ plus twenty-two characters is refused');
 
 -- 0110's own comment asked for this: "a later block adds a second rather than
 -- renaming this one, because Task 4 references it by name." This is that block.
@@ -191,11 +204,29 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f6", 
 create temporary table widget_read_third as
 select public.widget_installation_for('00000000-0000-0000-0000-0000000000f2') as data;
 
+-- A STATION WITH NO INSTALLATION ANSWERS BARE NULL, asserted head-on rather
+-- than inferred from `has_template` reading as absent. 0162 chose SQL NULL
+-- over widget_frame_context's {"found": false, ...} envelope deliberately, and
+-- the console's tab branches on exactly that -- `installation ? … : …` in
+-- widget-tab.tsx renders the "create one" state on it. An empty jsonb object
+-- would be TRUTHY in Node, and the tab would render a configured installation
+-- with no fields in it rather than the form that creates one.
+--
+-- A uuid no company has, so this is the "nothing here yet" answer rather than a
+-- half-created row. Inside the same platform-admin session, because the gate is
+-- checked before the lookup and an anonymous call would raise 42501 instead.
+create temporary table widget_read_absent as
+select public.widget_installation_for('00000000-0000-0000-0000-0000000000ff') as data;
+
 reset role;
 
 select is(
   (select (data ->> 'has_template')::boolean from widget_read_third),
   true, 'until a WEB_VERIFICATION template is registered, in the same query');
+
+select is(
+  (select data from widget_read_absent), null::jsonb,
+  'a Station with no installation reads back as NULL, not as an empty object');
 
 select * from finish();
 rollback;

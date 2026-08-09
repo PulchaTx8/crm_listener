@@ -216,6 +216,21 @@ describe('Block 17a — the widget across Stations', () => {
     expect(answerOf(data).member_id).toEqual(expect.any(String));
     expect(answerOf(data).company_id).toBe(alpha.customer.companyId);
 
+    // THE ONE NON-ZERO MEMBER COUNT IN THIS FILE, and it is what makes the two
+    // zeroes above and below mean anything. `members` is asserted empty for the
+    // other Organization twice and was never asserted non-empty anywhere, so a
+    // listener written with the WRONG organization_id -- or a query filtering
+    // on a column that had been renamed -- would have satisfied both zeroes
+    // while the tenant boundary was wide open. Asked of the Organization
+    // because that is where members are scoped (0031), the same scope the
+    // refusal case asks about.
+    const identified = await admin
+      .from('members')
+      .select('id')
+      .eq('organization_id', alpha.customer.organizationId);
+    expect(identified.data, 'the listener landed in the Organization that identified them')
+      .toHaveLength(1);
+
     const links = await admin
       .from('member_company_links')
       .select('member_id')
