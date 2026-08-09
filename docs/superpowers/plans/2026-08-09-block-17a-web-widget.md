@@ -400,7 +400,7 @@ select is(
   0::bigint, 'RLS on, no policy, like every other table holding a digest');
 
 -- A raw code where a digest belongs is refused BY SHAPE, the backstop
--- api_credentials_hash_shape (0148) and webhook_events.external_id (0058
+-- api_credentials_hash_shape (0148) and webhook_events.external_id (0058)
 -- already use.
 select throws_ok($$
   insert into public.widget_verifications
