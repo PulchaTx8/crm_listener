@@ -96,7 +96,13 @@ export type TeamTab = (typeof TEAM_TABS)[number];
 export const ORGANIZATION_TABS = ['data', 'owner', 'stations'] as const;
 export type OrganizationTab = (typeof ORGANIZATION_TABS)[number];
 
-export const STATION_TABS = ['data', 'whatsapp', 'keys'] as const;
+/**
+ * Fourth since Block 17a, which is the case this tuple's own header comment
+ * predicted: `station-record-dialog.tsx`'s strip already maps over this array
+ * rather than hard-coding three buttons, so adding the Widget tab cost an
+ * entry and a label, not a rewrite.
+ */
+export const STATION_TABS = ['data', 'whatsapp', 'keys', 'widget'] as const;
 export type StationTab = (typeof STATION_TABS)[number];
 
 /**

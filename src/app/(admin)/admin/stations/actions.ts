@@ -15,6 +15,9 @@ import {
 } from '@/services/api-credentials';
 import { disableIntegration, getIntegration, upsertIntegration } from '@/services/integrations';
 import type { IntegrationRow } from '@/services/integrations';
+import { getWidgetInstallation, upsertWidgetInstallation } from '@/services/widget-installations';
+import type { WidgetInstallationRow } from '@/services/widget-installations';
+import { parseOrigins } from '@/lib/widget/origins';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately -- the rule every record
@@ -338,4 +341,75 @@ export async function revokeApiKeyAction(
     logger.error({ err: cause, credentialId }, 'revoke api key failed');
     return { status: 'error', message: t('couldNotRevokeTheKey') };
   }
+}
+
+export interface WidgetInstallationState {
+  status: 'idle' | 'saved' | 'error';
+  message?: string;
+  /**
+   * `undefined` means the write landed and only the read-back failed -- the
+   * same distinction `IntegrationState.row` carries, for the same reason
+   * (`readIntegration`'s comment below `readWidgetInstallation`'s twin).
+   * `null` never appears here: a successful save always leaves a row behind.
+   */
+  installation?: WidgetInstallationRow | null;
+}
+
+/**
+ * A failed read-back is not a failed save, the rule `readIntegration` already
+ * states for this same file: the write already succeeded, so this reports
+ * what it could not refresh rather than telling the operator their change did
+ * not land.
+ */
+async function readWidgetInstallation(
+  companyId: string,
+  token: string,
+): Promise<WidgetInstallationRow | null | undefined> {
+  try {
+    return await getWidgetInstallation(companyId, token);
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'could not read back the widget installation');
+    return undefined;
+  }
+}
+
+/**
+ * Enable, disable, or edit a Station's widget installation. One action for
+ * all three, because `upsert_widget_installation` is one RPC for all three --
+ * the same reasoning `saveIntegrationAction` gives for its own single action.
+ *
+ * ORIGINS ARE PARSED HERE, SERVER-SIDE, even though `parseOrigins` carries no
+ * `server-only` guard and could run in the tab directly. The write boundary is
+ * this action, not the browser, and the CHECK at 0159 is already the backstop
+ * of record for the same grammar -- adding a client-only check here would
+ * mean trusting JavaScript an operator's browser might not run, for the one
+ * value that decides which sites may frame this Station's widget.
+ */
+export async function saveWidgetInstallationAction(
+  _prev: WidgetInstallationState,
+  formData: FormData,
+): Promise<WidgetInstallationState> {
+  const t = await getTranslations('admin');
+  const companyId = String(formData.get('companyId') ?? '');
+  if (!companyId) return { status: 'error', message: t('checkTheForm') };
+
+  const enabled = formData.get('enabled') === 'on';
+  const parsed = parseOrigins(String(formData.get('allowedOrigins') ?? ''));
+  if (!parsed.ok) {
+    return { status: 'error', message: t('thatOriginIsNotValid', { origin: parsed.bad }) };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await upsertWidgetInstallation({ companyId, enabled, allowedOrigins: parsed.origins }, token);
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'save widget installation failed');
+    return {
+      status: 'error',
+      message: cause instanceof ValidationError ? cause.message : t('couldNotSaveTheWidget'),
+    };
+  }
+
+  return { status: 'saved', installation: await readWidgetInstallation(companyId, token) };
 }

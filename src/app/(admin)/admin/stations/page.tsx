@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/layout/app-shell';
 import { listApiCredentialsFor, type ApiCredentialRow } from '@/services/api-credentials';
 import { configuredSecrets, getIntegration, type IntegrationRow } from '@/services/integrations';
 import { listOrganizations } from '@/services/organizations';
+import { getWidgetInstallation, type WidgetInstallationRow } from '@/services/widget-installations';
 import type { StationRow } from './actions';
 import { StationsGrid, type OrganizationOption } from './stations-grid';
 import type { StationProfile } from './station-form';
@@ -22,10 +23,13 @@ export const dynamic = 'force-dynamic';
  *
  * EVERYTHING EVERY RECORD WILL SHOW IS READ HERE, before knowing which record
  * will be opened: each Station's profile columns, each one's keys, each one's
- * WhatsApp integration. That is the rule the dialog depends on — the URL changes
- * without a server round trip (use-record-dialog.ts), so a fetch on open would
- * be a second way for one screen to be wrong, which is the defect Block 15
- * shipped and had to correct.
+ * WhatsApp integration, each one's widget installation. That is the rule the
+ * dialog depends on — the URL changes without a server round trip
+ * (use-record-dialog.ts), so a fetch on open would be a second way for one
+ * screen to be wrong, which is the defect Block 15 shipped and had to correct.
+ * Block 17a's Widget tab follows the same rule rather than fetching its own
+ * data when it opens — the one thing that would make it disagree with the rest
+ * of this dialog about the same Station.
  *
  * IT IS AFFORDABLE ONLY BECAUSE OF THE FILTER (design D3). A customer group has
  * three or four radios, so this is a handful of reads; the retiring screen
@@ -33,11 +37,14 @@ export const dynamic = 'force-dynamic';
  * it. The keys come back in ONE call for all of them (list_api_credentials_for),
  * because per-row is the N+1 Block 3b measured at 102 queries.
  *
- * The integrations are the one per-row read left, and deliberately: get_integration
- * takes a single Station, and a bulk sibling for a list that is three or four
- * rows long would be a second function to keep in step with list_integrations
- * for no measurable gain. If a customer ever appears with dozens of radios, this
- * is the line to change.
+ * The integrations and the widget installations are the per-row reads left,
+ * and deliberately: get_integration and widget_installation_for each take a
+ * single Station, and a bulk sibling for a list that is three or four rows
+ * long would be a second function to keep in step with their own list-form
+ * siblings for no measurable gain. Both run inside the SAME Promise.all pass
+ * below rather than two separate sweeps, for the reason the comment there
+ * gives. If a customer ever appears with dozens of radios, this is the line to
+ * change.
  */
 export default async function StationsPage({
   searchParams,
@@ -76,6 +83,7 @@ export default async function StationsPage({
   const profiles: Record<string, StationProfile> = {};
   const credentials: Record<string, ApiCredentialRow[]> = {};
   const integrations: Record<string, IntegrationRow | null> = {};
+  const installations: Record<string, WidgetInstallationRow | null> = {};
 
   if (selectedOrganizationId) {
     const { data: stations, error } = await supabase
@@ -142,24 +150,47 @@ export default async function StationsPage({
         logger.error({ err: cause }, 'could not load the keys of this group');
       }
 
-      // Concurrent rather than sequential: three or four independent reads that
-      // wait on each other for no reason would make the screen three or four
-      // times slower than it is.
+      // Concurrent rather than sequential: independent reads that wait on each
+      // other for no reason would make the screen three or four times slower
+      // than it is. The widget installation is read INSIDE this same pass
+      // rather than a second sweep over `rows` -- the eager-load argument two
+      // paragraphs up ("three or four radios") holds for one more field per
+      // row and stops holding the moment the page starts making a second
+      // serial pass over the same list. Each row's two RPCs (integration,
+      // installation) also run concurrently with each other, and each is
+      // caught on its own: a failure reading one Station's integration must
+      // not blank out an installation that loaded fine, or the reverse.
       const loaded = await Promise.all(
         rows.map(async (row) => {
-          try {
-            return [row.id, await getIntegration(row.id)] as const;
-          } catch (cause) {
-            logger.error({ err: cause, companyId: row.id }, 'could not load an integration');
-            return [row.id, null] as const;
-          }
+          const [integration, installation] = await Promise.all([
+            getIntegration(row.id).catch((cause) => {
+              logger.error({ err: cause, companyId: row.id }, 'could not load an integration');
+              return null;
+            }),
+            getWidgetInstallation(row.id, token).catch((cause) => {
+              logger.error({ err: cause, companyId: row.id }, 'could not load a widget installation');
+              return null;
+            }),
+          ]);
+          return [row.id, integration, installation] as const;
         }),
       );
-      for (const [companyId, integration] of loaded) integrations[companyId] = integration;
+      for (const [companyId, integration, installation] of loaded) {
+        integrations[companyId] = integration;
+        // Explicitly assigned even when null: an absent key would make "not
+        // configured" and "not loaded" the same value, which is exactly what
+        // the Widget tab's warning line has to tell apart.
+        installations[companyId] = installation;
+      }
     }
   }
 
   const record = parseRecordParam(params, STATION_TABS);
+
+  // NEXT_PUBLIC_SITE_URL, resolved once here rather than inside the client
+  // component the snippet renders in -- `invitations.ts`'s own siteUrl()
+  // reads the same variable the same way, for its own links.
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
   return (
     <>
@@ -172,7 +203,9 @@ export default async function StationsPage({
         profiles={profiles}
         credentials={credentials}
         integrations={integrations}
+        installations={installations}
         secrets={configuredSecrets()}
+        siteUrl={siteUrl}
       />
     </>
   );
