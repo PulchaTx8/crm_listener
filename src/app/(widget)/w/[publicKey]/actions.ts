@@ -5,7 +5,7 @@ import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { PostgresRateLimiter } from '@/lib/rate-limit';
 import { createServiceClient } from '@/lib/supabase/service-client';
-import { generateCode, hashCode } from '@/lib/widget/code';
+import { generateCode, hashCode, hashLimitSubject } from '@/lib/widget/code';
 import {
   WIDGET_SESSION_COOKIE,
   WIDGET_SESSION_SECONDS,
@@ -207,7 +207,7 @@ export async function requestCodeAction(
   const refusedBy = await withinLimits(limiter, publicKey, [
     { key: `widget:code:phone:${phoneBucket}`, label: 'code/phone/minute', ...CODE_PER_PHONE_MINUTE },
     { key: `widget:code:phone:hour:${phoneBucket}`, label: 'code/phone/hour', ...CODE_PER_PHONE_HOUR },
-    { key: `widget:code:ip:${ip}`, label: 'code/ip/hour', ...CODE_PER_IP_HOUR },
+    { key: `widget:code:ip:${ipKey(ip)}`, label: 'code/ip/hour', ...CODE_PER_IP_HOUR },
     { key: stationKey(publicKey), label: 'code/station/hour', ...CODE_PER_STATION_HOUR },
   ]);
   if (refusedBy) return { status: 'refused', reason: 'rate_limited' };
@@ -290,7 +290,7 @@ export async function verifyCodeAction(
       label: 'verify/phone/hour',
       ...VERIFY_PER_PHONE_HOUR,
     },
-    { key: `widget:verify:ip:${ip}`, label: 'verify/ip/hour', ...VERIFY_PER_IP_HOUR },
+    { key: `widget:verify:ip:${ipKey(ip)}`, label: 'verify/ip/hour', ...VERIFY_PER_IP_HOUR },
   ]);
   if (refusedBy) return { status: 'refused', reason: 'rate_limited' };
 
@@ -441,20 +441,49 @@ async function callerIp(): Promise<string> {
 }
 
 /**
- * The digits of a telephone number, which is `normalize_phone`'s rule (0031)
- * applied in Node so that '+55 11 99999-8888' and '5511999998888' land in the
- * same bucket rather than in two.
+ * A telephone number, as something a counter row may hold.
  *
- * A BUCKET KEY, NOT AN IDENTITY. The database remains the only authority on who
- * a number belongs to — `members.phone_normalized` is GENERATED from
- * `normalize_phone` and nothing here is compared against it. If this rule ever
- * drifts from that one the cost is a rate-limit bucket slightly wider or
- * narrower than intended, never a listener resolved wrongly. Calling the
- * `normalize_phone` RPC instead was rejected: it would put a database round
+ * TWO STEPS, IN THIS ORDER, AND BOTH ARE LOAD-BEARING.
+ *
+ * First the digits, which is `normalize_phone`'s rule (0031) applied in Node so
+ * that '+55 11 99999-8888' and '5511999998888' land in the same bucket rather
+ * than in two. A BUCKET KEY, NOT AN IDENTITY: the database remains the only
+ * authority on who a number belongs to — `members.phone_normalized` is
+ * GENERATED from `normalize_phone` and nothing here is compared against it. If
+ * this rule ever drifts from that one the cost is a rate-limit bucket slightly
+ * wider or narrower than intended, never a listener resolved wrongly. Calling
+ * the `normalize_phone` RPC instead was rejected: it would put a database round
  * trip in front of the limit that exists to protect the database.
+ *
+ * Then the digest, and it has to be second. Hashing the raw string would give
+ * one person two budgets, because the two spellings above hash to two unrelated
+ * values — which is the whole reason normalisation exists here, undone.
+ *
+ * WHY IT IS HASHED AT ALL: `rate_limit_counters.key` is a plain column, kept
+ * for thirty days after its window closes and present in every backup. This
+ * file's header already forbids a telephone number reaching a LOG, on the
+ * grounds that it is personal data with a thirty-day rule (0161's sweep) a log
+ * file does not honour — and writing that same number verbatim into a database
+ * column, which is what this did before, contradicted the argument in the file
+ * that makes it. Both of this product's other anonymous limiters hash first
+ * (`hashIpAddress`, services/contact-requests.ts; the invitation limiter,
+ * services/invitations.ts) and docs/SECURITY.md §9 states it as the rule.
  */
 function phoneKey(phone: string): string {
-  return phone.replace(/\D/g, '');
+  return hashLimitSubject(phone.replace(/\D/g, ''));
+}
+
+/**
+ * The caller's address, the same way and for the same reason.
+ *
+ * No normalisation step: an address arrives from `x-forwarded-for` already in
+ * one canonical spelling per caller, so unlike a telephone number there is
+ * nothing to fold together first. 'unknown' — `callerIp`'s answer when the
+ * header is absent — hashes like any other value, so that shared bucket keeps
+ * working exactly as it did.
+ */
+function ipKey(ip: string): string {
+  return hashLimitSubject(ip);
 }
 
 type Limit = { limit: number; windowSeconds: number };
@@ -463,14 +492,15 @@ type Limit = { limit: number; windowSeconds: number };
  * One bucket: what the counter is keyed by, and what a log line is allowed to
  * say about it.
  *
- * THE TWO ARE SEPARATE FIELDS ON PURPOSE. Three of the six keys below carry a
- * telephone number, and this file's header forbids one reaching a log — it is
- * personal data with a thirty-day retention rule (0161's sweep) that a log file
- * shipped off this host does not honour. The key that refused is exactly what
- * an operator needs to know and the number is exactly what they do not, so the
- * label carries the first and never the second. `widget:code:ip:<addr>` is
- * treated the same way: an address is personal data in the same jurisdiction,
- * and "which limit refused" is answered without it.
+ * THE TWO ARE SEPARATE FIELDS ON PURPOSE, and the digests in `phoneKey` and
+ * `ipKey` do not make it redundant. Five of the six keys below are derived from
+ * a telephone number or an address, and a digest is still a stable per-person
+ * identifier: two log lines carrying the same one say "the same caller", and a
+ * digest beside a known number is a lookup rather than a puzzle. What an
+ * operator needs is WHICH LIMIT refused, which the label answers on its own, so
+ * the key never travels into a log even hashed. The hashing defends the
+ * counter ROW, which lives for thirty days in a table nothing prunes sooner;
+ * this field defends the log line, which leaves the host entirely.
  *
  * The STATION is still identifiable in every line, because `publicKey` is
  * logged alongside and 0159's own column comment says in writing that it is not

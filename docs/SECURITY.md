@@ -156,11 +156,33 @@ a working export.
 
 ## 9. Rate limiting
 
-`PostgresRateLimiter` (`src/lib/rate-limit/`) backs the public contact form and
-invitation acceptance, keyed by a hash of the caller's IP. Note for anyone
-writing tests: **every local test shares `127.0.0.1`**, so a suite that grows
-past ten accepted invitations in a window starts failing on a control that is
-working correctly.
+`PostgresRateLimiter` (`src/lib/rate-limit/`) backs every anonymous door: the
+public contact form, invitation acceptance, and the web widget's two server
+actions (Block 17a).
+
+**The subject is hashed before it becomes a key, always** — the IP, and the
+telephone number the widget keys three of its six limits by. `rate_limit_counters
+.key` is an ordinary column: readable by anything with database access, present
+in every backup, and kept for thirty days after its window closes by
+`sweep_retention`. A raw number or address there is personal data held somewhere
+nothing shows and nobody consented to, and a telephone number has a
+thirty-day rule of its own (`0161`) that a counter row does not honour. The
+digest is SHA-256 truncated to 32 hex characters (`hashIpAddress`,
+`src/services/contact-requests.ts`; `hashLimitSubject`, `src/lib/widget/code.ts`).
+
+**Normalisation comes before hashing**, where a subject has more than one
+spelling: `+55 11 99999-8888` and `5511999998888` are one caller and must be one
+bucket, and hashing first would give them two.
+
+The widget's numbers are the tightest in the product because its code-request
+endpoint spends money — one code a minute and five an hour per number, ten an
+hour per address, and a per-Station hourly ceiling so one abuser cannot burn one
+customer's Meta budget. The limiter **fails closed**: a counter it cannot read
+refuses the request.
+
+Note for anyone writing tests: **every local test shares `127.0.0.1`**, so a
+suite that grows past ten accepted invitations in a window starts failing on a
+control that is working correctly.
 
 ## 10. API credentials (Block 15)
 
