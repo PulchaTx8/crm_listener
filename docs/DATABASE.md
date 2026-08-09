@@ -87,3 +87,36 @@ about who may do something, the proof belongs in the isolation suite.
   That is state, not a regression: `npm run db:reset` first.
 - **`supabase db reset` leaves Kong blind.** Every auth call then answers
   `createUser failed: {}` until `docker restart supabase_kong_<project>`.
+
+
+## Block 15 — the external intake API and the Station's record
+
+**`api_credentials`** — one machine key for one Station. Holds `token_hash` (the
+SHA-256 of the secret, never the secret), `token_prefix` (twelve visible
+characters, so two keys can be told apart in a list), `expires_at`,
+`last_used_at` and the revocation pair. RLS on, **no policy**, no table grant:
+reachable only from inside the `SECURITY DEFINER` functions in `0149`.
+
+**`api_credential_scopes`** — `(credential_id, permission_code)`, a child table
+rather than a `text[]` so the code is a real foreign key against
+`public.permissions`.
+
+**`songs.external_id` and `music_requests.external_id`** — the calling system's
+own primary key, each with a unique index per Station among live rows. Beside
+`legacy_id`, never instead of it: that column belongs to Block 9's import, and
+sharing the namespace would report one source's duplicate as the other's.
+
+**`music_request_channel` gained `API`** (`0151`, alone in its file because
+`ALTER TYPE … ADD VALUE` cannot share a transaction with a statement that uses
+the value). `WHATSAPP` is still reserved for this product's own bot.
+
+**`companies` gained twelve columns** (`0153`): the same seven address names
+`members` uses, plus `broadcast_band`, `frequency_khz` (**always kHz** — FM 98.5
+MHz is 98500), `latitude`/`longitude` as `numeric(9,6)` with a pair CHECK, and
+`thumb_url`. Two writers, deliberately: `update_company_profile` for the fields
+and `set_company_thumb` for the picture, because the first replaces every field
+it takes and would otherwise clear a picture uploaded a moment before.
+
+The `artwork` bucket gained a `station-thumbs` slot, keyed
+`station-thumbs/<company_id>/thumb` and gated on `is_platform_admin()` in
+`may_write_artwork`.
