@@ -383,7 +383,7 @@ values
   ('00000000-0000-0000-0000-000000000203',
    '00000000-0000-0000-0000-000000000201',
    '00000000-0000-0000-0000-000000000202',
-   'pw_enabledkey0123456789', true, array['https://radio.com.br']);
+   'pw_enabledkey012345678901', true, array['https://radio.com.br']);
 insert into public.widget_installations
   (id, organization_id, company_id, public_key, enabled, allowed_origins)
 values
@@ -413,7 +413,7 @@ select throws_ok($$
 
 -- The Edge middleware asks this, with the anon key, on a document request.
 select is(
-  public.widget_frame_context('pw_enabledkey0123456789'),
+  public.widget_frame_context('pw_enabledkey012345678901'),
   jsonb_build_object('found', true, 'origins', jsonb_build_array('https://radio.com.br')),
   'an enabled key answers with its origins');
 
@@ -598,7 +598,7 @@ Append to `supabase/tests/40_widget_verification.test.sql`, before `finish()`, a
 -- here is what stops the console showing an enabled widget that silently never
 -- delivers a code.
 select is(
-  public.widget_request_code('pw_enabledkey0123456789', '+5511999998888',
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
                              repeat('a', 64), '123456') ->> 'reason',
   'no_integration', 'without a WhatsApp integration the door refuses, by name');
 
@@ -611,7 +611,7 @@ values
    'WHATSAPP', '111222333', '444555666', '+551130000000');
 
 select is(
-  public.widget_request_code('pw_enabledkey0123456789', '+5511999998888',
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
                              repeat('a', 64), '123456') ->> 'reason',
   'no_template', 'and without an approved template it still refuses, differently');
 
@@ -624,7 +624,7 @@ values
    'Seu codigo e {{1}}.', '["code"]'::jsonb);
 
 select is(
-  public.widget_request_code('pw_enabledkey0123456789', '+5511999998888',
+  public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
                              repeat('a', 64), '123456') ->> 'ok',
   'true', 'with both in place the code is enqueued');
 
@@ -762,7 +762,7 @@ git commit -m "feat(widget): mint a verification, and name every reason it canno
 
 **Files:**
 - Modify: `supabase/migrations/0161_widget_doors.sql` (append)
-- Modify: `supabase/tests/40_widget_verification.test.sql` (plan 10 → 17)
+- Modify: `supabase/tests/40_widget_verification.test.sql` (plan 12 → 19)
 
 **Interfaces:**
 - Consumes: `apply_member_lookup(uuid, text, text, text, text) returns uuid`, `apply_member_creation(...) returns uuid`, `apply_member_link(uuid, uuid, uuid, uuid) returns boolean` (all 0061).
@@ -770,7 +770,7 @@ git commit -m "feat(widget): mint a verification, and name every reason it canno
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `supabase/tests/40_widget_verification.test.sql`, before `finish()`, changing `plan(10)` to `plan(17)`:
+Append to `supabase/tests/40_widget_verification.test.sql`, before `finish()`, changing `plan(12)` to `plan(19)`:
 
 ```sql
 -- The ceiling, and what it is actually for. A six-digit code is 10^6, so
@@ -778,7 +778,7 @@ Append to `supabase/tests/40_widget_verification.test.sql`, before `finish()`, c
 -- reason there is no constant-time comparison anywhere near this (0148's
 -- credentials.ts comment gives the general argument; this is the sharp case).
 select is(
-  public.widget_verify_code('pw_enabledkey0123456789', '+5511999998888',
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999998888',
                             repeat('b', 64)) ->> 'reason',
   'wrong_code', 'a wrong code is refused');
 
@@ -788,22 +788,22 @@ select is(
   1, 'and the attempt is counted');
 
 select lives_ok($$
-  select public.widget_verify_code('pw_enabledkey0123456789', '+5511999998888',
+  select public.widget_verify_code('pw_enabledkey012345678901', '+5511999998888',
                                    repeat('b', 64))
     from generate_series(1, 4)$$,
   'four more wrong guesses are survivable');
 
 select is(
-  public.widget_verify_code('pw_enabledkey0123456789', '+5511999998888',
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999998888',
                             repeat('a', 64)) ->> 'reason',
   'too_many_attempts', 'and the RIGHT code is refused once the ceiling is hit');
 
 -- A fresh verification, to prove the happy path and the listener it creates.
-select public.widget_request_code('pw_enabledkey0123456789', '+5511999997777',
+select public.widget_request_code('pw_enabledkey012345678901', '+5511999997777',
                                   repeat('c', 64), '654321');
 
 select is(
-  public.widget_verify_code('pw_enabledkey0123456789', '+5511999997777',
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999997777',
                             repeat('c', 64), 'Maria Silva') ->> 'ok',
   'true', 'the right code identifies the visitor');
 
