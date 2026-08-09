@@ -3474,6 +3474,10 @@ export type Database = {
         }
         Returns: string
       }
+      block_organization: {
+        Args: { p_organization_id: string; p_reason: string }
+        Returns: undefined
+      }
       cancel_delivery: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -3883,6 +3887,10 @@ export type Database = {
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner_for: {
         Args: { p_organization_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      is_owner_including_blocked: {
+        Args: { p_organization_id: string }
         Returns: boolean
       }
       is_owner_of_company: { Args: { p_company_id: string }; Returns: boolean }
@@ -4698,6 +4706,10 @@ export type Database = {
           conversations: number
           leases: number
         }[]
+      }
+      unblock_organization: {
+        Args: { p_organization_id: string }
+        Returns: undefined
       }
       unlink_prize_from_promotion: {
         Args: {
