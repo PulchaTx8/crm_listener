@@ -297,44 +297,80 @@ export type Database = {
       }
       companies: {
         Row: {
+          address_complement: string | null
+          address_line: string | null
+          address_number: string | null
+          broadcast_band: Database["public"]["Enums"]["broadcast_band"] | null
+          city: string | null
           created_at: string
           deleted_at: string | null
+          frequency_khz: number | null
           id: string
+          latitude: number | null
+          longitude: number | null
           name: string
+          neighbourhood: string | null
           organization_id: string
+          postal_code: string | null
           provisioned_at: string
           provisioned_by: string | null
+          state: string | null
           status: Database["public"]["Enums"]["company_status"]
           suspended_at: string | null
           suspension_reason: string | null
+          thumb_url: string | null
           timezone: string
           updated_at: string
         }
         Insert: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          frequency_khz?: number | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           name: string
+          neighbourhood?: string | null
           organization_id: string
+          postal_code?: string | null
           provisioned_at?: string
           provisioned_by?: string | null
+          state?: string | null
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          thumb_url?: string | null
           timezone?: string
           updated_at?: string
         }
         Update: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          frequency_khz?: number | null
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           name?: string
+          neighbourhood?: string | null
           organization_id?: string
+          postal_code?: string | null
           provisioned_at?: string
           provisioned_by?: string | null
+          state?: string | null
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          thumb_url?: string | null
           timezone?: string
           updated_at?: string
         }
@@ -4569,6 +4605,10 @@ export type Database = {
         }
         Returns: string
       }
+      set_company_thumb: {
+        Args: { p_company_id: string; p_url?: string }
+        Returns: undefined
+      }
       set_prize_photo: {
         Args: { p_prize_id: string; p_url?: string }
         Returns: undefined
@@ -4629,6 +4669,23 @@ export type Database = {
       }
       update_album: {
         Args: { p_album_id: string; p_title: string }
+        Returns: undefined
+      }
+      update_company_profile: {
+        Args: {
+          p_address_complement?: string
+          p_address_line?: string
+          p_address_number?: string
+          p_broadcast_band?: Database["public"]["Enums"]["broadcast_band"]
+          p_city?: string
+          p_company_id: string
+          p_frequency_khz?: number
+          p_latitude?: number
+          p_longitude?: number
+          p_neighbourhood?: string
+          p_postal_code?: string
+          p_state?: string
+        }
         Returns: undefined
       }
       update_member: {
@@ -4746,6 +4803,7 @@ export type Database = {
       }
     }
     Enums: {
+      broadcast_band: "FM" | "AM" | "WEB"
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
       draw_status: "COMPLETED" | "CANCELLED"
@@ -4964,6 +5022,7 @@ export const Constants = {
   },
   public: {
     Enums: {
+      broadcast_band: ["FM", "AM", "WEB"],
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
       draw_status: ["COMPLETED", "CANCELLED"],

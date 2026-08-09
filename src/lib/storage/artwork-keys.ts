@@ -7,7 +7,15 @@
  */
 export const ARTWORK_BUCKET = 'artwork';
 
-export type ArtworkSlot = 'promotion-thumbs' | 'promotion-banners' | 'prize-photos';
+export type ArtworkSlot =
+  | 'promotion-thumbs'
+  | 'promotion-banners'
+  | 'prize-photos'
+  // Block 15. The Station's own picture, keyed `station-thumbs/<company_id>/thumb`
+  // -- the record id is a constant because a Station has exactly one, and the
+  // company_id still has to be the SECOND segment for may_write_artwork (0143,
+  // amended by 0153) to read it out of the path.
+  | 'station-thumbs';
 
 /**
  * `<slot>/<company_id>/<record_id>`, and DELIBERATELY NO FILE EXTENSION.
