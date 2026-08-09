@@ -1025,7 +1025,7 @@ git commit -m "feat(widget): six digits, a digest, and a session that cannot be 
 - Modify: `src/lib/security/csp.ts:15-72`
 - Create: `tests/unit/csp-frame-ancestors.test.ts`
 
-**There is no unit test for `buildContentSecurityPolicy` today** — only `tests/e2e/csp.spec.ts`, which exercises it through a browser. The function's own header comment says it was made pure precisely so the policy could be asserted, and that "a policy nobody can assert is a policy that decays one temporary keyword at a time". This task writes the first one, on the release that punches a hole in that policy, which is the release where it stops being optional.
+**`buildContentSecurityPolicy` already has unit tests** at `tests/unit/security/csp.test.ts` (11 of them, from Blocks 11b and 13a) — note the `security/` subdirectory, which a non-recursive `ls tests/unit` misses. Those tests are the load-bearing proof that the new parameter's default leaves every existing caller correct: they must keep passing UNMODIFIED. Needing to edit them means the default is wrong.
 
 **Interfaces:**
 - Produces:
