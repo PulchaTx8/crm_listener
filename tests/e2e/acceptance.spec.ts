@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { WORKER_TICK_SECRET_FOR_TESTS } from '../whatsapp-test-env';
+import { provisionThroughConsole } from './provision';
 
 /**
  * THE ACCEPTANCE JOURNEY — master spec §35.
@@ -104,44 +105,41 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
     await signIn(page, adminEmail, adminPassword);
     await expect(page).toHaveURL(/\/app$/);
 
-    // Reached through the sidebar rather than by URL: the platform links render
-    // only for a platform admin, so arriving this way also asserts the scoping.
-    await page.getByRole('link', { name: 'Customers' }).click();
-    await expect(page).toHaveURL(/\/admin\/customers$/);
-
-    await page.getByTestId('customer-create').click();
-    await page.getByPlaceholder('Organization name').fill(organizationName);
-    await page.getByPlaceholder('Company (Station) name').fill(stationOne);
-    await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-    await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-    // Shown once and stored nowhere, which is why the dialog stays open.
-    const revealed = page.locator('code').first();
-    await expect(revealed).toBeVisible({ timeout: 15_000 });
-    provisionalPassword = (await revealed.innerText()).trim();
+    // The helper reaches the console through the sidebar rather than by URL: the
+    // platform links render only for a platform admin, so arriving that way also
+    // asserts the scoping. Since Block 16 it takes TWO screens — provisioning
+    // creates the group and no Station, and the first radio is added from the
+    // record's Stations tab.
+    provisionalPassword = await provisionThroughConsole(page, {
+      organizationName,
+      companyName: stationOne,
+      ownerEmail,
+    });
     expect(provisionalPassword.length).toBeGreaterThanOrEqual(16);
-    expect(page.url()).not.toContain(provisionalPassword);
 
     await trackUser(ownerEmail);
   });
 
   await test.step('the same console adds the second Station', async () => {
     // §35 asks for two Companies, and this is the screen that makes one:
-    // AddStationForm in the customer record dialog, over add_company, which is
-    // platform-admin only -- which is why it lives in the console rather than
-    // on the customer's own screens.
-    await page.keyboard.press('Escape');
-    await page.reload();
-    const row = page.locator('[data-testid="company-row"]', { hasText: stationOne });
-    await row.getByRole('button', { name: stationOne, exact: true }).click();
+    // AddStationForm in the Organization record dialog, over add_company, which
+    // is platform-admin only -- which is why it lives in the console rather than
+    // on the customer's own screens. The first Station came from the same form,
+    // inside the helper above.
+    const row = page.locator('[data-testid="organization-row"]', { hasText: organizationName });
+    await row.getByRole('button', { name: organizationName, exact: true }).click();
     await page.getByRole('tab', { name: 'Stations' }).click();
 
     await page.getByPlaceholder('New Station name').fill(stationTwo);
     await page.getByRole('button', { name: 'Add Station' }).click();
 
-    // Asserted inside the dialog: the grid behind it also gains a row with this
-    // name, and a bare getByText resolves to both.
-    await expect(page.getByRole('dialog').getByText(stationTwo)).toBeVisible({ timeout: 15_000 });
+    // Asserted inside the dialog, and as a link: the Stations tab lists each one
+    // as a link to the Stations screen, and a bare getByText would also resolve
+    // against the grid behind the dialog.
+    await expect(page.getByRole('dialog').getByRole('link', { name: stationTwo })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.keyboard.press('Escape');
   });
 
   await test.step('the owner takes the account and reaches both Stations', async () => {
@@ -160,7 +158,7 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
 
     // Both Stations, and the console is not theirs.
     await expect(owner.locator('[data-testid="station-card"]')).toHaveCount(2);
-    await expect(owner.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+    await expect(owner.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
     ownerPage = owner;
     ownerContext = customerContext;

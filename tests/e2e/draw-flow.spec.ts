@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionCustomer } from './provision';
 
 /** The local stack's own database, the same target tests/isolation/harness.ts connects to. */
 const LOCAL_SUPABASE_DB_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
@@ -63,14 +64,11 @@ test.beforeAll(async () => {
   const ownerId = await createUser(ownerEmail, ownerPassword);
 
   const adminClient = await signIn(platformAdminEmail, platformAdminPassword);
-  const provisioned = await adminClient.rpc('provision_customer', {
-    p_user_id: ownerId,
-    p_organization_name: `Draw Org ${stamp}`,
-    p_company_name: `Draw Station ${stamp}`,
-    p_timezone: 'America/Sao_Paulo',
+  const { company_id: companyId } = await provisionCustomer(adminClient, {
+    userId: ownerId,
+    organizationName: `Draw Org ${stamp}`,
+    companyName: `Draw Station ${stamp}`,
   });
-  if (provisioned.error) throw new Error(`provision failed: ${provisioned.error.message}`);
-  const { company_id: companyId } = provisioned.data as { company_id: string };
 
   const owner = await signIn(ownerEmail, ownerPassword);
 

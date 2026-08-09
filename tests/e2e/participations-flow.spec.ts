@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionCustomer, provisionThroughConsole } from './provision';
 
 /**
  * Block 4c's proof, over the four surfaces Tasks 6 to 8 built: an entry
@@ -288,17 +289,14 @@ test.beforeAll(async () => {
   const adminClient = await signIn(platformAdminEmail, platformAdminPassword);
   const listOwner = await createAuthUser(listOwnerEmail);
 
-  const { data: provisioned, error: provisionError } = await adminClient.rpc('provision_customer', {
-    p_user_id: listOwner.id,
-    p_organization_name: listOrgName,
-    p_company_name: stationAName,
-    p_timezone: 'America/Sao_Paulo',
-  });
-  if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
-  const { organization_id: organizationId, company_id: stationAId } = provisioned as {
-    organization_id: string;
-    company_id: string;
-  };
+  const { organization_id: organizationId, company_id: stationAId } = await provisionCustomer(
+    adminClient,
+    {
+      userId: listOwner.id,
+      organizationName: listOrgName,
+      companyName: stationAName,
+    },
+  );
 
   // add_company is platform-admin only (0017), so it goes through the admin's
   // own session — the same call tests/isolation/harness.ts's addCompany makes
@@ -563,16 +561,11 @@ test('an entry recorded from the fifth tab moves the count, leaves the list behi
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(entryOrgName);
-  await page.getByPlaceholder('Company (Station) name').fill(entryStationName);
-  await page.getByPlaceholder('Owner e-mail').fill(entryOwnerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const provisionalPassword = (await revealed.innerText()).trim();
+  const provisionalPassword = await provisionThroughConsole(page, {
+    organizationName: entryOrgName,
+    companyName: entryStationName,
+    ownerEmail: entryOwnerEmail,
+  });
 
   const { data: ownerProfile } = await admin
     .from('profiles')

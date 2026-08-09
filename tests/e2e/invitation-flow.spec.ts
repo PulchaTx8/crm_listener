@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * The whole invitation journey through the real UI: an Owner invites, the link
@@ -43,16 +44,11 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(`Invite Org ${stamp}`);
-  await page.getByPlaceholder('Company (Station) name').fill(`Invite Station ${stamp}`);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: `Invite Org ${stamp}`,
+    companyName: `Invite Station ${stamp}`,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')

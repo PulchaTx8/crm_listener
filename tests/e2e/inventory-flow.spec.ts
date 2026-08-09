@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * The whole prize-and-stock journey through the real UI (Block 2, Task 10).
@@ -68,20 +69,15 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // Identity #1 of 3: the platform admin. The "Platform admin" role label and
   // the Customers console link only render for this identity (lib/auth/
   // shell.ts) — asserting both here is what stops this test from passing
-  // merely because /admin/customers happened to be reachable.
+  // merely because /admin/organizations happened to be reachable.
   await expect(page.getByText(platformAdminEmail)).toBeVisible();
   await expect(page.getByText('Platform admin')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')
@@ -113,7 +109,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // platform-only Customers link is absent, is what proves this context
   // actually switched identity rather than reusing the admin's session.
   await expect(ownerPage.getByText(ownerEmail)).toBeVisible();
-  await expect(ownerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // --- the owner composes "Stock Keeper" from the permission catalogue -----
   await ownerPage.getByRole('link', { name: 'Roles' }).click();

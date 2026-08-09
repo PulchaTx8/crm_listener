@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * The whole per-Station roles journey through the real UI: an owner composes a
@@ -54,16 +55,11 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationAName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationAName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')
@@ -114,24 +110,19 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
 
   // --- the platform admin adds a second Station, from the console only -----
   // (the owner has no UI for this — add_company is platform-admin only). The
-  // form is on the customer record's Stations tab now, so the record is opened
-  // from the row that names Station A.
-  //
-  // ESC first: the provisioning dialog is still open from the step above,
-  // deliberately — it holds the owner's password, which is shown once — and it
-  // is modal, so the list behind it is inert until it closes.
-  await page.keyboard.press('Escape');
-  const stationARow = page.locator('[data-testid="company-row"]', { hasText: stationAName });
-  await expect(stationARow).toBeVisible();
-  await stationARow.getByRole('button', { name: `Actions for ${stationAName}` }).click();
+  // form is on the GROUP's record since Block 16, on its Stations tab: a radio
+  // belongs to a customer, so the place to add one is the customer's record.
+  const groupRow = page.locator('[data-testid="organization-row"]', { hasText: orgName });
+  await expect(groupRow).toBeVisible();
+  await groupRow.getByRole('button', { name: `Actions for ${orgName}` }).click();
   await page.getByRole('menuitem', { name: 'Add a Station…' }).click();
   await page.getByPlaceholder('New Station name').fill(stationBName);
   await page.getByRole('button', { name: 'Add Station' }).click();
 
-  // The new Station is patched onto the list rather than re-read from it, so
-  // this is the row the write returned.
+  // The new Station is patched onto the record's list rather than re-read from
+  // it, so this is what the write returned.
   await expect(
-    page.locator('[data-testid="company-row"]', { hasText: stationBName }),
+    page.getByRole('dialog').getByRole('link', { name: stationBName }),
   ).toBeVisible({ timeout: 15_000 });
   await page.keyboard.press('Escape');
 

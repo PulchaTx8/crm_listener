@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * The Templates block's round trip (Task 11): an operator reaches both new
@@ -72,16 +73,11 @@ test('a Station takes its own voice and records the template that lets it speak 
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText('Platform admin')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')
@@ -109,7 +105,7 @@ test('a Station takes its own voice and records the template that lets it speak 
   await expect(ownerPage).toHaveURL(/\/app$/);
 
   await expect(ownerPage.getByText(ownerEmail)).toBeVisible();
-  await expect(ownerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // ===========================================================================
   // 1. The ten texts are all there before anything has been overridden.

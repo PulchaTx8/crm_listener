@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
 import { WORKER_TICK_SECRET_FOR_TESTS } from '../whatsapp-test-env';
+import { provisionCustomer } from './provision';
 
 /**
  * Block 8b's round trip: filter a screen, export it, run the tick, download the
@@ -117,14 +118,11 @@ test.beforeAll(async () => {
 
   const ownerUserId = await createAuthUser(ownerEmail, ownerInitialPassword);
   const adminClient = await signInAs(platformAdminEmail, platformAdminPassword);
-  const { data: provisioned, error: provisionError } = await adminClient.rpc('provision_customer', {
-    p_user_id: ownerUserId,
-    p_organization_name: `Reports Org ${stamp}`,
-    p_company_name: `Reports Station ${stamp}`,
-    p_timezone: 'America/Sao_Paulo',
-  });
-  if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
-  ({ company_id: companyId } = provisioned as { company_id: string });
+  ({ company_id: companyId } = await provisionCustomer(adminClient, {
+    userId: ownerUserId,
+    organizationName: `Reports Org ${stamp}`,
+    companyName: `Reports Station ${stamp}`,
+  }));
 
   // One listener, so the export has a row. Created as the owner, who bypasses
   // has_permission for their own Organization.

@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createHash, randomBytes } from 'node:crypto';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { collectCspViolations } from './csp-violations';
+import { provisionCustomer } from './provision';
 
 /**
  * Block 8a's round trip (Task 10): the branches that live only in the three
@@ -158,17 +159,14 @@ test.beforeAll(async () => {
   const platformAdminClient = await signInAs(platformAdminEmail, platformAdminPassword);
 
   const ownerUserId = await createAuthUser(ownerEmail, ownerInitialPassword);
-  const { data: provisioned, error: provisionError } = await platformAdminClient.rpc('provision_customer', {
-    p_user_id: ownerUserId,
-    p_organization_name: `Dash Org ${stamp}`,
-    p_company_name: stationRTName,
-    p_timezone: 'America/Sao_Paulo',
-  });
-  if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
-  const { organization_id: organizationId, company_id: stationRT } = provisioned as {
-    organization_id: string;
-    company_id: string;
-  };
+  const { organization_id: organizationId, company_id: stationRT } = await provisionCustomer(
+    platformAdminClient,
+    {
+      userId: ownerUserId,
+      organizationName: `Dash Org ${stamp}`,
+      companyName: stationRTName,
+    },
+  );
 
   async function addCompany(name: string, timezone: string): Promise<string> {
     const { data, error } = await platformAdminClient.rpc('add_company', {
