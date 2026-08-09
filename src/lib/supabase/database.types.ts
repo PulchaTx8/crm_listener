@@ -1565,24 +1565,69 @@ export type Database = {
       }
       organizations: {
         Row: {
+          address_complement: string | null
+          address_line: string | null
+          address_number: string | null
+          billing_entity: Database["public"]["Enums"]["billing_entity"]
+          city: string | null
           created_at: string
           deleted_at: string | null
+          fiscal_email: string | null
           id: string
+          legal_name: string | null
+          municipal_registration: string | null
           name: string
+          neighbourhood: string | null
+          postal_code: string | null
+          state: string | null
+          suspended_at: string | null
+          suspended_by: string | null
+          suspension_reason: string | null
+          tax_id: string | null
           updated_at: string
         }
         Insert: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          billing_entity?: Database["public"]["Enums"]["billing_entity"]
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          fiscal_email?: string | null
           id?: string
+          legal_name?: string | null
+          municipal_registration?: string | null
           name: string
+          neighbourhood?: string | null
+          postal_code?: string | null
+          state?: string | null
+          suspended_at?: string | null
+          suspended_by?: string | null
+          suspension_reason?: string | null
+          tax_id?: string | null
           updated_at?: string
         }
         Update: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          billing_entity?: Database["public"]["Enums"]["billing_entity"]
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          fiscal_email?: string | null
           id?: string
+          legal_name?: string | null
+          municipal_registration?: string | null
           name?: string
+          neighbourhood?: string | null
+          postal_code?: string | null
+          state?: string | null
+          suspended_at?: string | null
+          suspended_by?: string | null
+          suspension_reason?: string | null
+          tax_id?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -4803,6 +4848,7 @@ export type Database = {
       }
     }
     Enums: {
+      billing_entity: "ORGANIZATION" | "STATIONS"
       broadcast_band: "FM" | "AM" | "WEB"
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
@@ -5022,6 +5068,7 @@ export const Constants = {
   },
   public: {
     Enums: {
+      billing_entity: ["ORGANIZATION", "STATIONS"],
       broadcast_band: ["FM", "AM", "WEB"],
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
