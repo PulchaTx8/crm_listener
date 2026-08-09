@@ -496,3 +496,244 @@ grant execute on function public.api_register_song(
   uuid, uuid, uuid, text, text, text, text, text, text,
   public.music_nationality, public.music_vocal, integer, text, text,
   bigint, bigint, text, text, date) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- api_record_music_request. The public half of endpoint 2.
+--
+-- LEAST PRIVILEGE ACROSS THREE SCOPES: music.request is required always;
+-- members.create only if the listener has to be registered or linked;
+-- music.manage only if the song has to be created. So a key can be issued that
+-- records requests for listeners the Station already knows and touches neither
+-- the catalogue nor the audience.
+--
+-- THE LISTENER GOES THROUGH 0061'S CORES, not through a lookup written here.
+-- Those cores exist for exactly this caller -- apply_member_lookup's own
+-- comment names "the WhatsApp door, which runs as service_role inside a
+-- SECURITY DEFINER body where auth.uid() is NULL" -- and a third
+-- implementation of "find this person by phone" is precisely the drift they
+-- were extracted to prevent. apply_member_creation registers AND links, because
+-- a registration IS the first Station the person took part in.
+--
+-- What is NOT in those cores, and so is checked here: anonymized_at.
+-- apply_member_candidates filters deleted_at and nothing else, deliberately.
+-- ---------------------------------------------------------------------------
+
+create function public.api_record_music_request(
+  p_credential_id       uuid,
+  p_company_id          uuid,
+  p_org                 uuid,
+  p_request_external_id text,
+  p_phone               text,
+  p_listener_name       text,
+  p_show_name           text        default null,
+  p_requested_at        timestamptz default null,
+  p_song_external_id    text    default null,
+  p_title               text    default null,
+  p_artist_name         text    default null,
+  p_label_name          text    default null,
+  p_genre_name          text    default null,
+  p_album_title         text    default null,
+  p_nationality         public.music_nationality default null,
+  p_vocal               public.music_vocal default null,
+  p_duration_seconds    integer default null,
+  p_isrc                text    default null,
+  p_internal_code       text    default null,
+  p_deezer_track_id     bigint  default null,
+  p_deezer_album_id     bigint  default null,
+  p_upc                 text    default null,
+  p_cover_md5           text    default null,
+  p_release_date        date    default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_company    uuid;
+  v_org        uuid;
+  v_scopes     text[];
+  v_external   text := nullif(btrim(coalesce(p_request_external_id, '')), '');
+  v_name       text := nullif(btrim(coalesce(p_listener_name, '')), '');
+  v_show_name  text := nullif(btrim(coalesce(p_show_name, '')), '');
+  v_member     uuid;
+  v_member_new boolean := false;
+  v_linked     boolean := false;
+  v_anonymised boolean;
+  v_show       uuid;
+  v_song       jsonb;
+  v_request    uuid;
+  v_existing   public.music_requests%rowtype;
+begin
+  select c.company_id, c.organization_id,
+         coalesce(array_agg(s.permission_code) filter (where s.permission_code is not null),
+                  '{}'::text[])
+    into v_company, v_org, v_scopes
+  from public.api_credentials c
+  left join public.api_credential_scopes s on s.credential_id = c.id
+  join public.companies co
+    on co.id = c.company_id and co.deleted_at is null and co.status = 'active'
+  where c.id = p_credential_id
+    and c.revoked_at is null
+    and (c.expires_at is null or c.expires_at > now())
+  group by c.company_id, c.organization_id;
+
+  if not found or not ('music.request' = any(v_scopes)) then
+    raise log 'api_record_music_request denied: credential=%', p_credential_id;
+    raise exception 'permission denied: music.request required' using errcode = '42501';
+  end if;
+
+  -- The arguments are checked against the credential and never used, for the
+  -- reason api_register_song gives above: a door that trusts a caller-supplied
+  -- company_id is one bug in the route away from writing into another Station.
+  if v_company <> p_company_id or v_org <> p_org then
+    raise log 'api_record_music_request station mismatch: credential=% asked=%',
+      p_credential_id, p_company_id;
+    raise exception 'permission denied: music.request required' using errcode = '42501';
+  end if;
+
+  if public.normalize_phone(p_phone) is null then
+    raise exception 'a listener must be identified by a phone number' using errcode = '22023';
+  end if;
+
+  -- IDEMPOTENCY FIRST, before anything is created. A retry must not register a
+  -- listener or a song on its way to discovering that it already recorded this
+  -- request -- which is exactly what would happen if this check sat lower down.
+  if v_external is not null then
+    select * into v_existing from public.music_requests
+     where company_id = v_company and external_id = v_external and deleted_at is null;
+
+    if found then
+      return jsonb_build_object(
+        'request_id', v_existing.id,
+        'created', false,
+        'song', jsonb_build_object('id', v_existing.song_id, 'created', false,
+                                   'filled', '[]'::jsonb),
+        'listener', jsonb_build_object('id', v_existing.member_id, 'created', false,
+                                       'linked', true));
+    end if;
+  end if;
+
+  -- The RAW phone, not the normalised one: members.phone_normalized is a
+  -- generated column and both cores normalise what they are given. Handing them
+  -- a pre-normalised value would make a promise about idempotence that nothing
+  -- here needs -- 0033's own reasoning for passing raw arguments on.
+  v_member := public.apply_member_lookup(v_org, p_phone, null, null, null);
+
+  if v_member is not null then
+    select m.anonymized_at is not null into v_anonymised
+      from public.members m where m.id = v_member;
+
+    -- 0034's erasure. Recording fresh activity against somebody who exercised
+    -- it is precisely what that erasure was for, and create_music_request
+    -- excludes them for the same reason. NOT recreated under a new row either:
+    -- that would be the same defect wearing a different id.
+    if v_anonymised then
+      raise exception 'that listener has been anonymised' using errcode = '23514';
+    end if;
+  end if;
+
+  if v_member is null then
+    -- Design D6, the owner's ruling of 2026-08-09. The external application
+    -- attends on WhatsApp and therefore holds the profile name; arriving
+    -- without one is its bug, and this refuses rather than registering a
+    -- nameless listener somebody has to clean up later.
+    if v_name is null then
+      raise exception 'a new listener must arrive with a name' using errcode = '22023';
+    end if;
+    if not ('members.create' = any(v_scopes)) then
+      raise exception 'permission denied: members.create required' using errcode = '42501';
+    end if;
+
+    -- Every optional field is null, INCLUDING discovery_source and
+    -- first_contact_origin. Those two are free text with a vocabulary the
+    -- screens already read, and inventing a value here that no screen knows how
+    -- to display would be worse than leaving the truth absent.
+    v_member := public.apply_member_creation(
+      v_company, v_name, p_phone, null, null, null, null, null,
+      null, null, null, null, null, null, null, null, null, null, null);
+    v_member_new := true;
+    v_linked     := true;
+  else
+    -- Known to the Organization already -- members are Organization-scoped
+    -- (0031), so the same person entering at two of the group's Stations is one
+    -- row. What has to be true is that THIS Station may see them.
+    if not exists (select 1 from public.member_company_links
+                    where member_id = v_member and company_id = v_company) then
+      if not ('members.create' = any(v_scopes)) then
+        raise exception 'permission denied: members.create required' using errcode = '42501';
+      end if;
+      v_linked := public.apply_member_link(v_member, v_company, v_org, null);
+    end if;
+  end if;
+
+  -- The programme. RESOLVED, NEVER CREATED. `shows` is the one catalogue entity
+  -- with no merge door -- 0098's table comment says so and names it as the
+  -- deliberate gap -- so an API creating one from a typed name would breed
+  -- duplicates with no cure. An unknown name is refused loudly rather than
+  -- dropped in silence, which would record a request against no programme at
+  -- all and look like it worked.
+  if v_show_name is not null then
+    select id into v_show from public.shows
+     where company_id = v_company and deleted_at is null
+       and lower(name) = lower(v_show_name)
+     order by created_at limit 1;
+
+    if not found then
+      raise exception 'programme not found in this station: %', v_show_name
+        using errcode = 'P0002';
+    end if;
+  end if;
+
+  -- The song, by endpoint 1's rules exactly -- the same core, so the two
+  -- endpoints cannot come to disagree about what registering a song means.
+  v_song := public.apply_song_intake(
+    v_company, v_org, null,
+    p_song_external_id, p_title, p_artist_name, p_label_name, p_genre_name,
+    p_album_title, p_nationality, p_vocal, p_duration_seconds, p_isrc,
+    p_internal_code, p_deezer_track_id, p_deezer_album_id, p_upc,
+    p_cover_md5, p_release_date);
+
+  -- Checked AFTER the intake rather than before, because whether the song has
+  -- to be created is not knowable until the ladder has been walked. The whole
+  -- body is one transaction, so this refusal unwinds the song it is refusing.
+  if (v_song ->> 'created')::boolean and not ('music.manage' = any(v_scopes)) then
+    raise exception 'permission denied: music.manage required' using errcode = '42501';
+  end if;
+
+  insert into public.music_requests
+    (organization_id, company_id, member_id, song_id, show_id, channel,
+     requested_at, external_id, created_by)
+  values
+    (v_org, v_company, v_member, (v_song ->> 'song_id')::uuid, v_show, 'API',
+     coalesce(p_requested_at, now()), v_external, null)
+  returning id into v_request;
+
+  insert into public.audit_logs
+    (actor_id, action, target_table, target_id, organization_id, company_id, detail)
+  values
+    (null, 'api_record_music_request', 'music_requests', v_request, v_org, v_company,
+     jsonb_build_object('credential_id', p_credential_id,
+                        'member_created', v_member_new,
+                        'song', v_song, 'show_id', v_show));
+
+  return jsonb_build_object(
+    'request_id', v_request,
+    'created', true,
+    'song', v_song,
+    'listener', jsonb_build_object('id', v_member, 'created', v_member_new,
+                                   'linked', v_linked));
+end;
+$$;
+
+comment on function public.api_record_music_request is
+  'Block 15, endpoint 2. Records what a listener asked for, registering the song by endpoint 1''s rules if the Station does not have it. Three scopes, least privilege: music.request always, members.create only to register or link a listener, music.manage only when a song has to be created. A new listener without a name is refused (D6); an anonymised one is refused and never recreated; an unknown programme is refused and never created. The listener goes through 0061''s cores, which exist for exactly this caller.';
+
+revoke execute on function public.api_record_music_request(
+  uuid, uuid, uuid, text, text, text, text, timestamptz, text, text, text, text, text, text,
+  public.music_nationality, public.music_vocal, integer, text, text,
+  bigint, bigint, text, text, date) from public;
+grant execute on function public.api_record_music_request(
+  uuid, uuid, uuid, text, text, text, text, timestamptz, text, text, text, text, text, text,
+  public.music_nationality, public.music_vocal, integer, text, text,
+  bigint, bigint, text, text, date) to service_role;

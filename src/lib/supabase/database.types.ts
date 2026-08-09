@@ -3144,6 +3144,35 @@ export type Database = {
         }
         Returns: undefined
       }
+      api_record_music_request: {
+        Args: {
+          p_album_title?: string
+          p_artist_name?: string
+          p_company_id: string
+          p_cover_md5?: string
+          p_credential_id: string
+          p_deezer_album_id?: number
+          p_deezer_track_id?: number
+          p_duration_seconds?: number
+          p_genre_name?: string
+          p_internal_code?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_listener_name: string
+          p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_org: string
+          p_phone: string
+          p_release_date?: string
+          p_request_external_id: string
+          p_requested_at?: string
+          p_show_name?: string
+          p_song_external_id?: string
+          p_title?: string
+          p_upc?: string
+          p_vocal?: Database["public"]["Enums"]["music_vocal"]
+        }
+        Returns: Json
+      }
       api_register_song: {
         Args: {
           p_album_title?: string

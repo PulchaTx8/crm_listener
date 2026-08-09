@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(25);
 
 -- Block 15. What the two API endpoints write, and the two facts that make a
 -- retry harmless.
@@ -162,6 +162,79 @@ select throws_ok(
       'EXT-9', 'Scopeless', 'Nobody', null, null, null,
       null, null, null, null, null, null, null, null, null, null)$$,
   '42501', null, 'a credential without music.manage is refused');
+
+-- The request door (0152) --------------------------------------------------
+
+-- Least privilege across three scopes, so this key can do all three things.
+insert into public.api_credential_scopes (credential_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000000c2', 'music.manage'),
+  ('00000000-0000-0000-0000-0000000000c2', 'music.request'),
+  ('00000000-0000-0000-0000-0000000000c2', 'members.create');
+
+-- A listener nobody has ever seen, arriving with a name: registered, linked,
+-- the song registered and the request recorded -- all in one call and one
+-- transaction.
+select is(
+  (public.api_record_music_request(
+     '00000000-0000-0000-0000-0000000000c2',
+     '00000000-0000-0000-0000-0000000000b2',
+     '00000000-0000-0000-0000-0000000000a2',
+     'REQ-1', '+5511999990001', 'Maria Silva', null, null,
+     null, 'Around the World', 'Daft Punk', null, null, null,
+     null, null, null, null, null, 1234567, null, null, null, null
+   ) -> 'listener' ->> 'created')::boolean,
+  true, 'a listener the Station has never seen is registered');
+
+select is(
+  (select count(*) from public.music_requests
+    where company_id = '00000000-0000-0000-0000-0000000000b2'),
+  1::bigint, 'and the request is recorded');
+
+-- 0098 reserved WHATSAPP for this product's own bot. What arrived here came
+-- over HTTP from a third party, and the column answers how it reached us.
+select is(
+  (select channel::text from public.music_requests
+    where company_id = '00000000-0000-0000-0000-0000000000b2'),
+  'API', 'saying it arrived over the API');
+
+-- Design D6. The external application attends on WhatsApp and therefore holds
+-- the profile name; arriving without one is its bug, refused here rather than
+-- turned into a nameless row in somebody's audience.
+select throws_ok(
+  $$select public.api_record_music_request(
+      '00000000-0000-0000-0000-0000000000c2',
+      '00000000-0000-0000-0000-0000000000b2',
+      '00000000-0000-0000-0000-0000000000a2',
+      'REQ-2', '+5511999990002', null, null, null,
+      null, 'One More Time', 'Daft Punk', null, null, null,
+      null, null, null, null, null, 2345678, null, null, null, null)$$,
+  '22023', null, 'a new listener with no name is refused');
+
+-- The retry. An automation repeats itself, and Block 8 counts requests -- so a
+-- second row here would be a number that looks right and is not.
+select is(
+  (public.api_record_music_request(
+     '00000000-0000-0000-0000-0000000000c2',
+     '00000000-0000-0000-0000-0000000000b2',
+     '00000000-0000-0000-0000-0000000000a2',
+     'REQ-1', '+5511999990001', 'Maria Silva', null, null,
+     null, 'Around the World', 'Daft Punk', null, null, null,
+     null, null, null, null, null, 1234567, null, null, null, null
+   ) ->> 'created')::boolean,
+  false, 'the same request external id is not a second request');
+
+-- `shows` is the one catalogue entity with no merge door (0098's own table
+-- comment), so an API creating one from a typed name would breed duplicates
+-- with no cure. Refused loudly rather than dropped in silence.
+select throws_ok(
+  $$select public.api_record_music_request(
+      '00000000-0000-0000-0000-0000000000c2',
+      '00000000-0000-0000-0000-0000000000b2',
+      '00000000-0000-0000-0000-0000000000a2',
+      'REQ-3', '+5511999990001', 'Maria Silva', 'No Such Programme', null,
+      null, 'Aerodynamic', 'Daft Punk', null, null, null,
+      null, null, null, null, null, 3456789, null, null, null, null)$$,
+  'P0002', null, 'an unknown programme is refused, never created');
 
 select * from finish();
 rollback;
