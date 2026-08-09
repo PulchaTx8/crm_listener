@@ -27,10 +27,17 @@ const BASE_COLUMN_COUNT = 6;
 const INITIAL_ARCHIVE: ArchiveRequestState = { ok: null };
 
 // The shared `vocab` keys, not a second wording: this column and the
-// participations grid answer the same question about the same two channels.
+// participations grid answer the same question about the same channels.
+//
+// API arrived with Block 15 and is NOT shared with participations, which has no
+// such source: it means a third-party application posted the request over HTTP
+// to /api/v1/music-requests. The type checker is what surfaced its absence here
+// the moment 0151 added the value -- without this entry an API-sourced request
+// would render a blank cell in the one column that explains where it came from.
 const CHANNEL_LABEL_KEYS: Record<RequestSummary['channel'], string> = {
   MANUAL: 'sourceManual',
   IMPORT: 'sourceImport',
+  API: 'sourceApi',
 };
 
 /**

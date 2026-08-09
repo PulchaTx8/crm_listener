@@ -220,13 +220,23 @@ export const config = {
   // from the matcher skips the middleware function's body entirely, so
   // neither cost applies.
   //
-  // Kept as narrow as that: two named prefixes, not all of `/api`. Both hold
-  // only machine endpoints that authenticate themselves — the webhook on
-  // Meta's HMAC over the raw body, the tick on a shared secret header — so
-  // the exclusion removes a check that could not have run rather than one
-  // that was doing work. `/api/health` is unaffected and stays reachable
-  // through PUBLIC_PATHS exactly as before.
+  // `/api/v1/` JOINS THEM IN BLOCK 15, on the same terms and for the same
+  // reason. It holds the two external intake endpoints, which authenticate
+  // themselves on a per-Station key presented as a bearer token and checked
+  // against its SHA-256 in the database (0148/0149). An automation carries no
+  // session cookie, so matched it would pay the same getUser() round trip on
+  // every call and then be 307-redirected to /login — and a redirect answered
+  // to an integration that reads only status codes is a failure that looks
+  // exactly like silence.
+  //
+  // Kept as narrow as that: three named prefixes, not all of `/api`. All three
+  // hold only machine endpoints that authenticate themselves — the webhook on
+  // Meta's HMAC over the raw body, the tick on a shared secret header, the v1
+  // endpoints on a hashed per-Station key — so the exclusion removes a check
+  // that could not have run rather than one that was doing work.
+  // `/api/health` is unaffected and stays reachable through PUBLIC_PATHS
+  // exactly as before.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/|api/worker/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/|api/worker/|api/v1/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

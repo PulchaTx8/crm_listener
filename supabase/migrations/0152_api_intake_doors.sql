@@ -420,13 +420,20 @@ revoke execute on function public.apply_song_intake(
 -- catch. Here the mismatch is caught in the database instead.
 -- ---------------------------------------------------------------------------
 
+-- p_external_id CARRIES A DEFAULT AND SITS AFTER THE TWO REQUIRED FIELDS, which
+-- is not cosmetic: a parameter without a default is generated as a REQUIRED
+-- argument in src/lib/supabase/database.types.ts, and this one is genuinely
+-- optional -- the Deezer consumer has no key of its own to send. Leaving it
+-- required made the route unable to express "absent" without lying to the type
+-- system. Found by the type checker, which is the schema saying the signature
+-- was wrong.
 create function public.api_register_song(
   p_credential_id    uuid,
   p_company_id       uuid,
   p_org              uuid,
-  p_external_id      text,
   p_title            text,
   p_artist_name      text,
+  p_external_id      text    default null,
   p_label_name       text    default null,
   p_genre_name       text    default null,
   p_album_title      text    default null,
@@ -519,12 +526,16 @@ grant execute on function public.api_register_song(
 -- ---------------------------------------------------------------------------
 
 create function public.api_record_music_request(
+  -- p_request_external_id and p_listener_name carry defaults and sit after
+  -- p_phone, for the reason api_register_song's own comment gives: a parameter
+  -- with no default is generated as REQUIRED, and both of these are optional --
+  -- the listener's name only when the Station already knows the phone (D6).
   p_credential_id       uuid,
   p_company_id          uuid,
   p_org                 uuid,
-  p_request_external_id text,
   p_phone               text,
-  p_listener_name       text,
+  p_request_external_id text        default null,
+  p_listener_name       text        default null,
   p_show_name           text        default null,
   p_requested_at        timestamptz default null,
   p_song_external_id    text    default null,

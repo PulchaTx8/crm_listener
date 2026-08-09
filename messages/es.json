@@ -1580,6 +1580,7 @@
     "vocalInstrumental": "Instrumental",
     "sourceManual": "Cargada a mano",
     "sourceImport": "De un archivo",
-    "sourceWhatsapp": "De WhatsApp"
+    "sourceWhatsapp": "De WhatsApp",
+    "sourceApi": "Por integración"
   }
 }

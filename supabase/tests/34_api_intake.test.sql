@@ -159,7 +159,7 @@ select throws_ok(
       '00000000-0000-0000-0000-0000000000c2',
       '00000000-0000-0000-0000-0000000000b2',
       '00000000-0000-0000-0000-0000000000a2',
-      'EXT-9', 'Scopeless', 'Nobody', null, null, null,
+      'Scopeless', 'Nobody', 'EXT-9', null, null, null,
       null, null, null, null, null, null, null, null, null, null)$$,
   '42501', null, 'a credential without music.manage is refused');
 
@@ -179,7 +179,7 @@ select is(
      '00000000-0000-0000-0000-0000000000c2',
      '00000000-0000-0000-0000-0000000000b2',
      '00000000-0000-0000-0000-0000000000a2',
-     'REQ-1', '+5511999990001', 'Maria Silva', null, null,
+     '+5511999990001', 'REQ-1', 'Maria Silva', null, null,
      null, 'Around the World', 'Daft Punk', null, null, null,
      null, null, null, null, null, 1234567, null, null, null, null
    ) -> 'listener' ->> 'created')::boolean,
@@ -205,7 +205,7 @@ select throws_ok(
       '00000000-0000-0000-0000-0000000000c2',
       '00000000-0000-0000-0000-0000000000b2',
       '00000000-0000-0000-0000-0000000000a2',
-      'REQ-2', '+5511999990002', null, null, null,
+      '+5511999990002', 'REQ-2', null, null, null,
       null, 'One More Time', 'Daft Punk', null, null, null,
       null, null, null, null, null, 2345678, null, null, null, null)$$,
   '22023', null, 'a new listener with no name is refused');
@@ -217,7 +217,7 @@ select is(
      '00000000-0000-0000-0000-0000000000c2',
      '00000000-0000-0000-0000-0000000000b2',
      '00000000-0000-0000-0000-0000000000a2',
-     'REQ-1', '+5511999990001', 'Maria Silva', null, null,
+     '+5511999990001', 'REQ-1', 'Maria Silva', null, null,
      null, 'Around the World', 'Daft Punk', null, null, null,
      null, null, null, null, null, 1234567, null, null, null, null
    ) ->> 'created')::boolean,
@@ -231,7 +231,7 @@ select throws_ok(
       '00000000-0000-0000-0000-0000000000c2',
       '00000000-0000-0000-0000-0000000000b2',
       '00000000-0000-0000-0000-0000000000a2',
-      'REQ-3', '+5511999990001', 'Maria Silva', 'No Such Programme', null,
+      '+5511999990001', 'REQ-3', 'Maria Silva', 'No Such Programme', null,
       null, 'Aerodynamic', 'Daft Punk', null, null, null,
       null, null, null, null, null, 3456789, null, null, null, null)$$,
   'P0002', null, 'an unknown programme is refused, never created');
