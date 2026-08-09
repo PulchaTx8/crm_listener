@@ -5098,6 +5098,15 @@ export type Database = {
         }
         Returns: Json
       }
+      widget_verify_code: {
+        Args: {
+          p_code_hash: string
+          p_name?: string
+          p_phone: string
+          p_public_key: string
+        }
+        Returns: Json
+      }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined

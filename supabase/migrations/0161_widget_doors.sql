@@ -387,3 +387,207 @@ $$;
 
 comment on procedure public.sweep_retention() is
   'Requirement N7. Deletes data whose retention period has expired: webhook_events at 90 days (Meta''s raw payload, the most sensitive thing this installation stores), outbox_messages and whatsapp_conversations at 180, contact_requests at 365, widget_verifications (Block 17a, a telephone number typed on a Station''s website) and three operational tables at 30. Commits per table so one failure does not roll back the rest, every night, for ever. DOES NOT TOUCH audit_logs -- kept for ever, because it is the proof that erasures happened -- nor any business record: those are what a radio must prove afterwards, and personal data inside them is removed by anonymize_member (0034), which is subject-driven rather than age-driven. Block 11b: reports what it deleted into job_health instead of into a Postgres log nobody reads.';
+
+-- ---------------------------------------------------------------------------
+-- Door 3: prove the code, and become a listener. THE SUBJECT IS THE PHONE
+-- NUMBER, not a session, for the same reason the header comment on this file
+-- gives: a visitor who proves a phone number is reachable is not a member of
+-- anything and has no role, and must never appear on the Team screen.
+--
+-- THE CEILING IS CHECKED BEFORE THE HASH IS COMPARED (step 4 before step 5,
+-- below), and that order is the whole point of this function. A six-digit
+-- code is only 10^6 combinations, and the ceiling together with the
+-- ten-minute expiry (checked in step 3) are the WHOLE of what makes guessing
+-- expensive -- which is also why there is no constant-time comparison
+-- anywhere near this (0148's credentials.ts comment gives the general
+-- argument against timing leaks on a STRONG secret; a six-digit code has no
+-- timing budget worth defending, only an attempt budget, and that budget is
+-- the point). Comparing the hash first and counting attempts second would let
+-- a burned row -- one that has already spent its five guesses -- be unlocked
+-- by finally guessing right on attempt six, which defeats the ceiling
+-- entirely: a search bounded at five that is still allowed to succeed on the
+-- sixth try was never bounded at all.
+--
+-- p_actor / recorded_by ARE NULL THROUGHOUT -- into apply_member_lookup (which
+-- takes none), into apply_member_creation, into apply_member_link, and into
+-- the member_consents insert below. audit_logs.actor_id has been nullable
+-- since 0004 for exactly this class of caller, and 0129 states in writing
+-- that a null there does NOT mean "the system did it" -- it means the caller
+-- was never eligible to hold an auth.users id to begin with. A visitor typing
+-- a phone number into a Station's public website is not a member of anything
+-- and has no session; the rejected alternative is the one 0148 already
+-- rejected for the API credential and this file's header rejects for the
+-- widget session itself -- binding the visitor to a throwaway auth.users row
+-- just so some insert has someone to name would put them on the Team screen
+-- as if they were a person.
+-- ---------------------------------------------------------------------------
+create function public.widget_verify_code(
+  p_public_key text,
+  p_phone      text,
+  p_code_hash  text,
+  p_name       text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_install public.widget_installations;
+  v_verif   public.widget_verifications;
+  v_member  uuid;
+  v_anon    boolean;
+begin
+  -- 1. Resolve the installation. Unknown, disabled and archived all answer
+  -- the same refusal -- probing for a live key learns nothing here either,
+  -- the same shape widget_frame_context already answers with for the same
+  -- key.
+  select * into v_install
+    from public.widget_installations
+   where public_key = p_public_key and enabled and deleted_at is null;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'unknown_installation',
+                              'member_id', null, 'company_id', null,
+                              'organization_id', null);
+  end if;
+
+  -- 2. The newest UNCONSUMED verification for this installation and phone.
+  -- Newest, not merely "a matching one": a visitor who asks for a second
+  -- code has abandoned the first, and only the latest is still meant to be
+  -- typed back. consumed_at is null is the whole filter -- an expired but
+  -- never-used row is still "the pending one" here, and step 3 below is what
+  -- refuses it, so the reason reported is the true one rather than a generic
+  -- "no such code".
+  select * into v_verif
+    from public.widget_verifications
+   where installation_id = v_install.id
+     and phone = p_phone
+     and consumed_at is null
+   order by created_at desc
+   limit 1;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'reason', 'no_pending_code',
+                              'member_id', null, 'company_id', null,
+                              'organization_id', null);
+  end if;
+
+  -- 3. Expired.
+  if v_verif.expires_at <= now() then
+    return jsonb_build_object('ok', false, 'reason', 'expired',
+                              'member_id', null, 'company_id', null,
+                              'organization_id', null);
+  end if;
+
+  -- 4. THE CEILING, CHECKED BEFORE THE HASH -- see the header comment on this
+  -- function for why the order is the entire control.
+  if v_verif.attempts >= 5 then
+    return jsonb_build_object('ok', false, 'reason', 'too_many_attempts',
+                              'member_id', null, 'company_id', null,
+                              'organization_id', null);
+  end if;
+
+  -- 5. The hash, compared only once the ceiling has already let this attempt
+  -- through. A wrong guess counts against the ceiling and stops here; it
+  -- does not touch consumed_at, so the row is still "the pending one" for
+  -- the next attempt, counted or refused in its turn.
+  if v_verif.code_hash <> p_code_hash then
+    update public.widget_verifications
+       set attempts = attempts + 1
+     where id = v_verif.id;
+
+    return jsonb_build_object('ok', false, 'reason', 'wrong_code',
+                              'member_id', null, 'company_id', null,
+                              'organization_id', null);
+  end if;
+
+  -- 6. The right code, spent. Stamped now, before the listener below is even
+  -- looked up, so this exact code cannot be replayed regardless of what the
+  -- remaining steps decide -- including the anonymised-listener refusal in
+  -- step 7, which answers false but leaves the code burned all the same.
+  update public.widget_verifications
+     set consumed_at = now()
+   where id = v_verif.id;
+
+  -- 7. Resolved through the SAME core the WhatsApp bot (0062) and the
+  -- Block 15 API door (0152) use -- nothing new decides who a listener is.
+  -- The RAW phone, not a normalised one: members.phone_normalized is a
+  -- generated column and apply_member_lookup normalises what it is handed
+  -- through normalize_phone (0031) itself; 0152's comment on this exact call
+  -- makes the same argument for the API door, and it applies unchanged here.
+  v_member := public.apply_member_lookup(v_install.organization_id, p_phone, null, null, null);
+
+  if v_member is not null then
+    select m.anonymized_at is not null into v_anon
+      from public.members m where m.id = v_member;
+
+    -- 0034's erasure. Recording fresh activity -- a name, a Station link, a
+    -- consent -- against somebody who exercised it is precisely what the
+    -- erasure was for, the same refusal 0152 gives for the API door. NOT
+    -- re-created under a new row either: that would be the same defect
+    -- wearing a different id. Nothing past this point is written; the code
+    -- stays consumed from step 6, which is what makes this a REFUSAL rather
+    -- than a retryable failure -- the visitor cannot simply ask again.
+    if v_anon then
+      return jsonb_build_object('ok', false, 'reason', 'listener_anonymized',
+                                'member_id', null, 'company_id', null,
+                                'organization_id', null);
+    end if;
+  end if;
+
+  -- 8. Not found: a name is required to register one -- there is no WhatsApp
+  -- profile name to fall back on here, the way the bot (0062) does, because
+  -- this visitor has never sent a WhatsApp message. p_first_contact_origin
+  -- is 'web-widget' so an audience report can tell this listener's first
+  -- contact apart from one who arrived over WhatsApp, the same distinction
+  -- 0160's comment on member_consent_type draws for the consent row in step
+  -- 10. p_actor is null -- see the header comment on this function.
+  if v_member is null then
+    if nullif(trim(coalesce(p_name, '')), '') is null then
+      return jsonb_build_object('ok', false, 'reason', 'name_required',
+                                'member_id', null, 'company_id', null,
+                                'organization_id', null);
+    end if;
+
+    v_member := public.apply_member_creation(
+      v_install.company_id, p_name, p_phone, null, null, null, null, null,
+      null, null, null, null, null, null, null, null,
+      now(), 'web-widget', null);
+  end if;
+
+  -- 9. Idempotent at the table (0061, ON CONFLICT DO NOTHING): a returning
+  -- visitor already linked to this Station costs nothing extra to call this
+  -- again, and one already known to the Organization through a different
+  -- Station is linked to this one for the first time. The boolean this core
+  -- returns is deliberately ignored here, the same way the WhatsApp bot
+  -- (0062) ignores it -- a listener already linked is the ordinary case for
+  -- a repeat visitor, not a refusal.
+  perform public.apply_member_link(v_member, v_install.company_id, v_install.organization_id, null);
+
+  -- 10. The consent this whole door exists to produce: a name and a phone
+  -- number, volunteered on this Station's own website rather than arriving
+  -- over WhatsApp. origin = 'web-widget' is what lets an audit tell the two
+  -- apart (0160). recorded_by is null for the same reason p_actor is -- see
+  -- the header comment on this function.
+  insert into public.member_consents
+    (organization_id, member_id, company_id, consent_type, granted, origin, recorded_by)
+  values
+    (v_install.organization_id, v_member, v_install.company_id,
+     'identification', true, 'web-widget', null);
+
+  -- 11. ok, with the three ids the caller needs and nothing else -- no name,
+  -- no phone, echoing back exactly what widget_frame_context's minimalism
+  -- already argues for the refusal branches above.
+  return jsonb_build_object('ok', true, 'reason', null,
+                            'member_id', v_member,
+                            'company_id', v_install.company_id,
+                            'organization_id', v_install.organization_id);
+end;
+$$;
+
+revoke execute on function public.widget_verify_code(text, text, text, text) from public;
+grant execute on function public.widget_verify_code(text, text, text, text) to service_role;
+
+comment on function public.widget_verify_code(text, text, text, text) is
+  'The eleventh and last step of a visitor becoming a listener: proves the six-digit code, then resolves who they are through the same 0061 cores the WhatsApp bot and the Block 15 API door use. Refuses by name -- unknown_installation, no_pending_code, expired, too_many_attempts, wrong_code, listener_anonymized, name_required -- so the widget can tell a visitor which of those happened. THE CEILING (attempts >= 5) IS CHECKED BEFORE THE HASH: a six-digit code is 10^6 possibilities, and the ceiling plus the ten-minute expiry are the entire defence, so comparing the hash first would let a burned row be unlocked by finally guessing right. A wrong guess increments attempts and leaves the row pending; the right one stamps consumed_at immediately, before the listener is even looked up, so the code cannot be replayed regardless of what happens next -- including an anonymised listener, refused with nothing written past that point. p_actor and recorded_by are null throughout: audit_logs.actor_id has been nullable since 0004 for exactly this class of caller, and 0129 states in writing that a null there does not mean "the system did it" -- a website visitor is not an auth.users row and must never become one just to give an insert someone to name. Granted to service_role only.';

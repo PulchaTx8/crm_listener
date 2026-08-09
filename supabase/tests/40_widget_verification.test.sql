@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(19);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000201', 'Org widget verify');
@@ -147,6 +147,57 @@ select is(
   (select count(*) from public.outbox_messages
     where template_name = 'web_verification'),
   1::bigint, 'and it left as a template row on the existing outbox');
+
+-- The ceiling, and what it is actually for. A six-digit code is 10^6, so
+-- guessing is only expensive if guessing is limited -- which is the whole
+-- reason there is no constant-time comparison anywhere near this (0148's
+-- credentials.ts comment gives the general argument; this is the sharp case).
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999998888',
+                            repeat('b', 64)) ->> 'reason',
+  'wrong_code', 'a wrong code is refused');
+
+select is(
+  (select attempts from public.widget_verifications
+    where phone = '+5511999998888' order by created_at desc limit 1),
+  1, 'and the attempt is counted');
+
+select lives_ok($$
+  select public.widget_verify_code('pw_enabledkey012345678901', '+5511999998888',
+                                   repeat('b', 64))
+    from generate_series(1, 4)$$,
+  'four more wrong guesses are survivable');
+
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999998888',
+                            repeat('a', 64)) ->> 'reason',
+  'too_many_attempts', 'and the RIGHT code is refused once the ceiling is hit');
+
+-- A fresh verification, to prove the happy path and the listener it creates.
+select public.widget_request_code('pw_enabledkey012345678901', '+5511999997777',
+                                  repeat('c', 64), '654321');
+
+select is(
+  public.widget_verify_code('pw_enabledkey012345678901', '+5511999997777',
+                            repeat('c', 64), 'Maria Silva') ->> 'ok',
+  'true', 'the right code identifies the visitor');
+
+-- Resolved through the 0061 cores, the same three the WhatsApp door and the
+-- Block 15 API door use. Nothing new decides who a listener is.
+select is(
+  (select count(*) from public.member_company_links l
+     join public.members m on m.id = l.member_id
+    where m.phone_normalized = public.normalize_phone('+5511999997777')
+      and l.company_id = '00000000-0000-0000-0000-000000000202'),
+  1::bigint, 'the listener exists and is linked to this Station');
+
+select is(
+  (select count(*) from public.member_consents c
+     join public.members m on m.id = c.member_id
+    where m.phone_normalized = public.normalize_phone('+5511999997777')
+      and c.consent_type = 'identification'
+      and c.origin = 'web-widget'),
+  1::bigint, 'and their consent to being identified is on the record');
 
 select * from finish();
 rollback;
