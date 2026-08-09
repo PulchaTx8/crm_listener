@@ -302,7 +302,8 @@ than an outage, and a bill is discovered a month later.
 ## 7. The session
 
 On a correct code, an HMAC signed with an environment secret, carrying
-`{installationId, companyId, memberId, phone, exp}`, valid thirty minutes, in a
+`{publicKey, companyId, organizationId, memberId, phone, exp}`, valid thirty
+minutes, in a
 cookie:
 
 ```

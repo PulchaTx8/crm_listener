@@ -950,7 +950,7 @@ import { mintSession, readSession, type WidgetClaims } from '@/lib/widget/sessio
 
 const SECRET = 'a'.repeat(48);
 const claims: WidgetClaims = {
-  installationId: '11111111-1111-1111-1111-111111111111',
+  publicKey: 'pw_enabledkey012345678901',
   companyId: '22222222-2222-2222-2222-222222222222',
   organizationId: '33333333-3333-3333-3333-333333333333',
   memberId: '44444444-4444-4444-4444-444444444444',
