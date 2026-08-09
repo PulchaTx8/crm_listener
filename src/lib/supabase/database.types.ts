@@ -3870,6 +3870,22 @@ export type Database = {
         Returns: Json
       }
       get_draw: { Args: { p_draw_id: string }; Returns: Json }
+      get_integration: {
+        Args: { p_company_id: string }
+        Returns: {
+          company_id: string
+          company_name: string
+          company_status: Database["public"]["Enums"]["company_status"]
+          display_phone_number: string
+          enabled: boolean
+          integration_id: string
+          organization_id: string
+          organization_name: string
+          phone_number_id: string
+          updated_at: string
+          waba_id: string
+        }[]
+      }
       get_music_dashboard: {
         Args: {
           p_company_ids: string[]
@@ -3985,6 +4001,20 @@ export type Database = {
       list_api_credentials: {
         Args: { p_company_id: string }
         Returns: {
+          created_at: string
+          expires_at: string
+          id: string
+          last_used_at: string
+          name: string
+          revoked_at: string
+          scopes: string[]
+          token_prefix: string
+        }[]
+      }
+      list_api_credentials_for: {
+        Args: { p_company_ids: string[] }
+        Returns: {
+          company_id: string
           created_at: string
           expires_at: string
           id: string
