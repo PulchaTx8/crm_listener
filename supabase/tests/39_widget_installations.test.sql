@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(11);
 
 -- Block 17a, design D4. The public key is NOT a secret: it sits in the src of
 -- an iframe on a public web page. Everything that actually defends this door is
@@ -64,6 +64,18 @@ select lives_ok($$
      set allowed_origins = array['https://radio.com.br', 'https://www.radio.com.br']
    where id = '00000000-0000-0000-0000-000000000101'$$,
   'two well-formed origins are accepted');
+
+-- 0110's own comment asked for this: "a later block adds a second rather than
+-- renaming this one, because Task 4 references it by name." This is that block.
+select ok(
+  'WEB_VERIFICATION' = any(enum_range(null::public.template_purpose)::text[]),
+  'the outbox can carry a verification template');
+
+-- 0032 has three values and none of them is this one: `rules` is agreement to a
+-- PROMOTION's rules, which is 17c's business, not identification's.
+select ok(
+  'identification' = any(enum_range(null::public.member_consent_type)::text[]),
+  'and a listener can consent to being identified at all');
 
 select * from finish();
 rollback;

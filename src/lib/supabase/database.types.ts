@@ -5067,7 +5067,11 @@ export type Database = {
         | "WRITE_OFF"
       invitation_status: "pending" | "accepted" | "revoked"
       member_block_kind: "draw_ban" | "suspension"
-      member_consent_type: "rules" | "image_use" | "sponsor_communication"
+      member_consent_type:
+        | "rules"
+        | "image_use"
+        | "sponsor_communication"
+        | "identification"
       member_erasure_reason:
         | "subject_request"
         | "court_order"
@@ -5114,7 +5118,7 @@ export type Database = {
         | "CPF"
         | "PASSPORT"
         | "DISCOVERY_SOURCE"
-      template_purpose: "PICKUP_REMINDER"
+      template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       winner_status:
         | "AWAITING_PICKUP"
@@ -5289,7 +5293,12 @@ export const Constants = {
       ],
       invitation_status: ["pending", "accepted", "revoked"],
       member_block_kind: ["draw_ban", "suspension"],
-      member_consent_type: ["rules", "image_use", "sponsor_communication"],
+      member_consent_type: [
+        "rules",
+        "image_use",
+        "sponsor_communication",
+        "identification",
+      ],
       member_erasure_reason: [
         "subject_request",
         "court_order",
@@ -5340,7 +5349,7 @@ export const Constants = {
         "PASSPORT",
         "DISCOVERY_SOURCE",
       ],
-      template_purpose: ["PICKUP_REMINDER"],
+      template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       winner_status: [
         "AWAITING_PICKUP",
