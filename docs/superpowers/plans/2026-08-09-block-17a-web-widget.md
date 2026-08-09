@@ -1285,7 +1285,9 @@ git commit -m "feat(widget): the page a listener on a station's own site actuall
 **Files:**
 - Create: `src/app/(admin)/admin/stations/widget-tab.tsx`
 - Create: `src/services/widget-installations.ts`
-- Modify: `src/lib/record-params.ts:99`, `station-record-dialog.tsx`, `actions.ts`, `messages/*.json`
+- Modify: `src/lib/record-params.ts:99`, `station-record-dialog.tsx`, `actions.ts`, `page.tsx`, `stations-grid.tsx`, `messages/*.json`
+
+**The installation is eager-loaded in `page.tsx`, not fetched when the tab opens.** `station-record-dialog.tsx:23-29` states the rule and names the cost: "a fetch on open would be a second way for one screen to be wrong. That is the defect Block 15 shipped." Mirror the integrations pattern at `page.tsx:148-151` — a per-row read inside the SAME `Promise.all` pass, threaded through `StationsGrid` into the dialog as a prop. A Station with no installation is a `null` in the record, never an absent key, so the tab can tell "none yet" from "not loaded".
 
 - [ ] **Step 1: Extend `STATION_TABS`**
 
