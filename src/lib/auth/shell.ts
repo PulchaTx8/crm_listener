@@ -254,14 +254,26 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
   if (isAdmin) {
     sections.push({
       label: t('platform'),
+      // Block 16, design D6. THREE ITEMS WHERE THERE WERE THREE, but the third
+      // is not the one that left.
+      //
+      // "Customers" listed STATIONS and called them customers, so four rows
+      // could equally mean four customers or one customer with four radios. It
+      // is now two screens, because the platform has two records: a group, and
+      // the radios under it.
+      //
+      // "WhatsApp integrations" went entirely. It was a list of every Station
+      // with a card each — a Stations screen wearing another name, and the
+      // second one this console had. A Station's connection is a fact about the
+      // Station, so it is a tab in its record. What that block's D5 argued
+      // stays true, and is now argued by where the tab sits rather than by a nav
+      // item: the three Meta credentials are installation-wide environment
+      // variables, so the account being configured is the platform's and the
+      // whole of this section is platform-admin only.
       items: [
-        { href: '/admin/customers', label: t('customers'), icon: ICONS.building },
+        { href: '/admin/organizations', label: t('organizations'), icon: ICONS.building },
+        { href: '/admin/stations', label: t('stations'), icon: ICONS.message },
         { href: '/admin/contact-requests', label: t('contactRequests'), icon: ICONS.inbox },
-        // Block 10a. In the PLATFORM section and not the app's, because the
-        // three Meta credentials are installation-wide environment variables:
-        // one app serves every Station, so the account being configured is the
-        // platform's rather than any customer's (design D5/D7).
-        { href: '/admin/integrations', label: t('whatsappIntegrations'), icon: ICONS.message },
       ],
     });
   }
