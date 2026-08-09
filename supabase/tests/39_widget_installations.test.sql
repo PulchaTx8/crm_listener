@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(21);
 
 -- Block 17a, design D4. The public key is NOT a secret: it sits in the src of
 -- an iframe on a public web page. Everything that actually defends this door is
@@ -156,9 +156,22 @@ select is(
   (select id from widget_first), (select id from widget_second),
   'the same installation, in place -- not a new row with a new id');
 
+-- 0163. public_key is the one field this door does NOT overwrite: the second
+-- call above named a different key ('pw_66667777888899990000ff') on purpose,
+-- and if the door still trusted the caller the assertion below would read
+-- that value instead. A live key is stronger than an ordinary setting -- it
+-- is already embedded in a third party's <iframe> before this second call
+-- ever happens, and nothing about the Station's own console session should
+-- be able to break that page.
+select is(
+  (select public_key from public.widget_installations
+    where company_id = '00000000-0000-0000-0000-0000000000f2'),
+  'pw_11112222333344445555ff',
+  'but the public key does not move -- set once on the first call, and pinned against every call after');
+
 select is(
   (select (data ->> 'enabled')::boolean from widget_read_second),
-  false, 'every field lands as the second call sent it, not merged with the first');
+  false, 'every OTHER field lands as the second call sent it, not merged with the first');
 
 select is(
   (select data -> 'allowed_origins' from widget_read_second),

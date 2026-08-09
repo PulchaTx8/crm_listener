@@ -205,19 +205,32 @@ export async function getWidgetInstallation(
  * Creates or edits a Station's installation. Every field is written on every
  * call, never merged -- 0162's own convention, the one `update_prize`,
  * `update_role`, `update_song` and `update_company_profile` all follow.
+ * `public_key` is the one exception, and as of 0163 the database enforces
+ * that itself: `upsert_widget_installation`'s DO UPDATE now sets it to
+ * `coalesce(widget_installations.public_key, excluded.public_key)`, so a key
+ * is pinned on first insert and cannot be replaced by any later call,
+ * whatever this function sends.
  *
- * THE PUBLIC KEY IS READ BEFORE IT IS DECIDED, not taken from the caller. A
- * second save must reuse the key the first one minted -- Task 7's
- * generatePublicKey() runs on the FIRST save only, matching
- * issue_api_credential (0149), where the database never mints a secret and
- * Node does it once. The alternative, trusting a hidden form field the tab
- * echoes back from its own last render, was rejected: it would make "does
- * this key already exist" a question answered by whatever the browser last
- * saw rather than by the database, and the one failure mode that matters here
- * -- two saves minting two keys -- is exactly the one a stale client copy
- * could cause. One extra read on an admin action nobody runs at volume is a
- * small price for a key that cannot rotate out from under a customer's
- * already-embedded <iframe>.
+ * THE READ BEFORE THE DECISION IS NOW BELT-AND-BRACES, NOT THE GUARANTEE --
+ * it used to be the only thing standing between a live key and silent
+ * rotation (one `??`, no schema backing it), until 0163 moved that invariant
+ * into the door itself. It stays for two reasons neither of which is "in case
+ * the database is wrong":
+ *
+ *   1. It saves generating and discarding a key on every ordinary edit. Every
+ *      ENABLE toggle or origin-list save on a Station that already has an
+ *      installation would otherwise mint a fresh `pw_...` that the door's
+ *      coalesce immediately throws away -- correct, but pointless CPU and
+ *      entropy for a value nobody will ever see.
+ *   2. It keeps `upsert_widget_installation`'s audit row honest. That
+ *      function logs `p_public_key` -- THE ARGUMENT SENT, not the value that
+ *      was actually stored, deliberately, so a genuine attempt to change a
+ *      Station's key is visible in the trail rather than silently absorbed.
+ *      If this function always sent a freshly minted key instead of reusing
+ *      the one already on the row, every ordinary save would log an
+ *      "attempted" key change that never happened, and the one signal the
+ *      audit design depends on -- a mismatch meaning somebody actually tried
+ *      to rotate this Station's key -- would drown in routine noise.
  */
 export async function upsertWidgetInstallation(
   input: { companyId: string; enabled: boolean; allowedOrigins: string[] },
