@@ -1,5 +1,5 @@
 begin;
-select plan(11);
+select plan(12);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000201', 'Org widget verify');
@@ -80,6 +80,34 @@ select is(
   public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',
                              repeat('a', 64), '123456') ->> 'reason',
   'no_integration', 'without a WhatsApp integration the door refuses, by name');
+
+-- A Station of its own (widget_installations_company_unique, 0159, is one
+-- installation per Station) with an integration that EXISTS but is switched
+-- off. The door's own comment on this lookup says the two collapse to the
+-- same reason on purpose; this is what proves it rather than just asserting
+-- the fixture-free case above.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-000000000206', '00000000-0000-0000-0000-000000000201',
+   'Station widget verify integration disabled', 'America/Sao_Paulo');
+insert into public.widget_installations
+  (id, organization_id, company_id, public_key, enabled, allowed_origins)
+values
+  ('00000000-0000-0000-0000-000000000207',
+   '00000000-0000-0000-0000-000000000201',
+   '00000000-0000-0000-0000-000000000206',
+   'pw_intdisabledkey01234567', true, array['https://radio-int-disabled.com.br']);
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, waba_id, display_phone_number, enabled)
+values
+  ('00000000-0000-0000-0000-000000000208',
+   '00000000-0000-0000-0000-000000000201',
+   '00000000-0000-0000-0000-000000000206',
+   'WHATSAPP', '111222444', '444555777', '+551130000001', false);
+
+select is(
+  public.widget_request_code('pw_intdisabledkey01234567', '+5511999998888',
+                             repeat('a', 64), '123456') ->> 'reason',
+  'no_integration', 'and a switched-off integration answers exactly like an absent one');
 
 -- enabled explicitly true: it defaults to false (0057, "a half-configured row
 -- cannot start taking traffic"), and enqueue_whatsapp_outbound refuses a

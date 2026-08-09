@@ -137,10 +137,23 @@ begin
                               'verification_id', null);
   end if;
 
+  -- `and enabled`: an operator who switches WhatsApp off temporarily leaves a
+  -- row this lookup would otherwise FIND, which would then reach
+  -- enqueue_whatsapp_outbound and hit its own check (0111) -- an unhandled
+  -- P0002 exception surfacing to the caller instead of one of this
+  -- function's named answers, which is exactly the failure naming the
+  -- reasons exists to prevent (see the header comment above).
+  --
+  -- STILL 'no_integration', not a fifth reason: absent and switched-off are
+  -- one answer here on purpose. Both put the operator on the same screen with
+  -- the same next step -- go configure or re-enable WhatsApp for this Station
+  -- -- and a distinction that changes nothing about what anybody does next
+  -- would still need a fifth string translated into three locales to say so.
   select id into v_integration
     from public.integrations
    where company_id = v_install.company_id
      and provider = 'WHATSAPP'
+     and enabled
      and deleted_at is null;
 
   if not found then
@@ -203,10 +216,11 @@ begin
     -- an operator can still answer "what were they told" after retention has
     -- taken the phone number), which means a live code left in it would
     -- outlive every mechanism meant to expire the code itself. Overwritten
-    -- here, in the SAME transaction as the insert above -- under Postgres's
-    -- default read-committed isolation nothing outside this function can see
-    -- a row before this function returns, so the unmasked value this
-    -- statement replaces is never visible to a concurrent reader and never
+    -- here, in the SAME transaction as the insert above -- Postgres has no
+    -- dirty-read isolation level at all, at any setting, so no concurrent
+    -- reader can see the row until this function's transaction commits, by
+    -- which point `body` already holds the masked text and the unmasked
+    -- value this statement replaces was never visible to anybody and never
     -- durable. jsonb_build_array(p_code_plain) alone remains as the one place
     -- the six digits live in the database, exactly as the header comment
     -- above requires.
@@ -223,7 +237,10 @@ revoke execute on function public.widget_request_code(text, text, text, text, in
 grant execute on function public.widget_request_code(text, text, text, text, integer) to service_role;
 
 comment on function public.widget_request_code(text, text, text, text, integer) is
-  'Mints a verification row and enqueues the WhatsApp code that proves the phone typed into a Station''s widget is reachable. Refuses by NAME -- unknown_installation, no_integration, no_template -- rather than one generic failure, because the console tab (spec §5) reads the reason to tell an operator why an enabled widget is silent. Does not rate-limit: spec §6.3''s limits are keyed by IP as well as by phone, and the database has no idea what an IP is, so that lives in the server action''s PostgresRateLimiter instead (Task 10). p_code_plain is the one deliberate, bounded exception to this codebase''s rule that a raw secret never travels as an RPC argument -- see the header comment above this function for the full reasoning, and do not "fix" it into a hash. `body` on the outbox row this leaves is overwritten to the MASKED text immediately after enqueue_whatsapp_outbound writes it live: 0111''s D6 renders body from the same template_variables that carry the real code, which is correct for an ordinary template send and wrong for a code that must not outlive its own ten-minute expiry in a column 0059 never prunes.';
+  'Mints a verification row and enqueues the WhatsApp code that proves the phone typed into a Station''s widget is reachable. Refuses by NAME -- unknown_installation, no_integration, no_template -- rather than one generic failure, because the console tab (spec §5) reads the reason to tell an operator why an enabled widget is silent. no_integration covers an absent integration AND a switched-off one, on purpose -- see the comment on the lookup above for why a fifth reason is not worth adding. Does not rate-limit: spec §6.3''s limits are keyed by IP as well as by phone, and the database has no idea what an IP is, so that lives in the server action''s PostgresRateLimiter instead (Task 10). p_code_plain is the one deliberate, bounded exception to this codebase''s rule that a raw secret never travels as an RPC argument -- see the header comment above this function for the full reasoning, and do not "fix" it into a hash. `body` on the outbox row this leaves is overwritten to the MASKED text immediately after enqueue_whatsapp_outbound writes it live: 0111''s D6 renders body from the same template_variables that carry the real code, which is correct for an ordinary template send and wrong for a code that must not outlive its own ten-minute expiry in a column 0059 never prunes.';
+
+-- ---------------------------------------------------------------------------
+-- The retention sweep, extended for one more table.
 --
 -- create or replace, IN A NEW FILE, because both 0131 and 0133 are shipped and
 -- migrations are append-only.
