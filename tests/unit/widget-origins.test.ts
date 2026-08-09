@@ -24,6 +24,20 @@ describe('the origin allowlist', () => {
     expect(frameAncestorsValue([])).toBe("'none'");
   });
 
+  // THE SECOND PRODUCER, and the reason this case exists at all. parseOrigins
+  // cannot emit a blank entry, so while it was the only caller `length === 0`
+  // was the whole of the empty case. src/lib/widget/frame-cache.ts is fed by an
+  // HTTP response, and `['']` joins to the empty string -- `frame-ancestors `
+  // with no value, which a browser treats as malformed rather than as a
+  // refusal, on the one path in this product where falling open means every
+  // widget is embeddable from anywhere with nothing on any screen to say so.
+  it('treats a blank entry as the empty case, whatever else is in the list', () => {
+    expect(frameAncestorsValue([''])).toBe("'none'");
+    // Refused WHOLE rather than filtered down to the good entry: a list with a
+    // blank in it did not come from anywhere this product writes to.
+    expect(frameAncestorsValue(['https://radio.com.br', ''])).toBe("'none'");
+  });
+
   // Comma is the other separator the interface promises, alongside newline.
   it('also splits on commas', () => {
     expect(parseOrigins('https://radio.com.br,http://localhost:3000')).toEqual({

@@ -67,8 +67,20 @@ export function parseOrigins(input: string): ParseOriginsResult {
  * fails and returns an empty list by accident, and nothing on any screen
  * would say so. `allowed_origins`'s own column comment (0159) states the
  * same rule at the database layer: empty means nowhere, not any.
+ *
+ * A BLANK ELEMENT IS THE EMPTY CASE TOO, and that guard arrived with a SECOND
+ * PRODUCER. Until Block 17a Task 9 the only caller passed `parseOrigins`'s
+ * output, which drops blank entries and cannot emit one -- so `origins.length
+ * === 0` covered everything reachable. src/lib/widget/frame-cache.ts is fed by
+ * an HTTP response instead of by a validated form, and `['']` joins to the
+ * empty string: `frame-ancestors ` with no value, which is a directive a
+ * browser treats as malformed rather than as a refusal. REFUSED WHOLE rather
+ * than filtered down to the good entries -- a list containing a blank did not
+ * come from anywhere this product writes to, and salvaging part of it would be
+ * this function guessing what somebody meant on the one path where guessing
+ * wrong means embeddable from anywhere.
  */
 export function frameAncestorsValue(origins: string[]): string {
-  if (origins.length === 0) return "'none'";
+  if (origins.length === 0 || origins.some((origin) => !origin)) return "'none'";
   return origins.join(' ');
 }

@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/lib/supabase/database.types';
 import { buildContentSecurityPolicy, CSP_NONCE_HEADER } from '@/lib/security/csp';
+import { frameOrigins } from '@/lib/widget/frame-cache';
+import { frameAncestorsValue } from '@/lib/widget/origins';
 import { localeCookieUpdate } from '@/i18n/locales';
 
 /**
@@ -36,15 +38,23 @@ export async function middleware(request: NextRequest) {
    * before that write -- and, worse, a rebuild that passes a bare `request`
    * throws these headers away entirely, which is how Block 11a's nonce never
    * reached the renderer.
+   *
+   * IT TAKES THE POLICY IT IS TO ANNOUNCE, defaulting to the one above, and
+   * the parameter exists for exactly one caller: the /w/ branch below builds a
+   * DIFFERENT policy, and this header is where Next reads the nonce from. A
+   * fixed capture of `policy` would leave the request announcing
+   * `frame-ancestors 'none'` while the response announces a Station's
+   * allowlist -- inert today, since Next takes only the nonce out of it, and a
+   * disagreement waiting for the version that takes more.
    */
-  const forwarded = () => {
+  const forwarded = (announced: string = policy) => {
     const headers = new Headers(request.headers);
     headers.set(CSP_NONCE_HEADER, nonce);
     // THIS header, on the REQUEST, is what makes Next stamp the nonce onto its
     // own inline bootstrap scripts. Setting only the response header renders a
     // page whose bootstrap is blocked by the very policy the response
     // announces -- silently, with nothing in any console the test can read.
-    headers.set('Content-Security-Policy', policy);
+    headers.set('Content-Security-Policy', announced);
     return headers;
   };
 
@@ -94,6 +104,53 @@ export async function middleware(request: NextRequest) {
    */
   if (request.nextUrl.pathname === '/') {
     return redirectWithCsp(new URL('/login', request.url));
+  }
+
+  /**
+   * Block 17a, spec §4.3. THE ONE ROUTE IN THIS PRODUCT THAT MAY BE FRAMED.
+   *
+   * Two mechanisms refused framing everywhere before this block: the
+   * `X-Frame-Options: DENY` header in next.config.mjs and this policy's
+   * `frame-ancestors 'none'`. The header cannot vary per route -- Next applies
+   * every matching `headers()` entry and the browser obeys the strictest, so a
+   * looser second entry would sit beside the DENY rather than replace it --
+   * which is why the exception is written there as an EXCLUSION from that
+   * entry's source, and why the value that actually names the allowed origins
+   * has to be built here, in the one directive that can vary by route.
+   *
+   * HERE, ABOVE THE SUPABASE CLIENT, for the reason the `/` branch above
+   * gives: a visitor on a radio station's website has no session and never
+   * will, so getUser() would be a round trip whose answer is thrown away --
+   * paid on every widget load, by every listener.
+   *
+   * DOCUMENT REQUESTS ONLY. Framing is a question about a page. The server
+   * action POSTs from inside the frame carry no framing question, and making
+   * them pay this lookup would put a database round trip in front of every
+   * form submission; they get the refusal instead, which costs them nothing.
+   *
+   * frameOrigins returns `[]` for every path that is not a successful lookup
+   * -- unknown key, disabled installation, archived installation, a fetch that
+   * throws or times out, an answer it cannot read -- and frameAncestorsValue
+   * turns that into 'none'. See src/lib/widget/frame-cache.ts's header for why
+   * that must never become a permissive fallback.
+   */
+  if (request.nextUrl.pathname.startsWith('/w/')) {
+    const isDocument =
+      request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
+
+    const ancestors = isDocument
+      ? frameAncestorsValue(await frameOrigins(request.nextUrl.pathname.split('/')[2] ?? ''))
+      : "'none'";
+
+    const widgetPolicy = buildContentSecurityPolicy(
+      nonce,
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NODE_ENV !== 'production',
+      ancestors,
+    );
+    const built = NextResponse.next({ request: { headers: forwarded(widgetPolicy) } });
+    built.headers.set('Content-Security-Policy', widgetPolicy);
+    return built;
   }
 
   // Refreshing the session here is what makes the cookie-write guard in

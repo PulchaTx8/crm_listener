@@ -33,9 +33,12 @@ describe('the security headers', () => {
   });
 
   it('refuses framing outright', () => {
-    // This product has no embedding story: nothing renders it in an iframe, and
-    // a clickjacked draw or delivery is a real action taken by a real operator
-    // who did not mean to take it.
+    // A clickjacked draw or delivery is a real action taken by a real operator
+    // who did not mean to take it, so every screen in this product refuses to
+    // be embedded. Block 17a adds ONE route with an embedding story --
+    // `/w/<publicKey>`, a Station's own widget -- and it is served by taking
+    // that path out of this entry's source rather than by weakening this
+    // value; see the source assertions below.
     expect(headerValue('X-Frame-Options')).toBe('DENY');
   });
 
@@ -60,11 +63,35 @@ describe('the security headers', () => {
     expect(hsts).not.toContain('preload');
   });
 
-  it('applies to every path, including the routes the middleware excludes', () => {
+  it('applies to every path but the widget, including the routes the middleware excludes', () => {
     // The reason these are here rather than in middleware.ts at all:
     // its matcher deliberately excludes /api/webhooks/ and /api/worker/,
     // because including them would 307 Meta's verification handshake and stop
     // both queues in silence.
-    expect(config).toContain("source: '/:path*'");
+    //
+    // `/w/` IS THE ONE EXCLUSION, and it is written as one because
+    // X-Frame-Options cannot be relaxed by a later, more specific entry: Next
+    // applies every matching entry and the browser obeys the strictest, so a
+    // second entry carrying a looser value would ship a widget that frames
+    // nowhere. src/middleware.ts sets that route's frame-ancestors instead,
+    // per Station.
+    expect(config).toContain("source: '/((?!w/).*)'");
+    expect(config).toContain("source: '/w/:path*'");
+  });
+
+  it('gives the widget route back every header except the framing refusal', () => {
+    // A `source` excludes an ENTRY, not a header: the exclusion above was aimed
+    // at X-Frame-Options and would have taken nosniff, Referrer-Policy,
+    // Permissions-Policy and HSTS with it. The second entry restores those
+    // four -- and must never grow a fifth.
+    //
+    // Sliced from the widget source to the end of the file, and asserted on
+    // `key:` rather than on the bare header name, because the comment above
+    // that entry names X-Frame-Options in prose precisely to forbid it -- the
+    // trap the HSTS case below already records once.
+    const widgetEntry = config.slice(config.indexOf("source: '/w/:path*'"));
+
+    expect(widgetEntry).not.toContain("key: 'X-Frame-Options'");
+    expect(widgetEntry).toContain('notAboutFraming');
   });
 });

@@ -85,7 +85,10 @@ const nextConfig = {
     },
   },
 
-  // Block 11a. The five headers that must reach EVERY route.
+  // Block 11a. The five headers that must reach EVERY route — and, since
+  // Block 17a, the one route that gets four of them instead of five. Two
+  // entries, with disjoint sources, so exactly one of them matches any given
+  // path; which one, and why the split is written this way round, is on each.
   //
   // Here rather than in middleware.ts, and the reason is that file's own
   // matcher: it deliberately excludes /api/webhooks/ and /api/worker/, because
@@ -98,38 +101,78 @@ const nextConfig = {
   // is evaluated once at boot. It lives in the middleware alongside the session
   // refresh, which is the only place a per-request value can be produced.
   async headers() {
+    // The four that have nothing to do with framing, shared by both entries
+    // below so the widget route cannot silently drift away from every other
+    // route on any of them.
+    const notAboutFraming = [
+      // Stops a browser guessing that a download proxy's octet-stream is
+      // really HTML and running it. This app serves member documents and
+      // delivery receipts through such a proxy.
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      // Every record screen in this product carries a ?record=<uuid>, and
+      // without this the full URL travels in the Referer of every outbound
+      // request. `strict-origin-when-cross-origin` keeps the path inside
+      // the origin and sends only the origin outside it.
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      // Nothing in this product uses any of these, so they are refused
+      // rather than left to a default that may change.
+      {
+        key: 'Permissions-Policy',
+        value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+      },
+      // Two years, subdomains included. NOT preloaded: preload is a
+      // one-way door on the apex domain and belongs to whoever owns DNS,
+      // not to this file.
+      {
+        key: 'Strict-Transport-Security',
+        value: 'max-age=63072000; includeSubDomains',
+      },
+    ];
+
     return [
       {
-        source: '/:path*',
+        // EVERY PATH EXCEPT `/w/`, and the exclusion is the whole mechanism
+        // (Block 17a, spec §4.3).
+        //
+        // X-FRAME-OPTIONS CANNOT BE RELAXED BY A LATER, MORE SPECIFIC ENTRY.
+        // Next applies EVERY matching entry, and where two of them set this
+        // header the browser obeys the strictest — so an entry for `/w/:path*`
+        // carrying a looser value would not override the DENY below, it would
+        // ship a widget that frames nowhere and looks like a browser bug.
+        // Taking the path out of this source is the only mechanism there is.
+        //
+        // The excluded route is not left undefended: src/middleware.ts sets its
+        // own `frame-ancestors` there, read from that Station's
+        // allowed_origins (0159) through widget_frame_context (0161), and
+        // 'none' for every lookup that is not a success.
+        source: '/((?!w/).*)',
         headers: [
           // Redundant with the CSP's `frame-ancestors 'none'` for a modern
           // browser, and kept for the ones that never implemented it. The two
           // must agree: a permissive value here beside a strict directive there
           // is the shape of an accident.
           { key: 'X-Frame-Options', value: 'DENY' },
-          // Stops a browser guessing that a download proxy's octet-stream is
-          // really HTML and running it. This app serves member documents and
-          // delivery receipts through such a proxy.
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          // Every record screen in this product carries a ?record=<uuid>, and
-          // without this the full URL travels in the Referer of every outbound
-          // request. `strict-origin-when-cross-origin` keeps the path inside
-          // the origin and sends only the origin outside it.
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          // Nothing in this product uses any of these, so they are refused
-          // rather than left to a default that may change.
-          {
-            key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
-          },
-          // Two years, subdomains included. NOT preloaded: preload is a
-          // one-way door on the apex domain and belongs to whoever owns DNS,
-          // not to this file.
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains',
-          },
+          ...notAboutFraming,
         ],
+      },
+      {
+        // The widget route, given back the four headers the exclusion above
+        // would otherwise have taken from it along with the one it was aimed
+        // at. A `source` excludes an ENTRY, not a header: without this, `/w/`
+        // would lose nosniff, Referrer-Policy, Permissions-Policy and HSTS as
+        // collateral. It is also the one page here served to somebody who may
+        // never have loaded anything else from this host, which is precisely
+        // when HSTS is worth the most — and its URL carries a public key that
+        // Referrer-Policy keeps out of the Referer of the iframe's own
+        // outbound requests.
+        //
+        // THIS ENTRY MUST NEVER CARRY X-Frame-Options, in any value. Adding one
+        // here cannot loosen the entry above (see its comment); it can only
+        // re-impose a refusal on the single route in this product that is
+        // allowed to be framed, and the symptom would be a blank iframe on a
+        // customer's website with nothing in any log.
+        source: '/w/:path*',
+        headers: notAboutFraming,
       },
     ];
   },
