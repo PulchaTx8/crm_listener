@@ -101,9 +101,10 @@ on conflict (user_id) do nothing;
 Nothing creates it for you: there is no trigger on `auth.users`, and the two
 places that write `profiles` (`0013`, `0018`) are the invitation paths — so a
 user created through the dashboard has none. `scripts/seed-demo.mjs` inserts one
-explicitly for the same reason, and its own comment says why: *"provision_customer
-expects the profile to exist already"*. Skip it and you can still sign in, but
-your name is blank everywhere and provisioning a customer fails.
+explicitly for the same reason. Skip it and you can still sign in, but your name
+is blank everywhere and provisioning a customer fails: `provision_organization`
+(`0157`) raises `P0002` when the owner has no `profiles` row, because it only
+flips the flags on one that is already there.
 
 Both statements are idempotent, so re-running the block is safe.
 
@@ -146,4 +147,72 @@ like a problem with their roles.
 
 The consequence to keep in mind: granting a role a permission does **not** give
 any API key that permission, and revoking it does not take it away from one. The
-two subjects are separate. Keys are managed in `/admin/customers`, per Station.
+two subjects are separate. Keys are managed in `/admin/stations`, per Station.
+
+
+## Blocking a whole customer (Block 16)
+
+`suspend_company` stops **one radio**. `block_organization` stops **the
+customer**: every Station under the group, every member, and the owner.
+
+The lock is a nullable `organizations.suspended_at` rather than a second
+`status` enum — `companies` has one because it has had one since `0003`, and a
+second enum with the same two values named for the wrong table is a thing to
+keep in step for no gain. `suspended_at is not null` is the whole of the rule.
+
+### Where it is enforced, and why it is not a list
+
+The audit that decided the design, run before `0156` was written:
+
+```bash
+grep -rn "is_owner_for(\|is_owner_of_company\|public.is_owner(" supabase/migrations
+```
+
+It turned up **three** shapes, and the third is the one that mattered:
+
+1. **`has_company_access_for` (`0121`)** — the door every permission check
+   passes through, because `has_permission_for` ANDs it.
+2. **`is_owner_of_company_for` (`0121`)** — the door `0044`'s policies admit the
+   owner through to rows everyone else is denied (an archived promotion, for
+   one). It checked no status of any kind.
+3. **`public.is_owner(organization_id)`, called directly by more than twenty
+   policies** — `0006`, `0015`, `0016`, `0021`, `0024`, `0032`, `0033`, `0035`
+   (four times, on `members`), `0036`, `0044` onward. `members` is
+   Organization-scoped, so those four never touch `has_company_access` at all.
+
+So the condition went into **`is_owner_for`**, and all twenty obey without being
+edited. `is_owner_of_company_for` inherits it for free, because it calls
+`is_owner_for`. The membership path in `has_company_access_for` states it again,
+because staff never reach `is_owner_for` at all.
+
+**What that costs, stated rather than discovered:** `is_owner_for` stopped being
+a pure predicate. It used to mean *"does this person own this Organization"* and
+now means *"…and is the Organization usable"*. `has_company_access_for` has had
+exactly that shape since `0121` — it folds `status = 'active'` into a question
+about access — so this is the house's existing trade rather than a new one.
+
+### The two deliberate exceptions
+
+**The platform admin is outside the condition.** Whoever blocked a group has to
+be able to look at it and release it; a condition that caught the admin too
+would lock the console out of the customer it just locked.
+
+**A blocked group's owner still SEES their Stations.** `is_owner_including_blocked`
+is the pure question, and it has exactly one caller and must keep exactly one:
+`companies_select_org_member`. `0006`'s own comment states the rule for a
+suspended Station — the customer sees why access stopped instead of an empty
+screen — and a screen that says *"no station is linked to your account"* to
+somebody who has three turns a billing conversation into a support incident.
+Seeing the row is all it buys; every other policy, permission and RPC refuses.
+
+### The proof
+
+`tests/isolation/organization-blocking.test.ts`. Every access assertion is made
+twice, once as the owner and once as the staff, because a version that checks
+only the staff **passes against the exact defect this design exists to prevent**.
+Measured by mutation: reverting `is_owner_for` to its pre-`0156` body fails that
+file at the `is_owner_of_company` assertion and nowhere else.
+
+`supabase/tests/37_organization_blocking.test.sql` asserts the shape — the doors
+exist and are gated — and stops there, because pgTAP runs as superuser with a
+null `auth.uid()` where RLS never applies.

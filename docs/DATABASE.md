@@ -120,3 +120,74 @@ it takes and would otherwise clear a picture uploaded a moment before.
 The `artwork` bucket gained a `station-thumbs` slot, keyed
 `station-thumbs/<company_id>/thumb` and gated on `is_platform_admin()` in
 `may_write_artwork`.
+
+
+## Block 16 — the Organization gets a record, and a lock
+
+**`organizations` gained fifteen columns** (`0154`). An invoicing identity
+(`legal_name` — the *razão social*, which is not `name`; `tax_id`;
+`municipal_registration`; `fiscal_email`), the same seven address names `members`
+(`0031`) and `companies` (`0153`) already use, and the block
+(`suspended_at`/`suspended_by`/`suspension_reason`).
+
+**`billing_entity`** (`public.billing_entity`, `ORGANIZATION` | `STATIONS`, not
+null, default `STATIONS`) says **who emits** the invoice and **never who has** a
+legal identity. Nothing in this schema may read it as permission to clear a
+column: a radio has a *razão social* whether or not the group is the one that
+bills, and blanking that to model a preference throws away a true fact to store
+a setting. The default is what is true today — nothing has ever been recorded at
+the group level, so the group cannot be the emitter until somebody says so.
+
+**`companies` gained twelve more** (`0155`): `contact_email`, `contact_phone`,
+`website_url`, `instagram_url`, `facebook_url`, `youtube_url`, `tagline`,
+`description`, and the same four invoicing names as above. The Station's are its
+own and survive any value of its group's `billing_entity` — that is the half of
+the design that makes it correct.
+
+`tax_id` on both tables is **fourteen bare digits**, punctuation stripped by
+`src/lib/tax-id.ts` the way `normalize_phone` (`0031`) treats a telephone. The
+CHECK asserts the shape and **does not verify the check digits**: mod-11 belongs
+in the application, and a well-formed-but-wrong CNPJ is a data-entry problem a
+human notices rather than a corruption the database must prevent.
+
+The four typed URLs take `companies_thumb_shape`'s rule (`^https?://`), and not
+only for tidiness: they land in an `href` on the Station's card, where a
+scheme-less value is a relative link and a `javascript:` one is worse. The caller
+prepends `https://` when an operator omits it — the same division of labour
+`tax_id` uses.
+
+### The doors
+
+| function | migration | does |
+| --- | --- | --- |
+| `provision_organization(user, name)` | `0157` | creates the group and its owner, and **no Station** |
+| `update_organization(...)` | `0157` | replaces the group's record wholesale |
+| `list_organizations()` | `0157` | every group with its record, Station count and owner, in one call |
+| `block_organization(id, reason)` | `0156` | denies the group, its staff and its owner |
+| `unblock_organization(id)` | `0156` | releases it, clearing the reason with the lock |
+| `get_integration(company)` | `0158` | `list_integrations`' single-Station sibling |
+| `list_api_credentials_for(uuid[])` | `0158` | `list_api_credentials`' bulk sibling |
+
+**`provision_customer` was dropped** (`0157`), not deprecated. It created an
+Organization and a Company in one call, so every customer this platform ever took
+on arrived with exactly one radio whether or not that was true. Two provisioning
+doors, one of which creates a Station and one of which does not, is a coin-flip
+an operator cannot see, because both succeed. `add_company` (`0017`) adds each
+radio afterwards, once somebody knows how many there are.
+
+`update_company_profile` was **dropped and recreated** rather than replaced,
+because twelve new parameters change a signature and `create or replace` cannot:
+Postgres would keep both overloads and every existing eleven-argument caller
+would silently resolve to the old body. That is the trap `0047`, `0055`, `0102`
+and `0138` each hit. It still takes **no `p_thumb_url`** and still must never
+gain one.
+
+`list_organizations` returns the record's fields as well as the row's, and
+`get_integration` / `list_api_credentials_for` exist at all, because the console's
+record dialogs open from what the page already read — the URL changes without a
+server round trip, so a fetch on open is a second way for one screen to be wrong.
+The bulk key read exists so that is one query rather than one per row: the N+1
+Block 3b measured at 102 queries.
+
+See `docs/PERMISSIONS.md` for where the block is enforced and why the condition
+went into `is_owner_for` rather than into twenty policies.
