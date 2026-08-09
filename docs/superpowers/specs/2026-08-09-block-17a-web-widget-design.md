@@ -374,15 +374,15 @@ Station B.
 
 | | |
 | --- | --- |
-| `0154` | `widget_installations`; RLS on, no policy |
-| `0155` | `template_purpose add value 'WEB_VERIFICATION'` and `member_consent_type add value 'identification'` — **the two `ADD VALUE`s and nothing else** |
-| `0156` | `widget_verifications`, and the doors: lookup by key, request a code, verify a code, identify |
-| `0157` | the console doors, gated on `is_platform_admin()` |
+| `0159` | `widget_installations`; RLS on, no policy |
+| `0160` | `template_purpose add value 'WEB_VERIFICATION'` and `member_consent_type add value 'identification'` — **the two `ADD VALUE`s and nothing else** |
+| `0161` | `widget_verifications`, and the doors: lookup by key, request a code, verify a code, identify |
+| `0162` | the console doors, gated on `is_platform_admin()` |
 
-`0155` carries no statement other than the two, for the Postgres reason 0082,
+`0160` carries no statement other than the two, for the Postgres reason 0082,
 0091 and 0151 already paid for: `ADD VALUE` cannot share a transaction with a
 statement that **uses** the value. The two may share this file because neither
-uses the other's; `0156` uses both, and is a separate file therefore a separate
+uses the other's; `0161` uses both, and is a separate file therefore a separate
 transaction.
 
 ---

@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- **Migrations are numbered `0154`–`0157`** and are append-only. Never edit a shipped migration.
-- **`0155` contains the two `ALTER TYPE ... ADD VALUE` statements and nothing else.** `ADD VALUE` cannot share a transaction with a statement that uses the value.
+- **Migrations are numbered `0159`–`0162`** and are append-only. Never edit a shipped migration.
+- **`0160` contains the two `ALTER TYPE ... ADD VALUE` statements and nothing else.** `ADD VALUE` cannot share a transaction with a statement that uses the value.
 - **Tables that hold credentials or installation state get RLS on and NO policy**, following `integrations` (0057) and `api_credentials` (0148). This schema revokes the default ACL, so `createServiceClient().from(...)` fails with `42501` by design. Every reader is inside a `SECURITY DEFINER` body.
 - **A secret is hashed in Node before it reaches the database**, never passed raw as an RPC argument — an RPC argument lands in query logs and in backups. **One exception, and only one:** `widget_request_code`'s `p_code_plain` (Task 4), because the message is sent by the worker draining `outbox_messages` and the outbox is *in* the database. What the rule protects — the stored credential — is kept whole: `widget_verifications` holds only the digest. Task 4 carries the full argument; no other door may claim this exception.
 - **Every user-visible string goes through `next-intl`**, in all three of `messages/en.json`, `messages/pt-BR.json`, `messages/es.json`. No hardcoded copy in a component.
@@ -30,10 +30,10 @@
 
 | File | Responsibility |
 | --- | --- |
-| `supabase/migrations/0154_widget_installations.sql` | the installation table |
-| `supabase/migrations/0155_widget_enum_values.sql` | the two `ADD VALUE`s, alone |
-| `supabase/migrations/0156_widget_doors.sql` | verifications table + the four public doors |
-| `supabase/migrations/0157_widget_console.sql` | the two console doors |
+| `supabase/migrations/0159_widget_installations.sql` | the installation table |
+| `supabase/migrations/0160_widget_enum_values.sql` | the two `ADD VALUE`s, alone |
+| `supabase/migrations/0161_widget_doors.sql` | verifications table + the four public doors |
+| `supabase/migrations/0162_widget_console.sql` | the two console doors |
 | `supabase/tests/39_widget_installations.test.sql` | table shape, RLS, the origin CHECK, the console doors |
 | `supabase/tests/40_widget_verification.test.sql` | the code lifecycle and the identify door |
 | `src/lib/widget/code.ts` | generate and hash a six-digit code |
@@ -70,7 +70,7 @@
 ### Task 1: The installation table
 
 **Files:**
-- Create: `supabase/migrations/0154_widget_installations.sql`
+- Create: `supabase/migrations/0159_widget_installations.sql`
 - Create: `supabase/tests/39_widget_installations.test.sql`
 
 **Interfaces:**
@@ -160,10 +160,10 @@ Expected: FAIL — `relation "public.widget_installations" does not exist`.
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/0154_widget_installations.sql`:
+Create `supabase/migrations/0159_widget_installations.sql`:
 
 ```sql
--- supabase/migrations/0154_widget_installations.sql
+-- supabase/migrations/0159_widget_installations.sql
 
 -- Block 17a, design D4. One installation per Station, and a key that is
 -- deliberately NOT a credential.
@@ -174,7 +174,7 @@ Create `supabase/migrations/0154_widget_installations.sql`:
 -- reach for hashing and rotation, and leave the origin allowlist and the rate
 -- limits -- which are what actually hold this door -- as an afterthought.
 -- It identifies a Station. It authenticates nobody. The visitor is
--- authenticated by the code in 0156, and by nothing else.
+-- authenticated by the code in 0161, and by nothing else.
 
 -- A CHECK may not contain a subquery, and asking "does every element of this
 -- array match" needs one. `has_no_duplicates` (0040) is the precedent and its
@@ -250,7 +250,7 @@ comment on table public.widget_installations is
   'One embeddable widget per Station. RLS on and NO POLICY, the shape integrations (0057) and api_credentials (0148) use: this schema revokes the default ACL, so createServiceClient().from(''widget_installations'') fails with 42501 and every reader is inside a SECURITY DEFINER body.';
 
 comment on column public.widget_installations.public_key is
-  'NOT A SECRET, and named so nobody has to guess. It travels in the src of an iframe on a public page. It names a Station; it proves nothing about who is asking. What defends this door is allowed_origins, the rate limits in 0156, and the verification code -- not this column.';
+  'NOT A SECRET, and named so nobody has to guess. It travels in the src of an iframe on a public page. It names a Station; it proves nothing about who is asking. What defends this door is allowed_origins, the rate limits in 0161, and the verification code -- not this column.';
 
 comment on column public.widget_installations.allowed_origins is
   'Full origins, scheme and host only, matched by the browser against frame-ancestors. EMPTY MEANS NOWHERE, deliberately: an allowlist that means "any" when unconfigured is a hole that no screen would show.';
@@ -272,7 +272,7 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/0154_widget_installations.sql \
+git add supabase/migrations/0159_widget_installations.sql \
         supabase/tests/39_widget_installations.test.sql \
         src/lib/supabase/database.types.ts
 git commit -m "feat(widget): one installation per station, and a key that is not a secret"
@@ -283,7 +283,7 @@ git commit -m "feat(widget): one installation per station, and a key that is not
 ### Task 2: The two enum values
 
 **Files:**
-- Create: `supabase/migrations/0155_widget_enum_values.sql`
+- Create: `supabase/migrations/0160_widget_enum_values.sql`
 - Modify: `supabase/tests/39_widget_installations.test.sql` (plan 9 → 11)
 
 **Interfaces:**
@@ -315,17 +315,17 @@ Expected: FAIL — both `ok` assertions false.
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/0155_widget_enum_values.sql`:
+Create `supabase/migrations/0160_widget_enum_values.sql`:
 
 ```sql
--- supabase/migrations/0155_widget_enum_values.sql
+-- supabase/migrations/0160_widget_enum_values.sql
 
 -- Block 17a. TWO ADD VALUEs AND NOTHING ELSE IN THIS FILE.
 --
 -- The Postgres rule 0082, 0091 and 0151 each paid for: ALTER TYPE ... ADD VALUE
 -- cannot share a transaction with a statement that USES the value. Separate
 -- files are separate transactions. The two below may share this one because
--- neither uses the other's value; 0156 uses both, and is a separate file.
+-- neither uses the other's value; 0161 uses both, and is a separate file.
 
 alter type public.template_purpose add value 'WEB_VERIFICATION';
 
@@ -343,7 +343,7 @@ Expected: PASS — 11 of 11.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/0155_widget_enum_values.sql \
+git add supabase/migrations/0160_widget_enum_values.sql \
         supabase/tests/39_widget_installations.test.sql
 git commit -m "feat(widget): the two enum values, alone in their transaction"
 ```
@@ -353,7 +353,7 @@ git commit -m "feat(widget): the two enum values, alone in their transaction"
 ### Task 3: The verification table and the anon-callable lookup
 
 **Files:**
-- Create: `supabase/migrations/0156_widget_doors.sql` (first section)
+- Create: `supabase/migrations/0161_widget_doors.sql` (first section)
 - Create: `supabase/tests/40_widget_verification.test.sql`
 
 **Interfaces:**
@@ -439,10 +439,10 @@ Expected: FAIL — `relation "public.widget_verifications" does not exist`.
 
 - [ ] **Step 3: Write the first section of the migration**
 
-Create `supabase/migrations/0156_widget_doors.sql`:
+Create `supabase/migrations/0161_widget_doors.sql`:
 
 ```sql
--- supabase/migrations/0156_widget_doors.sql
+-- supabase/migrations/0161_widget_doors.sql
 
 -- Block 17a, spec §6. The verification code, and the four doors the widget
 -- reaches the database through.
@@ -486,7 +486,7 @@ create index widget_verifications_lookup_idx
   on public.widget_verifications (installation_id, phone, created_at desc);
 
 comment on table public.widget_verifications is
-  'One six-digit code sent to one telephone number for one installation. RLS on, no policy, reachable only from the SECURITY DEFINER doors below. Rows are not deleted on use -- consumed_at is stamped instead, so "was this number verified, and when" survives the session that used it. Retention prunes them; see the sweep in 0154''s sibling for retention (Block 11a).';
+  'One six-digit code sent to one telephone number for one installation. RLS on, no policy, reachable only from the SECURITY DEFINER doors below. Rows are not deleted on use -- consumed_at is stamped instead, so "was this number verified, and when" survives the session that used it. HOLDS A PHONE NUMBER, so sweep_retention (0131) is extended to delete it at 30 days: design D5 rejected a session table precisely because it would carry a retention obligation, and this table carrying one unswept would be that same hole with a different name.';
 
 alter table public.widget_verifications enable row level security;
 revoke all on public.widget_verifications from anon, authenticated;
@@ -526,23 +526,47 @@ comment on function public.widget_frame_context(text) is
   'The origins one installation may be framed by, for the Edge middleware to build frame-ancestors from. Answers {"found": false, "origins": []} for an unknown key, a disabled installation and an archived one alike -- one answer for three causes, so probing learns nothing, and so the caller has exactly one refusal branch to get right. GRANTED TO anon deliberately (spec §4.3): the middleware holds the anon key and runs before any session exists.';
 ```
 
-- [ ] **Step 4: Run the test and verify it passes**
+- [ ] **Step 4: Extend the retention sweep**
+
+`widget_verifications` holds a telephone number, so it cannot sit outside retention. Append to `0161_widget_doors.sql` a `create or replace procedure public.sweep_retention()` that reproduces the shipped body from `supabase/migrations/0131_sweep_retention.sql` **exactly**, with one table added: `delete from public.widget_verifications where created_at < now() - interval '30 days';`, committed in its own statement like every other table there.
+
+Read `0131` in full before writing this. It commits per table on purpose — one failure must not roll back the rest — and its comment enumerates every table and its period. Update that `comment on procedure` to name `widget_verifications` at 30 days; leaving the old comment would put a lie in the schema, and those cost the most later.
+
+**Do not edit `0131` itself.** Migrations are append-only. `create or replace` in a new file is the mechanism.
+
+The `cron.schedule` call is **not** repeated — the job already exists and points at the procedure by name, so replacing the body is the whole change.
+
+Add to the pgTAP test:
+
+```sql
+-- D5 rejected a session table because it would carry a retention obligation.
+-- A verifications table that holds a phone number and is never swept is that
+-- same obligation, unmet.
+select ok(
+  (select prosrc from pg_proc where proname = 'sweep_retention')
+    like '%widget_verifications%',
+  'the retention sweep deletes verification rows too');
+```
+
+Change `select plan(6);` to `select plan(7);`.
+
+- [ ] **Step 5: Run the test and verify it passes**
 
 Run: `npm run db:reset && npm run db:test`
-Expected: PASS — 6 of 6.
+Expected: PASS — 7 of 7.
 
-- [ ] **Step 5: Regenerate types**
+- [ ] **Step 6: Regenerate types**
 
 Run: `npm run db:types && npm run typecheck`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/0156_widget_doors.sql \
+git add supabase/migrations/0161_widget_doors.sql \
         supabase/tests/40_widget_verification.test.sql \
         src/lib/supabase/database.types.ts
-git commit -m "feat(widget): the verification table, and the one question anon may ask"
+git commit -m "feat(widget): the verification table, the one question anon may ask, and its retention"
 ```
 
 ---
@@ -550,7 +574,7 @@ git commit -m "feat(widget): the verification table, and the one question anon m
 ### Task 4: Requesting a code
 
 **Files:**
-- Modify: `supabase/migrations/0156_widget_doors.sql` (append)
+- Modify: `supabase/migrations/0161_widget_doors.sql` (append)
 - Modify: `supabase/tests/40_widget_verification.test.sql` (plan 6 → 10)
 
 **Interfaces:**
@@ -726,7 +750,7 @@ Expected: PASS — 10 of 10.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/0156_widget_doors.sql supabase/tests/40_widget_verification.test.sql
+git add supabase/migrations/0161_widget_doors.sql supabase/tests/40_widget_verification.test.sql
 git commit -m "feat(widget): mint a verification, and name every reason it cannot"
 ```
 
@@ -735,7 +759,7 @@ git commit -m "feat(widget): mint a verification, and name every reason it canno
 ### Task 5: Verifying a code, and identifying the listener
 
 **Files:**
-- Modify: `supabase/migrations/0156_widget_doors.sql` (append)
+- Modify: `supabase/migrations/0161_widget_doors.sql` (append)
 - Modify: `supabase/tests/40_widget_verification.test.sql` (plan 10 → 17)
 
 **Interfaces:**
@@ -808,7 +832,7 @@ Expected: FAIL — `function public.widget_verify_code(...) does not exist`.
 
 - [ ] **Step 3: Append the door**
 
-Write `widget_verify_code` in `0156_widget_doors.sql`. It must, in one transaction and in this order:
+Write `widget_verify_code` in `0161_widget_doors.sql`. It must, in one transaction and in this order:
 
 1. Resolve the installation by `p_public_key` (enabled, not deleted) → `unknown_installation`.
 2. Take the newest unconsumed verification for `(installation, phone)`. None → `no_pending_code`.
@@ -838,7 +862,7 @@ Run: `npm run db:types && npm run typecheck`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/0156_widget_doors.sql supabase/tests/40_widget_verification.test.sql \
+git add supabase/migrations/0161_widget_doors.sql supabase/tests/40_widget_verification.test.sql \
         src/lib/supabase/database.types.ts
 git commit -m "feat(widget): the code that identifies a visitor, and the ceiling that guards it"
 ```
@@ -848,7 +872,7 @@ git commit -m "feat(widget): the code that identifies a visitor, and the ceiling
 ### Task 6: The console doors
 
 **Files:**
-- Create: `supabase/migrations/0157_widget_console.sql`
+- Create: `supabase/migrations/0162_widget_console.sql`
 - Modify: `supabase/tests/39_widget_installations.test.sql` (plan 11 → 15)
 
 **Interfaces:**
@@ -890,7 +914,7 @@ Run: `npm run db:reset && npm run db:test`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/0157_widget_console.sql supabase/tests/39_widget_installations.test.sql \
+git add supabase/migrations/0162_widget_console.sql supabase/tests/39_widget_installations.test.sql \
         src/lib/supabase/database.types.ts
 git commit -m "feat(widget): the console doors, and the warning the tab reads"
 ```
