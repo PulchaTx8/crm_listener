@@ -5073,6 +5073,15 @@ export type Database = {
         }
         Returns: string
       }
+      upsert_widget_installation: {
+        Args: {
+          p_allowed_origins: string[]
+          p_company_id: string
+          p_enabled: boolean
+          p_public_key: string
+        }
+        Returns: string
+      }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
       whatsapp_conversation_steps: {
         Args: { p_member_id: string; p_promotion_id: string }
@@ -5088,6 +5097,7 @@ export type Database = {
         Returns: string
       }
       widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
+      widget_installation_for: { Args: { p_company_id: string }; Returns: Json }
       widget_request_code: {
         Args: {
           p_code_hash: string
