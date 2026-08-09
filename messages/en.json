@@ -476,6 +476,7 @@
     "approvedBody": "Approved body",
     "whatEachPositionMeans": "What each position means",
     "pickupReminder": "pickup_reminder",
+    "webVerification": "web_verification",
     "ptBr": "pt_BR",
     "approvedBodyCopiedFromMetaExactly": "Approved body — copied from Meta exactly, placeholders and all",
     "thisBodyUses": "This body uses",
@@ -532,6 +533,9 @@
     "purposePickupReminderSendsFirstName": "The winner’s first name",
     "purposePickupReminderSendsPrize": "The prize name",
     "purposePickupReminderSendsDeadline": "The deadline, as a date (DD/MM/YYYY) in this Station’s own timezone",
+    "purposeWebVerificationTitle": "Web widget verification code",
+    "purposeWebVerificationWhen": "Sent the moment a visitor on this Station’s own website types their telephone number into the widget and asks to be identified. It has to be an approved template of Meta’s AUTHENTICATION category: the visitor has never messaged this Station, so there is no 24-hour window to send inside. Until it is registered here the widget accepts a number and then sends nothing at all.",
+    "purposeWebVerificationSendsCode": "The six-digit code, and nothing else — it expires in ten minutes and is burned after five wrong attempts",
     "thatTextCouldNotBeIdentified": "That text could not be identified. Refresh the page and try again.",
     "thatRegistrationCouldNotBeIdentified": "That registration could not be identified. Refresh the page and try again."
   },

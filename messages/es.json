@@ -476,6 +476,7 @@
     "approvedBody": "Cuerpo aprobado",
     "whatEachPositionMeans": "Qué significa cada posición",
     "pickupReminder": "pickup_reminder",
+    "webVerification": "web_verification",
     "ptBr": "pt_BR",
     "approvedBodyCopiedFromMetaExactly": "Cuerpo aprobado — copiado de Meta exactamente, marcadores y todo",
     "thisBodyUses": "Este cuerpo usa",
@@ -532,6 +533,9 @@
     "purposePickupReminderSendsFirstName": "El nombre de pila del ganador",
     "purposePickupReminderSendsPrize": "El nombre del premio",
     "purposePickupReminderSendsDeadline": "El plazo, como fecha (DD/MM/AAAA) en el huso horario de esta Emisora",
+    "purposeWebVerificationTitle": "Código de verificación del widget web",
+    "purposeWebVerificationWhen": "Se envía en el momento en que un visitante del sitio propio de la Emisora escribe su teléfono en el widget y pide ser identificado. Tiene que ser una plantilla aprobada de la categoría AUTHENTICATION de Meta: el visitante nunca escribió a esta Emisora, así que no hay ventana de 24 horas dentro de la cual enviar. Mientras no esté registrada aquí, el widget acepta el número y no envía nada.",
+    "purposeWebVerificationSendsCode": "El código de seis dígitos, y nada más — caduca en diez minutos y se quema tras cinco intentos fallidos",
     "thatTextCouldNotBeIdentified": "No se pudo identificar ese texto. Actualice la página e inténtelo de nuevo.",
     "thatRegistrationCouldNotBeIdentified": "No se pudo identificar ese registro. Actualice la página e inténtelo de nuevo."
   },

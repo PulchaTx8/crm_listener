@@ -35,19 +35,45 @@ const INITIAL_ARCHIVE: ArchiveTemplateState = { status: 'idle' };
  *
  * TOTAL over `TemplatePurpose`, so a second purpose added to 0110 fails to
  * compile here rather than rendering as a bare enum value with no contract.
+ * That sentence was FALSE between 0160 and Block 17a's fix wave, because
+ * `TemplatePurpose` was derived from a hand-written array rather than from the
+ * generated enum — see the type's own comment in `@/schemas/templates` for what
+ * that cost. It is true now, and the record below is what it buys.
+ *
+ * `nameExample` is the placeholder in the "Name at Meta" field and is a Meta
+ * template NAME, not prose: it is per-purpose because one example for two
+ * purposes is an example that is wrong for one of them, and it stays identical
+ * in all three locales for the same reason `ptBr` does — it is an identifier a
+ * Station types into Meta's console, not a sentence.
  */
 function purposeDetails(
   t: (key: string) => string,
-): Record<TemplatePurpose, { title: string; when: string; sends: string[] }> {
+): Record<
+  TemplatePurpose,
+  { title: string; when: string; nameExample: string; sends: string[] }
+> {
   return {
     PICKUP_REMINDER: {
       title: t('purposePickupReminderTitle'),
       when: t('purposePickupReminderWhen'),
+      nameExample: t('pickupReminder'),
       sends: [
         t('purposePickupReminderSendsFirstName'),
         t('purposePickupReminderSendsPrize'),
         t('purposePickupReminderSendsDeadline'),
       ],
+    },
+    // Block 17a. ONE variable, and 0161's widget_request_code is what makes
+    // that a contract rather than a description: it calls
+    // enqueue_whatsapp_outbound with `jsonb_build_array(p_code_plain)` and
+    // nothing else, and 0111 refuses a body whose placeholder count disagrees.
+    // A body approved with two placeholders registers here and then fails at
+    // every send, in a server log, for as long as the registration stands.
+    WEB_VERIFICATION: {
+      title: t('purposeWebVerificationTitle'),
+      when: t('purposeWebVerificationWhen'),
+      nameExample: t('webVerification'),
+      sends: [t('purposeWebVerificationSendsCode')],
     },
   };
 }
@@ -81,8 +107,8 @@ export function TemplateRegistry({
         <li key={purpose}>
           <PurposeCard
             purpose={purpose}
-            // `find` rather than a map built once: TEMPLATE_PURPOSES has one
-            // entry today and the registry one live row per purpose, so this
+            // `find` rather than a map built once: TEMPLATE_PURPOSES has two
+            // entries today and the registry one live row per purpose, so this
             // is a scan of at most a handful either way.
             existing={templates.find((t) => t.purpose === purpose) ?? null}
             companyId={companyId}
@@ -156,6 +182,7 @@ function PurposeCard({
           companyId={companyId}
           existing={existing}
           expected={detail.sends.length}
+          nameExample={detail.nameExample}
         />
       )}
 
@@ -257,12 +284,15 @@ function RegistrationForm({
   companyId,
   existing,
   expected,
+  nameExample,
 }: {
   purpose: TemplatePurpose;
   companyId: string;
   existing: RegisteredTemplate | null;
   /** How many placeholders this purpose's contract will actually fill. */
   expected: number;
+  /** A plausible Meta template name FOR THIS PURPOSE, shown as the placeholder. */
+  nameExample: string;
 }) {
   const t = useTranslations('templates');
   const [state, action, pending] = useActionState(registerTemplateAction, INITIAL_REGISTER);
@@ -283,7 +313,7 @@ function RegistrationForm({
             required
             maxLength={512}
             className="h-9 w-72 font-mono"
-            placeholder={t('pickupReminder')}
+            placeholder={nameExample}
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
