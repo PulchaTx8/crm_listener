@@ -16,6 +16,14 @@ export function buildContentSecurityPolicy(
   nonce: string,
   supabaseUrl: string,
   isDev: boolean,
+  // Block 17a. Defaults to 'none' so every caller that existed before this
+  // block -- today, only src/middleware.ts -- stays correct without being
+  // touched, and this default is the reason that call site is not part of
+  // this task's diff. Only Task 9's /w/ branch will ever pass something
+  // else, and only after it has looked up one specific Station's
+  // allowed_origins; every other request still gets the value this function
+  // has always produced.
+  frameAncestors: string = "'none'",
 ): string {
   // Throws on a URL it cannot parse, deliberately. The alternative is a
   // connect-src carrying the string "undefined", which fails at runtime in the
@@ -64,9 +72,20 @@ export function buildContentSecurityPolicy(
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    // Agrees with X-Frame-Options: DENY in next.config.mjs (Block 11a). A
-    // permissive value beside a strict one is the shape of an accident.
-    "frame-ancestors 'none'",
+    // Agrees with X-Frame-Options: DENY in next.config.mjs (Block 11a) on
+    // every route except /w/ (Block 17a), where Task 9 narrows that header's
+    // source to exclude the widget path -- X-Frame-Options cannot itself vary
+    // by route: Next applies every matching `headers()` entry and the browser
+    // obeys the strictest, so a second, looser entry for /w/ would not
+    // "override" the blanket DENY, it would just ship a widget that still
+    // frames nowhere. The per-route exception has to live here instead, in
+    // the one directive that CAN vary by route, which is the whole reason
+    // `frameAncestors` is now a parameter rather than the literal this line
+    // used to be. A permissive value beside a strict one is still the shape
+    // of an accident; what changes with Task 9 is that the strict one is no
+    // longer everywhere, and this parameter is what keeps that exception
+    // recorded in code instead of in a route's silent absence from a regex.
+    `frame-ancestors ${frameAncestors}`,
     'upgrade-insecure-requests',
   ].join('; ');
 }
