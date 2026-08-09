@@ -192,6 +192,19 @@ const REQUIRED_TEST_FILES = [
   // over create_song's handler reporting the wrong column, which is the
   // precise defect that kept the Deezer path out of create_song.
   { path: 'tests/isolation/deezer.test.ts', minTests: 10 },
+  // Block 15: the external intake API's tenant boundary, and the one property
+  // in that block with no other proof anywhere. 34_api_intake.test.sql asserts
+  // the SHAPE -- that the doors are gated on a credential scope and that the
+  // core is granted to nobody -- and pgTAP cannot assert the behaviour, because
+  // it runs as superuser with a null auth.uid() where RLS never applies.
+  //
+  // What is proved here is that api_register_song and api_record_music_request
+  // resolve the Station from the CREDENTIAL ROW rather than from the
+  // company_id the caller supplied. A door that trusted that argument would
+  // pass every pgTAP test in this repository and put one customer's catalogue
+  // in another customer's account -- and the caller here is service_role, so
+  // no row policy is standing behind the result.
+  { path: 'tests/isolation/api-intake.test.ts', minTests: 6 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for
