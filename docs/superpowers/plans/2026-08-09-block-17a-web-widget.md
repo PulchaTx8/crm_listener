@@ -935,7 +935,7 @@ git commit -m "feat(widget): the console doors, and the warning the tab reads"
   - `generateCode(): string` — six digits, `crypto.randomInt`.
   - `hashCode(code: string): string` — sha256 lowercase hex.
   - `generatePublicKey(): string` — `pw_` + 16 random bytes base64url (22 chars).
-  - `mintSession(claims: WidgetClaims, secret: string, now?: number): string`
+  - `mintSession(claims: WidgetClaims, secret: string): string` — **two parameters, no clock.** `exp` arrives inside `claims` and must not be overridden, so a `now` here would have nothing to compute and would fail this repo's `no-unused-vars` lint. Only `readSession` needs a clock, to judge expiry.
   - `readSession(token: string, secret: string, now?: number): WidgetClaims | null`
   - `interface WidgetClaims { installationId: string; companyId: string; organizationId: string; memberId: string; phone: string; exp: number }`
   - `WIDGET_SESSION_COOKIE = 'pw_session'`, `WIDGET_SESSION_SECONDS = 1800`
