@@ -1369,6 +1369,10 @@ git commit -m "test(widget): the journey that only means anything across two ori
 
 How a Station embeds the widget: the snippet, the origins that must be declared, the template that must be approved, and what a visitor sees. In English, like every other doc.
 
+**It must open with what makes the widget work at all, because Task 12 found a developer cannot run it today.** `WIDGET_SESSION_SECRET` is set nowhere in this repository — not `.env`, not `.env.example`, not the Playwright config until Task 12 added it there. Without it every submission is refused with `unavailable` before the database is touched, and the reason appears only in a server log. `.env.example` is deliberately not an inventory (it already omits `WORKER_TICK_SECRET` and `WHATSAPP_APP_SECRET`), so the doc is where this belongs: name the variable, its 32-character floor, and that its absence looks to a visitor exactly like a broken widget.
+
+**Also record the two operational traps Task 12 paid for**, because both cost a full run to diagnose and neither is discoverable from a failure message: `npm run db:reset` empties Storage and nothing re-seeds the branding hero, so `login.spec.ts` fails until `npm run seed:branding` runs again; and `tests/e2e/dashboards.spec.ts` has a cold-compiler flake that passes warm.
+
 - [ ] **Step 2: Add the framing section to `docs/SECURITY.md`**
 
 `/w/` is the one route in this product that may be embedded. Record: what the allowlist is, that empty means nowhere, that the 60-second cache means a revoked origin can frame for up to a minute, and that `X-Frame-Options` is excluded by header source rather than overridden.
