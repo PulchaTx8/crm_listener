@@ -175,6 +175,27 @@ test('an unknown key frames nowhere', async ({ request }) => {
   expect(response.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
 });
 
+test('a widget path ending in an image extension is still governed by something', async ({
+  request,
+}) => {
+  // THE CASE THAT KEEPS THREE REGEXES HONEST. "The widget route" is spelled in
+  // next.config.mjs's exclusion, in src/middleware.ts's WIDGET_PATH, and in its
+  // `matcher` — and this is the path where they disagreed. `[publicKey]` is a
+  // dynamic segment, so `/w/anything.png` is a widget URL; the matcher's image
+  // extension exclusion, written for static pictures, sent it past the
+  // middleware, and the header exclusion had already taken X-Frame-Options
+  // away. MEASURED in that state: 404, no X-Frame-Options, and NO CSP —
+  // neither of the product's two framing defences. Task 10's page renders the
+  // widget's own not-found there, which would have been framable from anywhere
+  // and rendered with no nonce.
+  //
+  // Asserted on the CSP rather than on X-Frame-Options, because absence is
+  // what this route is entitled to for the header and would prove nothing.
+  const response = await request.get('/w/pw_notakey.png', { headers: DOCUMENT });
+
+  expect(response.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
+});
+
 test('a request that is not a document frames nowhere either', async ({ request }) => {
   // The server action POSTs from inside the frame are answered without the
   // database lookup, on purpose: they carry no framing question, and paying a

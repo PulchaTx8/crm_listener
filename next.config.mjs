@@ -86,9 +86,35 @@ const nextConfig = {
   },
 
   // Block 11a. The five headers that must reach EVERY route — and, since
-  // Block 17a, the one route that gets four of them instead of five. Two
-  // entries, with disjoint sources, so exactly one of them matches any given
-  // path; which one, and why the split is written this way round, is on each.
+  // Block 17a, the one route that gets four of them instead of five.
+  //
+  // WHICH ENTRY MATCHES WHAT, read out of `.next/routes-manifest.json` rather
+  // than reasoned about, because the compiled regexes are the only authority
+  // and they are not quite the two disjoint sets they look like:
+  //   /w/<anything>  entry 2 only  — four headers, no X-Frame-Options
+  //   /w/            entry 2 on paper — the trailing `(?:\/)?` in `/w/:path*`
+  //                                  catches it — but NO ENTRY EVER RUNS: with
+  //                                  `trailingSlash: false` (the default) Next
+  //                                  answers `/w/` with a 308 to `/w` from the
+  //                                  routing layer, before `headers()` and
+  //                                  before the middleware, and MEASURED that
+  //                                  response carries none of the five and no
+  //                                  CSP. Not a widget problem and not this
+  //                                  block's doing: `/app/` and `/login/`
+  //                                  measure identically, and always have. The
+  //                                  308 has no body to frame and the browser
+  //                                  lands on a path that carries everything.
+  //   /w             BOTH          — `(?!w/)` needs the slash and `/w/:path*`
+  //                                  makes its segment optional, so this one
+  //                                  path gets all five, DENY included. It is
+  //                                  not the widget route and nothing is
+  //                                  served there; recorded so the next reader
+  //                                  does not have to rediscover it
+  //   everything else entry 1 only — all five, exactly as Block 11a shipped
+  // Both sources are compiled case-INSENSITIVELY (path-to-regexp's default),
+  // so `/W/abc` is the widget route to this file. src/middleware.ts's
+  // WIDGET_PATH is `/^\/w\//i` for that reason, and its `matcher` carries the
+  // same `[wW]`: three spellings of one set, and they have to agree.
   //
   // Here rather than in middleware.ts, and the reason is that file's own
   // matcher: it deliberately excludes /api/webhooks/ and /api/worker/, because

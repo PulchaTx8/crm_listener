@@ -18,6 +18,26 @@
  */
 const ORIGIN_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/;
 
+/**
+ * One entry, tested against that pattern.
+ *
+ * EXPORTED FOR src/lib/widget/frame-cache.ts, which reads origins out of an
+ * HTTP response and splices them verbatim into a `frame-ancestors` directive.
+ * A grammar check is what stands between that header and anything the response
+ * happened to contain: the pattern admits no space, no semicolon, no newline,
+ * so an entry that reached the wire could not close the directive and open
+ * another one. That injection is unreachable today only because 0159's CHECK
+ * refuses those characters at the database -- which is one layer, in another
+ * process, from the string being written into a header, and the header is
+ * where the consequence lands.
+ *
+ * The same function both producers use, so "what an origin is" cannot come to
+ * mean two things in one codebase.
+ */
+export function isOrigin(value: string): boolean {
+  return ORIGIN_PATTERN.test(value);
+}
+
 export type ParseOriginsResult =
   | { ok: true; origins: string[] }
   | { ok: false; bad: string };
@@ -48,7 +68,7 @@ export function parseOrigins(input: string): ParseOriginsResult {
     .filter((entry) => entry.length > 0);
 
   for (const entry of entries) {
-    if (!ORIGIN_PATTERN.test(entry)) return { ok: false, bad: entry };
+    if (!isOrigin(entry)) return { ok: false, bad: entry };
   }
 
   return { ok: true, origins: entries };

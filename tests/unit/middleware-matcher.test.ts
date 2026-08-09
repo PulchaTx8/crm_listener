@@ -80,4 +80,38 @@ describe('middleware matcher', () => {
     expect(matcher.test('/api/webhooksfoo')).toBe(true);
     expect(matcher.test('/api/workerfoo')).toBe(true);
   });
+
+  // BLOCK 17a, AND THE ONLY TEST THAT HOLDS THE THREE SPELLINGS OF "THE WIDGET
+  // ROUTE" TOGETHER. next.config.mjs excludes `/w/` from the entry carrying
+  // X-Frame-Options; src/middleware.ts's WIDGET_PATH decides which requests get
+  // a per-Station frame-ancestors instead. If this matcher does not agree with
+  // both, a `/w/` path exists that is served by NEITHER mechanism.
+  //
+  // `/w/<key>.png` is that path, and it was real: `[publicKey]` is a dynamic
+  // segment, so it matches `abc.png` as happily as `pw_xxx`, and the image
+  // extension alternative -- written for static pictures -- excluded it from
+  // the middleware entirely. MEASURED before the fix: 404 with no
+  // X-Frame-Options and no CSP at all. After: the CSP is there, refusing.
+  it('matches a widget path that ends in an image extension', () => {
+    expect(matcher.test('/w/pw_abcdefghijklmnopqrstuv.png')).toBe(true);
+    expect(matcher.test('/w/pw_abcdefghijklmnopqrstuv.svg')).toBe(true);
+  });
+
+  // Both compiled `headers()` sources are case-insensitive (path-to-regexp's
+  // default), and WIDGET_PATH is `/i` to agree with them. A case-sensitive
+  // spelling here would leave exactly one path in the gap above.
+  it('matches an upper-case widget path ending in an image extension', () => {
+    expect(matcher.test('/W/pw_abcdefghijklmnopqrstuv.png')).toBe(true);
+  });
+
+  // The negative space of the two cases above: the exclusion still does its
+  // original job everywhere else, or every static picture in the product would
+  // start paying for a middleware invocation it has no use for.
+  it('still skips an ordinary picture outside the widget route', () => {
+    expect(matcher.test('/logo.png')).toBe(false);
+    expect(matcher.test('/images/hero.webp')).toBe(false);
+    // A path that merely BEGINS with a w, which the `(?![wW]/)` must not catch
+    // -- the slash is what makes it the widget route.
+    expect(matcher.test('/wombat.png')).toBe(false);
+  });
 });

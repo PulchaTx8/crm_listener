@@ -24,6 +24,7 @@
  * exactly when nobody is looking at that screen. A widget that will not load is
  * a visible, reported failure; a widget that loads anywhere is not.
  */
+import { isOrigin } from '@/lib/widget/origins';
 
 /**
  * D6. SIXTY SECONDS, AND IT CUTS BOTH WAYS -- the second direction is the one
@@ -148,11 +149,21 @@ async function lookup(publicKey: string): Promise<string[] | null> {
  * a future migration that changes the shape. Those return `null` rather than a
  * best guess, because the only guess available here would be a permissive one.
  *
- * Non-string and empty elements are refused rather than filtered out. The
- * database CHECK (`are_origins`, 0159) cannot produce either, so seeing one
- * means the answer did not come from where this function thinks it did, and
- * salvaging the rest of such a list is exactly the reasoning that ends in a
- * frame-ancestors directive nobody intended.
+ * EVERY ELEMENT IS CHECKED AGAINST THE ORIGIN GRAMMAR, not merely against
+ * being a non-empty string. What comes back here is spliced verbatim into a
+ * `frame-ancestors` directive, and `isOrigin` (src/lib/widget/origins.ts) is
+ * the same pattern the console validates with and 0159's CHECK enforces --
+ * scheme, host, optional port, and nothing else, which admits no space, no
+ * semicolon and no newline. The database CHECK makes a hostile value
+ * unreachable today; this makes it unreachable one layer closer to the header,
+ * where the consequence would actually land, and it keeps this module's own
+ * promise -- that it refuses a body which is not the shape it expects -- true
+ * of the elements and not only of the envelope.
+ *
+ * Refused WHOLE rather than filtered down to the good entries: an answer with
+ * a bad element in it did not come from where this function thinks it did, and
+ * salvaging part of it is exactly the reasoning that ends in a frame-ancestors
+ * directive nobody intended.
  */
 function readOrigins(body: unknown): string[] | null {
   if (typeof body !== 'object' || body === null) return null;
@@ -163,7 +174,7 @@ function readOrigins(body: unknown): string[] | null {
   if (found !== true) return null;
 
   if (!Array.isArray(origins)) return null;
-  if (!origins.every((origin) => typeof origin === 'string' && origin.length > 0)) return null;
+  if (!origins.every((origin) => typeof origin === 'string' && isOrigin(origin))) return null;
 
   return origins as string[];
 }

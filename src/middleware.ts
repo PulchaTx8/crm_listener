@@ -17,6 +17,23 @@ import { localeCookieUpdate } from '@/i18n/locales';
 // the landing page was deleted.
 const PUBLIC_PATHS = ['/contato', '/login', '/forgot-password', '/auth/callback', '/api/health'];
 
+/**
+ * Block 17a. "The widget route", which this product now spells in THREE places:
+ * here, the `headers()` exclusion in next.config.mjs, and the `matcher` at the
+ * bottom of this file. All three must describe the SAME set of paths, and the
+ * comments on the other two point back here.
+ *
+ * CASE-INSENSITIVE, and not for the sake of tidiness. Next compiles a
+ * `headers()` source with path-to-regexp's default `sensitive: false`, so the
+ * config's `/((?!w/).*)` already treats `/W/abc` as the widget route and
+ * withholds `X-Frame-Options` from it. A `startsWith('/w/')` here would not,
+ * and the two mechanisms would then disagree about which paths are the
+ * exception -- which is the whole thing this block rests on. Whether `/W/abc`
+ * resolves to a page is beside the point: the question is only whether both
+ * defences answer it the same way.
+ */
+const WIDGET_PATH = /^\/w\//i;
+
 const CHANGE_PASSWORD_PATH = '/change-password';
 const SIGN_OUT_PATH = '/auth/signout';
 const MEMBER_HOME = '/app';
@@ -134,7 +151,7 @@ export async function middleware(request: NextRequest) {
    * turns that into 'none'. See src/lib/widget/frame-cache.ts's header for why
    * that must never become a permissive fallback.
    */
-  if (request.nextUrl.pathname.startsWith('/w/')) {
+  if (WIDGET_PATH.test(request.nextUrl.pathname)) {
     const isDocument =
       request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
 
@@ -293,7 +310,30 @@ export const config = {
   // that could not have run rather than one that was doing work.
   // `/api/health` is unaffected and stays reachable through PUBLIC_PATHS
   // exactly as before.
+  //
+  // `(?![wW]/)` IN FRONT OF THE IMAGE EXTENSIONS, BLOCK 17a, AND IT CLOSES A
+  // HOLE THIS BLOCK OPENED. The extension alternative is meant to skip static
+  // pictures, which need no session and no policy. But `/w/<publicKey>` takes
+  // its key from a dynamic segment, and a segment matches `abc.png` as happily
+  // as it matches `pw_xxx` -- so `/w/abc.png` fired that alternative, the
+  // middleware body never ran, and nothing set a CSP. Before this block that
+  // path still carried `X-Frame-Options: DENY` from the blanket
+  // `source: '/:path*'`; with the widget path excluded there, it would have
+  // carried NEITHER mechanism -- a widget's own not-found page, framable from
+  // anywhere and rendered with no nonce.
+  //
+  // FIXED HERE RATHER THAN BY NARROWING THE EXCLUSION IN next.config.mjs. The
+  // two must describe the same set (see WIDGET_PATH at the top of this file),
+  // and of the two possible directions only this one is safe: making the
+  // header exclusion narrower would hand `/w/abc.png` back its `DENY` and
+  // break the real widget the moment somebody's key ended in a dot-extension,
+  // while making the matcher wider merely costs an Edge invocation on a path
+  // that has no static picture behind it anyway.
+  //
+  // `[wW]` because WIDGET_PATH and the compiled `headers()` source are both
+  // case-insensitive; a case-sensitive spelling here would leave `/W/x.png` in
+  // exactly the gap this paragraph closes.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/|api/worker/|api/v1/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/webhooks/|api/worker/|api/v1/|(?![wW]/).*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

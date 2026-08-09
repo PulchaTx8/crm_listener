@@ -105,6 +105,18 @@ describe('the frame-ancestors lookup', () => {
     ['origins that are not a list', { found: true, origins: 'https://radio.com.br' }],
     ['a list holding something that is not a string', { found: true, origins: [42] }],
     ['a list holding a blank entry', { found: true, origins: [''] }],
+    // THE GRAMMAR, not merely "a non-empty string". What comes back here is
+    // spliced verbatim into a frame-ancestors directive; `isOrigin` is the
+    // pattern the console validates with and 0159's CHECK enforces, and it
+    // admits no space, no semicolon and no newline -- so an entry that reached
+    // the wire could not close the directive and open another one.
+    ['an origin with no scheme', { found: true, origins: ['radio.com.br'] }],
+    ['a wildcard somebody hoped would work', { found: true, origins: ['*'] }],
+    [
+      'an entry carrying a second directive',
+      { found: true, origins: ["https://radio.com.br; script-src 'unsafe-inline'"] },
+    ],
+    ['an entry carrying a newline', { found: true, origins: ['https://radio.com.br\nx: y'] }],
   ])('frames nowhere for %s', async (name, value) => {
     // The database CHECK (are_origins, 0159) cannot produce any of these, so
     // seeing one means the answer did not come from where this code thinks it
