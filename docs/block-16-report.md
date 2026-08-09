@@ -175,8 +175,51 @@ call, not a saved record.
 | `npm test` | 86 files, 1029 cases |
 | `npx supabase db reset --local && npx supabase test db supabase/tests --local` | 40 files, 1556 cases |
 | `npm run test:isolation` | 32 files, 309 cases; every file above its floor |
-| `npm run test:e2e` | see §7 |
+| `npm run test:e2e` | **53/53** — see below |
 | `npm run build` | clean |
+
+**The e2e number needed the right configuration to be worth anything, and
+finding that out cost four runs.** Against the local default (`next dev`,
+`--workers=1`) the suite returned 50–52 of 53, with a **different** spec failing
+each time — `dashboards` and `templates` on one run, `music-catalogue` on the
+next — and every one of them passing on its own immediately afterwards. That is
+the flake `playwright.config.ts` documents in its own comment and
+`docs/block-11c-report.md §5` records by name: `next dev` compiles each route on
+first request, and that compilation lands inside whichever journey reaches the
+route first, counted against its 30-second budget.
+
+A fifth run with `CI=1` was **not** the fix and is recorded here so nobody
+repeats it: that flag also switches `workers` from 1 to Playwright's default,
+and a dozen parallel journeys against **one shared local Supabase** is a
+different failure with the same shape. It failed `promotions-flow`, which then
+passed alone.
+
+The run that means something is **production build + `--workers=1` + a freshly
+reset database with `scripts/seed-branding.mjs` re-run** — the branding bucket is
+storage, so `db reset` empties it and `login.spec.ts` fails on a missing hero
+image that has nothing to do with the code:
+
+```bash
+npx supabase db reset --local && node scripts/seed-branding.mjs
+CI=1 npx playwright test --workers=1     # 53 passed (2.7m)
+```
+
+Three failures in the first run **were** real and were fixed: two specs matched
+the `Stations` nav link non-exactly, and `Stations` under PLATAFORMA is a
+substring of `My stations` in the customer's own section; and the console journey
+used `station-website` for a field whose name is `websiteUrl`.
+
+**The isolation suite needed the same care, for a different reason.** It came
+back 307/309 with two Storage failures — `StorageApiError: An invalid response
+was received from the upstream server` and a 30-second timeout deleting a bucket
+object — in `draw.test.ts`, which this block does not touch. `docker ps` was the
+diagnosis: `kong` had been up nine hours while `db`, `storage` and `auth` had
+restarted ten minutes earlier, under the repeated `db reset`s these runs needed.
+That is the stale-Kong condition this project has met before. `supabase stop &&
+supabase start`, then 309/309. **Re-running without looking would have been the
+wrong move either way** — the suite's own guard says a file that did not run is a
+boundary that was not checked, and the point is to find out which of the two it
+is before touching anything.
 
 New pgTAP: `38_console_helpers.test.sql` (11). Extended:
 `35_company_profile.test.sql` (9→12), `36_organization_profile.test.sql` (7→26),
@@ -189,4 +232,16 @@ New unit: `tests/unit/tax-id.test.ts` (9).
 
 ## 7. Open items
 
-None outstanding at the time of writing beyond the e2e run recorded in the PR.
+**`scripts/seed-demo.mjs` is fixed but left uncommitted.** It called
+`provision_customer` and would have failed on the first run after this block; it
+now calls `provision_organization` + `add_company`, and both demo Stations arrive
+the same way. The file carries the owner's own uncommitted work, so the change is
+in the working tree and **not staged** — the owner commits it with theirs. The
+same is true of nothing else: `.dockerignore` and `Manual/` were not touched.
+
+**A label collision worth a second opinion.** The sidebar now shows *Stations*
+under PLATAFORMA and *My stations* under the customer's own section, and a
+platform admin who also has an app view sees both. The section headings tell them
+apart and the plan specified these names, so they were kept — but if the owner
+finds it ambiguous in use, the platform one is a one-line change in
+`messages/*.json`, not a code change.
