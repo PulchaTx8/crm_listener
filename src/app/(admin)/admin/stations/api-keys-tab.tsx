@@ -42,8 +42,8 @@ export function ApiKeysTab({
   const [copied, setCopied] = useState(false);
 
   // Whichever action last returned a list wins; neither revalidates the page,
-  // for the reason this file's siblings all carry — a fresh render would lose
-  // the admin's place in the customers list underneath this dialog.
+  // for the reason this file's siblings all carry — a fresh render would close
+  // the record this tab lives inside.
   const rows = revokeState.rows ?? issueState.rows ?? initialRows;
   const problem =
     issueState.status === 'error' ? issueState.message : revokeState.status === 'error' ? revokeState.message : null;

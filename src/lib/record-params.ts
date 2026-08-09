@@ -84,13 +84,20 @@ export const TEAM_TABS = ['person', 'access'] as const;
 export type TeamTab = (typeof TEAM_TABS)[number];
 
 /**
- * `keys` is APPENDED rather than inserted, and the position is load-bearing for
- * the same reason PROMOTION_TABS records: parseRecordParam falls back to
- * `tabs[0]` for an unknown `tab=`, so the first element is the tab a record
- * opens on, and inserting would change where every existing link lands.
+ * Block 16 split CUSTOMER_TABS in two, because the screen it belonged to was
+ * showing one record where the platform has two. Its four tabs are shared out
+ * below: `customer` and `owner` are facts about the GROUP, `stations` becomes a
+ * screen of its own, and `keys` is a fact about a STATION.
+ *
+ * First element is the tab a record opens on and the fallback parseRecordParam
+ * uses for an unknown `tab=`. APPEND, never insert: inserting changes where
+ * every existing link lands.
  */
-export const CUSTOMER_TABS = ['customer', 'stations', 'owner', 'keys'] as const;
-export type CustomerTab = (typeof CUSTOMER_TABS)[number];
+export const ORGANIZATION_TABS = ['data', 'owner', 'stations'] as const;
+export type OrganizationTab = (typeof ORGANIZATION_TABS)[number];
+
+export const STATION_TABS = ['data', 'whatsapp', 'keys'] as const;
+export type StationTab = (typeof STATION_TABS)[number];
 
 /**
  * Two since Block 13a, where Block 7 had one. song-record-dialog.tsx's tab

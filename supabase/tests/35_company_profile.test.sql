@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(12);
 
 -- Block 15. A Station gets the record a radio station actually has.
 
@@ -53,6 +53,22 @@ select throws_ok(
       '00000000-0000-0000-0000-0000000000b3', null, null, null, null,
       'Sao Paulo', 'SP', null, 'FM', 98500, null, null)$$,
   '42501', null, 'editing a Station requires the platform admin');
+
+-- Block 16. The Station's contact details and its own invoicing identity.
+
+select has_column('public', 'companies', 'tax_id',
+  'a station carries its own CNPJ, whatever the group''s selector says');
+select has_column('public', 'companies', 'contact_email', 'and a contact address');
+
+-- D7, the half that makes the design correct: the selector answers who EMITS,
+-- never who HAS. A station's invoicing data is a fact about the station and
+-- survives any setting on its group.
+select is(
+  (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'update_organization'
+      and 'p_company_tax_id' = any(p.proargnames)),
+  0::bigint,
+  'nothing on the organization door can reach into a station''s invoicing data');
 
 select * from finish();
 rollback;

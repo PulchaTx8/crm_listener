@@ -5,6 +5,7 @@ import {
   LOCAL_SUPABASE_URL,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * The whole audience journey through the real UI (Block 3, Task 10).
@@ -105,21 +106,16 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
 
   // Identity #1: the "Platform admin" role label and the Customers console
   // link only render for this identity (lib/auth/shell.ts) — asserting both
-  // here, not just that /admin/customers happened to be reachable, is the
+  // here, not just that /admin/organizations happened to be reachable, is the
   // same pair inventory-flow.spec.ts checks for its own platform admin.
   await expect(page.getByText(platformAdminEmail)).toBeVisible();
   await expect(page.getByText('Platform admin')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationAName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationAName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')
@@ -132,7 +128,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
 
   // --- a second Station, via a signed-in RPC call, not the console UI ------
   // add_company (0017) is platform-admin only — everyone reaching
-  // /admin/customers already is one, the same fact roles-flow.spec.ts's own
+  // /admin/organizations already is one, the same fact roles-flow.spec.ts's own
   // "Add Station" step relies on — but driving that specific form through
   // the browser is not itself part of the members journey this spec exists
   // to prove, and it was the exact step this spec's own full-suite run
@@ -190,7 +186,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await expect(ownerPage).toHaveURL(/\/app$/);
 
   await expect(ownerPage.getByText(ownerEmail)).toBeVisible();
-  await expect(ownerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // --- the owner composes "Audience Manager" from the permission catalogue -
   await ownerPage.getByRole('link', { name: 'Roles' }).click();

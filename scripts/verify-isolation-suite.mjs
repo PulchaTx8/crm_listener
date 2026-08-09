@@ -205,6 +205,19 @@ const REQUIRED_TEST_FILES = [
   // in another customer's account -- and the caller here is service_role, so
   // no row policy is standing behind the result.
   { path: 'tests/isolation/api-intake.test.ts', minTests: 6 },
+  // Block 16, Task 12: the block's behaviour, which nothing else can show.
+  // 37_organization_blocking.test.sql asserts the SHAPE of the two doors and
+  // stops there, because pgTAP runs as superuser with a null auth.uid() where
+  // RLS never applies.
+  //
+  // The floor is four, and the first case is the one that matters: it makes
+  // every access assertion twice, once as the OWNER and once as the staff. A
+  // version of that case checking only the staff passes against the exact
+  // defect D5 warns about — staff reach a Station through has_company_access_for
+  // and the owner reaches it through is_owner_for, which checked no status at
+  // all before 0156, so a block written into one and not the other stops the
+  // employees and leaves the owner browsing.
+  { path: 'tests/isolation/organization-blocking.test.ts', minTests: 4 },
   { path: 'tests/isolation/participations.test.ts', minTests: 29 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for

@@ -90,11 +90,9 @@ describe('tenant isolation', () => {
     const a = await provisionCustomer(`p-${Date.now()}`);
     const clientA = await signInAs(a.email, a.password);
 
-    const { error } = await clientA.rpc('provision_customer', {
+    const { error } = await clientA.rpc('provision_organization', {
       p_user_id: a.userId,
       p_organization_name: 'Pirate Org',
-      p_company_name: 'Pirate Company',
-      p_timezone: 'America/Sao_Paulo',
     });
 
     expect(error).not.toBeNull();

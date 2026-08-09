@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * Block 7b's whole journey (Task 10): the two doors this task adds to the
@@ -105,16 +106,11 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText('Platform admin')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')
@@ -144,7 +140,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   // A separate browser context from the admin above, proven by identity, the
   // same check music-catalogue.spec.ts makes for its own owner.
   await expect(ownerPage.getByText(ownerEmail)).toBeVisible();
-  await expect(ownerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
   await expect(
     ownerPage.locator('[data-testid="station-card"]', { hasText: stationName }),
   ).toBeVisible();

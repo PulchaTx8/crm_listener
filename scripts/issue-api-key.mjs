@@ -12,7 +12,7 @@ import {
  *
  * LOCAL ONLY, following seed-branding.mjs's guard and for a sharper reason than
  * that script has: this mints a bearer credential that writes into a Station.
- * Production keys are issued from the console -- /admin/customers, the API keys
+ * Production keys are issued from the console -- /admin/stations, the API keys
  * tab -- by a signed-in platform admin, which is a place with an audit trail and
  * a person attached. A script that could reach the hosted project would be the
  * one path in this codebase that mints a production credential from a shell.

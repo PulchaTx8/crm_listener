@@ -7,6 +7,7 @@ import {
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
   LOCAL_SUPABASE_DB_URL,
 } from '../local-supabase';
+import { provisionCustomer } from './provision';
 
 /**
  * Block 6d through the screen, and through the clock: a prize is drawn, its
@@ -100,14 +101,12 @@ test.beforeAll(async () => {
   const ownerId = await createUser(ownerEmail, ownerPassword);
 
   const adminClient = await signIn(platformAdminEmail, platformAdminPassword);
-  const provisioned = await adminClient.rpc('provision_customer', {
-    p_user_id: ownerId,
-    p_organization_name: `Deadline Org ${stamp}`,
-    p_company_name: `Deadline Station ${stamp}`,
-    p_timezone: stationTimeZone,
+  const { company_id: companyId } = await provisionCustomer(adminClient, {
+    userId: ownerId,
+    organizationName: `Deadline Org ${stamp}`,
+    companyName: `Deadline Station ${stamp}`,
+    timezone: stationTimeZone,
   });
-  if (provisioned.error) throw new Error(`provision failed: ${provisioned.error.message}`);
-  const { company_id: companyId } = provisioned.data as { company_id: string };
 
   const owner = await signIn(ownerEmail, ownerPassword);
 

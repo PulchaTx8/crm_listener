@@ -5,6 +5,7 @@ import { InternalError, NotFoundError, UnauthorizedError, ValidationError } from
 import { describeArtworkRejection } from '@/lib/security/artwork';
 import { readImageDimensions } from '@/lib/security/image-dimensions';
 import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
+import { normaliseTaxId } from '@/lib/tax-id';
 import type { Database } from '@/lib/supabase/database.types';
 
 /**
@@ -44,6 +45,38 @@ export interface CompanyProfileInput {
   frequencyKhz: number | null;
   latitude: number | null;
   longitude: number | null;
+  // Block 16. How the radio is reached, how it describes itself, and who it is
+  // on a document. The last four are the Station's OWN invoicing identity and
+  // are independent of its group's billing_entity, which says who emits an
+  // invoice and never who has a legal identity (D7).
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+  instagramUrl: string | null;
+  facebookUrl: string | null;
+  youtubeUrl: string | null;
+  tagline: string | null;
+  description: string | null;
+  legalName: string | null;
+  taxId: string | null;
+  municipalRegistration: string | null;
+  fiscalEmail: string | null;
+}
+
+/**
+ * A typed address, with the scheme the column insists on.
+ *
+ * companies_website_shape and its three siblings (0155) refuse anything that is
+ * not http(s), because these four land in an href on the Station's card — a
+ * scheme-less value there is a relative link and a `javascript:` one is worse.
+ * An operator types `instagram.com/radio`, so the scheme is added here rather
+ * than the save being refused: the division of labour tax_id already uses, where
+ * the application normalises and the database asserts.
+ */
+function withScheme(typed: string | null): string | null {
+  const trimmed = typed?.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 export async function updateCompanyProfile(
@@ -63,6 +96,21 @@ export async function updateCompanyProfile(
     p_frequency_khz: input.frequencyKhz ?? undefined,
     p_latitude: input.latitude ?? undefined,
     p_longitude: input.longitude ?? undefined,
+    p_contact_email: input.contactEmail ?? undefined,
+    p_contact_phone: input.contactPhone ?? undefined,
+    p_website_url: withScheme(input.websiteUrl) ?? undefined,
+    p_instagram_url: withScheme(input.instagramUrl) ?? undefined,
+    p_facebook_url: withScheme(input.facebookUrl) ?? undefined,
+    p_youtube_url: withScheme(input.youtubeUrl) ?? undefined,
+    p_tagline: input.tagline ?? undefined,
+    p_description: input.description ?? undefined,
+    p_legal_name: input.legalName ?? undefined,
+    // Fourteen bare digits or nothing: normaliseTaxId returns null for anything
+    // else, so a half-typed number is stored as absent rather than as a stub no
+    // invoice can be raised against.
+    p_tax_id: normaliseTaxId(input.taxId) ?? undefined,
+    p_municipal_registration: input.municipalRegistration ?? undefined,
+    p_fiscal_email: input.fiscalEmail ?? undefined,
   });
   if (error) throw mapProfileError(error.code, error.message);
 }

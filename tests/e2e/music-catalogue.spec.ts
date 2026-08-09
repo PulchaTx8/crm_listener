@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * Block 7a's whole journey (Task 11): an operator reaches the music
@@ -74,16 +75,11 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText('Platform admin')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const ownerPassword = (await revealed.innerText()).trim();
+  const ownerPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile, error: ownerLookupError } = await admin
     .from('profiles')
@@ -114,7 +110,7 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   // the owner's own e-mail is visible, and the platform-only Customers link
   // is absent.
   await expect(ownerPage.getByText(ownerEmail)).toBeVisible();
-  await expect(ownerPage.getByRole('link', { name: 'Customers' })).toHaveCount(0);
+  await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // The owner reaches exactly one Station, provisioned above — every music
   // screen resolves it as `first` (listCompanyAccess) with nothing to pick,

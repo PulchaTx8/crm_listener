@@ -5,6 +5,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionCustomer } from './provision';
 
 /**
  * Block 6c through the screen: the draw is a shuffle over a list somebody
@@ -77,14 +78,11 @@ test.beforeAll(async () => {
   const ownerId = await createUser(ownerEmail, ownerPassword);
 
   const adminClient = await signIn(platformAdminEmail, platformAdminPassword);
-  const provisioned = await adminClient.rpc('provision_customer', {
-    p_user_id: ownerId,
-    p_organization_name: `Hat Org ${stamp}`,
-    p_company_name: `Hat Station ${stamp}`,
-    p_timezone: 'America/Sao_Paulo',
-  });
-  if (provisioned.error) throw new Error(`provision failed: ${provisioned.error.message}`);
-  ({ company_id: companyId } = provisioned.data as { company_id: string });
+  ({ company_id: companyId } = await provisionCustomer(adminClient, {
+    userId: ownerId,
+    organizationName: `Hat Org ${stamp}`,
+    companyName: `Hat Station ${stamp}`,
+  }));
 
   const owner = await signIn(ownerEmail, ownerPassword);
 

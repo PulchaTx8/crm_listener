@@ -5,6 +5,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionCustomer } from './provision';
 
 /**
  * Block 10a's round trip, and it closes the block's own loop in one assertion:
@@ -37,6 +38,7 @@ const ownerChosenPassword = `Chosen-${stamp}-aA1!`;
 
 let companyName: string;
 let companyId: string;
+let organizationId: string;
 
 async function createAuthUser(email: string, password: string): Promise<string> {
   const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -64,14 +66,11 @@ test.beforeAll(async () => {
   const ownerUserId = await createAuthUser(ownerEmail, ownerInitialPassword);
   companyName = `Audit Station ${stamp}`;
   const adminClient = await signInAs(adminEmail, adminPassword);
-  const { data: provisioned, error: provisionError } = await adminClient.rpc('provision_customer', {
-    p_user_id: ownerUserId,
-    p_organization_name: `Audit Org ${stamp}`,
-    p_company_name: companyName,
-    p_timezone: 'America/Sao_Paulo',
-  });
-  if (provisionError) throw new Error(`provision_customer failed: ${provisionError.message}`);
-  ({ company_id: companyId } = provisioned as { company_id: string });
+  ({ organization_id: organizationId, company_id: companyId } = await provisionCustomer(adminClient, {
+    userId: ownerUserId,
+    organizationName: `Audit Org ${stamp}`,
+    companyName,
+  }));
 });
 
 test.afterAll(async () => {
@@ -95,11 +94,21 @@ test('an administrator connects a Station, and the owner reads it in the trail',
   await expect(page).toHaveURL(/\/app$/);
 
   // Through the sidebar rather than by URL, so reaching the console also
-  // asserts the nav entry exists and is scoped to a platform admin -- the same
-  // thing provisioning-flow proves for Customers.
-  await page.getByRole('link', { name: 'WhatsApp integrations' }).click();
-  await expect(page).toHaveURL(/\/admin\/integrations$/);
-  await expect(page.getByRole('heading', { name: 'WhatsApp integrations' })).toBeVisible();
+  // asserts the nav entry exists and is scoped to a platform admin.
+  //
+  // BLOCK 16 MOVED THIS FORM. It used to live on /admin/integrations, a list of
+  // every Station on the platform with a card each — which was a Stations screen
+  // wearing another name. A Station's connection is a fact about the Station, so
+  // it is now the second tab of its record, reached by choosing the customer and
+  // opening the radio.
+  await page.getByRole('link', { name: 'Stations', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/stations$/);
+  await page.getByTestId('station-organization-select').selectOption(organizationId);
+
+  const stationRow = page.locator('[data-testid="station-row"]', { hasText: companyName });
+  await expect(stationRow).toBeVisible();
+  await stationRow.getByRole('button', { name: companyName, exact: true }).click();
+  await page.getByRole('tab', { name: 'WhatsApp' }).click();
 
   // The credentials panel: three booleans and no values. The e2e webServer sets
   // WHATSAPP_APP_SECRET and WHATSAPP_VERIFY_TOKEN (tests/whatsapp-test-env.ts)
@@ -111,7 +120,7 @@ test('an administrator connects a Station, and the owner reads it in the trail',
   await expect(page.getByText('e2e-whatsapp-app-secret')).toHaveCount(0);
 
   const phoneNumberId = `55${stamp}`;
-  // By Station id, not by text: the Station's NAME is in the card header,
+  // By Station id, not by text: the Station's NAME is in the dialog header,
   // OUTSIDE the form, so no text inside the form identifies which radio it
   // configures. The first version of this test filtered forms by hasText and
   // matched none.
@@ -119,8 +128,8 @@ test('an administrator connects a Station, and the owner reads it in the trail',
   await expect(form).toBeVisible();
 
   // The Station was provisioned with no integration, so its form offers
-  // "Connect" rather than "Save" -- which is list_integrations returning every
-  // COMPANY rather than every integration.
+  // "Connect" rather than "Save" -- which is get_integration returning a row of
+  // nulls for a Station rather than no row at all.
   await expect(form.getByRole('button', { name: 'Connect' })).toBeVisible();
 
   await form.getByPlaceholder('1234567890').fill(phoneNumberId);

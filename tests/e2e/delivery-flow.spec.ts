@@ -5,6 +5,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionCustomer } from './provision';
 
 /**
  * Block 6b through the screen: an operator hands a prize over, files the
@@ -56,14 +57,11 @@ test.beforeAll(async () => {
   const ownerId = await createUser(ownerEmail, ownerPassword);
 
   const adminClient = await signIn(platformAdminEmail, platformAdminPassword);
-  const provisioned = await adminClient.rpc('provision_customer', {
-    p_user_id: ownerId,
-    p_organization_name: `Deliv Org ${stamp}`,
-    p_company_name: `Deliv Station ${stamp}`,
-    p_timezone: 'America/Sao_Paulo',
+  const { company_id: companyId } = await provisionCustomer(adminClient, {
+    userId: ownerId,
+    organizationName: `Deliv Org ${stamp}`,
+    companyName: `Deliv Station ${stamp}`,
   });
-  if (provisioned.error) throw new Error(`provision failed: ${provisioned.error.message}`);
-  const { company_id: companyId } = provisioned.data as { company_id: string };
 
   const owner = await signIn(ownerEmail, ownerPassword);
 

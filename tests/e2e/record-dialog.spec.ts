@@ -5,6 +5,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * Block 3c's proof.
@@ -103,16 +104,11 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const provisionalPassword = (await revealed.innerText()).trim();
+  const provisionalPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile } = await admin
     .from('profiles')
@@ -123,19 +119,14 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   createdUserIds.push(ownerProfile.id);
 
   // A second customer, for the security case at the end of this journey: its
-  // listener is the one the first owner must not be able to address. Reloaded
-  // between the two provisionings rather than refilling the open dialog, so
-  // the password read below cannot be the previous customer's still on screen.
-  await page.reload();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(`${orgName} B`);
-  await page.getByPlaceholder('Company (Station) name').fill(strangerStationName);
-  await page.getByPlaceholder('Owner e-mail').fill(strangerOwnerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const strangerRevealed = page.locator('code').first();
-  await expect(strangerRevealed).toBeVisible({ timeout: 15_000 });
-  const strangerPassword = (await strangerRevealed.innerText()).trim();
+  // listener is the one the first owner must not be able to address. The helper
+  // reloads between the two provisionings rather than refilling the open dialog,
+  // so the password it reads cannot be the previous customer's still on screen.
+  const strangerPassword = await provisionThroughConsole(page, {
+    organizationName: `${orgName} B`,
+    companyName: strangerStationName,
+    ownerEmail: strangerOwnerEmail,
+  });
 
   const { data: strangerProfile } = await admin
     .from('profiles')

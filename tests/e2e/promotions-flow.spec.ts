@@ -5,6 +5,7 @@ import {
   LOCAL_SUPABASE_ANON_KEY,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { provisionThroughConsole } from './provision';
 
 /**
  * Block 4a's proof that the promotions screen keeps the promise Block 3c made
@@ -96,16 +97,11 @@ test('the promotion record opens over a list that is never re-queried', async ({
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  await page.getByRole('link', { name: 'Customers' }).click();
-  await page.getByTestId('customer-create').click();
-  await page.getByPlaceholder('Organization name').fill(orgName);
-  await page.getByPlaceholder('Company (Station) name').fill(stationName);
-  await page.getByPlaceholder('Owner e-mail').fill(ownerEmail);
-  await page.getByRole('button', { name: 'Provision', exact: true }).click();
-
-  const revealed = page.locator('code').first();
-  await expect(revealed).toBeVisible({ timeout: 15_000 });
-  const provisionalPassword = (await revealed.innerText()).trim();
+  const provisionalPassword = await provisionThroughConsole(page, {
+    organizationName: orgName,
+    companyName: stationName,
+    ownerEmail: ownerEmail,
+  });
 
   const { data: ownerProfile } = await admin
     .from('profiles')

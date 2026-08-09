@@ -302,12 +302,20 @@ export type Database = {
           address_number: string | null
           broadcast_band: Database["public"]["Enums"]["broadcast_band"] | null
           city: string | null
+          contact_email: string | null
+          contact_phone: string | null
           created_at: string
           deleted_at: string | null
+          description: string | null
+          facebook_url: string | null
+          fiscal_email: string | null
           frequency_khz: number | null
           id: string
+          instagram_url: string | null
           latitude: number | null
+          legal_name: string | null
           longitude: number | null
+          municipal_registration: string | null
           name: string
           neighbourhood: string | null
           organization_id: string
@@ -318,9 +326,13 @@ export type Database = {
           status: Database["public"]["Enums"]["company_status"]
           suspended_at: string | null
           suspension_reason: string | null
+          tagline: string | null
+          tax_id: string | null
           thumb_url: string | null
           timezone: string
           updated_at: string
+          website_url: string | null
+          youtube_url: string | null
         }
         Insert: {
           address_complement?: string | null
@@ -328,12 +340,20 @@ export type Database = {
           address_number?: string | null
           broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
           city?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
+          description?: string | null
+          facebook_url?: string | null
+          fiscal_email?: string | null
           frequency_khz?: number | null
           id?: string
+          instagram_url?: string | null
           latitude?: number | null
+          legal_name?: string | null
           longitude?: number | null
+          municipal_registration?: string | null
           name: string
           neighbourhood?: string | null
           organization_id: string
@@ -344,9 +364,13 @@ export type Database = {
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          tagline?: string | null
+          tax_id?: string | null
           thumb_url?: string | null
           timezone?: string
           updated_at?: string
+          website_url?: string | null
+          youtube_url?: string | null
         }
         Update: {
           address_complement?: string | null
@@ -354,12 +378,20 @@ export type Database = {
           address_number?: string | null
           broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
           city?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
+          description?: string | null
+          facebook_url?: string | null
+          fiscal_email?: string | null
           frequency_khz?: number | null
           id?: string
+          instagram_url?: string | null
           latitude?: number | null
+          legal_name?: string | null
           longitude?: number | null
+          municipal_registration?: string | null
           name?: string
           neighbourhood?: string | null
           organization_id?: string
@@ -370,9 +402,13 @@ export type Database = {
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          tagline?: string | null
+          tax_id?: string | null
           thumb_url?: string | null
           timezone?: string
           updated_at?: string
+          website_url?: string | null
+          youtube_url?: string | null
         }
         Relationships: [
           {
@@ -1565,24 +1601,69 @@ export type Database = {
       }
       organizations: {
         Row: {
+          address_complement: string | null
+          address_line: string | null
+          address_number: string | null
+          billing_entity: Database["public"]["Enums"]["billing_entity"]
+          city: string | null
           created_at: string
           deleted_at: string | null
+          fiscal_email: string | null
           id: string
+          legal_name: string | null
+          municipal_registration: string | null
           name: string
+          neighbourhood: string | null
+          postal_code: string | null
+          state: string | null
+          suspended_at: string | null
+          suspended_by: string | null
+          suspension_reason: string | null
+          tax_id: string | null
           updated_at: string
         }
         Insert: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          billing_entity?: Database["public"]["Enums"]["billing_entity"]
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          fiscal_email?: string | null
           id?: string
+          legal_name?: string | null
+          municipal_registration?: string | null
           name: string
+          neighbourhood?: string | null
+          postal_code?: string | null
+          state?: string | null
+          suspended_at?: string | null
+          suspended_by?: string | null
+          suspension_reason?: string | null
+          tax_id?: string | null
           updated_at?: string
         }
         Update: {
+          address_complement?: string | null
+          address_line?: string | null
+          address_number?: string | null
+          billing_entity?: Database["public"]["Enums"]["billing_entity"]
+          city?: string | null
           created_at?: string
           deleted_at?: string | null
+          fiscal_email?: string | null
           id?: string
+          legal_name?: string | null
+          municipal_registration?: string | null
           name?: string
+          neighbourhood?: string | null
+          postal_code?: string | null
+          state?: string | null
+          suspended_at?: string | null
+          suspended_by?: string | null
+          suspension_reason?: string | null
+          tax_id?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -3429,6 +3510,10 @@ export type Database = {
         }
         Returns: string
       }
+      block_organization: {
+        Args: { p_organization_id: string; p_reason: string }
+        Returns: undefined
+      }
       cancel_delivery: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -3785,6 +3870,22 @@ export type Database = {
         Returns: Json
       }
       get_draw: { Args: { p_draw_id: string }; Returns: Json }
+      get_integration: {
+        Args: { p_company_id: string }
+        Returns: {
+          company_id: string
+          company_name: string
+          company_status: Database["public"]["Enums"]["company_status"]
+          display_phone_number: string
+          enabled: boolean
+          integration_id: string
+          organization_id: string
+          organization_name: string
+          phone_number_id: string
+          updated_at: string
+          waba_id: string
+        }[]
+      }
       get_music_dashboard: {
         Args: {
           p_company_ids: string[]
@@ -3838,6 +3939,10 @@ export type Database = {
       is_owner: { Args: { p_organization_id: string }; Returns: boolean }
       is_owner_for: {
         Args: { p_organization_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      is_owner_including_blocked: {
+        Args: { p_organization_id: string }
         Returns: boolean
       }
       is_owner_of_company: { Args: { p_company_id: string }; Returns: boolean }
@@ -3896,6 +4001,20 @@ export type Database = {
       list_api_credentials: {
         Args: { p_company_id: string }
         Returns: {
+          created_at: string
+          expires_at: string
+          id: string
+          last_used_at: string
+          name: string
+          revoked_at: string
+          scopes: string[]
+          token_prefix: string
+        }[]
+      }
+      list_api_credentials_for: {
+        Args: { p_company_ids: string[] }
+        Returns: {
+          company_id: string
           created_at: string
           expires_at: string
           id: string
@@ -4053,6 +4172,31 @@ export type Database = {
           song_id: string
           song_title: string
           total_count: number
+        }[]
+      }
+      list_organizations: {
+        Args: never
+        Returns: {
+          address_complement: string
+          address_line: string
+          address_number: string
+          billing_entity: Database["public"]["Enums"]["billing_entity"]
+          city: string
+          created_at: string
+          fiscal_email: string
+          id: string
+          legal_name: string
+          municipal_registration: string
+          name: string
+          neighbourhood: string
+          owner_email: string
+          owner_user_id: string
+          postal_code: string
+          state: string
+          station_count: number
+          suspended_at: string
+          suspension_reason: string
+          tax_id: string
         }[]
       }
       list_participations: {
@@ -4226,14 +4370,9 @@ export type Database = {
         }
         Returns: undefined
       }
-      provision_customer: {
-        Args: {
-          p_company_name: string
-          p_organization_name: string
-          p_timezone?: string
-          p_user_id: string
-        }
-        Returns: Json
+      provision_organization: {
+        Args: { p_organization_name: string; p_user_id: string }
+        Returns: string
       }
       prune_outbox_messages: {
         Args: { p_older_than?: string }
@@ -4654,6 +4793,10 @@ export type Database = {
           leases: number
         }[]
       }
+      unblock_organization: {
+        Args: { p_organization_id: string }
+        Returns: undefined
+      }
       unlink_prize_from_promotion: {
         Args: {
           p_note?: string
@@ -4679,12 +4822,24 @@ export type Database = {
           p_broadcast_band?: Database["public"]["Enums"]["broadcast_band"]
           p_city?: string
           p_company_id: string
+          p_contact_email?: string
+          p_contact_phone?: string
+          p_description?: string
+          p_facebook_url?: string
+          p_fiscal_email?: string
           p_frequency_khz?: number
+          p_instagram_url?: string
           p_latitude?: number
+          p_legal_name?: string
           p_longitude?: number
+          p_municipal_registration?: string
           p_neighbourhood?: string
           p_postal_code?: string
           p_state?: string
+          p_tagline?: string
+          p_tax_id?: string
+          p_website_url?: string
+          p_youtube_url?: string
         }
         Returns: undefined
       }
@@ -4714,6 +4869,25 @@ export type Database = {
           p_id: string
           p_kind: Database["public"]["Enums"]["music_reference_kind"]
           p_name: string
+        }
+        Returns: undefined
+      }
+      update_organization: {
+        Args: {
+          p_address_complement?: string
+          p_address_line?: string
+          p_address_number?: string
+          p_billing_entity?: Database["public"]["Enums"]["billing_entity"]
+          p_city?: string
+          p_fiscal_email?: string
+          p_legal_name?: string
+          p_municipal_registration?: string
+          p_name: string
+          p_neighbourhood?: string
+          p_organization_id: string
+          p_postal_code?: string
+          p_state?: string
+          p_tax_id?: string
         }
         Returns: undefined
       }
@@ -4803,6 +4977,7 @@ export type Database = {
       }
     }
     Enums: {
+      billing_entity: "ORGANIZATION" | "STATIONS"
       broadcast_band: "FM" | "AM" | "WEB"
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
@@ -5022,6 +5197,7 @@ export const Constants = {
   },
   public: {
     Enums: {
+      billing_entity: ["ORGANIZATION", "STATIONS"],
       broadcast_band: ["FM", "AM", "WEB"],
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],

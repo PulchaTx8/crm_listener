@@ -31,7 +31,7 @@ show it.
 
 ### Issuing and revoking
 
-From the platform console: **/admin/customers → open a Station → API keys**.
+From the platform console: **/admin/stations → choose the customer → open a Station → API keys**.
 Issue asks for a name, the scopes, and an optional expiry date. Revoked keys stay
 on the list, because "when did this key die?" is a question somebody asks during
 an incident.
