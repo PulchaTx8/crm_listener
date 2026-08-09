@@ -62,10 +62,37 @@ the wrong group by a mis-click.
 WhatsApp**, **API Keys**. The last two already exist as a screen and as a tab
 respectively; this is where they end up.
 
-**D5 — Subscription and suspension stay on the Station.** `companies.status` is
-what `has_company_access` reads, and moving it to the Organization would touch
-every access check in the schema. Suspend/reactivate stays in the Stations
-screen's row menu, exactly as it is.
+**D5 — Blocking exists at BOTH levels, and it is one switch rather than two.**
+Blocking an Organization denies access to the group and to every Station under
+it; blocking a Station denies access to that Station alone. Rejected: a second,
+separate control beside the existing subscription suspension. Two switches that
+both deny access produce four states and a screen that can read *active* while
+nobody can get in — and "why can this person not sign in?" acquires two places to
+look.
+
+**This decision reverses what an earlier draft of this document said**, and the
+correction is worth keeping. That draft claimed moving suspension up would "touch
+every access check in the schema". It does not: every access decision in this
+product funnels through `has_company_access_for` (0121), so the group-level rule
+is one condition in one function.
+
+The qualification that makes it two functions rather than one, found by reading
+rather than assuming: **the owner reaches a Station by a second path.**
+`is_owner_of_company_for` asks only whether the caller owns the Organization and
+checks no status at all, and 0044's policies admit the owner through it to rows
+everyone else is denied. A block written only into `has_company_access_for` would
+therefore stop the staff and let the owner through — the one person a blocked
+group most needs to stop. Both doors get the check, and every other use of
+`is_owner_*` that does not pass through `has_company_access` is audited in the
+same task.
+
+**D5.1 — The word on screen is "Bloquear"; the column stays `suspended`.** The
+owner's word for this is blocking, and the screens say so. The database keeps
+`companies.status = 'suspended'` and the Organization's mirror of it, because
+renaming an enum is a migration that touches every read of it for the sake of a
+word — and because "suspended" is what four years of audit rows will already say.
+This paragraph is the translation between the two, and it is the only place that
+needs to exist.
 
 **D6 — `/admin/integrations` leaves the menu.** Its content becomes the Station
 record's WhatsApp tab. The owner named three items for the PLATAFORMA section and
@@ -125,12 +152,18 @@ screen — the rule spec §6 already sets: shown once, never through a URL.
 
 ### The record
 
-**Dados** — the group's name, editable, plus the invoicing block (§6) and the
-emitter selector.
+**Dados** — the group's name, editable, plus the invoicing block (§6), the
+emitter selector, and **Bloquear a organização** with a reason.
+
+Blocking here is the heaviest control in the console: it denies the group and
+every Station under it, to the owner and to all their staff at once. It asks for
+a reason and shows what it is about to do, in words, before it does it.
 
 **Proprietário** — the owner's e-mail, and the button that generates a new
 provisional password. Moved from the Station record, where it never belonged: the
-owner is a row in `organization_memberships`, not a property of a radio.
+owner is a row in `organization_memberships`, not a property of a radio. **This
+is the way back in when the owner has lost access** — the password is shown once,
+on screen, and stored nowhere (spec §6).
 
 **Emissoras** — the group's Stations with their status. Read-only, with a link
 that opens the Stations screen already filtered to this Organization.
@@ -141,7 +174,8 @@ that opens the Stations screen already filtered to this Organization.
 
 A combobox of Organizations at the top, and nothing below it until one is chosen.
 Choosing one lists that group's Stations in the layout the current screen already
-has — **Emissora, Assinatura, Provisionada, Ações** — with suspend and reactivate
+has — **Emissora, Situação, Provisionada, Ações** — with **Bloquear** and
+**Desbloquear** (D5, D5.1; the same control that is labelled *Suspender* today)
 in the row menu (D5).
 
 **Provisionar Emissora** creates into the selected Organization. It is
@@ -227,14 +261,44 @@ column** (D7).
 
 ## 8. Data model
 
-### 8.1 `organizations` — twelve new columns
+### 8.1 `organizations` — fifteen new columns
 
 `legal_name`, `tax_id`, `municipal_registration`, `fiscal_email`,
-`billing_entity` (not null, default `'STATIONS'`), and the seven address names.
+`billing_entity` (not null, default `'STATIONS'`), the seven address names, and
+the blocking trio: `suspended_at`, `suspended_by`, `suspension_reason`.
 
 `'STATIONS'` is the default because it is what is true today: nothing has ever
 been recorded at the group level, so the group cannot be the emitter until
 somebody says so.
+
+**Blocking is a nullable timestamp, not a status enum.** `companies` carries a
+`status` of its own because it has since `0003`, and this mirror deliberately does
+not copy that shape: a second enum with the same two values, named for the wrong
+table, would be a thing to keep in step for no gain. `suspended_at is not null`
+is the whole of the rule, and the pair CHECK — a time and a person, or neither —
+is the shape every archival column in this schema already uses.
+
+### 8.1.1 Where the block is enforced
+
+Two functions, and the second is the one an implementer will miss:
+
+```sql
+-- has_company_access_for (0121): the door every access decision goes through.
+   ... from public.companies c
+       join public.organizations o
+         on o.id = c.organization_id and o.suspended_at is null
+      where c.id = p_company_id and c.status = 'active' ...
+
+-- is_owner_of_company_for (0121): the SECOND door, which checks no status at
+-- all today, and through which 0044's policies admit the owner to rows everyone
+-- else is denied. Without the same condition here, a blocked group stops the
+-- staff and lets the owner through.
+```
+
+The task that writes these also greps every remaining use of `is_owner_for` and
+`is_owner_of_company` and states, one by one, whether it sits behind
+`has_company_access` or needs the condition itself. That list goes in the block's
+report, because "we think we got them all" is not a proof.
 
 ### 8.2 `companies` — twelve new columns
 
@@ -246,6 +310,7 @@ The eight of §6.1's contact block and the four of its invoicing block.
 | --- | --- |
 | `provision_organization(p_user_id, p_organization_name)` | replaces `provision_customer`; creates no Station (D1) |
 | `update_organization(...)` | the name, the invoicing block, the address, the selector. New — nothing can rename an Organization today |
+| `block_organization(p_organization_id, p_reason)` / `unblock_organization(...)` | D5. Separate from `update_organization` for the reason the picture is separate from the profile: a field-wholesale save must never be able to block a customer by omission |
 | `list_organizations()` | the screen's list, with the Station count and the owner |
 | `update_company_profile(...)` | gains the twelve parameters of §6.1 |
 | `get_integration(p_company_id)` | `list_integrations`' single-Company sibling |
@@ -310,6 +375,14 @@ shape.
 signed-in customer who is not a platform admin. pgTAP cannot see this: it runs as
 superuser with a null `auth.uid()`.
 
+**Isolation, and this is the block's most important test** — blocking an
+Organization must lock out **the owner**, not only the staff. The shape of it:
+provision a group with two Stations, give it an owner and a member with a role,
+confirm both reach their Stations, block the group, and confirm that **both** are
+now refused — the member through `has_company_access`, the owner through
+`is_owner_of_company`. Then unblock and confirm both are back. A version of this
+test that only checks the member would pass against the defect D5 warns about.
+
 **Vitest** — the CNPJ normaliser, the invoicing-emitter resolution (given an
 Organization and a Station, which record does the biller read?), the combobox's
 empty state.
@@ -332,7 +405,12 @@ it outside this repository. Nothing does today — it is reachable only from the
 console — but it is named here so the removal is a decision rather than a
 surprise.
 
-**Twenty-four new columns is a lot of form.** Two tabs will be long. If it reads
+**A blocked group is invisible to its own owner, including the way out.** That is
+the point of the control, and it means the only route back is the platform admin
+unblocking it. Recorded so nobody discovers it during an argument with a
+customer: there is no self-service appeal, and there should not be one.
+
+**Twenty-seven new columns is a lot of form.** Two tabs will be long. If it reads
 as a wall, the answer is grouping inside the tab, not spreading across more tabs:
 somebody filling a fiscal block wants it in one place.
 
