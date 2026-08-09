@@ -1178,6 +1178,8 @@ if (request.nextUrl.pathname.startsWith('/w/')) {
 
 **Its catch branch returns `[]`.** A cache miss that cannot reach the database must not fall open: the refusal is the default branch, reached by every path that is not a successful lookup. Write that as a comment, because it is the line a later "let's make this resilient" change would delete.
 
+**Harden `frameAncestorsValue` before you call it.** Task 8 shipped it guarding only `origins.length === 0`, which was sufficient there because its only producer was `parseOrigins` and that cannot emit a blank element. You are about to become a second producer, fed by an HTTP response rather than by a validated form — so an array like `['']` becomes reachable, and it would emit a `frame-ancestors` directive with no value rather than `'none'`. Add a guard that treats any falsy element as the empty case, and a test for it in `tests/unit/widget-origins.test.ts`. This is one line, on the one path in this product where falling open means every widget is embeddable from anywhere with nothing on any screen to say so.
+
 The 60-second TTL cuts both ways and the comment must say so: an origin just **added** may not frame for a minute (harmless), and one just **removed** may keep framing for a minute (a real, bounded window). Sixty seconds is the number precisely because of the second sentence.
 
 - [ ] **Step 5: Run the e2e test and verify it passes**
