@@ -73,19 +73,60 @@ permission, it is not a permission, it is a comment in a table.
 
 `public.platform_admins` accepts no client write: `0006` grants `SELECT` only,
 and only to the admin themselves. This is the installation's chicken-and-egg,
-solved once by hand:
+solved once by hand.
 
-1. Authentication → Add user, with the e-mail confirmed.
-2. In the SQL editor (which runs as the database owner and so bypasses the
-   policy):
+**1. Authentication → Users → Add user.** Tick **Auto Confirm User**. Without it
+the row is created with the e-mail unconfirmed and sign-in answers *"Invalid
+login credentials"* — which reads as a wrong password and is not one.
 
-   ```sql
-   insert into public.platform_admins (user_id) values ('<uuid>');
-   ```
+**2. In the SQL editor** (which runs as the database owner and so bypasses the
+policy), keyed by e-mail rather than by a pasted uuid:
+
+```sql
+with target as (
+  select id, email from auth.users where email = 'you@example.com'
+),
+profile as (
+  insert into public.profiles (id, email, full_name)
+  select id, email, 'Your Name' from target
+  on conflict (id) do nothing
+  returning id
+)
+insert into public.platform_admins (user_id)
+select id from target
+on conflict (user_id) do nothing;
+```
+
+**THE `profiles` ROW IS HALF THE PROCEDURE, and the half that gets forgotten.**
+Nothing creates it for you: there is no trigger on `auth.users`, and the two
+places that write `profiles` (`0013`, `0018`) are the invitation paths — so a
+user created through the dashboard has none. `scripts/seed-demo.mjs` inserts one
+explicitly for the same reason, and its own comment says why: *"provision_customer
+expects the profile to exist already"*. Skip it and you can still sign in, but
+your name is blank everywhere and provisioning a customer fails.
+
+Both statements are idempotent, so re-running the block is safe.
+
+**3. Verify before believing it:**
+
+```sql
+select u.email,
+       (p.id is not null)      as has_profile,
+       (a.user_id is not null) as is_admin
+  from auth.users u
+  left join public.profiles       p on p.id = u.id
+  left join public.platform_admins a on a.user_id = u.id
+ order by u.created_at desc;
+```
 
 From then on `/admin` is reachable and everything else is born through the
 interface. **There is no UI for this and that is deliberate** — a screen that
 creates platform admins is a screen that can be tricked into creating one.
+
+The symptom when it has not been done: `/admin/*` redirects to `/app` with no
+message at all (`src/app/(admin)/layout.tsx`). There is a step-by-step version of
+this procedure written for the operator rather than for a developer, in
+Portuguese, published as an artifact — ask the owner for the link.
 
 
 ## Permission codes as API scopes (Block 15)
