@@ -58,9 +58,11 @@ select ok(
 );
 
 -- The privileged RPCs must not be reachable by anon at all.
+-- Block 16 retired provision_customer, which created an Organization and a
+-- Station in one call. Its replacement inherits the assertion unchanged.
 select ok(
-  not has_function_privilege('anon', 'public.provision_customer(uuid, text, text, text)', 'EXECUTE'),
-  'anon may not call provision_customer'
+  not has_function_privilege('anon', 'public.provision_organization(uuid, text)', 'EXECUTE'),
+  'anon may not call provision_organization'
 );
 select ok(
   not has_function_privilege('anon', 'public.suspend_company(uuid, text)', 'EXECUTE'),

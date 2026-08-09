@@ -4144,6 +4144,31 @@ export type Database = {
           total_count: number
         }[]
       }
+      list_organizations: {
+        Args: never
+        Returns: {
+          address_complement: string
+          address_line: string
+          address_number: string
+          billing_entity: Database["public"]["Enums"]["billing_entity"]
+          city: string
+          created_at: string
+          fiscal_email: string
+          id: string
+          legal_name: string
+          municipal_registration: string
+          name: string
+          neighbourhood: string
+          owner_email: string
+          owner_user_id: string
+          postal_code: string
+          state: string
+          station_count: number
+          suspended_at: string
+          suspension_reason: string
+          tax_id: string
+        }[]
+      }
       list_participations: {
         Args: {
           p_answered_correctly?: boolean
@@ -4315,14 +4340,9 @@ export type Database = {
         }
         Returns: undefined
       }
-      provision_customer: {
-        Args: {
-          p_company_name: string
-          p_organization_name: string
-          p_timezone?: string
-          p_user_id: string
-        }
-        Returns: Json
+      provision_organization: {
+        Args: { p_organization_name: string; p_user_id: string }
+        Returns: string
       }
       prune_outbox_messages: {
         Args: { p_older_than?: string }
@@ -4819,6 +4839,25 @@ export type Database = {
           p_id: string
           p_kind: Database["public"]["Enums"]["music_reference_kind"]
           p_name: string
+        }
+        Returns: undefined
+      }
+      update_organization: {
+        Args: {
+          p_address_complement?: string
+          p_address_line?: string
+          p_address_number?: string
+          p_billing_entity?: Database["public"]["Enums"]["billing_entity"]
+          p_city?: string
+          p_fiscal_email?: string
+          p_legal_name?: string
+          p_municipal_registration?: string
+          p_name: string
+          p_neighbourhood?: string
+          p_organization_id: string
+          p_postal_code?: string
+          p_state?: string
+          p_tax_id?: string
         }
         Returns: undefined
       }
