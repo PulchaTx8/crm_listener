@@ -302,12 +302,20 @@ export type Database = {
           address_number: string | null
           broadcast_band: Database["public"]["Enums"]["broadcast_band"] | null
           city: string | null
+          contact_email: string | null
+          contact_phone: string | null
           created_at: string
           deleted_at: string | null
+          description: string | null
+          facebook_url: string | null
+          fiscal_email: string | null
           frequency_khz: number | null
           id: string
+          instagram_url: string | null
           latitude: number | null
+          legal_name: string | null
           longitude: number | null
+          municipal_registration: string | null
           name: string
           neighbourhood: string | null
           organization_id: string
@@ -318,9 +326,13 @@ export type Database = {
           status: Database["public"]["Enums"]["company_status"]
           suspended_at: string | null
           suspension_reason: string | null
+          tagline: string | null
+          tax_id: string | null
           thumb_url: string | null
           timezone: string
           updated_at: string
+          website_url: string | null
+          youtube_url: string | null
         }
         Insert: {
           address_complement?: string | null
@@ -328,12 +340,20 @@ export type Database = {
           address_number?: string | null
           broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
           city?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
+          description?: string | null
+          facebook_url?: string | null
+          fiscal_email?: string | null
           frequency_khz?: number | null
           id?: string
+          instagram_url?: string | null
           latitude?: number | null
+          legal_name?: string | null
           longitude?: number | null
+          municipal_registration?: string | null
           name: string
           neighbourhood?: string | null
           organization_id: string
@@ -344,9 +364,13 @@ export type Database = {
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          tagline?: string | null
+          tax_id?: string | null
           thumb_url?: string | null
           timezone?: string
           updated_at?: string
+          website_url?: string | null
+          youtube_url?: string | null
         }
         Update: {
           address_complement?: string | null
@@ -354,12 +378,20 @@ export type Database = {
           address_number?: string | null
           broadcast_band?: Database["public"]["Enums"]["broadcast_band"] | null
           city?: string | null
+          contact_email?: string | null
+          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
+          description?: string | null
+          facebook_url?: string | null
+          fiscal_email?: string | null
           frequency_khz?: number | null
           id?: string
+          instagram_url?: string | null
           latitude?: number | null
+          legal_name?: string | null
           longitude?: number | null
+          municipal_registration?: string | null
           name?: string
           neighbourhood?: string | null
           organization_id?: string
@@ -370,9 +402,13 @@ export type Database = {
           status?: Database["public"]["Enums"]["company_status"]
           suspended_at?: string | null
           suspension_reason?: string | null
+          tagline?: string | null
+          tax_id?: string | null
           thumb_url?: string | null
           timezone?: string
           updated_at?: string
+          website_url?: string | null
+          youtube_url?: string | null
         }
         Relationships: [
           {
@@ -4736,12 +4772,24 @@ export type Database = {
           p_broadcast_band?: Database["public"]["Enums"]["broadcast_band"]
           p_city?: string
           p_company_id: string
+          p_contact_email?: string
+          p_contact_phone?: string
+          p_description?: string
+          p_facebook_url?: string
+          p_fiscal_email?: string
           p_frequency_khz?: number
+          p_instagram_url?: string
           p_latitude?: number
+          p_legal_name?: string
           p_longitude?: number
+          p_municipal_registration?: string
           p_neighbourhood?: string
           p_postal_code?: string
           p_state?: string
+          p_tagline?: string
+          p_tax_id?: string
+          p_website_url?: string
+          p_youtube_url?: string
         }
         Returns: undefined
       }
