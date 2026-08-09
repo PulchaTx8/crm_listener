@@ -1710,7 +1710,6 @@
     "temporarilyUnavailable": "Esto no está disponible por ahora. Inténtalo de nuevo en unos minutos.",
     "widgetUnavailable": "Este widget no está disponible.",
     "stationCannotSendCodes": "Esta emisora no puede enviar códigos ahora. Inténtalo más tarde.",
-    "askForACodeFirst": "Pide un código primero.",
     "codeExpired": "Ese código caducó. Pide uno nuevo.",
     "tooManyWrongCodes": "Demasiados códigos incorrectos. Pide uno nuevo.",
     "wrongCode": "Ese código no es correcto.",

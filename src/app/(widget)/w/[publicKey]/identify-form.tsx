@@ -40,9 +40,39 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
   const [requestState, requestCode, requesting] = useActionState(requestCodeAction, REQUEST_IDLE);
   const [verifyState, verifyCode, verifying] = useActionState(verifyCodeAction, VERIFY_IDLE);
 
+  /**
+   * The verification result that belongs to a code the visitor has ALREADY
+   * MOVED ON FROM, and it exists because `useActionState` has no reset.
+   *
+   * The sequence that needs it: a wrong code, then "use another number", then a
+   * second number, then send. `requestState` becomes `sent` — which is not a
+   * refusal, so the request branch says nothing — and `verifyState` is still
+   * sitting on `wrong_code` from the abandoned attempt, so "That code is not
+   * right." renders on a fresh code screen the visitor has not typed a single
+   * digit into. Each state object from `useActionState` is a new reference, so
+   * remembering the one that is spent and comparing by identity is enough: the
+   * next real submission produces a different object and speaks again.
+   */
+  const [spentVerify, setSpentVerify] = useState<VerifyState>(VERIFY_IDLE);
+
+  /**
+   * Which `requestState` this component has already acted on.
+   *
+   * Without it the effect below cannot list `verifyState` in its dependencies
+   * honestly: it would re-run every time a verification returns, and mark that
+   * BRAND NEW refusal as spent — silencing the message it was written to show.
+   * Comparing identities first makes the effect fire once per request result,
+   * which is what it means.
+   */
+  const [handledRequest, setHandledRequest] = useState<RequestCodeState>(REQUEST_IDLE);
+
   useEffect(() => {
-    if (requestState.status === 'sent') setAwaitingCode(true);
-  }, [requestState]);
+    if (requestState === handledRequest) return;
+    setHandledRequest(requestState);
+    if (requestState.status !== 'sent') return;
+    setAwaitingCode(true);
+    setSpentVerify(verifyState);
+  }, [requestState, handledRequest, verifyState]);
 
   useEffect(() => {
     // THE SESSION COOKIE IS ALREADY SET when this state arrives — the action
@@ -96,7 +126,12 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setAwaitingCode(false)}
+              // The code being abandoned takes its verdict with it — see
+              // `spentVerify` above for the sequence this closes.
+              onClick={() => {
+                setSpentVerify(verifyState);
+                setAwaitingCode(false);
+              }}
               disabled={verifying}
             >
               {t('useAnotherNumber')}
@@ -164,8 +199,20 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
    * not its AST, for the call shape — so an example of the call written out in
    * a sentence here would be reported as a missing key. This paragraph is
    * deliberately written without one.)
+   *
+   * EACH BRANCH IS GATED ON THE STEP THE VISITOR IS ACTUALLY ON, and that gate
+   * is structural rather than sequential: whatever order the two states arrive
+   * in, the screen showing a telephone box can only ever explain a telephone
+   * box, and the screen showing six digits can only ever explain six digits.
+   * `spentVerify` above handles the remaining case, where the message is about
+   * the RIGHT step but the wrong attempt.
    */
   function refusal(): string | null {
+    if (awaitingCode) return codeRefusal();
+    return identifyRefusal();
+  }
+
+  function identifyRefusal(): string | null {
     if (requestState.status === 'refused') {
       switch (requestState.reason) {
         case 'invalid':
@@ -187,6 +234,14 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
       }
     }
 
+    return null;
+  }
+
+  function codeRefusal(): string | null {
+    // The verdict on a code the visitor has already abandoned says nothing
+    // about the one on screen.
+    if (verifyState === spentVerify) return null;
+
     if (verifyState.status === 'refused') {
       switch (verifyState.reason) {
         case 'invalid':
@@ -197,8 +252,26 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
           return t('temporarilyUnavailable');
         case 'unknown_installation':
           return t('widgetUnavailable');
+        // ONE SENTENCE FOR BOTH, AND THE DIFFERENCE IS DELIBERATELY NOT SHOWN.
+        // `no_pending_code` means no code was ever asked for on this number at
+        // this Station; `expired` means one was and its ten minutes ran out.
+        // Told apart, they answer "does this telephone number have a live code
+        // here right now?" for anybody who cares to ask — an oracle a visitor
+        // never needs, since the advice is identical: ask for a new code.
+        //
+        // NOT FOLDED FURTHER, and that is the deliberate half of the trade.
+        // `expired` and `too_many_attempts` keep their own sentences even
+        // though collapsing them into `wrong_code` would close the oracle
+        // completely, because a typo is the overwhelmingly common case and the
+        // three pieces of advice genuinely differ: somebody who waited eleven
+        // minutes has to be told to ask for a new code, and somebody who burned
+        // five attempts has to be told that retrying is pointless. Closing it
+        // completely would cost every real visitor an actionable message in
+        // order to deny an attacker a signal they can only use if they ALREADY
+        // KNOW the telephone number. What is left after this — that a live code
+        // exists for a number the attacker already holds — is a thinner signal,
+        // and it is an accepted trade rather than an oversight.
         case 'no_pending_code':
-          return t('askForACodeFirst');
         case 'expired':
           return t('codeExpired');
         case 'too_many_attempts':

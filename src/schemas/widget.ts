@@ -23,6 +23,31 @@ import { z } from 'zod';
  * product actually needs.
  */
 
+/**
+ * Which installation a submission is for.
+ *
+ * IT IS AN INPUT LIKE ANY OTHER, and that is the whole reason this exists. The
+ * key reaches the two server actions in a hidden form field, so it is posted
+ * data — not a value the server chose — and it goes on to become a rate-limit
+ * key and an RPC argument. Without this it was the one thing in those actions
+ * that skipped the schema layer they otherwise insist on.
+ *
+ * The pattern is `widget_installations_key_shape` (0159,
+ * `^pw_[A-Za-z0-9_-]{22}$`), the same character-for-character duplication
+ * `src/lib/widget/origins.ts` carries for that migration's origin CHECK, and
+ * for the same reason: the CHECK runs in SQL and this has to run in Node,
+ * before a value that failed it has already opened a rate-limit bucket of its
+ * own. An unbounded key would do exactly that — a ceiling keyed by something
+ * an attacker can vary is not a ceiling.
+ *
+ * `.max(64)` before the pattern is a cheap length cap on an arbitrarily long
+ * posted string, so the regex is never handed a megabyte to scan.
+ */
+export const publicKeySchema = z
+  .string()
+  .max(64)
+  .regex(/^pw_[A-Za-z0-9_-]{22}$/, 'not the shape of an installation key');
+
 /** Phone plus name: what the first screen of the widget asks for. */
 export const identifySchema = z
   .object({

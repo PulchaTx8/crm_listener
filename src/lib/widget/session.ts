@@ -132,6 +132,43 @@ export function readSession(token: string, secret: string, now: number = Date.no
   return claims;
 }
 
+/**
+ * THE CALL EVERY WIDGET CALLER SHOULD MAKE. A valid session, and one minted for
+ * THIS installation — null for anything else, including a perfectly valid
+ * session belonging to a different Station.
+ *
+ * WHY THIS EXISTS RATHER THAN A COMPARISON AT EACH CALL SITE. The cookie's
+ * `Path` is `/w`, one path for every installation this deployment serves, so a
+ * browser that identified at Station A sends that cookie to Station B's widget
+ * too. `readSession` answers "we minted this" and CANNOT answer "we minted it
+ * here" — the comparison is the whole of the second answer, and it was written
+ * inline in `page.tsx` when this block shipped Task 10. 17b and 17c read this
+ * same session from their own server actions; nothing stopped one of them
+ * calling `readSession`, getting a genuine listener back, and acting on it for
+ * the wrong Station. That omission is not a cosmetic bug — it IS the
+ * cross-tenant hole, and it would look exactly like working code.
+ *
+ * So the convenient call is the safe one, and `readSession` stays exported for
+ * the caller that genuinely has no installation in hand (the unit tests that
+ * exercise signing and expiry are the only ones today).
+ *
+ * COMPARED WITH `===`, NOT `timingSafeEqual`, and unlike the signature check
+ * below that is correct here: a public key is not a secret (0159's column
+ * comment says so in writing — it travels in the `src` of a public iframe), and
+ * the attacker in this scenario is holding the token whose key they would be
+ * probing for. There is nothing to leak.
+ */
+export function readSessionFor(
+  token: string,
+  secret: string,
+  publicKey: string,
+  now: number = Date.now(),
+): WidgetClaims | null {
+  const claims = readSession(token, secret, now);
+  if (claims === null) return null;
+  return claims.publicKey === publicKey ? claims : null;
+}
+
 function sign(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { identifySchema, verifySchema } from '@/schemas/widget';
+import { identifySchema, publicKeySchema, verifySchema } from '@/schemas/widget';
 
 /**
  * Block 17a, Task 10. What the widget's two server actions refuse before they
@@ -70,5 +70,45 @@ describe('what the widget accepts from a visitor', () => {
     expect(
       identifySchema.safeParse({ phone: '+5511999998888', name: 'Ana', isAdmin: true }).success,
     ).toBe(false);
+  });
+});
+
+/**
+ * The installation key arrives in a HIDDEN FORM FIELD, which makes it posted
+ * data exactly like the telephone number beside it — and it goes on to become a
+ * rate-limit key and an RPC argument. These are the cases that stop a value
+ * nobody issued from opening a rate-limit bucket of its own, which is how a
+ * Station ceiling stops being a ceiling.
+ */
+describe('the installation key a submission claims to be for', () => {
+  it('accepts the shape generatePublicKey mints', () => {
+    expect(publicKeySchema.safeParse('pw_WdnWX8j-DHIVJmGN8NaxZA').success).toBe(true);
+  });
+
+  it('refuses a key with no prefix, and one with the wrong prefix', () => {
+    expect(publicKeySchema.safeParse('WdnWX8j-DHIVJmGN8NaxZA').success).toBe(false);
+    expect(publicKeySchema.safeParse('ptx_WdnWX8j-DHIVJmGN8NaxZA').success).toBe(false);
+  });
+
+  it('refuses a key that is too short or too long by one character', () => {
+    expect(publicKeySchema.safeParse('pw_WdnWX8j-DHIVJmGN8NaxZ').success).toBe(false);
+    expect(publicKeySchema.safeParse('pw_WdnWX8j-DHIVJmGN8NaxZAB').success).toBe(false);
+  });
+
+  // The one that matters most: unbounded input, refused before it can be
+  // concatenated into a counter key.
+  it('refuses four kilobytes of rubbish', () => {
+    expect(publicKeySchema.safeParse(`not-a-key-${'A'.repeat(4000)}`).success).toBe(false);
+  });
+
+  it('refuses characters base64url does not contain', () => {
+    expect(publicKeySchema.safeParse('pw_WdnWX8j+DHIVJmGN8NaxZA').success).toBe(false);
+    expect(publicKeySchema.safeParse('pw_WdnWX8j/DHIVJmGN8NaxZ=').success).toBe(false);
+  });
+
+  it('refuses what an absent form field actually arrives as', () => {
+    expect(publicKeySchema.safeParse(null).success).toBe(false);
+    expect(publicKeySchema.safeParse(undefined).success).toBe(false);
+    expect(publicKeySchema.safeParse('').success).toBe(false);
   });
 });

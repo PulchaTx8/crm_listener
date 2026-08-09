@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { env } from '@/lib/env';
-import { WIDGET_SESSION_COOKIE, readSession } from '@/lib/widget/session';
+import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
 import { installationExists } from '@/services/widget-installations';
 import { IdentifyForm } from './identify-form';
 import { WidgetMenu } from './menu';
@@ -11,9 +11,9 @@ import { WidgetMenu } from './menu';
  *
  * TWO STATES AND NOTHING ELSE: a visitor this deployment cannot name gets the
  * form; one it can gets the menu. There is no third "loading" state on the
- * server — the cookie is either a valid session or it is not, and `readSession`
- * answers that without a round trip (design D5 chose a signed token over a
- * session row precisely so this page costs no lookup).
+ * server — the cookie is either a valid session for THIS installation or it is
+ * not, and `readSessionFor` answers that without a round trip (design D5 chose
+ * a signed token over a session row precisely so this page costs no lookup).
  */
 export default async function WidgetPage({
   params,
@@ -36,17 +36,32 @@ export default async function WidgetPage({
   // whose configuration is perfectly correct that their key is wrong.
   if (!(await installationExists(publicKey))) notFound();
 
-  const token = (await cookies()).get(WIDGET_SESSION_COOKIE)?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(WIDGET_SESSION_COOKIE)?.value;
   const secret = env.WIDGET_SESSION_SECRET;
-  const claims = secret && token ? readSession(token, secret) : null;
 
-  // THE CROSS-STATION CHECK, and the reason the session carries a `publicKey`
-  // at all. The cookie's Path is `/w` — ONE path for every installation this
-  // deployment serves — so a browser that identified at Station A presents that
-  // same cookie to Station B's widget. The signature proves the token was
-  // minted by us; only this comparison proves it was minted HERE. It costs no
-  // round trip, which is what D5 chose a signed token for.
-  const identified = claims !== null && claims.publicKey === publicKey;
+  // THE CROSS-STATION CHECK IS INSIDE `readSessionFor`, not written out here,
+  // and moving it there was the point. The cookie's Path is `/w` — ONE path for
+  // every installation this deployment serves — so a browser that identified at
+  // Station A presents that same cookie to Station B's widget. The signature
+  // proves the token was minted by us; only the installation comparison proves
+  // it was minted HERE, and 17b and 17c will read this session from their own
+  // server actions where an inline comparison is exactly the thing somebody
+  // forgets. It costs no round trip, which is what D5 chose a signed token for.
+  const claims = secret && token ? readSessionFor(token, secret, publicKey) : null;
 
-  return identified ? <WidgetMenu /> : <IdentifyForm publicKey={publicKey} />;
+  // A DEAD TOKEN IS EXPIRED BY THE NEXT SERVER ACTION, NOT HERE, and that is a
+  // Next constraint rather than a preference. `cookies()` is read-only inside a
+  // Server Component; a `delete` on this line throws
+  //
+  //   Error: Cookies can only be modified in a Server Action or Route Handler.
+  //
+  // which was measured, not assumed — the page answers 500 and the widget does
+  // not render at all, which is a far worse outcome than a cookie the browser
+  // re-sends. A route handler added purely to expire it would be a second public
+  // endpoint under `/w`, and this block has been deliberate about that surface
+  // being one page. So `expireDeadSession` (actions.ts) does it on the visitor's
+  // very next submission — which is the one interaction this screen exists to
+  // produce.
+  return claims !== null ? <WidgetMenu /> : <IdentifyForm publicKey={publicKey} />;
 }

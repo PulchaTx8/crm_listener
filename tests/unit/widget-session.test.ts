@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mintSession, readSession, type WidgetClaims } from '@/lib/widget/session';
+import { mintSession, readSession, readSessionFor, type WidgetClaims } from '@/lib/widget/session';
 
 const SECRET = 'a'.repeat(48);
 const claims: WidgetClaims = {
@@ -18,6 +18,33 @@ const claims: WidgetClaims = {
 describe('the visitor session', () => {
   it('round-trips its own token', () => {
     expect(readSession(mintSession(claims, SECRET), SECRET)).toEqual(claims);
+  });
+
+  /**
+   * THE CROSS-TENANT CASE, and the reason `readSessionFor` exists.
+   *
+   * The cookie's Path is `/w`, one path for every installation this deployment
+   * serves, so a browser identified at Station A really does present this exact
+   * token to Station B. It is a perfectly valid token: correct secret, intact
+   * signature, unexpired. Only the installation is wrong, and `readSession`
+   * cannot see that — which is why the call every widget caller reaches for has
+   * to be this one.
+   */
+  it('refuses a genuine session minted for a different installation', () => {
+    const token = mintSession(claims, SECRET);
+
+    expect(readSessionFor(token, SECRET, claims.publicKey)).toEqual(claims);
+    expect(readSessionFor(token, SECRET, 'pw_BBBBBBBBBBBBBBBBBBBBBB')).toBeNull();
+    // Belt and braces: the token really is valid, so the null above is the
+    // installation check and not some other refusal masquerading as one.
+    expect(readSession(token, SECRET)).toEqual(claims);
+  });
+
+  it('still refuses a forged or expired token when an installation is given', () => {
+    expect(readSessionFor(mintSession(claims, SECRET), 'b'.repeat(48), claims.publicKey)).toBeNull();
+    expect(
+      readSessionFor(mintSession(claims, SECRET), SECRET, claims.publicKey, 2_000_000_001_000),
+    ).toBeNull();
   });
 
   // The whole point of signing it. Without this assertion the session is a

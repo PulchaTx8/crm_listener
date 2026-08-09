@@ -10,9 +10,10 @@ import {
   WIDGET_SESSION_COOKIE,
   WIDGET_SESSION_SECONDS,
   mintSession,
+  readSession,
   type WidgetClaims,
 } from '@/lib/widget/session';
-import { identifySchema, verifySchema } from '@/schemas/widget';
+import { identifySchema, publicKeySchema, verifySchema } from '@/schemas/widget';
 
 /**
  * Block 17a, spec §6. The two things a visitor on a Station's own website can
@@ -168,17 +169,30 @@ export async function requestCodeAction(
   // session is the Station's money spent on nothing. Checked before the limits
   // deliberately: an unconfigured deployment should not also burn a visitor's
   // hourly budget telling them so.
-  if (!env.WIDGET_SESSION_SECRET) {
+  const secret = env.WIDGET_SESSION_SECRET;
+  if (!secret) {
     logger.error('widget: WIDGET_SESSION_SECRET is not configured; refusing to send a code');
     return { status: 'refused', reason: 'unavailable' };
   }
 
-  const publicKey = String(formData.get('publicKey') ?? '');
+  // Before anything can refuse and return: whatever else this submission does,
+  // the visitor should stop carrying a token no installation would accept. It
+  // costs a cookie read and no round trip.
+  await expireDeadSession(secret);
+
+  // THE ONE INPUT THAT WOULD OTHERWISE SKIP THE SCHEMA LAYER. It arrives in a
+  // hidden field, so it is as much "whatever was posted" as the phone beside
+  // it, and it goes on to become a rate-limit key and an RPC argument. Parsed
+  // against the same shape 0159's CHECK enforces, so an unbounded or malformed
+  // value is refused here rather than opening a rate-limit bucket of its own —
+  // which is how a key nobody can exhaust becomes a ceiling nobody has.
+  const key = publicKeySchema.safeParse(formData.get('publicKey'));
   const parsed = identifySchema.safeParse({
     phone: formData.get('phone'),
     name: formData.get('name'),
   });
-  if (!parsed.success) return { status: 'refused', reason: 'invalid' };
+  if (!key.success || !parsed.success) return { status: 'refused', reason: 'invalid' };
+  const publicKey = key.data;
 
   const supabase = createServiceClient();
   const limiter = new PostgresRateLimiter(supabase);
@@ -190,13 +204,13 @@ export async function requestCodeAction(
   // allows or refuses (the RateLimiter contract), so asking every one of them
   // every time would spend a visitor's hourly allowance on a request the first
   // limit already refused.
-  const bounded = await withinLimits(limiter, [
-    [`widget:code:phone:${phoneBucket}`, CODE_PER_PHONE_MINUTE],
-    [`widget:code:phone:hour:${phoneBucket}`, CODE_PER_PHONE_HOUR],
-    [`widget:code:ip:${ip}`, CODE_PER_IP_HOUR],
-    [stationKey(publicKey), CODE_PER_STATION_HOUR],
+  const refusedBy = await withinLimits(limiter, publicKey, [
+    { key: `widget:code:phone:${phoneBucket}`, label: 'code/phone/minute', ...CODE_PER_PHONE_MINUTE },
+    { key: `widget:code:phone:hour:${phoneBucket}`, label: 'code/phone/hour', ...CODE_PER_PHONE_HOUR },
+    { key: `widget:code:ip:${ip}`, label: 'code/ip/hour', ...CODE_PER_IP_HOUR },
+    { key: stationKey(publicKey), label: 'code/station/hour', ...CODE_PER_STATION_HOUR },
   ]);
-  if (!bounded) return { status: 'refused', reason: 'rate_limited' };
+  if (refusedBy) return { status: 'refused', reason: 'rate_limited' };
 
   // From here to the RPC below is the only place the six digits exist in this
   // process. `p_ttl_seconds` is not passed: 0161's default of 600 is the ten
@@ -254,23 +268,31 @@ export async function verifyCodeAction(
     return { status: 'refused', reason: 'unavailable' };
   }
 
-  const publicKey = String(formData.get('publicKey') ?? '');
+  await expireDeadSession(secret);
+
+  // Same reasoning as `requestCodeAction`: the key is posted, so it is checked.
+  const key = publicKeySchema.safeParse(formData.get('publicKey'));
   const parsed = verifySchema.safeParse({
     phone: formData.get('phone'),
     name: formData.get('name'),
     code: formData.get('code'),
   });
-  if (!parsed.success) return { status: 'refused', reason: 'invalid' };
+  if (!key.success || !parsed.success) return { status: 'refused', reason: 'invalid' };
+  const publicKey = key.data;
 
   const supabase = createServiceClient();
   const limiter = new PostgresRateLimiter(supabase);
   const ip = await callerIp();
 
-  const bounded = await withinLimits(limiter, [
-    [`widget:verify:phone:${phoneKey(parsed.data.phone)}`, VERIFY_PER_PHONE_HOUR],
-    [`widget:verify:ip:${ip}`, VERIFY_PER_IP_HOUR],
+  const refusedBy = await withinLimits(limiter, publicKey, [
+    {
+      key: `widget:verify:phone:${phoneKey(parsed.data.phone)}`,
+      label: 'verify/phone/hour',
+      ...VERIFY_PER_PHONE_HOUR,
+    },
+    { key: `widget:verify:ip:${ip}`, label: 'verify/ip/hour', ...VERIFY_PER_IP_HOUR },
   ]);
-  if (!bounded) return { status: 'refused', reason: 'rate_limited' };
+  if (refusedBy) return { status: 'refused', reason: 'rate_limited' };
 
   // No installation lookup: the door resolves the public key itself and answers
   // `unknown_installation` when it names nothing live, which is the same
@@ -364,6 +386,47 @@ export async function verifyCodeAction(
 }
 
 /**
+ * Throws away a session cookie that is dead, on the visitor's next submission.
+ *
+ * WHY IT LIVES HERE AND NOT ON THE PAGE that discovers the dead token:
+ * `cookies()` is read-only inside a Server Component, and a `delete` there
+ * throws "Cookies can only be modified in a Server Action or Route Handler" —
+ * measured, and the page 500s. A server action is one of the two places Next
+ * allows the write, and it is the place the visitor reaches by submitting the
+ * form the page just rendered.
+ *
+ * DEAD EVERYWHERE, NOT MERELY FOREIGN, and the distinction is the whole care in
+ * this function. `readSession` rather than `readSessionFor`: a session minted at
+ * another Station is still that Station's, and a visitor identified on radio
+ * A's widget who happens to open radio B's must not be signed out of A by
+ * having typed a telephone number into B. Only a token that no installation
+ * could accept — expired, forged, or signed with a retired secret — is expired
+ * here.
+ *
+ * WRITTEN AS AN EXPIRY RATHER THAN A `delete`, WITH EVERY ATTRIBUTE REPEATED.
+ * A browser matches a removal against name AND path, and a Partitioned cookie
+ * belongs to a partitioned jar: a `Set-Cookie` that omits `Partitioned`,
+ * `Secure` and `SameSite=None` addresses a different cookie than the one
+ * `verifyCodeAction` wrote, and the dead token would survive the attempt to
+ * remove it. `maxAge: 0` on an otherwise identical cookie cannot miss.
+ */
+async function expireDeadSession(secret: string): Promise<void> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(WIDGET_SESSION_COOKIE)?.value;
+  if (token === undefined) return;
+  if (readSession(token, secret) !== null) return;
+
+  cookieStore.set(WIDGET_SESSION_COOKIE, '', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    partitioned: true,
+    path: '/w',
+    maxAge: 0,
+  });
+}
+
+/**
  * The first entry of `x-forwarded-for`, the way `src/app/(public)/contato/page
  * .tsx` already reads it — the client address, with every proxy that appended
  * itself after it ignored.
@@ -396,26 +459,70 @@ function phoneKey(phone: string): string {
 
 type Limit = { limit: number; windowSeconds: number };
 
-/** True only if every limit allowed; stops at the first that did not. */
+/**
+ * One bucket: what the counter is keyed by, and what a log line is allowed to
+ * say about it.
+ *
+ * THE TWO ARE SEPARATE FIELDS ON PURPOSE. Three of the six keys below carry a
+ * telephone number, and this file's header forbids one reaching a log — it is
+ * personal data with a thirty-day retention rule (0161's sweep) that a log file
+ * shipped off this host does not honour. The key that refused is exactly what
+ * an operator needs to know and the number is exactly what they do not, so the
+ * label carries the first and never the second. `widget:code:ip:<addr>` is
+ * treated the same way: an address is personal data in the same jurisdiction,
+ * and "which limit refused" is answered without it.
+ *
+ * The STATION is still identifiable in every line, because `publicKey` is
+ * logged alongside and 0159's own column comment says in writing that it is not
+ * a secret — so "which Station hit its ceiling" is answerable without putting a
+ * listener in the log to answer it.
+ */
+type Bucket = Limit & { key: string; label: string };
+
+/**
+ * The label of the bucket that refused, or null when every one allowed. Stops
+ * at the first refusal, so a refused request does not spend the budget of the
+ * limits after it.
+ *
+ * IT LOGS, AND THAT IS WHY IT RETURNS A LABEL RATHER THAN A BOOLEAN. Before
+ * this, a refusal here was the only outcome in the whole file that produced
+ * nothing at all — and the most important one to see: `code/station/hour` means
+ * either a script is billing this customer or real listeners are being turned
+ * away during a promotion somebody just read out on air, and neither is
+ * discoverable from an empty log. `warn` rather than `error` because a refused
+ * limit is the system working; the deployment fault below is the one that is
+ * not.
+ */
 async function withinLimits(
   limiter: PostgresRateLimiter,
-  limits: ReadonlyArray<readonly [string, Limit]>,
-): Promise<boolean> {
-  for (const [key, { limit, windowSeconds }] of limits) {
+  publicKey: string,
+  buckets: readonly Bucket[],
+): Promise<string | null> {
+  for (const bucket of buckets) {
     try {
-      const { allowed } = await limiter.check(key, limit, windowSeconds);
-      if (!allowed) return false;
+      const { allowed } = await limiter.check(bucket.key, bucket.limit, bucket.windowSeconds);
+      if (!allowed) {
+        logger.warn({ publicKey, bucket: bucket.label }, 'widget: a limit refused a request');
+        return bucket.label;
+      }
     } catch (cause) {
       // A LIMITER THAT CANNOT ANSWER REFUSES. The tempting branch is to let the
       // request through "so an outage in the counters does not break the
       // widget" — which turns the one hour when nobody is watching into the one
       // hour with no ceiling on the Station's Meta bill. Failing closed costs a
       // visitor a retry; failing open costs money nobody sees until the invoice.
-      logger.error({ err: cause, key }, 'widget: the rate limiter could not answer');
-      return false;
+      //
+      // The BUCKET, never the key: this line fires during an outage, which is
+      // precisely when logs are being read, copied into a ticket and shipped to
+      // whoever is on call.
+      logger.error(
+        { err: cause, publicKey, bucket: bucket.label },
+        'widget: the rate limiter could not answer',
+      );
+      return bucket.label;
     }
   }
-  return true;
+  return null;
 }
 
 type DoorAnswer = {
