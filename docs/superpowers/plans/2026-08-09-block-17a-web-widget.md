@@ -17,7 +17,7 @@
 - **Tables that hold credentials or installation state get RLS on and NO policy**, following `integrations` (0057) and `api_credentials` (0148). This schema revokes the default ACL, so `createServiceClient().from(...)` fails with `42501` by design. Every reader is inside a `SECURITY DEFINER` body.
 - **Write the explicit `revoke all on <table> from anon, authenticated;` line.** The two cited precedents differ and the difference is worth knowing: `0057` writes it out; `0148` omits it and relies on the schema's default-ACL revoke, with a comment saying so. Prefer `0057`'s explicit form — it states the intent in the file a reader is looking at rather than in a comment about somewhere else.
 - **A secret is hashed in Node before it reaches the database**, never passed raw as an RPC argument — an RPC argument lands in query logs and in backups. **One exception, and only one:** `widget_request_code`'s `p_code_plain` (Task 4), because the message is sent by the worker draining `outbox_messages` and the outbox is *in* the database. What the rule protects — the stored credential — is kept whole: `widget_verifications` holds only the digest. Task 4 carries the full argument; no other door may claim this exception.
-- **Every user-visible string goes through `next-intl`**, in all three of `messages/en.json`, `messages/pt-BR.json`, `messages/es.json`. No hardcoded copy in a component.
+- **Every user-visible string goes through `next-intl`**, in all three of `messages/en.json`, `messages/pt.json`, `messages/es.json`. No hardcoded copy in a component.
 - **Code, comments, commit messages and docs are in English.** Listener-facing copy is translated.
 - **Comments explain why, not what.** A comment that justifies a decision must name the alternative rejected.
 - After any migration: `npm run db:reset && npm run db:types` before typechecking.
@@ -63,7 +63,7 @@
 | `src/lib/record-params.ts:99` | `STATION_TABS` gains `'widget'` |
 | `src/app/(admin)/admin/stations/station-record-dialog.tsx` | render the new tab |
 | `src/app/(admin)/admin/stations/actions.ts` | the two widget actions |
-| `messages/en.json`, `messages/pt-BR.json`, `messages/es.json` | the widget and tab strings |
+| `messages/en.json`, `messages/pt.json`, `messages/es.json` | the widget and tab strings |
 | `docs/API.md` or a new `docs/WIDGET.md` | how a Station embeds it |
 
 ---
@@ -1203,7 +1203,7 @@ git commit -m "feat(widget): one route may be framed, and only by the origins it
 **Files:**
 - Create: `src/app/(widget)/layout.tsx`, `src/app/(widget)/w/[publicKey]/page.tsx`, `actions.ts`, `identify-form.tsx`, `menu.tsx`
 - Create: `src/schemas/widget.ts`
-- Modify: `messages/en.json`, `messages/pt-BR.json`, `messages/es.json`
+- Modify: `messages/en.json`, `messages/pt.json`, `messages/es.json`
 
 **Interfaces:**
 - Consumes: `widget_request_code`, `widget_verify_code`, `mintSession`, `readSession`, `generateCode`, `hashCode`, `PostgresRateLimiter`.
