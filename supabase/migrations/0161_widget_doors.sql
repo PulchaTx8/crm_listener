@@ -459,13 +459,47 @@ begin
   -- never-used row is still "the pending one" here, and step 3 below is what
   -- refuses it, so the reason reported is the true one rather than a generic
   -- "no such code".
+  --
+  -- FOR UPDATE, AND THIS IS WHAT MAKES THE CEILING A CEILING. The design
+  -- spec (docs/superpowers/specs/2026-08-09-block-17a-web-widget-design.md
+  -- §6.1) says in writing: "What protects a six-digit code is not the
+  -- clock: it is the ceiling of five attempts and the ten-minute expiry."
+  -- That sentence is only true against a SEQUENCE of attempts. Without this
+  -- lock, N requests that arrive concurrently for the same row all execute
+  -- their own step 2 select before any of them reaches step 5's update, so
+  -- all N read the SAME pre-increment `attempts` and all N pass step 4's
+  -- `attempts >= 5` check against it -- a ceiling of five sequential
+  -- guesses, but no ceiling at all on however many an attacker can open at
+  -- once. FOR UPDATE closes exactly that: the second and later concurrent
+  -- callers block here until the first's transaction (select through
+  -- update, all the way to COMMIT at the end of this function) finishes,
+  -- and then re-read the row the first one left behind -- so the read, the
+  -- ceiling check (step 4) and the increment (step 5) serialise into one
+  -- ceiling of five, not one per concurrent connection.
+  --
+  -- A ROW LOCK, NOT pg_advisory_xact_lock, unlike apply_participation's
+  -- (0054) precedent for guarding a counting rule against concurrency --
+  -- and for reasons that precedent itself gives, not despite them. 0054
+  -- rejects FOR UPDATE for two stated reasons, and NEITHER applies here.
+  -- First, "FOR UPDATE on the promotion would serialise every entry in it
+  -- against every other": there is no shared parent row here to over-lock --
+  -- this FOR UPDATE names one widget_verifications row, and two different
+  -- (installation, phone) pairs are two different rows, so unrelated
+  -- visitors never queue behind each other. Second, "locking the
+  -- participation rows locks nothing at all the first time somebody
+  -- enters, which is precisely the case the rule governs": the row this
+  -- function locks was already inserted by widget_request_code before this
+  -- function can ever be called, so there is no "first time" gap to cover
+  -- with an advisory lock keyed by a hash instead. One row, already
+  -- existing, is exactly what FOR UPDATE is for.
   select * into v_verif
     from public.widget_verifications
    where installation_id = v_install.id
      and phone = p_phone
      and consumed_at is null
    order by created_at desc
-   limit 1;
+   limit 1
+     for update;
 
   if not found then
     return jsonb_build_object('ok', false, 'reason', 'no_pending_code',
@@ -590,4 +624,4 @@ revoke execute on function public.widget_verify_code(text, text, text, text) fro
 grant execute on function public.widget_verify_code(text, text, text, text) to service_role;
 
 comment on function public.widget_verify_code(text, text, text, text) is
-  'The eleventh and last step of a visitor becoming a listener: proves the six-digit code, then resolves who they are through the same 0061 cores the WhatsApp bot and the Block 15 API door use. Refuses by name -- unknown_installation, no_pending_code, expired, too_many_attempts, wrong_code, listener_anonymized, name_required -- so the widget can tell a visitor which of those happened. THE CEILING (attempts >= 5) IS CHECKED BEFORE THE HASH: a six-digit code is 10^6 possibilities, and the ceiling plus the ten-minute expiry are the entire defence, so comparing the hash first would let a burned row be unlocked by finally guessing right. A wrong guess increments attempts and leaves the row pending; the right one stamps consumed_at immediately, before the listener is even looked up, so the code cannot be replayed regardless of what happens next -- including an anonymised listener, refused with nothing written past that point. p_actor and recorded_by are null throughout: audit_logs.actor_id has been nullable since 0004 for exactly this class of caller, and 0129 states in writing that a null there does not mean "the system did it" -- a website visitor is not an auth.users row and must never become one just to give an insert someone to name. Granted to service_role only.';
+  'The eleventh and last step of a visitor becoming a listener: proves the six-digit code, then resolves who they are through the same 0061 cores the WhatsApp bot and the Block 15 API door use. Refuses by name -- unknown_installation, no_pending_code, expired, too_many_attempts, wrong_code, listener_anonymized, name_required -- so the widget can tell a visitor which of those happened. THE CEILING (attempts >= 5) IS CHECKED BEFORE THE HASH: a six-digit code is 10^6 possibilities, and the ceiling plus the ten-minute expiry are the entire defence (design doc Sec.6.1), so comparing the hash first would let a burned row be unlocked by finally guessing right. The row is read FOR UPDATE, which is what makes that ceiling apply to five attempts total rather than five PER CONCURRENT CONNECTION -- without it, N simultaneous callers all read the same pre-increment attempts and all pass step 4, which is a ceiling in name only; see the comment above the select for why a row lock is used here rather than apply_participation''s (0054) advisory lock. A wrong guess increments attempts and leaves the row pending; the right one stamps consumed_at immediately, before the listener is even looked up, so the code cannot be replayed regardless of what happens next -- including an anonymised listener, refused with nothing written past that point. p_actor and recorded_by are null throughout: audit_logs.actor_id has been nullable since 0004 for exactly this class of caller, and 0129 states in writing that a null there does not mean "the system did it" -- a website visitor is not an auth.users row and must never become one just to give an insert someone to name. Granted to service_role only.';
