@@ -32,13 +32,22 @@ const IDLE: IntegrationState = { status: 'idle' };
  * owns is its number and nothing else. A field here for an access token would be
  * the first step of a secrets subsystem that block deliberately did not open.
  */
+export interface CredentialStatus {
+  appSecret: boolean;
+  verifyToken: boolean;
+  accessToken: boolean;
+}
+
 export function IntegrationTab({
   companyId,
   initialRow,
+  secrets,
 }: {
   companyId: string;
   /** Null when this Station has never been connected. */
   initialRow: IntegrationRow | null;
+  /** Installation-wide, computed on the server. Never the values themselves. */
+  secrets: CredentialStatus;
 }) {
   const t = useTranslations('admin');
   const [saveState, save, saving] = useActionState(saveIntegrationAction, IDLE);
@@ -152,6 +161,58 @@ export function IntegrationTab({
           {problem}
         </p>
       ) : null}
+
+      {/*
+        THE MOST USEFUL THING ON THIS TAB, and the reason it is booleans rather
+        than masked values: the question somebody brings here is "why does this
+        radio receive no messages", and "the access token is not set" is half the
+        answers. A masked value would invite comparing it against something,
+        which is where leaking one starts.
+
+        It followed the form out of /admin/integrations when that screen was
+        retired. Installation-wide rather than per-Station, and repeated on every
+        Station's tab for that reason: the person asking the question is looking
+        at one radio, and sending them elsewhere to find out that nothing is
+        configured is the trip this panel exists to save.
+      */}
+      <div className="mt-2 flex flex-col gap-1 rounded-md border p-4 text-sm">
+        <p className="mb-1 text-xs font-medium text-muted-foreground">
+          {t('installationCredentials')}
+        </p>
+        <SecretLine label="WHATSAPP_APP_SECRET" set={secrets.appSecret} />
+        <SecretLine label="WHATSAPP_VERIFY_TOKEN" set={secrets.verifyToken} />
+        <SecretLine label="WHATSAPP_ACCESS_TOKEN" set={secrets.accessToken} />
+        <p className="mt-2 text-xs text-muted-foreground">
+          {/* Two whole sentences, not a key with an English clause glued on: the
+              second one is a sentence in its own right in every language, and no
+              other language puts it together the way English does. */}
+          {t('theseAreEnvironmentVariablesAndAre')}{' '}
+          {secrets.appSecret && secrets.verifyToken && secrets.accessToken
+            ? t('allThreeCredentialsAreSet')
+            : t('untilAllThreeCredentialsAreSet')}
+        </p>
+      </div>
     </div>
+  );
+}
+
+/** 0130's own line, carried across unchanged: a dot, a name, and a word. */
+function SecretLine({ label, set }: { label: string; set: boolean }) {
+  const t = useTranslations('admin');
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        className={
+          set
+            ? 'inline-block h-2 w-2 rounded-full bg-emerald-500'
+            : 'inline-block h-2 w-2 rounded-full bg-destructive'
+        }
+        aria-hidden
+      />
+      <code className="text-xs">{label}</code>
+      <span className="text-xs text-muted-foreground">
+        {set ? t('secretConfigured') : t('secretNotSet')}
+      </span>
+    </span>
   );
 }

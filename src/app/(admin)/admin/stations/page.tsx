@@ -5,7 +5,7 @@ import { logger } from '@/lib/logger';
 import { parseRecordParam, STATION_TABS } from '@/lib/record-params';
 import { PageHeader } from '@/components/layout/app-shell';
 import { listApiCredentialsFor, type ApiCredentialRow } from '@/services/api-credentials';
-import { getIntegration, type IntegrationRow } from '@/services/integrations';
+import { configuredSecrets, getIntegration, type IntegrationRow } from '@/services/integrations';
 import { listOrganizations } from '@/services/organizations';
 import type { StationRow } from './actions';
 import { StationsGrid, type OrganizationOption } from './stations-grid';
@@ -172,6 +172,7 @@ export default async function StationsPage({
         profiles={profiles}
         credentials={credentials}
         integrations={integrations}
+        secrets={configuredSecrets()}
       />
     </>
   );

@@ -16,6 +16,7 @@ import type { ApiCredentialRow } from '@/services/api-credentials';
 import type { IntegrationRow } from '@/services/integrations';
 import { reactivateAction, suspendAction, type StationActionState, type StationRow } from './actions';
 import { StationRecordDialog } from './station-record-dialog';
+import type { CredentialStatus } from './integration-tab';
 import type { StationProfile } from './station-form';
 
 /** How many columns the empty-state row has to span, actions included. */
@@ -47,6 +48,7 @@ export function StationsGrid({
   profiles,
   credentials,
   integrations,
+  secrets,
 }: {
   organizations: OrganizationOption[];
   selectedOrganizationId: string | null;
@@ -56,6 +58,7 @@ export function StationsGrid({
   profiles: Record<string, StationProfile>;
   credentials: Record<string, ApiCredentialRow[]>;
   integrations: Record<string, IntegrationRow | null>;
+  secrets: CredentialStatus;
 }) {
   const t = useTranslations('admin');
   const router = useRouter();
@@ -204,6 +207,7 @@ export function StationsGrid({
         profile={openRow ? (profiles[openRow.id] ?? null) : null}
         credentials={openRow ? (credentials[openRow.id] ?? []) : []}
         integration={openRow ? (integrations[openRow.id] ?? null) : null}
+        secrets={secrets}
         tab={(tab as StationTab) ?? 'data'}
         onTab={setTab}
         onClose={close}

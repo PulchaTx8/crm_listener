@@ -13,7 +13,7 @@ import type { ApiCredentialRow } from '@/services/api-credentials';
 import type { IntegrationRow } from '@/services/integrations';
 import type { StationRow } from './actions';
 import { ApiKeysTab } from './api-keys-tab';
-import { IntegrationTab } from './integration-tab';
+import { IntegrationTab, type CredentialStatus } from './integration-tab';
 import { StationForm, type StationProfile } from './station-form';
 
 /**
@@ -35,6 +35,7 @@ export function StationRecordDialog({
   profile,
   credentials,
   integration,
+  secrets,
   tab,
   onTab,
   onClose,
@@ -46,6 +47,7 @@ export function StationRecordDialog({
   profile: StationProfile | null;
   credentials: ApiCredentialRow[];
   integration: IntegrationRow | null;
+  secrets: CredentialStatus;
   tab: StationTab;
   onTab: (tab: StationTab) => void;
   onClose: () => void;
@@ -128,7 +130,7 @@ export function StationRecordDialog({
             <p className="text-sm text-muted-foreground">{t('couldNotLoadThisStationsRecord')}</p>
           ))}
 
-        {tab === 'whatsapp' && <IntegrationTab companyId={row.id} initialRow={integration} />}
+        {tab === 'whatsapp' && <IntegrationTab companyId={row.id} initialRow={integration} secrets={secrets} />}
 
         {tab === 'keys' && <ApiKeysTab companyId={row.id} initialRows={credentials} />}
       </DialogBody>
