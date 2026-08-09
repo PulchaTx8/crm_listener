@@ -1325,6 +1325,14 @@ git commit -m "feat(widget): the console configures it, and says when it cannot 
 
 `tests/isolation/widget.test.ts`, following `tests/isolation/api-intake.test.ts` and its `harness.ts`: a session minted for Station A, replayed against Station B's public key, writes nothing into B. Assert on row counts in `members`, `member_company_links` and `member_consents` scoped to B.
 
+**Add a second test to the same file: the attempt ceiling under real concurrency.**
+
+`widget_verify_code` (Task 5) takes the verification row `for update` so that the read, the ceiling check and the increment serialise. Without it, N concurrent requests each read the same pre-increment `attempts` and every one of them gets a guess — which would make the design spec's §6.1 claim false, since the ceiling and the ten-minute expiry are the whole of a six-digit code's protection.
+
+**That clause currently has no test in any harness, and pgTAP structurally cannot give it one** — `supabase test db` runs each file as a single session inside one `begin;`/`rollback;`, so the lock never contends with itself and the clause is invisible whether present or absent. This suite can: it talks to the database over the network and can open two connections.
+
+Issue one code, then fire ten wrong guesses concurrently with `Promise.all`, and assert that `attempts` lands at exactly the ceiling rather than at ten. Deleting the `for update` from `0161` must turn this test red — check that by actually deleting it locally, running the test, and putting it back. A concurrency test that passes with the lock removed is testing nothing, and this is the one gate that can tell the difference.
+
 - [ ] **Step 2: Write the e2e journey**
 
 `tests/e2e/widget.spec.ts` serves a throwaway HTML page from a **different origin** (`http://127.0.0.1:<port>` while the app is on `http://localhost:3000` — different origins, which is the whole point) containing `<iframe src="http://localhost:3000/w/<key>">`, then drives the form inside the frame.
