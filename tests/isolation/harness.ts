@@ -526,6 +526,55 @@ export async function seedApiCredential(
 }
 
 /**
+ * Block 17a. How many guesses one verification row has actually spent.
+ *
+ * THROUGH THE SUPERUSER CONNECTION, because there is no other, and for exactly
+ * the reason seedApiCredential's comment gives for api_credentials.
+ * widget_verifications has RLS enabled and no policy, and 0159's schema revokes
+ * the default ACL — MEASURED against this stack: a GET through PostgREST with
+ * the service-role key answers
+ *
+ *   42501, "permission denied for table widget_verifications"
+ *
+ * with PostgREST's own hint suggesting the grant that is deliberately absent.
+ * Every reader of this table in production is inside a SECURITY DEFINER body
+ * (widget_request_code, widget_verify_code, 0161), which is the whole design:
+ * the row holds a telephone number and the digest of a live code.
+ *
+ * Keyed by the PUBLIC KEY rather than by installation_id, because no code path
+ * in this product can produce an installation id — the same gap
+ * src/lib/widget/session.ts records for the session claim, arriving here for the
+ * same reason: of 0161's doors, none returns one.
+ *
+ * The NEWEST row for that pair, matching the door's own step 2: a visitor who
+ * asks for a second code has abandoned the first, and only the latest is the one
+ * an attempt counts against.
+ */
+export async function readVerificationAttempts(
+  publicKey: string,
+  phone: string,
+): Promise<number> {
+  const rows = await superuserQuery<{ attempts: number }>(
+    'readVerificationAttempts',
+    `select v.attempts
+       from public.widget_verifications v
+       join public.widget_installations w on w.id = v.installation_id
+      where w.public_key = $1
+        and v.phone = $2
+      order by v.created_at desc
+      limit 1`,
+    [publicKey, phone],
+  );
+  if (rows.length !== 1) {
+    throw new Error(
+      `readVerificationAttempts: no verification row for ${publicKey} and that number; ` +
+        'the fixture did not mint one, so any count read from here would be about nothing.',
+    );
+  }
+  return rows[0]!.attempts;
+}
+
+/**
  * Adds `delta` directly to one bucket of one inventory_balances row, entirely
  * outside apply_inventory_movement — which is the one write no client can
  * make through the API, by design. 0029 revokes insert/update/delete from

@@ -276,6 +276,25 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/audit.test.ts', minTests: 7 },
   { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },
+  // Block 17a, Task 12. Seven cases, and the floor is the full count because
+  // two of them are the only proof of their property anywhere in this
+  // repository.
+  //
+  // The tenant boundary: a code minted at one Station, presented at another,
+  // identifies nobody and leaves no listener, no link and no consent behind.
+  // 40_widget_verification.test.sql asserts the doors' shape and their named
+  // refusals, and cannot assert this — it runs as superuser with a null
+  // auth.uid() where RLS never applies, the reason every other entry here
+  // gives, and its fixtures are one Station.
+  //
+  // The attempt ceiling under REAL concurrency, which is the sharper of the
+  // two: `supabase test db` runs each file as one session inside one
+  // begin/rollback, so 0161's `for update` on widget_verifications can never
+  // contend with itself there and the clause is invisible whether present or
+  // absent. Ten guesses fired at once through PostgREST is what tells the
+  // difference, and deleting that clause was measured to turn this file red
+  // (five wrong-code answers become ten) and restoring it green again.
+  { path: 'tests/isolation/widget.test.ts', minTests: 7 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */
