@@ -46,10 +46,10 @@ export function StationsGrid({
   selectedOrganizationId,
   initialRows,
   initialRecord,
-  profiles,
-  credentials,
-  integrations,
-  installations,
+  initialProfiles,
+  initialCredentials,
+  initialIntegrations,
+  initialInstallations,
   secrets,
   siteUrl,
 }: {
@@ -58,13 +58,13 @@ export function StationsGrid({
   initialRows: StationRow[];
   initialRecord: { recordId: string | null; tab: string | null };
   /** Keyed by Station id. Every listed Station, read before any record opened. */
-  profiles: Record<string, StationProfile>;
-  credentials: Record<string, ApiCredentialRow[]>;
-  integrations: Record<string, IntegrationRow | null>;
+  initialProfiles: Record<string, StationProfile>;
+  initialCredentials: Record<string, ApiCredentialRow[]>;
+  initialIntegrations: Record<string, IntegrationRow | null>;
   /** Keyed by Station id, `null` for one with no widget configured yet -- an
    * absent key would make "not loaded" and "not configured" the same value,
    * which is exactly what the Widget tab has to tell apart. */
-  installations: Record<string, WidgetInstallationRow | null>;
+  initialInstallations: Record<string, WidgetInstallationRow | null>;
   secrets: CredentialStatus;
   siteUrl: string;
 }) {
@@ -76,9 +76,37 @@ export function StationsGrid({
   });
   const [statusChange, setStatusChange] = useState<StationRow | null>(null);
 
+  /**
+   * THE FOUR RECORD SNAPSHOTS, AND WHY THEY ARE STATE RATHER THAN PROPS.
+   *
+   * page.tsx reads each Station's profile, keys, integration and widget
+   * installation once, before any record is opened, and nothing re-reads them:
+   * the actions in actions.ts deliberately call no revalidatePath, because a
+   * fresh render would close the dialog the forms live in. Held as props, these
+   * would therefore stay frozen at what the server sent for the whole life of
+   * the screen -- and the dialog mounts each tab only while it is selected, so
+   * switching tabs or reopening the record re-read the frozen copy and showed
+   * the operator the values from before their save. A save that HAD landed read
+   * as one that had not; reported from the hosted console on 2026-08-10.
+   *
+   * Each action returns what it wrote, and the four `on...` callbacks handed to
+   * StationRecordDialog at the bottom of this file put it here. The props are
+   * still the source on arrival, and still win on a real navigation -- choosing
+   * another group re-runs the server read, and the effects below adopt it.
+   */
+  const [profiles, setProfiles] = useState(initialProfiles);
+  const [credentials, setCredentials] = useState(initialCredentials);
+  const [integrations, setIntegrations] = useState(initialIntegrations);
+  const [installations, setInstallations] = useState(initialInstallations);
+
   useEffect(() => {
     setGrid({ rows: initialRows, total: initialRows.length });
   }, [initialRows]);
+
+  useEffect(() => setProfiles(initialProfiles), [initialProfiles]);
+  useEffect(() => setCredentials(initialCredentials), [initialCredentials]);
+  useEffect(() => setIntegrations(initialIntegrations), [initialIntegrations]);
+  useEffect(() => setInstallations(initialInstallations), [initialInstallations]);
 
   const { recordId, tab, open, setTab, close } = useRecordDialog(STATION_TABS, initialRecord);
   const openRow = recordId ? (grid.rows.find((row) => row.id === recordId) ?? null) : null;
@@ -221,6 +249,21 @@ export function StationsGrid({
         tab={(tab as StationTab) ?? 'data'}
         onTab={setTab}
         onClose={close}
+        // Keyed by Station rather than assuming the open record: these arrive
+        // from a tab that is about to unmount, and the id it saved against is
+        // the only one that can be trusted to still be the right one.
+        onProfileSaved={(companyId, profile) =>
+          setProfiles((current) => ({ ...current, [companyId]: profile }))
+        }
+        onIntegrationSaved={(companyId, integration) =>
+          setIntegrations((current) => ({ ...current, [companyId]: integration }))
+        }
+        onCredentialsChanged={(companyId, rows) =>
+          setCredentials((current) => ({ ...current, [companyId]: rows }))
+        }
+        onInstallationSaved={(companyId, installation) =>
+          setInstallations((current) => ({ ...current, [companyId]: installation }))
+        }
       />
 
       {statusChange && (

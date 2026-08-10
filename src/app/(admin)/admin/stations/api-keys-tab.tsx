@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,9 +32,17 @@ const OFFERED_SCOPES = ['music.manage', 'music.request', 'members.create'] as co
 export function ApiKeysTab({
   companyId,
   initialRows,
+  onChanged,
 }: {
   companyId: string;
   initialRows: ApiCredentialRow[];
+  /**
+   * Hands the new list to the screen that owns the snapshot this tab was
+   * rendered from, so an issued or revoked key survives leaving the tab. The
+   * one-time secret is deliberately NOT part of it: nothing outside this mount
+   * may hold a value the database itself cannot show twice.
+   */
+  onChanged: (rows: ApiCredentialRow[]) => void;
 }) {
   const t = useTranslations('admin');
   const [issueState, issue, issuing] = useActionState(issueApiKeyAction, IDLE);
@@ -45,6 +53,18 @@ export function ApiKeysTab({
   // for the reason this file's siblings all carry — a fresh render would close
   // the record this tab lives inside.
   const rows = revokeState.rows ?? issueState.rows ?? initialRows;
+
+  // Reported upward for the reason `onChanged` gives. Both actions are watched:
+  // revoking changes the list exactly as issuing does.
+  useEffect(() => {
+    if (issueState.rows) onChanged(issueState.rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issueState]);
+
+  useEffect(() => {
+    if (revokeState.rows) onChanged(revokeState.rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revokeState]);
   const problem =
     issueState.status === 'error' ? issueState.message : revokeState.status === 'error' ? revokeState.message : null;
 

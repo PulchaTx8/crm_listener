@@ -2,6 +2,7 @@ import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
 import { InternalError, NotFoundError, UnauthorizedError, ValidationError } from '@/lib/errors';
+import type { BroadcastBand } from '@/lib/frequency';
 import { describeArtworkRejection } from '@/lib/security/artwork';
 import { readImageDimensions } from '@/lib/security/image-dimensions';
 import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
@@ -30,6 +31,103 @@ function mapProfileError(code: string | undefined, message: string): Error {
   if (code === 'P0002') return new NotFoundError(message);
   if (code === '22023' || code === '23514') return new ValidationError(message);
   return new InternalError(message);
+}
+
+/**
+ * A Station's record as every screen in the console reads it.
+ *
+ * DECLARED HERE AND NOWHERE ELSE. `station-form.tsx` aliases its own
+ * `StationProfile` to this rather than restating the twenty-four fields, so the
+ * shape the form renders and the shape a save reads back cannot drift apart --
+ * which is the failure mode a second, hand-kept copy of this list would have.
+ * A type-only import carries nothing across the client boundary, so the
+ * `server-only` guard at the top of this file stays intact.
+ */
+export interface CompanyProfileRecord {
+  addressLine: string | null;
+  addressNumber: string | null;
+  addressComplement: string | null;
+  neighbourhood: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  broadcastBand: BroadcastBand | null;
+  frequencyKhz: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  thumbUrl: string | null;
+  // Block 16.
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+  instagramUrl: string | null;
+  facebookUrl: string | null;
+  youtubeUrl: string | null;
+  tagline: string | null;
+  description: string | null;
+  legalName: string | null;
+  taxId: string | null;
+  municipalRegistration: string | null;
+  fiscalEmail: string | null;
+}
+
+/**
+ * One Station's record, read back after it was written.
+ *
+ * WHY A READ RATHER THAN ECHOING WHAT WAS POSTED: the database is not storing
+ * what the form sent. `update_company_profile` trims every text field to null,
+ * `withScheme` above puts a scheme on four addresses, `normaliseTaxId` reduces
+ * a punctuated document to fourteen digits, and `khzFromInput` turns 98.5 into
+ * 98500. A screen redrawn from the submission would show the operator values
+ * the database does not hold, and they would differ again on the next
+ * navigation -- which is the same class of lie as showing stale ones.
+ *
+ * THE SELECT IS ONE LITERAL STRING, the constraint page.tsx's own select
+ * carries and for the same reason: a concatenation collapses PostgREST's row
+ * type to GenericStringError, which typechecks and returns nothing usable. That
+ * is why these column names appear here as well as there; the MAPPING below is
+ * what the two would otherwise have had to keep in step by hand, and a column
+ * that joins this record has to join both literals.
+ */
+export async function readCompanyProfile(
+  companyId: string,
+  accessToken: string,
+): Promise<CompanyProfileRecord> {
+  const { data, error } = await asCaller(accessToken)
+    .from('companies')
+    // prettier-ignore
+    .select('address_line, address_number, address_complement, neighbourhood, city, state, postal_code, broadcast_band, frequency_khz, latitude, longitude, thumb_url, contact_email, contact_phone, website_url, instagram_url, facebook_url, youtube_url, tagline, description, legal_name, tax_id, municipal_registration, fiscal_email')
+    .eq('id', companyId)
+    .single();
+
+  if (error) throw mapProfileError(error.code, error.message);
+
+  return {
+    addressLine: data.address_line,
+    addressNumber: data.address_number,
+    addressComplement: data.address_complement,
+    neighbourhood: data.neighbourhood,
+    city: data.city,
+    state: data.state,
+    postalCode: data.postal_code,
+    broadcastBand: data.broadcast_band,
+    frequencyKhz: data.frequency_khz,
+    latitude: data.latitude,
+    longitude: data.longitude,
+    thumbUrl: data.thumb_url,
+    contactEmail: data.contact_email,
+    contactPhone: data.contact_phone,
+    websiteUrl: data.website_url,
+    instagramUrl: data.instagram_url,
+    facebookUrl: data.facebook_url,
+    youtubeUrl: data.youtube_url,
+    tagline: data.tagline,
+    description: data.description,
+    legalName: data.legal_name,
+    taxId: data.tax_id,
+    municipalRegistration: data.municipal_registration,
+    fiscalEmail: data.fiscal_email,
+  };
 }
 
 export interface CompanyProfileInput {
