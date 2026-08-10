@@ -70,6 +70,17 @@ test('a Station takes its own voice and records the template that lets it speak 
   page,
   browser,
 }) => {
+  // MEASURED at 28s against Playwright's 30s default before step 6 existed:
+  // this one test provisions a customer through the console, clears the
+  // provisional-password gate in a second browser context, and walks two
+  // screens with a reload between each half. Adding the second template
+  // registration put it over, and the failure that produced was a timeout in
+  // the middle of the new section rather than anything about the section. The
+  // convention here is members-flow.spec.ts's and participations-flow.spec
+  // .ts's — a journey that is genuinely long says so, rather than being split
+  // into tests that would each have to re-provision a customer to run at all.
+  test.setTimeout(60_000);
+
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
