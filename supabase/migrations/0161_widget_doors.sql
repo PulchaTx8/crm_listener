@@ -13,25 +13,9 @@ create table public.widget_verifications (
   organization_id uuid not null references public.organizations (id),
   company_id      uuid not null,
   installation_id uuid not null references public.widget_installations (id) on delete cascade,
-  -- STORED EXACTLY AS THE VISITOR TYPED IT, and matched exactly. The doors do
-  -- not normalise: widget_request_code inserts p_phone raw and
-  -- widget_verify_code looks the row up with `phone = p_phone`. normalize_phone
-  -- (0031) does run further down widget_verify_code, inside apply_member_lookup
-  -- -- but that is member RESOLUTION, a different question asked after the code
-  -- has already been proved, and it never touches this column.
-  --
-  -- SO TWO FORMATTINGS OF ONE NUMBER ARE TWO ROWS. '+55 11 99999-8888' and
-  -- '5511999998888' get separate verifications, separate codes and separate
-  -- attempt ceilings, and a code minted under one cannot be verified under the
-  -- other. That is invisible from the widget, whose two steps carry the same
-  -- string through, and it is exactly what 17b and 17c must not assume away:
-  -- anything that reaches this table with a number from somewhere else -- a
-  -- different form, a stored value, a normalised copy -- has to present the
-  -- SAME spelling the code was requested with or it will find nothing.
-  --
-  -- Left raw deliberately rather than normalised on the way in: this column is
-  -- one leg of a lookup key, not an identity. members.phone_normalized is the
-  -- identity, it is GENERATED, and the resolution above is where the two meet.
+  -- Stored as given and normalised by the doors through normalize_phone (0031),
+  -- so this can never disagree with members.phone_normalized, which is
+  -- GENERATED from the same function.
   phone           text not null,
   code_hash       text not null,
   attempts        integer not null default 0,

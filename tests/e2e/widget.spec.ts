@@ -298,19 +298,37 @@ test.beforeAll(async ({}, testInfo) => {
   });
   if (upsertError) throw new Error(`could not seed the installation: ${upsertError.message}`);
 
-  // THE PER-IP HOURLY BUCKET, CLEARED, and it is the one piece of state this
-  // journey shares with its own previous runs. Every limit in actions.ts is
-  // keyed by the telephone number except this one, which is keyed by
+  // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
+  // this journey shares with its own previous runs. Every limit in actions.ts
+  // is keyed by the telephone number except these two, which are keyed by
   // `x-forwarded-for` — absent on a direct connection, so every local run of
-  // this file spends one of ten per hour from the same 'unknown' bucket. The
+  // this file spends one of ten per hour from the same address-less bucket. The
   // eleventh would fail with `rate_limited`, which is not a defect in anything
   // this file tests and reads exactly like one. The phone and Station buckets
   // are stamped per run and left alone.
-  const { error: bucketError } = await admin
-    .from('rate_limit_counters')
-    .delete()
-    .in('key', ['widget:code:ip:unknown', 'widget:verify:ip:unknown']);
-  if (bucketError) throw new Error(`could not clear the IP buckets: ${bucketError.message}`);
+  //
+  // MATCHED ON THE PREFIX, NOT ON THE WHOLE KEY, and that is the point rather
+  // than a shortcut. These were written as the literals
+  // `widget:code:ip:unknown` and `widget:verify:ip:unknown`, which is what the
+  // keys were until actions.ts started hashing its rate-limit subjects — after
+  // which the suffix became a digest, `.in([...])` matched zero rows, and A
+  // DELETE THAT MATCHES NOTHING RAISES NOTHING. The guard was gone and nothing
+  // said so; it would have surfaced on somebody's tenth run inside an hour,
+  // wearing the costume of a real failure. That suffix has now moved twice, so
+  // it is not pinned here at all: everything after `widget:<step>:ip:` is
+  // whatever the action decides, and this deliberately does not have an opinion
+  // about it. The two prefixes are still named separately rather than collapsed
+  // into one pattern, because they are two independent limits and a reader has
+  // to be able to see that both were cleared.
+  for (const prefix of ['widget:code:ip:', 'widget:verify:ip:']) {
+    const { error: bucketError } = await admin
+      .from('rate_limit_counters')
+      .delete()
+      .like('key', `${prefix}%`);
+    if (bucketError) {
+      throw new Error(`could not clear the ${prefix} buckets: ${bucketError.message}`);
+    }
+  }
 });
 
 test.afterAll(async () => {
