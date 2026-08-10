@@ -18,8 +18,11 @@ export interface WidgetClaims {
    * DEFINER body; and of the doors in 0161, `widget_frame_context` returns
    * `{found, origins}`, `widget_request_code` returns a verification id, and
    * `widget_verify_code` returns the member, the company and the organization.
-   * None of them returns the installation's id. Adding a door that does would
-   * be a migration, and 0159–0162 are shipped.
+   * None of them returns the installation's id, and 0163 and 0164 -- which
+   * came after this comment first said "0159-0162 are shipped" and dated it --
+   * changed neither shape. Adding a door that does would be a migration, which
+   * is a cost this field does not need paying: the reasoning below is why the
+   * key would still be the better claim even if such a door existed.
    *
    * The public key answers the same question and answers it better. It is 1:1
    * with the live row (`widget_installations_key_unique`, 0159, partial on

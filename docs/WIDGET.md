@@ -172,8 +172,15 @@ allowlist, not of a broken installation.
 
 **The identify flow:**
 
-1. The visitor types a phone number (and a name, if the number is new to this
-   Organization) and asks for a code.
+1. The visitor types a phone number **and a name — both always** — and asks for
+   a code. `identifySchema` and `verifySchema` (`src/schemas/widget.ts`) both
+   require the name and the input is `required`, so the door's `name_required`
+   refusal is unreachable from the widget: it exists for a caller that is not
+   this page. A returning listener types their name again and it is discarded,
+   because `widget_verify_code` only uses it on the branch that registers
+   somebody new. Asking a returning visitor for something already known is the
+   price of not stashing a name in the database, or in a second cookie, before
+   the number has been proved theirs.
 2. The code is six digits, generated in Node and hashed before it reaches the
    database. It is enqueued through the outbox and drained by the existing
    worker tick — roughly ten seconds before it actually leaves (design D8),

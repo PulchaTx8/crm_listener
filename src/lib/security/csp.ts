@@ -16,13 +16,13 @@ export function buildContentSecurityPolicy(
   nonce: string,
   supabaseUrl: string,
   isDev: boolean,
-  // Block 17a. Defaults to 'none' so every caller that existed before this
-  // block -- today, only src/middleware.ts -- stays correct without being
-  // touched, and this default is the reason that call site is not part of
-  // this task's diff. Only Task 9's /w/ branch will ever pass something
-  // else, and only after it has looked up one specific Station's
-  // allowed_origins; every other request still gets the value this function
-  // has always produced.
+  // Block 17a. Defaults to 'none', which is what every caller that existed
+  // before this block gets without being touched. Exactly one call site passes
+  // anything else: src/middleware.ts's /w/ branch, and only after it has looked
+  // up one specific Station's allowed_origins through widget_frame_context.
+  // Every other request in this product -- including the same middleware's own
+  // ordinary path -- still gets the value this function has always produced,
+  // which is why the default is the refusal and not a wildcard.
   frameAncestors: string = "'none'",
 ): string {
   // Throws on a URL it cannot parse, deliberately. The alternative is a

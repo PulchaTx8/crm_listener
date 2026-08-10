@@ -122,13 +122,24 @@ test.afterAll(async () => {
 });
 
 /**
- * NO STATUS ASSERTION ON THE SEEDED KEY, deliberately. The page itself is a
- * later task in this block, so today `/w/<key>` reaches the middleware, is
- * given its headers, and then 404s because no route renders it. Pinning 404
- * here would turn shipping the page into a failure in a file about headers.
+ * THE STATUS, ASSERTED NOW THAT THERE IS ONE TO ASSERT. This comment used to
+ * say the opposite -- the page was a later task in the block, `/w/<key>` 404'd
+ * because no route rendered it, and pinning 404 would have turned shipping the
+ * page into a failure in a file about headers. The page shipped, so the
+ * deferral is over.
+ *
+ * It belongs here and not only in widget.spec.ts because every other assertion
+ * in this file reads a HEADER off this response, and a header is present on a
+ * 404 as readily as on a 200. If the seeded key stopped resolving -- a changed
+ * key shape, a door that started refusing, a fixture that silently failed to
+ * write -- every case below would go on passing while proving nothing about
+ * the route anybody actually loads. 200 is what makes them proofs about a page
+ * rather than about an error document.
  */
 test('the widget route carries no X-Frame-Options at all', async ({ request }) => {
   const response = await request.get(`/w/${publicKey}`, { headers: DOCUMENT });
+
+  expect(response.status(), 'the seeded key resolves to a page, not to a 404').toBe(200);
 
   // Not "some looser value" — ABSENT. X-Frame-Options has no per-origin
   // vocabulary (ALLOW-FROM is dead in every current browser), and Next applies
@@ -164,11 +175,11 @@ test('the widget route keeps the four headers that are not about framing', async
 });
 
 test('an unknown key frames nowhere', async ({ request }) => {
-  // One refusal for three causes (0161): an unknown key, a disabled
-  // installation and an archived one answer identically, so this case also
-  // stands for the other two. 404 today because no route renders /w/ yet, and
-  // 404 tomorrow because the page refuses a key it cannot resolve — the header
-  // is the part this file is responsible for either way.
+  // One refusal for five causes since 0164: an unknown key, a disabled
+  // installation, an archived one, a suspended Station and a blocked
+  // Organization answer identically, so this case stands for the other four.
+  // The 404 is the page refusing a key it cannot resolve — paired with the 200
+  // on the seeded key above, the two together say the route distinguishes them.
   const response = await request.get(`/w/${unknownKey}`, { headers: DOCUMENT });
 
   expect(response.status()).toBe(404);

@@ -60,6 +60,19 @@
 -- 0163 is the highest-numbered migration before this file.
 
 -- ---------------------------------------------------------------------------
+-- One column comment, unrelated to the joins below and appended here because
+-- migrations are append-only and this fact belongs in the database rather than
+-- only in a source file. 0161's inline comment on widget_verifications.phone
+-- claimed the doors normalise through normalize_phone. They do not, and never
+-- did -- the insert and the lookup both use p_phone raw. Nothing about the
+-- schema changes; what changes is that `\d+ widget_verifications` now says
+-- something true, which is where a 17b or 17c author reading this table for the
+-- first time will look.
+-- ---------------------------------------------------------------------------
+comment on column public.widget_verifications.phone is
+  'The telephone number EXACTLY AS THE VISITOR TYPED IT, and matched exactly: widget_request_code inserts it raw and widget_verify_code looks the row up with `phone = p_phone`. Not normalised -- normalize_phone (0031) runs further down widget_verify_code, inside apply_member_lookup, but that is member RESOLUTION asked after the code is already proved and it never touches this column. CONSEQUENCE, and it is the one a later block has to know: two formattings of one number are TWO verification rows, with separate codes and separate attempt ceilings, and a code minted under one cannot be verified under the other. Invisible from the widget, whose two steps carry one string through; a live trap for anything that reaches this table with a number obtained anywhere else. members.phone_normalized is the identity; this column is one leg of a lookup key.';
+
+-- ---------------------------------------------------------------------------
 -- Door 1: what the Edge middleware asks before it renders the page.
 --
 -- Granted to anon (0161). The grants are not repeated -- create or replace

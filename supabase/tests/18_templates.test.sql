@@ -80,9 +80,12 @@ select ok(
 -- Task 2: the approved-template registry. Same fixtures (org ...e4f1,
 -- company ...e4c1) — this table references the same Station, not a new one.
 
--- 11: the purpose enum originally had PICKUP_REMINDER alone; Task 2 of Block 17a
--- adds WEB_VERIFICATION for iframe templates. Task 4 depends on the former;
--- a later block adds a second value rather than renaming the first.
+-- 11: the purpose enum. 0110 shipped PICKUP_REMINDER alone and its comment
+-- asked for what happened next in writing -- "a later block adds a second
+-- rather than renaming this one, because Task 4 references it by name" -- and
+-- 0160 (Block 17a) added WEB_VERIFICATION for the web widget's code. Both
+-- values are asserted, in enum order, so a third arrives here as a failure
+-- rather than as a silent third card the Templates screen would have to grow.
 select is(
   enum_range(null::public.template_purpose)::text[],
   array['PICKUP_REMINDER', 'WEB_VERIFICATION'],

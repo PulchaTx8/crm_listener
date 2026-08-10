@@ -82,9 +82,10 @@ export default defineConfig({
     // Inline rather than in tests/whatsapp-test-env.ts's shape, because only the
     // server needs this one — the spec drives the real form and never mints a
     // token, so there is no second reader for the two to disagree about. Fixed,
-    // not secret, and 32 characters because src/lib/env.ts requires min(32) even
-    // on the loose branch SKIP_ENV_VALIDATION selects: a shorter value would
-    // stop the server booting rather than being quietly ignored.
+    // not secret, and comfortably over the min(32) src/lib/env.ts requires even
+    // on the loose branch SKIP_ENV_VALIDATION selects (the literal below is 40
+    // characters): a shorter value would stop the server booting rather than
+    // being quietly ignored, which is a confusing way for a suite to fail.
     //
     // DEEZER_FAKE keeps the Deezer tab off api.deezer.com. Without it the
     // suite would spend the platform's shared per-IP rate limit on every CI

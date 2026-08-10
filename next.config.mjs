@@ -93,17 +93,38 @@ const nextConfig = {
   // and they are not quite the two disjoint sets they look like:
   //   /w/<anything>  entry 2 only  — four headers, no X-Frame-Options
   //   /w/            entry 2 on paper — the trailing `(?:\/)?` in `/w/:path*`
-  //                                  catches it — but NO ENTRY EVER RUNS: with
-  //                                  `trailingSlash: false` (the default) Next
-  //                                  answers `/w/` with a 308 to `/w` from the
-  //                                  routing layer, before `headers()` and
-  //                                  before the middleware, and MEASURED that
-  //                                  response carries none of the five and no
-  //                                  CSP. Not a widget problem and not this
+  //                                  catches it — but the response carries
+  //                                  nothing: with `trailingSlash: false` (the
+  //                                  default) Next answers `/w/` with a 308 to
+  //                                  `/w` from the routing layer, and MEASURED
+  //                                  that response carries none of the five and
+  //                                  no CSP. Not a widget problem and not this
   //                                  block's doing: `/app/` and `/login/`
   //                                  measure identically, and always have. The
   //                                  308 has no body to frame and the browser
   //                                  lands on a path that carries everything.
+  //
+  //                                  THE MECHANISM IS THE REDIRECT, NOT THE
+  //                                  MATCHING, and an earlier version of this
+  //                                  comment had it backwards — it said the 308
+  //                                  is answered "before `headers()`", which is
+  //                                  the opposite of Next's documented order
+  //                                  (headers, then redirects, then rewrites).
+  //                                  MEASURED, with a throwaway `redirects()`
+  //                                  entry for `/zzz-probe` — a path entry 1
+  //                                  plainly matches, answered by a CUSTOM
+  //                                  redirect that therefore runs strictly
+  //                                  after the header stage: its 308 carried
+  //                                  none of the five either, while `/login`
+  //                                  on the same server carried all five with a
+  //                                  200. So it is not that this path skips the
+  //                                  header stage; it is that a response the
+  //                                  routing layer finishes as a redirect does
+  //                                  not emit the headers accumulated for it.
+  //                                  Same conclusion, different cause — and the
+  //                                  cause is what a reader would act on, since
+  //                                  the wrong one implies a second `headers()`
+  //                                  entry could fix it and no entry can.
   //   /w             BOTH          — `(?!w/)` needs the slash and `/w/:path*`
   //                                  makes its segment optional, so this one
   //                                  path gets all five, DENY included. It is
