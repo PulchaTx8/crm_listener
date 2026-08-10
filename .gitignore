@@ -55,6 +55,17 @@ desktop.ini
 # disk beside the code for convenience; never part of the repository.
 /Arte/
 
+# Operator manuals and deployment runbooks, plus the PDFs built from them. Same
+# reason as /Arte/ above, and one sharper: this folder holds provisional
+# credentials handed out during provisioning ("Dados Temporários.txt"), which
+# were never meant to outlive their first use. Until now only the habit of
+# naming every path in a `git add` kept them out of a commit; one distracted
+# `git add -A` would have published a password.
+#
+# The project's own documentation lives in docs/ and is versioned. This is the
+# owner's folder, not that.
+/Manual/
+
 # Subagent-driven-development scratch
 .superpowers/
 
