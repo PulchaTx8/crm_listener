@@ -127,8 +127,16 @@ operator fixing one line will hit the next bad line on the next save anyway.
 Every new radio needs an approved Meta `AUTHENTICATION`-category template
 before its widget can send a single verification code. The template's
 `template_purpose` is `WEB_VERIFICATION`, and it is registered per Station on
-the **Templates** screen that already exists (`/templates/whatsapp`) — there
-is no second screen for it.
+the **Templates** screen that already exists (`/templates/whatsapp`), which
+carries one card per purpose — there is no second screen for it.
+
+*(Worth knowing if you are reading old task reports: that card did not exist
+until the block's fix wave. `TEMPLATE_PURPOSES` was a hand-written array
+holding `PICKUP_REMINDER` alone, so the screen rendered no card and the
+registration schema refused the value, and no operator could register this
+template through any path at all. The purpose list is now derived from the
+generated `template_purpose` enum, so a third value cannot be added to the
+database without this screen failing to compile.)*
 
 **The Widget tab warns, plainly, when the Station has no such template
 registered**, regardless of whether the widget is enabled — an operator about
@@ -149,14 +157,29 @@ The page has exactly two states, decided server-side with no round trip: a
 visitor this deployment cannot name (by a valid, non-expired session cookie
 scoped to this installation) gets the identify form; one it can gets the menu.
 
-**An unknown key, a disabled installation, or an archived one all get a plain
-404** — one answer for three causes, deliberately, so probing a public key
-learns nothing an `<iframe src>` did not already say.
+**An unknown key, a disabled installation, an archived one, a suspended
+Station and a blocked Organization all get a plain 404** — one answer for five
+causes, deliberately, so probing a public key learns nothing an `<iframe src>`
+did not already say. The last two matter for a second reason: a distinct
+refusal would publish a customer's billing status to anybody who loads their
+home page.
+
+**Suspension and blocking are read live, at the door, and there is nothing to
+switch back on afterwards.** `suspend_company` sets `companies.status` and
+blocking an Organization sets `organizations.suspended_at`; neither touches
+`widget_installations.enabled`, and `0164` joins both conditions into all
+three widget doors rather than having those functions disable the installation.
+So releasing a customer restores their widget with no console step — and,
+before `0164`, a Station suspended for non-payment went on framing, went on
+billing its owner for verification codes, and went on writing listeners into a
+blocked Organization until somebody remembered to disable the installation by
+hand.
 
 **An installation with no origins configured is a different case, and it
-does not 404.** `widget_frame_context` (`0161`) decides whether an
-installation is `found` by matching the key, `enabled`, and `deleted_at is
-null` — it never looks at `allowed_origins`. So the page exists, is enabled,
+does not 404.** `widget_frame_context` (`0161`, rewritten by `0164`) decides
+whether an installation is `found` by matching the key, `enabled`, `deleted_at
+is null`, an active Station and an unblocked Organization — it never looks at
+`allowed_origins`. So the page exists, is enabled,
 and answers normally: visited directly, at its own URL, it renders the
 identify form exactly like any other widget. What refuses is *framing*, not
 the page — the allowlist is read separately to build the CSP's
