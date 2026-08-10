@@ -3106,6 +3106,121 @@ export type Database = {
           },
         ]
       }
+      widget_installations: {
+        Row: {
+          allowed_origins: string[]
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          enabled: boolean
+          id: string
+          organization_id: string
+          public_key: string
+          updated_at: string
+        }
+        Insert: {
+          allowed_origins?: string[]
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          enabled?: boolean
+          id?: string
+          organization_id: string
+          public_key: string
+          updated_at?: string
+        }
+        Update: {
+          allowed_origins?: string[]
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          enabled?: boolean
+          id?: string
+          organization_id?: string
+          public_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_installations_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "widget_installations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_verifications: {
+        Row: {
+          attempts: number
+          code_hash: string
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          installation_id: string
+          organization_id: string
+          phone: string
+        }
+        Insert: {
+          attempts?: number
+          code_hash: string
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          installation_id: string
+          organization_id: string
+          phone: string
+        }
+        Update: {
+          attempts?: number
+          code_hash?: string
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          installation_id?: string
+          organization_id?: string
+          phone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_verifications_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "widget_verifications_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "widget_installations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_verifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       winner_status_history: {
         Row: {
           changed_at: string
@@ -3473,6 +3588,7 @@ export type Database = {
         Returns: undefined
       }
       archive_song: { Args: { p_song_id: string }; Returns: undefined }
+      are_origins: { Args: { p_values: string[] }; Returns: boolean }
       assert_song_references_live: {
         Args: {
           p_artist_id: string
@@ -4957,6 +5073,15 @@ export type Database = {
         }
         Returns: string
       }
+      upsert_widget_installation: {
+        Args: {
+          p_allowed_origins: string[]
+          p_company_id: string
+          p_enabled: boolean
+          p_public_key: string
+        }
+        Returns: string
+      }
       validate_invitation: { Args: { p_token_hash: string }; Returns: Json }
       whatsapp_conversation_steps: {
         Args: { p_member_id: string; p_promotion_id: string }
@@ -4970,6 +5095,27 @@ export type Database = {
       whatsapp_reply_body: {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string
+      }
+      widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
+      widget_installation_for: { Args: { p_company_id: string }; Returns: Json }
+      widget_request_code: {
+        Args: {
+          p_code_hash: string
+          p_code_plain: string
+          p_phone: string
+          p_public_key: string
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
+      widget_verify_code: {
+        Args: {
+          p_code_hash: string
+          p_name?: string
+          p_phone: string
+          p_public_key: string
+        }
+        Returns: Json
       }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
@@ -5012,7 +5158,11 @@ export type Database = {
         | "WRITE_OFF"
       invitation_status: "pending" | "accepted" | "revoked"
       member_block_kind: "draw_ban" | "suspension"
-      member_consent_type: "rules" | "image_use" | "sponsor_communication"
+      member_consent_type:
+        | "rules"
+        | "image_use"
+        | "sponsor_communication"
+        | "identification"
       member_erasure_reason:
         | "subject_request"
         | "court_order"
@@ -5059,7 +5209,7 @@ export type Database = {
         | "CPF"
         | "PASSPORT"
         | "DISCOVERY_SOURCE"
-      template_purpose: "PICKUP_REMINDER"
+      template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       winner_status:
         | "AWAITING_PICKUP"
@@ -5234,7 +5384,12 @@ export const Constants = {
       ],
       invitation_status: ["pending", "accepted", "revoked"],
       member_block_kind: ["draw_ban", "suspension"],
-      member_consent_type: ["rules", "image_use", "sponsor_communication"],
+      member_consent_type: [
+        "rules",
+        "image_use",
+        "sponsor_communication",
+        "identification",
+      ],
       member_erasure_reason: [
         "subject_request",
         "court_order",
@@ -5285,7 +5440,7 @@ export const Constants = {
         "PASSPORT",
         "DISCOVERY_SOURCE",
       ],
-      template_purpose: ["PICKUP_REMINDER"],
+      template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       winner_status: [
         "AWAITING_PICKUP",

@@ -85,7 +85,57 @@ const nextConfig = {
     },
   },
 
-  // Block 11a. The five headers that must reach EVERY route.
+  // Block 11a. The five headers that must reach EVERY route — and, since
+  // Block 17a, the one route that gets four of them instead of five.
+  //
+  // WHICH ENTRY MATCHES WHAT, read out of `.next/routes-manifest.json` rather
+  // than reasoned about, because the compiled regexes are the only authority
+  // and they are not quite the two disjoint sets they look like:
+  //   /w/<anything>  entry 2 only  — four headers, no X-Frame-Options
+  //   /w/            entry 2 on paper — the trailing `(?:\/)?` in `/w/:path*`
+  //                                  catches it — but the response carries
+  //                                  nothing: with `trailingSlash: false` (the
+  //                                  default) Next answers `/w/` with a 308 to
+  //                                  `/w` from the routing layer, and MEASURED
+  //                                  that response carries none of the five and
+  //                                  no CSP. Not a widget problem and not this
+  //                                  block's doing: `/app/` and `/login/`
+  //                                  measure identically, and always have. The
+  //                                  308 has no body to frame and the browser
+  //                                  lands on a path that carries everything.
+  //
+  //                                  THE MECHANISM IS THE REDIRECT, NOT THE
+  //                                  MATCHING, and an earlier version of this
+  //                                  comment had it backwards — it said the 308
+  //                                  is answered "before `headers()`", which is
+  //                                  the opposite of Next's documented order
+  //                                  (headers, then redirects, then rewrites).
+  //                                  MEASURED, with a throwaway `redirects()`
+  //                                  entry for `/zzz-probe` — a path entry 1
+  //                                  plainly matches, answered by a CUSTOM
+  //                                  redirect that therefore runs strictly
+  //                                  after the header stage: its 308 carried
+  //                                  none of the five either, while `/login`
+  //                                  on the same server carried all five with a
+  //                                  200. So it is not that this path skips the
+  //                                  header stage; it is that a response the
+  //                                  routing layer finishes as a redirect does
+  //                                  not emit the headers accumulated for it.
+  //                                  Same conclusion, different cause — and the
+  //                                  cause is what a reader would act on, since
+  //                                  the wrong one implies a second `headers()`
+  //                                  entry could fix it and no entry can.
+  //   /w             BOTH          — `(?!w/)` needs the slash and `/w/:path*`
+  //                                  makes its segment optional, so this one
+  //                                  path gets all five, DENY included. It is
+  //                                  not the widget route and nothing is
+  //                                  served there; recorded so the next reader
+  //                                  does not have to rediscover it
+  //   everything else entry 1 only — all five, exactly as Block 11a shipped
+  // Both sources are compiled case-INSENSITIVELY (path-to-regexp's default),
+  // so `/W/abc` is the widget route to this file. src/middleware.ts's
+  // WIDGET_PATH is `/^\/w\//i` for that reason, and its `matcher` carries the
+  // same `[wW]`: three spellings of one set, and they have to agree.
   //
   // Here rather than in middleware.ts, and the reason is that file's own
   // matcher: it deliberately excludes /api/webhooks/ and /api/worker/, because
@@ -98,38 +148,78 @@ const nextConfig = {
   // is evaluated once at boot. It lives in the middleware alongside the session
   // refresh, which is the only place a per-request value can be produced.
   async headers() {
+    // The four that have nothing to do with framing, shared by both entries
+    // below so the widget route cannot silently drift away from every other
+    // route on any of them.
+    const notAboutFraming = [
+      // Stops a browser guessing that a download proxy's octet-stream is
+      // really HTML and running it. This app serves member documents and
+      // delivery receipts through such a proxy.
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      // Every record screen in this product carries a ?record=<uuid>, and
+      // without this the full URL travels in the Referer of every outbound
+      // request. `strict-origin-when-cross-origin` keeps the path inside
+      // the origin and sends only the origin outside it.
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      // Nothing in this product uses any of these, so they are refused
+      // rather than left to a default that may change.
+      {
+        key: 'Permissions-Policy',
+        value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+      },
+      // Two years, subdomains included. NOT preloaded: preload is a
+      // one-way door on the apex domain and belongs to whoever owns DNS,
+      // not to this file.
+      {
+        key: 'Strict-Transport-Security',
+        value: 'max-age=63072000; includeSubDomains',
+      },
+    ];
+
     return [
       {
-        source: '/:path*',
+        // EVERY PATH EXCEPT `/w/`, and the exclusion is the whole mechanism
+        // (Block 17a, spec §4.3).
+        //
+        // X-FRAME-OPTIONS CANNOT BE RELAXED BY A LATER, MORE SPECIFIC ENTRY.
+        // Next applies EVERY matching entry, and where two of them set this
+        // header the browser obeys the strictest — so an entry for `/w/:path*`
+        // carrying a looser value would not override the DENY below, it would
+        // ship a widget that frames nowhere and looks like a browser bug.
+        // Taking the path out of this source is the only mechanism there is.
+        //
+        // The excluded route is not left undefended: src/middleware.ts sets its
+        // own `frame-ancestors` there, read from that Station's
+        // allowed_origins (0159) through widget_frame_context (0161), and
+        // 'none' for every lookup that is not a success.
+        source: '/((?!w/).*)',
         headers: [
           // Redundant with the CSP's `frame-ancestors 'none'` for a modern
           // browser, and kept for the ones that never implemented it. The two
           // must agree: a permissive value here beside a strict directive there
           // is the shape of an accident.
           { key: 'X-Frame-Options', value: 'DENY' },
-          // Stops a browser guessing that a download proxy's octet-stream is
-          // really HTML and running it. This app serves member documents and
-          // delivery receipts through such a proxy.
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          // Every record screen in this product carries a ?record=<uuid>, and
-          // without this the full URL travels in the Referer of every outbound
-          // request. `strict-origin-when-cross-origin` keeps the path inside
-          // the origin and sends only the origin outside it.
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          // Nothing in this product uses any of these, so they are refused
-          // rather than left to a default that may change.
-          {
-            key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
-          },
-          // Two years, subdomains included. NOT preloaded: preload is a
-          // one-way door on the apex domain and belongs to whoever owns DNS,
-          // not to this file.
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains',
-          },
+          ...notAboutFraming,
         ],
+      },
+      {
+        // The widget route, given back the four headers the exclusion above
+        // would otherwise have taken from it along with the one it was aimed
+        // at. A `source` excludes an ENTRY, not a header: without this, `/w/`
+        // would lose nosniff, Referrer-Policy, Permissions-Policy and HSTS as
+        // collateral. It is also the one page here served to somebody who may
+        // never have loaded anything else from this host, which is precisely
+        // when HSTS is worth the most — and its URL carries a public key that
+        // Referrer-Policy keeps out of the Referer of the iframe's own
+        // outbound requests.
+        //
+        // THIS ENTRY MUST NEVER CARRY X-Frame-Options, in any value. Adding one
+        // here cannot loosen the entry above (see its comment); it can only
+        // re-impose a refusal on the single route in this product that is
+        // allowed to be framed, and the symptom would be a blank iframe on a
+        // customer's website with nothing in any log.
+        source: '/w/:path*',
+        headers: notAboutFraming,
       },
     ];
   },

@@ -11,10 +11,12 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/c
 import { STATION_TABS, type StationTab } from '@/lib/record-params';
 import type { ApiCredentialRow } from '@/services/api-credentials';
 import type { IntegrationRow } from '@/services/integrations';
+import type { WidgetInstallationRow } from '@/services/widget-installations';
 import type { StationRow } from './actions';
 import { ApiKeysTab } from './api-keys-tab';
 import { IntegrationTab, type CredentialStatus } from './integration-tab';
 import { StationForm, type StationProfile } from './station-form';
+import { WidgetTab } from './widget-tab';
 
 /**
  * One Station's record: what it is, how it reaches WhatsApp, and what machines
@@ -36,6 +38,8 @@ export function StationRecordDialog({
   credentials,
   integration,
   secrets,
+  installation,
+  siteUrl,
   tab,
   onTab,
   onClose,
@@ -48,6 +52,9 @@ export function StationRecordDialog({
   credentials: ApiCredentialRow[];
   integration: IntegrationRow | null;
   secrets: CredentialStatus;
+  /** Null when nobody has configured this Station's widget yet. */
+  installation: WidgetInstallationRow | null;
+  siteUrl: string;
   tab: StationTab;
   onTab: (tab: StationTab) => void;
   onClose: () => void;
@@ -59,6 +66,7 @@ export function StationRecordDialog({
     data: t('tabStationData'),
     whatsapp: t('tabWhatsappIntegration'),
     keys: t('tabApiKeys'),
+    widget: t('tabWidget'),
   };
 
   if (missing || !row) {
@@ -133,6 +141,10 @@ export function StationRecordDialog({
         {tab === 'whatsapp' && <IntegrationTab companyId={row.id} initialRow={integration} secrets={secrets} />}
 
         {tab === 'keys' && <ApiKeysTab companyId={row.id} initialRows={credentials} />}
+
+        {tab === 'widget' && (
+          <WidgetTab companyId={row.id} initialInstallation={installation} siteUrl={siteUrl} />
+        )}
       </DialogBody>
 
       <DialogFooter>

@@ -22,6 +22,14 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
   // Shared secret pg_cron presents to the worker tick.
   WORKER_TICK_SECRET: z.string().min(1).optional(),
+  // Signs the widget visitor session (Block 17a, design D5). OPTIONAL,
+  // following WORKER_TICK_SECRET above for the same reason: a deployment with
+  // no widget installed must still boot. min(32) because this key is compared
+  // byte-for-byte inside an HMAC rather than hashed first, unlike the API
+  // tokens in src/lib/api/credentials.ts, so it needs real entropy rather than
+  // just non-emptiness. The widget's route handlers refuse with a 503 when it
+  // is absent, the same shape /api/worker/tick uses for its own secret.
+  WIDGET_SESSION_SECRET: z.string().min(32).optional(),
   // Where conversations live (design spec D6). OPTIONAL, and that is the whole
   // decision: unset means the Postgres driver, so the application boots, CI
   // runs and a developer works with no new service to install. A Station turns

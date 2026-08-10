@@ -6,8 +6,9 @@ import { provisionThroughConsole } from './provision';
 /**
  * The Templates block's round trip (Task 11): an operator reaches both new
  * screens through the sidebar section this block adds, gives one system text
- * this Station's own wording, puts it back, and records the approved template
- * that lets the Station start a conversation at all.
+ * this Station's own wording, puts it back, and records the approved templates
+ * that let the Station start a conversation at all — BOTH purposes since Block
+ * 17a's fix wave, for the reason step 6 sets out.
  *
  * Both halves reload the page before asserting. That is the point of the spec
  * rather than a precaution: a Server Action returning `{ status: 'saved' }`
@@ -43,6 +44,10 @@ const approvedBody =
 const templateName = 'pickup_reminder';
 const templateLanguage = 'pt_BR';
 
+// Block 17a's purpose, registered through this same screen in step 6 below.
+const webTemplateName = `web_verification_${stamp}`;
+const webBody = 'Seu código de verificação é {{1}}. Ele vale por dez minutos.';
+
 const createdUserIds: string[] = [];
 
 test.beforeAll(async () => {
@@ -65,6 +70,17 @@ test('a Station takes its own voice and records the template that lets it speak 
   page,
   browser,
 }) => {
+  // MEASURED at 28s against Playwright's 30s default before step 6 existed:
+  // this one test provisions a customer through the console, clears the
+  // provisional-password gate in a second browser context, and walks two
+  // screens with a reload between each half. Adding the second template
+  // registration put it over, and the failure that produced was a timeout in
+  // the middle of the new section rather than anything about the section. The
+  // convention here is members-flow.spec.ts's and participations-flow.spec
+  // .ts's — a journey that is genuinely long says so, rather than being split
+  // into tests that would each have to re-provision a customer to run at all.
+  test.setTimeout(60_000);
+
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
@@ -210,6 +226,57 @@ test('a Station takes its own voice and records the template that lets it speak 
   // The form now offers to replace rather than to record: register_message_template
   // upserts on 0110's partial index, so one purpose keeps one live row.
   await expect(registered.getByRole('button', { name: 'Replace what is recorded' })).toBeVisible();
+
+  // ===========================================================================
+  // 6. THE SECOND PURPOSE, THROUGH THIS SCREEN AND NOTHING ELSE.
+  //
+  //    This is the case whose absence let Block 17a ship a widget that could
+  //    never send a code. 0160 added WEB_VERIFICATION to `template_purpose` and
+  //    `widget_request_code` looks for a row carrying it — but the screen
+  //    renders one card per entry in TEMPLATE_PURPOSES and the registration
+  //    schema is a `z.enum` over the same array, and that array was hand-written
+  //    with PICKUP_REMINDER alone. So `message_templates` could not hold a
+  //    WEB_VERIFICATION row through any path a human could reach, every Station
+  //    answered `no_template` for ever, and the console's Widget tab told
+  //    operators to register it on a screen where no such card existed.
+  //
+  //    EVERY GATE STAYED GREEN BECAUSE EVERY HARNESS WENT AROUND THE SCREEN:
+  //    tests/e2e/widget.spec.ts and tests/isolation/widget.test.ts call
+  //    register_message_template directly, supabase/tests/40 INSERTs the row.
+  //    Each of those is right for what it proves and none of them can see this.
+  //    The assertion that closes it is a card, filled in by a browser, posted
+  //    through the real server action — so a third purpose added to the enum
+  //    and forgotten here fails as a missing card rather than as a Station that
+  //    silently never sends.
+  // ===========================================================================
+  const webCard = ownerPage.getByTestId('purpose-WEB_VERIFICATION');
+  await expect(webCard.getByText('Not registered — nothing sends')).toBeVisible();
+
+  await webCard.getByLabel('Name at Meta').fill(webTemplateName);
+  await webCard.getByLabel('Language').fill(templateLanguage);
+  // ONE placeholder, which is this purpose's whole contract: widget_request_code
+  // (0161) calls enqueue_whatsapp_outbound with jsonb_build_array(p_code_plain)
+  // and nothing else, and 0111 refuses a count that disagrees with the body.
+  await ownerPage.getByTestId('template-body-WEB_VERIFICATION').fill(webBody);
+  await expect(ownerPage.getByTestId('template-contract-warning-WEB_VERIFICATION')).toHaveCount(0);
+  await webCard.getByLabel('What {{1}} means').fill('The six-digit code');
+  await webCard.getByRole('button', { name: 'Record this template' }).click();
+
+  await expect(webCard.getByText('Registered', { exact: true })).toBeVisible();
+
+  // The proof is the ROW, read back as the widget's own door reads it — the
+  // screen saying "Registered" only proves the action answered. `purpose` is
+  // what widget_request_code filters on, so asserting it is asserting that this
+  // screen can produce the row that endpoint needs.
+  const { data: webRow, error: webRowError } = await admin
+    .from('message_templates')
+    .select('purpose, name, language, body')
+    .eq('name', webTemplateName)
+    .is('deleted_at', null)
+    .single();
+  expect(webRowError).toBeNull();
+  expect(webRow?.purpose).toBe('WEB_VERIFICATION');
+  expect(webRow?.body).toBe(webBody);
 
   await ownerContext.close();
 });

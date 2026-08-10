@@ -14,6 +14,7 @@ import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { STATION_TABS, type StationTab } from '@/lib/record-params';
 import type { ApiCredentialRow } from '@/services/api-credentials';
 import type { IntegrationRow } from '@/services/integrations';
+import type { WidgetInstallationRow } from '@/services/widget-installations';
 import { reactivateAction, suspendAction, type StationActionState, type StationRow } from './actions';
 import { StationRecordDialog } from './station-record-dialog';
 import type { CredentialStatus } from './integration-tab';
@@ -48,7 +49,9 @@ export function StationsGrid({
   profiles,
   credentials,
   integrations,
+  installations,
   secrets,
+  siteUrl,
 }: {
   organizations: OrganizationOption[];
   selectedOrganizationId: string | null;
@@ -58,7 +61,12 @@ export function StationsGrid({
   profiles: Record<string, StationProfile>;
   credentials: Record<string, ApiCredentialRow[]>;
   integrations: Record<string, IntegrationRow | null>;
+  /** Keyed by Station id, `null` for one with no widget configured yet -- an
+   * absent key would make "not loaded" and "not configured" the same value,
+   * which is exactly what the Widget tab has to tell apart. */
+  installations: Record<string, WidgetInstallationRow | null>;
   secrets: CredentialStatus;
+  siteUrl: string;
 }) {
   const t = useTranslations('admin');
   const router = useRouter();
@@ -208,6 +216,8 @@ export function StationsGrid({
         credentials={openRow ? (credentials[openRow.id] ?? []) : []}
         integration={openRow ? (integrations[openRow.id] ?? null) : null}
         secrets={secrets}
+        installation={openRow ? (installations[openRow.id] ?? null) : null}
+        siteUrl={siteUrl}
         tab={(tab as StationTab) ?? 'data'}
         onTab={setTab}
         onClose={close}

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SYSTEM_MESSAGE_DEFAULTS } from '@/lib/conversation/engine';
 import type { SystemMessageKey } from '@/lib/conversation/engine';
+import type { Enums } from '@/lib/supabase/database.types';
 
 /**
  * Mirrors 0109, 0110 and the four doors in 0113. Every bound here exists so
@@ -24,8 +25,50 @@ export const SYSTEM_MESSAGE_KEYS = Object.keys(SYSTEM_MESSAGE_DEFAULTS) as [
   ...SystemMessageKey[],
 ];
 
-export const TEMPLATE_PURPOSES = ['PICKUP_REMINDER'] as const;
-export type TemplatePurpose = (typeof TEMPLATE_PURPOSES)[number];
+/**
+ * One thing this system sends through an approved Meta template.
+ * `template_purpose` (0110, second value added by 0160).
+ *
+ * DERIVED FROM THE GENERATED ENUM, never re-declared, for exactly the reason
+ * `lib/conversation/steps.ts` gives for `RequestedField` and `SystemMessageKey`
+ * — and this file learned it the expensive way. Until Block 17a's fix wave the
+ * union came from the hand-written array below, so 0160's `ADD VALUE` compiled
+ * in silence: `WEB_VERIFICATION` existed in the database, `widget_request_code`
+ * looked for a row with that purpose, and NOTHING a human could reach could
+ * write one. The Templates screen had no card for it (it renders one per entry
+ * in the array) and `templateRegistrationSchema` refused it (`z.enum` over the
+ * same array), so every Station answered `no_template` for ever and the console
+ * told operators to register it on a screen where it did not appear.
+ */
+export type TemplatePurpose = Enums<'template_purpose'>;
+
+/**
+ * A TOTAL record over `TemplatePurpose`, and its only job is to be total: a
+ * third value added to the enum stops this file compiling until somebody names
+ * it here, which is what makes the array below complete by construction rather
+ * than by somebody remembering.
+ *
+ * The same trick `SYSTEM_MESSAGE_KEYS` above plays with `SYSTEM_MESSAGE_DEFAULTS`,
+ * with a `true` where that one has a default body — there is no per-purpose
+ * value worth holding in a schema module, since what each purpose MEANS is
+ * three translated strings and belongs on the screen that renders them
+ * (`templates/whatsapp/template-registry.tsx`, whose `purposeDetails` is total
+ * over this same type for the same reason).
+ */
+const TEMPLATE_PURPOSE_SET: Record<TemplatePurpose, true> = {
+  PICKUP_REMINDER: true,
+  WEB_VERIFICATION: true,
+};
+
+/**
+ * The purposes, in the order the Templates screen renders them — which is the
+ * order `Object.keys` returns a string-keyed object literal in, i.e. the order
+ * written above.
+ */
+export const TEMPLATE_PURPOSES = Object.keys(TEMPLATE_PURPOSE_SET) as [
+  TemplatePurpose,
+  ...TemplatePurpose[],
+];
 
 /**
  * `text` in Postgres has no length of its own, so an unbounded field would let

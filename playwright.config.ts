@@ -70,6 +70,23 @@ export default defineConfig({
     // secrets: tests/whatsapp-test-env.ts is the one place both this server
     // and the spec that signs requests against it read them from, so the two
     // can never disagree about what they are.
+    // WIDGET_SESSION_SECRET is Block 17a's, and without it the widget refuses
+    // every submission with `unavailable` before it reaches the database —
+    // src/app/(widget)/w/[publicKey]/actions.ts treats an absent secret as a
+    // deployment fault, the same shape /api/worker/tick uses, because a code
+    // that can never be exchanged for a session is the Station's money spent on
+    // nothing. Nothing else in this repository sets it: it is absent from .env
+    // and from .env.example, so before this line tests/e2e/widget.spec.ts could
+    // only ever have watched the widget refuse itself.
+    //
+    // Inline rather than in tests/whatsapp-test-env.ts's shape, because only the
+    // server needs this one — the spec drives the real form and never mints a
+    // token, so there is no second reader for the two to disagree about. Fixed,
+    // not secret, and comfortably over the min(32) src/lib/env.ts requires even
+    // on the loose branch SKIP_ENV_VALIDATION selects (the literal below is 40
+    // characters): a shorter value would stop the server booting rather than
+    // being quietly ignored, which is a confusing way for a suite to fail.
+    //
     // DEEZER_FAKE keeps the Deezer tab off api.deezer.com. Without it the
     // suite would spend the platform's shared per-IP rate limit on every CI
     // run, need a third party to be up to go green, and assert against a
@@ -78,6 +95,7 @@ export default defineConfig({
     env: {
       SKIP_ENV_VALIDATION: '1',
       DEEZER_FAKE: '1',
+      WIDGET_SESSION_SECRET: 'e2e-widget-session-secret-not-a-real-one',
       ...LOCAL_SUPABASE_ENV,
       ...WHATSAPP_TEST_ENV,
     },

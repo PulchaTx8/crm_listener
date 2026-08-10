@@ -80,13 +80,16 @@ select ok(
 -- Task 2: the approved-template registry. Same fixtures (org ...e4f1,
 -- company ...e4c1) — this table references the same Station, not a new one.
 
--- 11: the purpose enum is pinned to PICKUP_REMINDER alone. Task 4 depends on
--- that exact value; a later block adds a second purpose rather than renaming
--- this one.
+-- 11: the purpose enum. 0110 shipped PICKUP_REMINDER alone and its comment
+-- asked for what happened next in writing -- "a later block adds a second
+-- rather than renaming this one, because Task 4 references it by name" -- and
+-- 0160 (Block 17a) added WEB_VERIFICATION for the web widget's code. Both
+-- values are asserted, in enum order, so a third arrives here as a failure
+-- rather than as a silent third card the Templates screen would have to grow.
 select is(
   enum_range(null::public.template_purpose)::text[],
-  array['PICKUP_REMINDER'],
-  'template_purpose has exactly PICKUP_REMINDER');
+  array['PICKUP_REMINDER', 'WEB_VERIFICATION'],
+  'template_purpose has PICKUP_REMINDER and WEB_VERIFICATION');
 
 -- 12: a blank name is refused. '   ' would satisfy NOT NULL and register a
 -- template whose recorded name does not match what Meta approved.
