@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,12 +42,19 @@ export function IntegrationTab({
   companyId,
   initialRow,
   secrets,
+  onSaved,
 }: {
   companyId: string;
   /** Null when this Station has never been connected. */
   initialRow: IntegrationRow | null;
   /** Installation-wide, computed on the server. Never the values themselves. */
   secrets: CredentialStatus;
+  /**
+   * Hands the saved row to the screen that owns the snapshot this tab was
+   * rendered from. The local state below is enough only while this tab stays
+   * mounted, and selecting another tab unmounts it.
+   */
+  onSaved: (row: IntegrationRow | null) => void;
 }) {
   const t = useTranslations('admin');
   const [saveState, save, saving] = useActionState(saveIntegrationAction, IDLE);
@@ -62,6 +69,20 @@ export function IntegrationTab({
       : saveState.row !== undefined
         ? saveState.row
         : initialRow;
+
+  // Reported upward for the reason `onSaved` gives. Both actions are watched,
+  // because disabling an integration changes the row exactly as saving one
+  // does -- and the grid behind this dialog reads the same row for its WhatsApp
+  // column, so it now stops disagreeing with the tab as well.
+  useEffect(() => {
+    if (disableState.row !== undefined) onSaved(disableState.row);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disableState]);
+
+  useEffect(() => {
+    if (saveState.row !== undefined) onSaved(saveState.row);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveState]);
 
   const problem =
     saveState.status === 'error'

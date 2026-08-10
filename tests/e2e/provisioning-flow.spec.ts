@@ -190,6 +190,40 @@ test('provision a group, add a Station, fill its record, then block the customer
   // that is not http(s) and these values land in an href.
   expect(savedStation?.website_url).toBe('https://example.test');
 
+  // --- and the SCREEN agrees with the database it just wrote to -----------
+  //
+  // THE THREE ASSERTIONS ABOVE ALL PASSED WHILE THIS SCREEN WAS LYING, which
+  // is the whole reason these exist. /admin/stations reads every listed
+  // Station's record once, before any record is opened, and the actions
+  // deliberately call no revalidatePath -- a fresh render would close the
+  // dialog the forms live in. Nothing re-read that snapshot, and the dialog
+  // mounts each tab only while it is selected, so leaving this tab and coming
+  // back rebuilt the form from the values the server sent BEFORE the save. The
+  // operator saw "Saved." and then their own change gone, and reasonably
+  // reported that the screen did not save; the database's audit_logs had the
+  // write all along (hosted console, 2026-08-10).
+  //
+  // Reading the database is not reading the screen. A journey that only asks
+  // Postgres what happened cannot see this class of defect at all.
+  await page.getByRole('tab', { name: 'WhatsApp' }).click();
+  await expect(page.getByTestId('integration-save')).toBeVisible();
+  await page.getByRole('tab', { name: 'Station data' }).click();
+  await expect(page.getByTestId('station-contactEmail')).toHaveValue(
+    `contato@${stamp}.example.test`,
+  );
+  // The stored value, not the typed one: the service adds the scheme, so a
+  // screen echoing the submission instead of the record would show
+  // `example.test` here and disagree with the very next navigation.
+  await expect(page.getByTestId('station-websiteUrl')).toHaveValue('https://example.test');
+
+  // Closing the record unmounts the whole dialog, which is the harder half of
+  // the same defect: reopening it must not go back to the server's snapshot.
+  await page.getByRole('button', { name: 'Close record' }).click();
+  await stationRow.getByRole('button', { name: companyName, exact: true }).click();
+  await expect(page.getByTestId('station-contactEmail')).toHaveValue(
+    `contato@${stamp}.example.test`,
+  );
+
   // The customer signs in below with the ORIGINAL password, which the reissue
   // has just invalidated — so put the account back the way the test needs it.
   const { error: restoreError } = await admin.auth.admin.updateUserById(owner.id, {

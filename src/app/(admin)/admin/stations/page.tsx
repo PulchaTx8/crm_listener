@@ -200,10 +200,10 @@ export default async function StationsPage({
         selectedOrganizationId={selectedOrganizationId}
         initialRows={rows}
         initialRecord={record}
-        profiles={profiles}
-        credentials={credentials}
-        integrations={integrations}
-        installations={installations}
+        initialProfiles={profiles}
+        initialCredentials={credentials}
+        initialIntegrations={integrations}
+        initialInstallations={installations}
         secrets={configuredSecrets()}
         siteUrl={siteUrl}
       />

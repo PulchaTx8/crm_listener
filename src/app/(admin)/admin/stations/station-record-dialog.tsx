@@ -43,6 +43,10 @@ export function StationRecordDialog({
   tab,
   onTab,
   onClose,
+  onProfileSaved,
+  onIntegrationSaved,
+  onCredentialsChanged,
+  onInstallationSaved,
 }: {
   open: boolean;
   row: StationRow | null;
@@ -58,6 +62,19 @@ export function StationRecordDialog({
   tab: StationTab;
   onTab: (tab: StationTab) => void;
   onClose: () => void;
+  /**
+   * What each tab saved, on its way back to the grid that holds the snapshot
+   * every one of them was rendered from.
+   *
+   * THIS DIALOG KEEPS NO STATE OF ITS OWN, and must not start: only ONE tab is
+   * mounted at a time (see the `tab === ...` guards below) and the whole
+   * subtree unmounts when the record closes, so anything remembered here would
+   * be lost at exactly the moments this reporting exists to survive.
+   */
+  onProfileSaved: (companyId: string, profile: StationProfile) => void;
+  onIntegrationSaved: (companyId: string, integration: IntegrationRow | null) => void;
+  onCredentialsChanged: (companyId: string, credentials: ApiCredentialRow[]) => void;
+  onInstallationSaved: (companyId: string, installation: WidgetInstallationRow) => void;
 }) {
   const t = useTranslations('admin');
   const titleId = useId();
@@ -131,19 +148,41 @@ export function StationRecordDialog({
       <DialogBody>
         {tab === 'data' &&
           (profile ? (
-            <StationForm companyId={row.id} profile={profile} />
+            <StationForm
+              companyId={row.id}
+              profile={profile}
+              onSaved={(saved) => onProfileSaved(row.id, saved)}
+            />
           ) : (
             // The page reads a profile for every listed Station, so a null here
             // means that read failed rather than that the Station has no record.
             <p className="text-sm text-muted-foreground">{t('couldNotLoadThisStationsRecord')}</p>
           ))}
 
-        {tab === 'whatsapp' && <IntegrationTab companyId={row.id} initialRow={integration} secrets={secrets} />}
+        {tab === 'whatsapp' && (
+          <IntegrationTab
+            companyId={row.id}
+            initialRow={integration}
+            secrets={secrets}
+            onSaved={(saved) => onIntegrationSaved(row.id, saved)}
+          />
+        )}
 
-        {tab === 'keys' && <ApiKeysTab companyId={row.id} initialRows={credentials} />}
+        {tab === 'keys' && (
+          <ApiKeysTab
+            companyId={row.id}
+            initialRows={credentials}
+            onChanged={(rows) => onCredentialsChanged(row.id, rows)}
+          />
+        )}
 
         {tab === 'widget' && (
-          <WidgetTab companyId={row.id} initialInstallation={installation} siteUrl={siteUrl} />
+          <WidgetTab
+            companyId={row.id}
+            initialInstallation={installation}
+            siteUrl={siteUrl}
+            onSaved={(saved) => onInstallationSaved(row.id, saved)}
+          />
         )}
       </DialogBody>
 

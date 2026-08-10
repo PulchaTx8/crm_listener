@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,35 +8,18 @@ import { ImageUploadField } from '@/components/media/image-upload-field';
 import { inputFromKhz, type BroadcastBand } from '@/lib/frequency';
 import { formatTaxId } from '@/lib/tax-id';
 import { saveStationProfileAction, type StationProfileState } from './actions';
+import type { CompanyProfileRecord } from '@/services/company-profile';
 
-/** The Station's own record, as the console reads and writes it (0153, 0155). */
-export interface StationProfile {
-  addressLine: string | null;
-  addressNumber: string | null;
-  addressComplement: string | null;
-  neighbourhood: string | null;
-  city: string | null;
-  state: string | null;
-  postalCode: string | null;
-  broadcastBand: BroadcastBand | null;
-  frequencyKhz: number | null;
-  latitude: number | null;
-  longitude: number | null;
-  thumbUrl: string | null;
-  // Block 16.
-  contactEmail: string | null;
-  contactPhone: string | null;
-  websiteUrl: string | null;
-  instagramUrl: string | null;
-  facebookUrl: string | null;
-  youtubeUrl: string | null;
-  tagline: string | null;
-  description: string | null;
-  legalName: string | null;
-  taxId: string | null;
-  municipalRegistration: string | null;
-  fiscalEmail: string | null;
-}
+/**
+ * The Station's own record, as the console reads and writes it (0153, 0155).
+ *
+ * An ALIAS rather than a second declaration of the same twenty-four fields: the
+ * service that reads and writes them is the one place they are named, so this
+ * form and that read cannot drift apart. `import type` is erased at compile
+ * time, so the `server-only` guard on that module is not carried into the
+ * client bundle -- the same direction page.tsx already relies on, in reverse.
+ */
+export type StationProfile = CompanyProfileRecord;
 
 const IDLE: StationProfileState = { status: 'idle' };
 
@@ -58,12 +41,30 @@ const IDLE: StationProfileState = { status: 'idle' };
 export function StationForm({
   companyId,
   profile,
+  onSaved,
 }: {
   companyId: string;
   profile: StationProfile;
+  /**
+   * Hands the saved record to the screen that owns the snapshot this form was
+   * rendered from. Without it a save is invisible the moment this tab unmounts,
+   * which switching tabs or closing the record is enough to do.
+   */
+  onSaved: (profile: StationProfile) => void;
 }) {
   const t = useTranslations('admin');
   const [state, action, pending] = useActionState(saveStationProfileAction, IDLE);
+
+  // `profile` on a state means the read-back succeeded; its absence means the
+  // write landed and only the refresh failed, and then there is nothing
+  // truthful to hand upward -- so the snapshot keeps whatever it had rather
+  // than being patched with a guess.
+  useEffect(() => {
+    if (state.status === 'saved' && state.profile) onSaved(state.profile);
+    // onSaved is not a dependency on purpose: the parent re-creates it on every
+    // render, and depending on it would re-report the same save each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   // Held in state because the frequency field's unit and label depend on it —
   // MHz for FM, kHz for AM, and nothing at all for a web-only Station.

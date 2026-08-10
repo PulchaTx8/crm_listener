@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { WidgetInstallationRow } from '@/services/widget-installations';
@@ -38,10 +38,18 @@ export function WidgetTab({
   companyId,
   initialInstallation,
   siteUrl,
+  onSaved,
 }: {
   companyId: string;
   /** Null when nobody has configured a widget for this Station yet. */
   initialInstallation: WidgetInstallationRow | null;
+  /**
+   * Hands the saved installation to the screen that owns the snapshot this tab
+   * was rendered from. It matters most here: the first save is what MINTS the
+   * public key, so without this, closing the record and reopening it would take
+   * the operator back to "no key yet" for a widget that already has one.
+   */
+  onSaved: (installation: WidgetInstallationRow) => void;
   /** NEXT_PUBLIC_SITE_URL, resolved on the server (page.tsx) and handed down
    * rather than read from `process.env` in this client component -- Next
    * inlines `NEXT_PUBLIC_*` at build time either way, but computing it once on
@@ -57,6 +65,15 @@ export function WidgetTab({
   // `undefined` means the write landed and only the read-back failed, so what
   // is on screen stays -- the same contract IntegrationTab's `row` carries.
   const installation = state.installation !== undefined ? state.installation : initialInstallation;
+
+  // Reported upward for the reason `onSaved` gives. The `null` arm is
+  // unreachable by `WidgetInstallationState`'s own contract -- a successful
+  // save always leaves a row behind -- and is tested rather than asserted
+  // because a wrong assumption here would be a crash on a save that worked.
+  useEffect(() => {
+    if (state.installation) onSaved(state.installation);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   const problem = state.status === 'error' ? state.message : null;
 

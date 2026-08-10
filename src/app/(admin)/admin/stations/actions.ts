@@ -6,7 +6,13 @@ import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { AppError, ValidationError } from '@/lib/errors';
 import { khzFromInput } from '@/lib/frequency';
-import { clearCompanyThumb, setCompanyThumb, updateCompanyProfile } from '@/services/company-profile';
+import {
+  clearCompanyThumb,
+  readCompanyProfile,
+  setCompanyThumb,
+  updateCompanyProfile,
+  type CompanyProfileRecord,
+} from '@/services/company-profile';
 import {
   issueApiCredential,
   listApiCredentials,
@@ -25,6 +31,20 @@ import { parseOrigins } from '@/lib/widget/origins';
 // selected group's Stations, their profiles, their keys and their integrations,
 // and hands the operator back a redrawn screen with the record they were editing
 // closed. The grid patches its own rows instead (src/lib/row-patch.ts).
+//
+// WHICH IS WHY EVERY ACTION HERE RETURNS WHAT IT WROTE, and why that is not a
+// convenience. page.tsx reads each Station's profile, keys, integration and
+// widget installation ONCE, before any record is opened, and the dialog renders
+// from that snapshot; nothing re-reads it. So an action that returned only
+// `status: 'saved'` would leave the screen showing the values from before the
+// write -- and because the dialog mounts each tab only while it is selected
+// (`{tab === 'data' && ...}`) and the Dialog renders its children only while
+// open, merely switching tabs or reopening the record was enough to remount a
+// form from that stale snapshot and make a save that HAD landed look lost. That
+// was reported from the hosted console on 2026-08-10, with the database's own
+// audit_logs showing the write present and the screen denying it. The returned
+// record goes to stations-grid.tsx, which holds these four snapshots in state
+// and patches them; see its `patch` helpers.
 //
 // THAT IS A CHANGE FROM THE SCREEN THIS REPLACES. admin/integrations/actions.ts
 // called revalidatePath and then router.refresh(), which was right there: that
@@ -62,8 +82,30 @@ export interface StationActionState {
 export interface StationProfileState {
   status: 'idle' | 'saved' | 'error';
   message?: string;
-  /** What was stored, so the form can show the picture it now has. */
-  thumbUrl?: string | null;
+  /**
+   * The record as the database now holds it, so the screen above this form can
+   * replace the snapshot it was rendered from. `undefined` means the write
+   * landed and only the read-back failed -- the contract `IntegrationState.row`
+   * already carries, and `readStationProfile`'s comment gives the reason.
+   */
+  profile?: CompanyProfileRecord;
+}
+
+/**
+ * A failed read-back is not a failed save, the rule `readIntegration` states
+ * for this same file. The write already succeeded, so this reports what it
+ * could not refresh rather than telling the operator their change did not land.
+ */
+async function readStationProfile(
+  companyId: string,
+  token: string,
+): Promise<CompanyProfileRecord | undefined> {
+  try {
+    return await readCompanyProfile(companyId, token);
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'could not read back the station profile');
+    return undefined;
+  }
 }
 
 /**
@@ -76,6 +118,10 @@ export interface StationProfileState {
  *
  * The picture is settled AFTER the fields, so a validation failure on the record
  * does not leave an upload behind that no column points at.
+ *
+ * Then the record is READ BACK and returned, for the reason this file's header
+ * gives: nothing else re-reads it, so this is what stops the screen showing the
+ * values from before the save.
  */
 export async function saveStationProfileAction(
   _prev: StationProfileState,
@@ -138,15 +184,14 @@ export async function saveStationProfileAction(
 
     if (cleared) {
       await clearCompanyThumb(companyId, token);
-      return { status: 'saved', thumbUrl: null };
+    } else if (file instanceof File && file.size > 0) {
+      await setCompanyThumb({ companyId, file }, token);
     }
 
-    if (file instanceof File && file.size > 0) {
-      const url = await setCompanyThumb({ companyId, file }, token);
-      return { status: 'saved', thumbUrl: url };
-    }
-
-    return { status: 'saved' };
+    // AFTER the picture is settled, not before: this is the one read that tells
+    // the screen what it now holds, and a thumb_url read a moment too early
+    // would send back the address the save had just replaced.
+    return { status: 'saved', profile: await readStationProfile(companyId, token) };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'save station profile failed');
     return {
