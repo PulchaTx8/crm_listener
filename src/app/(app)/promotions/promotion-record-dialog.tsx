@@ -24,7 +24,14 @@ import { QuizTab } from './quiz-tab';
 
 const TAB_LABELS: Record<PromotionTab, string> = {
   data: 'Promotion',
-  whatsapp: 'WhatsApp',
+  /**
+   * Block 17c. The KEY stays `whatsapp` because it is a URL parameter and a
+   * saved link should keep opening the tab it opened yesterday; the LABEL says
+   * what the tab now holds, which is where a promotion takes part — WhatsApp,
+   * the website, or both. Renaming the key is worth doing on a quiet day, and
+   * leaving the label saying WhatsApp over the website's rules was not.
+   */
+  whatsapp: 'Participation',
   quiz: 'Quiz',
   prizes: 'Prizes',
   participations: 'Entries',
@@ -163,6 +170,7 @@ export function PromotionRecordDialog({
   // than inside each tab because the tabs are one form and the Promotion tab's
   // repeat tick has to survive a trip through the WhatsApp tab.
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [webEnabled, setWebEnabled] = useState(false);
   const [repeats, setRepeats] = useState(false);
   /**
    * Set when the record that came back belongs to a Station other than the one
@@ -218,6 +226,7 @@ export function PromotionRecordDialog({
         }
         setRecord(result.record);
         setWhatsappEnabled(result.record.whatsappEnabled);
+        setWebEnabled(result.record.webEnabled);
         setRepeats(result.record.allowMultipleEntries);
         onLoaded?.(result.record);
         return;
@@ -413,6 +422,10 @@ export function PromotionRecordDialog({
                 <WhatsappFields
                   record={record}
                   enabled={whatsappEnabled}
+
+                  webEnabled={webEnabled}
+
+                  onWebEnabledChange={setWebEnabled}
                   onEnabledChange={(next) => {
                     setWhatsappEnabled(next);
                     setDirty(true);

@@ -2428,11 +2428,13 @@ export type Database = {
           pickup_deadline_days: number | null
           requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer: boolean
+          rules: string | null
           site_integration_code: number | null
           starts_at: string
           thumb_url: string | null
           updated_at: string
           use_art: boolean
+          web_enabled: boolean
           whatsapp_enabled: boolean
           yes_button_label: string | null
         }
@@ -2460,11 +2462,13 @@ export type Database = {
           pickup_deadline_days?: number | null
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
+          rules?: string | null
           site_integration_code?: number | null
           starts_at: string
           thumb_url?: string | null
           updated_at?: string
           use_art?: boolean
+          web_enabled?: boolean
           whatsapp_enabled?: boolean
           yes_button_label?: string | null
         }
@@ -2492,11 +2496,13 @@ export type Database = {
           pickup_deadline_days?: number | null
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
+          rules?: string | null
           site_integration_code?: number | null
           starts_at?: string
           thumb_url?: string | null
           updated_at?: string
           use_art?: boolean
+          web_enabled?: boolean
           whatsapp_enabled?: boolean
           yes_button_label?: string | null
         }
@@ -3508,6 +3514,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      apply_member_field_values: {
+        Args: { p_fields: Json; p_member_id: string }
+        Returns: undefined
+      }
       apply_member_link: {
         Args: {
           p_actor: string
@@ -3840,8 +3850,10 @@ export type Database = {
           p_no_button_label?: string
           p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           p_require_correct_answer?: boolean
+          p_rules?: string
           p_site_integration_code?: number
           p_starts_at: string
+          p_web_enabled?: boolean
           p_whatsapp_enabled?: boolean
           p_yes_button_label?: string
         }
@@ -5046,8 +5058,10 @@ export type Database = {
           p_promotion_id: string
           p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           p_require_correct_answer?: boolean
+          p_rules?: string
           p_site_integration_code?: number
           p_starts_at: string
+          p_web_enabled?: boolean
           p_whatsapp_enabled?: boolean
           p_yes_button_label?: string
         }
@@ -5112,13 +5126,32 @@ export type Database = {
         Args: { p_member_id: string; p_promotion_id: string; p_status: string }
         Returns: string
       }
+      widget_enter_promotion: {
+        Args: {
+          p_answers?: Json
+          p_consent: boolean
+          p_fields?: Json
+          p_member_id: string
+          p_promotion_id: string
+          p_public_key: string
+        }
+        Returns: Json
+      }
       widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
       widget_installation_for: { Args: { p_company_id: string }; Returns: Json }
+      widget_listener_context: {
+        Args: { p_member_id: string; p_public_key: string }
+        Returns: Record<string, unknown>
+      }
       widget_music_request_context: {
         Args: { p_member_id: string; p_public_key: string }
         Returns: Record<string, unknown>
       }
       widget_music_request_wait: {
+        Args: { p_member_id: string; p_public_key: string }
+        Returns: Json
+      }
+      widget_promotions: {
         Args: { p_member_id: string; p_public_key: string }
         Returns: Json
       }
@@ -5218,7 +5251,7 @@ export type Database = {
       music_vocal: "MALE" | "FEMALE" | "DUO" | "GROUP" | "INSTRUMENTAL"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
-      participation_source: "MANUAL" | "IMPORT" | "WHATSAPP"
+      participation_source: "MANUAL" | "IMPORT" | "WHATSAPP" | "WEB"
       participation_status: "VALID" | "DUPLICATE" | "TOO_SOON" | "OVER_LIMIT"
       permission_scope: "organization" | "company"
       promotion_question_kind: "QUIZ" | "MULTIPLE_CHOICE" | "ESSAY"
@@ -5446,7 +5479,7 @@ export const Constants = {
       music_vocal: ["MALE", "FEMALE", "DUO", "GROUP", "INSTRUMENTAL"],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],
-      participation_source: ["MANUAL", "IMPORT", "WHATSAPP"],
+      participation_source: ["MANUAL", "IMPORT", "WHATSAPP", "WEB"],
       participation_status: ["VALID", "DUPLICATE", "TOO_SOON", "OVER_LIMIT"],
       permission_scope: ["organization", "company"],
       promotion_question_kind: ["QUIZ", "MULTIPLE_CHOICE", "ESSAY"],

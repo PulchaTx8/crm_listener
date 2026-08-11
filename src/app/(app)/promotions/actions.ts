@@ -65,6 +65,13 @@ function readOptionalNumber(raw: FormDataEntryValue | null): number | undefined 
 
 function readPromotionForm(formData: FormData) {
   const whatsappEnabled = formData.get('whatsappEnabled') === 'on';
+  const webEnabled = formData.get('webEnabled') === 'on';
+  /**
+   * Block 17c. Whether this promotion can ask a listener anything at all, on
+   * either door. What used to be `whatsappEnabled` in the two places below is
+   * this instead, and the distinction is the whole of that block's edit here.
+   */
+  const conversational = whatsappEnabled || webEnabled;
 
   return promotionFormSchema.safeParse({
     companyId: formData.get('companyId'),
@@ -103,7 +110,20 @@ function readPromotionForm(formData: FormData) {
     // the saved record. See its own comment for why that has to come second.
     yesButtonLabel: whatsappEnabled ? formData.get('yesButtonLabel') || null : null,
     noButtonLabel: whatsappEnabled ? formData.get('noButtonLabel') || null : null,
-    requestedFields: whatsappEnabled ? readRequestedFields(formData) : [],
+    // `conversational`, NOT `whatsappEnabled`, and this line was the defect
+    // Block 17c set out to fix. The moment web_enabled existed, saving a
+    // web-only promotion here threw away the very fields it asks for -- and no
+    // constraint would have caught it, because an empty array is valid. The
+    // reason the WhatsApp fields above are still dropped is unchanged and
+    // still right: promotions_whatsapp_fields wants them empty, so a stale tab
+    // posting a hashtag gets silence rather than a refusal the operator cannot
+    // explain.
+    requestedFields: conversational ? readRequestedFields(formData) : [],
+    webEnabled,
+    // Read unconditionally. A promotion can be marked for the web while its
+    // wording is still being written, and the rules can be written before the
+    // box is ticked -- neither half is dropped because the other is missing.
+    rules: formData.get('rules') || null,
   });
 }
 

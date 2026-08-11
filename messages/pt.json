@@ -1406,7 +1406,11 @@
     "picture": "Imagem",
     "promotionPicture": "Imagem da promoção",
     "shownOnTheListAndTheRecord": "Aparece na lista e nesta ficha. Nunca é enviada a ninguém.",
-    "bannerSentWithTheReply": "Banner enviado na resposta"
+    "bannerSentWithTheReply": "Banner enviado na resposta",
+    "takePartByWeb": "Participar pelo site",
+    "rules": "Regulamento",
+    "whatAListenerAgreesToBeforeEntering": "Com o que o ouvinte concorda antes de participar. Aparece no widget acima da caixa de aceite.",
+    "withoutRulesThisDoesNotAppearOnTheSite": "Sem regulamento escrito aqui, esta promoção não aparece no site."
   },
   "music": {
     "closeRecord": "Fechar ficha",
@@ -1759,6 +1763,25 @@
     "identifyAgain": "Sua sessão terminou. Identifique-se novamente.",
     "searchBusy": "A busca está ocupada agora. Tente daqui a pouco.",
     "searchUnreachable": "A busca não está acessível. Tente de novo.",
-    "recordingUnreadable": "Não foi possível ler essa gravação. Escolha outra."
+    "recordingUnreadable": "Não foi possível ler essa gravação. Escolha outra.",
+    "entryRecorded": "Você está participando. Boa sorte!",
+    "entryNotRecorded": "Tudo bem — sua participação não foi registrada.",
+    "iAgreeToTheRules": "Li e concordo com o regulamento",
+    "enterNow": "Participar",
+    "next": "Continuar",
+    "yourAnswer": "Sua resposta",
+    "noPromotionsRightNow": "Nenhuma promoção no ar agora.",
+    "alreadyEntered": "Você já participou desta",
+    "thisPromotionIsClosed": "Esta promoção já encerrou.",
+    "youHaveAlreadyEntered": "Você já participou desta promoção.",
+    "somethingIsMissing": "Faltou alguma coisa. Volte e confira suas respostas.",
+    "field_full_name": "Nome completo",
+    "field_address": "Endereço",
+    "field_city": "Cidade",
+    "field_neighbourhood": "Bairro",
+    "field_age": "Data de nascimento",
+    "field_cpf": "CPF",
+    "field_passport": "Passaporte",
+    "field_discovery_source": "Como nos conheceu"
   }
 }

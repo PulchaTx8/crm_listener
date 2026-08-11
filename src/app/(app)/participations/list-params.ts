@@ -65,9 +65,13 @@ export const SOURCE_LABEL_KEYS: Record<ParticipationSource, string> = {
   MANUAL: 'sourceManual',
   IMPORT: 'sourceImport',
   WHATSAPP: 'sourceWhatsapp',
+  // Block 17c. Not WHATSAPP and not MANUAL: a listener pressed a button in the
+  // widget embedded on the Station's own website. The Record is exhaustive on
+  // purpose, so the type checker is what noticed this was missing.
+  WEB: 'sourceWeb',
 };
 
-export const SOURCE_ORDER: ParticipationSource[] = ['MANUAL', 'IMPORT', 'WHATSAPP'];
+export const SOURCE_ORDER: ParticipationSource[] = ['MANUAL', 'IMPORT', 'WHATSAPP', 'WEB'];
 
 /**
  * The id of the page's explanation of why the listener search is unavailable.
