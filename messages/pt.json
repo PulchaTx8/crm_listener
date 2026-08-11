@@ -1371,7 +1371,7 @@
     "findAStation": "Encontrar uma Emissora",
     "questionKindQuiz": "Quiz",
     "questionKindPoll": "Enquete",
-    "questionKindEssay": "Resposta escrita",
+    "questionKindEssay": "Enquete",
     "questionHintQuiz": "Opções, uma delas a resposta certa.",
     "questionHintPoll": "Opções, nenhuma delas certa ou errada.",
     "questionHintEssay": "O ouvinte digita a própria resposta.",
@@ -1782,6 +1782,8 @@
     "field_age": "Data de nascimento",
     "field_cpf": "CPF",
     "field_passport": "Passaporte",
-    "field_discovery_source": "Como nos conheceu"
+    "field_discovery_source": "Como nos conheceu",
+    "chooseOne": "Escolha uma",
+    "otherPromotions": "Outras promoções"
   }
 }

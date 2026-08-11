@@ -365,6 +365,34 @@ test.beforeAll(async ({}, testInfo) => {
   });
   if (promotionError) throw new Error(`could not seed the promotion: ${promotionError.message}`);
 
+  // Block 17c, first repair. A QUIZ ON THE JOURNEY, because the defect this
+  // file missed was exactly the difference between the two answer shapes:
+  // participation_answers_shape (0052) wants `option_id` for a question with
+  // alternatives and `answer_text` for an open one, and a panel that drew a
+  // text box for both reached a listener as "something went wrong".
+  const { data: promotionRows } = await admin
+    .from('promotions')
+    .select('id')
+    .eq('company_id', companyId)
+    .limit(1);
+  const seededPromotionId = promotionRows?.[0]?.id as string;
+
+  const { error: questionError } = await ownerClient.rpc('save_promotion_question', {
+    p_promotion_id: seededPromotionId,
+    p_kind: 'QUIZ',
+    p_prompt: 'Qual é a capital do estado?',
+    // Required for a question with alternatives (promotion_questions_list_fields)
+    // even on a promotion that only converses on the web — a one-door assumption
+    // still standing, and noted rather than fixed as a passenger here.
+    p_menu_title: 'Escolha uma',
+    p_button_label: 'Responder',
+    p_options: [
+      { label: 'São Paulo', is_correct: true },
+      { label: 'Santos', is_correct: false },
+    ],
+  });
+  if (questionError) throw new Error(`could not seed the quiz: ${questionError.message}`);
+
   // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
   // this journey shares with its own previous runs. Every limit in actions.ts
   // is keyed by the telephone number except these two, which are keyed by
@@ -586,6 +614,14 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-promotion-next').click();
 
   await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE ALTERNATIVES, WHICH IS THE REPAIR. Before it, this screen was a text
+  // box: the listener typed prose, participation_answers_shape refused it and
+  // the panel said "something went wrong".
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
   await widget.getByTestId('widget-promotion-send').click();
 
   await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });

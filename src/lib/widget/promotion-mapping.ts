@@ -12,6 +12,12 @@ export type WidgetStep =
   | { kind: 'field'; field: string }
   | { kind: 'question'; questionId: string; questionKind: string };
 
+/** One alternative a listener can choose. Never carries which one is right. */
+export interface WidgetOption {
+  id: string;
+  label: string;
+}
+
 /** One promotion, as the widget shows it. */
 export interface WidgetPromotion {
   id: string;
@@ -21,6 +27,55 @@ export interface WidgetPromotion {
   thumbUrl: string | null;
   alreadyEntered: boolean;
   steps: WidgetStep[];
+  /**
+   * The alternatives, by question id. Empty for an open question, and for any
+   * question this code could not read — the panel draws a text box only for
+   * `ESSAY`, so an unreadable quiz shows no options and the door then refuses
+   * the submission rather than recording an answer nobody chose.
+   */
+  options: Record<string, WidgetOption[]>;
+}
+
+/**
+ * `answer_text` or `option_id`, decided by the question's kind.
+ *
+ * participation_answers_shape (0052) requires `option_id` with a null
+ * `answer_text` for QUIZ and MULTIPLE_CHOICE, and exactly the opposite for
+ * ESSAY. Sending the wrong one trips a CHECK deep inside apply_participation
+ * and reaches a listener as "something went wrong" — which is what the first
+ * version of this panel did, because it drew a text box for every kind.
+ */
+export function answersFor(
+  steps: WidgetStep[],
+  chosen: Record<string, string>,
+): Array<{ question_id: string; option_id?: string; answer_text?: string }> {
+  return steps.flatMap((step) => {
+    if (step.kind !== 'question') return [];
+    const value = chosen[step.questionId];
+    if (value === undefined || value === '') return [];
+
+    return [
+      step.questionKind === 'ESSAY'
+        ? { question_id: step.questionId, answer_text: value }
+        : { question_id: step.questionId, option_id: value },
+    ];
+  });
+}
+
+export function readOptions(value: unknown): Record<string, WidgetOption[]> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+
+  const byQuestion: Record<string, WidgetOption[]> = {};
+  for (const [questionId, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(raw)) continue;
+    byQuestion[questionId] = raw.flatMap((entry): WidgetOption[] => {
+      if (typeof entry !== 'object' || entry === null) return [];
+      const option = entry as Record<string, unknown>;
+      if (typeof option.id !== 'string' || typeof option.label !== 'string') return [];
+      return [{ id: option.id, label: option.label }];
+    });
+  }
+  return byQuestion;
 }
 
 export type EnterRefusal =

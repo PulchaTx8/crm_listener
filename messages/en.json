@@ -1371,7 +1371,7 @@
     "findAStation": "Find a Station",
     "questionKindQuiz": "Quiz",
     "questionKindPoll": "Poll",
-    "questionKindEssay": "Written answer",
+    "questionKindEssay": "Poll",
     "questionHintQuiz": "Options, one of them the right answer.",
     "questionHintPoll": "Options, none of them right or wrong.",
     "questionHintEssay": "The listener types their own answer.",
@@ -1782,6 +1782,8 @@
     "field_age": "Date of birth",
     "field_cpf": "CPF",
     "field_passport": "Passport",
-    "field_discovery_source": "How you found us"
+    "field_discovery_source": "How you found us",
+    "chooseOne": "Choose one",
+    "otherPromotions": "Other promotions"
   }
 }
