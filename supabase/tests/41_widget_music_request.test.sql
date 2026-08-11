@@ -1,5 +1,5 @@
 begin;
-select plan(14);
+select plan(17);
 
 -- Block 17b. The two doors behind the widget's first button.
 --
@@ -170,6 +170,70 @@ select is(
      'pw_musicstationb012345678',
      '00000000-0000-0000-0000-000000000304') ->> 'reason'),
   'unknown_listener', 'the wait door does not answer about another Station''s listener');
+
+-- ---------------------------------------------------------------------------
+-- Block 18. THE PROGRAMME A LISTENER NAMES, and the one they must not.
+--
+-- 17b wrote show_id as a literal null (D5) because a visitor had no way to know
+-- a programme's name. Block 18 gives them a list, which makes the id the ONE
+-- other thing a browser can send that names a row — so it is resolved against
+-- the Station the key names rather than trusted.
+-- ---------------------------------------------------------------------------
+insert into public.shows (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-000000000320', '00000000-0000-0000-0000-000000000301',
+   '00000000-0000-0000-0000-000000000302', 'Programa da Station A'),
+  -- The same Organization, the OTHER Station. This is the id a crafted payload
+  -- would send, and it is reachable to the same listener's browser precisely
+  -- because they belong to the group.
+  ('00000000-0000-0000-0000-000000000321', '00000000-0000-0000-0000-000000000301',
+   '00000000-0000-0000-0000-000000000303', 'Programa da Station B');
+
+update public.widget_installations set music_request_cooldown = interval '0'
+ where public_key = 'pw_musicstationa012345678';
+
+-- CALL, THEN ASSERT, in separate statements. Every subquery in one SELECT sees
+-- the same snapshot, so a read of the row the call just inserted returns
+-- nothing -- the defect 42_widget_promotions already recorded once.
+select public.widget_record_music_request(
+  'pw_musicstationa012345678', '00000000-0000-0000-0000-000000000304',
+  3135570, 'Com programa', 'Caetano Veloso', 'Prenda Minha', 200,
+  null, null, 302127, null, null, null, null, null,
+  '00000000-0000-0000-0000-000000000320');
+
+select is(
+  -- Found by the song it names, not by created_at: inside ONE transaction
+  -- now() is constant, so every request here shares a timestamp and
+  --  picks an arbitrary one. The earlier
+  -- assertions in this file were passing on luck.
+  (select mr.show_id from public.music_requests mr
+     join public.songs sg on sg.id = mr.song_id
+    where sg.title = 'Com programa'),
+  '00000000-0000-0000-0000-000000000320'::uuid,
+  'a programme of this Station is recorded on the request');
+
+select public.widget_record_music_request(
+  'pw_musicstationa012345678', '00000000-0000-0000-0000-000000000304',
+  3135571, 'Programa alheio', 'Caetano Veloso', 'Prenda Minha', 200,
+  null, null, 302127, null, null, null, null, null,
+  '00000000-0000-0000-0000-000000000321');
+
+select is(
+  (select mr.show_id from public.music_requests mr
+     join public.songs sg on sg.id = mr.song_id
+    where sg.title = 'Programa alheio'),
+  null,
+  'another Station''s programme is dropped rather than written into this one');
+
+select public.widget_record_music_request(
+  'pw_musicstationa012345678', '00000000-0000-0000-0000-000000000304',
+  3135572, 'Sem programa', 'Caetano Veloso', 'Prenda Minha', 200,
+  null, null, 302127, null, null, null, null, null, null);
+
+select is(
+  (select mr.show_id from public.music_requests mr
+     join public.songs sg on sg.id = mr.song_id
+    where sg.title = 'Sem programa'),
+  null, 'and naming none is still the ordinary case (D6)');
 
 select * from finish();
 rollback;
