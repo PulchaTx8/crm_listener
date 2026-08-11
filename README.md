@@ -19,10 +19,44 @@ npm run dev               # http://localhost:3000
 The seed prints the two sign-ins it made: an owner for the product and a platform
 admin for the console. It refuses to run against anything but a local stack.
 
+`npm run db:reset` is local by construction for the same reason: it goes through
+`scripts/db-reset.mjs`, which passes `--local` explicitly and refuses `--linked`
+and `--db-url`. **The bare CLI still accepts them.** `supabase db reset --linked`
+destroys the hosted project — every customer row and every sign-in — and it is
+one word away from the `--linked` you correctly pass to `supabase migration list`
+before merging a block with a migration.
+
 **If auth calls start failing with `createUser failed: {}`,** restart the
 gateway: `docker restart supabase_kong_<project>`. `supabase db reset` restarts
 the containers and Kong comes back blind. It has cost this project an afternoon
 more than once.
+
+## The demonstration Organization, which is live
+
+The hosted project carries **PULCHATX DEMO** / Station **DEMO FM** — roughly
+10,300 rows, seeded on 2026-08-10 and **kept there on purpose**: it is what the
+product is shown from. It sits beside real customer data and is meant to.
+
+`npm run seed:demo` cannot have made it — that script is pinned to a local stack
+by `src/lib/security/local-only.ts`, and widening it would disarm the guard for
+every future run. The two files below are a separate door with its own keys:
+
+| | |
+| --- | --- |
+| `scripts/seed-hosted-demo.mjs` | built it. Every input required, `DEMO_SEED_CONFIRM` must spell out the Organization name, and off localhost `DEMO_SEED_I_MEAN_PRODUCTION=yes` is a second key. It only ever creates — a name already taken stops the run. |
+| `scripts/unseed-hosted-demo.sql` | takes it back out, and is the only thing that can. |
+
+**The teardown is SQL and not a script for a reason that will outlive the demo:**
+`service_role` holds DELETE on six tables in this schema and SELECT on forty
+more, so a Node teardown takes 42501 from everything that matters — and if it
+reads that as "nothing to do", it reports a clean database over a full one. Run
+it as `postgres`, from the dashboard's SQL editor or `psql`. Both files carry the
+full reasoning in their headers, including the deferred trigger that otherwise
+rolls the whole thing back at COMMIT.
+
+Seeded listeners have phone numbers shaped `+55DD90…` — real area code, real
+leading 9, and then a 0 where a Brazilian mobile has 6–9. They read as phone
+numbers on screen and reach nobody.
 
 ## The suites, and what each one is for
 
