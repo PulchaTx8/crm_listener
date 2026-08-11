@@ -3,19 +3,22 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { EnterPromotionPanel } from './enter-promotion';
 import { RequestSongPanel } from './request-song';
 
 /**
  * Block 17a, spec §8: "The menu has two buttons, disabled until 17b and 17c
  * land."
  *
- * 17b LANDED, so the first one works and this component now owns which panel is
- * open. The second is still a placeholder: 17c is the promotion list and the
- * step walker, and building either here would put a screen in this file that
- * nothing tests.
+ * BOTH HAVE LANDED. 17b took the first, 17c the second, and this component's
+ * whole job is now which panel is open. What follows is kept as history rather
+ * than instruction — it records a deviation from 17a's brief that a reader
+ * would otherwise wonder about, and the reasoning is why neither button ever
+ * named a block number to a visitor.
  *
- * WHAT THE TOOLTIP SAYS IS A DEVIATION FROM THE BRIEF, recorded rather than
- * slipped in: it asked for a `title` "naming the block that will enable them".
+ * WHILE THE BUTTONS WERE DISABLED, THEIR TOOLTIP WAS A DEVIATION FROM THE
+ * BRIEF, recorded rather than slipped in: it asked for a `title` "naming the
+ * block that will enable them".
  * A block number is this project's vocabulary, not a listener's — the person
  * reading this tooltip is somebody's mother on a radio station's website, in
  * one of three languages, and "Block 17c" is not a sentence in any of them. The
@@ -25,7 +28,11 @@ import { RequestSongPanel } from './request-song';
  */
 export function WidgetMenu({ publicKey }: { publicKey: string }) {
   const t = useTranslations('widget');
-  const [panel, setPanel] = useState<'menu' | 'song'>('menu');
+  const [panel, setPanel] = useState<'menu' | 'song' | 'promotion'>('menu');
+
+  if (panel === 'promotion') {
+    return <EnterPromotionPanel publicKey={publicKey} onClose={() => setPanel('menu')} />;
+  }
 
   if (panel === 'song') {
     return <RequestSongPanel publicKey={publicKey} onClose={() => setPanel('menu')} />;
@@ -50,12 +57,10 @@ export function WidgetMenu({ publicKey }: { publicKey: string }) {
         >
           {t('requestASong')}
         </Button>
-        {/* Block 17c. */}
         <Button
           type="button"
           variant="outline"
-          disabled
-          title={t('comingSoon')}
+          onClick={() => setPanel('promotion')}
           data-testid="widget-enter-promotion"
         >
           {t('enterAPromotion')}

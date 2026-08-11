@@ -1763,6 +1763,25 @@
     "identifyAgain": "Tu sesión terminó. Identifícate de nuevo.",
     "searchBusy": "La búsqueda está ocupada ahora. Inténtalo en un momento.",
     "searchUnreachable": "No se puede acceder a la búsqueda. Inténtalo de nuevo.",
-    "recordingUnreadable": "No se pudo leer esa grabación. Elige otra."
+    "recordingUnreadable": "No se pudo leer esa grabación. Elige otra.",
+    "entryRecorded": "Estás participando. ¡Buena suerte!",
+    "entryNotRecorded": "Está bien — tu participación no fue registrada.",
+    "iAgreeToTheRules": "Leí y acepto el reglamento",
+    "enterNow": "Participar",
+    "next": "Continuar",
+    "yourAnswer": "Tu respuesta",
+    "noPromotionsRightNow": "No hay promociones al aire ahora.",
+    "alreadyEntered": "Ya participaste en esta",
+    "thisPromotionIsClosed": "Esta promoción ya terminó.",
+    "youHaveAlreadyEntered": "Ya participaste en esta promoción.",
+    "somethingIsMissing": "Faltó algo. Vuelve y revisa tus respuestas.",
+    "field_full_name": "Nombre completo",
+    "field_address": "Dirección",
+    "field_city": "Ciudad",
+    "field_neighbourhood": "Barrio",
+    "field_age": "Fecha de nacimiento",
+    "field_cpf": "CPF",
+    "field_passport": "Pasaporte",
+    "field_discovery_source": "Cómo nos conociste"
   }
 }

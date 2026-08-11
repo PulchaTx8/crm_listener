@@ -1763,6 +1763,25 @@
     "identifyAgain": "Your session ended. Identify yourself again.",
     "searchBusy": "Search is busy right now. Try again in a moment.",
     "searchUnreachable": "Search is not reachable. Try again.",
-    "recordingUnreadable": "That recording could not be read. Choose another."
+    "recordingUnreadable": "That recording could not be read. Choose another.",
+    "entryRecorded": "You are in. Good luck!",
+    "entryNotRecorded": "No problem — your entry was not recorded.",
+    "iAgreeToTheRules": "I have read and agree to the rules",
+    "enterNow": "Enter",
+    "next": "Next",
+    "yourAnswer": "Your answer",
+    "noPromotionsRightNow": "No promotions are running right now.",
+    "alreadyEntered": "You have already entered this one",
+    "thisPromotionIsClosed": "This promotion has closed.",
+    "youHaveAlreadyEntered": "You have already entered this promotion.",
+    "somethingIsMissing": "Something is missing. Go back and check your answers.",
+    "field_full_name": "Full name",
+    "field_address": "Address",
+    "field_city": "City",
+    "field_neighbourhood": "Neighbourhood",
+    "field_age": "Date of birth",
+    "field_cpf": "CPF",
+    "field_passport": "Passport",
+    "field_discovery_source": "How you found us"
   }
 }
