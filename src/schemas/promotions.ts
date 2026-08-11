@@ -98,6 +98,22 @@ export const promotionFormSchema = z
     requireCorrectAnswer: z.boolean(),
 
     whatsappEnabled: z.boolean(),
+    /**
+     * Block 17c (D1). The sister of the flag above: a promotion takes part
+     * through WhatsApp, through the embedded widget, through both, or through
+     * neither. Either one allows the art and the requested fields; see the
+     * cross-field rule below for what stays WhatsApp's alone.
+     */
+    webEnabled: z.boolean(),
+    /**
+     * What a listener agrees to before entering from the website (D2).
+     *
+     * OPTIONAL EVEN WITH `webEnabled` ON, deliberately: the owner rejected a
+     * mandatory rules field, so a promotion can be marked for the web while
+     * somebody is still writing the wording. It simply does not appear in the
+     * widget until both are true, and the screen says which half is missing.
+     */
+    rules: z.string().max(20_000).nullish(),
 
     hashtag: z
       .string()
@@ -204,13 +220,23 @@ export const promotionFormSchema = z
           message: 'Turn WhatsApp on for this promotion, or leave this empty.',
         });
       }
-      if (v.requestedFields.length > 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['requestedFields'],
-          message: 'The bot only asks for these on a WhatsApp promotion.',
-        });
-      }
+    }
+
+    // BLOCK 17c MOVED THIS OUT OF THE `!whatsappEnabled` BRANCH ABOVE, and the
+    // move is the point. Requested fields used to belong to WhatsApp because
+    // WhatsApp was the only thing that could ask a listener anything; the
+    // widget asks the same fields through another door, so the rule is now
+    // "some door", not "that door". promotions_conversational_shape (0171) says
+    // the same in SQL.
+    //
+    // The hashtag and the button labels stay above, gated on WhatsApp alone:
+    // they are objects of that conversation and of nothing else.
+    if (!v.whatsappEnabled && !v.webEnabled && v.requestedFields.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['requestedFields'],
+        message: 'Turn WhatsApp or the web on for this promotion, or leave these empty.',
+      });
     }
 
     // promotions_hashtag_shape. A hashtag with a space cannot be matched

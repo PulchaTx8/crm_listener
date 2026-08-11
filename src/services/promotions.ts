@@ -79,6 +79,14 @@ export interface PromotionSummary {
   endsAt: string;
   cancelledAt: string | null;
   whatsappEnabled: boolean;
+
+  /** Block 17c (D1). Whether this promotion takes part through the embedded widget. */
+
+  webEnabled: boolean;
+
+  /** Block 17c (D2). What a listener agrees to before entering from the website. */
+
+  rules: string | null;
   hashtag: string | null;
   siteIntegrationCode: number | null;
   questionCount: number;
@@ -130,6 +138,8 @@ type PromotionRow = {
   ends_at: string;
   cancelled_at: string | null;
   whatsapp_enabled: boolean;
+  web_enabled: boolean;
+  rules: string | null;
   hashtag: string | null;
   thumb_url: string | null;
   site_integration_code: number | null;
@@ -154,7 +164,7 @@ export async function listPromotionsPage(
     let q = supabase
       .from('promotions')
       .select(
-        'id,name,starts_at,ends_at,cancelled_at,whatsapp_enabled,hashtag,site_integration_code,thumb_url,deleted_at',
+        'id,name,starts_at,ends_at,cancelled_at,whatsapp_enabled,web_enabled,rules,hashtag,site_integration_code,thumb_url,deleted_at',
         options,
       )
       .eq('company_id', params.companyId);
@@ -252,6 +262,10 @@ async function withQuestionCounts(
     endsAt: row.ends_at,
     cancelledAt: row.cancelled_at,
     whatsappEnabled: row.whatsapp_enabled,
+
+    webEnabled: row.web_enabled,
+
+    rules: row.rules,
     hashtag: row.hashtag,
     siteIntegrationCode: row.site_integration_code,
     thumbUrl: row.thumb_url,
@@ -338,6 +352,14 @@ export interface PromotionDetail {
   requireCorrectAnswer: boolean;
   callToAction: string | null;
   whatsappEnabled: boolean;
+
+  /** Block 17c (D1). Whether this promotion takes part through the embedded widget. */
+
+  webEnabled: boolean;
+
+  /** Block 17c (D2). What a listener agrees to before entering from the website. */
+
+  rules: string | null;
   hashtag: string | null;
   /** Set from the presence of the banner and never independently (0144); the screen no longer offers a tick for it. */
   useArt: boolean;
@@ -507,6 +529,10 @@ export async function getPromotionRecord(
     requireCorrectAnswer: promotion.require_correct_answer,
     callToAction: promotion.call_to_action,
     whatsappEnabled: promotion.whatsapp_enabled,
+
+    webEnabled: promotion.web_enabled,
+
+    rules: promotion.rules,
     hashtag: promotion.hashtag,
     useArt: promotion.use_art,
     artUrl: promotion.art_url,
@@ -614,6 +640,12 @@ function promotionRpcArgs(input: PromotionFormInput) {
     p_min_hours_between_entries: input.minHoursBetweenEntries,
     p_require_correct_answer: input.requireCorrectAnswer,
     p_whatsapp_enabled: input.whatsappEnabled,
+    // Block 17c, and the comment below is why these two are easy to forget:
+    // both have SQL defaults, so omitting them type-checks perfectly and writes
+    // `false` and `null` on every save -- a promotion silently unpublished from
+    // the website each time somebody edited its name.
+    p_web_enabled: input.webEnabled,
+    p_rules: input.rules ?? undefined,
     p_hashtag: input.hashtag,
     // p_use_art and p_art_url are GONE from both doors (0144), and their absence
     // here is not cosmetic. update_promotion replaces every field it takes, and

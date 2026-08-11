@@ -13,6 +13,9 @@ const base = {
   allowMultipleEntries: false,
   requireCorrectAnswer: false,
   whatsappEnabled: false,
+  // Block 17c: the sister flag. Required like the one above, because the form
+  // always posts a checkbox and a promotion always answers the question.
+  webEnabled: false,
   requestedFields: [],
 };
 
@@ -136,6 +139,38 @@ describe('promotionFormSchema', () => {
 
   it('requires a hashtag when WhatsApp is on', () => {
     const r = promotionFormSchema.safeParse({ ...base, whatsappEnabled: true });
+    expect(r.success).toBe(false);
+  });
+
+  /**
+   * Block 17c. Requested fields used to belong to WhatsApp because WhatsApp was
+   * the only thing that could ask a listener anything. The widget asks the same
+   * fields through another door, so the rule is now "some door".
+   */
+  it('accepts requested fields on a promotion that only uses the web', () => {
+    const r = promotionFormSchema.safeParse({
+      ...base,
+      webEnabled: true,
+      requestedFields: ['city'],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('still refuses requested fields when the promotion converses nowhere', () => {
+    const r = promotionFormSchema.safeParse({ ...base, requestedFields: ['city'] });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe(
+      'Turn WhatsApp or the web on for this promotion, or leave these empty.',
+    );
+  });
+
+  /** The hashtag did NOT move with them: it is an object of that conversation. */
+  it('still refuses a hashtag on a web-only promotion', () => {
+    const r = promotionFormSchema.safeParse({
+      ...base,
+      webEnabled: true,
+      hashtag: '#EUQUERO',
+    });
     expect(r.success).toBe(false);
   });
 

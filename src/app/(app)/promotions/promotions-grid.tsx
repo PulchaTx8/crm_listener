@@ -72,6 +72,10 @@ function toSummary(record: PromotionDetail): PromotionSummary {
     endsAt: record.endsAt,
     cancelledAt: record.cancelledAt,
     whatsappEnabled: record.whatsappEnabled,
+
+    webEnabled: record.webEnabled,
+
+    rules: record.rules,
     hashtag: record.hashtag,
     siteIntegrationCode: record.siteIntegrationCode,
     thumbUrl: record.thumbUrl,
