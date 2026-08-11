@@ -40,15 +40,19 @@ select is(
   'music_vocal carries all five, not the two §4.2 named');
 -- Block 15 added API, in a migration of its own (0151) because ALTER TYPE ...
 -- ADD VALUE cannot share a transaction with a statement that uses the value.
+-- Block 17b added WEB the same way (0166): a listener standing on the Station's
+-- own website, through the embedded widget.
 -- WHATSAPP is still absent, and its absence is still the point 0098 made: that
 -- value is reserved for this product's OWN bot, reading inbound messages
 -- through the Meta webhook. API means a third-party application posted over
 -- HTTP -- which is a different path even when that application happens to be
--- attending the listener on WhatsApp.
+-- attending the listener on WhatsApp. WEB is a third path again, and it is not
+-- API: nobody authenticated with a credential, and nothing was posted by an
+-- application. A visitor pressed a button on a page this product served.
 select is(
   enum_range(null::public.music_request_channel)::text[],
-  array['MANUAL', 'IMPORT', 'API'],
-  'music_request_channel gained API in Block 15; WHATSAPP is still reserved for our own bot');
+  array['MANUAL', 'IMPORT', 'API', 'WEB'],
+  'music_request_channel gained WEB in Block 17b; WHATSAPP is still reserved for our own bot');
 
 -- 10-13: what may not be null. A song without an artist is a draft (§3.2);
 -- a request always names a listener and a catalogued song (D5).
