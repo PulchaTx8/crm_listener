@@ -23,7 +23,10 @@ export interface ShowFormState {
   record?: ShowSummary;
 }
 
-export const SHOW_FORM_IDLE: ShowFormState = { status: 'idle' };
+// SHOW_FORM_IDLE lives in the dialog, NOT here. A module carrying 'use server'
+// may export nothing but async functions -- an exported const object is a
+// runtime error Next raises only when the route is served, which is why no
+// typecheck, lint or unit run caught it and the e2e did.
 
 async function accessToken(): Promise<string | null> {
   const supabase = await createUserClient();

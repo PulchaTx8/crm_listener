@@ -7,7 +7,7 @@ import { Input, Select } from '@/components/ui/input';
 import { SHOW_AGE_RATINGS, SHOW_KINDS } from '@/schemas/shows';
 import type { Band } from '@/lib/shows/bands';
 import type { ShowSummary } from '@/services/shows';
-import { SHOW_FORM_IDLE, endShowAction, saveShowAction } from './actions';
+import { endShowAction, saveShowAction, type ShowFormState } from './actions';
 import { ScheduleEditor } from './schedule-editor';
 
 /**
@@ -20,6 +20,8 @@ import { ScheduleEditor } from './schedule-editor';
  * record with relationships is archived, and `shows` has no cascade on anything
  * pointing at it, so a delete would be refused by the database anyway.
  */
+const SHOW_FORM_IDLE: ShowFormState = { status: 'idle' };
+
 export function ShowRecordDialog({
   companyId,
   record,
