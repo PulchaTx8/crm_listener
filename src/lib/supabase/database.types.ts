@@ -2737,38 +2737,117 @@ export type Database = {
           },
         ]
       }
+      show_schedules: {
+        Row: {
+          band: number
+          company_id: string
+          created_at: string
+          ends_at: string
+          id: string
+          organization_id: string
+          show_id: string
+          starts_at: string
+          weekday: number
+        }
+        Insert: {
+          band: number
+          company_id: string
+          created_at?: string
+          ends_at: string
+          id?: string
+          organization_id: string
+          show_id: string
+          starts_at: string
+          weekday: number
+        }
+        Update: {
+          band?: number
+          company_id?: string
+          created_at?: string
+          ends_at?: string
+          id?: string
+          organization_id?: string
+          show_id?: string
+          starts_at?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "show_schedules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "show_schedules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "show_schedules_show_id_fkey"
+            columns: ["show_id"]
+            isOneToOne: false
+            referencedRelation: "shows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shows: {
         Row: {
+          age_rating: Database["public"]["Enums"]["show_age_rating"] | null
           company_id: string
           created_at: string
           created_by: string | null
           deleted_at: string | null
+          ends_on: string | null
           id: string
+          kind: Database["public"]["Enums"]["show_kind"] | null
           legacy_id: string | null
           name: string
           organization_id: string
+          presenter_name: string | null
+          producer_name: string | null
+          starts_on: string | null
+          thumb_url: string | null
           updated_at: string
         }
         Insert: {
+          age_rating?: Database["public"]["Enums"]["show_age_rating"] | null
           company_id: string
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          ends_on?: string | null
           id?: string
+          kind?: Database["public"]["Enums"]["show_kind"] | null
           legacy_id?: string | null
           name: string
           organization_id: string
+          presenter_name?: string | null
+          producer_name?: string | null
+          starts_on?: string | null
+          thumb_url?: string | null
           updated_at?: string
         }
         Update: {
+          age_rating?: Database["public"]["Enums"]["show_age_rating"] | null
           company_id?: string
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          ends_on?: string | null
           id?: string
+          kind?: Database["public"]["Enums"]["show_kind"] | null
           legacy_id?: string | null
           name?: string
           organization_id?: string
+          presenter_name?: string | null
+          producer_name?: string | null
+          starts_on?: string | null
+          thumb_url?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -3931,6 +4010,10 @@ export type Database = {
           id: string
         }[]
       }
+      end_show: {
+        Args: { p_ends_on: string; p_show_id: string }
+        Returns: undefined
+      }
       enqueue_artwork_erasure: {
         Args: { p_key: string; p_url: string }
         Returns: undefined
@@ -4887,6 +4970,21 @@ export type Database = {
         }
         Returns: string
       }
+      save_show: {
+        Args: {
+          p_age_rating: Database["public"]["Enums"]["show_age_rating"]
+          p_bands: Json
+          p_company_id: string
+          p_ends_on?: string
+          p_kind: Database["public"]["Enums"]["show_kind"]
+          p_name: string
+          p_presenter_name?: string
+          p_producer_name?: string
+          p_show_id?: string
+          p_starts_on: string
+        }
+        Returns: string
+      }
       set_company_thumb: {
         Args: { p_company_id: string; p_url?: string }
         Returns: undefined
@@ -4915,6 +5013,7 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      shows_on_air: { Args: { p_company_id: string }; Returns: string[] }
       start_whatsapp_conversation: {
         Args: {
           p_integration_id: string
@@ -5275,6 +5374,8 @@ export type Database = {
         | "AUDIENCE_PANEL"
         | "MUSIC_PANEL"
         | "PROMOTIONS_PANEL"
+      show_age_rating: "L" | "10" | "12" | "14" | "16" | "18"
+      show_kind: "MUSICAL" | "NEWS" | "TALK_SHOW" | "SPORTS" | "ENTERTAINMENT"
       system_message_key:
         | "REFUSAL"
         | "ABANDON"
@@ -5505,6 +5606,8 @@ export const Constants = {
         "MUSIC_PANEL",
         "PROMOTIONS_PANEL",
       ],
+      show_age_rating: ["L", "10", "12", "14", "16", "18"],
+      show_kind: ["MUSICAL", "NEWS", "TALK_SHOW", "SPORTS", "ENTERTAINMENT"],
       system_message_key: [
         "REFUSAL",
         "ABANDON",
