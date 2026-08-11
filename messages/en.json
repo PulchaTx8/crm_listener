@@ -1740,6 +1740,20 @@
     "wrongCode": "That code is not right.",
     "nameRequired": "Tell us your name.",
     "numberCannotBeUsed": "This number cannot be used to identify you. Talk to the station.",
-    "somethingWentWrong": "Something went wrong. Try again."
+    "somethingWentWrong": "Something went wrong. Try again.",
+    "searchLabel": "Song or artist",
+    "searching": "Searching…",
+    "noResults": "Nothing found. Try another spelling.",
+    "noteLabel": "Anything you would like to say? (optional)",
+    "noteCount": "{count} of 500",
+    "sendRequest": "Send request",
+    "back": "Back",
+    "requestRecorded": "Your request is with the station.",
+    "waitAgainInMinutes": "You can ask for another song in {count, plural, one {# minute} other {# minutes}}.",
+    "waitAgainInHours": "You can ask for another song in {count, plural, one {# hour} other {# hours}}.",
+    "identifyAgain": "Your session ended. Identify yourself again.",
+    "searchBusy": "Search is busy right now. Try again in a moment.",
+    "searchUnreachable": "Search is not reachable. Try again.",
+    "recordingUnreadable": "That recording could not be read. Choose another."
   }
 }

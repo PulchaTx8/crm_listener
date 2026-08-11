@@ -1740,6 +1740,20 @@
     "wrongCode": "Ese código no es correcto.",
     "nameRequired": "Dinos tu nombre.",
     "numberCannotBeUsed": "Este número no se puede usar para identificarte. Habla con la emisora.",
-    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo."
+    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo.",
+    "searchLabel": "Canción o artista",
+    "searching": "Buscando…",
+    "noResults": "No se encontró nada. Prueba a escribirlo de otra forma.",
+    "noteLabel": "¿Quieres decir algo? (opcional)",
+    "noteCount": "{count} de 500",
+    "sendRequest": "Enviar pedido",
+    "back": "Volver",
+    "requestRecorded": "Tu pedido llegó a la emisora.",
+    "waitAgainInMinutes": "Puedes pedir otra canción en {count, plural, one {# minuto} other {# minutos}}.",
+    "waitAgainInHours": "Puedes pedir otra canción en {count, plural, one {# hora} other {# horas}}.",
+    "identifyAgain": "Tu sesión terminó. Identifícate de nuevo.",
+    "searchBusy": "La búsqueda está ocupada ahora. Inténtalo en un momento.",
+    "searchUnreachable": "No se puede acceder a la búsqueda. Inténtalo de nuevo.",
+    "recordingUnreadable": "No se pudo leer esa grabación. Elige otra."
   }
 }
