@@ -403,6 +403,15 @@ test('a visitor identifies themselves from a page on another origin entirely', a
   const code = await codeFromTheOutbox();
   expect(code, 'six digits, leading zeros intact').toMatch(/^\d{6}$/);
 
+  // THE BOX HAS TO BE EMPTY, and this is not fussiness about tidiness. The two
+  // forms live in the same slot of one ternary, so React reconciles them child
+  // by child: when the label holding the name input and the label holding the
+  // code input land on the same index, React REUSES the DOM node. The name
+  // input is controlled and the code input is not, so nothing clears it and the
+  // visitor is asked to type six digits into a box that already says their
+  // name. Asserted before the fill, because `fill` would paper over it.
+  await expect(widget.locator('#widget-code')).toHaveValue('');
+
   await widget.locator('#widget-code').fill(code);
   await widget.getByRole('button', { name: 'Confirm' }).click();
 

@@ -150,8 +150,32 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
         </p>
       </div>
 
+      {/*
+        THE TWO KEYS ARE LOAD-BEARING, and their absence was a real defect: a
+        visitor who asked for a code found their own NAME already typed into the
+        six-digit box.
+
+        Both forms occupy the same slot of this ternary, so React reconciles
+        them against each other child by child rather than unmounting one and
+        mounting the other. When the label wrapping the name input and the label
+        wrapping the code input come out at the same index — which they did the
+        moment the identify form grew its hidden `phone` field — React sees
+        `<label>` against `<label>` and REUSES the DOM node underneath. The name
+        input is controlled and the code input is not, so React had no value to
+        write and the browser kept the one already in the element.
+
+        Distinct keys say these are different elements, not one element with
+        different props, which is exactly what they are. Fixing it by shuffling
+        the children back into a non-colliding order would work today and break
+        again on the next field anybody adds, silently, in the same way.
+      */}
       {awaitingCode ? (
-        <form action={verifyCode} className="flex flex-col gap-3" data-testid="widget-code-form">
+        <form
+          key="code"
+          action={verifyCode}
+          className="flex flex-col gap-3"
+          data-testid="widget-code-form"
+        >
           <input type="hidden" name="publicKey" value={publicKey} />
           <input type="hidden" name="phone" value={phone} />
           <input type="hidden" name="name" value={name} />
@@ -194,7 +218,12 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
           </div>
         </form>
       ) : (
-        <form action={requestCode} className="flex flex-col gap-3" data-testid="widget-identify-form">
+        <form
+          key="identify"
+          action={requestCode}
+          className="flex flex-col gap-3"
+          data-testid="widget-identify-form"
+        >
           <input type="hidden" name="publicKey" value={publicKey} />
 
           {/*
