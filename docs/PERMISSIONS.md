@@ -216,3 +216,30 @@ file at the `is_owner_of_company` assertion and nowhere else.
 `supabase/tests/37_organization_blocking.test.sql` asserts the shape — the doors
 exist and are gated — and stops there, because pgTAP runs as superuser with a
 null `auth.uid()` where RLS never applies.
+
+## Programmes are gated on music, not on the audience (Block 18)
+
+`/shows` lives under **Audiência** in the sidebar, third after Ouvintes and
+Participações. **Its permission did not move with it.**
+
+`shows` carries exactly one policy — `shows_select_music_view`, gated on
+**`music.view`** — and no insert or update policy at all, so every write already
+goes through a `SECURITY DEFINER` door. `save_show` and `end_show` (0175) each
+re-check **`music.manage`** against `auth.uid()`. `show_schedules` follows
+`shows` exactly.
+
+So a member who administers the audience and holds nothing in music sees the
+link and finds nothing behind it.
+
+**That is deliberate, and the reason is §4 of this document read backwards.**
+Adding a permission is cheap in the schema and expensive in the field: a
+`shows.view` / `shows.manage` pair means a migration, the roles screen, every
+seeded role, this document — and, decisively, **every role a customer has
+already configured, none of which would grant the new code**. Shipping the
+screen behind a permission nobody holds would hide it from everyone who has one.
+
+The mismatch is recorded in three places that a reader will actually reach:
+`src/lib/auth/shell.ts` beside the nav entry, the header of
+`src/app/(app)/shows/page.tsx`, and §5 of the Block 18 design. Closing it is a
+block of its own, and it should start by deciding what happens to roles that
+already exist.
