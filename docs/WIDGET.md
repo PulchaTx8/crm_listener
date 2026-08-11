@@ -410,3 +410,43 @@ and `set_promotion_art` with new signatures. Code without the migration breaks
 saving a promotion; the migration without the code calls a signature that no
 longer exists. **Both orders break** — apply `0170`–`0172` immediately on merge,
 not "soon after".
+
+---
+
+## 10. Block 18 — which programme the song is for
+
+The music panel gained one step, and it comes **before** the search: a listener
+says what they are asking for, then finds it. That is the order the owner
+described, and it is the reason the step is not tacked onto the note screen.
+
+**Choosing is optional** (D6), and three things follow from it that are easy to
+get wrong in the other direction:
+
+- The default option is **"Qualquer horário"**, not a blank. A select whose only
+  meaning is "none chosen" is a question with no answer.
+- A Station with **no programmes gets no step at all**, rather than a select
+  holding one option.
+- A programme list that **could not be read answers as empty**. A listener with a
+  song to ask for is not stopped by a list they never asked to see.
+
+**Every programme still on the air is offered, not only today's.** Somebody may
+ask on a Tuesday for Saturday's programme. The ones airing right now are
+*labelled* rather than filtered, through `shows_on_air`, which converts through
+`companies.timezone` — the Station's own clock, never the server's.
+
+### The two traps this step is built around
+
+**The chosen id travels in a hidden input on the screen that submits.** It is
+picked two screens before the send, and an input rendered only where it was
+picked posts nothing. That is exactly the defect 17c's consent checkbox had; it
+was found by re-reading rather than by a test, and this is the same shape.
+
+**The id's ownership is decided by the database, not by the browser.** The schema
+checks the *shape* only. `widget_record_music_request` resolves the id against
+the Station and writes null for anything else, so a programme id copied from
+another Station cannot reach `music_requests.show_id`.
+
+`widget_shows(p_public_key, p_member_id)` exists because a visitor holds no
+`music.view` and `shows` is readable only with it. It applies
+`widget_listener_context`'s three refusals and returns every programme still on
+air with an `on_air` flag.

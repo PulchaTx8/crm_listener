@@ -1,24 +1,32 @@
 import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
-import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { decodeCursor } from '@/lib/keyset';
+import { parseRecordParam, SHOW_TABS } from '@/lib/record-params';
 import { SHOW_SEARCH_MAX_LENGTH, listShowsPage } from '@/services/shows';
 import type { ShowListPage } from '@/services/shows';
 import { STATION_SEARCH_MAX_LENGTH, listCompanyAccess } from '../inventory/station-access';
 import { getMusicPermissions } from '../music/permissions';
 import { StationSearchForm } from '../inventory/station-search-form';
-import type { ViewableCompany } from '../inventory/station-access';
+import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
+import { ShowsFilters } from './shows-filters';
 import { ShowsGrid } from './shows-grid';
 import { parseShowCursor, parseShowListState, showHref } from './list-params';
 import type { ShowSearchParams } from './list-params';
 
 /**
  * Block 18. Programmes, third under Audiência after Ouvintes and Participações.
+ *
+ * THE SCREEN IS `/music/songs` WITH DIFFERENT COLUMNS, deliberately: the same
+ * Station switcher, the same URL-driven filter bar, the same keyset paging and
+ * the same record-as-a-modal. An operator who has registered a song already
+ * knows how to register a programme, and a second layout for the same job would
+ * only be a second thing to maintain.
  *
  * THE PERMISSION IS STILL A MUSIC ONE, and that is recorded rather than
  * accidental: `shows` carries exactly one policy, gated on `music.view`, and it
@@ -50,9 +58,10 @@ export default async function ShowsPage({
   if (!user) redirect('/login');
 
   let viewable: ViewableCompany[];
+  let suspended: SuspendedCompany[];
   let capped: boolean;
   try {
-    ({ viewable, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
+    ({ viewable, suspended, capped } = await listCompanyAccess(supabase, 'music.view', stationSearch));
   } catch (cause) {
     logger.error({ err: cause }, 'could not resolve programme access');
     return <LoadError message={t('couldNotReadTheProgrammes')} />;
@@ -72,7 +81,8 @@ export default async function ShowsPage({
   try {
     page = await listShowsPage({
       companyId: state.companyId,
-      search: state.search,
+      search: state.search?.slice(0, SHOW_SEARCH_MAX_LENGTH),
+      kind: state.kind,
       includeEnded: state.includeEnded,
       sort: state.sort,
       direction: state.direction,
@@ -84,82 +94,75 @@ export default async function ShowsPage({
     return <LoadError message={t('couldNotReadTheProgrammes')} />;
   }
 
-  // `music.manage` decides whether the register button and the edit action
-  // appear. It is a courtesy rather than the boundary: save_show and end_show
-  // each re-check it against auth.uid() before writing anything.
+  // `music.manage` decides whether the register button and the row menu appear.
+  // It is a courtesy rather than the boundary: save_show and end_show each
+  // re-check it against auth.uid() before writing anything.
   const permissions = await getMusicPermissions(supabase, selected.id);
 
   return (
     <>
-      <PageHeader title={t('programmes')} />
+      <PageHeader title={t('programmes')} description={t('programmesDescription')} />
 
-      {capped && (
-        <StationSearchForm
-          action="/shows"
-          value={stationSearch ?? ''}
-          preserve={{}}
-          label={t('findAStation')}
-        />
+      {(capped || stationSearch) && (
+        <div className="mb-4 flex flex-col gap-2">
+          {capped && (
+            <p className="text-xs text-muted-foreground">
+              {t('showingOfTheStationsYouCanReach', { count: viewable.length + suspended.length })}
+            </p>
+          )}
+          <StationSearchForm
+            action="/shows"
+            value={stationSearch ?? ''}
+            preserve={{}}
+            label={t('findAStation')}
+          />
+        </div>
       )}
 
-      <Card>
-        <CardContent className="flex flex-col gap-4 pt-6">
-          <form className="flex flex-wrap items-end gap-2" action="/shows">
-            <input type="hidden" name="companyId" value={state.companyId} />
-            {stationSearch && <input type="hidden" name="station" value={stationSearch} />}
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">{t('search')}</span>
-              <input
-                type="search"
-                name="q"
-                defaultValue={state.search ?? ''}
-                maxLength={SHOW_SEARCH_MAX_LENGTH}
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                data-testid="shows-search"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              {/* D8: ended programmes are archived rather than deleted, so they
-                  are hidden and reachable rather than gone. */}
-              <input
-                type="checkbox"
-                name="ended"
-                value="1"
-                defaultChecked={state.includeEnded}
-                className="h-4 w-4 rounded border-input"
-                data-testid="shows-include-ended"
-              />
-              <span>{t('showEndedProgrammes')}</span>
-            </label>
-            <button
-              type="submit"
-              className="rounded-md border px-3 py-2 text-sm"
-              data-testid="shows-filter"
+      {viewable.length + suspended.length > 1 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {viewable.map((company) => (
+            <Link
+              key={company.id}
+              href={stationSwitchHref('/shows', company.id, stationSearch)}
+              aria-current={company.id === selected.id ? 'page' : undefined}
+              className={
+                company.id === selected.id
+                  ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
+                  : 'rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent'
+              }
             >
-              {t('filter')}
-            </button>
-          </form>
+              {company.name}
+            </Link>
+          ))}
+          {/* A suspended Station stays visible so the UI can explain why access
+              stopped, then fails has_permission unconditionally. Rendered
+              disabled with the reason instead of silently vanishing. */}
+          {suspended.map((company) => (
+            <span
+              key={company.id}
+              title={t('suspendedNoDataIsAvailable')}
+              className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
+            >
+              {company.name}
+            </span>
+          ))}
+        </div>
+      )}
 
-          <ShowsGrid companyId={state.companyId} rows={page.rows} canManage={permissions.manage} />
+      <ShowsFilters state={state} />
 
-          {/* typedRoutes cannot express a query string assembled at runtime,
-              which is why songs-filters.tsx casts the same way for the same
-              reason. The PATH is checked; only the query is not. */}
-          <nav className="flex items-center gap-3 text-sm">
-            {page.previousCursor && (
-              <Link href={showHref(state, { side: 'before', value: page.previousCursor }) as Route}>
-                {t('previous')}
-              </Link>
-            )}
-            {page.nextCursor && (
-              <Link href={showHref(state, { side: 'after', value: page.nextCursor }) as Route}>
-                {t('next')}
-              </Link>
-            )}
-            <span className="text-muted-foreground">{t('total', { count: page.total })}</span>
-          </nav>
-        </CardContent>
-      </Card>
+      <ShowsGrid
+        initialRows={page.rows}
+        initialTotal={page.total}
+        state={state}
+        previousHref={
+          page.previousCursor ? showHref(state, { side: 'before', value: page.previousCursor }) : null
+        }
+        nextHref={page.nextCursor ? showHref(state, { side: 'after', value: page.nextCursor }) : null}
+        manage={permissions.manage}
+        initialRecord={parseRecordParam(params as Record<string, string | undefined>, SHOW_TABS)}
+      />
     </>
   );
 }

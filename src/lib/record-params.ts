@@ -122,6 +122,19 @@ export type SongTab = (typeof SONG_TABS)[number];
 export const ARTIST_TABS = ['data', 'songs'] as const;
 export type ArtistTab = (typeof ARTIST_TABS)[number];
 
+/**
+ * One, and that is not an oversight waiting to be corrected: a programme is its
+ * fields and its schedule, and the schedule is part of the same form rather than
+ * a second section — splitting it would hide half of what an operator is about
+ * to save behind a tab.
+ *
+ * Declared as a tuple anyway, rather than the screen passing `['data']` inline,
+ * because `useRecordDialog` keeps this array in a dependency list: a literal
+ * rebuilt on every render re-subscribes its popstate listener on every render.
+ */
+export const SHOW_TABS = ['data'] as const;
+export type ShowTab = (typeof SHOW_TABS)[number];
+
 export interface RecordParam {
   recordId: string | null;
   /** Null only when no record is open — an open record always resolves to a tab. */

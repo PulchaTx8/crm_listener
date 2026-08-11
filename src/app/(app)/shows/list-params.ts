@@ -1,5 +1,6 @@
-import type { ShowSortKey } from '@/services/shows';
+import type { ShowKind, ShowSortKey } from '@/services/shows';
 import type { SortDirection } from '@/lib/keyset';
+import { SHOW_KINDS } from '@/schemas/shows';
 
 /**
  * Block 18. The Programmes screen's URL contract, on the shape of
@@ -13,6 +14,7 @@ export interface ShowSearchParams {
   companyId?: string;
   station?: string;
   q?: string;
+  kind?: string;
   /** `1` shows the ended ones too. Absent is the ordinary case (D8). */
   ended?: string;
   sort?: string;
@@ -32,6 +34,8 @@ export interface ShowListState {
    */
   stationSearch?: string;
   search?: string;
+  /** One kind, or every kind. Undefined is "every kind", never the enum's first. */
+  kind?: ShowKind;
   /**
    * D8: an ended programme is archived rather than deleted, so it is hidden by
    * default and reachable rather than gone — the way the promotions list treats
@@ -59,10 +63,17 @@ export function parseShowListState(raw: ShowSearchParams, companyId: string): Sh
   const direction: SortDirection =
     raw.dir === 'asc' ? 'asc' : raw.dir === 'desc' ? 'desc' : defaultDirectionFor(sort);
 
+  // Anything the enum does not name is no filter at all. A URL is hostile input,
+  // and `kind=DROP` must leave the list showing everything rather than reaching
+  // PostgREST as a value it will refuse.
+  const requestedKind = raw.kind?.trim();
+  const kind = SHOW_KINDS.find((known) => known === requestedKind);
+
   return {
     companyId,
     stationSearch: raw.station?.trim() || undefined,
     search: raw.q?.trim() || undefined,
+    kind,
     includeEnded: raw.ended === '1',
     sort,
     direction,
@@ -76,7 +87,7 @@ export function parseShowCursor(raw: ShowSearchParams): ShowCursor | null {
 }
 
 export function hasActiveShowFilters(state: ShowListState): boolean {
-  return Boolean(state.search || state.includeEnded);
+  return Boolean(state.search || state.kind || state.includeEnded);
 }
 
 /**
@@ -88,6 +99,7 @@ export function showHref(state: ShowListState, cursor?: ShowCursor | null): stri
   query.set('companyId', state.companyId);
   if (state.stationSearch) query.set('station', state.stationSearch);
   if (state.search) query.set('q', state.search);
+  if (state.kind) query.set('kind', state.kind);
   if (state.includeEnded) query.set('ended', '1');
   if (state.sort !== DEFAULT_SHOW_SORT) query.set('sort', state.sort);
   if (state.direction !== defaultDirectionFor(state.sort)) query.set('dir', state.direction);

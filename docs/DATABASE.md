@@ -191,3 +191,68 @@ Block 3b measured at 102 queries.
 
 See `docs/PERMISSIONS.md` for where the block is enforced and why the condition
 went into `is_owner_for` rather than into twenty policies.
+
+## Block 18 — a programme becomes a record with a schedule
+
+**`shows` stopped being a music reference.** It was a row in the catalogue's
+reference tabs — a name and nothing else — and it is now a record: `kind`,
+`age_rating`, `presenter_name`, `producer_name`, `thumb_url`, `starts_on`,
+`ends_on` (`0175`), described by two closed vocabularies (`0174`).
+
+**Enums rather than text**, because the requirement is grouping: which requests
+arrived during a programme's hours, how many entries came from programmes of a
+given age rating. A free-text kind is ten spellings of "Jornalismo" and no
+report. `show_kind` is the five the owner named; `show_age_rating` is the
+Brazilian *classificação indicativa* (`L`, `10`, `12`, `14`, `16`, `18`).
+
+**The columns stay nullable and the requirement lives in `save_show`.** Four
+programmes already exist carrying nothing but a name, and a NOT NULL column would
+have to invent a kind for each of them. `ShowSummary.complete` is computed in one
+place so the list's badge and the form's validation cannot disagree.
+
+### `show_schedules`, and the split that happens on write
+
+One row per **weekday**, grouped by a `band` marker: "de segunda a sexta 10:00 às
+12:30" is five rows sharing one marker. A band crossing midnight is **split by
+`save_show` into two** — Saturday 23:00–24:00 and Sunday 00:00–02:00 — under the
+same marker, and `toBands` (`src/lib/shows/bands.ts`) rejoins them for the screen.
+
+Doing the split on **read** instead is what loses Madrugada Pulchá: a query
+asking which programme is on air at 00:30 on a Sunday would have to know that a
+Saturday row can mean Sunday. Two assertions pin this, and both were proved by
+mutation — a `save_show` that does not split fails one, a `shows_on_air` written
+against bare `now()` fails the other.
+
+**There is no `deleted_at`** on `show_schedules`, deliberately: a schedule is
+replaced wholesale on every save, so a soft-deleted band would have to be excluded
+by every reader forever.
+
+### The doors
+
+| function | migration | does |
+| --- | --- | --- |
+| `save_show(...)` | `0175` | inserts or updates, then rewrites the whole schedule; refuses each missing required field with its own message |
+| `end_show(id, date)` | `0175` | sets `ends_on` and **leaves the schedule intact** (D8) |
+| `shows_on_air(company)` | `0175` | which programmes are airing now, **in the Station's timezone** |
+| `widget_shows(key, member)` | `0176` | the visitor's list: a Station's programmes still on air, with an `on_air` flag |
+| `widget_record_music_request(...)` | `0176` | gained `p_show_id`, resolved against the Station before it is written |
+
+Writes go through `SECURITY DEFINER` doors because `shows` has **no insert or
+update policy at all** — it never had one — and reads go straight to the table,
+where one select policy gated on `music.view` already scopes every row. That
+permission is still a music one even though the screen lives under Audiência;
+`docs/PERMISSIONS.md` says why a `shows.*` pair would hide the screen from
+everyone.
+
+**A programme is ended, never deleted** (D8). Nothing pointing at `shows`
+cascades, so a delete would be refused by the database the moment one request
+named the programme — the operator would read "could not save" about a row they
+were removing.
+
+### Deploying this one
+
+`0174`, `0175` and `0176` are **additive**: new types, new columns, a new table
+and new functions. Either order survives — unlike `0172`, which both orders
+broke. Apply them on merge all the same: three blocks in a row (13a, 17b, 17c)
+shipped code whose migration had not been applied, and the symptom is always a
+screen that worked in review answering "could not save".
