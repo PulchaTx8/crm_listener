@@ -41,6 +41,13 @@ export type ShowSortKey = 'name' | 'created';
 
 export interface ShowSummary {
   id: string;
+  /**
+   * The Station the programme belongs to, carried on the row rather than taken
+   * from whichever Station the list happens to be showing: a record opened from
+   * a pasted `?record=` link may not be one of them, and `save_show` scopes its
+   * update by company — a mismatch would come back as "programme not found".
+   */
+  companyId: string;
   name: string;
   kind: ShowKind | null;
   ageRating: ShowAgeRating | null;
@@ -49,6 +56,8 @@ export interface ShowSummary {
   thumbUrl: string | null;
   startsOn: string | null;
   endsOn: string | null;
+  /** When the programme was registered here — the second thing the list sorts by. */
+  createdAt: string;
   bands: Band[];
   /**
    * Whether the programme carries everything D3 and D7 require. Computed HERE
@@ -66,6 +75,8 @@ export interface ShowSummary {
 export interface ShowListParams {
   companyId: string;
   search?: string;
+  /** One kind of programme, when the filter bar narrows to it. */
+  kind?: ShowKind;
   includeEnded?: boolean;
   sort: ShowSortKey;
   direction: SortDirection;
@@ -81,11 +92,12 @@ export interface ShowListPage {
 }
 
 const SHOW_COLUMNS =
-  'id,name,kind,age_rating,presenter_name,producer_name,thumb_url,starts_on,ends_on,created_at,' +
+  'id,company_id,name,kind,age_rating,presenter_name,producer_name,thumb_url,starts_on,ends_on,created_at,' +
   'show_schedules(band,weekday,starts_at,ends_at)';
 
 type ShowRow = {
   id: string;
+  company_id: string;
   name: string;
   kind: ShowKind | null;
   age_rating: ShowAgeRating | null;
@@ -103,6 +115,7 @@ function toSummary(row: ShowRow, today: string): ShowSummary {
 
   return {
     id: row.id,
+    companyId: row.company_id,
     name: row.name,
     kind: row.kind,
     ageRating: row.age_rating,
@@ -111,6 +124,7 @@ function toSummary(row: ShowRow, today: string): ShowSummary {
     thumbUrl: row.thumb_url,
     startsOn: row.starts_on,
     endsOn: row.ends_on,
+    createdAt: row.created_at,
     bands,
     complete:
       row.kind !== null && row.age_rating !== null && row.starts_on !== null && bands.length > 0,
@@ -142,6 +156,11 @@ export async function listShowsPage(params: ShowListParams): Promise<ShowListPag
     // D8: an ended programme is hidden rather than gone. `or` because ends_on
     // is nullable and a null end means indeterminate, which is very much on air.
     if (!params.includeEnded) q = q.or(`ends_on.is.null,ends_on.gte.${today}`);
+
+    // The four programmes that predate this block carry no kind at all, so this
+    // filter hides them: an operator narrowing to Musical is asking for the ones
+    // marked Musical, and a null is not an unmarked member of every kind.
+    if (params.kind) q = q.eq('kind', params.kind);
 
     if (params.search) {
       const term = escapeLikePattern(params.search.slice(0, SHOW_SEARCH_MAX_LENGTH));

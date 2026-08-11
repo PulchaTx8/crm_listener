@@ -119,6 +119,8 @@ test('an operator registers a programme with an overnight band and reads it back
 
   await ownerPage.getByTestId('show-save').click();
   await expect(ownerPage.getByTestId('show-row')).toBeVisible({ timeout: 30_000 });
+  // The register dialog closes itself once the row it produced is on the list.
+  await expect(ownerPage.getByTestId('show-dialog')).toBeHidden();
 
   // THE DATABASE SPLIT IT. Six rows for a five-day band plus a night that
   // covers two days, all under two markers.
@@ -140,13 +142,26 @@ test('an operator registers a programme with an overnight band and reads it back
   // never surface: reopening shows 23:00–02:00 on Saturday, not 23:00–24:00
   // and a second band on Sunday.
   await ownerPage.reload();
-  await ownerPage.getByRole('button', { name: 'Edit' }).first().click();
+  await ownerPage.getByTestId('show-edit').first().click();
+  // The record opens OVER the list rather than navigating: the address gains
+  // the record, and the table behind it is still there.
+  await expect(ownerPage).toHaveURL(/record=/);
+  await expect(ownerPage.getByTestId('shows-table')).toBeVisible();
   await expect(ownerPage.getByTestId('show-band-1-starts')).toHaveValue('23:00');
   await expect(ownerPage.getByTestId('show-band-1-ends')).toHaveValue('02:00');
   await expect(ownerPage.getByTestId('show-band-1-day-6')).toBeChecked();
   await expect(ownerPage.getByTestId('show-band-1-day-7')).not.toBeChecked();
 
+  // Closing takes the record out of the address without leaving the page, and
+  // without reloading the list underneath.
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(ownerPage.getByTestId('show-dialog')).toBeHidden();
+  await expect(ownerPage).not.toHaveURL(/record=/);
+
   // --- ended, not deleted (D8) ---------------------------------------------
+  // Encerrar lives in the row's own menu, where every other list here keeps its
+  // retiring action.
+  await ownerPage.getByRole('button', { name: `Actions for ${showName}` }).click();
   await ownerPage.getByTestId('show-end').click();
   await ownerPage.getByTestId('show-end-date').fill('2026-01-31');
   await ownerPage.getByTestId('show-end-confirm').click();
@@ -169,12 +184,27 @@ test('an operator registers a programme with an overnight band and reads it back
     .eq('company_id', station?.id ?? '');
   expect(survivingRows?.length, 'the schedule outlives the programme going off air').toBe(7);
 
-  // Hidden by default, reachable through the filter.
+  // Hidden by default, reachable through the filter — which navigates on the
+  // tick rather than waiting for a Filter button.
   await ownerPage.goto('/shows');
   await expect(ownerPage.getByTestId('shows-empty')).toBeVisible();
   await ownerPage.getByTestId('shows-include-ended').check();
-  await ownerPage.getByTestId('shows-filter').click();
   await expect(ownerPage.getByTestId('show-row')).toBeVisible({ timeout: 30_000 });
+
+  // A second filter narrows the first rather than replacing it: the kind
+  // changes and the ended tick survives. The GET form this replaced could not
+  // do that — it carried only the parameters somebody remembered to hide in it.
+  await ownerPage.getByTestId('shows-kind-filter').selectOption('NEWS');
+  await expect(ownerPage.getByTestId('shows-empty')).toBeVisible({ timeout: 30_000 });
+  await ownerPage.getByTestId('shows-kind-filter').selectOption('MUSICAL');
+  await expect(ownerPage.getByTestId('show-row')).toBeVisible({ timeout: 30_000 });
+
+  // A PASTED ADDRESS OPENS THE SAME RECORD. Nothing on this page put the row in
+  // memory, so this is the read path rather than the row the dialog was opened
+  // from — the half that used to be impossible when the form was inline.
+  const { data: registered } = await admin.from('shows').select('id').eq('name', showName).single();
+  await ownerPage.goto(`/shows?record=${registered?.id ?? ''}`);
+  await expect(ownerPage.getByTestId('show-name')).toHaveValue(showName, { timeout: 30_000 });
 
   await ownerContext.close();
 });
