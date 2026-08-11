@@ -202,6 +202,24 @@ export function RequestsGrid({
                       >
                         {t('archived')}</span>
                     )}
+                    {/*
+                      Block 17b. Under the title rather than in a column of its
+                      own: it is empty for every request that did not come
+                      through the widget, and a mostly-empty column costs every
+                      row width to serve a few. Clamped to two lines with the
+                      whole text in `title`, because a listener has 500
+                      characters and a presenter reading between songs has a
+                      glance.
+                    */}
+                    {request.listenerNote && (
+                      <p
+                        className="mt-1 line-clamp-2 text-xs text-muted-foreground"
+                        title={request.listenerNote}
+                        data-testid="request-listener-note"
+                      >
+                        {request.listenerNote}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">{request.artistName}</TableCell>
                   <TableCell className="text-sm">{request.showName ?? '—'}</TableCell>

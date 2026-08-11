@@ -1031,6 +1031,16 @@ export interface RequestSummary {
   showId: string | null;
   showName: string | null;
   channel: MusicRequestChannel;
+  /**
+   * What a listener typed alongside a request made from the Station's own
+   * website (Block 17b). Null for every other channel, and null for a widget
+   * request whose listener wrote nothing — the screen has no reason to tell
+   * those apart, because both mean there is nothing to read.
+   *
+   * NOT withheld with memberName and memberPhone when the caller lacks
+   * members.view: a note is about the request, not about who made it.
+   */
+  listenerNote: string | null;
   requestedAt: string;
 }
 
@@ -1133,6 +1143,7 @@ export async function listMusicRequestsPage(
       showId: row.show_id,
       showName: row.show_name,
       channel: row.channel,
+      listenerNote: row.listener_note,
       requestedAt: row.requested_at,
     })),
     nextCursor,

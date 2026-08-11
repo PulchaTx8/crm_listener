@@ -4290,6 +4290,7 @@ export type Database = {
         Returns: {
           artist_name: string
           channel: Database["public"]["Enums"]["music_request_channel"]
+          listener_note: string
           member_id: string
           member_name: string
           member_phone: string
