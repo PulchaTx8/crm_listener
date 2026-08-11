@@ -33,6 +33,7 @@ export function RegisterPromotionForm({
   const titleId = useId();
   const [state, action, pending] = useActionState(createPromotionAction, INITIAL);
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [webEnabled, setWebEnabled] = useState(false);
   const [repeats, setRepeats] = useState(false);
 
   useEffect(() => {
@@ -63,6 +64,10 @@ export function RegisterPromotionForm({
               <WhatsappFields
                 record={null}
                 enabled={whatsappEnabled}
+
+                webEnabled={webEnabled}
+
+                onWebEnabledChange={setWebEnabled}
                 onEnabledChange={setWhatsappEnabled}
                 disabled={false}
                 onDirty={() => undefined}

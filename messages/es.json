@@ -1406,7 +1406,11 @@
     "picture": "Imagen",
     "promotionPicture": "Imagen de la promoción",
     "shownOnTheListAndTheRecord": "Aparece en la lista y en esta ficha. Nunca se envía a nadie.",
-    "bannerSentWithTheReply": "Banner enviado en la respuesta"
+    "bannerSentWithTheReply": "Banner enviado en la respuesta",
+    "takePartByWeb": "Participar por el sitio",
+    "rules": "Reglamento",
+    "whatAListenerAgreesToBeforeEntering": "Con qué acepta el oyente antes de participar. Aparece en el widget sobre la casilla de aceptación.",
+    "withoutRulesThisDoesNotAppearOnTheSite": "Sin reglamento escrito aquí, esta promoción no aparece en el sitio."
   },
   "music": {
     "closeRecord": "Cerrar ficha",

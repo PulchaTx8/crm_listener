@@ -1406,7 +1406,11 @@
     "picture": "Picture",
     "promotionPicture": "Promotion picture",
     "shownOnTheListAndTheRecord": "Shown on the list and on this record. Never sent to anyone.",
-    "bannerSentWithTheReply": "Banner sent with the reply"
+    "bannerSentWithTheReply": "Banner sent with the reply",
+    "takePartByWeb": "Take part through the website",
+    "rules": "Rules",
+    "whatAListenerAgreesToBeforeEntering": "What a listener agrees to before entering. Shown in the widget above the agreement box.",
+    "withoutRulesThisDoesNotAppearOnTheSite": "Without rules written here, this promotion does not appear on the website."
   },
   "music": {
     "closeRecord": "Close record",
