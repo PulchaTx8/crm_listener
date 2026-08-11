@@ -1,5 +1,13 @@
 {
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true
+  },
+  "permissions": {
+    "deny": [
+      "Bash(supabase db reset)",
+      "Bash(supabase db reset *)",
+      "Bash(npx supabase db reset)",
+      "Bash(npx supabase db reset *)"
+    ]
   }
 }

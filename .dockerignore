@@ -3,6 +3,7 @@ node_modules
 .git
 docs
 Arte
+Manual
 tests
 *.md
 .env*
