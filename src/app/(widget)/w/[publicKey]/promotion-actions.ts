@@ -9,6 +9,7 @@ import { readAnswer } from '@/lib/widget/door-answer';
 import { callerIp, ipKey, withinLimits } from '@/lib/widget/limits';
 import {
   enterRefusal,
+  readOptions,
   readSteps,
   type EnterRefusal,
   type WidgetPromotion,
@@ -138,6 +139,7 @@ export async function listPromotionsAction(rawPublicKey: string): Promise<ListSt
           thumbUrl: typeof row.thumb_url === 'string' ? row.thumb_url : null,
           alreadyEntered: row.already_entered === true,
           steps: readSteps(row.steps),
+          options: readOptions(row.questions),
         },
       ];
     }),

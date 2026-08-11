@@ -1,5 +1,5 @@
 begin;
-select plan(15);
+select plan(19);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -217,6 +217,92 @@ select is(
   (select count(*)::text from public.participations
     where member_id = '00000000-0000-0000-0000-000000000409'),
   '1:0', 'and it wrote a refusal stamped WEB, and no participation');
+
+-- ---------------------------------------------------------------------------
+-- Block 17c, first repair. THE TWO SHAPES OF AN ANSWER.
+--
+-- participation_answers_shape (0052) wants option_id and a null answer_text for
+-- a question with alternatives, and the exact opposite for an open one. Nothing
+-- here asserted that before, which is how a panel that typed prose into a quiz
+-- reached a listener.
+-- ---------------------------------------------------------------------------
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, requested_fields, rules, web_enabled)
+values
+  ('00000000-0000-0000-0000-000000000411', '00000000-0000-0000-0000-000000000401',
+   '00000000-0000-0000-0000-000000000402', 'Promo com quiz e enquete',
+   now() - interval '1 day', now() + interval '7 days',
+   -- Single entry: promotions_repetition_shape wants an interval alongside
+   -- allow_multiple_entries, and this promotion has no use for either.
+   false, '{}'::public.promotion_requested_field[],
+   'Regulamento da promoção com perguntas.', true);
+
+-- menu_title and button_label are required for a question WITH alternatives and
+-- forbidden on an open one (promotion_questions_list_fields). Both are objects
+-- of a WhatsApp list message, and the schema requires them even on a promotion
+-- that only converses on the web -- a one-door assumption like the one 0171
+-- undid for art and requested fields, left standing here on purpose: it is a
+-- separate change with its own screen to fix, not a passenger on this repair.
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt,
+   menu_title, button_label)
+values
+  ('00000000-0000-0000-0000-000000000412', '00000000-0000-0000-0000-000000000411',
+   '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000402',
+   1, 'QUIZ', 'Qual é a capital do estado?', 'Escolha uma', 'Responder'),
+  ('00000000-0000-0000-0000-000000000413', '00000000-0000-0000-0000-000000000411',
+   '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000402',
+   2, 'ESSAY', 'O que você quer mandar para a gente?', null, null);
+
+-- `kind` is carried on the option too, not only on its question: 0041 keeps it
+-- here so is_correct can be constrained per kind without a join.
+insert into public.promotion_question_options
+  (id, question_id, kind, organization_id, company_id, position, label, is_correct)
+values
+  ('00000000-0000-0000-0000-000000000414', '00000000-0000-0000-0000-000000000412',
+   'QUIZ', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000402',
+   1, 'São Paulo', true),
+  ('00000000-0000-0000-0000-000000000415', '00000000-0000-0000-0000-000000000412',
+   'QUIZ', '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000402',
+   2, 'Santos', false);
+
+-- THE ALTERNATIVES REACH THE WIDGET, which is the whole repair.
+select is(
+  (select jsonb_array_length(
+     (select p -> 'questions' -> '00000000-0000-0000-0000-000000000412'
+        from jsonb_array_elements(
+          public.widget_promotions('pw_promostationa012345678',
+                                   '00000000-0000-0000-0000-000000000404') -> 'promotions') p
+       where p ->> 'id' = '00000000-0000-0000-0000-000000000411'))),
+  2, 'a quiz question carries its two alternatives to the widget');
+
+-- THE ANSWER SHEET DOES NOT. is_correct in a payload the listener's own browser
+-- renders would hand them the answer.
+select is(
+  (select (public.widget_promotions('pw_promostationa012345678',
+                                    '00000000-0000-0000-0000-000000000404'))::text
+     like '%is_correct%'),
+  false, 'and never carries which alternative is the right one');
+
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000404',
+     '00000000-0000-0000-0000-000000000411', true, '{}'::jsonb,
+     jsonb_build_array(
+       jsonb_build_object('question_id', '00000000-0000-0000-0000-000000000412',
+                          'option_id', '00000000-0000-0000-0000-000000000415'),
+       jsonb_build_object('question_id', '00000000-0000-0000-0000-000000000413',
+                          'answer_text', 'Alpha FM'))) ->> 'ok'),
+  'true', 'a chosen alternative and a written answer are both recorded');
+
+-- The shape each kind actually landed in.
+select is(
+  (select count(*) from public.participation_answers
+    where promotion_id = '00000000-0000-0000-0000-000000000411'
+      and ((kind = 'QUIZ' and option_id is not null and answer_text is null)
+        or (kind = 'ESSAY' and answer_text is not null and option_id is null))),
+  2::bigint, 'each answer landed in the shape its kind requires');
 
 select * from finish();
 rollback;

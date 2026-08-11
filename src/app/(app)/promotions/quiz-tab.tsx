@@ -14,7 +14,23 @@ import {
 import { QUESTION_KIND_HINT_KEYS, QUESTION_KIND_LABEL_KEYS } from './format';
 
 const INITIAL: QuestionFormState = { status: 'idle' };
-const KINDS: PromotionQuestionKind[] = ['QUIZ', 'MULTIPLE_CHOICE', 'ESSAY'];
+/**
+ * The two kinds the operator may choose, by the owner's ruling of 2026-08-11:
+ * a Quiz, where the listener picks from alternatives, and an Enquete, where
+ * they write an answer.
+ *
+ * MULTIPLE_CHOICE IS DEPRECATED RATHER THAN DELETED, and the distinction is the
+ * whole of this list. Postgres cannot drop an enum value, and the hosted
+ * database has a live question of that kind — so removing it here would leave a
+ * real question no screen could save. It is offered only when the question
+ * being edited already IS one, which lets the operator finish or change it and
+ * never create another.
+ */
+const KINDS: PromotionQuestionKind[] = ['QUIZ', 'ESSAY'];
+
+function kindsFor(current: PromotionQuestionKind | undefined): PromotionQuestionKind[] {
+  return current === 'MULTIPLE_CHOICE' ? ['QUIZ', 'MULTIPLE_CHOICE', 'ESSAY'] : KINDS;
+}
 
 interface DraftOption {
   label: string;
@@ -161,7 +177,11 @@ function QuestionForm({
 }) {
   const t = useTranslations('promotions');
   const [state, action, pending] = useActionState(savePromotionQuestionAction, INITIAL);
-  const [kind, setKind] = useState<PromotionQuestionKind>(question?.kind ?? 'MULTIPLE_CHOICE');
+  // A new question starts as a Quiz, which is the kind this product exists for.
+  // It used to default to MULTIPLE_CHOICE, a kind the operator can no longer
+  // choose at all.
+  const [kind, setKind] = useState<PromotionQuestionKind>(question?.kind ?? 'QUIZ');
+  const kinds = kindsFor(question?.kind);
   const [options, setOptions] = useState<DraftOption[]>(
     question?.options.map((o) => ({ label: o.label, isCorrect: o.isCorrect })) ?? [
       { label: '', isCorrect: false },
@@ -189,7 +209,7 @@ function QuestionForm({
           onChange={(e) => setKind(e.target.value as PromotionQuestionKind)}
           data-testid="quiz-kind"
         >
-          {KINDS.map((value) => (
+          {kinds.map((value) => (
             <option key={value} value={value}>
               {t(QUESTION_KIND_LABEL_KEYS[value])}
             </option>

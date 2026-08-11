@@ -3,7 +3,12 @@
 import { useActionState, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
-import type { WidgetPromotion, WidgetStep } from '@/lib/widget/promotion-mapping';
+import {
+  answersFor,
+  type WidgetOption,
+  type WidgetPromotion,
+  type WidgetStep,
+} from '@/lib/widget/promotion-mapping';
 import {
   enterPromotionAction,
   listPromotionsAction,
@@ -94,7 +99,7 @@ export function EnterPromotionPanel({
     const last = screen === screens.length - 1;
 
     return (
-      <Shell title={chosen.name} onClose={() => setChosen(null)}>
+      <Shell title={chosen.name} onClose={() => setChosen(null)} closeLabel={t('otherPromotions')}>
         <form action={submit} className="flex flex-col gap-3">
           <input type="hidden" name="publicKey" value={publicKey} />
           <input type="hidden" name="promotionId" value={chosen.id} />
@@ -106,12 +111,7 @@ export function EnterPromotionPanel({
           <input
             type="hidden"
             name="answers"
-            value={JSON.stringify(
-              Object.entries(answers).map(([question_id, answer_text]) => ({
-                question_id,
-                answer_text,
-              })),
-            )}
+            value={JSON.stringify(answersFor(chosen.steps, answers))}
           />
 
           {current[0]?.kind === 'consent' ? (
@@ -165,24 +165,21 @@ export function EnterPromotionPanel({
             </div>
           ) : null}
 
-          {current[0]?.kind === 'question' ? (
-            <label className="flex flex-col gap-1 text-sm">
-              {t('yourAnswer')}
-              <input
-                type="text"
-                value={answers[current[0].questionId] ?? ''}
-                onChange={(e) => {
-                  const id = current[0]?.kind === 'question' ? current[0].questionId : '';
-                  setAnswers((a) => ({ ...a, [id]: e.target.value }));
-                }}
-                maxLength={2000}
-                className="rounded-md border bg-background p-2 text-sm"
-                data-testid="widget-promotion-answer"
-              />
-            </label>
-          ) : null}
+          {current[0]?.kind === 'question' ? <Question
+            step={current[0]}
+            options={chosen.options[current[0].questionId] ?? []}
+            value={answers[current[0].questionId] ?? ''}
+            onChange={(next) => {
+              const id = current[0]?.kind === 'question' ? current[0].questionId : '';
+              setAnswers((a) => ({ ...a, [id]: next }));
+            }}
+          /> : null}
 
-          {state.status === 'refused' ? (
+          {/* Only on the screen that submits. A refusal shown while the
+              listener walks back through earlier steps reads as if each of
+              them were wrong, which is how the same red line ended up under
+              the rules AND under the address on 2026-08-11. */}
+          {state.status === 'refused' && last ? (
             <p className="text-sm text-destructive" data-testid="widget-promotion-error">
               {refusalMessage(t, state.reason)}
             </p>
@@ -261,13 +258,85 @@ export function EnterPromotionPanel({
   );
 }
 
+/**
+ * One question, drawn by its KIND.
+ *
+ * A TEXT BOX FOR EVERY KIND WAS THE FIRST VERSION AND IT REACHED PRODUCTION.
+ * participation_answers_shape (0052) requires `option_id` with a null
+ * `answer_text` for a question with alternatives and exactly the opposite for
+ * an open one — so a listener typing prose into a quiz tripped a CHECK deep
+ * inside apply_participation and read "something went wrong".
+ *
+ * A question with alternatives and NO options is drawn as nothing rather than
+ * as a text box. It cannot happen — the door sends the options — and if it does,
+ * an empty screen followed by the door's own refusal is better than a box whose
+ * every answer is rejected.
+ */
+function Question({
+  step,
+  options,
+  value,
+  onChange,
+}: {
+  step: Extract<WidgetStep, { kind: 'question' }>;
+  options: WidgetOption[];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const t = useTranslations('widget');
+
+  if (step.questionKind === 'ESSAY') {
+    return (
+      <label className="flex flex-col gap-1 text-sm">
+        {t('yourAnswer')}
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          maxLength={2000}
+          className="rounded-md border bg-background p-2 text-sm"
+          data-testid="widget-promotion-answer"
+        />
+      </label>
+    );
+  }
+
+  return (
+    <fieldset className="flex flex-col gap-2" data-testid="widget-promotion-options">
+      <legend className="text-sm">{t('chooseOne')}</legend>
+      {options.map((option) => (
+        <label key={option.id} className="flex items-center gap-2 text-sm">
+          <input
+            type="radio"
+            name="option"
+            value={option.id}
+            checked={value === option.id}
+            onChange={() => onChange(option.id)}
+            className="h-4 w-4 border-input"
+            data-testid={`widget-promotion-option-${option.id}`}
+          />
+          <span>{option.label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 function Shell({
   title,
   onClose,
+  closeLabel,
   children,
 }: {
   title: string;
   onClose: () => void;
+  /**
+   * What the panel's own way out is called. Named by the caller because inside
+   * a walk it leaves the promotion rather than the step, and two buttons both
+   * saying "Back" — one meaning the previous screen, one meaning the list —
+   * is what a listener saw on 2026-08-11.
+   */
+  closeLabel?: string;
   children: React.ReactNode;
 }) {
   const t = useTranslations('widget');
@@ -280,7 +349,7 @@ function Shell({
       <h1 className="text-base font-semibold">{title}</h1>
       {children}
       <Button type="button" variant="ghost" onClick={onClose} className="self-start">
-        {t('back')}
+        {closeLabel ?? t('back')}
       </Button>
     </div>
   );
