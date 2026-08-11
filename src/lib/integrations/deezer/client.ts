@@ -98,6 +98,25 @@ export function createDeezerClient(options: { fetchImpl?: typeof fetch } = {}): 
       if (!result.ok) return result;
       return { ok: true, value: toAlbum(result.value) };
     },
+
+    async track(trackId: number) {
+      const result = await call<unknown>(`${BASE}/track/${trackId}`, fetchImpl);
+      if (!result.ok) return result;
+
+      // `toTrack` — the same mapping `search` uses, not a second one. Two
+      // mappings for one Deezer object is how the two paths come to disagree
+      // about which title a recording has.
+      const track = toTrack(result.value);
+
+      // Null here is a body Deezer answered 200 for and this code cannot read.
+      // `search` drops such a row because one bad result among twenty is not a
+      // broken search; here it is the entire answer, so it is a failure.
+      if (track === null) {
+        return { ok: false, reason: 'malformed', message: 'a track with no id' };
+      }
+
+      return { ok: true, value: track };
+    },
   };
 }
 

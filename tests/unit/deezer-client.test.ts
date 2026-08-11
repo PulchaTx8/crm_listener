@@ -171,3 +171,68 @@ describe('the Deezer client', () => {
     expect(result).toEqual({ ok: true, value: [] });
   });
 });
+
+/**
+ * Block 17b, D4. The widget sends an integer rather than a record, so a crafted
+ * payload cannot name what lands in a Station's catalogue — which means the
+ * server needs a way to turn that integer back into a recording.
+ */
+describe('track', () => {
+  it('reads one recording by id, mapped exactly as a search hit is', async () => {
+    const fetchImpl = respondWith({
+      id: 3135556,
+      title: 'Sozinho (Ao Vivo)',
+      duration: 231,
+      isrc: 'BRXXX0000001',
+      preview: 'https://cdnt-preview.dzcdn.net/x.mp3?hdnea=exp=1~hmac=y',
+      artist: { name: 'Caetano Veloso' },
+      album: { id: 302127, title: 'Prenda Minha', md5_image: '0123456789abcdef0123456789abcdef' },
+    });
+    const client = createDeezerClient({ fetchImpl });
+
+    const result = await client.track(3135556);
+
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.deezer.com/track/3135556', {
+      headers: { accept: 'application/json' },
+    });
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        id: 3135556,
+        title: 'Sozinho (Ao Vivo)',
+        artistName: 'Caetano Veloso',
+        albumId: 302127,
+        albumTitle: 'Prenda Minha',
+        coverMd5: '0123456789abcdef0123456789abcdef',
+        durationSeconds: 231,
+        isrc: 'BRXXX0000001',
+        previewUrl: 'https://cdnt-preview.dzcdn.net/x.mp3?hdnea=exp=1~hmac=y',
+      },
+    });
+  });
+
+  // The module header's own verified example: GET /track/999999999999 answers
+  // 200 with an error body. A `response.ok` check reads it as a success.
+  it('reads a missing recording that arrived as HTTP 200 as not-found', async () => {
+    const fetchImpl = respondWith({
+      error: { type: 'DataException', message: 'no data', code: 800 },
+    });
+    const client = createDeezerClient({ fetchImpl });
+
+    expect(await client.track(999999999999)).toMatchObject({ ok: false, reason: 'not-found' });
+  });
+
+  it('separates a quota refusal from a missing recording', async () => {
+    const fetchImpl = respondWith({ error: { type: 'Exception', message: 'slow down', code: 4 } });
+    const client = createDeezerClient({ fetchImpl });
+
+    expect(await client.track(3135556)).toMatchObject({ ok: false, reason: 'quota' });
+  });
+
+  it('reports a body with no id as malformed rather than inventing a recording', async () => {
+    const fetchImpl = respondWith({ title: 'no id here' });
+    const client = createDeezerClient({ fetchImpl });
+
+    expect(await client.track(1)).toMatchObject({ ok: false, reason: 'malformed' });
+  });
+});

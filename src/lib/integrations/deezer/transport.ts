@@ -67,6 +67,16 @@ export interface DeezerTransport {
   search(filters: DeezerSearchFilters): Promise<DeezerResult<DeezerTrack[]>>;
   /** One call, made on the register click alone — never once per search result. */
   album(albumId: number): Promise<DeezerResult<DeezerAlbumDetail>>;
+  /**
+   * One recording, by id, mapped exactly as a search hit is.
+   *
+   * BLOCK 17b, D4. The widget sends an integer and never a record, so a payload
+   * crafted in a browser cannot name what lands in a Station's catalogue — and
+   * that only works if the server can turn the integer back into a recording.
+   * The operator screens never needed this because their operator had the
+   * search result in hand; a public widget is the first caller that does.
+   */
+  track(trackId: number): Promise<DeezerResult<DeezerTrack>>;
 }
 
 /**
