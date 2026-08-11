@@ -51,9 +51,26 @@ weekday, which is what they ask about.
 read.** "Sáb 23:00–02:00" becomes Saturday 23:00–24:00 and Sunday 00:00–02:00,
 same band. The screen regroups and shows 23:00–02:00.
 
-**D6 — Choosing a programme in the widget is optional, and every programme is
-offered** — including ones that do not air today. A listener may ask on Tuesday
-for Saturday's programme.
+**D6 — Choosing a programme in the widget is optional, and every programme on
+air is offered** — including ones that do not air today. A listener may ask on
+Tuesday for Saturday's programme.
+
+**D7 — A programme has a start date and an end date, and the end may be
+indeterminate.** `starts_on` joins D3's required set; `ends_on` is null while
+the programme is still on the air. **Ending a programme is how it leaves
+circulation** — a record with relationships is archived, not deleted.
+
+**D8 — The screen offers no delete at all.** `shows.deleted_at` stays in the
+table because other code filters on it, but nothing on this screen writes it. A
+programme registered by mistake is ended on the day it started, and the list
+hides ended programmes by default.
+
+**What "ended" changes, and what it deliberately does not.** An ended programme
+disappears from the widget — nobody asks for a song on a programme that is off
+the air — and from the operator's list unless the filter is opened. **Every
+request and every participation already attached to it keeps pointing at it, and
+keeps reading correctly.** That is the whole reason for ending rather than
+deleting, and §10 records what would have broken instead.
 
 ---
 
@@ -111,7 +128,16 @@ alter table public.shows
   add column age_rating public.show_age_rating,
   add column presenter_name text,
   add column producer_name text,
-  add column thumb_url text;
+  add column thumb_url text,
+  -- D7. starts_on joins the required set; ends_on null IS the indeterminate
+  -- case rather than a sentinel date, because a far-future date is a value
+  -- somebody eventually filters on and believes.
+  add column starts_on date,
+  add column ends_on date,
+  -- A programme cannot end before it began. Both nullable, so this only bites
+  -- when both are present -- which is the only time it means anything.
+  add constraint shows_run_dates check (ends_on is null or starts_on is null
+                                        or ends_on >= starts_on);
 
 create table public.show_schedules (
   id              uuid primary key default gen_random_uuid(),
@@ -158,8 +184,9 @@ instant with no schedule, or still carrying the previous version's. This is the
 shape `save_promotion_question` (0055) already uses for a question and its
 options.
 
-It **refuses** a save without a name, a kind, an age rating or at least one
-band — D3's requirement, enforced here rather than only on screen.
+It **refuses** a save without a name, a kind, an age rating, a start date or at
+least one band — D3 and D7's requirement, enforced here rather than only on
+screen.
 
 **The bands arrive as the operator typed them** — `[{days: [1,2,3,4,5], starts:
 '10:00', ends: '12:30'}]` — and the door expands them into rows, splitting any
@@ -168,6 +195,11 @@ band whose end precedes its start (D5). The screen never sends rows.
 **`shows_on_air(p_company_id)`** — which programmes are on now, in the Station's
 own timezone. Used by the widget to mark the list, and by whatever filter comes
 next.
+
+**`end_show(p_show_id, p_ends_on)`** — D8's only way out. It writes the end date
+and nothing else; there is no delete door on this screen, and the schedule is
+left exactly as it was so a past request can still be read against the hours it
+was made in.
 
 **`list_shows(...)`** — the paginated list, keyset like every other list in this
 product. There is no such door today: the catalogue tab reads the table directly
@@ -203,8 +235,13 @@ guessing at an oversight.
 button opening the record dialog.
 
 The list shows the thumbnail, the name, the kind, the age rating and the
-schedule summarised. **A programme missing any of D3's four is marked
-incomplete** — which on the day this ships is all four of them.
+schedule summarised. **A programme missing any of D3's or D7's required fields
+is marked incomplete** — which on the day this ships is all four of them.
+
+**Ended programmes are hidden by default** and reachable through a filter, the
+way the promotions list already treats archived ones. The only action that
+retires a programme is **Encerrar**, which asks for a date; there is no delete
+(D8).
 
 **The schedule editor is a list of bands.** Each band: seven day checkboxes, a
 start, an end, and a remove. "Adicionar faixa" appends another. It is how the
@@ -213,8 +250,10 @@ owner described the requirement and how it is stored.
 **`/music/catalog?tab=shows` is removed.** A programme stops being a reference of
 the music catalogue and becomes an entity of the audience.
 
-**In the widget**, a step before the search: the programmes, with the ones on air
-now marked, and **"Qualquer horário"** which carries on without attaching one.
+**In the widget**, a step before the search: the programmes **still on the air**,
+with the ones playing right now marked, and **"Qualquer horário"** which carries
+on without attaching one. A programme whose `ends_on` has passed is absent — its
+past requests still name it, and nobody can make a new one.
 
 **This reverses 17b's D5**, which said a web request carries no programme. Its
 reason was that a visitor does not know a programme's name — and now they are
@@ -229,7 +268,7 @@ shown a list of them.
 | pgTAP | a save without kind, age rating or a band is refused; a band of five days becomes five rows sharing one marker; **an overnight band becomes two rows, on the two days, still sharing the marker**; `ends_at > starts_at` holds for every row written; `shows_on_air` answers in the Station's timezone, pinned by setting a Station to a timezone where the answer differs from UTC's |
 | unit | the band ↔ rows round-trip in both directions; the Zod shapes |
 | isolation | `shows` and `show_schedules` readable only through the permissions `shows` already uses |
-| e2e | an operator registers a programme with two bands, one of them overnight, and reads it back unchanged; a listener attaches a request to a programme in the widget and the request carries the `show_id` |
+| e2e | an operator registers a programme with two bands, one of them overnight, and reads it back unchanged; **ends it, and the request made before still names it while the widget stops offering it**; a listener attaches a request to a programme in the widget and the request carries the `show_id` |
 
 **The overnight assertion is the one that matters.** It is the case that
 disappears silently, and the only one where a green suite written carelessly
@@ -259,6 +298,12 @@ RLS and grants, and the three doors.
   wants a song played should not have to answer a question about scheduling.
 - **"On air now" as a stored column** — it is a function of the clock, and a
   stored answer is wrong for all but one minute of every hour.
+- **Deleting a programme from this screen** — D8. `merge_shows` (0106) exists
+  because duplicates were the problem a deletion would otherwise solve, and
+  `shows` is the one catalogue entity 0098 deliberately left without a merge
+  door until then. Ending is what a station actually does to a programme.
+- **A far-future date instead of a null `ends_on`** — a sentinel is a value
+  somebody eventually filters on, groups by, and believes.
 
 ---
 
@@ -277,3 +322,17 @@ given the same rule, and the door's comment says so.
 about existing requests changes — but the operator's requests screen shows a
 programme column that has been empty for every web request until now, and will
 stop being.
+
+**An ended programme is still referenced, and that is the point.** Its requests
+and participations keep pointing at it and keep reading correctly, because
+nothing about the row goes away. Had the screen offered a delete instead,
+`shows` has NO cascade on any foreign key pointing at it — every reference is NO
+ACTION — so the delete would simply have been refused with a 23503, and the
+operator would have been told "could not save" about a row they were trying to
+remove. Ending is not only kinder history, it is the only one of the two that
+works.
+
+**Two ways out of circulation now exist in the schema and only one on screen.**
+`deleted_at` remains because other code filters on it; nothing this block writes
+ever sets it. A future screen that offers both must say which is which, and the
+door's comment says so.
