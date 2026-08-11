@@ -3,9 +3,10 @@
 import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
-import type { WidgetTrack } from '@/lib/widget/music-mapping';
+import type { WidgetShow, WidgetTrack } from '@/lib/widget/music-mapping';
 import {
   getWaitAction,
+  listShowsAction,
   requestSongAction,
   searchSongsAction,
   type RequestState,
@@ -47,11 +48,35 @@ export function RequestSongPanel({
   const [wait, setWait] = useState<'loading' | 'ready' | 'blocked' | 'error'>('loading');
   const [waitSeconds, setWaitSeconds] = useState(0);
   const [query, setQuery] = useState('');
+  /**
+   * Block 18. Which programme the song is for, offered BEFORE the search: a
+   * listener says what they are asking for and then finds it, which is the
+   * order the owner described.
+   *
+   * Empty means any time, and stays empty unless they choose — D6. Every
+   * programme still on the air is offered, not only today's, because somebody
+   * may ask on a Tuesday for Saturday's programme.
+   */
+  const [shows, setShows] = useState<WidgetShow[]>([]);
+  const [showId, setShowId] = useState('');
   const [searchState, setSearchState] = useState<SearchState>(SEARCH_IDLE);
   const [searching, setSearching] = useState(false);
   const [chosen, setChosen] = useState<WidgetTrack | null>(null);
   const [note, setNote] = useState('');
   const [requestState, submit, sending] = useActionState(requestSongAction, REQUEST_IDLE);
+
+  useEffect(() => {
+    let live = true;
+    // An empty list is a fine answer: the step simply does not appear, and a
+    // listener with a song to ask for is not stopped by a programme list that
+    // could not be read.
+    void listShowsAction(publicKey).then((next) => {
+      if (live) setShows(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [publicKey]);
 
   useEffect(() => {
     let live = true;
@@ -138,6 +163,10 @@ export function RequestSongPanel({
         <form action={submit} className="flex flex-col gap-3">
           <input type="hidden" name="publicKey" value={publicKey} />
           <input type="hidden" name="deezerTrackId" value={chosen.id} />
+          {/* Carried to the screen that submits. The listener chose it two
+              screens ago, and an input rendered only where it was chosen would
+              post nothing — the defect the consent checkbox had in 17c. */}
+          {showId ? <input type="hidden" name="showId" value={showId} /> : null}
 
           <TrackLine track={chosen} />
 
@@ -178,6 +207,29 @@ export function RequestSongPanel({
 
   return (
     <Shell title={t('requestASong')} onClose={onClose}>
+      {/* Block 18. Before the search, because a listener says what they are
+          asking for and then finds it. Absent entirely when the Station has no
+          programmes, rather than shown empty: a select with one option that
+          means "none" is a question with no answer. */}
+      {shows.length > 0 && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('forWhichProgramme')}
+          <select
+            value={showId}
+            onChange={(event) => setShowId(event.target.value)}
+            className="rounded-md border bg-background p-2 text-sm"
+            data-testid="widget-song-show"
+          >
+            <option value="">{t('anyTime')}</option>
+            {shows.map((show) => (
+              <option key={show.id} value={show.id}>
+                {show.onAir ? t('onAirNow', { name: show.name }) : show.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <label className="flex flex-col gap-1 text-sm">
         {t('searchLabel')}
         <input

@@ -35,7 +35,7 @@ interface CatalogSearchParams {
  * of it. `CatalogTab` (the type) is imported above; this array is the one
  * runtime check page.tsx needs before ReferenceTabs ever mounts.
  */
-const CATALOG_TABS: readonly CatalogTab[] = ['labels', 'genres', 'shows', 'albums'];
+const CATALOG_TABS: readonly CatalogTab[] = ['labels', 'genres', 'albums'];
 
 /** The tab an unknown or missing `?tab=` falls back to — first in CATALOG_TABS, kept as its own constant because noUncheckedIndexedAccess types `CATALOG_TABS[0]` as possibly undefined despite the array's fixed length. */
 const DEFAULT_TAB: CatalogTab = 'labels';
@@ -108,22 +108,20 @@ export default async function CatalogPage({
 
   let labels: ReferenceSummary[];
   let genres: ReferenceSummary[];
-  let shows: ReferenceSummary[];
   let albums: ReferenceSummary[];
   let permissions: MusicPermissions;
   try {
-    // All four read whole, never paged: listMusicReferences (services/music.ts)
+    // All three read whole, never paged: listMusicReferences (services/music.ts)
     // scopes to one Station's live rows via RLS and orders by name — these are
     // exactly the short lists a <select> is meant to show, not a grid.
     //
     // listAlbums is its own function rather than a fourth listMusicReferences,
     // for the reason 0137's header gives: albums are not one of 0100's four
     // identical tables. It returns the same ReferenceSummary shape so this
-    // screen's panel can render all four alike.
-    [labels, genres, shows, albums, permissions] = await Promise.all([
+    // screen's panel can render all three alike.
+    [labels, genres, albums, permissions] = await Promise.all([
       listMusicReferences(selected.id, 'LABEL'),
       listMusicReferences(selected.id, 'GENRE'),
-      listMusicReferences(selected.id, 'SHOW'),
       listAlbums(selected.id),
       getMusicPermissions(supabase, selected.id),
     ]);
@@ -197,7 +195,6 @@ export default async function CatalogPage({
         initialTab={tab}
         labels={labels}
         genres={genres}
-        shows={shows}
         albums={albums}
       />
     </>

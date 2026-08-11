@@ -28,7 +28,11 @@ import { ReferencePanel } from './reference-panel';
  * union, so renaming a tab in one file without the other is a type error, not
  * a quiet bug.
  */
-export const CATALOG_TABS = ['labels', 'genres', 'shows', 'albums'] as const;
+// Block 18 took  out of this list. A programme stopped being a name in
+// a reference tab and became a record with a presenter, a schedule and a run of
+// dates, on its own screen under Audiência. The SHOW kind still exists in 0100
+// and merge_shows still works -- what left is this screen's claim to it.
+export const CATALOG_TABS = ['labels', 'genres', 'albums'] as const;
 export type CatalogTab = (typeof CATALOG_TABS)[number];
 
 // `noun` stays a bare English word because its only remaining use is a
@@ -47,11 +51,6 @@ const TAB_COPY: Record<
     noun: 'genre',
     descriptionKey: 'referenceGenresDescription',
   },
-  shows: {
-    labelKey: 'tabShows',
-    noun: 'show',
-    descriptionKey: 'referenceShowsDescription',
-  },
   // Block 13a. An album is not one of 0100's four reference kinds — it has a
   // UPC, a cover hash and a Deezer id of its own (0136) — but on THIS screen
   // it is the same thing they are: a list of names, renamed and archived in
@@ -64,10 +63,12 @@ const TAB_COPY: Record<
   },
 };
 
-const KIND_FOR_TAB = { labels: 'LABEL', genres: 'GENRE', shows: 'SHOW', albums: 'ALBUM' } as const;
+const KIND_FOR_TAB = { labels: 'LABEL', genres: 'GENRE', albums: 'ALBUM' } as const;
 
 /**
- * Holds the three reference panels and the tab that picks which one shows.
+ * Holds the two reference panels and the albums panel, and the tab that picks
+ * which one shows. It held a third reference panel until Block 18 moved
+ * programmes to a screen of their own.
  *
  * The tab lives in the URL, not only in this component's state — but never
  * through `useRouter().push`, for the reason src/hooks/use-record-dialog.ts's
@@ -102,7 +103,6 @@ export function ReferenceTabs({
   initialTab,
   labels,
   genres,
-  shows,
   albums,
 }: {
   companyId: string;
@@ -111,7 +111,6 @@ export function ReferenceTabs({
   initialTab: CatalogTab;
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
-  shows: ReferenceSummary[];
   albums: ReferenceSummary[];
 }) {
   const t = useTranslations('music');
@@ -135,7 +134,7 @@ export function ReferenceTabs({
     window.history.replaceState(null, '', search ? `?${search}` : window.location.pathname);
   }
 
-  const itemsByTab: Record<CatalogTab, ReferenceSummary[]> = { labels, genres, shows, albums };
+  const itemsByTab: Record<CatalogTab, ReferenceSummary[]> = { labels, genres, albums };
 
   return (
     <div className="flex flex-col gap-4">

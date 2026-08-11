@@ -57,6 +57,27 @@ export const requestSongSchema = z
       .max(500)
       .transform((value) => (value.length === 0 ? undefined : value))
       .optional(),
+    /**
+     * Block 18. Which programme the song is for, or absent for any time.
+     *
+     * OPTIONAL BY DESIGN (D6): a listener who just wants a song played should
+     * not have to answer a question about scheduling. An unchosen select posts
+     * an empty string, which becomes `undefined` here rather than a failed
+     * parse — the same shape `note` above takes for the same reason.
+     *
+     * The id is checked for SHAPE only. Whether it names a programme of THIS
+     * Station is `widget_record_music_request`'s to decide, and it does:
+     * anything else resolves to null rather than reaching the row.
+     */
+    showId: z
+      .string()
+      .trim()
+      .regex(
+        /^$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+        'not the shape of a programme id',
+      )
+      .transform((value) => (value.length === 0 ? undefined : value))
+      .optional(),
   })
   .strict();
 

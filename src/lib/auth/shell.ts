@@ -155,6 +155,20 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // own bodies (0054). Hiding a link is a courtesy; the boundary is in
         // the database.
         { href: '/participations', label: t('participations'), icon: ICONS.ticket },
+        // Block 18, on the owner's ruling. A programme was a name in a tab of
+        // the music catalogue; it is now a record with a presenter, a schedule
+        // and a run of dates, and it belongs beside the audience it is made
+        // for rather than beside the songs it happens to play.
+        //
+        // THE PERMISSION DID NOT MOVE WITH THE SCREEN, and that is recorded
+        // rather than accidental: `shows` carries one policy, gated on
+        // music.view, so a member who administers the audience and holds
+        // nothing in music sees this link and finds nothing behind it. A
+        // shows.* pair would be a permissions migration plus every role a
+        // customer has already configured, none of which would grant it —
+        // shipping the screen behind a permission nobody holds would hide it
+        // from everyone. The Block 18 spec's §5 carries the full reasoning.
+        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
       ],
     },
     {
