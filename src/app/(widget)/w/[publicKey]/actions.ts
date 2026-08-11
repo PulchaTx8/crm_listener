@@ -1,11 +1,13 @@
 'use server';
 
-import { cookies, headers } from 'next/headers';
+import { cookies } from 'next/headers';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { PostgresRateLimiter } from '@/lib/rate-limit';
 import { createServiceClient } from '@/lib/supabase/service-client';
 import { generateCode, hashCode, hashLimitSubject } from '@/lib/widget/code';
+import { readAnswer } from '@/lib/widget/door-answer';
+import { callerIp, ipKey, withinLimits } from '@/lib/widget/limits';
 import {
   WIDGET_SESSION_COOKIE,
   WIDGET_SESSION_SECONDS,
@@ -427,20 +429,6 @@ async function expireDeadSession(secret: string): Promise<void> {
 }
 
 /**
- * The first entry of `x-forwarded-for`, the way `src/app/(public)/contato/page
- * .tsx` already reads it — the client address, with every proxy that appended
- * itself after it ignored.
- *
- * 'unknown' when the header is absent: a shared bucket for callers this
- * deployment cannot tell apart is stricter than no bucket at all, which is the
- * right direction for a limit that exists to stop a script.
- */
-async function callerIp(): Promise<string> {
-  const headerList = await headers();
-  return headerList.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-}
-
-/**
  * A telephone number, as something a counter row may hold.
  *
  * TWO STEPS, IN THIS ORDER, AND BOTH ARE LOAD-BEARING.
@@ -474,40 +462,18 @@ function phoneKey(phone: string): string {
 }
 
 /**
- * The caller's address, the same way and for the same reason.
+ * `Bucket`, `withinLimits`, `callerIp` and `ipKey` used to live here and now
+ * live in `@/lib/widget/limits`; `readAnswer` moved to
+ * `@/lib/widget/door-answer`. Block 17b moved them, and it is a Next constraint
+ * rather than housekeeping: this file carries `'use server'`, and such a module
+ * may export nothing but async functions — so a second set of widget actions
+ * could not borrow a synchronous helper from it. Writing them twice was the
+ * alternative, and two readers for one database contract is how the two come to
+ * disagree about what a refusal looks like.
  *
- * No normalisation step: an address arrives from `x-forwarded-for` already in
- * one canonical spelling per caller, so unlike a telephone number there is
- * nothing to fold together first. 'unknown' — `callerIp`'s answer when the
- * header is absent — hashes like any other value, so that shared bucket keeps
- * working exactly as it did.
+ * The comments that explained WHY a bucket carries a label separate from its
+ * key, and why a limiter that cannot answer refuses, moved with the code.
  */
-function ipKey(ip: string): string {
-  return hashLimitSubject(ip);
-}
-
-type Limit = { limit: number; windowSeconds: number };
-
-/**
- * One bucket: what the counter is keyed by, and what a log line is allowed to
- * say about it.
- *
- * THE TWO ARE SEPARATE FIELDS ON PURPOSE, and the digests in `phoneKey` and
- * `ipKey` do not make it redundant. Five of the six keys below are derived from
- * a telephone number or an address, and a digest is still a stable per-person
- * identifier: two log lines carrying the same one say "the same caller", and a
- * digest beside a known number is a lookup rather than a puzzle. What an
- * operator needs is WHICH LIMIT refused, which the label answers on its own, so
- * the key never travels into a log even hashed. The hashing defends the
- * counter ROW, which lives for thirty days in a table nothing prunes sooner;
- * this field defends the log line, which leaves the host entirely.
- *
- * The STATION is still identifiable in every line, because `publicKey` is
- * logged alongside and 0159's own column comment says in writing that it is not
- * a secret — so "which Station hit its ceiling" is answerable without putting a
- * listener in the log to answer it.
- */
-type Bucket = Limit & { key: string; label: string };
 
 /**
  * The label of the bucket that refused, or null when every one allowed. Stops
@@ -523,66 +489,6 @@ type Bucket = Limit & { key: string; label: string };
  * limit is the system working; the deployment fault below is the one that is
  * not.
  */
-async function withinLimits(
-  limiter: PostgresRateLimiter,
-  publicKey: string,
-  buckets: readonly Bucket[],
-): Promise<string | null> {
-  for (const bucket of buckets) {
-    try {
-      const { allowed } = await limiter.check(bucket.key, bucket.limit, bucket.windowSeconds);
-      if (!allowed) {
-        logger.warn({ publicKey, bucket: bucket.label }, 'widget: a limit refused a request');
-        return bucket.label;
-      }
-    } catch (cause) {
-      // A LIMITER THAT CANNOT ANSWER REFUSES. The tempting branch is to let the
-      // request through "so an outage in the counters does not break the
-      // widget" — which turns the one hour when nobody is watching into the one
-      // hour with no ceiling on the Station's Meta bill. Failing closed costs a
-      // visitor a retry; failing open costs money nobody sees until the invoice.
-      //
-      // The BUCKET, never the key: this line fires during an outage, which is
-      // precisely when logs are being read, copied into a ticket and shipped to
-      // whoever is on call.
-      logger.error(
-        { err: cause, publicKey, bucket: bucket.label },
-        'widget: the rate limiter could not answer',
-      );
-      return bucket.label;
-    }
-  }
-  return null;
-}
-
-type DoorAnswer = {
-  ok: boolean;
-  reason: string | null;
-  memberId: string | null;
-  companyId: string | null;
-  organizationId: string | null;
-};
-
-/**
- * 0161's doors answer a `jsonb` object, which reaches supabase-js as `Json` —
- * so the shape is checked rather than asserted. `null` means "not an answer
- * this code understands", which every caller turns into `failed`: a PostgREST
- * error envelope, or a future migration that changes the shape, must not be
- * read as a success with missing fields.
- */
-function readAnswer(data: unknown): DoorAnswer | null {
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
-  const row = data as Record<string, unknown>;
-  if (typeof row.ok !== 'boolean') return null;
-  return {
-    ok: row.ok,
-    reason: typeof row.reason === 'string' ? row.reason : null,
-    memberId: typeof row.member_id === 'string' ? row.member_id : null,
-    companyId: typeof row.company_id === 'string' ? row.company_id : null,
-    organizationId: typeof row.organization_id === 'string' ? row.organization_id : null,
-  };
-}
-
 /**
  * A reason string from the database, narrowed to one this application has a
  * sentence for. An unrecognised value becomes `failed` rather than being passed

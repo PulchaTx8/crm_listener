@@ -119,6 +119,40 @@ export function WidgetTab({
         <p className="text-xs text-muted-foreground">{t('originsOnePerLineOrComma')}</p>
         <p className="text-xs text-muted-foreground">{t('emptyOriginsMeansNowhere')}</p>
 
+        {/*
+          Block 17b. THREE FIELDS AND NOT ONE, because "wait 90 minutes" and
+          "wait an hour and a half" are the same interval and an operator
+          should be able to write whichever one they mean. Postgres does not
+          normalise across these units, so what is typed is what reads back.
+        */}
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-sm">{t('musicRequestCooldown')}</legend>
+          <div className="flex gap-2">
+            {(
+              [
+                ['cooldownDays', t('days'), installation?.cooldownDays ?? 0],
+                ['cooldownHours', t('hours'), installation?.cooldownHours ?? 0],
+                ['cooldownMinutes', t('minutes'), installation?.cooldownMinutes ?? 0],
+              ] as const
+            ).map(([name, label, value]) => (
+              <label key={name} className="flex flex-col gap-1 text-xs">
+                {label}
+                <input
+                  type="number"
+                  name={name}
+                  min={0}
+                  defaultValue={value}
+                  disabled={saving}
+                  onChange={() => setTouched(true)}
+                  className="w-24 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  data-testid={`widget-${name}`}
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <p className="text-xs text-muted-foreground">{t('zeroMeansNoLimit')}</p>
+
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={saving} data-testid="widget-save">
             {saving ? t('saving') : t('save')}

@@ -294,7 +294,12 @@
     "whatsapp": "WhatsApp",
     "whatsappIntegrations": "Integraciones de WhatsApp",
     "whoIssuesTheInvoice": "Quién emite la factura",
-    "working": "Trabajando…"
+    "working": "Trabajando…",
+    "musicRequestCooldown": "Espera entre pedidos de música",
+    "days": "Días",
+    "hours": "Horas",
+    "minutes": "Minutos",
+    "zeroMeansNoLimit": "Los tres en cero significan sin límite: el oyente puede pedir cuantas quiera."
   },
   "draws": {
     "drawOf": "Sorteo del",
@@ -1707,7 +1712,8 @@
     "sourceManual": "Cargada a mano",
     "sourceImport": "De un archivo",
     "sourceWhatsapp": "De WhatsApp",
-    "sourceApi": "Por integración"
+    "sourceApi": "Por integración",
+    "sourceWeb": "Desde el sitio de la emisora"
   },
   "widget": {
     "identifyTitle": "Identifícate",
@@ -1739,6 +1745,20 @@
     "wrongCode": "Ese código no es correcto.",
     "nameRequired": "Dinos tu nombre.",
     "numberCannotBeUsed": "Este número no se puede usar para identificarte. Habla con la emisora.",
-    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo."
+    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo.",
+    "searchLabel": "Canción o artista",
+    "searching": "Buscando…",
+    "noResults": "No se encontró nada. Prueba a escribirlo de otra forma.",
+    "noteLabel": "¿Quieres decir algo? (opcional)",
+    "noteCount": "{count} de 500",
+    "sendRequest": "Enviar pedido",
+    "back": "Volver",
+    "requestRecorded": "Tu pedido llegó a la emisora.",
+    "waitAgainInMinutes": "Puedes pedir otra canción en {count, plural, one {# minuto} other {# minutos}}.",
+    "waitAgainInHours": "Puedes pedir otra canción en {count, plural, one {# hora} other {# horas}}.",
+    "identifyAgain": "Tu sesión terminó. Identifícate de nuevo.",
+    "searchBusy": "La búsqueda está ocupada ahora. Inténtalo en un momento.",
+    "searchUnreachable": "No se puede acceder a la búsqueda. Inténtalo de nuevo.",
+    "recordingUnreadable": "No se pudo leer esa grabación. Elige otra."
   }
 }

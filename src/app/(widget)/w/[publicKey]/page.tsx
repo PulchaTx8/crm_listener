@@ -63,5 +63,14 @@ export default async function WidgetPage({
   // being one page. So `expireDeadSession` (actions.ts) does it on the visitor's
   // very next submission — which is the one interaction this screen exists to
   // produce.
-  return claims !== null ? <WidgetMenu /> : <IdentifyForm publicKey={publicKey} />;
+  // The key travels into the menu because 17b's actions each take it and check
+  // it against the session again — `readSessionFor`, never `readSession`. The
+  // claims themselves deliberately do NOT: nothing on the client needs a
+  // listener's telephone number, and a value serialised into the page is a
+  // value that leaves the server.
+  return claims !== null ? (
+    <WidgetMenu publicKey={publicKey} />
+  ) : (
+    <IdentifyForm publicKey={publicKey} />
+  );
 }

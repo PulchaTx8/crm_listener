@@ -294,7 +294,12 @@
     "whatsapp": "WhatsApp",
     "whatsappIntegrations": "Integrações do WhatsApp",
     "whoIssuesTheInvoice": "Quem emite a nota",
-    "working": "Trabalhando…"
+    "working": "Trabalhando…",
+    "musicRequestCooldown": "Espera entre pedidos de música",
+    "days": "Dias",
+    "hours": "Horas",
+    "minutes": "Minutos",
+    "zeroMeansNoLimit": "Os três em zero significam sem limite: o ouvinte pode pedir quantas quiser."
   },
   "draws": {
     "drawOf": "Sorteio de",
@@ -1707,7 +1712,8 @@
     "sourceManual": "Digitada à mão",
     "sourceImport": "De um arquivo",
     "sourceWhatsapp": "Do WhatsApp",
-    "sourceApi": "Por integração"
+    "sourceApi": "Por integração",
+    "sourceWeb": "Pelo site da emissora"
   },
   "widget": {
     "identifyTitle": "Identifique-se",
@@ -1739,6 +1745,20 @@
     "wrongCode": "Esse código não está certo.",
     "nameRequired": "Diga o seu nome.",
     "numberCannotBeUsed": "Este número não pode ser usado para identificar você. Fale com a rádio.",
-    "somethingWentWrong": "Algo deu errado. Tente de novo."
+    "somethingWentWrong": "Algo deu errado. Tente de novo.",
+    "searchLabel": "Música ou artista",
+    "searching": "Procurando…",
+    "noResults": "Nada encontrado. Tente escrever de outro jeito.",
+    "noteLabel": "Quer mandar um recado? (opcional)",
+    "noteCount": "{count} de 500",
+    "sendRequest": "Enviar pedido",
+    "back": "Voltar",
+    "requestRecorded": "Seu pedido chegou à emissora.",
+    "waitAgainInMinutes": "Você pode pedir outra música em {count, plural, one {# minuto} other {# minutos}}.",
+    "waitAgainInHours": "Você pode pedir outra música em {count, plural, one {# hora} other {# horas}}.",
+    "identifyAgain": "Sua sessão terminou. Identifique-se novamente.",
+    "searchBusy": "A busca está ocupada agora. Tente daqui a pouco.",
+    "searchUnreachable": "A busca não está acessível. Tente de novo.",
+    "recordingUnreadable": "Não foi possível ler essa gravação. Escolha outra."
   }
 }

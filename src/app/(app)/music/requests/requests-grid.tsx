@@ -34,10 +34,17 @@ const INITIAL_ARCHIVE: ArchiveRequestState = { ok: null };
 // to /api/v1/music-requests. The type checker is what surfaced its absence here
 // the moment 0151 added the value -- without this entry an API-sourced request
 // would render a blank cell in the one column that explains where it came from.
+//
+// WEB arrived with Block 17b and the type checker did it again, which is the
+// argument for this Record being exhaustive rather than a lookup with a
+// fallback. It is not API: nobody authenticated with a credential and no
+// application posted anything. A listener standing on the Station's own website
+// pressed a button in the embedded widget.
 const CHANNEL_LABEL_KEYS: Record<RequestSummary['channel'], string> = {
   MANUAL: 'sourceManual',
   IMPORT: 'sourceImport',
   API: 'sourceApi',
+  WEB: 'sourceWeb',
 };
 
 /**
@@ -194,6 +201,24 @@ export function RequestsGrid({
                         data-testid="request-song-archived-badge"
                       >
                         {t('archived')}</span>
+                    )}
+                    {/*
+                      Block 17b. Under the title rather than in a column of its
+                      own: it is empty for every request that did not come
+                      through the widget, and a mostly-empty column costs every
+                      row width to serve a few. Clamped to two lines with the
+                      whole text in `title`, because a listener has 500
+                      characters and a presenter reading between songs has a
+                      glance.
+                    */}
+                    {request.listenerNote && (
+                      <p
+                        className="mt-1 line-clamp-2 text-xs text-muted-foreground"
+                        title={request.listenerNote}
+                        data-testid="request-listener-note"
+                      >
+                        {request.listenerNote}
+                      </p>
                     )}
                   </TableCell>
                   <TableCell className="text-sm">{request.artistName}</TableCell>

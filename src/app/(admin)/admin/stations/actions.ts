@@ -430,6 +430,23 @@ async function readWidgetInstallation(
  * mean trusting JavaScript an operator's browser might not run, for the one
  * value that decides which sites may frame this Station's widget.
  */
+/**
+ * A whole number of days, hours or minutes from a form field — or `null` when
+ * it is anything else.
+ *
+ * Empty is zero, because clearing the boxes is how an operator says "no
+ * ceiling". `Number('')` is 0 already, so the emptiness is spelled out rather
+ * than relied on: the next reader should not have to know that coincidence.
+ */
+function wholeNumber(raw: FormDataEntryValue | null): number | null {
+  const text = String(raw ?? '').trim();
+  if (text === '') return 0;
+  if (!/^\d+$/.test(text)) return null;
+
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
 export async function saveWidgetInstallationAction(
   _prev: WidgetInstallationState,
   formData: FormData,
@@ -444,10 +461,32 @@ export async function saveWidgetInstallationAction(
     return { status: 'error', message: t('thatOriginIsNotValid', { origin: parsed.bad }) };
   }
 
+  // Block 17b. Three number fields, and a blank one is zero rather than an
+  // error: an operator who wants no ceiling clears the boxes, which is the
+  // gesture the form invites. NEGATIVE IS REFUSED rather than clamped --
+  // 0167's CHECK would refuse it anyway, and a form that quietly turns -5 into
+  // 0 tells somebody their limit is off when they think they set one.
+  const cooldown = {
+    days: wholeNumber(formData.get('cooldownDays')),
+    hours: wholeNumber(formData.get('cooldownHours')),
+    minutes: wholeNumber(formData.get('cooldownMinutes')),
+  };
+  if (cooldown.days === null || cooldown.hours === null || cooldown.minutes === null) {
+    return { status: 'error', message: t('checkTheForm') };
+  }
+
   const token = await requireAccessToken();
 
   try {
-    await upsertWidgetInstallation({ companyId, enabled, allowedOrigins: parsed.origins }, token);
+    await upsertWidgetInstallation(
+      {
+        companyId,
+        enabled,
+        allowedOrigins: parsed.origins,
+        cooldown: { days: cooldown.days, hours: cooldown.hours, minutes: cooldown.minutes },
+      },
+      token,
+    );
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'save widget installation failed');
     return {

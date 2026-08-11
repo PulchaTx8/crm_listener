@@ -20,6 +20,8 @@ import type {
 export class FakeDeezerTransport implements DeezerTransport {
   readonly searches: DeezerSearchFilters[] = [];
   readonly albumLookups: number[] = [];
+  /** Block 17b's equivalent claim: the widget resolves the chosen track once, on submit. */
+  readonly trackLookups: number[] = [];
 
   private failure: { reason: DeezerFailureReason } | null = null;
 
@@ -55,6 +57,22 @@ export class FakeDeezerTransport implements DeezerTransport {
     // The same refusal the real client produces for an unknown id: Deezer's
     // HTTP 200 with code 800, mapped to `not-found`. A fake that answered
     // something else would let a test pass over a path production fails on.
+    return found
+      ? { ok: true, value: found }
+      : { ok: false, reason: 'not-found', message: 'no data' };
+  }
+
+  async track(trackId: number): Promise<DeezerResult<DeezerTrack>> {
+    this.trackLookups.push(trackId);
+
+    const failure = this.takeFailure();
+    if (failure) return failure;
+
+    // Resolved out of the same fixture the search answers from, so a widget
+    // test cannot pick a recording the search never offered — which is exactly
+    // the pairing Block 17b's D4 relies on.
+    const found = this.tracks.find((track) => track.id === trackId);
+
     return found
       ? { ok: true, value: found }
       : { ok: false, reason: 'not-found', message: 'no data' };

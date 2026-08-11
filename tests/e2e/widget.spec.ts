@@ -84,6 +84,17 @@ const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
  */
 const publicKey = `pw_${randomBytes(16).toString('base64url')}`;
 
+/** What the listener types alongside the request — Block 17b's note (D3). */
+const LISTENER_NOTE = 'toca pra minha mae, ela ouve todo dia';
+
+/**
+ * The Station this journey provisions, lifted to module scope by Block 17b so
+ * the request can be read back out of `music_requests` after the widget claims
+ * to have recorded it. The panel's confirmation is the widget's opinion of what
+ * happened; the row is the fact.
+ */
+let journeyCompanyId: string;
+
 let appOrigin: string;
 /** The Station's own website: the origin its installation names. */
 let embedder: Server;
@@ -316,6 +327,12 @@ test.beforeAll(async ({}, testInfo) => {
   });
   if (upsertError) throw new Error(`could not seed the installation: ${upsertError.message}`);
 
+  // Block 17b reads the request back from this Station, and the cooldown stays
+  // at its default of zero: this journey makes one request, and a ceiling it
+  // never reaches would prove nothing while making the test's own second run
+  // fail for a reason that is not a defect.
+  journeyCompanyId = companyId;
+
   // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
   // this journey shares with its own previous runs. Every limit in actions.ts
   // is keyed by the telephone number except these two, which are keyed by
@@ -357,7 +374,7 @@ test.afterAll(async () => {
   }
 });
 
-test('a visitor identifies themselves from a page on another origin entirely', async ({
+test('a visitor identifies themselves from another origin, and asks for a song', async ({
   page,
   context,
 }) => {
@@ -455,6 +472,63 @@ test('a visitor identifies themselves from a page on another origin entirely', a
   // cookie exists only for the pair (this Station's website, this deployment).
   // Its mere presence is the proof that `Partitioned` was honoured.
   expect(session!.partitionKey).toBe(`http://${new URL(embedOrigin).hostname}`);
+
+  // ---------------------------------------------------------------------------
+  // BLOCK 17b. The first button, which 17a left disabled.
+  //
+  // It continues this journey rather than starting its own, because the thing
+  // being proved is that a request can be made BY A SESSION MINTED IN A
+  // THIRD-PARTY FRAME -- and a test that seeded its own cookie would prove the
+  // door works while skipping the only part that was ever in doubt.
+  //
+  // Deezer is the fixture transport here: DEEZER_FAKE=1 in playwright.config.ts.
+  // A journey that reached api.deezer.com would spend the platform's shared
+  // per-IP limit on every CI run and go red when a third party is having a bad
+  // afternoon.
+  // ---------------------------------------------------------------------------
+  await widget.getByTestId('widget-request-song').click();
+  await expect(widget.getByTestId('widget-song-panel')).toBeVisible({ timeout: 30_000 });
+
+  // Two characters is searchSchema's floor and the panel's own guard; one
+  // character must produce no search at all, which is what the 400 ms debounce
+  // and this minimum exist for together.
+  await widget.getByTestId('widget-song-search').fill('s');
+  await expect(widget.getByTestId('widget-song-results')).toHaveCount(0);
+
+  await widget.getByTestId('widget-song-search').fill('sozinho');
+  await expect(widget.getByTestId('widget-song-results')).toBeVisible({ timeout: 30_000 });
+
+  // The fixture's first recording. Its id (921568) is what the browser will
+  // post -- D4 says the browser sends an integer and the SERVER resolves the
+  // record, and FakeDeezerTransport.track resolves out of the same fixture the
+  // search answered from, so this journey cannot pick something the search
+  // never offered.
+  await widget.getByTestId('widget-song-results').getByRole('button').first().click();
+
+  await widget.getByTestId('widget-song-note').fill(LISTENER_NOTE);
+  await widget.getByTestId('widget-song-send').click();
+
+  await expect(widget.getByTestId('widget-song-recorded')).toBeVisible({ timeout: 30_000 });
+
+  // THE DATABASE, NOT THE SCREEN. The panel saying "your request is with the
+  // station" is the widget's own opinion of what happened; this is the fact.
+  const { data: recorded, error: readError } = await admin
+    .from('music_requests')
+    .select('channel, listener_note, show_id, created_by, member_id')
+    .eq('company_id', journeyCompanyId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (readError) throw new Error(`could not read the request back: ${readError.message}`);
+
+  const request = recorded?.[0];
+  expect(request, 'the request reached music_requests').toBeTruthy();
+  expect(request!.channel).toBe('WEB');
+  expect(request!.listener_note).toBe(LISTENER_NOTE);
+  // D5: a visitor does not know a programme's name, so a web request carries
+  // none. created_by is null because a website visitor is not an auth.users row.
+  expect(request!.show_id).toBeNull();
+  expect(request!.created_by).toBeNull();
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({

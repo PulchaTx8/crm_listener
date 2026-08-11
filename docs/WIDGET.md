@@ -279,3 +279,64 @@ Running `dashboards.spec.ts` a second time, warm, against a server that has
 already compiled those routes once, passes. This is not a regression in
 anything the widget touches — it is a property of the local dev server the
 whole e2e suite already lives with.
+
+---
+
+## 8. Block 17b — asking for a song
+
+The menu's first button works. A listener searches Deezer inside the widget,
+picks a recording, may leave a note, and it lands in `music_requests` with
+channel `WEB` — the same table the presenter's screen has always read.
+
+**The search is Deezer, always** (D1). Not the Station's catalogue with Deezer
+behind it. The catalogue therefore grows from what the public asks for, and
+`apply_song_intake` — the same core Block 15's two endpoints call — is what
+keeps that from becoming a pile of duplicates: it resolves by ISRC, by
+`deezer_track_id` and by title-and-artist before it creates anything.
+
+**The browser sends an integer, never a record** (D4). It posts a
+`deezer_track_id`; the server asks Deezer what that recording is. Nothing the
+client sends describes the song, so nothing the client sends can name what lands
+in a Station's catalogue.
+
+### The wait between requests
+
+`widget_installations.music_request_cooldown` is an **interval**, not a count per
+day. The console tab has three boxes — days, hours, minutes — and **all three at
+zero means no ceiling at all**, which is the column's default.
+
+An interval was chosen over "N per day" for three reasons worth keeping: it needs
+no timezone (a daily reset has to pick whose midnight), it needs no counting (one
+comparison against the listener's most recent `WEB` request), and it can say how
+long is left, so the widget says *you can ask again in 12 minutes* rather than
+*you have reached the limit*.
+
+**One consequence to know before setting it:** with a one-day interval, a
+listener who asked at 23:50 waits until 23:50 the next day. They do not get a
+fresh allowance ten minutes later.
+
+The ceiling counts only `channel = 'WEB'` (D6) — an operator recording a request
+on a listener's behalf does not spend that listener's web quota.
+
+### Where each guard lives, and why
+
+| guard | where | why not the other place |
+| --- | --- | --- |
+| the cooldown | `widget_record_music_request` (0167) | atomic with the insert, and the member row is locked before it is read — without that lock two simultaneous submissions both pass |
+| per-IP limits | the server actions | the database has no idea what an IP address is |
+| the wait shown on opening the panel | `widget_music_request_wait` (0167) | courtesy, not enforcement: it exists so nobody searches, chooses and writes a note before learning they must wait |
+
+### The note
+
+`music_requests.listener_note`, up to 500 characters, and **only the operator
+sees it** (D3). Nothing publishes it anywhere automatically. It appears under the
+song title on `/music/requests`, clamped to two lines with the whole text in the
+element's `title`. Moderation — and what happens when somebody writes something
+unbroadcastable — is deliberately not built.
+
+### What has no ceiling by default
+
+A Station that never sets a cooldown has **no per-listener ceiling**. The brakes
+that remain are 17a's WhatsApp verification and the per-IP limiter, and the
+second cannot tell two listeners on one network apart. This is the owner's
+decision, and the console tab is where it is undone.
