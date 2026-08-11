@@ -1707,7 +1707,8 @@
     "sourceManual": "Cargada a mano",
     "sourceImport": "De un archivo",
     "sourceWhatsapp": "De WhatsApp",
-    "sourceApi": "Por integración"
+    "sourceApi": "Por integración",
+    "sourceWeb": "Desde el sitio de la emisora"
   },
   "widget": {
     "identifyTitle": "Identifícate",

@@ -1707,7 +1707,8 @@
     "sourceManual": "Entered by hand",
     "sourceImport": "From a file",
     "sourceWhatsapp": "From WhatsApp",
-    "sourceApi": "From an integration"
+    "sourceApi": "From an integration",
+    "sourceWeb": "From the station's website"
   },
   "widget": {
     "identifyTitle": "Identify yourself",

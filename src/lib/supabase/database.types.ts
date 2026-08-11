@@ -1487,6 +1487,7 @@ export type Database = {
           external_id: string | null
           id: string
           legacy_id: string | null
+          listener_note: string | null
           member_id: string
           organization_id: string
           requested_at: string
@@ -1503,6 +1504,7 @@ export type Database = {
           external_id?: string | null
           id?: string
           legacy_id?: string | null
+          listener_note?: string | null
           member_id: string
           organization_id: string
           requested_at?: string
@@ -1519,6 +1521,7 @@ export type Database = {
           external_id?: string | null
           id?: string
           legacy_id?: string | null
+          listener_note?: string | null
           member_id?: string
           organization_id?: string
           requested_at?: string
@@ -3121,6 +3124,7 @@ export type Database = {
           deleted_at: string | null
           enabled: boolean
           id: string
+          music_request_cooldown: string
           organization_id: string
           public_key: string
           updated_at: string
@@ -3133,6 +3137,7 @@ export type Database = {
           deleted_at?: string | null
           enabled?: boolean
           id?: string
+          music_request_cooldown?: string
           organization_id: string
           public_key: string
           updated_at?: string
@@ -3145,6 +3150,7 @@ export type Database = {
           deleted_at?: string | null
           enabled?: boolean
           id?: string
+          music_request_cooldown?: string
           organization_id?: string
           public_key?: string
           updated_at?: string
@@ -5106,6 +5112,34 @@ export type Database = {
       }
       widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
       widget_installation_for: { Args: { p_company_id: string }; Returns: Json }
+      widget_music_request_context: {
+        Args: { p_member_id: string; p_public_key: string }
+        Returns: Record<string, unknown>
+      }
+      widget_music_request_wait: {
+        Args: { p_member_id: string; p_public_key: string }
+        Returns: Json
+      }
+      widget_record_music_request: {
+        Args: {
+          p_album_title?: string
+          p_artist_name: string
+          p_cover_md5?: string
+          p_deezer_album_id?: number
+          p_deezer_track_id: number
+          p_duration_seconds?: number
+          p_genre_name?: string
+          p_isrc?: string
+          p_label_name?: string
+          p_member_id: string
+          p_note?: string
+          p_public_key: string
+          p_release_date?: string
+          p_title: string
+          p_upc?: string
+        }
+        Returns: Json
+      }
       widget_request_code: {
         Args: {
           p_code_hash: string
@@ -5178,7 +5212,7 @@ export type Database = {
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
       music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
-      music_request_channel: "MANUAL" | "IMPORT" | "API"
+      music_request_channel: "MANUAL" | "IMPORT" | "API" | "WEB"
       music_vocal: "MALE" | "FEMALE" | "DUO" | "GROUP" | "INSTRUMENTAL"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
@@ -5406,7 +5440,7 @@ export const Constants = {
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
       music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
-      music_request_channel: ["MANUAL", "IMPORT", "API"],
+      music_request_channel: ["MANUAL", "IMPORT", "API", "WEB"],
       music_vocal: ["MALE", "FEMALE", "DUO", "GROUP", "INSTRUMENTAL"],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],

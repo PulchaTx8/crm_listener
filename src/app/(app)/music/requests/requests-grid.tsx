@@ -34,10 +34,17 @@ const INITIAL_ARCHIVE: ArchiveRequestState = { ok: null };
 // to /api/v1/music-requests. The type checker is what surfaced its absence here
 // the moment 0151 added the value -- without this entry an API-sourced request
 // would render a blank cell in the one column that explains where it came from.
+//
+// WEB arrived with Block 17b and the type checker did it again, which is the
+// argument for this Record being exhaustive rather than a lookup with a
+// fallback. It is not API: nobody authenticated with a credential and no
+// application posted anything. A listener standing on the Station's own website
+// pressed a button in the embedded widget.
 const CHANNEL_LABEL_KEYS: Record<RequestSummary['channel'], string> = {
   MANUAL: 'sourceManual',
   IMPORT: 'sourceImport',
   API: 'sourceApi',
+  WEB: 'sourceWeb',
 };
 
 /**
