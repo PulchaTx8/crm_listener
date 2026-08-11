@@ -1783,7 +1783,10 @@
     "field_passport": "Passport",
     "field_discovery_source": "How you found us",
     "chooseOne": "Choose one",
-    "otherPromotions": "Other promotions"
+    "otherPromotions": "Other promotions",
+    "forWhichProgramme": "For which programme?",
+    "anyTime": "Any time",
+    "onAirNow": "{name} — on air now"
   },
   "shows": {
     "programmes": "Programmes",

@@ -97,3 +97,30 @@ export function recordRefusal(reason: string | null): RequestRefusal {
       return 'failed';
   }
 }
+
+/** Block 18. One programme the listener may attach the request to. */
+export interface WidgetShow {
+  id: string;
+  name: string;
+  /** Playing right now, in the Station's own clock. A label, never a filter. */
+  onAir: boolean;
+}
+
+/**
+ * The programmes, checked rather than asserted.
+ *
+ * A row this code cannot read is DROPPED rather than rendered nameless: an
+ * option with no name is a thing a listener can select and never understand,
+ * and choosing a programme is optional anyway, so a shorter list costs nothing
+ * while a blank entry costs the whole step its meaning.
+ */
+export function readShows(value: unknown): WidgetShow[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((raw): WidgetShow[] => {
+    if (typeof raw !== 'object' || raw === null) return [];
+    const row = raw as Record<string, unknown>;
+    if (typeof row.id !== 'string' || typeof row.name !== 'string') return [];
+    return [{ id: row.id, name: row.name, onAir: row.on_air === true }];
+  });
+}

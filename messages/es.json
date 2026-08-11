@@ -1783,7 +1783,10 @@
     "field_passport": "Pasaporte",
     "field_discovery_source": "Cómo nos conociste",
     "chooseOne": "Elige una",
-    "otherPromotions": "Otras promociones"
+    "otherPromotions": "Otras promociones",
+    "forWhichProgramme": "¿Para qué programa?",
+    "anyTime": "Cualquier horario",
+    "onAirNow": "{name} — al aire ahora"
   },
   "shows": {
     "programmes": "Programas",

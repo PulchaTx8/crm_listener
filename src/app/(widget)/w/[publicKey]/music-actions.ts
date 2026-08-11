@@ -10,10 +10,12 @@ import { readAnswer } from '@/lib/widget/door-answer';
 import { callerIp, ipKey, withinLimits } from '@/lib/widget/limits';
 import {
   deezerRefusal,
+  readShows,
   recordRefusal,
   toWidgetTrack,
   type RequestRefusal,
   type SearchRefusal,
+  type WidgetShow,
   type WidgetTrack,
 } from '@/lib/widget/music-mapping';
 import { WIDGET_SESSION_COOKIE, readSessionFor, type WidgetClaims } from '@/lib/widget/session';
@@ -147,6 +149,39 @@ export async function searchSongsAction(
   return { status: 'results', tracks: result.value.map(toWidgetTrack) };
 }
 
+/**
+ * Block 18. The Station's programmes, so a listener can say which one the song
+ * is for.
+ *
+ * NOT a `useActionState` pair, like `getWaitAction` beside it: it takes no form
+ * and answers a question. Failure is answered with an EMPTY LIST rather than a
+ * refusal — choosing is optional (D6), so a listener whose programme list could
+ * not be read should still be able to ask for a song.
+ */
+export async function listShowsAction(rawPublicKey: string): Promise<WidgetShow[]> {
+  const session = await sessionFor(rawPublicKey);
+  if (!session) return [];
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc('widget_shows', {
+    p_public_key: session.publicKey,
+    p_member_id: session.claims.memberId,
+  });
+
+  if (error) {
+    logger.warn(
+      { publicKey: session.publicKey, code: error.code, message: error.message },
+      'widget: could not read the programmes',
+    );
+    return [];
+  }
+
+  const answer = readAnswer(data);
+  if (!answer?.ok) return [];
+
+  return readShows((data as { shows?: unknown }).shows);
+}
+
 export async function requestSongAction(
   _previous: RequestState,
   formData: FormData,
@@ -157,6 +192,7 @@ export async function requestSongAction(
   const parsed = requestSongSchema.safeParse({
     deezerTrackId: formData.get('deezerTrackId'),
     note: formData.get('note') ?? '',
+    showId: formData.get('showId') ?? '',
   });
   if (!parsed.success) return { status: 'refused', reason: 'invalid' };
 
@@ -229,6 +265,9 @@ export async function requestSongAction(
     p_genre_name: detail?.genreName ?? undefined,
     p_release_date: detail?.releaseDate ?? undefined,
     p_note: parsed.data.note ?? undefined,
+    // Block 18. Shape-checked here; whether it names a programme of THIS
+    // Station is the door's to decide, and anything else resolves to null.
+    p_show_id: parsed.data.showId ?? undefined,
   });
 
   if (error) {

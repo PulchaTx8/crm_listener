@@ -5269,6 +5269,7 @@ export type Database = {
           p_note?: string
           p_public_key: string
           p_release_date?: string
+          p_show_id?: string
           p_title: string
           p_upc?: string
         }
@@ -5282,6 +5283,10 @@ export type Database = {
           p_public_key: string
           p_ttl_seconds?: number
         }
+        Returns: Json
+      }
+      widget_shows: {
+        Args: { p_member_id: string; p_public_key: string }
         Returns: Json
       }
       widget_verify_code: {
