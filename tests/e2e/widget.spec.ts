@@ -55,8 +55,19 @@ const adminPassword = `Admin-${stamp}-aA1!`;
 const ownerEmail = `widget-journey-owner-${stamp}@example.test`;
 const ownerPassword = `Init-${stamp}-aA1!`;
 
-/** The listener. Stamped, so each run mints its own code and its own bucket. */
-const VISITOR_PHONE = `+5511${String(stamp).slice(-9)}`;
+/**
+ * The listener. Stamped, so each run mints its own code and its own bucket.
+ *
+ * SPLIT THE WAY THE SCREEN SPLITS IT, in two boxes: the country code the widget
+ * prefills and the national number the visitor types. Kept as one constant
+ * until 2026-08-11, when the form grew the country box — and the reason the
+ * form grew it is that a single box sent Meta `11985954985`, a national number
+ * with no country in front of it, which reaches a different subscriber in every
+ * country that has one.
+ */
+const VISITOR_COUNTRY_CODE = '55';
+const VISITOR_LOCAL_PHONE = `11${String(stamp).slice(-9)}`;
+const VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${VISITOR_LOCAL_PHONE}`;
 const VISITOR_NAME = 'Cross Origin Listener';
 
 /** Names the outbox row this run's code arrives on, and nobody else's. */
@@ -168,7 +179,7 @@ async function codeFromTheOutbox(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const { data, error } = await admin
       .from('outbox_messages')
-      .select('template_variables, body')
+      .select('template_variables, body, to_phone')
       .eq('template_name', TEMPLATE_NAME)
       .order('created_at', { ascending: false })
       .limit(1);
@@ -190,6 +201,13 @@ async function codeFromTheOutbox(): Promise<string> {
       expect(row.body, 'the code is masked in the column retention never prunes').not.toContain(
         variables[0],
       );
+      // THE NUMBER THE WORKER WILL HAND TO META, at the end of the chain that
+      // starts in the browser: two boxes, a hidden field, a server action, an
+      // RPC, and this column. Between 2026-08-10 and 2026-08-11 it held
+      // `11985954985` — no country code — and every layer was behaving as
+      // documented while the send went nowhere. Asserted against the full
+      // international number so no layer can quietly drop the front of it again.
+      expect(row.to_phone, 'the queued number carries its country code').toBe(VISITOR_PHONE);
       return variables[0];
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -358,8 +376,19 @@ test('a visitor identifies themselves from a page on another origin entirely', a
   expect(frame, 'the widget document is a frame of this page').toBeTruthy();
   expect(new URL(page.url()).origin).not.toBe(new URL(frame!.url()).origin);
 
-  await widget.locator('#widget-phone').fill(VISITOR_PHONE);
+  // The country box comes prefilled with Brazil; filled explicitly anyway, so
+  // this journey states the number it means rather than inheriting a default a
+  // later edit could change underneath it.
+  await widget.locator('#widget-country-code').fill(VISITOR_COUNTRY_CODE);
+  await widget.locator('#widget-phone').fill(VISITOR_LOCAL_PHONE);
   await widget.locator('#widget-name').fill(VISITOR_NAME);
+
+  // THE NUMBER THE SEND WILL ACTUALLY CARRY, read off the screen the visitor is
+  // looking at. Asserted here rather than only against the outbox because the
+  // whole defect this box exists for was invisible on screen: the visitor typed
+  // a number that looked right, and the country code was missing everywhere
+  // downstream.
+  await expect(widget.getByTestId('widget-phone-preview')).toContainText(VISITOR_PHONE);
   await widget.getByRole('button', { name: 'Send code' }).click();
 
   // Either the second screen or a refusal — whichever arrives, so a refusal is

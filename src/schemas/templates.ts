@@ -150,6 +150,16 @@ export const templateRegistrationSchema = z
         .min(1, 'Say what this position means.')
         .max(MAX_VARIABLE_DESCRIPTION),
     ),
+    /**
+     * Whether Meta approved this one under the Authentication category, which
+     * is the same question as "does it carry an OTP button" — every
+     * authentication template created since May 2023 has one.
+     *
+     * ASKED, NOT INFERRED, and 0165's header sets out why at length: the answer
+     * lives in Meta's records, exactly like the name and the language this form
+     * also transcribes rather than chooses.
+     */
+    otpButton: z.boolean(),
   })
   .superRefine((value, ctx) => {
     const expected = countPlaceholders(value.body);
@@ -161,6 +171,20 @@ export const templateRegistrationSchema = z
           expected === 0
             ? 'This body has no {{n}} placeholders, so it takes no variables.'
             : `This body uses ${expected} placeholder(s); describe each one.`,
+      });
+    }
+
+    // The OTP button's parameter is the code, and the code is what the body
+    // says with its placeholder — so this pairing describes a send that could
+    // never be built. 0113's door refuses it with 22023 and the payload builder
+    // throws for it; caught here it is a message beside the checkbox instead of
+    // a round trip, which is the argument this whole file makes for itself.
+    if (value.otpButton && expected === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['otpButton'],
+        message:
+          'An authentication template carries the code in {{1}}; this body has no placeholder.',
       });
     }
   });

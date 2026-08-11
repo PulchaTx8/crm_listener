@@ -373,6 +373,11 @@ async function drainOutbox(
             name: row.template_name,
             language: row.template_language,
             variables: row.template_variables,
+            // 0165. Null here only for a row claimed by the previous deploy's
+            // `claim_outbox_batch`, which did not select the column; parseTemplate
+            // reads that as `false`, which is the send every template row made
+            // before 0165 and is right for all of them.
+            otpButton: row.template_otp_button,
           });
     if (row.template_name !== null && template === null) {
       // Same reasoning as the interactive branch below, with one addition that

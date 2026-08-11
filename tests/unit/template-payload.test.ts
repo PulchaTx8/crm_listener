@@ -19,6 +19,24 @@ const reminder = {
   name: 'lembrete_retirada',
   language: 'pt_BR',
   variables: ['Maria', 'Caneca PulchaTX', '12/08/2026'],
+  otpButton: false,
+};
+
+/**
+ * The widget's verification code, whose template is registered with Meta under
+ * the AUTHENTICATION category — the shape that produced `(#131008) Required
+ * parameter is missing` in production on 2026-08-11 and sent nobody a code.
+ *
+ * Meta's authentication templates are not free text: the body is a preset the
+ * operator cannot edit, and since May 2023 every one of them carries an OTP
+ * button (copy code, one-tap, or zero-tap). The send has to name that button,
+ * repeating the code as its parameter, or the API refuses the whole message.
+ */
+const verification = {
+  name: 'pulchtx_widgetcode',
+  language: 'en_US',
+  variables: ['580984'],
+  otpButton: true,
 };
 
 describe('buildTemplatePayload', () => {
@@ -42,11 +60,54 @@ describe('buildTemplatePayload', () => {
     });
   });
 
+  it('names the OTP button beside the body for an authentication template', () => {
+    // THE WIRE SHAPE META REQUIRES, whole. The button repeats the code the body
+    // already carries — that is not redundancy in the payload, it is what the
+    // button copies to the clipboard when the listener taps it.
+    expect(buildTemplatePayload(verification)).toEqual({
+      type: 'template',
+      template: {
+        name: 'pulchtx_widgetcode',
+        language: { code: 'en_US' },
+        components: [
+          { type: 'body', parameters: [{ type: 'text', text: '580984' }] },
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: '0',
+            parameters: [{ type: 'text', text: '580984' }],
+          },
+        ],
+      },
+    });
+  });
+
+  it('sends index as the string "0", which is what the Cloud API takes', () => {
+    // A number here is a 400. Asserted on its own because `toEqual` above would
+    // pass just as happily against 0 if this ever drifted, and the failure would
+    // come back as an unexplained refusal from Meta rather than from a test.
+    const built = buildTemplatePayload(verification) as {
+      template: { components: Array<Record<string, unknown>> };
+    };
+    expect(built.template.components[1]?.index).toBe('0');
+  });
+
+  it('refuses an authentication template with no code to put in the button', () => {
+    // Meta's own rule is that the authentication body carries exactly one
+    // variable. Reaching the API without it would be a 131008 — the very error
+    // this pair exists to stop — so it is refused here, where the row is parked
+    // with a reason instead.
+    expect(() => buildTemplatePayload({ ...verification, variables: [] })).toThrow(
+      TemplateLimitError,
+    );
+  });
+
   it('omits components entirely for an approved fixed-text template', () => {
     const built = buildTemplatePayload({
       name: 'lembrete_fixo',
       language: 'pt_BR',
       variables: [],
+      otpButton: false,
     }) as { template: Record<string, unknown> };
 
     // `not.toHaveProperty` and not `toBeUndefined`: a key present with an
@@ -104,26 +165,43 @@ describe('buildTemplatePayload', () => {
 });
 
 describe('parseTemplate', () => {
-  it('reads back the triple the outbox columns store', () => {
+  it('reads back the columns the outbox stores', () => {
     expect(
       parseTemplate({
         name: 'lembrete_retirada',
         language: 'pt_BR',
         variables: ['Maria', 'Caneca PulchaTX', '12/08/2026'],
+        otpButton: false,
       }),
     ).toEqual(reminder);
   });
 
-  it('reads back a fixed-text template with an empty variables array', () => {
-    expect(parseTemplate({ name: 'lembrete_fixo', language: 'pt_BR', variables: [] })).toEqual({
-      name: 'lembrete_fixo',
-      language: 'pt_BR',
-      variables: [],
-    });
+  it('reads back an authentication row, button and all', () => {
+    expect(
+      parseTemplate({
+        name: 'pulchtx_widgetcode',
+        language: 'en_US',
+        variables: ['580984'],
+        otpButton: true,
+      }),
+    ).toEqual(verification);
+  });
+
+  it('treats an absent otpButton as no button, for a row claimed mid-deploy', () => {
+    // 0165 writes the column NOT NULL, so the database cannot produce this. A
+    // worker running the new code against a claim from the old one can: the
+    // column simply is not in the row it was handed. Reading that as `false` is
+    // the behaviour every send had before 0165 — degrading to the old shape,
+    // not parking a message a listener is waiting for.
+    expect(
+      parseTemplate({ name: 'lembrete_fixo', language: 'pt_BR', variables: [] }),
+    ).toEqual({ name: 'lembrete_fixo', language: 'pt_BR', variables: [], otpButton: false });
   });
 
   it('returns null for a null name, the shape a plain text row carries', () => {
-    expect(parseTemplate({ name: null, language: null, variables: null })).toBeNull();
+    expect(
+      parseTemplate({ name: null, language: null, variables: null, otpButton: null }),
+    ).toBeNull();
   });
 
   it('returns null when variables is not an array', () => {
@@ -140,6 +218,15 @@ describe('parseTemplate', () => {
 
   it('returns null for a blank language, which would send under no registration at all', () => {
     expect(parseTemplate({ name: 'lembrete', language: '', variables: ['Maria'] })).toBeNull();
+  });
+
+  it('returns null for an authentication row with no code in it', () => {
+    // The same rule buildTemplatePayload throws for, answered the way this
+    // function answers everything: drainOutbox parks the row with a reason,
+    // rather than the transport throwing and taking the batch with it.
+    expect(
+      parseTemplate({ name: 'pulchtx_widgetcode', language: 'en_US', variables: [], otpButton: true }),
+    ).toBeNull();
   });
 
   it('returns null rather than throwing for a value Meta would refuse', () => {

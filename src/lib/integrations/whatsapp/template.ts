@@ -49,6 +49,20 @@ export interface Template {
   language: string;
   /** Positional: index 0 fills {{1}}. Empty for an approved fixed-text template. */
   variables: string[];
+  /**
+   * Whether Meta's registration carries an OTP button — the mark of the
+   * AUTHENTICATION category (0165's `message_templates.otp_button`).
+   *
+   * A PROPERTY OF THE REGISTRATION, not of this product's purpose for it. It is
+   * transcribed by the operator from the same Meta screen the name and the
+   * language come from, for the reason D4 gives for those: what Meta approved
+   * is a fact about Meta's records, and a value derived here from
+   * `template_purpose` would be this system guessing at it. A WEB_VERIFICATION
+   * template registered under Utility is an unusual thing to do and a legal
+   * one; guessed, it would send a button that template does not have, and Meta
+   * refuses that just as firmly as the missing one.
+   */
+  otpButton: boolean;
 }
 
 /**
@@ -58,6 +72,7 @@ export interface Template {
  */
 export function buildTemplatePayload(template: Template): unknown {
   validateParameters(template.variables);
+  const components = buildComponents(template);
   return {
     type: 'template',
     template: {
@@ -69,18 +84,59 @@ export function buildTemplatePayload(template: Template): unknown {
       // a 400. A fixed-text approved template with no {{n}} at all is a real
       // shape Meta allows (0110's own reasoning for defaulting `variables` to
       // '[]'), so this branch is reachable, not defensive.
-      ...(template.variables.length > 0
-        ? {
-            components: [
-              {
-                type: 'body',
-                parameters: template.variables.map((value) => ({ type: 'text', text: value })),
-              },
-            ],
-          }
-        : {}),
+      ...(components.length > 0 ? { components } : {}),
     },
   };
+}
+
+/**
+ * The `components` array, which is one entry for an ordinary template and two
+ * for an authentication one.
+ *
+ * THE SECOND ENTRY IS WHY THIS FUNCTION EXISTS, and it was learned in
+ * production: on 2026-08-11 every widget verification came back from Meta as
+ * `(#131008) Required parameter is missing` and no listener ever received a
+ * code. Meta's authentication templates carry an OTP button — mandatory on
+ * every one created since May 2023 — and the send must name that button and
+ * repeat the code as its parameter. A payload carrying only the body is not a
+ * partially-filled authentication message; it is one Meta refuses whole.
+ *
+ * The button's parameter is `variables[0]` rather than a value of its own
+ * BECAUSE THERE IS NOTHING ELSE IT COULD BE: an authentication body has exactly
+ * one placeholder, the code, and the button's job is to put that same code on
+ * the listener's clipboard. Two sources for one value is how they drift.
+ *
+ * `index` is the STRING '0', not the number: the Cloud API answers a 400 to the
+ * number, and it is the kind of difference that survives review because both
+ * spellings read identically in prose.
+ */
+function buildComponents(template: Template): unknown[] {
+  const code = template.variables[0];
+  if (code === undefined) {
+    if (template.otpButton) {
+      // Refused HERE rather than at Meta, for the reason the file header gives:
+      // nobody is waiting at a screen for this send, so a 400 would be a code
+      // the listener never receives and an operator never hears about. This is
+      // the registration disagreeing with itself — an authentication template
+      // whose body was transcribed without its one placeholder — and the row
+      // parks with this sentence on it.
+      throw new TemplateLimitError(
+        'an authentication template needs one variable, the code, and this one has none',
+      );
+    }
+    return [];
+  }
+
+  const body = {
+    type: 'body',
+    parameters: template.variables.map((value) => ({ type: 'text', text: value })),
+  };
+  if (!template.otpButton) return [body];
+
+  return [
+    body,
+    { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
+  ];
 }
 
 function validateParameters(variables: string[]): void {
@@ -125,19 +181,40 @@ export function parseTemplate(row: {
   name: unknown;
   language: unknown;
   variables: unknown;
+  otpButton?: unknown;
 }): Template | null {
   const parsed = templateSchema.safeParse(row);
   if (!parsed.success) return null;
   try {
-    validateParameters(parsed.data.variables);
+    // Built and thrown away, ON PURPOSE: "sendable" means exactly "the payload
+    // builder accepts it", and asking the builder is the only way to say that
+    // which cannot fall behind. Re-listing the rules here was the shape this
+    // had before 0165 added one — the OTP button's — and a second list is a
+    // list that eventually disagrees with the first.
+    buildTemplatePayload(parsed.data);
   } catch {
     return null;
   }
   return parsed.data;
 }
 
-const templateSchema: z.ZodType<Template> = z.object({
+/**
+ * `otpButton` is the only field here that tolerates being absent, and it is a
+ * DEPLOY concern rather than a data one: 0165 writes the column NOT NULL, so no
+ * row in the database can omit it, but a worker already running the new code
+ * can be handed a row by the old `claim_outbox_batch` during the minutes a
+ * deploy takes. Read as `false` that row sends exactly as it did yesterday;
+ * read as a parse failure it would park a message somebody is waiting for.
+ *
+ * The other three stay strict. A missing name or language is not an old shape,
+ * it is a broken row, and 0111's constraint says the three travel together.
+ */
+const templateSchema = z.object({
   name: z.string().min(1),
   language: z.string().min(1),
   variables: z.array(z.string()),
-});
+  otpButton: z
+    .boolean()
+    .nullish()
+    .transform((value) => value ?? false),
+}) satisfies z.ZodType<Template, z.ZodTypeDef, unknown>;

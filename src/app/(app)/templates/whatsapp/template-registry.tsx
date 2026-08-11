@@ -233,6 +233,16 @@ function RegisteredDetails({
           <dt className="text-xs text-muted-foreground">{t('language')}</dt>
           <dd className="font-mono">{template.language}</dd>
         </div>
+        {/*
+          Shown either way, never only when true: "this registration says it has
+          no OTP button" is exactly the fact an operator needs in front of them
+          when codes are not arriving, and a row that simply omits the line
+          reads as a screen that does not know about buttons at all.
+        */}
+        <div className="flex flex-col">
+          <dt className="text-xs text-muted-foreground">{t('otpButtonRecorded')}</dt>
+          <dd>{template.otpButton ? t('otpButtonYes') : t('otpButtonNo')}</dd>
+        </div>
         <div className="flex flex-col">
           <dt className="text-xs text-muted-foreground">{t('lastRecorded')}</dt>
           <dd>{formatInstant(template.updatedAt, timeZone)}</dd>
@@ -342,6 +352,29 @@ function RegistrationForm({
           className="font-mono"
           data-testid={`template-body-${purpose}`}
         />
+      </label>
+
+      {/*
+        THE QUESTION THAT WAS NEVER ASKED, until a day of production silence
+        asked it. Meta's Authentication category carries an OTP button on every
+        template created since May 2023, and a send that does not name that
+        button is refused whole — `(#131008) Required parameter is missing`,
+        which reaches nobody but the queue. It is transcribed here beside the
+        name and the language for the reason D4 gives for those: the answer is a
+        fact about Meta's records, and this system records rather than guesses.
+      */}
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="otpButton"
+          defaultChecked={existing?.otpButton ?? false}
+          className="mt-0.5 h-4 w-4 shrink-0"
+          data-testid={`template-otp-button-${purpose}`}
+        />
+        <span className="flex flex-col gap-0.5">
+          <span>{t('otpButtonLabel')}</span>
+          <span className="text-xs text-muted-foreground">{t('otpButtonHelp')}</span>
+        </span>
       </label>
 
       {/*

@@ -17,6 +17,7 @@ const registration = {
   language: 'pt_BR',
   body: 'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}.',
   variables: ['nome do ouvinte', 'prêmio', 'prazo'],
+  otpButton: false,
 };
 
 describe('SYSTEM_MESSAGE_KEYS', () => {
@@ -128,6 +129,35 @@ describe('templateRegistrationSchema', () => {
         variables: [],
       }).success,
     ).toBe(true);
+  });
+
+  it('accepts an authentication template, whose one placeholder is the code', () => {
+    expect(
+      templateRegistrationSchema.safeParse({
+        ...registration,
+        purpose: 'WEB_VERIFICATION' as const,
+        name: 'pulchtx_widgetcode',
+        language: 'en_US',
+        body: '*{{1}}* is your verification code.',
+        variables: ['código de verificação'],
+        otpButton: true,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('REFUSES AN OTP BUTTON ON A BODY WITH NO CODE IN IT', () => {
+    // The button's parameter is the code, and the code is what the placeholder
+    // holds — so this pairing describes a send nothing could build. 0113's door
+    // refuses it with 22023 and buildTemplatePayload throws for it; refused
+    // here it is a message beside the checkbox the operator just ticked.
+    const result = templateRegistrationSchema.safeParse({
+      ...registration,
+      body: 'Your code is ready.',
+      variables: [],
+      otpButton: true,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(['otpButton']);
   });
 
   it('refuses a blank description among otherwise valid ones', () => {

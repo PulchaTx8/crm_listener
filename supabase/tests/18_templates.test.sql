@@ -1,5 +1,5 @@
 begin;
-select plan(75);
+select plan(82);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -704,7 +704,7 @@ select ok(
   'authenticated may call clear_station_message_template');
 select ok(
   has_function_privilege('authenticated',
-    'public.register_message_template(uuid, public.template_purpose, text, text, text, jsonb)', 'EXECUTE'),
+    'public.register_message_template(uuid, public.template_purpose, text, text, text, jsonb, boolean)', 'EXECUTE'),
   'authenticated may call register_message_template');
 select ok(
   has_function_privilege('authenticated',
@@ -780,6 +780,135 @@ select is(
     '5511911111199', 900) -> 'systemMessages' ->> 'REFUSAL',
   'Texto depois de limpar',
   'start_whatsapp_conversation carries the same wording, so the first turn speaks the same voice as the rest');
+
+-- 75-81: 0165. The OTP button, which is the difference between a verification
+-- code that arrives and `(#131008) Required parameter is missing`.
+--
+-- Meta's authentication templates carry a button the operator did not choose
+-- and cannot remove, and the send must name it. Between 2026-08-10 and
+-- 2026-08-11 the Block 17a widget sent none: the payload carried the body
+-- alone, Meta refused every one, and the rows parked FAILED where only an
+-- operator reading the queue would ever see them.
+reset role;
+
+-- A Station of its own, so none of the assertions above can be disturbed by
+-- what these register and enqueue.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000e4ca', '00000000-0000-0000-0000-00000000e4f1',
+   'Station templates otp', 'America/Sao_Paulo');
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-00000000e4aa', '00000000-0000-0000-0000-00000000e4f1',
+   '00000000-0000-0000-0000-00000000e4ca', 'WHATSAPP', '5511900000110', true);
+
+-- 75: the door records the operator's answer. Transcribed from Meta's approval
+-- screen, never derived from the purpose (D4's rule for the name and language).
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+select public.register_message_template(
+  '00000000-0000-0000-0000-00000000e4c2', 'WEB_VERIFICATION',
+  'pulchtx_widgetcode', 'en_US',
+  '*{{1}}* is your verification code.',
+  '["código de verificação"]'::jsonb,
+  true);
+
+reset role;
+
+select is(
+  (select otp_button from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2'
+      and purpose = 'WEB_VERIFICATION' and deleted_at is null),
+  true, 'the registry records that this approval carries an OTP button');
+
+-- 76: and the default is the behaviour every template had before 0165, so a
+-- reminder registered by the six-argument call keeps sending exactly as it did.
+select is(
+  (select otp_button from public.message_templates
+    where company_id = '00000000-0000-0000-0000-00000000e4c2'
+      and purpose = 'PICKUP_REMINDER' and deleted_at is null),
+  false, 'a template registered without the argument carries no button');
+
+-- 77: the button's parameter IS the code, and the code is what {{1}} holds — so
+-- a body with no placeholder describes a send that could never be built.
+-- Refused at the moment it is typed, like the placeholder-count check above.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", "role": "authenticated"}';
+
+select throws_ok($$
+  select public.register_message_template(
+    '00000000-0000-0000-0000-00000000e4c2', 'WEB_VERIFICATION',
+    'pulchtx_sem_codigo', 'en_US', 'Your code is ready.', '[]'::jsonb, true)
+$$, '22023', null,
+  'an authentication template whose body has no {{1}} to put in the button is refused');
+
+reset role;
+
+-- The registration this Station will actually send, written directly because
+-- the point of 78-79 is the ENQUEUE and the claim, not the door.
+insert into public.message_templates
+  (organization_id, company_id, purpose, name, language, body, variables, otp_button)
+values
+  ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4ca',
+   'WEB_VERIFICATION', 'pulchtx_widgetcode', 'en_US',
+   '*{{1}}* is your verification code.', '["código"]'::jsonb, true);
+
+select public.enqueue_whatsapp_outbound(
+  '00000000-0000-0000-0000-00000000e4aa', '5511911111110', null,
+  null, 'otp-button:test', 'WEB_VERIFICATION', '["580984"]'::jsonb);
+
+-- 78: stamped onto the row at enqueue, not re-read at send time — the rule 0111
+-- states for the other three, so a registration edited afterwards cannot change
+-- what an already-queued row sends.
+select is(
+  (select template_otp_button from public.outbox_messages where dedupe_key = 'otp-button:test'),
+  true, 'the enqueue stamps the OTP button flag from the resolved registry row');
+
+-- 79: AND THE CLAIM HANDS IT OVER. This is the assertion that would have caught
+-- the production defect: everything else can be right and the worker still
+-- builds a body-only payload if the column stops here.
+create temporary table claimed_otp as
+  select * from public.claim_outbox_batch(10000);
+
+select is(
+  (select c.template_otp_button from claimed_otp c
+    join public.outbox_messages o on o.id = c.id
+   where o.dedupe_key = 'otp-button:test'),
+  true, 'the claim hands the worker the OTP button flag');
+
+-- 80: and a row that is not a template send says false rather than null, which
+-- is why this column is not part of outbox_messages_template_shape.
+select is(
+  (select template_otp_button from public.outbox_messages where dedupe_key = 'plain-text:test'),
+  false, 'a plain text row carries false, not null — it sends no button either');
+
+-- 81: the enqueue's own guard, for a registry row that reached this state
+-- without passing the door — edited by hand, or restored from a backup taken
+-- before 0165. Refusing here parks nothing and sends nothing; it tells the
+-- caller, which for the widget is a visitor who gets an answer instead of a
+-- box that waits for ever.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-00000000e4cb', '00000000-0000-0000-0000-00000000e4f1',
+   'Station templates otp broken', 'America/Sao_Paulo');
+insert into public.integrations
+  (id, organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-00000000e4ab', '00000000-0000-0000-0000-00000000e4f1',
+   '00000000-0000-0000-0000-00000000e4cb', 'WHATSAPP', '5511900000111', true);
+insert into public.message_templates
+  (organization_id, company_id, purpose, name, language, body, variables, otp_button)
+values
+  ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4cb',
+   'WEB_VERIFICATION', 'pulchtx_sem_codigo', 'en_US',
+   'Your code is ready.', '[]'::jsonb, true);
+
+select throws_ok($$
+  select public.enqueue_whatsapp_outbound(
+    '00000000-0000-0000-0000-00000000e4ab', '5511911111111', null,
+    null, 'otp-button-broken:test', 'WEB_VERIFICATION', '[]'::jsonb)
+$$, '22023', null,
+  'an OTP-button registration with nothing to put in the button is refused at enqueue too');
 
 select * from finish();
 rollback;
