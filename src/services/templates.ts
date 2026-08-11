@@ -129,6 +129,12 @@ export interface RegisteredTemplate {
   body: string;
   /** What each position means, in order. Empty for an approved fixed-text template. */
   variables: string[];
+  /**
+   * Whether the approval carries an OTP button — Meta's Authentication
+   * category (0165). The send must name that button or the Cloud API refuses
+   * the whole message with (#131008).
+   */
+  otpButton: boolean;
   updatedAt: string;
 }
 
@@ -136,7 +142,7 @@ export async function listRegisteredTemplates(companyId: string): Promise<Regist
   const supabase = await createUserClient();
   const { data, error } = await supabase
     .from('message_templates')
-    .select('id, purpose, name, language, body, variables, updated_at')
+    .select('id, purpose, name, language, body, variables, otp_button, updated_at')
     .eq('company_id', companyId)
     .order('purpose', { ascending: true });
   if (error) throw mapTemplateError(error.code, error.message);
@@ -154,6 +160,7 @@ export async function listRegisteredTemplates(companyId: string): Promise<Regist
     variables: Array.isArray(row.variables)
       ? row.variables.filter((value): value is string => typeof value === 'string')
       : [],
+    otpButton: row.otp_button,
     updatedAt: row.updated_at,
   }));
 }
@@ -169,6 +176,7 @@ export async function registerTemplate(
     p_language: input.language,
     p_body: input.body,
     p_variables: input.variables,
+    p_otp_button: input.otpButton,
   });
   if (error) throw mapTemplateError(error.code, error.message);
 }

@@ -63,6 +63,13 @@ interface ClaimedRow {
   template_name: string | null;
   template_language: string | null;
   template_variables: unknown;
+  /**
+   * 0165, and NOT part of the triple above: the column is NOT NULL with a
+   * default, so it is false on a plain text row rather than null. It says
+   * whether the send must name Meta's OTP button — the component whose absence
+   * refused every widget verification in production with (#131008).
+   */
+  template_otp_button: boolean;
   attempts: number;
   phone_number_id: string | null;
   // Only the discarded PostgREST shape uses this. It exists so a worker mutated
@@ -239,6 +246,7 @@ function outboxRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
     template_name: null,
     template_language: null,
     template_variables: null,
+    template_otp_button: false,
     attempts: 0,
     phone_number_id: '1111',
     integrations: { phone_number_id: '1111' },
@@ -555,6 +563,7 @@ describe('runTick: the outbound half', () => {
           name: 'lembrete_retirada',
           language: 'pt_BR',
           variables: ['Maria', 'Caneca PulchaTX', '12/08/2026'],
+          otpButton: false,
         },
       },
     ]);
@@ -562,6 +571,36 @@ describe('runTick: the outbound half', () => {
     // Settled exactly like the other two: one queue, one ladder, one shape of
     // write. outbox_messages_sent_shape (0059) does not know about kinds.
     expect(db.updates.filter((update) => update.patch.status === 'SENT')).toHaveLength(1);
+  });
+
+  it('carries the OTP button flag from the row through to the transport', async () => {
+    // THE WIDGET'S SEND, end to end through the worker. The column is the only
+    // thing that distinguishes it from the reminder above, and if it stopped
+    // travelling the symptom would not be a test failure anywhere near here —
+    // it would be (#131008) from Meta and a listener staring at a box waiting
+    // for a code that never comes, which is exactly how this went unnoticed in
+    // production for a day.
+    const db = new FakeDb({
+      outbox: [
+        outboxRow({
+          body: '****** is your verification code.',
+          template_name: 'pulchtx_widgetcode',
+          template_language: 'en_US',
+          template_variables: ['580984'],
+          template_otp_button: true,
+        }),
+      ],
+    });
+    const transport = scripted({ ok: true, externalId: 'wamid.OTP' });
+
+    await tick(db, transport);
+
+    expect(transport.seenTemplates[0]?.template).toEqual({
+      name: 'pulchtx_widgetcode',
+      language: 'en_US',
+      variables: ['580984'],
+      otpButton: true,
+    });
   });
 
   it('parks a row whose stored template payload is not one the API would accept', async () => {

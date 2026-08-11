@@ -1320,6 +1320,7 @@ export type Database = {
           language: string
           name: string
           organization_id: string
+          otp_button: boolean
           purpose: Database["public"]["Enums"]["template_purpose"]
           updated_at: string
           variables: Json
@@ -1334,6 +1335,7 @@ export type Database = {
           language: string
           name: string
           organization_id: string
+          otp_button?: boolean
           purpose: Database["public"]["Enums"]["template_purpose"]
           updated_at?: string
           variables?: Json
@@ -1348,6 +1350,7 @@ export type Database = {
           language?: string
           name?: string
           organization_id?: string
+          otp_button?: boolean
           purpose?: Database["public"]["Enums"]["template_purpose"]
           updated_at?: string
           variables?: Json
@@ -1689,6 +1692,7 @@ export type Database = {
           status: Database["public"]["Enums"]["outbox_status"]
           template_language: string | null
           template_name: string | null
+          template_otp_button: boolean
           template_variables: Json | null
           to_phone: string | null
         }
@@ -1712,6 +1716,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["outbox_status"]
           template_language?: string | null
           template_name?: string | null
+          template_otp_button?: boolean
           template_variables?: Json | null
           to_phone?: string | null
         }
@@ -1735,6 +1740,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["outbox_status"]
           template_language?: string | null
           template_name?: string | null
+          template_otp_button?: boolean
           template_variables?: Json | null
           to_phone?: string | null
         }
@@ -3677,6 +3683,7 @@ export type Database = {
           phone_number_id: string
           template_language: string
           template_name: string
+          template_otp_button: boolean
           template_variables: Json
           to_phone: string
         }[]
@@ -4587,6 +4594,7 @@ export type Database = {
           p_company_id: string
           p_language: string
           p_name: string
+          p_otp_button?: boolean
           p_purpose: Database["public"]["Enums"]["template_purpose"]
           p_variables?: Json
         }

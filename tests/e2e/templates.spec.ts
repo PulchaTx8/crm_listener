@@ -260,6 +260,15 @@ test('a Station takes its own voice and records the template that lets it speak 
   await ownerPage.getByTestId('template-body-WEB_VERIFICATION').fill(webBody);
   await expect(ownerPage.getByTestId('template-contract-warning-WEB_VERIFICATION')).toHaveCount(0);
   await webCard.getByLabel('What {{1}} means').fill('The six-digit code');
+
+  // THE BOX THAT DID NOT EXIST UNTIL A DAY OF PRODUCTION SILENCE. Meta's
+  // Authentication category carries an OTP button, the send has to name it, and
+  // between 2026-08-10 and 2026-08-11 every widget verification came back
+  // `(#131008) Required parameter is missing` because nothing on this screen
+  // ever asked. Ticked BY TESTID rather than by label: `getByLabel` matches on
+  // substring, and this screen already learned what that costs.
+  await webCard.getByTestId('template-otp-button-WEB_VERIFICATION').check();
+
   await webCard.getByRole('button', { name: 'Record this template' }).click();
 
   await expect(webCard.getByText('Registered', { exact: true })).toBeVisible();
@@ -270,13 +279,19 @@ test('a Station takes its own voice and records the template that lets it speak 
   // screen can produce the row that endpoint needs.
   const { data: webRow, error: webRowError } = await admin
     .from('message_templates')
-    .select('purpose, name, language, body')
+    .select('purpose, name, language, body, otp_button')
     .eq('name', webTemplateName)
     .is('deleted_at', null)
     .single();
   expect(webRowError).toBeNull();
   expect(webRow?.purpose).toBe('WEB_VERIFICATION');
   expect(webRow?.body).toBe(webBody);
+  // The tick survived the form, the action, the schema and 0113's door — the
+  // whole path a human takes. Every earlier proof of the OTP button starts
+  // further down than this: the payload test builds a Template by hand,
+  // supabase/tests/18 calls the RPC. None of them can see a checkbox that
+  // posts nothing.
+  expect(webRow?.otp_button).toBe(true);
 
   await ownerContext.close();
 });

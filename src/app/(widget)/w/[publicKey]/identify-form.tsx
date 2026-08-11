@@ -16,6 +16,39 @@ const REQUEST_IDLE: RequestCodeState = { status: 'idle' };
 const VERIFY_IDLE: VerifyState = { status: 'idle' };
 
 /**
+ * Brazil, prefilled — every Station on this platform broadcasts from it.
+ *
+ * A DEFAULT, NOT A RULE, and the distinction is the whole design: the box is
+ * editable, nothing refuses a value that is not this one, and a listener abroad
+ * types theirs. Deriving it from the visitor's locale was the rejected
+ * alternative — a Brazilian listening from an airport lounge has a foreign
+ * locale and a Brazilian telephone, and that guess is wrong precisely when it
+ * is least visible.
+ */
+const DEFAULT_COUNTRY_CODE = '55';
+
+/**
+ * The two boxes as one E.164 number: `+55` and `11985954985` become
+ * `+5511985954985`.
+ *
+ * Every non-digit is dropped from both halves, so a visitor who types
+ * `(11) 98595-4985`, or `+55` into the country box, produces the same string as
+ * one who types bare digits. THE LEADING `+` IS THIS FUNCTION'S OWN and is the
+ * only punctuation that survives: it is what makes the value unambiguous to
+ * read in the queue, in an audit row, and in Meta's own console, and
+ * `normalize_phone` (0031) strips it again for the column that decides identity.
+ */
+function composePhone(countryCode: string, localPhone: string): string {
+  const digits = `${countryCode.replace(/\D/g, '')}${localPhone.replace(/\D/g, '')}`;
+  // No digits at all is the empty string rather than a bare '+': the field is
+  // `required`, so this is what the box holds before it is filled, and a lone
+  // '+' would be five characters short of the schema's minimum anyway — a
+  // refusal phrased as "check what you typed" for a box the visitor has not
+  // typed in yet.
+  return digits === '' ? '' : `+${digits}`;
+}
+
+/**
  * Block 17a. Two steps in one component: a number and a name, then the six
  * digits that arrived by WhatsApp.
  *
@@ -33,9 +66,31 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
   const t = useTranslations('widget');
   const router = useRouter();
 
-  const [phone, setPhone] = useState('');
+  const [countryCode, setCountryCode] = useState(DEFAULT_COUNTRY_CODE);
+  const [localPhone, setLocalPhone] = useState('');
   const [name, setName] = useState('');
   const [awaitingCode, setAwaitingCode] = useState(false);
+
+  /**
+   * What actually travels — and the reason this screen has two boxes instead of
+   * one.
+   *
+   * Until 2026-08-11 the visitor typed a single number and it went to Meta
+   * exactly as typed: `11985954985`, no country code, because nobody in São
+   * Paulo writes one and nothing between this box and the Cloud API added it.
+   * `schemas/widget.ts` says in writing that it does not validate a telephone
+   * number and gives good reasons, and `normalize_phone` (0031) keeps only the
+   * digits — so no layer was lying, none of them was ever asked to supply the
+   * missing half, and the send left for a number that identifies a different
+   * subscriber in every country on earth.
+   *
+   * Composed here rather than repaired on the server BECAUSE THE VISITOR CAN
+   * SEE IT. A server-side rule guessing "eleven digits, must be Brazil" would be
+   * right almost always and silently wrong for the listener it is not right
+   * for; this way the country code is on screen, wrong for nobody by default,
+   * and editable by anyone it is wrong for.
+   */
+  const phone = composePhone(countryCode, localPhone);
 
   const [requestState, requestCode, requesting] = useActionState(requestCodeAction, REQUEST_IDLE);
   const [verifyState, verifyCode, verifying] = useActionState(verifyCodeAction, VERIFY_IDLE);
@@ -142,19 +197,49 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
         <form action={requestCode} className="flex flex-col gap-3" data-testid="widget-identify-form">
           <input type="hidden" name="publicKey" value={publicKey} />
 
-          <label className="flex flex-col gap-1 text-sm" htmlFor="widget-phone">
-            {t('phoneLabel')}
-            <Input
-              id="widget-phone"
-              name="phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              required
-            />
-          </label>
+          {/*
+            The composed value is what the action reads; the two visible boxes
+            are how the visitor arrives at it. A hidden field rather than a
+            `name` on either box, because neither half is a telephone number on
+            its own and the server has no business reassembling one.
+          */}
+          <input type="hidden" name="phone" value={phone} />
+
+          <div className="flex gap-2">
+            <label className="flex w-24 shrink-0 flex-col gap-1 text-sm" htmlFor="widget-country-code">
+              {t('countryCodeLabel')}
+              <Input
+                id="widget-country-code"
+                type="tel"
+                inputMode="tel"
+                // Not `autoComplete="tel-country-code"`: browsers fill that from
+                // a saved profile, which would quietly overwrite the default
+                // with a country the visitor has since left.
+                autoComplete="off"
+                maxLength={4}
+                value={countryCode}
+                onChange={(event) => setCountryCode(event.target.value)}
+                required
+                data-testid="widget-country-code"
+              />
+            </label>
+
+            <label className="flex flex-1 flex-col gap-1 text-sm" htmlFor="widget-phone">
+              {t('phoneLabel')}
+              <Input
+                id="widget-phone"
+                type="tel"
+                inputMode="tel"
+                // `tel-national` rather than `tel`: the saved value for `tel` is
+                // the full international number in most browsers, which would
+                // land the country code in this box a second time.
+                autoComplete="tel-national"
+                value={localPhone}
+                onChange={(event) => setLocalPhone(event.target.value)}
+                required
+              />
+            </label>
+          </div>
 
           <label className="flex flex-col gap-1 text-sm" htmlFor="widget-name">
             {t('nameLabel')}
@@ -167,6 +252,17 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
               required
             />
           </label>
+
+          {/*
+            The composed number, shown back. Cheap, and it is the difference
+            between a visitor who can SEE that the country code is included and
+            one who finds out by not receiving anything.
+          */}
+          {localPhone.trim() !== '' && (
+            <p className="text-xs text-muted-foreground" data-testid="widget-phone-preview">
+              {t('weWillSendTo')} <span className="font-mono">{phone}</span>
+            </p>
+          )}
 
           <Button type="submit" disabled={requesting}>
             {requesting ? t('sending') : t('sendCode')}

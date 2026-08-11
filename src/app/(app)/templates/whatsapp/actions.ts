@@ -50,6 +50,10 @@ export async function registerTemplateAction(
     // filtering rather than casting means a hand-built request cannot smuggle
     // one past Zod's string check as "[object File]".
     variables: formData.getAll('variables').filter((v): v is string => typeof v === 'string'),
+    // A checkbox posts nothing at all when it is clear, so absence IS the
+    // answer "no button" — there is no third state to tell apart, and reading
+    // it as a boolean here keeps the schema free of the browser's 'on'.
+    otpButton: formData.get('otpButton') !== null,
   });
 
   if (!parsed.success) {
