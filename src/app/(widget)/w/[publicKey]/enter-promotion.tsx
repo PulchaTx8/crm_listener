@@ -194,7 +194,11 @@ export function EnterPromotionPanel({
                 {sending ? t('sending') : t('enterNow')}
               </Button>
             ) : (
-              <Button type="button" onClick={() => setScreen((s) => s + 1)}>
+              <Button
+                type="button"
+                onClick={() => setScreen((s) => s + 1)}
+                data-testid="widget-promotion-next"
+              >
                 {t('next')}
               </Button>
             )}

@@ -87,6 +87,12 @@ const publicKey = `pw_${randomBytes(16).toString('base64url')}`;
 /** What the listener types alongside the request — Block 17b's note (D3). */
 const LISTENER_NOTE = 'toca pra minha mae, ela ouve todo dia';
 
+/** Block 17c. Without rules a promotion does not appear in the widget at all (D3). */
+const PROMOTION_RULES = 'Promoção válida para maiores de 18 anos. Um cupom por pessoa.';
+
+/** The city this listener types into the one field the promotion asks for. */
+const LISTENER_CITY = 'Santos';
+
 /**
  * The Station this journey provisions, lifted to module scope by Block 17b so
  * the request can be read back out of `music_requests` after the widget claims
@@ -333,6 +339,32 @@ test.beforeAll(async ({}, testInfo) => {
   // fail for a reason that is not a defect.
   journeyCompanyId = companyId;
 
+  // Block 17c. A promotion the widget will actually show: ticked for the web
+  // AND carrying rules, which are two conditions rather than one (D1, D3).
+  //
+  // THROUGH create_promotion AS THE OWNER, not a service-key insert. The first
+  // draft inserted directly and took `permission denied for table promotions` —
+  // service_role has SELECT on this schema and almost no INSERT — and the
+  // refusal pointed at the better route: this exercises 0172's own door,
+  // including the two parameters it gained, so the journey proves the write
+  // path a real operator uses rather than one only a test can reach.
+  // The owner client the template registration above already signed in — one
+  // session, not a second one for the sake of a second statement.
+  const { error: promotionError } = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: `Widget Journey Promotion ${stamp}`,
+    p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    p_web_enabled: true,
+    p_rules: PROMOTION_RULES,
+    // One field, so the walk has two screens: consent, then the fields. Allowed
+    // on the strength of p_web_enabled alone -- which is exactly what 0171's
+    // promotions_conversational_shape replaced promotions_whatsapp_shape to
+    // permit, and what this journey proves end to end.
+    p_requested_fields: ['city'],
+  });
+  if (promotionError) throw new Error(`could not seed the promotion: ${promotionError.message}`);
+
   // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
   // this journey shares with its own previous runs. Every limit in actions.ts
   // is keyed by the telephone number except these two, which are keyed by
@@ -529,6 +561,71 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // none. created_by is null because a website visitor is not an auth.users row.
   expect(request!.show_id).toBeNull();
   expect(request!.created_by).toBeNull();
+
+  // ---------------------------------------------------------------------------
+  // BLOCK 17c. The second button, which 17a left disabled and 17b left alone.
+  //
+  // It continues the same journey for the same reason 17b did: the session was
+  // minted inside a third-party frame, and that is the part a test seeding its
+  // own cookie would skip.
+  // ---------------------------------------------------------------------------
+  await widget.getByTestId('widget-promotion-panel').waitFor({ state: 'detached' }).catch(() => {});
+  await widget.getByRole('button', { name: 'Back' }).first().click();
+  await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget.getByTestId('widget-promotion-list').getByRole('button').first().click();
+
+  // THE RULES ARE ON SCREEN, which is the whole reason that column exists: an
+  // agreement box above nothing is what D2 was decided to prevent.
+  await expect(widget.getByTestId('widget-promotion-rules')).toContainText(PROMOTION_RULES);
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
+  await widget.getByTestId('widget-promotion-send').click();
+
+  await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+
+  // THE DATABASE, NOT THE SCREEN.
+  const { data: entries, error: entryError } = await admin
+    .from('participations')
+    .select('source, status, created_by, member_id')
+    .eq('company_id', journeyCompanyId)
+    .limit(1);
+
+  if (entryError) throw new Error(`could not read the entry back: ${entryError.message}`);
+
+  const entry = entries?.[0];
+  expect(entry, 'the entry reached participations').toBeTruthy();
+  expect(entry!.source).toBe('WEB');
+  expect(entry!.status).toBe('VALID');
+  expect(entry!.created_by).toBeNull();
+
+  // The consent this block records and the WhatsApp door does not (§5 of the
+  // spec, and the owner's ruling that WhatsApp will follow).
+  const { data: consents } = await admin
+    .from('member_consents')
+    .select('consent_type, granted, origin')
+    .eq('member_id', entry!.member_id)
+    .eq('consent_type', 'rules');
+
+  expect(consents?.length, 'agreeing to the rules left a consent row').toBe(1);
+  expect(consents?.[0]?.granted).toBe(true);
+  expect(consents?.[0]?.origin).toBe('web-widget');
+
+  // The field the listener typed reached their record, through the shared
+  // writer 0171 extracted rather than a third copy of the eight-way mapping.
+  const { data: listener } = await admin
+    .from('members')
+    .select('city')
+    .eq('id', entry!.member_id)
+    .limit(1);
+
+  expect(listener?.[0]?.city).toBe(LISTENER_CITY);
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({
