@@ -340,3 +340,73 @@ A Station that never sets a cooldown has **no per-listener ceiling**. The brakes
 that remain are 17a's WhatsApp verification and the per-IP limiter, and the
 second cannot tell two listeners on one network apart. This is the owner's
 decision, and the console tab is where it is undone.
+
+---
+
+## 9. Block 17c — entering a promotion
+
+The menu's second button works. A listener reads a promotion's rules, agrees,
+answers whatever it asks, and the entry lands in `participations` with source
+`WEB` — the same table the operator's screen, the draw and every report read.
+
+### A promotion now says which doors it takes part through
+
+`promotions` carries **two** flags: `whatsapp_enabled` and **`web_enabled`**. The
+operator ticks either, both, or neither, on the promotion's Participation tab.
+
+**This replaced a constraint, and the replacement is the interesting part.**
+`promotions_whatsapp_shape` forbade requested fields and art on a promotion
+without WhatsApp — true while WhatsApp was the only thing that could ask a
+listener anything, and false the moment a second door existed. It is now two
+constraints:
+
+| constraint | says |
+| --- | --- |
+| `promotions_conversational_shape` | art and requested fields need **some** door |
+| `promotions_whatsapp_fields` | the hashtag and the button labels are WhatsApp's alone |
+
+Two rather than one widened condition, so an operator who forgot a hashtag is
+not told the same thing as one who put art on a promotion that converses
+nowhere. **Art is erased when the last door is switched off**, which is what
+0144 always did when WhatsApp was the only one.
+
+### Two conditions to appear in the widget
+
+`web_enabled` **and** a rules text. They say different things — where the
+promotion belongs, and what this door requires as content — and **ticking the box
+does not make the rules mandatory**: a promotion can be saved for the web while
+somebody writes the wording, and the form says it is not visible yet.
+
+**On the day this ships, every Station's widget list is empty.** `web_enabled`
+defaults to false and no promotion has rules. That is the design working, and it
+will look like a defect to anybody who has not read this.
+
+### What the door writes, and the one divergence
+
+`widget_enter_promotion` does what `complete_conversation` (0071) does — the
+field values onto `members` through the shared `apply_member_field_values`, one
+confirmation per field answered, then `apply_participation(..., 'WEB', answers)`
+— **plus a `rules` consent row, which the WhatsApp flow does not write at all.**
+
+That divergence is deliberate: there is now a rules text that was displayed and
+agreed to. **The owner has ruled that WhatsApp will record the same consent when
+that door is next worked on.** Until then the two differ, in writing.
+
+Declining is a real path: it writes `promotion_refusals` stamped `WEB` and
+nothing else.
+
+### The guard that matters most
+
+**The door recomputes the step list server-side.** The screen is not the
+authority on what a promotion asks — a promotion edited while somebody had the
+widget open would otherwise be answered wrongly, and a crafted payload would skip
+whichever field it found inconvenient. Proved by mutation: raising the threshold
+so the guard never fires fails two pgTAP assertions.
+
+### Deploying this one is not like the others
+
+**`0172` is not additive.** It replaces `create_promotion`, `update_promotion`
+and `set_promotion_art` with new signatures. Code without the migration breaks
+saving a promotion; the migration without the code calls a signature that no
+longer exists. **Both orders break** — apply `0170`–`0172` immediately on merge,
+not "soon after".
