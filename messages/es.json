@@ -294,7 +294,12 @@
     "whatsapp": "WhatsApp",
     "whatsappIntegrations": "Integraciones de WhatsApp",
     "whoIssuesTheInvoice": "Quién emite la factura",
-    "working": "Trabajando…"
+    "working": "Trabajando…",
+    "musicRequestCooldown": "Espera entre pedidos de música",
+    "days": "Días",
+    "hours": "Horas",
+    "minutes": "Minutos",
+    "zeroMeansNoLimit": "Los tres en cero significan sin límite: el oyente puede pedir cuantas quiera."
   },
   "draws": {
     "drawOf": "Sorteo del",

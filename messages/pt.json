@@ -294,7 +294,12 @@
     "whatsapp": "WhatsApp",
     "whatsappIntegrations": "Integrações do WhatsApp",
     "whoIssuesTheInvoice": "Quem emite a nota",
-    "working": "Trabalhando…"
+    "working": "Trabalhando…",
+    "musicRequestCooldown": "Espera entre pedidos de música",
+    "days": "Dias",
+    "hours": "Horas",
+    "minutes": "Minutos",
+    "zeroMeansNoLimit": "Os três em zero significam sem limite: o ouvinte pode pedir quantas quiser."
   },
   "draws": {
     "drawOf": "Sorteio de",

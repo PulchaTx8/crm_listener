@@ -5092,6 +5092,7 @@ export type Database = {
           p_allowed_origins: string[]
           p_company_id: string
           p_enabled: boolean
+          p_music_request_cooldown?: string
           p_public_key: string
         }
         Returns: string

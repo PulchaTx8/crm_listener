@@ -112,6 +112,19 @@ export interface WidgetInstallationRow {
    * `enabled` and disagree with it.
    */
   hasTemplate: boolean;
+  /**
+   * Block 17b. How long a listener waits between music requests at this
+   * Station, as the three integers the form has rather than as an interval.
+   *
+   * ALL THREE ZERO IS NO CEILING, which is the column's own default and its
+   * meaning (0167). They arrive already decomposed from
+   * `widget_installation_for`, because `extract` is the authority on what a
+   * component of an interval is and the alternative was parsing Postgres's
+   * `01:30:00` output format in TypeScript.
+   */
+  cooldownDays: number;
+  cooldownHours: number;
+  cooldownMinutes: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -161,6 +174,13 @@ function parseWidgetInstallation(data: unknown): WidgetInstallationRow | null {
     typeof row.enabled !== 'boolean' ||
     !Array.isArray(row.allowed_origins) ||
     typeof row.has_template !== 'boolean' ||
+    // Block 17b. Checked rather than defaulted to zero: zero MEANS something
+    // here -- no ceiling -- so a missing field silently becoming zero would
+    // turn a shape that changed under us into a Station with its limit
+    // switched off, which is the one direction this must not fail in.
+    typeof row.cooldown_days !== 'number' ||
+    typeof row.cooldown_hours !== 'number' ||
+    typeof row.cooldown_minutes !== 'number' ||
     typeof row.created_at !== 'string' ||
     typeof row.updated_at !== 'string'
   ) {
@@ -175,6 +195,9 @@ function parseWidgetInstallation(data: unknown): WidgetInstallationRow | null {
     enabled: row.enabled,
     allowedOrigins: row.allowed_origins as string[],
     hasTemplate: row.has_template,
+    cooldownDays: row.cooldown_days,
+    cooldownHours: row.cooldown_hours,
+    cooldownMinutes: row.cooldown_minutes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -233,7 +256,12 @@ export async function getWidgetInstallation(
  *      to rotate this Station's key -- would drown in routine noise.
  */
 export async function upsertWidgetInstallation(
-  input: { companyId: string; enabled: boolean; allowedOrigins: string[] },
+  input: {
+    companyId: string;
+    enabled: boolean;
+    allowedOrigins: string[];
+    cooldown: { days: number; hours: number; minutes: number };
+  },
   accessToken: string,
 ): Promise<{ id: string; publicKey: string }> {
   const existing = await getWidgetInstallation(input.companyId, accessToken);
@@ -244,6 +272,12 @@ export async function upsertWidgetInstallation(
     p_public_key: publicKey,
     p_enabled: input.enabled,
     p_allowed_origins: input.allowedOrigins,
+    // Postgres's own interval literal, built here rather than in SQL so the
+    // three numbers travel as one value the door writes without arithmetic.
+    // '0 days 0 hours 0 mins' is a valid interval of zero, which is this
+    // column's meaning for "no ceiling" -- there is no special case to write.
+    p_music_request_cooldown:
+      `${input.cooldown.days} days ${input.cooldown.hours} hours ${input.cooldown.minutes} mins`,
   });
 
   if (error) throw mapWidgetError(error.code, error.message);
