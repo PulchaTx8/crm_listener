@@ -83,6 +83,16 @@ const EXIT_VISITOR_LOCAL_PHONE = `21${String(stamp).slice(-9)}`;
 const EXIT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${EXIT_VISITOR_LOCAL_PHONE}`;
 const EXIT_VISITOR_NAME = 'Listener Who Leaves';
 
+/**
+ * Block 20a, Task 4, fix round 1. The listener who leaves the field blank —
+ * a third phone, for the same reason the exit journey above needed a second
+ * one: `CODE_PER_PHONE_MINUTE` is per number, and this file's three journeys
+ * share a worker and run back to back.
+ */
+const MISSING_FIELD_VISITOR_LOCAL_PHONE = `31${String(stamp).slice(-9)}`;
+const MISSING_FIELD_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MISSING_FIELD_VISITOR_LOCAL_PHONE}`;
+const MISSING_FIELD_VISITOR_NAME = 'Listener Who Forgets A Field';
+
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
 
@@ -819,6 +829,77 @@ test('a listener who finishes an errand can leave, and the session leaves with t
   // of the two states this page renders and it decides from the cookie alone.
   await framedWidget!.goto(`${appOrigin}/w/${publicKey}`);
   await expect(widget.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
+});
+
+/**
+ * Block 20a, Task 4, fix round 1. `firstUnansweredScreen`'s jump, exercised by
+ * a browser rather than reasoned about — the unit tests reach only the pure
+ * function, and the happy-path journey above never produces a refusal at all.
+ *
+ * THE ROUTE TASK 3 LEFT OPEN. Task 3 stopped offering a promotion whose
+ * question has no alternatives, closing one way to `missing_answers`; the
+ * ordinary one stays wide open. A listener leaves a REQUESTED FIELD BLANK,
+ * walks to the end of the form, and submits — nothing on the fields screen
+ * stops "Next" from advancing over an empty box. The client then posts an
+ * empty string for it, and `widget_enter_promotion` (0171) tests
+ * `nullif(btrim(coalesce(p_fields ->> field, '')), '') is null`, which that
+ * empty string satisfies: the door refuses with `missing_answers`, same as
+ * any other listener mistake.
+ *
+ * REUSES THE JOURNEY FIXTURE rather than seeding a second promotion for one
+ * test: `beforeAll` already seeds one with a requested field ('city') and a
+ * QUIZ question, which is exactly the shape this case needs. A FRESH
+ * LISTENER (a third phone) rather than the one from the journey above, so
+ * this test does not depend on that one having run first, or on this
+ * promotion still being open to a listener who already entered it.
+ *
+ * A SEPARATE TEST, not a branch folded into the journey above: a test that
+ * asserts two different things breaks for two different reasons, and the
+ * journey above already has its own point to make (a session minted in a
+ * third-party frame can enter a promotion at all).
+ */
+test('a listener who skips a field is refused, and the panel jumps back to it', async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: MISSING_FIELD_VISITOR_LOCAL_PHONE,
+    phone: MISSING_FIELD_VISITOR_PHONE,
+    name: MISSING_FIELD_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-list').getByRole('button').first().click();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE FIELD, LEFT BLANK -- the mistake this test exists to make. Nothing on
+  // this screen validates before "Next" advances the walk, which is exactly
+  // what lets a listener leave it empty and never notice.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
+  await widget.getByTestId('widget-promotion-send').click();
+
+  // THE JUMP, NOT JUST THE MESSAGE. An assertion that stopped at the error
+  // text would have passed before this task existed -- 20a's starting
+  // behaviour was this same sentence, rendered under whichever screen the
+  // listener happened to submit from. The fields screen coming back into
+  // view is the only thing that proves firstUnansweredScreen's answer
+  // actually drove `setScreen`, rather than merely being correct in
+  // isolation.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-error')).toBeVisible();
+  await expect(widget.getByTestId('widget-promotion-error')).toContainText(
+    'Something is missing. Go back and check your answers.',
+  );
+
+  // AND STILL EMPTY -- the panel's own state surviving the round trip, not a
+  // stray value that would leave the listener looking at a field that
+  // appears to explain nothing.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toHaveValue('');
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({
