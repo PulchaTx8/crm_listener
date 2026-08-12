@@ -1,5 +1,5 @@
 begin;
-select plan(146);
+select plan(147);
 
 select has_type('public', 'integration_provider', 'the provider enum exists');
 select has_table('public', 'integrations', 'integrations exists');
@@ -761,16 +761,22 @@ values
 -- quietly becomes "this month", which is exactly what happened here. June 2026
 -- is past for good, so `recorded` below can only be produced by judging the
 -- message by its own clock.
+--
+-- Disney carries RULES TEXT (Block 19a): it is this file's main character,
+-- reused by nearly every assertion below that expects a hashtag to resolve
+-- into something an eligible listener can actually enter, so it has to be
+-- one of the promotions D4's gate lets through. Cancelada does not need any
+-- -- it is refused before rules is ever consulted.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
-   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label, rules)
 values
   ('00000000-0000-0000-0000-000000000591', '00000000-0000-0000-0000-0000000005f1',
    '00000000-0000-0000-0000-0000000005c2', 'Disney', '2026-06-01Z', '2026-06-30Z',
-   true, '#EUQUERO', 'Quero!', 'Nao'),
+   true, '#EUQUERO', 'Quero!', 'Nao', 'Promocao valida para maiores de 18 anos.'),
   ('00000000-0000-0000-0000-000000000594', '00000000-0000-0000-0000-0000000005f1',
    '00000000-0000-0000-0000-0000000005c2', 'Cancelada', '2026-06-01Z', '2026-06-30Z',
-   true, '#CANCELADO', 'Quero!', 'Nao');
+   true, '#CANCELADO', 'Quero!', 'Nao', null);
 
 update public.promotions
    set cancelled_at = now(),
@@ -779,7 +785,12 @@ update public.promotions
  where id = '00000000-0000-0000-0000-000000000594';
 
 -- Repeatable, so TOO_SOON is reachable and the "next chance" sentence has
--- something to render.
+-- something to render. Cinema deliberately carries NO rules text -- it is
+-- this file's Block 19a Group B fixture (D4): a Station with a live,
+-- WhatsApp-only promotion nobody has published rules for yet, so its own
+-- first message finishes no_rules rather than a link, while TOO_SOON below
+-- still fires from the pre-check, which sits ahead of that gate and does
+-- not care whether rules exists.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
    allow_multiple_entries, min_hours_between_entries,
@@ -795,17 +806,20 @@ values
 -- '#vai' are different tags and do not overlap. They exist so that "the
 -- hashtag is matched exactly" is a testable claim rather than a comment: a
 -- message saying '#VAI!' means Grito and only Grito -- there is no fallback
--- left that could enter the listener into Sussurro instead.
+-- left that could enter the listener into Sussurro instead. Grito carries
+-- rules text so the exact-match claim below can still be proven against a
+-- link's promotion_id; Sussurro is never actually matched by anything in
+-- this file, so it needs none.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
-   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label, rules)
 values
   ('00000000-0000-0000-0000-000000000595', '00000000-0000-0000-0000-0000000005f1',
    '00000000-0000-0000-0000-0000000005c2', 'Grito', '2026-06-01Z', '2026-06-30Z',
-   true, '#VAI!', 'Quero!', 'Nao'),
+   true, '#VAI!', 'Quero!', 'Nao', 'Regulamento do Grito.'),
   ('00000000-0000-0000-0000-000000000596', '00000000-0000-0000-0000-0000000005f1',
    '00000000-0000-0000-0000-0000000005c2', 'Sussurro', '2026-06-01Z', '2026-06-30Z',
-   true, '#VAI', 'Quero!', 'Nao');
+   true, '#VAI', 'Quero!', 'Nao', null);
 
 -- The same pair again, but with the punctuated one ALREADY ENDED. This pins
 -- what an exact match costs: a listener writing '#JA!' after Encerrada has
@@ -831,14 +845,16 @@ values
 -- trimmed trailing punctuation before matching. That dependency is gone along
 -- with the trim -- exact match lowercases and compares as a plain string, so
 -- this fixture now pins only that an accented hashtag matches when written
--- exactly, and stays silent (like any other) when it is not.
+-- exactly, and stays silent (like any other) when it is not. Carries rules
+-- text for the same reason Grito does: the claim is which promotion the
+-- hashtag resolves to, provable only if the match is allowed to reach a link.
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
-   whatsapp_enabled, hashtag, yes_button_label, no_button_label)
+   whatsapp_enabled, hashtag, yes_button_label, no_button_label, rules)
 values
   ('00000000-0000-0000-0000-000000000599', '00000000-0000-0000-0000-0000000005f1',
    '00000000-0000-0000-0000-0000000005c2', 'Cafezinho', '2026-06-01Z', '2026-06-30Z',
-   true, '#CAFÉ', 'Quero!', 'Nao');
+   true, '#CAFÉ', 'Quero!', 'Nao', 'Regulamento do Cafezinho.');
 
 -- The one promotion anchored to the clock, and the only one that is: it is open
 -- RIGHT NOW, so a message written a month ago must still be refused by it.
@@ -908,14 +924,20 @@ $$;
 
 -- The door: one message, decided end to end -------------------------------------
 
--- BLOCK 5b CHANGED THIS, and it is the block's headline behaviour: a hashtag no
--- longer enters anybody. It opens a conversation, because the listener has to be
--- able to say no and to be asked for whatever the promotion wants. Every
--- assertion in this section is CONVERTED rather than deleted -- the routing it
--- proves is unchanged, and only what the door does at the end of it is not.
+-- BLOCK 5b CHANGED THIS, and Block 19a changes it again, further in the same
+-- direction. 5b's headline was that a hashtag no longer enters anybody
+-- directly -- it opened a conversation, so the listener could say no and be
+-- asked for whatever the promotion wanted. 19a's headline (design spec D1)
+-- is that nothing about a song, a promotion or a listener's data is
+-- collected over WhatsApp messages any more, full stop: the conversation
+-- engine that used to ask those questions inside WhatsApp is retired, and
+-- this function now answers a hashtag with a LINK into the web widget
+-- instead, where 17c's rules screen does the asking. Every assertion in this
+-- section is CONVERTED rather than deleted -- the routing it proves is
+-- unchanged, and only what the door hands back at the end of it is not.
 select is(pg_temp.ingest('wamid.A1', '5511988887777', 'quero participar #EUQUERO !!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation', 'a hashtag in a messy sentence opens a conversation');
+          'link', 'a hashtag in a messy sentence resolves to a link rather than opening a conversation');
 
 select is(
   (select count(*)::int from public.participations p
@@ -923,15 +945,17 @@ select is(
     where p.promotion_id = '00000000-0000-0000-0000-000000000591'
       and m.phone_normalized = '11988887777'),
   0,
-  'and writes NO entry: somebody who never answers has not participated, which is what makes an abandoned conversation cost nothing');
+  'and writes NO entry: this function only ever hands back an intention now, and somebody who never follows the link has not participated, which is what makes an unfollowed link cost nothing');
 
 select is(
-  (select result -> 'start' -> 'conversation' -> 'steps' -> 0 ->> 'kind'
+  (select jsonb_build_object('purpose', result ->> 'purpose',
+                             'promotion_id', (result ->> 'promotion_id')::uuid)
      from pg_temp.ingest_log where wamid = 'wamid.A1'),
-  'consent',
-  'what comes back is a conversation whose first step is the one every conversation has');
+  jsonb_build_object('purpose', 'PROMOTION',
+                     'promotion_id', '00000000-0000-0000-0000-000000000591'::uuid),
+  'what comes back names the promotion the hashtag actually matched, not a conversation''s first step');
 
--- The listener registered by A1 now finishes that conversation -- or an operator
+-- The listener registered by A1 would finish this on the web -- or an operator
 -- enters them by hand; the pre-check reads participations and where a row came
 -- from is not its business. Everything below about a SECOND message needs a
 -- first entry to be second to, and A1 no longer writes one.
@@ -1023,14 +1047,14 @@ select is(pg_temp.ingest('wamid.P1', '5511988882222', 'AAAA quero!! #EUQUERO!!',
 
 select is(pg_temp.ingest('wamid.P2', '5511988882222', '#VAI!',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation', 'a hashtag that legitimately ends in punctuation is matched when written exactly');
+          'link', 'a hashtag that legitimately ends in punctuation is matched when written exactly');
 
--- Which promotion it matched, read off the conversation the door handed back
--- rather than off a confirmation. More direct than the old assertion, not less:
--- it names the promotion the listener is about to be asked about, where the
--- reply only named the one they had already been entered into.
+-- Which promotion it matched, read off the link the door handed back rather
+-- than off a confirmation. More direct than the old assertion, not less: it
+-- names the promotion the listener is about to be sent to accept rules for,
+-- where the reply only named the one they had already been entered into.
 select is(
-  (select result -> 'start' -> 'promotion' ->> 'name'
+  (select result ->> 'promotion_name'
      from pg_temp.ingest_log where wamid = 'wamid.P2'),
   'Grito',
   'it resolves to the promotion stored with the punctuation -- an exact match, and the only kind there is now');
@@ -1056,10 +1080,10 @@ select is(pg_temp.ingest('wamid.P4', '5511988882222', 'bora #CAFÉ!',
 
 select is(pg_temp.ingest('wamid.P4A', '5511988882222', 'bora #CAFÉ',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation',
+          'link',
           'written exactly, the accented hashtag still matches -- the property worth pinning now that no ctype assumption is behind it');
 select is(
-  (select result -> 'start' -> 'promotion' ->> 'name'
+  (select result ->> 'promotion_name'
      from pg_temp.ingest_log where wamid = 'wamid.P4A'),
   'Cafezinho',
   'and it resolves to the accented promotion');
@@ -1069,7 +1093,7 @@ select is(
 -- happening to match the case the fixture itself was stored in.
 select is(pg_temp.ingest('wamid.P5', '5511988885555', '#euquero',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation',
+          'link',
           'a hashtag in a different case from how it is stored still matches -- upper/lower is the one variation the exact rule permits');
 
 -- A malformed payload is loud, not plausible -------------------------------------
@@ -1151,7 +1175,7 @@ select is(pg_temp.ingest('wamid.T1', '5511988884444', '#AGORA',
           'outside_window',
           'a promotion open right now does not take an entry for a message written a month ago');
 
--- Read off A2 rather than A1: A1 opens a conversation and writes no entry, and
+-- Read off A2 rather than A1: A1 resolves to a link and writes no entry, and
 -- A2 is now the message this file has that does. The property is unchanged and
 -- is the one that matters -- an event decided an hour late is still decided as
 -- of when the person wrote.
@@ -1165,11 +1189,13 @@ select is(
 -- What the event itself records --------------------------------------------------
 
 -- A1 IS NOT FINISHED HERE ANY MORE, and that is the change with the sharpest
--- operational edge in this block. The conversation path leaves the event
--- PROCESSING and the caller closes it, through finish_whatsapp_turn, once the
--- state is stored and the consent message is enqueued -- so a worker that dies
--- in between leaves a claimed row the inbound reclaim frees five minutes later
--- rather than a message recorded as handled and answered by nothing.
+-- operational edge in this block. The link path leaves the event PROCESSING
+-- and the caller closes it, through whatever Task 5 finishes the link path
+-- with, once the code is minted and the message is enqueued -- so a worker
+-- that dies in between leaves a claimed row the inbound reclaim frees five
+-- minutes later rather than a message recorded as handled and answered by
+-- nothing. This is the same division 0070 used for the conversation it
+-- replaced (Block 19a, D7).
 select is(
   (select jsonb_build_object('status', status::text, 'outcome', outcome,
                              'claimed', claimed_at is not null,
@@ -1177,7 +1203,7 @@ select is(
      from public.webhook_events where external_id = pg_temp.wamid_hash('wamid.A1')),
   jsonb_build_object('status', 'PROCESSING', 'outcome', null,
                      'claimed', true, 'processed_at_set', false),
-  'a message that opened a conversation is left claimed for the caller to finish, not filed as decided');
+  'a message that resolved to a link is left claimed for the caller to finish, not filed as decided');
 
 select is(
   (select jsonb_build_object('status', status::text, 'outcome', outcome,
@@ -1202,14 +1228,14 @@ select is(
 select is((pg_temp.confirmation('wamid.A2')).to_phone, '5511988887777',
           'the reply is addressed to the number WhatsApp delivered, country code and all -- the local form is how we store a phone, not one WhatsApp can reach');
 
--- THE DOOR MUST NOT CONGRATULATE ANYBODY ANY MORE. 'Pronto! Você está
--- participando' is now written by complete_whatsapp_conversation, at the end of
--- a conversation somebody actually finished, and 08_conversation is where it is
--- pinned. What belongs here is the other half of that sentence: the message
--- that opened the conversation enqueued NOTHING under the confirmation key, so
--- nobody is told they are in before they have said yes.
+-- THE DOOR MUST NOT CONGRATULATE ANYBODY. 'Pronto! Você está participando' is
+-- written once an entry actually exists, and this function never writes one
+-- for a promotion match any more -- it hands back a link. What belongs here
+-- is that half of the sentence: the message that resolved to a link enqueued
+-- NOTHING under the confirmation key, so nobody is told they are in before
+-- they have accepted the rules on the web.
 select is((pg_temp.confirmation('wamid.A1')).id, null,
-          'a message that only opened a conversation confirms no entry -- that reply belongs to the end of it');
+          'a message that only resolved to a link confirms no entry -- an entry does not exist yet');
 select is((pg_temp.confirmation('wamid.A2')).body,
           'Você já está participando de Disney.',
           'a duplicate is told it is already in, not congratulated a second time');
@@ -1223,13 +1249,21 @@ select is(
 -- renders in UTC, so an implementation that forgets `at time zone` sends
 -- somebody back three hours late and nothing else in this suite notices.
 
+-- Cinema carries no rules text (this file's Block 19a D4 fixture, see the
+-- promotion's own comment above): R1 is an eligible first message all the
+-- same, so it reaches the rules gate rather than being turned away earlier,
+-- and finishes no_rules with nothing sent.
 select is(pg_temp.ingest('wamid.R1', '5511988883333', '#REPETE',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation', 'a repeatable promotion opens a conversation for the first message too');
+          'no_rules', 'a repeatable promotion with no rules text yet finishes no_rules for the first eligible message too');
+select is(
+  (select count(*)::int from public.outbox_messages where to_phone = '5511988883333'),
+  0, 'and sends nothing -- no_rules is as silent to the listener as no_promotion or outside_window');
 
--- That conversation completing is what used to be R1's entry. Written directly
--- for the same reason as A1's above: the interval rule below has to have an
--- earlier entry to measure from, and the door no longer writes one.
+-- What would have been R1's entry, on an ordinary web completion. Written
+-- directly for the same reason as A1's above: the interval rule below has to
+-- have an earlier entry to measure from, and the door itself never writes one
+-- any more, whichever of link or no_rules it answers with.
 insert into public.participations
   (promotion_id, member_id, organization_id, company_id, allows_multiple,
    status, source, participated_at)
@@ -1307,7 +1341,7 @@ select is(
 
 select is(pg_temp.ingest('wamid.D1', '5511999995555', '#EUQUERO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation',
+          'link',
           'a listener registered at a sister Station is let in rather than turned away');
 select is(
   (select count(*)::int from public.members
@@ -1343,23 +1377,23 @@ insert into public.members (id, organization_id, full_name, phone) values
 
 select is(pg_temp.ingest('wamid.F1', '5511977772222', '#EUQUERO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation',
+          'link',
           'a listener stored in the local form is found from the number Meta delivered');
--- Read off the conversation rather than off an entry: the conversation names
--- the listener it belongs to, and that is the same claim the participation's
--- member_id used to make one step later.
+-- Read off the link rather than off an entry: the link names the listener it
+-- was resolved for, and that is the same claim the participation's member_id
+-- used to make one step later.
 select is(
-  (select (result -> 'start' -> 'conversation' ->> 'memberId')::uuid
+  (select (result ->> 'member_id')::uuid
      from pg_temp.ingest_log where wamid = 'wamid.F1'),
   '00000000-0000-0000-0000-0000000005d6'::uuid,
-  'and the conversation is that listener''s own, not a new record''s');
+  'and the link is that listener''s own, not a new record''s');
 
 select is(pg_temp.ingest('wamid.F2', '5511977771111', '#EUQUERO',
                          '2026-06-10T12:00:00Z') ->> 'outcome',
-          'conversation',
+          'link',
           'a listener an operator stored WITH the country code is found as well');
 select is(
-  (select (result -> 'start' -> 'conversation' ->> 'memberId')::uuid
+  (select (result ->> 'member_id')::uuid
      from pg_temp.ingest_log where wamid = 'wamid.F2'),
   '00000000-0000-0000-0000-0000000005d7'::uuid,
   'and it is theirs: without the second lookup this is a brand-new listener with the same phone in a different shape');
@@ -1394,7 +1428,7 @@ select is(
      join public.members m on m.id = p.member_id
     where p.promotion_id = '00000000-0000-0000-0000-000000000591'
       and m.phone_normalized = '11988887777'),
-  2, 'and the listener who sent it still has exactly two entries: the one that finished their first conversation, and the duplicate A2 recorded');
+  2, 'and the listener who sent it still has exactly two entries: the one standing in for their first message finishing on the web, and the duplicate A2 recorded');
 
 -- No personal data in the audit trail (design spec D2) ------------------------------
 --
@@ -1458,7 +1492,7 @@ select is(
      from pg_temp.ingest_log where wamid = 'wamid.A2'),
   'and ties it to the entry it produced, which is the only link between a message and its participation');
 
--- And the message that opened a conversation has NO audit row at all yet, which
+-- And the message that resolved to a link has NO audit row at all yet, which
 -- is the same fact as its event still being PROCESSING, asserted from the other
 -- side: nothing has decided it.
 select is(
@@ -1466,7 +1500,7 @@ select is(
     where action = 'ingest_whatsapp_event'
       and target_id = (select id from public.webhook_events
                         where external_id = pg_temp.wamid_hash('wamid.A1'))),
-  0, 'a message left mid-conversation has not been decided, and writes no trail saying it was');
+  0, 'a message left PROCESSING behind a link has not been decided, and writes no trail saying it was');
 
 -- One message, one reply, however many times it is decided --------------------------
 --
@@ -1484,8 +1518,8 @@ select is(
 -- and a second audit row on the event, both of which earlier assertions count.
 
 -- A2 and not A1, because the assertion is about a REPLY being enqueued once and
--- A1 no longer produces one: the conversation path enqueues its consent message
--- from the caller, under its own ':consent' key.
+-- A1 no longer produces one: the link path enqueues its own message from the
+-- caller, under its own key, once a code is minted (Task 5).
 update public.webhook_events
    set status = 'FAILED', outcome = null, processed_at = null
  where external_id = pg_temp.wamid_hash('wamid.A2');
