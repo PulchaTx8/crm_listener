@@ -123,16 +123,28 @@ select ok(
 -- migrations before 0183 made that true. Asserted the same way the sweep's
 -- other tables are: on the source, because a table added or a table quietly
 -- dropped from this list is found by its damage otherwise.
+--
+-- SECOND DISPATCH, TIGHTENED. The first version of both assertions below
+-- matched `LIKE '%widget_link_tokens%'` alone -- and 0183's own body names
+-- the table in its item-9 COMMENT before the actual `delete` statement, so
+-- the first assertion passed on the comment by itself, with the delete
+-- removed entirely. The second named `interval '30 days'` with nothing
+-- tying it to `expires_at`, so it would have passed unchanged had the
+-- column been swapped to `created_at` -- exactly the mistake this table's
+-- own header (0178, 0183) exists to rule out. Both now match the actual
+-- `delete ... where expires_at < now() - interval '30 days'` statement as
+-- one string, so a comment alone cannot satisfy either and neither can a
+-- wrong column.
 -- ---------------------------------------------------------------------------
 select ok(
   (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
-    like '%widget_link_tokens%',
-  'the sweep names widget_link_tokens (0183) -- one row per matched hashtag, and it used to accumulate for ever');
+    like '%delete from public.widget_link_tokens%',
+  'the sweep deletes from widget_link_tokens (0183) -- one row per matched hashtag, and it used to accumulate for ever');
 
 select ok(
   (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
-    like '%widget_link_tokens%interval ''30 days''%',
-  'widget_link_tokens is kept for 30 days past expires_at, not past created_at');
+    like '%delete from public.widget_link_tokens%where expires_at < now() - interval ''30 days''%',
+  'widget_link_tokens is kept for 30 days past expires_at specifically, not past created_at or any other column');
 
 select * from finish();
 rollback;
