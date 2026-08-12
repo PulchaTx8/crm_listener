@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { WidgetShow, WidgetTrack } from '@/lib/widget/music-mapping';
+import { signOutAction } from './actions';
 import {
   getWaitAction,
   listShowsAction,
@@ -39,12 +40,9 @@ const MIN_QUERY = 2;
 export function RequestSongPanel({
   publicKey,
   onClose,
-  onExit,
 }: {
   publicKey: string;
   onClose: () => void;
-  /** Block 19b. Ends the session. Offered on the recorded screen alone — see Shell. */
-  onExit: () => void;
 }) {
   const t = useTranslations('widget');
 
@@ -152,7 +150,7 @@ export function RequestSongPanel({
 
   if (requestState.status === 'recorded') {
     return (
-      <Shell title={t('requestASong')} onClose={onClose} onExit={onExit}>
+      <Shell title={t('requestASong')} onClose={onClose} publicKey={publicKey}>
         <p className="text-sm" data-testid="widget-song-recorded">
           {t('requestRecorded')}
         </p>
@@ -279,7 +277,7 @@ export function RequestSongPanel({
 function Shell({
   title,
   onClose,
-  onExit,
+  publicKey,
   children,
 }: {
   title: string;
@@ -289,8 +287,14 @@ function Shell({
    * that discards the session, sitting under a half-typed search, is a way to
    * lose work — which is why this is a prop the caller opts into rather than
    * something this Shell draws for everybody.
+   *
+   * A PUBLIC KEY, NOT A CALLBACK — Task 6, fix round 1. "Sair" is a
+   * `<form action={signOutAction.bind(null, publicKey)}>`, the same shape
+   * `menu.tsx` uses, and for the same reason: `signOutAction` ends in a
+   * `redirect()`, which a real form submission carries through cleanly, and
+   * a callback threaded down from a parent's client state cannot.
    */
-  onExit?: () => void;
+  publicKey?: string;
   children: React.ReactNode;
 }) {
   const t = useTranslations('widget');
@@ -306,10 +310,12 @@ function Shell({
         <Button type="button" variant="ghost" onClick={onClose}>
           {t('back')}
         </Button>
-        {onExit ? (
-          <Button type="button" variant="ghost" onClick={onExit} data-testid="widget-exit">
-            {t('exit')}
-          </Button>
+        {publicKey ? (
+          <form action={signOutAction.bind(null, publicKey)}>
+            <Button type="submit" variant="ghost" data-testid="widget-exit">
+              {t('exit')}
+            </Button>
+          </form>
         ) : null}
       </div>
     </div>

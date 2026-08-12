@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { WidgetOpenTarget } from '@/lib/widget/open-target';
 import { signOutAction } from './actions';
 import { EnterPromotionPanel } from './enter-promotion';
-import { Farewell } from './farewell';
 import { RequestSongPanel } from './request-song';
 
 /**
@@ -28,11 +27,20 @@ import { RequestSongPanel } from './request-song';
  * block numbers are in the paragraph above, where the developer who needs them
  * looks; the tooltip says what a visitor needs to know, which is that the
  * button is not broken.
+ *
+ * NO `left` STATE HERE ANY MORE, AND NO `exitHref` EITHER — Task 6, fix round
+ * 1. The first version held both, rendering `<Farewell>` in place once
+ * `signOutAction` resolved; the walkthrough that version's own step 9 asked
+ * for caught that this component's local state cannot survive the action's
+ * cookie clear (see `signOutAction`'s own comment for the measurement).
+ * "Sair" is a `<form action={signOutAction.bind(null, publicKey)}>` now — a
+ * real navigation the action's own `redirect()` completes — so there is
+ * nothing left for this component to hold once the button is pressed, and
+ * `page.tsx` draws the farewell for the `?left=1` request that follows.
  */
 export function WidgetMenu({
   publicKey,
   initialOpen,
-  exitHref = null,
 }: {
   publicKey: string;
   /**
@@ -42,46 +50,17 @@ export function WidgetMenu({
    * widget without arriving from a link.
    */
   initialOpen?: WidgetOpenTarget;
-  /**
-   * Block 19b. Where "Sair" sends a listener afterwards — `null` for the
-   * embedded widget, which has no conversation to return to. Threaded from the
-   * page rather than fetched here: this is a client component and the identity
-   * door is read with the anon key on the server.
-   */
-  exitHref?: string | null;
 }) {
   const t = useTranslations('widget');
   const [panel, setPanel] = useState<'menu' | 'song' | 'promotion'>(
     initialOpen?.kind === 'music' ? 'song' : initialOpen?.kind === 'promotion' ? 'promotion' : 'menu',
   );
 
-  /**
-   * ONE `left` FOR THE WHOLE WIDGET, held here rather than in each panel,
-   * because "Sair" is reachable from three of them and the farewell that
-   * follows is the same screen every time. A panel that owned its own copy
-   * would have to be told to stop rendering by this component anyway.
-   */
-  const [left, setLeft] = useState(false);
-  const [leaving, startLeaving] = useTransition();
-
-  const exit = () => {
-    // The action clears the cookie; `left` swaps the screen. In this order, and
-    // inside a transition, so a second click during the round trip does nothing
-    // rather than firing a second `Set-Cookie`.
-    startLeaving(async () => {
-      await signOutAction();
-      setLeft(true);
-    });
-  };
-
-  if (left) return <Farewell exitHref={exitHref} />;
-
   if (panel === 'promotion') {
     return (
       <EnterPromotionPanel
         publicKey={publicKey}
         onClose={() => setPanel('menu')}
-        onExit={exit}
         // WHETHER THIS LISTENER MAY ACTUALLY SEE IT is the panel's own
         // question, not this component's -- it is asked against the exact
         // list `EnterPromotionPanel` already fetches to draw itself. A
@@ -95,7 +74,7 @@ export function WidgetMenu({
   }
 
   if (panel === 'song') {
-    return <RequestSongPanel publicKey={publicKey} onClose={() => setPanel('menu')} onExit={exit} />;
+    return <RequestSongPanel publicKey={publicKey} onClose={() => setPanel('menu')} />;
   }
 
   return (
@@ -128,17 +107,14 @@ export function WidgetMenu({
       </div>
 
       {/* D6. Below the two errands and separated from them: it is a way out,
-          not a third thing to do. */}
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={exit}
-        disabled={leaving}
-        className="self-start"
-        data-testid="widget-exit"
-      >
-        {t('exit')}
-      </Button>
+          not a third thing to do. A FORM, not a button with an onClick,
+          because `signOutAction` ends in a `redirect()` — the shape that
+          survives a real navigation, unlike a client state flag. */}
+      <form action={signOutAction.bind(null, publicKey)} className="self-start">
+        <Button type="submit" variant="ghost" data-testid="widget-exit">
+          {t('exit')}
+        </Button>
+      </form>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { choosePresentation } from '@/lib/widget/presentation';
 import { parseOpenTarget } from '@/lib/widget/open-target';
 import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
 import { installationExists, stationIdentity } from '@/services/widget-installations';
+import { Farewell } from './farewell';
 import { AppFrame, EmbeddedFrame } from './frames';
 import { IdentifyForm } from './identify-form';
 import { WidgetMenu } from './menu';
@@ -23,10 +24,10 @@ export default async function WidgetPage({
   searchParams,
 }: {
   params: Promise<{ publicKey: string }>;
-  searchParams: Promise<{ open?: string | string[]; id?: string | string[]; link?: string }>;
+  searchParams: Promise<{ open?: string | string[]; id?: string | string[]; link?: string; left?: string }>;
 }) {
   const { publicKey } = await params;
-  const { open, id, link } = await searchParams;
+  const { open, id, link, left } = await searchParams;
 
   // Task 19a-6's door folds every failure of a WhatsApp link — a used code,
   // one whose fifteen minutes ran out, or (below) a Station that went dark in
@@ -81,6 +82,35 @@ export default async function WidgetPage({
     notFound();
   }
 
+  // D1: the frame around it, and the frame decides. `Sec-Fetch-Dest` is read
+  // here rather than in the layout because a layout does not see the request.
+  // HOISTED ABOVE THE SESSION CHECK — Task 6, fix round 1 — so `left=1` below
+  // can render the farewell in the correct frame, with the correct identity,
+  // WITHOUT going anywhere near `claims`. Read ONCE either way: the header and
+  // the farewell's way back are the same fact, and asking the identity door
+  // twice per request would be two round trips to answer one question.
+  const presentation = choosePresentation((await headers()).get('sec-fetch-dest'));
+  const identity = presentation === 'app' ? await stationIdentity(publicKey) : null;
+
+  // `signOutAction` (actions.ts) clears the cookie and redirects HERE with
+  // `?left=1`, rather than leaving `WidgetMenu` to render the farewell as
+  // client state after the cookie clear — that action's own comment has the
+  // measurement: a Server Action that mutates a cookie makes Next.js force a
+  // refresh of the very route that decides `<WidgetMenu>` vs `<IdentifyForm>`
+  // from that cookie, and client state loses that race every time. Checked
+  // BEFORE the session check below on purpose: by the time this request
+  // lands, the cookie is already gone, and reaching the ordinary claims logic
+  // would draw the identify form — correct for a cookie that verifies to
+  // nothing, but not what a listener who just pressed "Sair" should see.
+  if (left === '1') {
+    const farewell = <Farewell exitHref={identity?.whatsappHref ?? null} publicKey={publicKey} />;
+    return presentation === 'embedded' ? (
+      <EmbeddedFrame>{farewell}</EmbeddedFrame>
+    ) : (
+      <AppFrame identity={identity}>{farewell}</AppFrame>
+    );
+  }
+
   const cookieStore = await cookies();
   const token = cookieStore.get(WIDGET_SESSION_COOKIE)?.value;
   const secret = env.WIDGET_SESSION_SECRET;
@@ -120,19 +150,9 @@ export default async function WidgetPage({
   // question, asked with the same `listPromotionsAction` call it already
   // makes to draw its own list, so a bad or invisible id falls back to the
   // menu there rather than being refused here.
-  const presentation = choosePresentation((await headers()).get('sec-fetch-dest'));
-  // Read ONCE, and only for the application: the header and the farewell's way
-  // back are the same fact, and asking the door twice per request would be two
-  // round trips to answer one question.
-  const identity = presentation === 'app' ? await stationIdentity(publicKey) : null;
-
   const body =
     claims !== null ? (
-      <WidgetMenu
-        publicKey={publicKey}
-        initialOpen={parseOpenTarget(open, id)}
-        exitHref={identity?.whatsappHref ?? null}
-      />
+      <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
     ) : (
       <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
     );
