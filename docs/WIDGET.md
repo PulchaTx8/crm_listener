@@ -580,6 +580,17 @@ other path into this widget.
 | code never existed, already used, or its fifteen minutes ran out | `{ok: false, reason: 'unusable'}` | "ask again" |
 | the Station was switched off, suspended or archived, or its Organization was blocked, after the link was minted | `{ok: false, reason: 'unavailable'}` | "ask again" |
 | the code was minted for a *different* Station's public key | claims resolved, but the key does not match the one in the address | "ask again" |
+| `enqueue_whatsapp_outbound` fails *after* `mint_widget_link` already spent D2's two-minute window, and the retried turn re-ingests inside it | never called — no code was ever sent | nothing; the event closes `already_answered`, indistinguishable on every screen from a listener who genuinely sent the hashtag twice |
+
+**The fourth row is a different kind of failure from the first three, and
+belongs in this table anyway.** The other three are about a visitor who
+*has* a link and taps it; the fourth is about a listener who never receives
+one — `consume_widget_link` is never even called, because no code reaches
+WhatsApp's send queue. Spec §10 tracks it as a known risk rather than a fix:
+`mint_widget_link` cannot be moved after the enqueue (the code has to exist
+before there is anything to enqueue), so a failure in that one gap between
+minting and sending is currently silent and unbounded. No code change in this
+wave — the row exists so the gap is documented, not discovered.
 
 **The dark-Station case is the whole reason the second row of this table
 exists as a separate one from the first.** `page.tsx` 404s an unknown,

@@ -259,6 +259,32 @@ conversation closes. D7 keeps it alive on purpose; leaving it there forever is
 how a codebase acquires a second way to do everything. Removing it belongs in the
 next block, not this one.
 
+**A late `enqueue_whatsapp_outbound` failure can spend D2's window for nothing,
+and look identical to a healthy suppressed repeat.** Fix round 1 moved the
+context read (`widget_link_send_context`) ahead of `mint_widget_link` so a
+Station gone dark refuses before any code is minted -- but the mint itself
+cannot be moved: the code has to exist before there is anything to enqueue.
+`mint_widget_link` answers a code and burns the two-minute window in the same
+statement, before the one message carrying that code is ever sent. If
+`enqueue_whatsapp_outbound` then fails -- a lock, a dropped connection, the
+outbox table momentarily unreachable -- `sendServiceLink` rethrows, the caller
+defers the event, and the retry re-ingests *inside* the two-minute window:
+`mint_widget_link` finds the unconsumed token it just minted, answers null (its
+contract for "this listener already has a working link"), and the turn closes
+`already_answered` having sent nothing at all. On every screen an operator can
+read -- the event's outcome, the worker's tick counters -- this is
+indistinguishable from the ordinary case the window exists to produce: a
+listener who genuinely sent the hashtag twice. There is no code fix in this
+wave; it is written down here so the gap is a decision, not a surprise found
+later. Candidates for the next round: make the mint and the enqueue one
+transaction (the two are on different systems -- Postgres and the outbox table
+are the same database, so this may be simpler than it sounds, but the outbox
+row still only becomes a real WhatsApp send on a LATER worker tick, and that
+send is what actually has to happen before the window's cost is real); or
+shorten the window enough that the operator-visible blast radius -- one silent
+turn, once, per failure of this kind -- is bounded and named as an accepted
+cost rather than an invisible one.
+
 ---
 
 ## 11. Delivery, in two passes
