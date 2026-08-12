@@ -124,17 +124,26 @@ test('a Station takes its own voice and records the template that lets it speak 
   await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // ===========================================================================
-  // 1. The ten texts are all there before anything has been overridden.
+  // 1. The thirteen texts are all there before anything has been overridden.
   //
   //    This is the assertion the screen exists to earn: a brand-new Station has
   //    no rows in station_message_templates at all, and listSystemMessages
-  //    builds the ten from SYSTEM_MESSAGE_DEFAULTS regardless. A screen
+  //    builds the thirteen from SYSTEM_MESSAGE_DEFAULTS regardless. A screen
   //    rendering the query's own rows would show an empty page here and pass
   //    every other check in this file.
+  //
+  //    Ten until Block 19a, thirteen since: `system_message_key` (0180) grew
+  //    LINK_MUSIC, LINK_MENU and LINK_PROMOTION alongside the original ten,
+  //    one for each of the three texts a hashtag's reply can carry
+  //    (src/lib/conversation/engine.ts's own LINK_MESSAGE_KEYS). This screen
+  //    is generic over the enum (§4's own point — a card renders per key,
+  //    not per hand-written row), so the three new keys showed up here with
+  //    no change to this screen's own code at all, and this count is the
+  //    only thing in this file that needed to know the number moved.
   // ===========================================================================
   await ownerPage.getByRole('link', { name: 'Messages' }).click();
   await expect(ownerPage).toHaveURL(/\/templates\/messages$/);
-  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(10);
+  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(13);
 
   const refusalRow = ownerPage.getByTestId('system-message-REFUSAL');
   const refusalBody = ownerPage.getByTestId('system-message-body-REFUSAL');

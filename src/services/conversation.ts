@@ -20,6 +20,7 @@ import {
 } from '@/lib/conversation/store';
 import type { Database, Json } from '@/lib/supabase/database.types';
 import { hashCpf } from '@/services/members';
+import { sendServiceLink } from '@/services/whatsapp-link';
 
 /**
  * One inbound message, taken from where it stopped to wherever it gets to.
@@ -60,7 +61,16 @@ export type TurnOutcome =
   | { kind: 'completed'; status: string | null }
   | { kind: 'abandoned' }
   /** Nobody is mid-conversation and this message opens none: the silence D4 asks for. */
-  | { kind: 'ignored' };
+  | { kind: 'ignored' }
+  /** Block 19a. A code was minted and the one message carrying it was enqueued. */
+  | { kind: 'link_sent' }
+  /**
+   * Block 19a, D2's window. `mint_widget_link` answered null: this listener
+   * was already answered for this exact purpose inside the last two minutes,
+   * and null means say nothing -- the whole protection against five hashtags
+   * in a row producing five messages.
+   */
+  | { kind: 'already_answered' };
 
 const replySchema = z.object({
   kind: z.enum(['button', 'list']),
@@ -107,7 +117,61 @@ const inboundTurnSchema = z.object({
   start: startSchema.nullish(),
 });
 
-export type InboundTurn = z.infer<typeof inboundTurnSchema>;
+/**
+ * Block 19a. What `ingest_whatsapp_event` (0179) hands back for a matched
+ * hashtag -- D3's promotion, music or service door -- instead of the
+ * `no_hashtag` shape `inboundTurnSchema` above validates. A DIFFERENT shape,
+ * not an extension of it: 0179 never populates `external_id`, `received_at`,
+ * `text` or `reply` on this outcome (confirmed against the migration, and
+ * true of 0070's own `conversation` outcome before it), because nothing on
+ * this path needs them -- `dedupe_prefix` carries the same hash `external_id`
+ * would, and `mint_widget_link`'s own `now()` is authoritative for the
+ * window and the expiry both. `dedupe_prefix` is checked as a sha256 hex
+ * digest for the same reason `widget_link_tokens.token_hash` (0178) is.
+ *
+ * `phone` IS THE DELIVERED FORM, exactly as `inboundTurnSchema`'s own `phone`
+ * above is, and it is the ONLY phone this shape carries. Fix round 1's
+ * Critical finding: the first cut of 0179 returned the LOCAL form (country
+ * code stripped) under `phone` and the delivered form under a second field,
+ * `to_phone` -- the store's own contract (`src/lib/conversation/store.ts`)
+ * is keyed on the delivered form, so a caller that read `phone` for the
+ * store key (as `runConversationTurn` does, for every turn, before it even
+ * knows which shape arrived) missed the live conversation for essentially
+ * every Brazilian listener, and D7's guarantee -- a listener mid-conversation
+ * is never handed a link -- silently did not hold. 0179 now returns exactly
+ * one phone field, under the one name and the one meaning both shapes
+ * already agreed on; `to_phone` does not exist any more, on this shape or
+ * anywhere else in this file, rather than being kept alongside a corrected
+ * `phone` as a second name for a value a future caller could still reach for
+ * by mistake.
+ */
+const linkIntentSchema = z.object({
+  outcome: z.literal('link'),
+  event_id: z.string().min(1),
+  integration_id: z.string().min(1),
+  company_id: z.string().min(1),
+  phone: z.string().min(1),
+  member_id: z.string().min(1),
+  purpose: z.enum(['MUSIC', 'MENU', 'PROMOTION']),
+  promotion_id: z.string().nullable(),
+  promotion_name: z.string().nullable(),
+  dedupe_prefix: z.string().regex(/^[0-9a-f]{64}$/, 'dedupe_prefix must be a sha256 hex digest'),
+});
+
+/** The shape `sendServiceLink` (src/services/whatsapp-link.ts) acts on. */
+export type LinkIntent = z.infer<typeof linkIntentSchema>;
+
+export type InboundTurn = z.infer<typeof inboundTurnSchema> & {
+  /**
+   * Present only when this event is a matched hashtag (D3) rather than a
+   * possible answer to a live conversation. Checked in `runConversationTurn`
+   * AFTER the live-conversation load (D7) and never before: a live
+   * conversation wins over a link intent exactly as it already won over
+   * `start`, for the same reason -- a listener halfway through answering
+   * questions must never be handed a link.
+   */
+  link: LinkIntent | null;
+};
 
 /** Throws when the door's answer is not one this file can act on. */
 export class InboundTurnError extends Error {
@@ -117,22 +181,64 @@ export class InboundTurnError extends Error {
   }
 }
 
+function zodIssues(error: z.ZodError): string {
+  return error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ');
+}
+
 export function parseInboundTurn(raw: unknown): InboundTurn {
+  // The discriminator, checked on the raw value before either schema runs:
+  // the two shapes share no set of required fields to branch on otherwise
+  // (a link intent has no `text`; a no_hashtag turn has no `purpose`), so
+  // this is the one field both carry that says which one arrived.
+  const outcome =
+    typeof raw === 'object' && raw !== null ? (raw as { outcome?: unknown }).outcome : undefined;
+
+  if (outcome === 'link') {
+    const parsed = linkIntentSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new InboundTurnError(
+        `ingest_whatsapp_event returned an unusable link intent: ${zodIssues(parsed.error)}`,
+      );
+    }
+    return {
+      event_id: parsed.data.event_id,
+      // The same hash the no_hashtag shape calls external_id -- 0179 assigns
+      // v_event.external_id to dedupe_prefix too. Carried through rather than
+      // left blank so a link turn's external_id agrees with the value a
+      // no_hashtag turn for the same event would have carried.
+      external_id: parsed.data.dedupe_prefix,
+      integration_id: parsed.data.integration_id,
+      phone: parsed.data.phone,
+      // Unused on this path -- see linkIntentSchema's comment.
+      received_at: '',
+      text: '',
+      reply: null,
+      start: null,
+      link: parsed.data,
+    };
+  }
+
   const parsed = inboundTurnSchema.safeParse(raw);
   if (!parsed.success) {
-    const problems = parsed.error.issues
-      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('; ');
     // No phone, no text: this message may end up in a log.
-    throw new InboundTurnError(`ingest_whatsapp_event returned an unusable turn: ${problems}`);
+    throw new InboundTurnError(`ingest_whatsapp_event returned an unusable turn: ${zodIssues(parsed.error)}`);
   }
-  return parsed.data;
+  return { ...parsed.data, link: null };
 }
 
 export async function runConversationTurn(
   deps: ConversationDeps,
   turn: InboundTurn,
 ): Promise<TurnOutcome> {
+  // D7 is this key, as much as it is the branch order below. The store is
+  // keyed on the phone AS WHATSAPP DELIVERED IT (src/lib/conversation/store.ts),
+  // and every live conversation row was written under that form -- so
+  // `turn.phone` has to BE that form for every shape `parseInboundTurn` can
+  // produce, link intents included, or this lookup silently misses the row
+  // for whichever shape disagrees (fix round 1's Critical: 0179 briefly
+  // returned the LOCAL form here for a link intent, and the branch ordering
+  // two lines below this comment could not have caught it -- the ordering
+  // was right and the value the ordering keyed on was wrong).
   const key: ConversationKey = { integrationId: turn.integration_id, phone: turn.phone };
 
   const { data: token, error } = await deps.supabase.rpc('claim_conversation_turn', {
@@ -150,6 +256,13 @@ export async function runConversationTurn(
   try {
     const live = await deps.store.load(key);
     if (live) return await advanceLive(deps, turn, live, key);
+    // D7. A listener halfway through answering questions is NOT handed a
+    // link: the branch above already returned. Nothing starts a new
+    // conversation any more (0179 never returns a `start` outcome), so
+    // `open` below is reachable only by a conversation the ingest can no
+    // longer produce -- kept until the last one still open closes itself,
+    // then deleted with the branch.
+    if (turn.link) return await sendServiceLink(deps, turn.link);
     if (turn.start) return await open(deps, turn, key);
 
     // A message from somebody who is not mid-conversation and whose message

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import type { WidgetOpenTarget } from '@/lib/widget/open-target';
 import { EnterPromotionPanel } from './enter-promotion';
 import { RequestSongPanel } from './request-song';
 
@@ -26,12 +27,39 @@ import { RequestSongPanel } from './request-song';
  * looks; the tooltip says what a visitor needs to know, which is that the
  * button is not broken.
  */
-export function WidgetMenu({ publicKey }: { publicKey: string }) {
+export function WidgetMenu({
+  publicKey,
+  initialOpen,
+}: {
+  publicKey: string;
+  /**
+   * Block 19a, Task 7. What `?open=`/`&id=` asked for, already shape-checked
+   * by `page.tsx` (`parseOpenTarget`). `undefined` when there was nothing to
+   * ask for at all, which is the ordinary case of a listener who opened the
+   * widget without arriving from a link.
+   */
+  initialOpen?: WidgetOpenTarget;
+}) {
   const t = useTranslations('widget');
-  const [panel, setPanel] = useState<'menu' | 'song' | 'promotion'>('menu');
+  const [panel, setPanel] = useState<'menu' | 'song' | 'promotion'>(
+    initialOpen?.kind === 'music' ? 'song' : initialOpen?.kind === 'promotion' ? 'promotion' : 'menu',
+  );
 
   if (panel === 'promotion') {
-    return <EnterPromotionPanel publicKey={publicKey} onClose={() => setPanel('menu')} />;
+    return (
+      <EnterPromotionPanel
+        publicKey={publicKey}
+        onClose={() => setPanel('menu')}
+        // WHETHER THIS LISTENER MAY ACTUALLY SEE IT is the panel's own
+        // question, not this component's -- it is asked against the exact
+        // list `EnterPromotionPanel` already fetches to draw itself. A
+        // promotion outside that list, or a list that could not be read at
+        // all, calls `onClose` -- the same fallback a click on "Back" gives,
+        // which is the menu, never an error screen for a URL somebody may
+        // have edited.
+        autoOpenId={initialOpen?.kind === 'promotion' ? initialOpen.id : undefined}
+      />
+    );
   }
 
   if (panel === 'song') {

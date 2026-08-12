@@ -83,6 +83,10 @@ describe('Block 11b — the scheduled routines report their own health', () => {
       // Block 17a: 0161 extends sweep_retention with one more table -- see its
       // migration comment for why it reproduces this procedure's 0133 body
       // rather than its superseded 0131 one.
+      // Block 19a, final review fix wave: 0183 extends it with a ninth --
+      // widget_link_tokens -- and reproduces 0161's body for the identical
+      // reason, extracted by script rather than reassembled from 0131.
+      'widget_link_tokens',
       'widget_verifications',
     ]);
   }, 60_000);

@@ -5,7 +5,12 @@ import { CONSENT_NO_ID, CONSENT_YES_ID } from '@/lib/conversation/engine';
 import type { Conversation } from '@/lib/conversation/steps';
 import type { ConversationKey, ConversationStore } from '@/lib/conversation/store';
 import type { Database } from '@/lib/supabase/database.types';
-import { runConversationTurn, type InboundTurn } from '@/services/conversation';
+import {
+  parseInboundTurn,
+  runConversationTurn,
+  type InboundTurn,
+  type LinkIntent,
+} from '@/services/conversation';
 
 /**
  * The turn, against a fake store and a fake client.
@@ -54,6 +59,38 @@ class FakeStore implements ConversationStore {
   async clear(_key: ConversationKey): Promise<void> {
     this.cleared += 1;
     this.current = null;
+  }
+}
+
+/**
+ * Fix round 1's Critical. Unlike `FakeStore` above -- which ignores the key
+ * entirely and would hide the exact bug this exists to catch -- this one
+ * answers with a conversation ONLY when queried under the precise
+ * `{integrationId, phone}` it was stored against, and null for anything
+ * else. It proves the key `runConversationTurn` actually builds from a
+ * parsed turn is the one the store's own contract requires (`src/lib/
+ * conversation/store.ts`: "keyed on the phone as WhatsApp delivered it"),
+ * rather than merely that a live conversation, once found by any means,
+ * wins over a link intent.
+ */
+class KeyedFakeStore implements ConversationStore {
+  constructor(
+    private readonly key: ConversationKey,
+    private readonly current: Conversation,
+  ) {}
+  async load(key: ConversationKey): Promise<Conversation | null> {
+    return key.integrationId === this.key.integrationId && key.phone === this.key.phone
+      ? this.current
+      : null;
+  }
+  async save(): Promise<void> {
+    // Reached on this test's happy path (a re-prompt saves the incremented
+    // reprompt counter) -- a no-op is correct, since nothing here asserts on
+    // the saved value.
+  }
+  async clear(): Promise<void> {
+    // Not reached by this test's scenario; present only so the interface is
+    // satisfied.
   }
 }
 
@@ -108,6 +145,31 @@ function turn(overrides: Partial<InboundTurn> = {}): InboundTurn {
     text: '',
     reply: null,
     start: null,
+    // Block 19a. Absent on every no_hashtag turn (parseInboundTurn's own
+    // contract) -- present only on the shape `link()` below builds.
+    link: null,
+    ...overrides,
+  };
+}
+
+/**
+ * The other shape parseInboundTurn produces: a matched hashtag, D3. `phone`
+ * is the delivered form and the only phone field this shape carries (fix
+ * round 1 retired the second field, `to_phone`, that used to disagree with
+ * it -- see linkIntentSchema's own comment in conversation.ts).
+ */
+function link(overrides: Partial<LinkIntent> = {}): LinkIntent {
+  return {
+    outcome: 'link',
+    event_id: '77777777-7777-7777-7777-777777777777',
+    integration_id: INTEGRATION,
+    company_id: '99999999-9999-9999-9999-999999999999',
+    phone: '5511988887777',
+    member_id: MEMBER,
+    purpose: 'MUSIC',
+    promotion_id: null,
+    promotion_name: null,
+    dedupe_prefix: EXTERNAL_ID,
     ...overrides,
   };
 }
@@ -304,6 +366,137 @@ describe('runConversationTurn', () => {
     expect(outcome).toEqual({ kind: 'ignored' });
     expect(db.called('enqueue_whatsapp_outbound')).toBeUndefined();
     expect(db.called('finish_whatsapp_turn')?.args.p_outcome).toBe('no_conversation');
+  });
+
+  /**
+   * Block 19a, D7. The bridge this task exists for: a live conversation
+   * outranks a matched hashtag, exactly as it already outranked `turn.start`
+   * before this task. Both `reply` (an answer to the live question) AND
+   * `link` (the ingest also resolved this same message as a hashtag match)
+   * are set on the same turn -- an edge case rather than the ordinary shape
+   * (parseInboundTurn never produces both at once), but it is the one
+   * arrangement that actually exercises the ORDER the two `if` statements are
+   * written in, which is the whole guarantee D7 asks for.
+   */
+  it('D7: a live conversation wins over a matched hashtag, and mints no link', async () => {
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+    });
+    const store = new FakeStore(conversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({
+        reply: { kind: 'button', id: CONSENT_YES_ID, title: 'Quero!' },
+        link: link(),
+      }),
+    );
+
+    expect(outcome).toEqual({ kind: 'prompted' });
+    // The whole point of D7: the branch below the live check is never
+    // reached, so sendServiceLink never mints anything.
+    expect(db.rpcs.some((call) => call.fn === 'mint_widget_link')).toBe(false);
+  });
+
+  /**
+   * Fix round 1's Critical, at the layer where the bug actually lived. The
+   * test above proves the branch ORDER is right; it cannot see this, because
+   * `link()` sets its `phone` by hand and the fake store above ignores the
+   * key entirely. Neither is true here: this goes through `parseInboundTurn`
+   * exactly as the worker does (src/services/whatsapp.ts), against a raw
+   * payload shaped like 0179's (fixed) link outcome -- ONE phone field,
+   * carrying the DELIVERED form -- and `KeyedFakeStore`, which answers with
+   * the live conversation only when asked under that exact form.
+   *
+   * Before the fix, 0179 returned the LOCAL form (country code stripped)
+   * under this same field for a link intent, while its two sibling intents
+   * returned the delivered form -- so `runConversationTurn`'s
+   * `{integrationId, phone: turn.phone}` key would have missed this store's
+   * conversation for essentially every Brazilian listener, `advanceLive`
+   * would never run, and `sendServiceLink` would have minted a link for
+   * somebody mid-conversation. This is what fails first if that regresses.
+   */
+  it('C1: a link turn keys the store lookup on the delivered phone Meta sent, not a local one', async () => {
+    const DELIVERED = '5511999998888';
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+    });
+    const store = new KeyedFakeStore(
+      { integrationId: INTEGRATION, phone: DELIVERED },
+      conversation({ phone: DELIVERED }),
+    );
+
+    const rawLinkPayload = {
+      outcome: 'link',
+      event_id: '77777777-7777-7777-7777-777777777777',
+      integration_id: INTEGRATION,
+      company_id: '99999999-9999-9999-9999-999999999999',
+      // What 0179 now returns for every intent it can produce, link
+      // included: the delivered form. A regression to the pre-fix shape
+      // would put the LOCAL form ('11999998888') here instead, and this
+      // assertion is what would catch it.
+      phone: DELIVERED,
+      member_id: MEMBER,
+      purpose: 'MUSIC',
+      promotion_id: null,
+      promotion_name: null,
+      dedupe_prefix: EXTERNAL_ID,
+    };
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      parseInboundTurn(rawLinkPayload),
+    );
+
+    expect(outcome).toEqual({ kind: 'prompted' });
+    expect(db.rpcs.some((call) => call.fn === 'mint_widget_link')).toBe(false);
+  });
+
+  /**
+   * The other half of Step 3's wiring: nobody is mid-conversation, so a
+   * matched hashtag DOES reach sendServiceLink. Fix round 1, M10: this used
+   * to prove that by asserting a rejection caused by an ABSENT
+   * NEXT_PUBLIC_SITE_URL -- true only because nothing else in this file sets
+   * it, and wrong (a CI failure unrelated to what the test claims to check)
+   * on any runner whose environment exports it, which this repo's own `.env`
+   * does. Fixed the honest way: set the variable for real and prove routing
+   * by the one RPC only `sendServiceLink` ever calls actually firing.
+   *
+   * Needs a freshly re-imported `@/services/conversation`: `env` (src/lib/
+   * env.ts) is computed once, at module import, and this file's own
+   * top-level import already ran with no NEXT_PUBLIC_SITE_URL set -- the
+   * same reason `whatsapp-link.test.ts` and `whatsapp-route.test.ts` use a
+   * dynamic import after setting the variable, rather than a `beforeEach`.
+   */
+  it('routes a matched hashtag to sendServiceLink when nobody is mid-conversation, and mints a code', async () => {
+    const original = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://app.example.test';
+    vi.resetModules();
+
+    try {
+      const fresh = await import('@/services/conversation');
+      const db = new FakeDb({
+        claim_conversation_turn: LEASE_TOKEN,
+        mint_widget_link: 'CODE-1',
+        widget_link_send_context: { publicKey: 'pw_test', systemMessages: {} },
+        enqueue_whatsapp_outbound: 'ob-1',
+      });
+      const store = new FakeStore(null);
+
+      const outcome = await fresh.runConversationTurn(
+        { supabase: asClient(db), store },
+        turn({ link: link() }),
+      );
+
+      expect(outcome).toEqual({ kind: 'link_sent' });
+      expect(db.rpcs.some((call) => call.fn === 'mint_widget_link')).toBe(true);
+      expect(db.called('release_conversation_turn')?.args).toMatchObject({ p_token: LEASE_TOKEN });
+    } finally {
+      process.env.NEXT_PUBLIC_SITE_URL = original;
+      vi.resetModules();
+    }
   });
 
   /**

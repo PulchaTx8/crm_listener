@@ -29,12 +29,15 @@ function fieldWhen(fieldKey: string, t: (key: string, values?: Record<string, st
 }
 
 /**
- * What each of the ten texts is, in the operator's language.
+ * What each of the thirteen texts is, in the operator's language. Ten field
+ * and conversation prompts from 0109, plus the three Block 19a added
+ * (LINK_MUSIC, LINK_MENU, LINK_PROMOTION) — the words in front of the link a
+ * matched hashtag now sends.
  *
  * TOTAL over `SystemMessageKey`, which is the generated `system_message_key`
- * enum — so an eleventh key added to 0109 fails to compile HERE rather than
- * rendering on screen as a bare `DISCOVERY_SOURCE` nobody can interpret. The
- * same reason FIELD_PROMPTS and FIELD_MESSAGE_KEYS are total in engine.ts.
+ * enum — so a fourteenth key fails to compile HERE rather than rendering on
+ * screen as a bare key nobody can interpret. The same reason FIELD_PROMPTS
+ * and FIELD_MESSAGE_KEYS are total in engine.ts.
  *
  * English, like every operator-facing string in this codebase. The BODIES are
  * Portuguese and stay Portuguese: they are what a listener reads, which is the
@@ -60,15 +63,19 @@ function messageLabels(
       title: t('messageDiscoverySourceTitle'),
       when: fieldWhen('fieldDiscoverySource', t),
     },
+    LINK_MUSIC: { title: t('messageLinkMusicTitle'), when: t('messageLinkMusicWhen') },
+    LINK_MENU: { title: t('messageLinkMenuTitle'), when: t('messageLinkMenuWhen') },
+    LINK_PROMOTION: { title: t('messageLinkPromotionTitle'), when: t('messageLinkPromotionWhen') },
   };
 }
 
 /**
- * The ten texts, whether this Station has overridden them or not.
+ * The thirteen texts, whether this Station has overridden them or not.
  *
- * TEN ROWS ALWAYS — `listSystemMessages` builds them from the defaults and
- * fills in what was overridden, so a brand-new Station sees ten editable texts
- * rather than an empty page. Rendering the query's rows alone would be the
+ * ALL THIRTEEN ROWS ALWAYS — `listSystemMessages` builds them from the
+ * defaults and fills in what was overridden, so a brand-new Station sees
+ * every text editable rather than an empty page. Rendering the query's rows
+ * alone would be the
  * all-or-nothing misreading of D2 that resolveSystemMessage's own test exists
  * to catch: an absent row is a text at its default, not a text that is missing.
  *

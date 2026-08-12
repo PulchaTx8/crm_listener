@@ -11,10 +11,11 @@ import type { Enums } from '@/lib/supabase/database.types';
  */
 
 /**
- * The ten keys, derived from `SYSTEM_MESSAGE_DEFAULTS` rather than listed
- * again. That record is total over `SystemMessageKey`, which is itself the
+ * The keys, derived from `SYSTEM_MESSAGE_DEFAULTS` rather than listed again.
+ * That record is total over `SystemMessageKey`, which is itself the
  * generated `system_message_key` enum, so this array cannot fall behind the
- * database — and an eleventh key arrives here with no edit at all.
+ * database — and a fourteenth key (as the three Block 19a added once did)
+ * arrives here with no edit at all.
  *
  * Ordered by the enum, which is the order the Messages screen renders in: the
  * two standalone messages first, then the eight field prompts in the order the
@@ -103,6 +104,56 @@ export const clearSystemMessageSchema = z.object({
   key: z.enum(SYSTEM_MESSAGE_KEYS),
 });
 export type ClearSystemMessageInput = z.infer<typeof clearSystemMessageSchema>;
+
+// ---------------------------------------------------------------------------
+// Block 19a, Task 8. The two service hashtags.
+// ---------------------------------------------------------------------------
+
+/**
+ * The same grammar `widget_installations_hashtag_shape` (0177) states, and
+ * stated again rather than shared for the reason 0177's own comment gives:
+ * a CHECK cannot reference this file, and this is a courtesy copy, not the
+ * source of truth. `set_service_hashtags` validates the same shape and the
+ * differ rule again, server-side, and its 22023 sentence is what actually
+ * governs a caller who bypasses this form — this only catches the common
+ * typo before a round trip.
+ */
+const HASHTAG_SHAPE = /^#[^\s#]{1,39}$/;
+
+/**
+ * An empty string is a THIRD valid state, not a shape error: it is how a
+ * field is cleared (0177's own rule — `set_service_hashtags` folds '' to
+ * NULL before either check runs), so this schema must accept it too, or
+ * clearing a hashtag would fail client-side before it ever reached the door.
+ */
+const hashtagField = z
+  .string()
+  .trim()
+  .max(40, 'Keep it to 40 characters or fewer.')
+  .refine((v) => v === '' || HASHTAG_SHAPE.test(v), {
+    message: 'Start the hashtag with # and use no spaces, up to 40 characters, with no second #.',
+  });
+
+export const serviceHashtagsFormSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    music: hashtagField,
+    service: hashtagField,
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.music !== '' &&
+      value.service !== '' &&
+      value.music.toLowerCase() === value.service.toLowerCase()
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['service'],
+        message: 'The music and service hashtags must be different.',
+      });
+    }
+  });
+export type ServiceHashtagsFormInput = z.infer<typeof serviceHashtagsFormSchema>;
 
 /** The highest `{{n}}` a body actually uses — 0 for an approved fixed-text template. */
 export function countPlaceholders(body: string): number {

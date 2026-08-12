@@ -7,13 +7,17 @@ insert into public.companies (id, organization_id, name, timezone) values
   ('00000000-0000-0000-0000-00000000e4c1', '00000000-0000-0000-0000-00000000e4f1',
    'Station templates', 'America/Sao_Paulo');
 
--- 1: ten keys, and the order is pinned. Eight are the requested fields
--- FIELD_PROMPTS covers; two are the standalone messages.
+-- 1: thirteen keys, and the order is pinned. Eight are the requested fields
+-- FIELD_PROMPTS covers; two are the standalone messages; three (added by
+-- Block 19a, 0180) are the words in front of the link a matched hashtag
+-- sends -- appended at the end, since `alter type ... add value` always
+-- appends.
 select is(
   enum_range(null::public.system_message_key)::text[],
   array['REFUSAL', 'ABANDON', 'FULL_NAME', 'ADDRESS', 'CITY', 'NEIGHBOURHOOD',
-        'AGE', 'CPF', 'PASSPORT', 'DISCOVERY_SOURCE'],
-  'system_message_key is the ten texts engine.ts hard-codes');
+        'AGE', 'CPF', 'PASSPORT', 'DISCOVERY_SOURCE',
+        'LINK_MUSIC', 'LINK_MENU', 'LINK_PROMOTION'],
+  'system_message_key is the thirteen texts engine.ts hard-codes');
 
 -- 2: a blank override is not an override. '   ' would satisfy NOT NULL and
 -- send a listener an empty message, which is worse than the default.
@@ -747,13 +751,13 @@ select is(
   'Texto depois de limpar',
   'whatsapp_prompt_context carries the Station''s own wording for an overridden text');
 
--- 72: AND ONLY the overridden one. A resolver handed all ten keys could not
+-- 72: AND ONLY the overridden one. A resolver handed every key could not
 -- tell an override from a default, and the per-text property (D2) would be
 -- decided here rather than in the engine — invisibly, and in SQL.
 select is(
   (select count(*)::int from jsonb_object_keys(
     public.whatsapp_prompt_context('00000000-0000-0000-0000-00000000e4d1') -> 'systemMessages')),
-  1, 'and carries ONLY the texts that were overridden, never the other nine');
+  1, 'and carries ONLY the texts that were overridden, never any other');
 
 -- 73: a Station that has overridden nothing yields an empty object, not null.
 -- Null would reach Zod as a missing key and only survive because of a

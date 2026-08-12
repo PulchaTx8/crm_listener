@@ -4,6 +4,7 @@ import {
   SYSTEM_MESSAGE_KEYS,
   countPlaceholders,
   clearSystemMessageSchema,
+  serviceHashtagsFormSchema,
   systemMessageFormSchema,
   templateRegistrationSchema,
 } from '@/schemas/templates';
@@ -21,17 +22,19 @@ const registration = {
 };
 
 describe('SYSTEM_MESSAGE_KEYS', () => {
-  it('is the ten keys, derived from the defaults rather than listed again', () => {
-    // Derived, so an eleventh key added to the enum arrives here with no edit.
+  it('is the thirteen keys, derived from the defaults rather than listed again', () => {
+    // Derived, so a fourteenth key added to the enum arrives here with no
+    // edit -- exactly what happened when Block 19a's three LINK_* keys grew
+    // this from ten to thirteen with no change to this file's own logic.
     // A hand-written list would be a second place to forget.
-    expect(SYSTEM_MESSAGE_KEYS).toHaveLength(10);
+    expect(SYSTEM_MESSAGE_KEYS).toHaveLength(13);
     expect(SYSTEM_MESSAGE_KEYS).toEqual(Object.keys(SYSTEM_MESSAGE_DEFAULTS));
     expect(SYSTEM_MESSAGE_KEYS[0]).toBe('REFUSAL');
   });
 });
 
 describe('systemMessageFormSchema', () => {
-  it('accepts a Station rewriting one of the ten', () => {
+  it('accepts a Station rewriting one of the thirteen', () => {
     const parsed = systemMessageFormSchema.parse({
       companyId: COMPANY,
       key: 'REFUSAL',
@@ -51,7 +54,7 @@ describe('systemMessageFormSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('refuses a key that is not one of the ten', () => {
+  it('refuses a key that is not one of the thirteen', () => {
     const result = systemMessageFormSchema.safeParse({
       companyId: COMPANY,
       key: 'INACTIVITY',
@@ -67,6 +70,68 @@ describe('systemMessageFormSchema', () => {
     expect(clearSystemMessageSchema.safeParse({ companyId: COMPANY, key: 'CITY' }).success).toBe(
       true,
     );
+  });
+});
+
+describe('serviceHashtagsFormSchema', () => {
+  it('accepts a good pair of hashtags', () => {
+    const result = serviceHashtagsFormSchema.safeParse({
+      companyId: COMPANY,
+      music: '#TOCAAGORA',
+      service: '#MENUAJUDA',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts an empty field, which is how a hashtag is cleared (0177)', () => {
+    // The door folds '' to NULL before either check runs -- the same rule
+    // this courtesy copy must not contradict, or clearing a field would fail
+    // client-side before it ever reached set_service_hashtags.
+    const result = serviceHashtagsFormSchema.safeParse({
+      companyId: COMPANY,
+      music: '',
+      service: '#MENUAJUDA',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('refuses a hashtag missing the leading #', () => {
+    const result = serviceHashtagsFormSchema.safeParse({
+      companyId: COMPANY,
+      music: 'TOCAAGORA',
+      service: '#MENUAJUDA',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('refuses a hashtag containing a space', () => {
+    const result = serviceHashtagsFormSchema.safeParse({
+      companyId: COMPANY,
+      music: '#TOCA AGORA',
+      service: '#MENUAJUDA',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('refuses the two hashtags being equal, ignoring case -- mirrors the door\'s own rule', () => {
+    const result = serviceHashtagsFormSchema.safeParse({
+      companyId: COMPANY,
+      music: '#Igual',
+      service: '#IGUAL',
+    });
+    expect(result.success).toBe(false);
+    // Attached to the field the operator can act on, mirroring
+    // templateRegistrationSchema's own reasoning for its cross-field rule.
+    expect(result.error?.issues[0]?.path).toEqual(['service']);
+  });
+
+  it('does not refuse two EMPTY fields as "equal" -- clearing both is not a collision', () => {
+    const result = serviceHashtagsFormSchema.safeParse({
+      companyId: COMPANY,
+      music: '',
+      service: '',
+    });
+    expect(result.success).toBe(true);
   });
 });
 

@@ -53,6 +53,14 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.SUPABASE_TEST_ANON_KEY ?? LOCAL_SUPABASE_ANON_KEY,
       SUPABASE_SERVICE_ROLE_KEY:
         process.env.SUPABASE_TEST_SERVICE_ROLE_KEY ?? LOCAL_SUPABASE_SERVICE_ROLE_KEY,
+      // Block 19a. `sendServiceLink` (src/services/whatsapp-link.ts) refuses
+      // to mint or send a link without this — the same deployment-fault
+      // guard `triggerTick` (the webhook route) already applies to itself —
+      // and this suite drives that path for real, through `runTick`, in
+      // tests/isolation/whatsapp.test.ts and whatsapp-link-load.test.ts.
+      // Fixed, not secret: it never leaves this process, and nothing here
+      // resolves it over HTTP.
+      NEXT_PUBLIC_SITE_URL: 'http://localhost:3000',
     },
   },
   resolve: {

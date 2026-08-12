@@ -16,6 +16,7 @@ import { SYSTEM_MESSAGE_KEYS } from '@/schemas/templates';
 import type {
   ArchiveTemplateInput,
   ClearSystemMessageInput,
+  ServiceHashtagsFormInput,
   SystemMessageFormInput,
   TemplateRegistrationInput,
 } from '@/schemas/templates';
@@ -47,9 +48,9 @@ export interface SystemMessageRow {
 }
 
 /**
- * All ten, whether overridden or not.
+ * All thirteen, whether overridden or not.
  *
- * TEN ROWS ALWAYS, built from `SYSTEM_MESSAGE_DEFAULTS` and filled in from
+ * EVERY ROW ALWAYS, built from `SYSTEM_MESSAGE_DEFAULTS` and filled in from
  * whatever the Station has overridden — never the query's rows alone. A screen
  * rendering only what came back would show a brand-new Station an empty page,
  * and would be the same all-or-nothing misreading of D2 that the resolver's
@@ -113,6 +114,88 @@ export async function clearSystemMessage(
   const { error } = await asCaller(accessToken).rpc('clear_station_message_template', {
     p_company_id: input.companyId,
     p_key: input.key,
+  });
+  if (error) throw mapTemplateError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// Block 19a, Task 8. The two service hashtags.
+// ---------------------------------------------------------------------------
+
+/** One Station's two service hashtags, as Task 8's screen renders them. */
+export interface ServiceHashtags {
+  /**
+   * False when this Station has no `widget_installations` row at all —
+   * creating one is a console act (0159) this screen cannot perform. Both
+   * hashtags are null either way, which is why the screen needs this flag
+   * rather than inferring "no widget" from null fields: a Station that HAS a
+   * widget and simply has not typed a hashtag yet carries the same nulls.
+   */
+  installed: boolean;
+  music: string | null;
+  service: string | null;
+}
+
+/**
+ * `service_hashtags_for` returns jsonb, which arrives here as `unknown`
+ * (`Json` in the generated types) — checked at the boundary rather than cast,
+ * the same defence-in-depth `parseWidgetInstallation` (services/widget-installations.ts)
+ * gives its own jsonb-returning door: a shape that drifted under this file
+ * would otherwise surface as `undefined` fields quietly reaching the screen
+ * rather than a loud failure naming the actual cause.
+ */
+function parseServiceHashtags(data: unknown): ServiceHashtags {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new InternalError('service_hashtags_for returned an unexpected shape');
+  }
+
+  const row = data as Record<string, unknown>;
+  if (
+    typeof row.installed !== 'boolean' ||
+    (row.music !== null && typeof row.music !== 'string') ||
+    (row.service !== null && typeof row.service !== 'string')
+  ) {
+    throw new InternalError('service_hashtags_for returned an unexpected shape');
+  }
+
+  return {
+    installed: row.installed,
+    music: row.music as string | null,
+    service: row.service as string | null,
+  };
+}
+
+/**
+ * Reads `service_hashtags_for` (0182). `widget_installations` carries RLS
+ * with no policy and its ACL revoked (0159's own comment): every reader is
+ * inside a SECURITY DEFINER body and even the service client is refused with
+ * 42501, so this door is the only way this screen can see these two columns.
+ */
+export async function getServiceHashtags(companyId: string): Promise<ServiceHashtags> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase.rpc('service_hashtags_for', {
+    p_company_id: companyId,
+  });
+  if (error) throw mapTemplateError(error.code, error.message);
+  return parseServiceHashtags(data);
+}
+
+/**
+ * Writes both hashtags in one call, through `set_service_hashtags` (0177).
+ * An empty string clears a field to NULL — the door's own rule, not repeated
+ * here. Refuses with `42501` (no `templates.manage`), `22023` (a bad shape,
+ * the two hashtags equal ignoring case, or a clash with a live or future
+ * promotion of this Station — the door's own sentence, which names the
+ * clashing hashtag) or `P0002` (this Station has no widget installation).
+ */
+export async function setServiceHashtags(
+  input: ServiceHashtagsFormInput,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_service_hashtags', {
+    p_company_id: input.companyId,
+    p_music: input.music,
+    p_service: input.service,
   });
   if (error) throw mapTemplateError(error.code, error.message);
 }
@@ -192,22 +275,26 @@ export async function archiveTemplate(
 }
 
 /**
- * The code taxonomy the four doors raise, in the shape services/music.ts
- * documents its own.
+ * The code taxonomy the six doors raise (the original four, plus Block 19a's
+ * `set_service_hashtags` and `service_hashtags_for`), in the shape
+ * services/music.ts documents its own.
  *
- * - `42501` is every permission refusal, and — by 0093's rule, which all four
+ * - `42501` is every permission refusal, and — by 0093's rule, which all six
  *   doors follow — ALSO an id that names nothing and a Station the caller
  *   cannot reach. There is deliberately no way to tell the three apart from
  *   outside, so this must not be softened into a "not found" anywhere.
- * - `P0002` is the two honest absences a caller who DOES hold templates.manage
- *   can be told about: clearing a text that has no override, and a Station id
- *   that stopped being live between the permission check and the read.
+ * - `P0002` is the honest absences a caller who DOES hold the permission can
+ *   be told about: clearing a text that has no override, a Station id that
+ *   stopped being live between the permission check and the read, and (Block
+ *   19a) a Station with no widget installation at all — creating one is a
+ *   console act (0159) `set_service_hashtags` cannot perform on its own.
  * - `22023` is every validation raise: a blank body, a blank template name or
- *   language, a variable description that is not a non-empty string, and the
- *   one that matters — a body whose `{{n}}` count disagrees with the
- *   descriptions given. schemas/templates.ts catches all of these before a
- *   request is sent; this mapping is what still applies if a caller bypasses
- *   the form.
+ *   language, a variable description that is not a non-empty string, the one
+ *   that matters — a body whose `{{n}}` count disagrees with the descriptions
+ *   given — and (Block 19a) a service hashtag with a bad shape, the two equal
+ *   ignoring case, or a clash with a live or future promotion of that Station.
+ *   schemas/templates.ts catches all of these before a request is sent; this
+ *   mapping is what still applies if a caller bypasses the form.
  * - `23514` is the same class arriving from a check constraint rather than a
  *   raise, and is mapped alongside it for that reason.
  * - `23505` should be unreachable: both doors upsert against the partial

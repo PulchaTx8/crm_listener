@@ -539,6 +539,12 @@
     "messageCpfTitle": "Pedindo o CPF",
     "messagePassportTitle": "Pedindo o número do passaporte",
     "messageDiscoverySourceTitle": "Perguntando como conheceu a Emissora",
+    "messageLinkMusicTitle": "Enviando o link de pedido de música",
+    "messageLinkMusicWhen": "Enviado quando um ouvinte manda a hashtag de música da Emissora pelo WhatsApp. Leva um link que abre o widget direto na busca de músicas, válido por quinze minutos.",
+    "messageLinkMenuTitle": "Enviando o link de atendimento",
+    "messageLinkMenuWhen": "Enviado quando um ouvinte manda a hashtag de atendimento da Emissora pelo WhatsApp. Leva um link que abre o menu do widget, válido por quinze minutos.",
+    "messageLinkPromotionTitle": "Enviando o link de participação de uma promoção",
+    "messageLinkPromotionWhen": "Enviado quando um ouvinte manda a hashtag de uma promoção ativa pelo WhatsApp. Leva um link que abre o widget direto naquela promoção, válido por quinze minutos.",
     "purposePickupReminderTitle": "Lembrete de retirada",
     "purposePickupReminderWhen": "Enviado uma vez a um ganhador cujo prazo de retirada cai nos próximos dois dias, dias depois do sorteio que o produziu — o que está fora da janela de 24 horas do WhatsApp, e a razão pela qual este propósito precisa de um modelo aprovado.",
     "purposePickupReminderSendsFirstName": "O primeiro nome do ganhador",
@@ -548,7 +554,17 @@
     "purposeWebVerificationWhen": "Enviado no momento em que um visitante no site da própria Emissora digita o telefone no widget e pede para ser identificado. Precisa ser um modelo aprovado da categoria AUTHENTICATION da Meta: o visitante nunca mandou mensagem para esta Emissora, então não existe janela de 24 horas para enviar dentro dela. Enquanto não estiver registrado aqui, o widget aceita o número e não envia nada.",
     "purposeWebVerificationSendsCode": "O código de seis dígitos, e nada mais — ele expira em dez minutos e é queimado após cinco tentativas erradas",
     "thatTextCouldNotBeIdentified": "Não foi possível identificar esse texto. Atualize a página e tente novamente.",
-    "thatRegistrationCouldNotBeIdentified": "Não foi possível identificar esse cadastro. Atualize a página e tente novamente."
+    "thatRegistrationCouldNotBeIdentified": "Não foi possível identificar esse cadastro. Atualize a página e tente novamente.",
+    "serviceHashtagsTitle": "Hashtags de atendimento",
+    "serviceHashtagsDescription": "As duas palavras que respondem na hora pelo WhatsApp, antes de qualquer conversa começar: uma manda um link para a busca de músicas, a outra para o menu do próprio widget.",
+    "serviceHashtagsNoInstallation": "Esta Emissora não tem widget instalado, então estas hashtags ainda não podem ser ativadas. Instalar um widget é feito pelo console de administração, não por esta tela.",
+    "musicHashtagLabel": "Hashtag de música",
+    "musicHashtagHelp": "Enviada por um ouvinte para receber um link direto na busca de músicas.",
+    "serviceHashtagLabel": "Hashtag de atendimento",
+    "serviceHashtagHelp": "Enviada por um ouvinte para receber um link para o menu do próprio widget, onde escolhe entre uma música e uma promoção.",
+    "hashtagsSaved": "Salvo",
+    "notSet": "Não definida",
+    "actionChangeTheServiceHashtags": "alterar as hashtags de atendimento"
   },
   "dashboards": {
     "audience": "Audiência",
@@ -1786,7 +1802,8 @@
     "otherPromotions": "Outras promoções",
     "forWhichProgramme": "Para qual programa?",
     "anyTime": "Qualquer horário",
-    "onAirNow": "{name} — no ar agora"
+    "onAirNow": "{name} — no ar agora",
+    "linkExpired": "Este link expirou. Envie a hashtag de novo para receber um novo link."
   },
   "shows": {
     "programmes": "Programas",

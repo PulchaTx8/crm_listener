@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   ABANDON_MESSAGE,
+  DEFAULT_MENU_LINK_TEXT,
+  DEFAULT_MUSIC_LINK_TEXT,
+  DEFAULT_PROMOTION_LINK_TEXT,
   FIELD_MESSAGE_KEYS,
   FIELD_PROMPTS,
   REFUSAL_MESSAGE,
@@ -30,10 +33,14 @@ const ALL_KEYS: SystemMessageKey[] = [
   'CPF',
   'PASSPORT',
   'DISCOVERY_SOURCE',
+  // Block 19a: the three words in front of the link a matched hashtag sends.
+  'LINK_MUSIC',
+  'LINK_MENU',
+  'LINK_PROMOTION',
 ];
 
 describe('SYSTEM_MESSAGE_DEFAULTS', () => {
-  it('is the ten texts engine.ts already held, unchanged', () => {
+  it('is the thirteen texts engine.ts already held, unchanged', () => {
     // The constants stay where they are and BECOME the defaults. If this ever
     // drifts, a Station that overrides nothing starts speaking differently
     // than it did before the block, which is a change nobody asked for.
@@ -48,6 +55,9 @@ describe('SYSTEM_MESSAGE_DEFAULTS', () => {
       CPF: FIELD_PROMPTS.cpf,
       PASSPORT: FIELD_PROMPTS.passport,
       DISCOVERY_SOURCE: FIELD_PROMPTS.discovery_source,
+      LINK_MUSIC: DEFAULT_MUSIC_LINK_TEXT,
+      LINK_MENU: DEFAULT_MENU_LINK_TEXT,
+      LINK_PROMOTION: DEFAULT_PROMOTION_LINK_TEXT,
     });
   });
 
@@ -63,7 +73,7 @@ describe('SYSTEM_MESSAGE_DEFAULTS', () => {
     expect(new Set(keys).size).toBe(8);
     // Two fields sharing a key would let one override silently rewrite the
     // other's prompt -- and the pgTAP enum assertion could not see it, because
-    // the enum would still have its ten values.
+    // the enum would still have its thirteen values.
     expect(FIELD_MESSAGE_KEYS.full_name).toBe('FULL_NAME');
     expect(FIELD_MESSAGE_KEYS.discovery_source).toBe('DISCOVERY_SOURCE');
   });
@@ -84,7 +94,7 @@ describe('resolveSystemMessage', () => {
   });
 
   it('KEEPS THE DEFAULTS FOR EVERY TEXT THE STATION DID NOT OVERRIDE', () => {
-    // THE ASSERTION THIS FILE EXISTS FOR. One override, nine defaults. An
+    // THE ASSERTION THIS FILE EXISTS FOR. One override, twelve defaults. An
     // all-or-nothing resolver -- one that swapped in the Station's map whole
     // once any row existed -- passes the case above and fails here.
     const overrides = { CITY: 'Qual cidade, meu amigo?' };

@@ -1,10 +1,11 @@
 'use client';
 
-import { useActionState, useEffect, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   answersFor,
+  decideAutoOpen,
   type WidgetOption,
   type WidgetPromotion,
   type WidgetStep,
@@ -37,9 +38,19 @@ const IDLE: EnterState = { status: 'idle' };
 export function EnterPromotionPanel({
   publicKey,
   onClose,
+  autoOpenId,
 }: {
   publicKey: string;
   onClose: () => void;
+  /**
+   * Block 19a, Task 7. A promotion id `?open=promotion&id=…` named, already
+   * checked for SHAPE by `parseOpenTarget` — never for whether this listener
+   * may see it. That second check happens below, against the same list this
+   * panel fetches to draw itself, because it is the only list this listener
+   * is entitled to and asking a second door the same question would be a
+   * second place for the two to disagree.
+   */
+  autoOpenId?: string;
 }) {
   const t = useTranslations('widget');
 
@@ -67,6 +78,50 @@ export function EnterPromotionPanel({
       live = false;
     };
   }, [publicKey]);
+
+  /**
+   * `autoOpenId`, ACTED ON ONCE. `list` moves from `loading` to a settled
+   * status exactly once per mount (the effect above never re-fetches after
+   * its first call), so a ref guards against this effect firing again on a
+   * render the settled state alone would not have caused — `onClose` is a
+   * fresh closure every render of the parent, and listing it as a dependency
+   * without the guard would attempt the decision a second time.
+   *
+   * THE DECISION ITSELF IS `decideAutoOpen` (promotion-mapping.ts), not
+   * written out here, so it is one function a test can call rather than a
+   * branch only a browser exercises. Its three outcomes:
+   *   - `open` — set as `chosen`, exactly what clicking the list entry does;
+   *   - `show-list` — an ALREADY-ENTERED match. Do nothing: `chosen` stays
+   *     null, and the fall-through render below already shows this exact
+   *     promotion, disabled, with `alreadyEntered` on screen — which answers
+   *     what the listener's link was actually about, unlike the bare
+   *     two-button menu this used to fall back to (fix round 1);
+   *   - `back-to-menu` — no promotion in this listener's own list carries
+   *     this id at all. `onClose` is the same fallback a click on "Back"
+   *     gives, because a bad `open` is never an error here.
+   * A list that never reached `ready` (refused, or still loading when the
+   * guard fires) cannot be searched at all, and is folded into the same
+   * `back-to-menu` fallback: a promotion this code could not confirm is
+   * visible is not one it can open.
+   */
+  const autoOpenAttempted = useRef(false);
+  useEffect(() => {
+    if (!autoOpenId || autoOpenAttempted.current) return;
+    if (list.status === 'loading') return;
+    autoOpenAttempted.current = true;
+
+    if (list.status === 'ready') {
+      const decision = decideAutoOpen(list.promotions, autoOpenId);
+      if (decision.action === 'open') {
+        setChosen(decision.promotion);
+        setScreen(0);
+        return;
+      }
+      if (decision.action === 'show-list') return;
+    }
+
+    onClose();
+  }, [autoOpenId, list, onClose]);
 
   /**
    * The step list collapsed into screens. Every `field` step shares one screen;

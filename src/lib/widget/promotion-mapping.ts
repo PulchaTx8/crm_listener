@@ -154,3 +154,34 @@ export function readSteps(value: unknown): WidgetStep[] {
   }
   return steps;
 }
+
+/**
+ * Block 19a, Task 7 (fix round 1). What `?open=promotion&id=…` should do,
+ * once `EnterPromotionPanel`'s own list has settled — the second half of
+ * validating that id, after `parseOpenTarget` (open-target.ts) has already
+ * checked its SHAPE. `promotions` is exactly the list this listener is
+ * entitled to see; there is no fourth outcome to invent because there is no
+ * fourth thing this list can say about an id.
+ *
+ * THREE OUTCOMES, NOT TWO. A first version folded "already entered" into the
+ * same bucket as "not in the list at all" and sent both back to the bare
+ * two-button menu — which is wrong for the one that IS in the list: a
+ * listener who tapped a link about a specific promotion they already
+ * finished is not the same case as one whose link names nothing they can
+ * see, and dropping them on two context-free buttons answers neither. Doing
+ * nothing and letting the ordinary list render is what shows them their own
+ * promotion, disabled, with `alreadyEntered` already on screen — the answer
+ * to the question their link actually asked, in less code than a special
+ * screen would have taken.
+ */
+export type AutoOpenDecision =
+  | { action: 'open'; promotion: WidgetPromotion }
+  | { action: 'show-list' }
+  | { action: 'back-to-menu' };
+
+export function decideAutoOpen(promotions: WidgetPromotion[], autoOpenId: string): AutoOpenDecision {
+  const match = promotions.find((promotion) => promotion.id === autoOpenId);
+  if (!match) return { action: 'back-to-menu' };
+  if (match.alreadyEntered) return { action: 'show-list' };
+  return { action: 'open', promotion: match };
+}

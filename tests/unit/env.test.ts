@@ -6,6 +6,10 @@ const valid = {
   NEXT_PUBLIC_SUPABASE_URL: 'https://abc.supabase.co',
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
   SUPABASE_SERVICE_ROLE_KEY: 'service-key',
+  // Required since Task 9's fix round 1 (I3) -- sendServiceLink throws
+  // without it, and the strict schema now says so at boot rather than
+  // deferring every hashtag onto the retry ladder in silence.
+  NEXT_PUBLIC_SITE_URL: 'https://app.example.test',
 } as NodeJS.ProcessEnv;
 
 describe('parseEnv', () => {
@@ -27,6 +31,11 @@ describe('parseEnv', () => {
     expect(() => parseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: '' })).toThrow(
       /NEXT_PUBLIC_SUPABASE_URL/,
     );
+  });
+
+  it('throws when NEXT_PUBLIC_SITE_URL is missing', () => {
+    const { NEXT_PUBLIC_SITE_URL: _omit, ...rest } = valid;
+    expect(() => parseEnv(rest as NodeJS.ProcessEnv)).toThrow(/NEXT_PUBLIC_SITE_URL/);
   });
 });
 
@@ -86,6 +95,7 @@ describe('validation at module import', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://abc.supabase.co';
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://app.example.test';
 
     const mod = await import('@/lib/env');
     expect(mod.env.NEXT_PUBLIC_SUPABASE_URL).toBe('https://abc.supabase.co');

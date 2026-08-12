@@ -75,4 +75,18 @@ describe('the visitor session', () => {
   it('refuses a token that is not two parts', () => {
     expect(readSession('nonsense', SECRET)).toBeNull();
   });
+
+  // Block 19a. `channel` distinguishes 17a's identify form (WEB) from the
+  // code a WhatsApp link traded in (WHATSAPP) — nothing reads it yet, but the
+  // round trip has to carry it faithfully once something does.
+  it('carries the channel it was minted for', () => {
+    const token = mintSession({ ...claims, channel: 'WHATSAPP' }, SECRET);
+    expect(readSessionFor(token, SECRET, claims.publicKey)?.channel).toBe('WHATSAPP');
+  });
+
+  /** An old cookie minted before this block has no channel and must still work. */
+  it('reads a session minted before the channel existed', () => {
+    const legacy = mintSession({ ...claims } as WidgetClaims, SECRET);
+    expect(readSessionFor(legacy, SECRET, claims.publicKey)?.channel).toBeUndefined();
+  });
 });

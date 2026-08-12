@@ -46,6 +46,27 @@ export interface WidgetClaims {
   organizationId: string;
   memberId: string;
   phone: string;
+  /**
+   * Which door minted this session: 17a's identify form on a Station's own
+   * website (`WEB`), or Block 19a's `/enter` route, reached by tapping the
+   * link a WhatsApp reply carried (`WHATSAPP`). Nothing today branches on it —
+   * it exists so a future caller of `readSessionFor` can, without a migration
+   * of its own.
+   *
+   * OPTIONAL ON PURPOSE, and not a placeholder for "not yet filled in": 17a's
+   * verify action has been minting tokens with no `channel` key at all since
+   * before this field existed, and those tokens are sitting in real browsers
+   * as `<payload>.<signature>` strings right now. `readSession` decodes a
+   * token with a plain `JSON.parse` + cast (below) rather than a schema that
+   * rejects an unfamiliar shape, so a legacy token decodes into a
+   * `WidgetClaims` whose `channel` key is simply absent — and a required
+   * field would make that decode a LIE rather than a gap: the signature still
+   * checks out, `exp` is still honoured, and nothing about what makes a
+   * session valid changed. Making the type match what deploying this block
+   * actually does to those tokens (nothing) is the whole reason this is `?`
+   * rather than a plain `'WEB' | 'WHATSAPP'`.
+   */
+  channel?: 'WEB' | 'WHATSAPP';
   /** Unix seconds. Set by the caller, not derived here — see mintSession. */
   exp: number;
 }

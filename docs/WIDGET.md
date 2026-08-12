@@ -450,3 +450,181 @@ another Station cannot reach `music_requests.show_id`.
 `music.view` and `shows` is readable only with it. It applies
 `widget_listener_context`'s three refusals and returns every programme still on
 air with an `on_air` flag.
+
+---
+
+## 11. Block 19a — a hashtag becomes a door
+
+Before this block, a hashtag sent to a Station's WhatsApp number opened a
+conversation inside WhatsApp itself. It no longer opens anything there.
+Every match — a promotion's own hashtag, or one of a Station's two general
+ones — is answered with exactly one message carrying a link into this same
+widget page, and the visitor arrives already identified: no phone number
+typed, no code to wait for. `ingest_whatsapp_event` never returns
+`{outcome: 'conversation'}` any more; every hashtag match now returns
+`{outcome: 'link', purpose, ...}`, and the worker's job is to turn that into
+one message.
+
+### `NEXT_PUBLIC_SITE_URL`, or every hashtag answers with silence
+
+A hard prerequisite of this whole path, unlike `WIDGET_SESSION_SECRET` in §1:
+`sendServiceLink` (`src/services/whatsapp-link.ts`) refuses to mint or send a
+link without it, and `src/lib/env.ts` has required it in the strict
+environment schema since Task 9's fix round 1 — a deployment missing it now
+fails to boot rather than booting clean and deferring every matched hashtag
+onto the retry ladder until it parks, silently, with nothing at startup
+saying why. Set it to the address customers actually reach; the widget link
+a listener receives is built directly from this value.
+
+### Three hashtags, one order
+
+A Station configures two of them itself, on **Templates → Messages**
+(`/templates/messages`): the **music hashtag** and the **service hashtag**,
+written together through `set_service_hashtags` and gated on
+`templates.manage` — the same permission that screen's other card already
+requires, on purpose, rather than a third permission for two text fields.
+The third belongs to a promotion (`promotions.hashtag`, unchanged since
+Block 4c).
+
+An inbound message is matched against exactly one of the three, in exactly
+this order, first match wins:
+
+1. **A live promotion's own hashtag.** The INGEST matches it inside its own
+   window — `starts_at <= <the message's own timestamp> < ends_at` — the
+   same rule Block 4c has always judged a promotion hashtag by, judged
+   against when the message arrived rather than against now(). A DIFFERENT,
+   WRITE-TIME rule governs whether a Station may set a general hashtag equal
+   to a promotion's own — `ends_at > now()` — and it is deliberately
+   broader: an ended promotion no longer shadows a Station's word (Block
+   4c's own trade, forbidding reuse forever is worse than the collision it
+   prevents), but a promotion that has not started YET still clashes,
+   because the day it opens it silently takes the word. See
+   `set_service_hashtags`, two paragraphs below, for that second rule.
+2. **The Station's music hashtag** — opens the music panel directly
+   (`open=music`).
+3. **The Station's service hashtag** — opens the plain menu (`open` absent;
+   the visitor chooses from there).
+
+The order is specific rather than incidental: a promotion's hashtag is the
+narrow word printed on one flyer, and a Station's two are the general ones a
+listener might type any day of the year. Reversing the order would silently
+retire whichever promotion hashtag happened to collide with a general one.
+
+`set_service_hashtags` refuses a Station hashtag equal to a promotion's own
+(live now, or not started yet, at that same Station) at write time — the one
+moment an operator is looking — with a readable sentence rather than a raw
+constraint violation.
+
+### Fifteen minutes, one use, and a two-minute window if you ask twice
+
+The link is a single-use code (`mint_widget_link`, `consume_widget_link`),
+not a signed token: single use is *state*, and there is nothing to burn in a
+value nobody wrote down.
+
+- **Fifteen minutes.** A code not opened inside that window is exactly as
+  useless as one already used — `consume_widget_link` answers the identical
+  "ask again" either way (see the failure table below).
+- **Single use.** The code is consumed in the same UPDATE that reads it
+  (`consumed_at is null` in the predicate), so two browsers racing to open
+  one link have exactly one winner; the loser sees no row, never a stale
+  one.
+- **A two-minute window.** A listener who sends the same hashtag again
+  inside two minutes of the first gets no second message. Only the SHA-256
+  of the code is ever stored, so there is no raw value left to hand back a
+  second time even in principle — the window therefore answers **null**,
+  and the worker reads null as *say nothing*, which is the whole of the
+  protection against five hashtags in a row producing five messages. The
+  window is per **(listener, purpose, promotion)**: asking for a song and
+  then, inside the same two minutes, asking for the menu still gets two
+  messages, because those are two different things being asked for — and so
+  does asking to enter two DIFFERENT promotions inside the same two minutes,
+  because those are two different things too, even though both share the
+  PROMOTION purpose.
+
+### Free-form, because the listener spoke first
+
+The link message is sent as ordinary, free-form text — never an approved
+Meta template — and that is not an oversight, it is what the listener's own
+message already bought. Sending the hashtag opens Meta's 24-hour customer
+service window, and a reply inside that window needs no template at all;
+only a message a business *starts* does. §4's `WEB_VERIFICATION` template is
+a different door with a different constraint (17a's own code-based identify
+flow, which can be asked for with no prior message from the listener at
+all), and this one has none of that requirement.
+
+### A promotion's hashtag needs rules text, or it answers nothing
+
+A link into the widget is an invitation to accept a promotion's rules and
+take part. A promotion with no rules text has nothing to show on that
+screen, so its hashtag answers with **silence** rather than a broken link —
+`ingest_whatsapp_event` finishes the event `no_rules` and the worker sends
+nothing. `web_enabled` is deliberately **not** part of this check: sending
+the hashtag already *is* asking to take part, whatever the widget's own
+promotion list would otherwise have shown.
+
+This is checked only once a message is confirmed able to enter at all — a
+repeat, or a spent ceiling, is still recorded and answered exactly as it
+always was (Block 4c/5a), because that is a fact about the message the
+Station received and has nothing to do with whether rules text exists yet.
+
+### The failure table — never a 404 for a WhatsApp-minted link
+
+`/w/<publicKey>/enter?k=<code>` is the door every link points at. Whatever
+goes wrong, the visitor lands on `/w/<publicKey>?link=expired`, which
+renders one plain sentence above the identify form — never an error page,
+and never the plain 404 an unknown or disabled installation gets on every
+other path into this widget.
+
+| what happened | `consume_widget_link` answers | visitor sees |
+| --- | --- | --- |
+| code never existed, already used, or its fifteen minutes ran out | `{ok: false, reason: 'unusable'}` | "ask again" |
+| the Station was switched off, suspended or archived, or its Organization was blocked, after the link was minted | `{ok: false, reason: 'unavailable'}` | "ask again" |
+| the code was minted for a *different* Station's public key | claims resolved, but the key does not match the one in the address | "ask again" |
+| `enqueue_whatsapp_outbound` fails *after* `mint_widget_link` already spent D2's two-minute window, and the retried turn re-ingests inside it | never called — no code was ever sent | nothing; the event closes `already_answered`, indistinguishable on every screen from a listener who genuinely sent the hashtag twice |
+
+**The fourth row is a different kind of failure from the first three, and
+belongs in this table anyway.** The other three are about a visitor who
+*has* a link and taps it; the fourth is about a listener who never receives
+one — `consume_widget_link` is never even called, because no code reaches
+WhatsApp's send queue. Spec §10 tracks it as a known risk rather than a fix:
+`mint_widget_link` cannot be moved after the enqueue (the code has to exist
+before there is anything to enqueue), so a failure in that one gap between
+minting and sending is currently silent and unbounded. No code change in this
+wave — the row exists so the gap is documented, not discovered.
+
+**The dark-Station case is the whole reason the second row of this table
+exists as a separate one from the first.** `page.tsx` 404s an unknown,
+disabled or archived installation on every ordinary visit — probing a
+public key must learn nothing an `<iframe src>` did not already say. A
+WhatsApp-minted link is the one path where that would be the wrong answer:
+the link was correct when it was sent, the Station simply went dark in
+between, and a 404 reads as a broken link rather than as "try again". So
+`page.tsx` carries one exception: when `?link=expired` is present, a
+Station that resolves to "not found" still renders the identify form
+instead of 404ing. Probing that parameter learns nothing new either way — an
+unknown key and a real, dark Station render the identical sentence.
+
+**`consume_widget_link` decides this itself** — it does not trust the
+installation's `enabled` flag alone; it joins `companies` and
+`organizations`, the identical join `installationExists` already makes
+through `widget_frame_context` (0164). Both sides of the door have to agree
+for the same reason: the first version of this fix carried the join into
+`mint_widget_link` and `widget_link_send_context` (so a code is never
+*minted* for a Station that is already dark) but missed `consume_widget_link`
+itself, so a Station that went dark in the fifteen minutes *between* the
+mint and the tap answered `ok: true` anyway — the route minted a session
+and redirected without `link=expired`, and `page.tsx`, finding no
+installation, gave the plain 404 this section exists to rule out. Both
+doors now make the same check for the same reason.
+
+### One session claim carries where the visitor came from
+
+A session minted from a WhatsApp link carries `channel: 'WHATSAPP'` on its
+signed claims (`WidgetClaims`, `src/lib/widget/session.ts`); one minted from
+17a's own identify form on the Station's own site carries none. Nothing in
+this block reads that claim — it exists for what comes after. The **door** a
+request or an entry is submitted through is a separate fact from the
+**channel** the visitor arrived by: a song request made from a
+WhatsApp-minted session still lands in `music_requests` with `channel =
+'WEB'`, because `channel` on that table has always meant which door
+recorded it, not how the listener got there.

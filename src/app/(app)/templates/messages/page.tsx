@@ -6,13 +6,14 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { listSystemMessages } from '@/services/templates';
-import type { SystemMessageRow } from '@/services/templates';
+import { getServiceHashtags, listSystemMessages } from '@/services/templates';
+import type { ServiceHashtags, SystemMessageRow } from '@/services/templates';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
 import { canManageTemplates } from '../permissions';
 import { describeTemplateReadError } from '../errors';
+import { HashtagFields } from './hashtag-fields';
 import { SystemMessageList } from './system-message-list';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -68,10 +69,12 @@ export default async function SystemMessagesPage({
 
   let rows: SystemMessageRow[];
   let manage: boolean;
+  let hashtags: ServiceHashtags;
   try {
-    [rows, manage] = await Promise.all([
+    [rows, manage, hashtags] = await Promise.all([
       listSystemMessages(selected.id),
       canManageTemplates(supabase, selected.id),
+      getServiceHashtags(selected.id),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the system messages');
@@ -127,6 +130,8 @@ export default async function SystemMessagesPage({
           ))}
         </div>
       )}
+
+      <HashtagFields companyId={selected.id} hashtags={hashtags} manage={manage} />
 
       {/*
         Said on the screen rather than only in the runbook: these ten bodies are

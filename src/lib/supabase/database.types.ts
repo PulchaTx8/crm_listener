@@ -3209,9 +3209,11 @@ export type Database = {
           deleted_at: string | null
           enabled: boolean
           id: string
+          music_hashtag: string | null
           music_request_cooldown: string
           organization_id: string
           public_key: string
+          service_hashtag: string | null
           updated_at: string
         }
         Insert: {
@@ -3222,9 +3224,11 @@ export type Database = {
           deleted_at?: string | null
           enabled?: boolean
           id?: string
+          music_hashtag?: string | null
           music_request_cooldown?: string
           organization_id: string
           public_key: string
+          service_hashtag?: string | null
           updated_at?: string
         }
         Update: {
@@ -3235,9 +3239,11 @@ export type Database = {
           deleted_at?: string | null
           enabled?: boolean
           id?: string
+          music_hashtag?: string | null
           music_request_cooldown?: string
           organization_id?: string
           public_key?: string
+          service_hashtag?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -3253,6 +3259,77 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_link_tokens: {
+        Row: {
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          member_id: string
+          organization_id: string
+          promotion_id: string | null
+          public_key: string
+          purpose: Database["public"]["Enums"]["widget_link_purpose"]
+          token_hash: string
+        }
+        Insert: {
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          member_id: string
+          organization_id: string
+          promotion_id?: string | null
+          public_key: string
+          purpose: Database["public"]["Enums"]["widget_link_purpose"]
+          token_hash: string
+        }
+        Update: {
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          promotion_id?: string | null
+          public_key?: string
+          purpose?: Database["public"]["Enums"]["widget_link_purpose"]
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_link_tokens_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "widget_link_tokens_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_link_tokens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_link_tokens_promotion_id_fkey"
+            columns: ["promotion_id"]
+            isOneToOne: false
+            referencedRelation: "promotions"
             referencedColumns: ["id"]
           },
         ]
@@ -3835,6 +3912,7 @@ export type Database = {
         }
         Returns: Json
       }
+      consume_widget_link: { Args: { p_code: string }; Returns: Json }
       create_album: {
         Args: {
           p_company_id: string
@@ -4548,6 +4626,15 @@ export type Database = {
         Args: { p_loser_ids: string[]; p_reason: string; p_winner_id: string }
         Returns: number
       }
+      mint_widget_link: {
+        Args: {
+          p_company_id: string
+          p_member_id: string
+          p_promotion_id?: string
+          p_purpose: Database["public"]["Enums"]["widget_link_purpose"]
+        }
+        Returns: string
+      }
       music_merge_table: {
         Args: { p_kind: Database["public"]["Enums"]["music_merge_kind"] }
         Returns: string
@@ -4985,6 +5072,7 @@ export type Database = {
         }
         Returns: string
       }
+      service_hashtags_for: { Args: { p_company_id: string }; Returns: Json }
       set_company_thumb: {
         Args: { p_company_id: string; p_url?: string }
         Returns: undefined
@@ -4999,6 +5087,10 @@ export type Database = {
       }
       set_promotion_thumb: {
         Args: { p_promotion_id: string; p_url?: string }
+        Returns: undefined
+      }
+      set_service_hashtags: {
+        Args: { p_company_id: string; p_music: string; p_service: string }
         Returns: undefined
       }
       set_station_message_template: {
@@ -5238,6 +5330,10 @@ export type Database = {
       }
       widget_frame_context: { Args: { p_public_key: string }; Returns: Json }
       widget_installation_for: { Args: { p_company_id: string }; Returns: Json }
+      widget_link_send_context: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
       widget_listener_context: {
         Args: { p_member_id: string; p_public_key: string }
         Returns: Record<string, unknown>
@@ -5392,8 +5488,12 @@ export type Database = {
         | "CPF"
         | "PASSPORT"
         | "DISCOVERY_SOURCE"
+        | "LINK_MUSIC"
+        | "LINK_MENU"
+        | "LINK_PROMOTION"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
+      widget_link_purpose: "MUSIC" | "MENU" | "PROMOTION"
       winner_status:
         | "AWAITING_PICKUP"
         | "RETURN_PENDING"
@@ -5624,9 +5724,13 @@ export const Constants = {
         "CPF",
         "PASSPORT",
         "DISCOVERY_SOURCE",
+        "LINK_MUSIC",
+        "LINK_MENU",
+        "LINK_PROMOTION",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
+      widget_link_purpose: ["MUSIC", "MENU", "PROMOTION"],
       winner_status: [
         "AWAITING_PICKUP",
         "RETURN_PENDING",

@@ -145,12 +145,14 @@ a working export.
 - **Subject-driven erasure** is `anonymize_member` (`0034`): it scrubs the
   personal data and queues the storage objects that outlive the SQL.
 - **Age-driven erasure** is `sweep_retention` (`0131`, rewritten in `0133`,
-  extended in `0161`): 90 days on Meta's raw webhook payload, 180 on messages
-  and conversations, 365 on public contact requests, 30 on three operational
-  tables and on `widget_verifications` (Block 17a — a telephone number typed
-  into a Station's own website). Periods are fixed for the installation, in
-  the migration. **No business record is ever swept** — a prize delivered in
-  2024 and disputed in 2028 needs its row.
+  extended in `0161` and `0183`): 90 days on Meta's raw webhook payload, 180
+  on messages and conversations, 365 on public contact requests, 30 on three
+  operational tables, on `widget_verifications` (Block 17a — a telephone
+  number typed into a Station's own website) and on `widget_link_tokens`
+  (Block 19a — a single-use code minted from a WhatsApp hashtag, past its
+  own `expires_at` rather than when it was minted). Periods are fixed for
+  the installation, in the migration. **No business record is ever swept**
+  — a prize delivered in 2024 and disputed in 2028 needs its row.
 - **Documents and receipts** live in private buckets and are served through
   short-lived signed URLs minted server-side.
 

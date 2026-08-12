@@ -5,9 +5,17 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
-import { clearSystemMessageSchema, systemMessageFormSchema } from '@/schemas/templates';
-import { clearSystemMessage, setSystemMessage } from '@/services/templates';
-import { describeClearMessageError, describeTemplateWriteError } from '../errors';
+import {
+  clearSystemMessageSchema,
+  serviceHashtagsFormSchema,
+  systemMessageFormSchema,
+} from '@/schemas/templates';
+import { clearSystemMessage, setServiceHashtags, setSystemMessage } from '@/services/templates';
+import {
+  describeClearMessageError,
+  describeServiceHashtagsError,
+  describeTemplateWriteError,
+} from '../errors';
 
 // ---------------------------------------------------------------------------
 // Both writes revalidatePath, and there is no row-patch alternative to weigh
@@ -113,5 +121,52 @@ export async function clearSystemMessageAction(
       'clear a system message override failed',
     );
     return { status: 'error', message: describeClearMessageError(cause, await getTranslations('templates')) };
+  }
+}
+
+/**
+ * One state for the hashtag card's single form — no `cleared` arm, unlike
+ * the system texts above: an empty field IS how a hashtag is cleared here
+ * (0177's own rule), so clearing is just another save, never a second action.
+ */
+export type ServiceHashtagsState =
+  | { status: 'idle' }
+  | { status: 'saved' }
+  | { status: 'error'; message: string };
+
+/**
+ * Saves both service hashtags in one call, through `set_service_hashtags`
+ * (0177) — the same door for both fields, since the write is one row and one
+ * function, not two.
+ */
+export async function saveServiceHashtagsAction(
+  _prev: ServiceHashtagsState,
+  formData: FormData,
+): Promise<ServiceHashtagsState> {
+  const parsed = serviceHashtagsFormSchema.safeParse({
+    companyId: formData.get('companyId'),
+    music: formData.get('music'),
+    service: formData.get('service'),
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the hashtags.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await setServiceHashtags(parsed.data, token);
+    revalidatePath('/templates/messages');
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error(
+      { err: cause, companyId: parsed.data.companyId },
+      'save the service hashtags failed',
+    );
+    return {
+      status: 'error',
+      message: describeServiceHashtagsError(cause, await getTranslations('templates')),
+    };
   }
 }
