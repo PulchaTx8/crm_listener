@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Spec:** `docs/superpowers/specs/2026-08-11-whatsapp-service-entry-design.md`. D1–D8 live there; §11 says this plan is 19a and stops before the application shell.
-- **Migrations are `0177`, `0178` and `0179`.** The repository is at `0176`. Confirm with `ls supabase/migrations | tail -3`.
+- **Migrations run `0177` to `0184` — EIGHT, not the three this plan first named.** The repository was at `0176`. Confirm with `ls supabase/migrations | tail -3`.
 - **Never retype a shipped function body.** `ingest_whatsapp_event` is defined in `0062` and REPLACED in `0070`; the live body is 0070's. Extract it by script (Task 3, Step 1) and edit the extract. This is how 0168 silently reverted 0163's public-key pin.
 - **Message catalogues are `messages/{en,pt,es}.json`, CRLF.** Edit by `JSON.parse` → mutate → `(JSON.stringify(o, null, 2) + '\n').replace(/\n/g, '\r\n')`.
 - **Listener-facing copy is Portuguese; everything else is English** — identifiers, comments, commits, operator strings.
@@ -1002,11 +1002,11 @@ npm run db:reset && docker restart supabase_kong_CRM_-_LISTENER && npm run seed:
 
 `docs/WIDGET.md` gains the entry section: the three hashtags and their order, the fifteen minutes, the single use, the two-minute window, and that the reply is free-form inside the 24-hour window and therefore needs no approved template.
 
-The PR body states D1–D8, that a promotion's hashtag now needs rules text or it answers unavailable, that conversations already open still finish, and that `0177`–`0179` are additive.
+The PR body states D1–D8, that a promotion's hashtag now needs rules text or it answers unavailable, that conversations already open still finish, and that `0177`–`0184` are additive apart from the three that replace shipped functions in place.
 
 - [ ] **Step 5: After the merge**
 
-Apply `0177`, `0178` and `0179` immediately: `npx supabase migration list --linked`. Never `supabase db reset --linked`.
+Apply `0177` through `0184` immediately, in order: `npx supabase migration list --linked`. Never `supabase db reset --linked`.
 
 ---
 
