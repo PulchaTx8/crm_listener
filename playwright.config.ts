@@ -96,6 +96,12 @@ export default defineConfig({
       SKIP_ENV_VALIDATION: '1',
       DEEZER_FAKE: '1',
       WIDGET_SESSION_SECRET: 'e2e-widget-session-secret-not-a-real-one',
+      // Block 19a. `sendServiceLink` (src/services/whatsapp-link.ts) refuses to
+      // mint or send a link without this, and tests/e2e/whatsapp-entry.spec.ts
+      // is the one spec that drives the worker down that path. Matches
+      // `baseURL` above: the link it builds has to resolve inside this same
+      // server for the spec to open it.
+      NEXT_PUBLIC_SITE_URL: 'http://localhost:3000',
       ...LOCAL_SUPABASE_ENV,
       ...WHATSAPP_TEST_ENV,
     },
