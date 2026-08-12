@@ -219,13 +219,14 @@ git commit -m "feat(19a): the two hashtags a Station answers with a link"
 
 - [ ] **Step 1: Write the failing pgTAP**
 
-Create `supabase/tests/45_widget_link_tokens.test.sql`, `select plan(10)`:
+Create `supabase/tests/45_widget_link_tokens.test.sql`. The list below is ten
+facts; the file ends at `plan(12)` because two of them split into a pair:
 
 1. `mint_widget_link` returns a code, and the row stores only its SHA-256 (the raw code appears nowhere in the table).
 2. Minting twice inside two minutes returns **NULL** the second time — the raw code is unrecoverable by design, so the window says "already answered, send nothing" rather than repeating itself.
 3. …only when the purpose matches: `MUSIC` then `MENU` returns two different codes.
 4. …and only when the promotion matches: two different `PROMOTION` codes for two promotions.
-5. Minting after the window (backdate `created_at`) returns a new code and the old one no longer consumes.
+5. Minting after the window (backdate `created_at` ONLY, leaving the old row unexpired) returns a **fresh** code — and, beside it, the still-live older code **can still be consumed**, because nothing invalidates a token early. Backdating `expires_at` too would let the expiry clause do the excluding and leave the window itself untested.
 6. `consume_widget_link` returns the claims and marks the row.
 7. A second consume of the same code refuses with `unusable`.
 8. **Two concurrent consumes: exactly one wins.** Genuinely two sessions — `dblink` if this stack has it, and if it has not, DROP this assertion and say so in the file rather than writing a sequential test wearing the word "concurrent": that test passes against the broken select-then-update it exists to catch. Task 9's load test covers real concurrency either way.
