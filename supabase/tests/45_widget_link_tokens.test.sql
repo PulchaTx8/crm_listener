@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(13);
 
 -- Block 19a (D2). mint_widget_link and consume_widget_link: the single-use
 -- door a hashtag answer opens. Fixtures follow 39_widget_installations (one
@@ -321,6 +321,28 @@ select is(
   public.consume_widget_link((select code from t10_mint)) ->> 'reason',
   'unavailable',
   'a code for an installation disabled since minting refuses separately, as unavailable rather than unusable');
+
+-- ---------------------------------------------------------------------------
+-- 11. Fix round 1 (Important #5, the owner's ruling, 0164): mint_widget_link
+-- no longer trusts widget_installations.enabled alone -- a SUSPENDED Station
+-- refuses P0002 exactly as no live installation does. p_member_id is a fresh
+-- id with no row behind it, deliberately: the join that refuses this call
+-- runs before the member is ever looked at, so nothing about the member
+-- matters to what this assertion proves.
+-- ---------------------------------------------------------------------------
+update public.companies
+   set status = 'suspended'
+ where id = '00000000-0000-0000-0000-000000000702';
+
+select throws_ok(
+  $$select public.mint_widget_link(
+      '00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-000000000721', 'MENU')$$,
+  'P0002', 'this Station has no live widget installation',
+  'a SUSPENDED Station refuses P0002 exactly as no live installation does');
+
+update public.companies
+   set status = 'active'
+ where id = '00000000-0000-0000-0000-000000000702';
 
 -- ---------------------------------------------------------------------------
 -- Addition. The code travels in a URL query string, so it must stay

@@ -273,13 +273,31 @@ begin
   -- conversation, and it is what lets D7's bridge live in one place -- the
   -- caller checks for a live conversation first, and a listener mid-answer is
   -- never handed a link that would abandon what they already typed.
+  -- 'phone' IS THE DELIVERED FORM, v_from -- the same value the two sibling
+  -- intents this function already returns use for their own 'phone' field
+  -- (0070:244, the no_hashtag shape a few lines above this one, and
+  -- 0070:365, the retired 'conversation' shape this branch replaced). Fix
+  -- round 1's Critical finding: the first cut of this branch returned
+  -- v_local (the LOCAL form, country code stripped) under 'phone' and v_from
+  -- under a second field, 'to_phone' -- the one field, in the one intent out
+  -- of three, that disagreed with the store's own contract
+  -- (src/lib/conversation/store.ts: "keyed on the phone as WhatsApp
+  -- delivered it"). Every live conversation row is written under the
+  -- delivered form; a caller that keyed its lookup on this field using the
+  -- local form missed the row for essentially every Brazilian listener (the
+  -- one population whose delivered and local forms actually differ), so a
+  -- listener mid-conversation was handed a link instead of having their
+  -- answer read -- exactly what D7 exists to prevent. There is now ONE
+  -- field, ONE meaning, the same in all three intents this function can
+  -- return; 'to_phone' is gone rather than kept alongside a corrected
+  -- 'phone', because a second field carrying the same value a caller could
+  -- reach for by mistake is the same trap with a smaller blast radius.
   return jsonb_build_object(
     'outcome',        'link',
     'event_id',       v_event.id,
     'integration_id', v_integ.id,
     'company_id',     v_integ.company_id,
-    'phone',          v_local,
-    'to_phone',       v_from,
+    'phone',          v_from,
     'member_id',      v_member,
     'purpose',        v_purpose,
     'promotion_id',   v_promo.id,
