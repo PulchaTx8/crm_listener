@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useMemo, useState } from 'react';
+import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,9 +37,19 @@ const IDLE: EnterState = { status: 'idle' };
 export function EnterPromotionPanel({
   publicKey,
   onClose,
+  autoOpenId,
 }: {
   publicKey: string;
   onClose: () => void;
+  /**
+   * Block 19a, Task 7. A promotion id `?open=promotion&id=…` named, already
+   * checked for SHAPE by `parseOpenTarget` — never for whether this listener
+   * may see it. That second check happens below, against the same list this
+   * panel fetches to draw itself, because it is the only list this listener
+   * is entitled to and asking a second door the same question would be a
+   * second place for the two to disagree.
+   */
+  autoOpenId?: string;
 }) {
   const t = useTranslations('widget');
 
@@ -67,6 +77,39 @@ export function EnterPromotionPanel({
       live = false;
     };
   }, [publicKey]);
+
+  /**
+   * `autoOpenId`, ACTED ON ONCE. `list` moves from `loading` to a settled
+   * status exactly once per mount (the effect above never re-fetches after
+   * its first call), so a ref guards against this effect firing again on a
+   * render the settled state alone would not have caused — `onClose` is a
+   * fresh closure every render of the parent, and listing it as a dependency
+   * without the guard would attempt the match a second time.
+   *
+   * FOUND, AND NOT ALREADY ENTERED, is what "this listener may see it" means
+   * here: `alreadyEntered` promotions ARE in the list (the button below
+   * merely disables them, spec's own choice), so a match on `id` alone would
+   * auto-open a walk this listener cannot finish. Neither case renders an
+   * error — both fall to `onClose`, the exact fallback a click on "Back"
+   * gives, because a bad `open` is never an error here.
+   */
+  const autoOpenAttempted = useRef(false);
+  useEffect(() => {
+    if (!autoOpenId || autoOpenAttempted.current) return;
+    if (list.status === 'loading') return;
+    autoOpenAttempted.current = true;
+
+    if (list.status === 'ready') {
+      const match = list.promotions.find((p) => p.id === autoOpenId && !p.alreadyEntered);
+      if (match) {
+        setChosen(match);
+        setScreen(0);
+        return;
+      }
+    }
+
+    onClose();
+  }, [autoOpenId, list, onClose]);
 
   /**
    * The step list collapsed into screens. Every `field` step shares one screen;

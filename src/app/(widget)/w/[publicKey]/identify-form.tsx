@@ -62,7 +62,20 @@ function composePhone(countryCode: string, localPhone: string): string {
  * The inputs are controlled and the values re-submitted as hidden fields
  * rather than kept on the server between the two POSTs, for the same reason.
  */
-export function IdentifyForm({ publicKey }: { publicKey: string }) {
+export function IdentifyForm({
+  publicKey,
+  linkExpired = false,
+}: {
+  publicKey: string;
+  /**
+   * Block 19a, Task 7. `page.tsx` set this from `?link=expired` -- the door a
+   * WhatsApp reply's link opens (`enter/route.ts`) redirects here with that
+   * parameter for every reason a code can fail to become a session, ordinary
+   * (used, timed out) and otherwise (the Station itself went dark; see
+   * `page.tsx`'s own comment on `installationExists`).
+   */
+  linkExpired?: boolean;
+}) {
   const t = useTranslations('widget');
   const router = useRouter();
 
@@ -143,6 +156,17 @@ export function IdentifyForm({ publicKey }: { publicKey: string }) {
 
   return (
     <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
+      {linkExpired && (
+        // ONE SENTENCE, ORDINARY RATHER THAN AN ERROR PAGE (spec's own words):
+        // this listener is exactly where anyone who never had a code would be,
+        // one screen below, and this line says why without dressing the
+        // identify form itself as a refusal -- so it carries none of
+        // `problem`'s `text-destructive` styling or `role="alert"` below.
+        <p className="text-sm text-muted-foreground" data-testid="widget-link-expired">
+          {t('linkExpired')}
+        </p>
+      )}
+
       <div className="flex flex-col gap-1">
         <h1 className="text-base font-semibold">{t('identifyTitle')}</h1>
         <p className="text-sm text-muted-foreground">

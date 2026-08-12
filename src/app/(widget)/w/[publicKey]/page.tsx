@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { env } from '@/lib/env';
+import { parseOpenTarget } from '@/lib/widget/open-target';
 import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
 import { installationExists } from '@/services/widget-installations';
 import { IdentifyForm } from './identify-form';
@@ -17,10 +18,18 @@ import { WidgetMenu } from './menu';
  */
 export default async function WidgetPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ publicKey: string }>;
+  searchParams: Promise<{ open?: string | string[]; id?: string | string[]; link?: string }>;
 }) {
   const { publicKey } = await params;
+  const { open, id, link } = await searchParams;
+
+  // Task 19a-6's door folds every failure of a WhatsApp link — a used code,
+  // one whose fifteen minutes ran out, or (below) a Station that went dark in
+  // between — into this one query param before it redirects here.
+  const linkExpired = link === 'expired';
 
   // 404 FOR A KEY THAT RESOLVES TO NOTHING, and it is not politeness: an
   // unknown key, a disabled installation and an archived one are one answer
@@ -34,7 +43,29 @@ export default async function WidgetPage({
   // cannot be reached, and that throw is deliberately not caught: a 500 during
   // an outage is the truth, and turning it into this 404 would tell a Station
   // whose configuration is perfectly correct that their key is wrong.
-  if (!(await installationExists(publicKey))) notFound();
+  if (!(await installationExists(publicKey))) {
+    // TASK 7's REPAIR, found by Task 6's own review. `consume_widget_link`
+    // answers `unavailable` — folded into the same `?link=expired` redirect as
+    // every other failure, by design (`enter/route.ts`'s own comment) — when
+    // the Station was switched off, suspended or archived BETWEEN the link
+    // being minted and this tap. `installationExists` returns false for
+    // exactly that Station, so without this branch a listener who followed a
+    // perfectly correct redirect landed on the one answer the spec forbids: a
+    // 404, which reads as broken rather than as "try again".
+    //
+    // WHAT THIS DOES AND DOES NOT LEAK, in writing: an unknown `publicKey`
+    // and a real Station that has gone dark now render the IDENTICAL
+    // sentence when `link=expired` is present, so probing this parameter
+    // learns nothing a probe could not already learn from the plain 404
+    // below — one answer for every cause is the rule 0164 already set for
+    // this exact key (an unknown key, a disabled installation and an
+    // archived one are indistinguishable there too), applied here to the one
+    // redirect a listener can arrive carrying. An unknown key with NO
+    // `link=expired` still 404s, unchanged — that probing answer is the one
+    // 17a chose deliberately, and tests/e2e/widget-headers.spec.ts pins it.
+    if (linkExpired) return <IdentifyForm publicKey={publicKey} linkExpired />;
+    notFound();
+  }
 
   const cookieStore = await cookies();
   const token = cookieStore.get(WIDGET_SESSION_COOKIE)?.value;
@@ -68,9 +99,16 @@ export default async function WidgetPage({
   // claims themselves deliberately do NOT: nothing on the client needs a
   // listener's telephone number, and a value serialised into the page is a
   // value that leaves the server.
+  //
+  // `open`/`id` ONLY MATTER ONCE THE MENU CAN BE SHOWN AT ALL. `parseOpenTarget`
+  // is shape-only (`src/lib/widget/open-target.ts`) — whether a named
+  // promotion is one this listener may actually SEE is `EnterPromotionPanel`'s
+  // question, asked with the same `listPromotionsAction` call it already
+  // makes to draw its own list, so a bad or invisible id falls back to the
+  // menu there rather than being refused here.
   return claims !== null ? (
-    <WidgetMenu publicKey={publicKey} />
+    <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
   ) : (
-    <IdentifyForm publicKey={publicKey} />
+    <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
   );
 }

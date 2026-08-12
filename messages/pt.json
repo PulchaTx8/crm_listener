@@ -1792,7 +1792,8 @@
     "otherPromotions": "Outras promoções",
     "forWhichProgramme": "Para qual programa?",
     "anyTime": "Qualquer horário",
-    "onAirNow": "{name} — no ar agora"
+    "onAirNow": "{name} — no ar agora",
+    "linkExpired": "Este link expirou. Envie a hashtag de novo para receber um novo link."
   },
   "shows": {
     "programmes": "Programas",
