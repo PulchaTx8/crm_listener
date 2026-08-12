@@ -40,6 +40,23 @@ operator.** `/w/<publicKey>` stays the only address. A request whose
 application. This is §6 of the Block 19 design, with one change decided here —
 see D3.
 
+**Shipped with one addition: a cookie carries the decision between requests.**
+`Sec-Fetch-Dest` only answers this question on a genuine document request — a
+Server Action POST, and the RSC fetch a `router.refresh()` issues, both report
+`Sec-Fetch-Dest: empty`, regardless of whether the script making that call is
+running inside an iframe, because that is what any script-initiated `fetch()`
+reports everywhere. Reading the header directly on every render (the original
+shape) meant the menu that replaces the identify form after a correct code —
+and the farewell right after "Sair" — briefly rendered with the application's
+header and chrome, inside the very iframe this decision exists to keep bare.
+`middleware.ts` now reads the header once, on the one request in the round
+trip that can answer it, and writes the answer into
+`WIDGET_PRESENTATION_COOKIE`; `page.tsx` reads that cookie, falling back to a
+direct header read only if it is somehow absent. The decision is still made
+from `Sec-Fetch-Dest` and nothing else, once per browsing context — the cookie
+is the mechanism that carries that one answer forward to the requests that
+cannot ask the question themselves. §3 has the full picture.
+
 **D2 — The Station's logo is the picture that already exists.** `companies.thumb_url`,
 the "Foto da emissora" of the console's Station record, drawn as a round icon
 beside the name — the shape of the top of a WhatsApp conversation, which is the
@@ -89,25 +106,49 @@ discards what was typed sits next to the field being typed into.
 ## 3. How the presentation is chosen
 
 ```
-                    ┌─────────────────────────┐
-                    │ GET /w/<publicKey>      │
-                    └───────────┬─────────────┘
-                                │
-                   Sec-Fetch-Dest == 'iframe' ?
-                    ┌───────────┴───────────┐
-                   yes                      no  (including the header absent)
-                    │                        │
-             ┌──────┴──────┐          ┌──────┴───────┐
-             │  EMBEDDED   │          │ APPLICATION  │
-             │             │          │              │
-             │ max-w-md    │          │ min-h-dvh    │
-             │ p-4         │          │ solid bg     │
-             │ transparent │          │ header:      │
-             │ html/body   │          │  photo+name  │
-             │             │          │ larger taps  │
-             │ no identity │          │ identity read│
-             │ read at all │          │ once, server │
-             └─────────────┘          └──────────────┘
+        ┌────────────────────────────────────────┐
+        │ Request to /w/<publicKey>              │
+        └───────────────────┬────────────────────┘
+                             │
+              isDocumentRequest(method, accept)?
+       (GET, Accept: text/html — a real navigation,
+        not a Server Action POST or a router.refresh()
+        fetch, both of which report Accept: text/x-component
+        and Sec-Fetch-Dest: empty no matter what is on screen)
+                    ┌────────┴────────┐
+                   yes                no
+                    │                  │
+       Sec-Fetch-Dest == 'iframe' ?    │
+        ┌───────────┴───────────┐     │
+       yes                      no    │
+        │                        │    │
+        ▼                        ▼    ▼
+  choosePresentation()     choosePresentation()   read WIDGET_PRESENTATION_COOKIE
+  = 'embedded'              = 'app'                (written by the LAST yes-branch
+        │                        │                  above; untouched by every no)
+        └───────────┬────────────┘                          │
+                     ▼                                       │
+       WIDGET_PRESENTATION_COOKIE rewritten,◄─────────────────┘
+       path=/w, SameSite=None, Partitioned,
+       session cookie (no maxAge — §2's D1
+       addendum has the reason)
+                    │
+                    ▼
+       ┌────────────┴────────────┐
+      'embedded'                'app'  (including a
+       │                         missing/absent cookie,
+       ▼                         which falls back to the
+┌─────────────┐           header directly — see D1)
+│  EMBEDDED   │           ┌──────────────┐
+│             │           │ APPLICATION  │
+│ max-w-md    │           │ min-h-dvh    │
+│ p-4         │           │ solid bg     │
+│ transparent │           │ header:      │
+│ html/body   │           │  photo+name  │
+│             │           │ larger taps  │
+│ no identity │           │ identity read│
+│ read at all │           │ once, server │
+└─────────────┘           └──────────────┘
 ```
 
 **Why the header and not the session claim.** The `channel` claim survives a
@@ -124,6 +165,26 @@ to be a script or a very old browser opening the address directly than a modern
 site framing it. Failing to the application costs a framed widget a header it
 should not have; failing to the embed costs a WhatsApp listener the whole point
 of this block.
+
+**`WIDGET_PRESENTATION_COOKIE` is ALSO scoped `path: '/w'`, one jar for every
+installation, and that is not the same mistake the paragraph above just ruled
+out for the session claim — worth saying once rather than trusting it follows
+by analogy.** The claim rejected above names WHO the listener is: a fact about
+one installation, which is exactly why `readSessionFor` refuses a session
+minted at Station A when Station B's widget presents it — a shared jar there
+is a cross-tenant leak. `WIDGET_PRESENTATION_COOKIE` names nothing about a
+listener or a Station at all; it is a fact about the BROWSING CONTEXT — is
+there a frame around THIS document — which is exactly as true or false for a
+tab open on any installation this deployment serves. Reusing the value across
+Stations in the same tab is not a leak, because there is nothing station-
+specific in it to leak. `Partitioned` still matters here, for an unrelated
+reason: without it, a listener with a WhatsApp-minted tab open in one tab and
+a Station's own site framing the widget in another would share this one
+cookie between two DIFFERENT browsing contexts, and whichever tab's request
+landed most recently would silently decide the other tab's chrome too.
+Partitioning keys the jar to the embedding site, so the two tabs never
+collide — a second, independent reason for the same attribute, on top of the
+CHIPS-deprecation one every cookie on this path already needs.
 
 ---
 
@@ -213,10 +274,22 @@ them, because it is not a third thing to do. "Voltar" and the errands stay
 ordinary buttons; "Sair" is `variant="ghost"` everywhere, because ending a
 session is not what most people came for.
 
-The farewell replaces the panel in place — no reload — and carries one button:
-`wa.me/<digits>` when the door returned a number, otherwise "identify again",
-which refreshes the page and gets 17a's form back from a server that no longer
-sees a cookie.
+**Shipped as a redirect, not a replace-in-place.** The paragraph above
+described the first version: "Sair" flipped a piece of client state inside
+`WidgetMenu`, which swapped the panel for `<Farewell>` with no reload. That
+version did not survive contact with the framework — a Server Action that
+mutates a cookie forces Next.js to refresh the very route that decides
+`<WidgetMenu>` vs `<IdentifyForm>` from that same cookie, and the refresh won
+the race almost every time, replacing the farewell with the identify form
+roughly 30ms after it appeared (D4's own addendum has the measurement).
+`signOutAction` now clears the cookie and `redirect()`s to `?left=1`, and
+`page.tsx` renders `<Farewell>` for THAT request, server-side, before it ever
+reaches the cookie-driven branch — a real navigation the forced refresh
+cannot outrun, because there is no "this same route, freshly rendered" left
+for it to contribute. The farewell carries one button: `wa.me/<digits>` when
+the door returned a number, otherwise "identify again" — a plain anchor to
+`/w/<publicKey>`, no query string, which a server holding no cookie for this
+visitor answers with 17a's form.
 
 ---
 
@@ -228,7 +301,7 @@ sees a cookie.
 | Station has no WhatsApp number recorded | the farewell, without the button back to the conversation |
 | identity door unreachable or refuses | the application frame with **no header** — the panels still work; a Station's name is not worth a screen nobody can use |
 | listener reloads after signing out | the farewell again, in the presentation it was shown in — `?left=1` is a real address that `page.tsx` renders server-side, not client state a reload can lose |
-| listener signs out from the site widget | 17a's identify form, in the embedded frame, as an expired session already does today |
+| listener signs out from the site widget | the farewell, in the embedded frame, offering "identify again" (D5) rather than a WhatsApp button — this listener never came from WhatsApp, and the identity door is never read for a framed request. Tapping "identify again" is what reaches 17a's form; signing out by itself does not skip the farewell |
 
 ---
 
@@ -256,8 +329,12 @@ sees a cookie.
 
 - a WhatsApp arrival shows the header with the Station's name; the same page
   framed does not;
-- "Sair" on the recorded-request screen reaches the farewell, and a reload after
-  it lands on the identify form.
+- "Sair" reaches the farewell, and the frame lands on an address carrying
+  `left=1`; the farewell stays visible rather than flickering back to the
+  identify form (the D4 addendum's own defect, held across a full second, not
+  merely checked once); a reload of that same address answers the farewell
+  again; and only a request carrying no `left` param at all — the session
+  cookie genuinely gone — shows the identify form.
 
 The e2e assertions go through the screen, never around it — a test that sets the
 cookie itself and skips `/enter` proves the frame and not the door, which is the

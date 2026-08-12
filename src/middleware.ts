@@ -8,7 +8,6 @@ import {
   choosePresentation,
   isDocumentRequest,
   WIDGET_PRESENTATION_COOKIE,
-  WIDGET_PRESENTATION_SECONDS,
 } from '@/lib/widget/presentation';
 import { localeCookieUpdate } from '@/i18n/locales';
 
@@ -198,13 +197,17 @@ export async function middleware(request: NextRequest) {
     const built = NextResponse.next({ request: { headers: forwarded(widgetPolicy) } });
     built.headers.set('Content-Security-Policy', widgetPolicy);
     if (presentation !== null) {
+      // NO `maxAge` — a SESSION cookie, on purpose, and this is a correction
+      // (fix round 1): this value describes the browsing context, not a
+      // listener's session, and a browsing context does not expire on a
+      // clock. `WIDGET_PRESENTATION_COOKIE`'s own comment (presentation.ts)
+      // has the defect a fixed lifetime let through and the full reasoning.
       built.cookies.set(WIDGET_PRESENTATION_COOKIE, presentation, {
         httpOnly: true,
         secure: true,
         sameSite: 'none',
         partitioned: true,
         path: '/w',
-        maxAge: WIDGET_PRESENTATION_SECONDS,
       });
     }
     return built;

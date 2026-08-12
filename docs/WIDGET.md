@@ -633,7 +633,7 @@ recorded it, not how the listener got there.
 
 ## 12. Block 19b — two presentations, one address
 
-`/w/<publicKey>` decides how to draw itself from the request's `Sec-Fetch-Dest`:
+`/w/<publicKey>` decides how to draw itself from `Sec-Fetch-Dest`:
 
 - **`iframe`** — the embedded widget: a 28rem column with a transparent
   background, so a Station's own page shows through around it. This is every
@@ -642,6 +642,32 @@ recorded it, not how the listener got there.
   height, its own background, larger touch targets, and a header carrying the
   Station's picture and name. This is what a listener sees after tapping the
   link a WhatsApp reply carried.
+
+**Only a real navigation carries a `Sec-Fetch-Dest` worth reading, so a
+second cookie carries the answer to everything else.** A Server Action POST
+— the code-verify flow's own `router.refresh()`, or any "Sair" submission —
+reports `Sec-Fetch-Dest: empty` no matter what is on screen, because that is
+what a script's own `fetch()` reports everywhere, regardless of whether the
+script is running inside an iframe. If this is the screen you are debugging
+— the application's header showing up inside a Station's own embedded
+widget, or the reverse — start here, not in `Sec-Fetch-Dest` itself:
+
+```
+pw_presentation: 'embedded' | 'app'
+HttpOnly; Secure; SameSite=None; Partitioned; Path=/w
+```
+
+`middleware.ts` writes it on every genuine document request to `/w/<publicKey>`
+— the same check that already decides `frame-ancestors` — and touches it on
+nothing else, so a Server Action or a `router.refresh()` fetch always finds
+the last real navigation's answer waiting rather than re-asking a header that
+cannot answer for it. It carries no maxAge (a session cookie): it describes a
+property of the browsing context, not of a listener, so it lives exactly as
+long as the tab or the frame does and there is nothing to expire. It holds no
+personal data and reaches no table — `embedded` or `app`, nothing else — and
+sharing the `Path=/w` jar across every installation this deployment serves is
+harmless for exactly that reason, unlike `pw_session`'s claims, which name a
+listener and must never cross a Station boundary.
 
 The header's picture is **the Station's picture** — the "Foto da emissora" of
 the console's Station record (`companies.thumb_url`). A Station that has not
