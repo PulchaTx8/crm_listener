@@ -388,6 +388,44 @@ export async function verifyCodeAction(
 }
 
 /**
+ * Block 19b, D4. "Sair": the listener is finished, and the session goes with
+ * them.
+ *
+ * NOT `expireDeadSession`, WHICH IS ITS OPPOSITE. That helper clears a cookie
+ * only once it has proved the token inside is already dead, so an ordinary
+ * submission cannot log a listener out; this one clears unconditionally,
+ * because being asked is the whole condition. A listener whose token expired
+ * while they read the confirmation still pressed the button, and making the
+ * clear depend on a token that verifies would leave them signed in on the one
+ * interaction meant to sign them out.
+ *
+ * TAKES NO PUBLIC KEY, and there is nothing for one to do here. The cookie's
+ * `Path` is `/w` — one cookie for every installation this deployment serves
+ * (session.ts) — so there is no per-Station cookie to pick between, and a key
+ * would only invite a caller to believe otherwise. Nothing is read, nothing is
+ * written to the database, and no rate limit applies: the whole effect is one
+ * `Set-Cookie` on the caller's own browser, which they could send themselves by
+ * clearing it.
+ *
+ * THE SIX ATTRIBUTES MATCH THE MINT EXACTLY (verifyCodeAction, and
+ * enter/route.ts, whose comments explain why each is load-bearing for a cookie
+ * a third-party iframe has to receive). A browser matches a clear against
+ * name, domain and PATH; `path: '/w'` omitted here would set a SECOND cookie at
+ * `/` and leave the real one exactly where it was.
+ */
+export async function signOutAction(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(WIDGET_SESSION_COOKIE, '', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    partitioned: true,
+    path: '/w',
+    maxAge: 0,
+  });
+}
+
+/**
  * Throws away a session cookie that is dead, on the visitor's next submission.
  *
  * WHY IT LIVES HERE AND NOT ON THE PAGE that discovers the dead token:
