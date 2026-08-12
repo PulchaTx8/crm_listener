@@ -120,21 +120,26 @@ export default async function WidgetPage({
   // question, asked with the same `listPromotionsAction` call it already
   // makes to draw its own list, so a bad or invisible id falls back to the
   // menu there rather than being refused here.
+  const presentation = choosePresentation((await headers()).get('sec-fetch-dest'));
+  // Read ONCE, and only for the application: the header and the farewell's way
+  // back are the same fact, and asking the door twice per request would be two
+  // round trips to answer one question.
+  const identity = presentation === 'app' ? await stationIdentity(publicKey) : null;
+
   const body =
     claims !== null ? (
-      <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
+      <WidgetMenu
+        publicKey={publicKey}
+        initialOpen={parseOpenTarget(open, id)}
+        exitHref={identity?.whatsappHref ?? null}
+      />
     ) : (
       <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
     );
 
-  // D1: the frame around it, and the frame decides. `Sec-Fetch-Dest` is read
-  // here rather than in the layout because a layout does not see the request.
-  if (choosePresentation((await headers()).get('sec-fetch-dest')) === 'embedded') {
-    return <EmbeddedFrame>{body}</EmbeddedFrame>;
-  }
-
-  // THE ONLY PLACE THE IDENTITY DOOR IS CALLED, and only after the decision:
-  // an embedded widget — every widget on every Station's website — costs no
-  // extra round trip for a header it will never draw.
-  return <AppFrame identity={await stationIdentity(publicKey)}>{body}</AppFrame>;
+  return presentation === 'embedded' ? (
+    <EmbeddedFrame>{body}</EmbeddedFrame>
+  ) : (
+    <AppFrame identity={identity}>{body}</AppFrame>
+  );
 }

@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { WidgetOpenTarget } from '@/lib/widget/open-target';
+import { signOutAction } from './actions';
 import { EnterPromotionPanel } from './enter-promotion';
+import { Farewell } from './farewell';
 import { RequestSongPanel } from './request-song';
 
 /**
@@ -30,6 +32,7 @@ import { RequestSongPanel } from './request-song';
 export function WidgetMenu({
   publicKey,
   initialOpen,
+  exitHref = null,
 }: {
   publicKey: string;
   /**
@@ -39,17 +42,46 @@ export function WidgetMenu({
    * widget without arriving from a link.
    */
   initialOpen?: WidgetOpenTarget;
+  /**
+   * Block 19b. Where "Sair" sends a listener afterwards — `null` for the
+   * embedded widget, which has no conversation to return to. Threaded from the
+   * page rather than fetched here: this is a client component and the identity
+   * door is read with the anon key on the server.
+   */
+  exitHref?: string | null;
 }) {
   const t = useTranslations('widget');
   const [panel, setPanel] = useState<'menu' | 'song' | 'promotion'>(
     initialOpen?.kind === 'music' ? 'song' : initialOpen?.kind === 'promotion' ? 'promotion' : 'menu',
   );
 
+  /**
+   * ONE `left` FOR THE WHOLE WIDGET, held here rather than in each panel,
+   * because "Sair" is reachable from three of them and the farewell that
+   * follows is the same screen every time. A panel that owned its own copy
+   * would have to be told to stop rendering by this component anyway.
+   */
+  const [left, setLeft] = useState(false);
+  const [leaving, startLeaving] = useTransition();
+
+  const exit = () => {
+    // The action clears the cookie; `left` swaps the screen. In this order, and
+    // inside a transition, so a second click during the round trip does nothing
+    // rather than firing a second `Set-Cookie`.
+    startLeaving(async () => {
+      await signOutAction();
+      setLeft(true);
+    });
+  };
+
+  if (left) return <Farewell exitHref={exitHref} />;
+
   if (panel === 'promotion') {
     return (
       <EnterPromotionPanel
         publicKey={publicKey}
         onClose={() => setPanel('menu')}
+        onExit={exit}
         // WHETHER THIS LISTENER MAY ACTUALLY SEE IT is the panel's own
         // question, not this component's -- it is asked against the exact
         // list `EnterPromotionPanel` already fetches to draw itself. A
@@ -63,7 +95,7 @@ export function WidgetMenu({
   }
 
   if (panel === 'song') {
-    return <RequestSongPanel publicKey={publicKey} onClose={() => setPanel('menu')} />;
+    return <RequestSongPanel publicKey={publicKey} onClose={() => setPanel('menu')} onExit={exit} />;
   }
 
   return (
@@ -94,6 +126,19 @@ export function WidgetMenu({
           {t('enterAPromotion')}
         </Button>
       </div>
+
+      {/* D6. Below the two errands and separated from them: it is a way out,
+          not a third thing to do. */}
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={exit}
+        disabled={leaving}
+        className="self-start"
+        data-testid="widget-exit"
+      >
+        {t('exit')}
+      </Button>
     </div>
   );
 }

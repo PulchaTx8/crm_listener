@@ -39,9 +39,12 @@ const MIN_QUERY = 2;
 export function RequestSongPanel({
   publicKey,
   onClose,
+  onExit,
 }: {
   publicKey: string;
   onClose: () => void;
+  /** Block 19b. Ends the session. Offered on the recorded screen alone — see Shell. */
+  onExit: () => void;
 }) {
   const t = useTranslations('widget');
 
@@ -149,7 +152,7 @@ export function RequestSongPanel({
 
   if (requestState.status === 'recorded') {
     return (
-      <Shell title={t('requestASong')} onClose={onClose}>
+      <Shell title={t('requestASong')} onClose={onClose} onExit={onExit}>
         <p className="text-sm" data-testid="widget-song-recorded">
           {t('requestRecorded')}
         </p>
@@ -276,10 +279,18 @@ export function RequestSongPanel({
 function Shell({
   title,
   onClose,
+  onExit,
   children,
 }: {
   title: string;
   onClose: () => void;
+  /**
+   * Block 19b, D6. Present only on the screen that ENDS an errand. A button
+   * that discards the session, sitting under a half-typed search, is a way to
+   * lose work — which is why this is a prop the caller opts into rather than
+   * something this Shell draws for everybody.
+   */
+  onExit?: () => void;
   children: React.ReactNode;
 }) {
   const t = useTranslations('widget');
@@ -291,9 +302,16 @@ function Shell({
     >
       <h1 className="text-base font-semibold">{title}</h1>
       {children}
-      <Button type="button" variant="ghost" onClick={onClose} className="self-start">
-        {t('back')}
-      </Button>
+      <div className="flex gap-2">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          {t('back')}
+        </Button>
+        {onExit ? (
+          <Button type="button" variant="ghost" onClick={onExit} data-testid="widget-exit">
+            {t('exit')}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

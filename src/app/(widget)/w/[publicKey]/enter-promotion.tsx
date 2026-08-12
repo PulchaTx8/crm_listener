@@ -38,10 +38,13 @@ const IDLE: EnterState = { status: 'idle' };
 export function EnterPromotionPanel({
   publicKey,
   onClose,
+  onExit,
   autoOpenId,
 }: {
   publicKey: string;
   onClose: () => void;
+  /** Block 19b. Ends the session. Offered on the settled screen alone — see Shell. */
+  onExit: () => void;
   /**
    * Block 19a, Task 7. A promotion id `?open=promotion&id=…` named, already
    * checked for SHAPE by `parseOpenTarget` — never for whether this listener
@@ -141,7 +144,7 @@ export function EnterPromotionPanel({
 
   if (state.status === 'entered' || state.status === 'declined') {
     return (
-      <Shell title={t('enterAPromotion')} onClose={onClose}>
+      <Shell title={t('enterAPromotion')} onClose={onClose} onExit={onExit}>
         <p className="text-sm" data-testid="widget-promotion-done">
           {state.status === 'entered' ? t('entryRecorded') : t('entryNotRecorded')}
         </p>
@@ -380,11 +383,18 @@ function Question({
 function Shell({
   title,
   onClose,
+  onExit,
   closeLabel,
   children,
 }: {
   title: string;
   onClose: () => void;
+  /**
+   * Block 19b, D6. Present only on the screen that ENDS an errand — never
+   * beside a half-filled promotion form, where a button that discards the
+   * session sits next to the field being typed into.
+   */
+  onExit?: () => void;
   /**
    * What the panel's own way out is called. Named by the caller because inside
    * a walk it leaves the promotion rather than the step, and two buttons both
@@ -403,9 +413,16 @@ function Shell({
     >
       <h1 className="text-base font-semibold">{title}</h1>
       {children}
-      <Button type="button" variant="ghost" onClick={onClose} className="self-start">
-        {closeLabel ?? t('back')}
-      </Button>
+      <div className="flex gap-2">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          {closeLabel ?? t('back')}
+        </Button>
+        {onExit ? (
+          <Button type="button" variant="ghost" onClick={onExit} data-testid="widget-exit">
+            {t('exit')}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
