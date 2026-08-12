@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { test, expect, type FrameLocator } from '@playwright/test';
+import { test, expect, type FrameLocator, type Page } from '@playwright/test';
 import { Client } from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -69,6 +69,19 @@ const VISITOR_COUNTRY_CODE = '55';
 const VISITOR_LOCAL_PHONE = `11${String(stamp).slice(-9)}`;
 const VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${VISITOR_LOCAL_PHONE}`;
 const VISITOR_NAME = 'Cross Origin Listener';
+
+/**
+ * Block 19b. The listener who exits, below — a phone distinct from
+ * VISITOR_LOCAL_PHONE above, deliberately, and not a name-only distinction.
+ * `CODE_PER_PHONE_MINUTE` (`src/app/(widget)/w/[publicKey]/actions.ts`) allows
+ * one code every 60 seconds per number; the two tests in this file share a
+ * worker and run back to back, and a shared phone would make this file's own
+ * runtime the thing standing between the exit journey and a `rate_limited`
+ * refusal that has nothing to do with what either test proves.
+ */
+const EXIT_VISITOR_LOCAL_PHONE = `21${String(stamp).slice(-9)}`;
+const EXIT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${EXIT_VISITOR_LOCAL_PHONE}`;
+const EXIT_VISITOR_NAME = 'Listener Who Leaves';
 
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
@@ -190,9 +203,19 @@ async function seedIntegration(organizationId: string, companyId: string): Promi
  * there at all.
  *
  * KEYED ON THE TEMPLATE NAME, which is stamped per run, so this can never pick
- * up a code left behind by an earlier run or by the demo seed.
+ * up a code left behind by an earlier run or by the demo seed. Both listeners
+ * in this file register through the same template (one per Station, not per
+ * visitor), so the row this reads back is always the most recently enqueued
+ * one — which, since the two identify journeys in this file run one after the
+ * other in the same worker, is always the caller's own.
+ *
+ * `expectedPhone` IS A PARAMETER, NOT A CONSTANT, because Block 19b's exit
+ * journey below identifies as a second, distinct listener (see
+ * EXIT_VISITOR_PHONE's own comment) rather than reusing VISITOR_PHONE — so
+ * the number this function checks the row against has to travel with the
+ * call, not be assumed.
  */
-async function codeFromTheOutbox(): Promise<string> {
+async function codeFromTheOutbox(expectedPhone: string): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const { data, error } = await admin
       .from('outbox_messages')
@@ -224,12 +247,84 @@ async function codeFromTheOutbox(): Promise<string> {
       // `11985954985` — no country code — and every layer was behaving as
       // documented while the send went nowhere. Asserted against the full
       // international number so no layer can quietly drop the front of it again.
-      expect(row.to_phone, 'the queued number carries its country code').toBe(VISITOR_PHONE);
+      expect(row.to_phone, 'the queued number carries its country code').toBe(expectedPhone);
       return variables[0];
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no outbox row for template ${TEMPLATE_NAME}; no code was ever enqueued`);
+}
+
+/**
+ * Block 19b. The two-step identify flow — request a code, confirm it — reused
+ * by every journey in this file that needs to reach the menu inside the
+ * cross-origin frame. EXTRACTED RATHER THAN COPIED: a second, hand-written
+ * version of what "identifying" means is exactly how it could quietly drift
+ * from what the door actually requires, and the exit journey below would then
+ * be proving a shortcut rather than the real thing (the same reasoning
+ * whatsapp-entry.spec.ts's own case 5a/5b split gives for never sharing a
+ * listener across cases that must stay independent).
+ *
+ * Returns the `FrameLocator` once `widget-menu` is visible — the same point
+ * the identify journey below continues from, and the same point the exit
+ * journey clicks "Sair" from.
+ */
+async function identifyInFrame(
+  page: Page,
+  { localPhone, phone, name }: { localPhone: string; phone: string; name: string },
+): Promise<FrameLocator> {
+  await page.goto(`${embedOrigin}/`);
+
+  const widget = page.frameLocator('#widget');
+  await expect(widget.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
+
+  // The country box comes prefilled with Brazil; filled explicitly anyway, so
+  // this journey states the number it means rather than inheriting a default a
+  // later edit could change underneath it.
+  await widget.locator('#widget-country-code').fill(VISITOR_COUNTRY_CODE);
+  await widget.locator('#widget-phone').fill(localPhone);
+  await widget.locator('#widget-name').fill(name);
+
+  // THE NUMBER THE SEND WILL ACTUALLY CARRY, read off the screen the visitor is
+  // looking at. Asserted here rather than only against the outbox because the
+  // whole defect this box exists for was invisible on screen: the visitor typed
+  // a number that looked right, and the country code was missing everywhere
+  // downstream.
+  await expect(widget.getByTestId('widget-phone-preview')).toContainText(phone);
+  await widget.getByRole('button', { name: 'Send code' }).click();
+
+  // Either the second screen or a refusal — whichever arrives, so a refusal is
+  // reported as itself rather than as a timeout waiting for the screen it
+  // prevented.
+  await widget
+    .locator('[data-testid="widget-code-form"], [data-testid="widget-problem"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 30_000 });
+  await assertNotRefused(widget);
+
+  const code = await codeFromTheOutbox(phone);
+  expect(code, 'six digits, leading zeros intact').toMatch(/^\d{6}$/);
+
+  // THE BOX HAS TO BE EMPTY, and this is not fussiness about tidiness. The two
+  // forms live in the same slot of one ternary, so React reconciles them child
+  // by child: when the label holding the name input and the label holding the
+  // code input land on the same index, React REUSES the DOM node. The name
+  // input is controlled and the code input is not, so nothing clears it and the
+  // visitor is asked to type six digits into a box that already says their
+  // name. Asserted before the fill, because `fill` would paper over it.
+  await expect(widget.locator('#widget-code')).toHaveValue('');
+
+  await widget.locator('#widget-code').fill(code);
+  await widget.getByRole('button', { name: 'Confirm' }).click();
+
+  // THE MENU, INSIDE THE FRAME. Reaching it means the whole chain worked in a
+  // third-party context: the action wrote the cookie, the browser STORED it (a
+  // Lax cookie would have been dropped here), `router.refresh()` sent it back,
+  // and the page's readSessionFor accepted it for this installation.
+  await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
+  await assertNotRefused(widget);
+
+  return widget;
 }
 
 /**
@@ -438,10 +533,11 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   page,
   context,
 }) => {
-  await page.goto(`${embedOrigin}/`);
-
-  const widget = page.frameLocator('#widget');
-  await expect(widget.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
+  const widget = await identifyInFrame(page, {
+    localPhone: VISITOR_LOCAL_PHONE,
+    phone: VISITOR_PHONE,
+    name: VISITOR_NAME,
+  });
 
   // THE ASSERTION THAT KEEPS THIS FILE HONEST, and it is taken from the browser
   // rather than from the constants above. If a later edit ever pointed the
@@ -453,51 +549,11 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   expect(frame, 'the widget document is a frame of this page').toBeTruthy();
   expect(new URL(page.url()).origin).not.toBe(new URL(frame!.url()).origin);
 
-  // The country box comes prefilled with Brazil; filled explicitly anyway, so
-  // this journey states the number it means rather than inheriting a default a
-  // later edit could change underneath it.
-  await widget.locator('#widget-country-code').fill(VISITOR_COUNTRY_CODE);
-  await widget.locator('#widget-phone').fill(VISITOR_LOCAL_PHONE);
-  await widget.locator('#widget-name').fill(VISITOR_NAME);
-
-  // THE NUMBER THE SEND WILL ACTUALLY CARRY, read off the screen the visitor is
-  // looking at. Asserted here rather than only against the outbox because the
-  // whole defect this box exists for was invisible on screen: the visitor typed
-  // a number that looked right, and the country code was missing everywhere
-  // downstream.
-  await expect(widget.getByTestId('widget-phone-preview')).toContainText(VISITOR_PHONE);
-  await widget.getByRole('button', { name: 'Send code' }).click();
-
-  // Either the second screen or a refusal — whichever arrives, so a refusal is
-  // reported as itself rather than as a timeout waiting for the screen it
-  // prevented.
-  await widget
-    .locator('[data-testid="widget-code-form"], [data-testid="widget-problem"]')
-    .first()
-    .waitFor({ state: 'visible', timeout: 30_000 });
-  await assertNotRefused(widget);
-
-  const code = await codeFromTheOutbox();
-  expect(code, 'six digits, leading zeros intact').toMatch(/^\d{6}$/);
-
-  // THE BOX HAS TO BE EMPTY, and this is not fussiness about tidiness. The two
-  // forms live in the same slot of one ternary, so React reconciles them child
-  // by child: when the label holding the name input and the label holding the
-  // code input land on the same index, React REUSES the DOM node. The name
-  // input is controlled and the code input is not, so nothing clears it and the
-  // visitor is asked to type six digits into a box that already says their
-  // name. Asserted before the fill, because `fill` would paper over it.
-  await expect(widget.locator('#widget-code')).toHaveValue('');
-
-  await widget.locator('#widget-code').fill(code);
-  await widget.getByRole('button', { name: 'Confirm' }).click();
-
-  // THE MENU, INSIDE THE FRAME. Reaching it means the whole chain worked in a
-  // third-party context: the action wrote the cookie, the browser STORED it (a
-  // Lax cookie would have been dropped here), `router.refresh()` sent it back,
-  // and the page's readSessionFor accepted it for this installation.
-  await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
-  await assertNotRefused(widget);
+  // Block 19b. The counterpart to whatsapp-entry.spec.ts's assertion, and the
+  // pair is what makes either one mean anything: the SAME address, framed,
+  // draws no header and keeps the 28rem column a Station's designer laid out
+  // for.
+  await expect(widget.getByTestId('widget-station-header')).toHaveCount(0);
 
   // -------------------------------------------------------------------------
   // The cookie, read with `context.cookies()`.
@@ -662,6 +718,89 @@ test('a visitor identifies themselves from another origin, and asks for a song',
     .limit(1);
 
   expect(listener?.[0]?.city).toBe(LISTENER_CITY);
+});
+
+/**
+ * Block 19b, D4/D5/D6. A listener who is done can say so, and the session
+ * leaves with them.
+ *
+ * ⚠ THIS TEST DOES NOT MATCH TASK 7's OWN BRIEF, ON PURPOSE. The brief's step 3
+ * asked for a reload after "Sair" to land on 17a's identify form — true of an
+ * earlier version of `signOutAction`, and false of the code this test runs
+ * against. That version held `left` as state inside `WidgetMenu`; a Server
+ * Action that mutates a cookie forces Next.js to refresh the route deciding
+ * `<WidgetMenu>` vs `<IdentifyForm>` from that SAME cookie, and a DOM poll at
+ * 25ms resolution caught the farewell rendering and then being replaced
+ * roughly 30ms later — a listener never got the chance to read it.
+ * `signOutAction` (`src/app/(widget)/w/[publicKey]/actions.ts`) now clears the
+ * cookie and `redirect()`s to `?left=1`, and `page.tsx` renders the farewell
+ * for THAT request, server-side, before it ever reaches the cookie-driven
+ * branch — so a reload of `?left=1` now answers the farewell again, every
+ * time, and only a request carrying no `left` param at all sees what the
+ * cookie's absence actually means.
+ */
+test('a listener who finishes an errand can leave, and the session leaves with them', async ({
+  page,
+}) => {
+  // Reaches the menu exactly as the identify journey above does — the same
+  // fixture, the same frame, the same two steps. A test that set `pw_session`
+  // itself would prove the button and skip everything that makes a session
+  // real.
+  const widget = await identifyInFrame(page, {
+    localPhone: EXIT_VISITOR_LOCAL_PHONE,
+    phone: EXIT_VISITOR_PHONE,
+    name: EXIT_VISITOR_NAME,
+  });
+
+  // The real `Frame`, not the `FrameLocator` above — only the former exposes
+  // `.url()`, which is what proves the click below is a NAVIGATION rather
+  // than a client-side flip of a flag.
+  const framedWidget = page.frames().find((candidate) => candidate.url().includes(`/w/${publicKey}`));
+  expect(framedWidget, 'the widget document is a frame of this page').toBeTruthy();
+
+  await widget.getByTestId('widget-exit').click();
+
+  // THE BROWSER LANDS ON `?left=1` — `signOutAction`'s `redirect()`, not a
+  // state update `router.refresh()` would have to race against.
+  await expect.poll(() => framedWidget!.url()).toContain('left=1');
+
+  await expect(widget.getByTestId('widget-farewell')).toBeVisible({ timeout: 30_000 });
+
+  // STAYS VISIBLE — THE ASSERTION THE OLD, BROKEN CODE WOULD HAVE PASSED
+  // ANYWAY. Checking only that the farewell appeared once is exactly what let
+  // the 30ms-disappearing version through; polling across a full second is
+  // what the vanished screen could never have survived.
+  // A plain wait, deliberately: what is being proved is an ABSENCE (the screen
+  // not disappearing) over a span of time, which is not a state `expect.poll`
+  // or `toBeVisible`'s own retry can wait FOR — those succeed on the first
+  // matching poll and stop looking.
+  for (let waited = 0; waited < 1_000; waited += 200) {
+    await page.waitForTimeout(200);
+    await expect(widget.getByTestId('widget-farewell')).toBeVisible();
+  }
+
+  // NO WAY BACK TO A CONVERSATION FROM A STATION'S OWN WEBSITE: this listener
+  // never came from WhatsApp, and the identity door was never read for a framed
+  // request, so the farewell offers the other button.
+  await expect(widget.getByTestId('widget-identify-again')).toBeVisible();
+  await expect(widget.getByTestId('widget-back-to-whatsapp')).toHaveCount(0);
+
+  // A REAL ADDRESS, NOT CLIENT STATE: fetched a second time, `?left=1` answers
+  // the farewell again rather than whatever the cookie alone would now decide.
+  // `page.reload()` is not this — it would reload the EMBEDDING page and
+  // recreate the iframe from its static `src` (no `left=1` in it at all,
+  // `embeddingPage()`'s own template), proving nothing about this address.
+  // The frame itself is what has to be asked again.
+  await framedWidget!.goto(framedWidget!.url());
+  await expect(widget.getByTestId('widget-farewell')).toBeVisible({ timeout: 30_000 });
+
+  // THE ASSERTION THAT MATTERS: the SAME installation, visited with no `left`
+  // param at all, has nothing left to identify. The screen changing when
+  // "Sair" was pressed proved a state update; this is what proves the cookie
+  // signOutAction cleared is actually gone, because the server decides which
+  // of the two states this page renders and it decides from the cookie alone.
+  await framedWidget!.goto(`${appOrigin}/w/${publicKey}`);
+  await expect(widget.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({

@@ -628,3 +628,41 @@ request or an entry is submitted through is a separate fact from the
 WhatsApp-minted session still lands in `music_requests` with `channel =
 'WEB'`, because `channel` on that table has always meant which door
 recorded it, not how the listener got there.
+
+---
+
+## 12. Block 19b — two presentations, one address
+
+`/w/<publicKey>` decides how to draw itself from the request's `Sec-Fetch-Dest`:
+
+- **`iframe`** — the embedded widget: a 28rem column with a transparent
+  background, so a Station's own page shows through around it. This is every
+  widget on every Station's website, and it is unchanged since Block 17a.
+- **anything else, including the header being absent** — the application: full
+  height, its own background, larger touch targets, and a header carrying the
+  Station's picture and name. This is what a listener sees after tapping the
+  link a WhatsApp reply carried.
+
+The header's picture is **the Station's picture** — the "Foto da emissora" of
+the console's Station record (`companies.thumb_url`). A Station that has not
+uploaded one gets the header with its name alone. There is no separate logo
+field and none is planned.
+
+Every screen that ends an errand, and the menu, offers **"Sair"**: it clears the
+session cookie and shows a farewell. From the WhatsApp door the farewell offers
+a way back to the conversation, built from the Station's own
+`integrations.display_phone_number`; a Station whose number is not recorded gets
+the farewell without that button. From a Station's website it offers to identify
+again.
+
+**"Sair" is a redirect, not a state flip.** `signOutAction`
+(`src/app/(widget)/w/[publicKey]/actions.ts`) clears the cookie and then
+`redirect()`s to `/w/<publicKey>?left=1`; `page.tsx` renders the farewell for
+that request, server-side, before it ever reaches the ordinary session check.
+The first version held the farewell as client state inside the menu instead,
+and a Server Action that mutates a cookie forces Next.js to refresh the very
+route deciding which screen to draw from that same cookie — so that version's
+farewell was replaced by the identify form roughly 30ms after it appeared,
+before a listener could read it. Reloading `?left=1` now answers the farewell
+again, every time; only a request carrying no `left` param at all sees what the
+cookie's absence actually means.

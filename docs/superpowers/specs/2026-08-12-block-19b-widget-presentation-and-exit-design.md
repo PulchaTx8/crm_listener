@@ -63,6 +63,15 @@ last one's identity. The cost is stated: a listener who changes their mind after
 signing out identifies again, and from the WhatsApp door that means sending the
 hashtag again, because the link burned on first use.
 
+**Shipped as a redirect to `?left=1`, not as a client-side flip.** `signOutAction`
+clears the cookie and then `redirect()`s to `/w/<publicKey>?left=1`; `page.tsx`
+renders the farewell for that request, server-side, before it reaches the
+ordinary session check. This replaced an earlier version that held the farewell
+as state inside `WidgetMenu`, because a Server Action that mutates a cookie
+forces Next.js to refresh the very route that decides which screen to draw from
+that same cookie — and a farewell held as client state does not survive that
+refresh.
+
 **D5 — The farewell offers the way back that fits the door it came from.**
 From WhatsApp, a button to the conversation (`wa.me`, built from the Station's
 own number). From a Station's website, a button to identify again. A Station
@@ -218,7 +227,7 @@ sees a cookie.
 | Station has no picture | the header, with the name alone |
 | Station has no WhatsApp number recorded | the farewell, without the button back to the conversation |
 | identity door unreachable or refuses | the application frame with **no header** — the panels still work; a Station's name is not worth a screen nobody can use |
-| listener reloads after signing out | 17a's identify form, in the application frame (D3) |
+| listener reloads after signing out | the farewell again, in the presentation it was shown in — `?left=1` is a real address that `page.tsx` renders server-side, not client state a reload can lose |
 | listener signs out from the site widget | 17a's identify form, in the embedded frame, as an expired session already does today |
 
 ---
