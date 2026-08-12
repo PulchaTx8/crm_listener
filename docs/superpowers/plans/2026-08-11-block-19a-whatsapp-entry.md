@@ -733,6 +733,28 @@ it('uses the Station's own wording when it has one', async () => {
 });
 ```
 
+- [ ] **Step 1b: The three keys, in their own migration**
+
+A Station overrides a text by writing a row in `station_message_templates`, whose
+`key` column is the enum `public.system_message_key` — ten values today. Three
+new texts mean three new enum values, and `alter type … add value` **cannot share
+a transaction with a statement that uses the value**, which is why 0166 and 0170
+are files of their own. So this is `0180_service_link_messages.sql` and it holds
+nothing else:
+
+```sql
+alter type public.system_message_key add value if not exists 'LINK_MUSIC';
+alter type public.system_message_key add value if not exists 'LINK_MENU';
+alter type public.system_message_key add value if not exists 'LINK_PROMOTION';
+```
+
+`SYSTEM_MESSAGE_DEFAULTS` in `engine.ts` is a `Record<SystemMessageKey, string>`,
+so the compiler will demand the three entries the moment the generated types are
+refreshed (`npm run db:types`). `listSystemMessages` builds the screen from that
+record, so the Messages screen grows from ten rows to thirteen with no change of
+its own — check `system-message-list.tsx` for a per-key label map and add the
+three labels in all three catalogues if one exists.
+
 - [ ] **Step 2: Implement `sendServiceLink`**
 
 Mint → if null, `{kind: 'already_answered'}` and `finish(event, 'already_answered')` → else build the link with `env.NEXT_PUBLIC_SITE_URL`, resolve the wording through the existing `resolveSystemMessage`, insert into `outbox_messages` with `dedupe_key = '<prefix>:link'` and `on conflict do nothing`, then finish the event as `link_sent`.
