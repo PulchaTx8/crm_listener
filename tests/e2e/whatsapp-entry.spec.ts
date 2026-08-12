@@ -321,6 +321,38 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
+  // Fix round 2. Case 5b suspends `companyId` and, before this, never
+  // restored it -- the mirror image of the carryover fix round 1 already
+  // caught in the other direction (5a leaves the installation disabled;
+  // this file's beforeAll-era companyId is shared by every test in the
+  // file, so a suspended company left behind by 5b is not local to 5b, it
+  // is the whole file's state from that point on). It passed only because
+  // Playwright ran 5a before 5b, in declaration order, with workers: 1 --
+  // a `--grep` selecting 5b alone, a `test.only`, or a future case
+  // appended after it would have found `mint_widget_link`'s own suspended-
+  // company guard refusing to mint, for a reason that has nothing to do
+  // with whatever that case actually tests.
+  //
+  // Unconditional and in `afterAll` rather than a step at the end of 5b
+  // itself: a step at the end never runs if an earlier assertion in the
+  // same test throws first, which is exactly the state this call exists
+  // to prevent from surviving the test run. `reactivate_company` is safe
+  // to call on an already-active company (5b never having run, or having
+  // already restored it) -- the write matches on `id` alone, with no
+  // requirement that the row was suspended.
+  //
+  // A SIGNED-IN platform admin, not the bare `admin` service-role client:
+  // reactivate_company (like suspend_company) is gated on
+  // is_platform_admin(), which reads auth.uid() -- null, and therefore
+  // false, for a service-role call carrying no session at all.
+  const reactivateAdmin = await signInAsPlatformAdmin();
+  const { error: reactivateError } = await reactivateAdmin.rpc('reactivate_company', {
+    p_company_id: companyId,
+  });
+  if (reactivateError) {
+    console.error(`could not reactivate ${companyId} in afterAll: ${reactivateError.message}`);
+  }
+
   for (const id of createdUserIds) {
     await admin.auth.admin.deleteUser(id).catch(() => undefined);
   }
