@@ -554,7 +554,17 @@
     "purposeWebVerificationWhen": "Se envía en el momento en que un visitante del sitio propio de la Emisora escribe su teléfono en el widget y pide ser identificado. Tiene que ser una plantilla aprobada de la categoría AUTHENTICATION de Meta: el visitante nunca escribió a esta Emisora, así que no hay ventana de 24 horas dentro de la cual enviar. Mientras no esté registrada aquí, el widget acepta el número y no envía nada.",
     "purposeWebVerificationSendsCode": "El código de seis dígitos, y nada más — caduca en diez minutos y se quema tras cinco intentos fallidos",
     "thatTextCouldNotBeIdentified": "No se pudo identificar ese texto. Actualice la página e inténtelo de nuevo.",
-    "thatRegistrationCouldNotBeIdentified": "No se pudo identificar ese registro. Actualice la página e inténtelo de nuevo."
+    "thatRegistrationCouldNotBeIdentified": "No se pudo identificar ese registro. Actualice la página e inténtelo de nuevo.",
+    "serviceHashtagsTitle": "Hashtags de atención",
+    "serviceHashtagsDescription": "Las dos palabras que responden al instante por WhatsApp, antes de que se abra cualquier conversación: una manda un enlace a la búsqueda de canciones, la otra al menú del propio widget.",
+    "serviceHashtagsNoInstallation": "Esta Emisora no tiene un widget instalado, así que estos hashtags todavía no pueden activarse. Instalar un widget se hace desde la consola de administración, no desde esta pantalla.",
+    "musicHashtagLabel": "Hashtag de música",
+    "musicHashtagHelp": "Enviado por un oyente para recibir un enlace directo a la búsqueda de canciones.",
+    "serviceHashtagLabel": "Hashtag de atención",
+    "serviceHashtagHelp": "Enviado por un oyente para recibir un enlace al menú del propio widget, donde elige entre una canción y una promoción.",
+    "hashtagsSaved": "Guardado",
+    "notSet": "Sin definir",
+    "actionChangeTheServiceHashtags": "cambiar los hashtags de atención"
   },
   "dashboards": {
     "audience": "Audiencia",

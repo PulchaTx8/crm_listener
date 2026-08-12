@@ -93,3 +93,31 @@ export function describeClearMessageError(
   }
   return describeTemplateWriteError(cause, t, 'actionChangeTheMessageTemplates');
 }
+
+/**
+ * Block 19a, Task 8's hashtag card has its own describer for one branch, the
+ * same shape describeClearMessageError carries for its own: `set_service_hashtags`
+ * (0177) raises `P0002` when this Station has no widget installation, and
+ * describeTemplateWriteError's generic NotFoundError text ("refresh the page
+ * and try again") is wrong advice for that — nothing failed and refreshing
+ * fixes nothing, because creating an installation is a console act (0159) no
+ * amount of retrying this screen can perform.
+ *
+ * `ValidationError` still passes through verbatim: the 22023 the door raises
+ * for a bad shape, the two hashtags equal ignoring case, or a clash with a
+ * promotion NAMES THE CLASHING HASHTAG, and a generic message here would
+ * throw away the one fact the operator needs.
+ */
+export function describeServiceHashtagsError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return t('serviceHashtagsNoInstallation');
+  }
+  if (cause instanceof UnauthorizedError) {
+    return t('youDoNotHavePermissionToHere', { action: t('actionChangeTheServiceHashtags') });
+  }
+  return t('couldNotSave');
+}

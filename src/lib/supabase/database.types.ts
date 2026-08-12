@@ -5072,6 +5072,7 @@ export type Database = {
         }
         Returns: string
       }
+      service_hashtags_for: { Args: { p_company_id: string }; Returns: Json }
       set_company_thumb: {
         Args: { p_company_id: string; p_url?: string }
         Returns: undefined

@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(20);
 
 -- Block 19a (D6). The two hashtags a Station configures, and the door that
 -- writes them: set_service_hashtags. Fixtures follow 39_widget_installations
@@ -67,6 +67,22 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
    '00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000607'),
   ('00000000-0000-0000-0000-000000000608', '00000000-0000-0000-0000-000000000604',
    '00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000607');
+
+-- A SECOND CALLER, holding templates.view ALONE at A and at C -- Task 8's
+-- read door (0182, service_hashtags_for) is gated on that code, not on
+-- templates.manage, and 608 above is the fixture that proves the two are not
+-- interchangeable: 608 holds manage but never view.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-000000000610', '00000000-0000-0000-0000-000000000601', 'Templates Viewer');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-000000000610', 'templates.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000611', 'service-hashtags-viewer@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-000000000611', '00000000-0000-0000-0000-000000000602',
+   '00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000610'),
+  ('00000000-0000-0000-0000-000000000611', '00000000-0000-0000-0000-000000000604',
+   '00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000610');
 
 -- ---------------------------------------------------------------------------
 -- 2. No session yet, so has_permission is false and the door refuses before
@@ -243,6 +259,48 @@ select throws_ok($$
   select public.set_service_hashtags(
     '00000000-0000-0000-0000-000000000604', '#Novo', '#Novo2')
 $$, 'P0002', null, 'a Station with no installation is refused, not a silent no-op');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Task 8 (0182). service_hashtags_for, the read door Task 8's screen calls
+-- because widget_installations carries RLS with no policy and its ACL
+-- revoked (0159): nothing outside a SECURITY DEFINER body may read these two
+-- columns, not even the service client.
+-- ---------------------------------------------------------------------------
+
+-- A known state to read back, written by 608 (templates.manage). Neither
+-- word clashes with any promotion this file has inserted.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';
+
+select public.set_service_hashtags(
+  '00000000-0000-0000-0000-000000000602', '#Musica', '#Atendimento');
+
+-- templates.manage is not templates.view: 608 holds only the former (role
+-- 607's sole code) at A, and the read door refuses it exactly the way the
+-- write door refuses a caller holding neither.
+select throws_ok($$
+  select public.service_hashtags_for('00000000-0000-0000-0000-000000000602')
+$$, '42501', null, 'a caller holding templates.manage but not templates.view is refused by the read door');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000611", "role": "authenticated"}';
+
+-- And returns exactly what set_service_hashtags wrote, for a caller who
+-- holds templates.view.
+select is(
+  public.service_hashtags_for('00000000-0000-0000-0000-000000000602'),
+  jsonb_build_object('installed', true, 'music', '#Musica', 'service', '#Atendimento'),
+  'service_hashtags_for returns what set_service_hashtags wrote');
+
+-- Station C: 611 holds templates.view there too, and there is no
+-- installation row at all -- installed:false, not an error, which is the
+-- state Task 8's screen renders as the two fields disabled with the reason.
+select is(
+  public.service_hashtags_for('00000000-0000-0000-0000-000000000604'),
+  jsonb_build_object('installed', false, 'music', null, 'service', null),
+  'service_hashtags_for answers installed:false for a Station with no installation');
 
 reset role;
 

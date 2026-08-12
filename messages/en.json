@@ -554,7 +554,17 @@
     "purposeWebVerificationWhen": "Sent the moment a visitor on this Station’s own website types their telephone number into the widget and asks to be identified. It has to be an approved template of Meta’s AUTHENTICATION category: the visitor has never messaged this Station, so there is no 24-hour window to send inside. Until it is registered here the widget accepts a number and then sends nothing at all.",
     "purposeWebVerificationSendsCode": "The six-digit code, and nothing else — it expires in ten minutes and is burned after five wrong attempts",
     "thatTextCouldNotBeIdentified": "That text could not be identified. Refresh the page and try again.",
-    "thatRegistrationCouldNotBeIdentified": "That registration could not be identified. Refresh the page and try again."
+    "thatRegistrationCouldNotBeIdentified": "That registration could not be identified. Refresh the page and try again.",
+    "serviceHashtagsTitle": "Service hashtags",
+    "serviceHashtagsDescription": "The two words that answer instantly on WhatsApp, before any conversation opens: one sends a link into the song search, the other into the widget's own menu.",
+    "serviceHashtagsNoInstallation": "This Station has no widget installed, so these hashtags cannot be turned on yet. Installing a widget is done from the admin console, not from this screen.",
+    "musicHashtagLabel": "Music hashtag",
+    "musicHashtagHelp": "Sent by a listener to receive a link straight into the song search.",
+    "serviceHashtagLabel": "Service hashtag",
+    "serviceHashtagHelp": "Sent by a listener to receive a link into the widget's own menu, where they choose between a song and a promotion.",
+    "hashtagsSaved": "Saved",
+    "notSet": "Not set",
+    "actionChangeTheServiceHashtags": "change the service hashtags"
   },
   "dashboards": {
     "audience": "Audience",
