@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { generatePublicKey } from '@/lib/widget/code';
 import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
+import type { Conversation } from '@/lib/conversation/steps';
+import type { ConversationKey } from '@/lib/conversation/store';
 import { parseInboundTurn, runConversationTurn } from '@/services/conversation';
 import { updateMember } from '@/services/members';
 import {
@@ -57,6 +59,27 @@ afterAll(cleanupUsers);
  * Two hashtag messages from the SAME phone, arriving at the same instant,
  * still race for that one lease exactly as two mid-conversation answers used
  * to, and exactly one of them must win it.
+ *
+ * TASK 9, FIX ROUND 1 (I1/I2). Deleting the two "whole conversation" tests
+ * left a real gap the hashtag race above does not close: nothing any more
+ * drove a message against an ALREADY-LIVE conversation at all, so D7's
+ * bridge ("a live conversation wins over a new hashtag", the one line the
+ * phone-form mismatch of this block's Task 5 briefing broke) was attested
+ * only by a unit test with a fake store on one side and a pgTAP assertion on
+ * the other -- never their joint, over real HTTP, as the worker actually
+ * runs it. And the hashtag race, proving mutual exclusion between two
+ * link-sending turns, stopped proving what mutual exclusion is FOR: that
+ * serialising a turn is what stops one listener's answer silently
+ * overwriting another's, a hazard that survives for every conversation
+ * still in flight regardless of how it was opened.
+ *
+ * Both gaps close through the SAME fixture, `seedLiveConversation`: a
+ * conversation written directly through `PostgresConversationStore.save()`,
+ * sitting on a FIELD step exactly where a real one would be moments after
+ * consent -- because `open()`, the door that used to produce this state, is
+ * the retired mechanism this file's header already explains, and writing
+ * the row directly is what `advanceLive` itself does not care how it got
+ * there, only that it finds one.
  */
 
 function sha256Hex(value: string): string {
@@ -132,10 +155,18 @@ async function seedHashtagStation(label: string): Promise<HashtagFixture> {
   };
 }
 
-/** One inbound hashtag message, stored exactly as the webhook route stores it. */
+/**
+ * One inbound hashtag message, stored exactly as the webhook route stores
+ * it. Takes only the two fields it ever reads, rather than a specific
+ * fixture's full shape, and the hashtag itself as an argument: two
+ * different callers below carry two different hashtags (the Station's own
+ * music hashtag for the lease race; a promotion's for the D7 fixture), and
+ * hard-coding either one would silently send the wrong tag to the other.
+ */
 async function deliverHashtag(
-  fixture: HashtagFixture,
+  fixture: { phoneNumberId: string; waFrom: string },
   wamid: string,
+  hashtag: string,
 ): Promise<{ eventId: string }> {
   const { data, error } = await admin
     .from('webhook_events')
@@ -147,7 +178,7 @@ async function deliverHashtag(
         metadata: { phone_number_id: fixture.phoneNumberId },
         from: fixture.waFrom,
         profile_name: null,
-        text: `quero uma musica ${HASHTAG}`,
+        text: `quero uma musica ${hashtag}`,
         timestamp: String(Math.floor(Date.now() / 1000)),
       },
     })
@@ -157,12 +188,246 @@ async function deliverHashtag(
   return { eventId: data.id };
 }
 
+const HOUR = 60 * 60 * 1000;
+
+interface LiveConversationFixture {
+  integrationId: string;
+  phoneNumberId: string;
+  /** The phone AS WHATSAPP DELIVERED IT -- what the store is keyed on (D7). */
+  waFrom: string;
+  promotionId: string;
+  memberId: string;
+  hashtag: string;
+}
+
+/**
+ * Task 9, fix round 1 (I1/I2). A live conversation, sitting on the FIRST
+ * field step -- [consent, field:city, field:neighbourhood], cursor 1 --
+ * exactly where a real one sits moments after the listener presses "yes".
+ * Written directly through `PostgresConversationStore.save()` rather than
+ * through `open()`, which no caller can reach any more (this file's own
+ * header). `advanceLive` does not care how a conversation got into
+ * `whatsapp_conversations`, only that one is there when it looks -- the
+ * same property that makes writing the row directly a faithful fixture and
+ * not a shortcut around what is actually under test.
+ *
+ * The promotion still carries a hashtag and rules text, and the Station
+ * still gets a widget installation, even though neither test using this
+ * fixture ever expects a link to be sent -- I1 is exactly the assertion
+ * that one is NOT sent, and proving that means the hashtag has to be one
+ * that WOULD have produced a link had no conversation been live.
+ */
+async function seedLiveConversation(label: string): Promise<LiveConversationFixture> {
+  const customer = await provisionCustomer(label);
+  const phoneNumberId = `pnid-${label}`;
+  const integrationId = await seedIntegration(customer, phoneNumberId);
+
+  const { error: installError } = await customer.adminClient.rpc('upsert_widget_installation', {
+    p_company_id: customer.companyId,
+    p_public_key: generatePublicKey(),
+    p_enabled: true,
+    p_allowed_origins: ['https://conv-live.example'],
+  });
+  if (installError) throw new Error(`upsert_widget_installation failed: ${installError.message}`);
+
+  const hashtag = `#${label.replace(/[^a-zA-Z0-9]/g, '')}`.slice(0, 40);
+  const owner = await signInAs(customer.email, customer.password);
+  const { data: promotionId, error: promoError } = await owner.rpc('create_promotion', {
+    p_company_id: customer.companyId,
+    p_name: `Live ${label}`,
+    p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+    p_ends_at: new Date(Date.now() + HOUR).toISOString(),
+    p_whatsapp_enabled: true,
+    p_hashtag: hashtag,
+    p_requested_fields: ['city', 'neighbourhood'],
+    p_rules: `Live rules ${label}`,
+  });
+  if (promoError || !promotionId) throw new Error(`create_promotion failed: ${promoError?.message}`);
+
+  const localPhone = '11999990066';
+  const waFrom = `55${localPhone}`;
+  const memberId = await createMemberAs(customer, customer.companyId, {
+    fullName: `Live Listener ${label}`,
+    phone: localPhone,
+  });
+
+  const key: ConversationKey = { integrationId, phone: waFrom };
+  const conversation: Conversation = {
+    integrationId,
+    phone: waFrom,
+    promotionId: promotionId as string,
+    memberId,
+    steps: [
+      { kind: 'consent' },
+      { kind: 'field', field: 'city' },
+      { kind: 'field', field: 'neighbourhood' },
+    ],
+    cursor: 1,
+    answers: { fields: {}, questions: [] },
+    reprompts: 0,
+    // Overwritten by the store's own save() (store.ts: "the expiresAt on
+    // the value handed in is ignored and replaced"), so this value is
+    // never actually trusted -- present only because the type requires it.
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+  };
+  await new PostgresConversationStore(admin).save(key, conversation);
+
+  return {
+    integrationId,
+    phoneNumberId,
+    waFrom,
+    promotionId: promotionId as string,
+    memberId,
+    hashtag,
+  };
+}
+
+/** One inbound message carrying plain text -- an answer, never a hashtag. */
+async function deliverText(
+  fixture: LiveConversationFixture,
+  wamid: string,
+  text: string,
+): Promise<{ eventId: string }> {
+  const { data, error } = await admin
+    .from('webhook_events')
+    .insert({
+      provider: 'WHATSAPP',
+      external_id: sha256Hex(wamid),
+      payload: {
+        wamid,
+        metadata: { phone_number_id: fixture.phoneNumberId },
+        from: fixture.waFrom,
+        profile_name: null,
+        text,
+        timestamp: String(Math.floor(Date.now() / 1000)),
+      },
+    })
+    .select('id')
+    .single();
+  if (error || !data) throw new Error(`could not deliver a message: ${error?.message}`);
+  return { eventId: data.id };
+}
+
+describe('D7 — a live conversation wins over a new hashtag', () => {
+  it('a hashtag arriving mid-conversation re-prompts instead of sending a link', async () => {
+    const fixture = await seedLiveConversation(`conv-d7-${Date.now()}`);
+
+    // The SAME hashtag ingest_whatsapp_event would otherwise turn into a
+    // link intent -- proving D7 means proving THIS message, unresolved any
+    // other way, still does not reach sendServiceLink.
+    const delivered = await deliverHashtag(
+      fixture,
+      `wamid.d7-${Date.now()}`,
+      fixture.hashtag,
+    );
+
+    const opened = await admin.rpc('ingest_whatsapp_event', {
+      p_event_id: delivered.eventId,
+      p_window_seconds: 1800,
+    });
+    if (opened.error) throw new Error(`ingest failed: ${opened.error.message}`);
+    // The DOOR still has no idea a conversation is live -- D7's bridge lives
+    // entirely in Node (runConversationTurn), so ingest_whatsapp_event
+    // matches the hashtag exactly as it would for any other listener and
+    // hands back a link intent.
+    expect((opened.data as { outcome: string }).outcome).toBe('link');
+
+    const store = new PostgresConversationStore(admin);
+    const outcome = await runConversationTurn({ supabase: admin, store }, parseInboundTurn(opened.data));
+
+    // NOT 'link_sent'. `store.load(key)` finds the live conversation FIRST
+    // (runConversationTurn's own branch order) and calls advanceLive
+    // instead of sendServiceLink. The hashtag text reaches the engine as an
+    // (empty, since a link intent carries no text) answer to the 'city'
+    // field, which validateField refuses, and the engine re-prompts --
+    // 'prompted' is the one outcome that could only be produced by the live
+    // conversation actually being read and advanced.
+    expect(outcome.kind).toBe('prompted');
+
+    // AND NO LINK WAS SENT. This is the other half of the same guarantee:
+    // a listener mid-conversation must never be handed a link that would
+    // abandon what they already typed.
+    const { count, error: countError } = await admin
+      .from('outbox_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('to_phone', fixture.waFrom)
+      .like('dedupe_key', '%:link');
+    expect(countError).toBeNull();
+    expect(count, 'no link was sent while a conversation is live').toBe(0);
+
+    // The conversation is still there, still on the city step -- a
+    // re-prompt does not advance the cursor and does not clear the state.
+    const { data: live } = await admin
+      .from('whatsapp_conversations')
+      .select('state')
+      .eq('integration_id', fixture.integrationId)
+      .eq('phone', fixture.waFrom)
+      .single();
+    const state = live?.state as { cursor: number };
+    expect(state?.cursor, 'still waiting on the same field').toBe(1);
+  });
+});
+
 /**
  * TWELVE ROUNDS, and the number is the assertion. A lock that is right nine
  * times out of ten passes a single run, and 4c settled that a probabilistic
  * detector run once proves nothing.
  */
 const RACE_ROUNDS = 12;
+
+describe('two answers at once, on a live conversation', () => {
+  it(
+    'advances the cursor exactly once when a listener double-sends -- the lost-update hazard the lease exists for',
+    async () => {
+      const stamp = Date.now();
+      for (let round = 0; round < RACE_ROUNDS; round += 1) {
+        const fixture = await seedLiveConversation(`conv-lostupdate-${stamp}-${round}`);
+
+        const a = await deliverText(fixture, `wamid.lostupdate-${stamp}-${round}-a`, 'Canoas');
+        const b = await deliverText(fixture, `wamid.lostupdate-${stamp}-${round}-b`, 'Gravatai');
+
+        // Both ingested first, so the contested resource is the TURN's
+        // lease and not the event row's own FOR UPDATE SKIP LOCKED --
+        // which would serialise them for a different reason and prove
+        // nothing about the lease.
+        const [openedA, openedB] = await Promise.all([
+          admin.rpc('ingest_whatsapp_event', { p_event_id: a.eventId, p_window_seconds: 1800 }),
+          admin.rpc('ingest_whatsapp_event', { p_event_id: b.eventId, p_window_seconds: 1800 }),
+        ]);
+        expect(openedA.error, `round ${round}, message A`).toBeNull();
+        expect(openedB.error, `round ${round}, message B`).toBeNull();
+
+        const store = new PostgresConversationStore(admin);
+        const outcomes = await Promise.all([
+          runConversationTurn({ supabase: admin, store }, parseInboundTurn(openedA.data)),
+          runConversationTurn({ supabase: admin, store }, parseInboundTurn(openedB.data)),
+        ]);
+
+        // EXACTLY ONE of the two runs the turn. The other finds the lease
+        // held and leaves its message for the next tick -- not dropped,
+        // and not waited on.
+        const busy = outcomes.filter((outcome) => outcome.kind === 'busy');
+        expect(busy, `round ${round}: ${JSON.stringify(outcomes)}`).toHaveLength(1);
+
+        // THE HAZARD ITSELF: the state moved exactly one step, one answer
+        // stored, cursor on the second field. Without the lease both turns
+        // read cursor 1, both write cursor 2, and one listener's answer --
+        // 'Canoas' or 'Gravatai', whichever lost -- is overwritten in
+        // silence, with nothing on any screen saying so.
+        const { data: live } = await admin
+          .from('whatsapp_conversations')
+          .select('state')
+          .eq('integration_id', fixture.integrationId)
+          .eq('phone', fixture.waFrom)
+          .single();
+        const state = live?.state as { cursor: number; answers: { fields: Record<string, string> } };
+        expect(state?.cursor, `round ${round} cursor`).toBe(2);
+        expect(Object.keys(state?.answers.fields ?? {}), `round ${round} answers`).toEqual(['city']);
+      }
+    },
+    300_000,
+  );
+});
 
 describe('two hashtag messages at once', () => {
   it(
@@ -172,8 +437,8 @@ describe('two hashtag messages at once', () => {
       for (let round = 0; round < RACE_ROUNDS; round += 1) {
         const fixture = await seedHashtagStation(`conv-lease-race-${stamp}-${round}`);
 
-        const a = await deliverHashtag(fixture, `wamid.lease-race-${stamp}-${round}-a`);
-        const b = await deliverHashtag(fixture, `wamid.lease-race-${stamp}-${round}-b`);
+        const a = await deliverHashtag(fixture, `wamid.lease-race-${stamp}-${round}-a`, HASHTAG);
+        const b = await deliverHashtag(fixture, `wamid.lease-race-${stamp}-${round}-b`, HASHTAG);
 
         // Both ingested first, so the contested resource is the TURN's lease
         // and not the event row's own FOR UPDATE SKIP LOCKED -- which would

@@ -121,22 +121,30 @@ const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
  */
 const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/contact-requests.test.ts', minTests: 3 },
-  // Block 19a, Task 9. Lowered from 7: design spec D1 retired the contract
-  // two of this file's seven cases were proving -- a hashtag opening a
-  // whatsapp Q&A conversation and finishing it into an entry, a mechanism
-  // `ingest_whatsapp_event` (0179) no longer has any code path that reaches.
-  // Deleted rather than kept green some other way, the same ruling this
-  // repository already made for the identical retirement in pgTAP
-  // (supabase/tests/06_whatsapp.test.sql, commit 7eb172e) -- and the same
-  // reason a `.skip` was never an option: this guard fails the build on any
-  // pending or todo case, on purpose, and a skip is what THAT gap looks
-  // like from here. The race case this file still carries was rewritten,
-  // not dropped, onto the one thing about it that is still true: the lease
-  // `runConversationTurn` claims for every turn, link-sending ones
-  // included, still serialises two messages from one phone arriving at
-  // once. Five now: one rewritten lease race, two privilege-boundary cases,
-  // two operator-save cases -- unchanged by this edit.
-  { path: 'tests/isolation/conversation.test.ts', minTests: 5 },
+  // Block 19a, Task 9. First lowered from 7 to 5: design spec D1 retired the
+  // contract two of this file's seven cases were proving -- a hashtag
+  // opening a whatsapp Q&A conversation and finishing it into an entry, a
+  // mechanism `ingest_whatsapp_event` (0179) no longer has any code path
+  // that reaches. Deleted rather than kept green some other way, the same
+  // ruling this repository already made for the identical retirement in
+  // pgTAP (supabase/tests/06_whatsapp.test.sql, commit 7eb172e) -- and the
+  // same reason a `.skip` was never an option: this guard fails the build
+  // on any pending or todo case, on purpose, and a skip is what THAT gap
+  // looks like from here.
+  //
+  // Raised back to 7 in fix round 1 (I1/I2): the drop to 5 removed proof of
+  // two properties nothing else in this suite carried -- D7's live round
+  // trip (a message arriving mid-conversation is read as an answer, not
+  // handed a link, over real HTTP rather than a fake store on one side and
+  // pgTAP on the other) and the lost-update hazard the lease actually
+  // guards against (two racing answers on a live conversation leave
+  // exactly one written, not the second silently overwriting the first).
+  // Both are proved now through the SAME fixture, a conversation seeded
+  // directly via PostgresConversationStore.save() rather than through the
+  // retired open() path -- seven cases: the D7 round trip, the lost-update
+  // race, the rewritten lease race, two privilege-boundary cases, two
+  // operator-save cases.
+  { path: 'tests/isolation/conversation.test.ts', minTests: 7 },
   // Block 8a, Task 6: the three dashboard aggregates are all SECURITY
   // INVOKER (D4) precisely so RLS applies inside them -- pgTAP's own suite
   // (supabase/tests/20_dashboards.test.sql) runs under `set local role
