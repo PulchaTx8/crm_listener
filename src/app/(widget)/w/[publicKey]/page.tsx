@@ -1,9 +1,11 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { env } from '@/lib/env';
+import { choosePresentation } from '@/lib/widget/presentation';
 import { parseOpenTarget } from '@/lib/widget/open-target';
 import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
-import { installationExists } from '@/services/widget-installations';
+import { installationExists, stationIdentity } from '@/services/widget-installations';
+import { AppFrame, EmbeddedFrame } from './frames';
 import { IdentifyForm } from './identify-form';
 import { WidgetMenu } from './menu';
 
@@ -63,7 +65,19 @@ export default async function WidgetPage({
     // redirect a listener can arrive carrying. An unknown key with NO
     // `link=expired` still 404s, unchanged — that probing answer is the one
     // 17a chose deliberately, and tests/e2e/widget-headers.spec.ts pins it.
-    if (linkExpired) return <IdentifyForm publicKey={publicKey} linkExpired />;
+    // D3: a listener whose link died has no session by definition, and this is
+    // the FIRST screen they see. Framing it as a 28rem transparent column in a
+    // full tab is the exact complaint this block exists to answer, so it takes
+    // the same decision the live page does — with no identity, because the key
+    // resolves to nothing to be identified.
+    if (linkExpired) {
+      const expired = <IdentifyForm publicKey={publicKey} linkExpired />;
+      return choosePresentation((await headers()).get('sec-fetch-dest')) === 'embedded' ? (
+        <EmbeddedFrame>{expired}</EmbeddedFrame>
+      ) : (
+        <AppFrame identity={null}>{expired}</AppFrame>
+      );
+    }
     notFound();
   }
 
@@ -106,9 +120,21 @@ export default async function WidgetPage({
   // question, asked with the same `listPromotionsAction` call it already
   // makes to draw its own list, so a bad or invisible id falls back to the
   // menu there rather than being refused here.
-  return claims !== null ? (
-    <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
-  ) : (
-    <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
-  );
+  const body =
+    claims !== null ? (
+      <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
+    ) : (
+      <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
+    );
+
+  // D1: the frame around it, and the frame decides. `Sec-Fetch-Dest` is read
+  // here rather than in the layout because a layout does not see the request.
+  if (choosePresentation((await headers()).get('sec-fetch-dest')) === 'embedded') {
+    return <EmbeddedFrame>{body}</EmbeddedFrame>;
+  }
+
+  // THE ONLY PLACE THE IDENTITY DOOR IS CALLED, and only after the decision:
+  // an embedded widget — every widget on every Station's website — costs no
+  // extra round trip for a header it will never draw.
+  return <AppFrame identity={await stationIdentity(publicKey)}>{body}</AppFrame>;
 }
