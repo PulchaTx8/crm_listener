@@ -185,3 +185,64 @@ export function decideAutoOpen(promotions: WidgetPromotion[], autoOpenId: string
   if (match.alreadyEntered) return { action: 'show-list' };
   return { action: 'open', promotion: match };
 }
+
+/**
+ * The step list collapsed into the screens the panel walks.
+ *
+ * MOVED HERE FROM `enter-promotion.tsx` (Block 20a) so that
+ * `firstUnansweredScreen` below and the panel agree on what a screen index
+ * means. Two copies of this layout would be two places for them to drift, and
+ * the drift would show up as the panel jumping to the wrong screen — which is
+ * worse than not jumping at all.
+ *
+ * Consent alone, because it gates everything after it; then every requested
+ * field on one screen, which is what somebody filling in a form expects; then
+ * one question per screen, because each carries its own alternatives.
+ */
+export function screensFor(steps: WidgetStep[]): WidgetStep[][] {
+  const fieldSteps = steps.filter((step) => step.kind === 'field');
+  const questions = steps.filter((step) => step.kind === 'question');
+  return [
+    [{ kind: 'consent' } as WidgetStep],
+    ...(fieldSteps.length > 0 ? [fieldSteps] : []),
+    ...questions.map((question) => [question]),
+  ];
+}
+
+/**
+ * The first screen still holding a step with nothing in it, or null.
+ *
+ * Block 20a, D4. `missing_answers` says something was skipped and not which
+ * thing, on a walk that can be four screens long — so the panel, which holds
+ * every answer, works out where to send the listener rather than asking them
+ * to search.
+ *
+ * A COURTESY, NEVER A GUARD. The door recomputes the step list and remains the
+ * only authority on what a promotion asks (0171's own comment). This function
+ * answering null while the door refuses is a real and informative state: it
+ * means the screen and the door disagree about what was asked, which is
+ * exactly the shape of the defect this block investigated, and the panel
+ * leaves the listener where they are with the message on screen rather than
+ * smoothing it over.
+ *
+ * CONSENT IS NOT CHECKED. Declining is not a missing_answers refusal — the
+ * door writes a promotion_refusals row and answers `refused`, which the panel
+ * renders as its own state.
+ *
+ * `btrim`-equivalent on purpose: 0171 tests `nullif(btrim(coalesce(...)), '')`,
+ * so whitespace is not an answer on either side of the wire.
+ */
+export function firstUnansweredScreen(
+  screens: WidgetStep[][],
+  fields: Record<string, string>,
+  answers: Record<string, string>,
+): number | null {
+  const index = screens.findIndex((screen) =>
+    screen.some((step) => {
+      if (step.kind === 'field') return (fields[step.field] ?? '').trim() === '';
+      if (step.kind === 'question') return (answers[step.questionId] ?? '').trim() === '';
+      return false;
+    }),
+  );
+  return index === -1 ? null : index;
+}

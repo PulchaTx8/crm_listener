@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import {
   answersFor,
   decideAutoOpen,
+  firstUnansweredScreen,
+  screensFor,
   type WidgetOption,
   type WidgetPromotion,
   type WidgetStep,
@@ -125,20 +127,42 @@ export function EnterPromotionPanel({
   }, [autoOpenId, list, onClose]);
 
   /**
-   * The step list collapsed into screens. Every `field` step shares one screen;
-   * everything else keeps its own. Derived rather than stored, so a promotion
-   * chosen twice cannot leave a stale screen count behind.
+   * The step list collapsed into screens — `screensFor` (promotion-mapping.ts),
+   * shared with `firstUnansweredScreen` so the two cannot disagree about what
+   * a screen index means. Derived rather than stored, so a promotion chosen
+   * twice cannot leave a stale screen count behind.
    */
-  const screens = useMemo(() => {
-    if (!chosen) return [] as WidgetStep[][];
-    const fieldSteps = chosen.steps.filter((s) => s.kind === 'field');
-    const questions = chosen.steps.filter((s) => s.kind === 'question');
-    return [
-      [{ kind: 'consent' } as WidgetStep],
-      ...(fieldSteps.length > 0 ? [fieldSteps] : []),
-      ...questions.map((q) => [q]),
-    ];
-  }, [chosen]);
+  const screens = useMemo(() => (chosen ? screensFor(chosen.steps) : []), [chosen]);
+
+  /**
+   * Which screen a `missing_answers` refusal was shown on, so the message can
+   * follow the listener there.
+   *
+   * The message is otherwise gated on `last` — because a refusal rendered
+   * under every screen the listener walks back through reads as if each of
+   * them were wrong, which is what happened on 2026-08-11. Moving the listener
+   * without moving the message would land them on a silent screen; this is the
+   * one screen other than the last where it has something to say.
+   */
+  const [flagged, setFlagged] = useState<number | null>(null);
+
+  /**
+   * `state`, ACTED ON ONCE — the same identity guard `identify-form.tsx` uses
+   * for `handledRequest`, and for the same reason. `fields` and `answers` are
+   * in this effect's dependencies, so without the guard every keystroke after
+   * a refusal would drag the listener back to the screen they had just left.
+   */
+  const [handledRefusal, setHandledRefusal] = useState<EnterState>(IDLE);
+  useEffect(() => {
+    if (state === handledRefusal) return;
+    setHandledRefusal(state);
+    if (state.status !== 'refused' || state.reason !== 'missing_answers') return;
+
+    const target = firstUnansweredScreen(screens, fields, answers);
+    if (target === null) return;
+    setScreen(target);
+    setFlagged(target);
+  }, [state, handledRefusal, screens, fields, answers]);
 
   if (state.status === 'entered' || state.status === 'declined') {
     return (
@@ -235,7 +259,7 @@ export function EnterPromotionPanel({
               listener walks back through earlier steps reads as if each of
               them were wrong, which is how the same red line ended up under
               the rules AND under the address on 2026-08-11. */}
-          {state.status === 'refused' && last ? (
+          {state.status === 'refused' && (last || screen === flagged) ? (
             <p className="text-sm text-destructive" data-testid="widget-promotion-error">
               {refusalMessage(t, state.reason)}
             </p>
@@ -249,14 +273,24 @@ export function EnterPromotionPanel({
             ) : (
               <Button
                 type="button"
-                onClick={() => setScreen((s) => s + 1)}
+                onClick={() => {
+                  setScreen((s) => s + 1);
+                  setFlagged(null);
+                }}
                 data-testid="widget-promotion-next"
               >
                 {t('next')}
               </Button>
             )}
             {screen > 0 ? (
-              <Button type="button" variant="outline" onClick={() => setScreen((s) => s - 1)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setScreen((s) => s - 1);
+                  setFlagged(null);
+                }}
+              >
                 {t('back')}
               </Button>
             ) : null}
