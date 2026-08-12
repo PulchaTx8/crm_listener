@@ -46,4 +46,15 @@ describe('parseOpenTarget', () => {
   it('music wins even if an id is also present, and the id is ignored', () => {
     expect(parseOpenTarget('music', VALID_UUID)).toEqual({ kind: 'music' });
   });
+
+  /**
+   * Fix round 1's minor: `z.string().uuid()`'s regex is fixed-length and
+   * anchored, so it is PROVABLY TOTAL -- it rejects a string of any length in
+   * bounded time rather than backtracking, and an id an attacker or a buggy
+   * client made absurdly long is refused exactly like any other malformed
+   * one, not treated specially.
+   */
+  it('falls back to the menu for an id of absurd length', () => {
+    expect(parseOpenTarget('promotion', 'a'.repeat(100_000))).toEqual({ kind: 'menu' });
+  });
 });

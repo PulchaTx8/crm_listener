@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { enterRefusal, readSteps } from '@/lib/widget/promotion-mapping';
+import { decideAutoOpen, enterRefusal, readSteps, type WidgetPromotion } from '@/lib/widget/promotion-mapping';
 
 describe('enterRefusal', () => {
   it('passes through the reasons the panel has a sentence for', () => {
@@ -73,5 +73,53 @@ describe('readSteps', () => {
     for (const value of [null, undefined, {}, 'consent', 7]) {
       expect(readSteps(value)).toEqual([]);
     }
+  });
+});
+
+/** A minimal promotion, filled in only where a case needs to differ. */
+function promotion(overrides: Partial<WidgetPromotion> = {}): WidgetPromotion {
+  return {
+    id: 'p1',
+    name: 'A promotion',
+    rules: 'Rules',
+    artUrl: null,
+    thumbUrl: null,
+    alreadyEntered: false,
+    steps: [],
+    options: {},
+    ...overrides,
+  };
+}
+
+describe('decideAutoOpen', () => {
+  it('opens the promotion when it is in the list and not already entered', () => {
+    const target = promotion({ id: 'target' });
+    expect(decideAutoOpen([promotion({ id: 'other' }), target], 'target')).toEqual({
+      action: 'open',
+      promotion: target,
+    });
+  });
+
+  /**
+   * Fix round 1. An id that names a promotion this listener already entered
+   * is not the same case as one naming nothing they can see: the promotion IS
+   * in their own list, merely finished. `show-list` does not open a walk that
+   * can only end in `already_entered` -- it says "do nothing", so the panel's
+   * ordinary render is left to show that exact promotion, disabled, with its
+   * own `alreadyEntered` label already on screen.
+   */
+  it('answers show-list rather than opening a promotion already entered', () => {
+    const entered = promotion({ id: 'target', alreadyEntered: true });
+    expect(decideAutoOpen([entered], 'target')).toEqual({ action: 'show-list' });
+  });
+
+  it('falls back to the menu for an id naming nothing in this list', () => {
+    expect(decideAutoOpen([promotion({ id: 'other' })], 'target')).toEqual({
+      action: 'back-to-menu',
+    });
+  });
+
+  it('falls back to the menu for an empty list', () => {
+    expect(decideAutoOpen([], 'target')).toEqual({ action: 'back-to-menu' });
   });
 });

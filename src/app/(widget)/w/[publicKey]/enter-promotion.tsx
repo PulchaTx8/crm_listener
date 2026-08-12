@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
   answersFor,
+  decideAutoOpen,
   type WidgetOption,
   type WidgetPromotion,
   type WidgetStep,
@@ -84,14 +85,24 @@ export function EnterPromotionPanel({
    * its first call), so a ref guards against this effect firing again on a
    * render the settled state alone would not have caused — `onClose` is a
    * fresh closure every render of the parent, and listing it as a dependency
-   * without the guard would attempt the match a second time.
+   * without the guard would attempt the decision a second time.
    *
-   * FOUND, AND NOT ALREADY ENTERED, is what "this listener may see it" means
-   * here: `alreadyEntered` promotions ARE in the list (the button below
-   * merely disables them, spec's own choice), so a match on `id` alone would
-   * auto-open a walk this listener cannot finish. Neither case renders an
-   * error — both fall to `onClose`, the exact fallback a click on "Back"
-   * gives, because a bad `open` is never an error here.
+   * THE DECISION ITSELF IS `decideAutoOpen` (promotion-mapping.ts), not
+   * written out here, so it is one function a test can call rather than a
+   * branch only a browser exercises. Its three outcomes:
+   *   - `open` — set as `chosen`, exactly what clicking the list entry does;
+   *   - `show-list` — an ALREADY-ENTERED match. Do nothing: `chosen` stays
+   *     null, and the fall-through render below already shows this exact
+   *     promotion, disabled, with `alreadyEntered` on screen — which answers
+   *     what the listener's link was actually about, unlike the bare
+   *     two-button menu this used to fall back to (fix round 1);
+   *   - `back-to-menu` — no promotion in this listener's own list carries
+   *     this id at all. `onClose` is the same fallback a click on "Back"
+   *     gives, because a bad `open` is never an error here.
+   * A list that never reached `ready` (refused, or still loading when the
+   * guard fires) cannot be searched at all, and is folded into the same
+   * `back-to-menu` fallback: a promotion this code could not confirm is
+   * visible is not one it can open.
    */
   const autoOpenAttempted = useRef(false);
   useEffect(() => {
@@ -100,12 +111,13 @@ export function EnterPromotionPanel({
     autoOpenAttempted.current = true;
 
     if (list.status === 'ready') {
-      const match = list.promotions.find((p) => p.id === autoOpenId && !p.alreadyEntered);
-      if (match) {
-        setChosen(match);
+      const decision = decideAutoOpen(list.promotions, autoOpenId);
+      if (decision.action === 'open') {
+        setChosen(decision.promotion);
         setScreen(0);
         return;
       }
+      if (decision.action === 'show-list') return;
     }
 
     onClose();
