@@ -1772,6 +1772,7 @@
     "noteCount": "{count} of 500",
     "sendRequest": "Send request",
     "back": "Back",
+    "backToMenu": "Back to the menu",
     "requestRecorded": "Your request is with the station.",
     "waitAgainInMinutes": "You can ask for another song in {count, plural, one {# minute} other {# minutes}}.",
     "waitAgainInHours": "You can ask for another song in {count, plural, one {# hour} other {# hours}}.",

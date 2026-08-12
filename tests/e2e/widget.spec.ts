@@ -622,6 +622,24 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-song-results').getByRole('button').first().click();
 
   await widget.getByTestId('widget-song-note').fill(LISTENER_NOTE);
+
+  // Block 20a, item 1. THE NOTE SCREEN IS THE ONE PLACE TWO WAYS BACK ARE ON
+  // SCREEN AT ONCE -- the outline button returns to the search, the Shell's
+  // returns to the menu -- and until this block both of them read the same
+  // word. Asserted by accessible NAME rather than by counting buttons: a
+  // count of two passed before this change as well, which is the shape of
+  // assertion that proves nothing.
+  //
+  // ENGLISH, because playwright.config.ts pins locale: 'en-US' for the whole
+  // suite and this visitor has no profile, cookie or Accept-Language to
+  // resolve anything else from. `exact: true` is load-bearing: without it
+  // "Back" matches "Back to the menu" by substring and the first assertion
+  // reports two.
+  await expect(widget.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
+  await expect(
+    widget.getByRole('button', { name: 'Back to the menu', exact: true }),
+  ).toHaveCount(1);
+
   await widget.getByTestId('widget-song-send').click();
 
   await expect(widget.getByTestId('widget-song-recorded')).toBeVisible({ timeout: 30_000 });

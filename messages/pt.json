@@ -1772,6 +1772,7 @@
     "noteCount": "{count} de 500",
     "sendRequest": "Enviar pedido",
     "back": "Voltar",
+    "backToMenu": "Voltar ao menu",
     "requestRecorded": "Seu pedido chegou à emissora.",
     "waitAgainInMinutes": "Você pode pedir outra música em {count, plural, one {# minuto} other {# minutos}}.",
     "waitAgainInHours": "Você pode pedir outra música em {count, plural, one {# hora} other {# horas}}.",

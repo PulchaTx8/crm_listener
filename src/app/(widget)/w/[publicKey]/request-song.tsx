@@ -160,7 +160,7 @@ export function RequestSongPanel({
 
   if (chosen) {
     return (
-      <Shell title={t('requestASong')} onClose={onClose}>
+      <Shell title={t('requestASong')} onClose={onClose} closeLabel={t('backToMenu')}>
         <form action={submit} className="flex flex-col gap-3">
           <input type="hidden" name="publicKey" value={publicKey} />
           <input type="hidden" name="deezerTrackId" value={chosen.id} />
@@ -278,6 +278,7 @@ function Shell({
   title,
   onClose,
   publicKey,
+  closeLabel,
   children,
 }: {
   title: string;
@@ -295,6 +296,19 @@ function Shell({
    * a callback threaded down from a parent's client state cannot.
    */
   publicKey?: string;
+  /**
+   * What this panel's own way out is called, named by the caller.
+   *
+   * Block 20a, item 1, D1. The note screen draws its OWN "Voltar" inside the
+   * form -- one step back, to the search -- so on that one screen this button
+   * has to say where it goes instead. The other five call sites draw no button
+   * of their own and pass nothing, which is why this is a prop rather than a
+   * rename: "Voltar" is right everywhere it is unambiguous.
+   *
+   * The same prop, for the same reason and with the same default, as
+   * enter-promotion.tsx's Shell.
+   */
+  closeLabel?: string;
   children: React.ReactNode;
 }) {
   const t = useTranslations('widget');
@@ -308,7 +322,7 @@ function Shell({
       {children}
       <div className="flex gap-2">
         <Button type="button" variant="ghost" onClick={onClose}>
-          {t('back')}
+          {closeLabel ?? t('back')}
         </Button>
         {publicKey ? (
           <form action={signOutAction.bind(null, publicKey)}>
