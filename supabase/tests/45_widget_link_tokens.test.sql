@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(12);
 
 -- Block 19a (D2). mint_widget_link and consume_widget_link: the single-use
 -- door a hashtag answer opens. Fixtures follow 39_widget_installations (one
@@ -205,25 +205,31 @@ select ok(
   'and so is a different promotion, for the same listener and the same PROMOTION purpose');
 
 -- ---------------------------------------------------------------------------
--- 5. Minting after the window mints a fresh code. "The old one no longer
--- consumes" needs more than escaping the window to be true: mint_widget_link
--- inserts a second row rather than touching the first, so a row that is
--- merely outside the two-minute look-back is still live -- unexpired,
--- unconsumed -- and would still consume successfully. The window is a resend
--- guard, not an invalidation of what came before it; only expires_at and
--- consumed_at ever gate consume_widget_link (assertion 9 covers expiry on its
--- own). So an "old" link here is backdated on BOTH columns -- created_at,
--- which is what the window itself reads, and expires_at, which is the only
--- column that actually makes a row stop working -- the concrete, honest
--- shape of a link nobody used in time.
+-- 5a/5b. Minting after the window mints a fresh code, WHILE THE PREVIOUS ONE
+-- IS STILL LIVE. Only `created_at` is backdated here -- `expires_at` is left
+-- exactly as mint_widget_link set it, so the old row is genuinely unexpired
+-- when the second mint runs. That is deliberate: if `expires_at` were also
+-- pushed into the past, the window predicate's `expires_at > now()` clause
+-- alone would already exclude the row, and the `created_at > now() - interval
+-- '2 minutes'` clause -- D2's actual two-minute decision -- would never be
+-- the thing this assertion depends on. Fix round 1 caught exactly that: the
+-- previous version backdated both columns, so deleting the created_at clause
+-- from the live function left this file at 10/10 all the same.
+--
+-- 5a proves the window is escaped (a fresh, distinct code). 5b proves the
+-- other half honestly: mint_widget_link inserts a second row rather than
+-- touching the first, so the OLD code -- merely outside the two-minute
+-- look-back, not expired, not consumed -- still consumes. Nothing about
+-- minting a new code invalidates an older, still-live one; only expires_at
+-- and consumed_at ever gate consume_widget_link (assertions 6, 7, 9 cover
+-- those).
 -- ---------------------------------------------------------------------------
 create temporary table t5_first as
 select public.mint_widget_link(
   '00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-000000000715', 'MENU') as code;
 
 update public.widget_link_tokens
-   set created_at = now() - interval '5 minutes',
-       expires_at = now() - interval '1 minute'
+   set created_at = now() - interval '5 minutes'
  where token_hash = encode(extensions.digest((select code from t5_first), 'sha256'), 'hex');
 
 create temporary table t5_second as
@@ -232,9 +238,13 @@ select public.mint_widget_link(
 
 select ok(
   (select code from t5_second) is not null
-  and (select code from t5_second) <> (select code from t5_first)
-  and (public.consume_widget_link((select code from t5_first)) ->> 'ok') = 'false',
-  'minting after the window returns a fresh code, and a link that old -- past both the window and its own expiry -- no longer consumes');
+  and (select code from t5_second) <> (select code from t5_first),
+  'minting after the window mints a fresh code, even though the previous one -- merely old, not expired -- is still live');
+
+select is(
+  public.consume_widget_link((select code from t5_first)) ->> 'ok',
+  'true',
+  'and that previous code still consumes -- nothing about minting a new one invalidates an older, still-unexpired link');
 
 -- ---------------------------------------------------------------------------
 -- 6. consume_widget_link answers the claims and burns the row.
@@ -311,6 +321,17 @@ select is(
   public.consume_widget_link((select code from t10_mint)) ->> 'reason',
   'unavailable',
   'a code for an installation disabled since minting refuses separately, as unavailable rather than unusable');
+
+-- ---------------------------------------------------------------------------
+-- Addition. The code travels in a URL query string, so it must stay
+-- URL-safe -- correct by construction today (mint_widget_link's own comment:
+-- "URL-safe, and without padding"), but that construction has no test of its
+-- own anywhere above. This is what keeps it true if somebody ever changes the
+-- encoding underneath it.
+-- ---------------------------------------------------------------------------
+select ok(
+  (select code from t1_mint) !~ '[+/=]',
+  'the minted code contains no +, / or = -- safe to place directly in a URL query string');
 
 select * from finish();
 rollback;

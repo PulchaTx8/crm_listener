@@ -222,14 +222,14 @@ git commit -m "feat(19a): the two hashtags a Station answers with a link"
 Create `supabase/tests/45_widget_link_tokens.test.sql`, `select plan(10)`:
 
 1. `mint_widget_link` returns a code, and the row stores only its SHA-256 (the raw code appears nowhere in the table).
-2. Minting twice inside two minutes returns **the same code**.
+2. Minting twice inside two minutes returns **NULL** the second time — the raw code is unrecoverable by design, so the window says "already answered, send nothing" rather than repeating itself.
 3. …only when the purpose matches: `MUSIC` then `MENU` returns two different codes.
 4. …and only when the promotion matches: two different `PROMOTION` codes for two promotions.
 5. Minting after the window (backdate `created_at`) returns a new code and the old one no longer consumes.
 6. `consume_widget_link` returns the claims and marks the row.
-7. A second consume of the same code refuses with `already_used`.
-8. **Two concurrent consumes: exactly one wins.** Two sessions, both `select ... for update` through the function; assert one `ok:true` and one `already_used`.
-9. An expired code refuses with `expired`, and expiry is 15 minutes.
+7. A second consume of the same code refuses with `unusable`.
+8. **Two concurrent consumes: exactly one wins.** Genuinely two sessions — `dblink` if this stack has it, and if it has not, DROP this assertion and say so in the file rather than writing a sequential test wearing the word "concurrent": that test passes against the broken select-then-update it exists to catch. Task 9's load test covers real concurrency either way.
+9. An expired code refuses with `unusable`, and expiry is 15 minutes. Used, expired and unknown are ONE answer on purpose (§7 of the spec) — the caller serves a public URL and the difference would only help somebody probing.
 10. A code for an installation that has been disabled since minting refuses with `unavailable`.
 
 - [ ] **Step 2: Run it and watch it fail**
