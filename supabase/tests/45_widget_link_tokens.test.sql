@@ -1,5 +1,5 @@
 begin;
-select plan(13);
+select plan(15);
 
 -- Block 19a (D2). mint_widget_link and consume_widget_link: the single-use
 -- door a hashtag answer opens. Fixtures follow 39_widget_installations (one
@@ -321,6 +321,72 @@ select is(
   public.consume_widget_link((select code from t10_mint)) ->> 'reason',
   'unavailable',
   'a code for an installation disabled since minting refuses separately, as unavailable rather than unusable');
+
+-- ---------------------------------------------------------------------------
+-- 10b/10c. Task 9, fix round 1, C1. consume_widget_link (0178) must refuse a
+-- code the SAME way -- 'unavailable' -- when the Station was SUSPENDED or its
+-- Organization BLOCKED after the code was minted, not only when the
+-- installation itself was disabled (assertion 10). Before this fix
+-- consume_widget_link checked only widget_installations.enabled, which
+-- neither suspend_company nor blocking an Organization ever touches (0164's
+-- own point) -- so a suspended Station's link went on minting sessions and
+-- landing the visitor on the plain 404 this block exists to forbid.
+--
+-- OWN FIXTURES for both, deliberately not the shared Station above:
+-- assertion 10 already leaves that installation disabled, and entangling a
+-- second failure mode into one assertion would prove less than either
+-- condition alone.
+-- ---------------------------------------------------------------------------
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-000000000901', 'Org widget link tokens (Station suspended)'),
+  ('00000000-0000-0000-0000-000000000911', 'Org widget link tokens (Org blocked)');
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-000000000902', '00000000-0000-0000-0000-000000000901',
+   'Station widget link tokens (suspended)', 'America/Sao_Paulo'),
+  ('00000000-0000-0000-0000-000000000912', '00000000-0000-0000-0000-000000000911',
+   'Station widget link tokens (org blocked)', 'America/Sao_Paulo');
+insert into public.widget_installations (id, organization_id, company_id, public_key, enabled) values
+  ('00000000-0000-0000-0000-000000000903', '00000000-0000-0000-0000-000000000901',
+   '00000000-0000-0000-0000-000000000902', 'pw_9999000011112222333344', true),
+  ('00000000-0000-0000-0000-000000000913', '00000000-0000-0000-0000-000000000911',
+   '00000000-0000-0000-0000-000000000912', 'pw_9999000011112222333355', true);
+insert into public.members (id, organization_id) values
+  ('00000000-0000-0000-0000-000000000904', '00000000-0000-0000-0000-000000000901'),
+  ('00000000-0000-0000-0000-000000000914', '00000000-0000-0000-0000-000000000911');
+
+create temporary table t10b_mint as
+select public.mint_widget_link(
+  '00000000-0000-0000-0000-000000000902', '00000000-0000-0000-0000-000000000904', 'MUSIC') as code;
+
+update public.companies
+   set status = 'suspended'
+ where id = '00000000-0000-0000-0000-000000000902';
+
+select is(
+  public.consume_widget_link((select code from t10b_mint)) ->> 'reason',
+  'unavailable',
+  'a code for a Station SUSPENDED since minting refuses as unavailable -- consume_widget_link now joins companies, not only mint_widget_link and widget_link_send_context');
+
+create temporary table t10c_mint as
+select public.mint_widget_link(
+  '00000000-0000-0000-0000-000000000912', '00000000-0000-0000-0000-000000000914', 'MUSIC') as code;
+
+-- organizations_block_shape (0154) requires suspended_at and suspended_by
+-- together -- the same pair-shape every archival column in this schema
+-- uses -- and suspended_by carries a real FK to auth.users, so a raw
+-- UPDATE needs a real row behind it, the same way 44_service_hashtags
+-- .test.sql inserts auth.users directly for its own fixtures.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000915', 'widget-link-tokens-blocker@example.test');
+update public.organizations
+   set suspended_at = now(),
+       suspended_by = '00000000-0000-0000-0000-000000000915'
+ where id = '00000000-0000-0000-0000-000000000911';
+
+select is(
+  public.consume_widget_link((select code from t10c_mint)) ->> 'reason',
+  'unavailable',
+  'a code for a Station whose ORGANIZATION was blocked since minting refuses as unavailable -- consume_widget_link now joins organizations too');
 
 -- ---------------------------------------------------------------------------
 -- 11. Fix round 1 (Important #5, the owner's ruling, 0164): mint_widget_link

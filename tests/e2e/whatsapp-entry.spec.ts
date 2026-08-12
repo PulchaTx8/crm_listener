@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { Client } from 'pg';
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import {
   LOCAL_SUPABASE_URL,
@@ -44,9 +44,13 @@ import { provisionCustomer } from './provision';
  *      when a used link is opened a second time and when the parameter is
  *      visited directly.
  *   5. THE ONE THIS CASE EXISTS FOR: the same sentence, not a 404, at a
- *      Station switched off after the link was minted. `page.tsx` 404s a
- *      dark Station on every other path; only `?link=expired` makes it
- *      render the identify form instead (`page.tsx`'s own comment on
+ *      Station that goes dark after the link was minted — in the TWO
+ *      distinct ways that can happen, since they travel different code
+ *      paths to it: the installation itself disabled (5a), and the Station
+ *      SUSPENDED or its Organization BLOCKED (5b), which `consume_widget_
+ *      link` did not check until this block's fix round 1 (C1). `page.tsx`
+ *      404s a dark Station on every other path; only `?link=expired` makes
+ *      it render the identify form instead (`page.tsx`'s own comment on
  *      `installationExists`).
  */
 
@@ -65,8 +69,15 @@ const ownerPassword = `Init-${stamp}-aA1!`;
 /** Distinct per listener, so a rerun mints its own member and its own code. */
 const JOURNEY_LOCAL_PHONE = `11${String(stamp).slice(-9)}`;
 const JOURNEY_DELIVERED_PHONE = `55${JOURNEY_LOCAL_PHONE}`;
-const DARK_STATION_LOCAL_PHONE = `21${String(stamp).slice(-9)}`;
-const DARK_STATION_DELIVERED_PHONE = `55${DARK_STATION_LOCAL_PHONE}`;
+const DISABLED_INSTALLATION_LOCAL_PHONE = `21${String(stamp).slice(-9)}`;
+const DISABLED_INSTALLATION_DELIVERED_PHONE = `55${DISABLED_INSTALLATION_LOCAL_PHONE}`;
+// Fix round 1, C1. A THIRD, distinct phone: the installation-disabled case
+// above and this one travel different code paths (widget_installations
+// .enabled vs. companies.status/organizations.suspended_at) to the same
+// sentence, and sharing a listener between them would leave D2's
+// two-minute window standing in the way of whichever ran second.
+const SUSPENDED_STATION_LOCAL_PHONE = `31${String(stamp).slice(-9)}`;
+const SUSPENDED_STATION_DELIVERED_PHONE = `55${SUSPENDED_STATION_LOCAL_PHONE}`;
 
 const MUSIC_HASHTAG = '#MUSICA';
 const PHONE_NUMBER_ID = `e2e-entry-${stamp}`;
@@ -182,6 +193,49 @@ function linkFromBody(body: string): string {
   const match = body.match(/https?:\/\/\S+/);
   if (!match) throw new Error(`no link found in outbox body: ${body}`);
   return match[0]!;
+}
+
+/**
+ * The signed webhook POST, the worker tick, and the resulting link — the
+ * three steps both case-5 variants share before they diverge on how the
+ * Station goes dark. Returns the link exactly as it was minted, before
+ * either variant does anything to the installation or the company.
+ */
+async function mintLinkForPhone(
+  request: APIRequestContext,
+  deliveredPhone: string,
+  wamid: string,
+): Promise<string> {
+  const raw = metaBody(wamid, deliveredPhone, 'quero uma música #MUSICA');
+  const webhookResponse = await request.post('/api/webhooks/whatsapp', {
+    data: raw,
+    headers: { 'x-hub-signature-256': signBody(raw), 'content-type': 'application/json' },
+    maxRedirects: 0,
+  });
+  expect(webhookResponse.status()).toBe(200);
+
+  const tickResponse = await request.post('/api/worker/tick', {
+    headers: { 'x-worker-secret': WORKER_TICK_SECRET_FOR_TESTS },
+  });
+  expect(tickResponse.status()).toBe(200);
+
+  const dedupeKey = `${sha256Hex(wamid)}:link`;
+  const { body, toPhone } = await readOutboxBody(dedupeKey);
+  expect(toPhone).toBe(deliveredPhone);
+  return linkFromBody(body);
+}
+
+/** A client signed in as the platform admin this file already provisioned. */
+async function signInAsPlatformAdmin() {
+  const adminClient = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error } = await adminClient.auth.signInWithPassword({
+    email: adminEmail,
+    password: adminPassword,
+  });
+  if (error) throw new Error(`could not sign in the platform admin: ${error.message}`);
+  return adminClient;
 }
 
 test.beforeAll(async () => {
@@ -342,6 +396,19 @@ test('a hashtag becomes a link, the link identifies, and the widget answers the 
     // WhatsApp link still submits through the web widget's own action.
     expect(request0!.channel).toBe('WEB');
     expect(request0!.listener_note).toBe(LISTENER_NOTE);
+
+    // THE STRONGEST PROOF the session identified THIS listener and nobody
+    // else: the member id on the request matches the one the hashtag
+    // resolved to, read back independently by phone rather than trusted
+    // from the widget's own screen.
+    const { data: listenerRows, error: listenerError } = await admin
+      .from('members')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('phone_normalized', JOURNEY_LOCAL_PHONE);
+    if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
+    expect(listenerRows, 'exactly one member for the phone that sent the hashtag').toHaveLength(1);
+    expect(request0!.member_id).toBe(listenerRows![0]!.id);
   });
 
   await test.step('case 2: open=promotion&id=<uuid> lands on that specific promotion\'s panel', async () => {
@@ -398,43 +465,38 @@ test('a hashtag becomes a link, the link identifies, and the widget answers the 
   });
 });
 
-test('case 5: a Station switched off after the link was minted still answers link=expired, never a 404', async ({
+// ---------------------------------------------------------------------------
+// Case 5, in TWO variants (fix round 1, C1). They travel different code
+// paths to the identical sentence:
+//
+//   - the installation itself disabled (widget_installations.enabled) —
+//     the one 0178 always checked, and the one this file originally tested
+//     alone;
+//   - the STATION SUSPENDED, or its ORGANIZATION BLOCKED, through
+//     companies.status / organizations.suspended_at — the one
+//     consume_widget_link never checked until fix round 1, so a real
+//     suspension left a WhatsApp-minted link minting a session anyway and
+//     landing the visitor on the plain 404 this whole section exists to
+//     forbid. Rewritten with `suspend_company` alone, the pre-fix code
+//     failed this exact case.
+//
+// Both mint their link BEFORE the Station goes dark, through the shared
+// mintLinkForPhone helper, and each uses its own listener so neither shares
+// D2's two-minute window with the other or with the journey test above.
+// ---------------------------------------------------------------------------
+
+test('case 5a: an installation disabled after the link was minted still answers link=expired, never a 404', async ({
   page,
   request,
 }) => {
-  const wamid = `wamid.entry-dark-station-${stamp}`;
-  let link = '';
+  const link = await mintLinkForPhone(
+    request,
+    DISABLED_INSTALLATION_DELIVERED_PHONE,
+    `wamid.entry-disabled-installation-${stamp}`,
+  );
 
-  await test.step('mint a link for a second listener at the same Station', async () => {
-    const raw = metaBody(wamid, DARK_STATION_DELIVERED_PHONE, 'quero uma música #MUSICA');
-    const webhookResponse = await request.post('/api/webhooks/whatsapp', {
-      data: raw,
-      headers: { 'x-hub-signature-256': signBody(raw), 'content-type': 'application/json' },
-      maxRedirects: 0,
-    });
-    expect(webhookResponse.status()).toBe(200);
-
-    const tickResponse = await request.post('/api/worker/tick', {
-      headers: { 'x-worker-secret': WORKER_TICK_SECRET_FOR_TESTS },
-    });
-    expect(tickResponse.status()).toBe(200);
-
-    const dedupeKey = `${sha256Hex(wamid)}:link`;
-    const { body, toPhone } = await readOutboxBody(dedupeKey);
-    expect(toPhone).toBe(DARK_STATION_DELIVERED_PHONE);
-    link = linkFromBody(body);
-  });
-
-  await test.step('the Station goes dark before the link is ever opened', async () => {
-    const adminClient = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { error: signInError } = await adminClient.auth.signInWithPassword({
-      email: adminEmail,
-      password: adminPassword,
-    });
-    if (signInError) throw new Error(`could not sign in the platform admin: ${signInError.message}`);
-
+  await test.step('the installation is disabled before the link is ever opened', async () => {
+    const adminClient = await signInAsPlatformAdmin();
     const { error: disableError } = await adminClient.rpc('upsert_widget_installation', {
       p_company_id: companyId,
       p_public_key: publicKey,
@@ -444,13 +506,66 @@ test('case 5: a Station switched off after the link was minted still answers lin
     if (disableError) throw new Error(`could not disable the installation: ${disableError.message}`);
   });
 
-  await test.step('the link answers link=expired, not a 404 -- the whole reason this case exists', async () => {
+  await test.step('the link answers link=expired, not a 404', async () => {
     // A FRESH `page`: no session cookie from any earlier test can smuggle
     // this listener past the branch under test.
     const response = await page.goto(link);
-    expect(response?.status(), 'a dark Station answers link=expired, never the plain 404 it gives everywhere else').toBe(
-      200,
-    );
+    expect(
+      response?.status(),
+      'a disabled installation answers link=expired, never the plain 404 it gives everywhere else',
+    ).toBe(200);
+    await expect(page.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('widget-link-expired')).toBeVisible();
+  });
+});
+
+test('case 5b: a Station SUSPENDED after the link was minted still answers link=expired, never a 404 -- the whole reason this case exists', async ({
+  page,
+  request,
+}) => {
+  const adminClient = await signInAsPlatformAdmin();
+
+  await test.step('re-enable the installation case 5a left disabled', async () => {
+    // Case 5a's own last act, and it never undoes it -- nothing after it in
+    // that test needs the installation again. This one does: minting a
+    // link at all requires an ENABLED installation
+    // (widget_link_send_context, 0181), and this case's whole point is
+    // that the installation itself stays untouched throughout -- only
+    // companies.status changes below.
+    const { error: reenableError } = await adminClient.rpc('upsert_widget_installation', {
+      p_company_id: companyId,
+      p_public_key: publicKey,
+      p_enabled: true,
+      p_allowed_origins: ['https://whatsapp-entry.example'],
+    });
+    if (reenableError) throw new Error(`could not re-enable the installation: ${reenableError.message}`);
+  });
+
+  const link = await mintLinkForPhone(
+    request,
+    SUSPENDED_STATION_DELIVERED_PHONE,
+    `wamid.entry-suspended-station-${stamp}`,
+  );
+
+  await test.step('the Station is suspended before the link is ever opened -- the installation itself is untouched', async () => {
+    // suspend_company, not upsert_widget_installation: widget_installations
+    // .enabled stays true throughout this test. Before fix round 1,
+    // consume_widget_link read only that flag -- checking it here, alone,
+    // is what proves the fix reaches the right column rather than merely
+    // agreeing with case 5a by coincidence.
+    const { error: suspendError } = await adminClient.rpc('suspend_company', {
+      p_company_id: companyId,
+      p_reason: 'e2e fix round 1, C1: a suspended Station must not keep minting sessions',
+    });
+    if (suspendError) throw new Error(`could not suspend the Station: ${suspendError.message}`);
+  });
+
+  await test.step('the link answers link=expired, not a 404', async () => {
+    const response = await page.goto(link);
+    expect(
+      response?.status(),
+      'a suspended Station answers link=expired, never the plain 404 it gives everywhere else',
+    ).toBe(200);
     await expect(page.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('widget-link-expired')).toBeVisible();
   });

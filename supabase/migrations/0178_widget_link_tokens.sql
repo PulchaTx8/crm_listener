@@ -144,9 +144,42 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'unusable');
   end if;
 
+  -- Task 9, fix round 1, C1. THE SAME JOIN 0164 ALREADY CARRIES AT THE
+  -- WIDGET'S OTHER PUBLIC DOORS, AND 0181 ALREADY CARRIES AT
+  -- mint_widget_link AND widget_link_send_context -- missing here until
+  -- now, which was Task 5's own omission and not a later regression: this
+  -- function was written before 0181 existed, and 0181's header explains
+  -- carrying the join into mint_widget_link by CREATE OR REPLACE rather
+  -- than reopening this file, precisely because "0178... has never been
+  -- applied outside local resets" was not yet true of the review that
+  -- wrote it. It is true now, so this one is fixed in place instead of by
+  -- a fourth copy of the same join in a later migration.
+  --
+  -- WITHOUT IT: a Station suspended, or an Organization blocked, between
+  -- the mint and the tap left `consume_widget_link` answering `ok:true` --
+  -- checking only `widget_installations.enabled`, which a suspension never
+  -- touches (0164's own point) -- so the route minted a session and
+  -- redirected to the widget WITHOUT `link=expired`. `page.tsx` then found
+  -- no installation through `installationExists` (which DOES join
+  -- `companies`/`organizations`, via `widget_frame_context`), `linkExpired`
+  -- was false, and it called `notFound()`: the plain 404 this whole block
+  -- exists to forbid a WhatsApp-minted link from ever producing -- and
+  -- because the UPDATE above had already burned the code, a second tap
+  -- could only ever show "ask again", with nothing anywhere pointing at
+  -- the real cause.
   if not exists (
-    select 1 from public.widget_installations
-     where company_id = v_row.company_id and enabled and deleted_at is null
+    select 1
+      from public.widget_installations w
+      join public.companies c
+        on c.id = w.company_id
+       and c.deleted_at is null
+       and c.status = 'active'
+      join public.organizations o
+        on o.id = w.organization_id
+       and o.suspended_at is null
+     where w.company_id = v_row.company_id
+       and w.enabled
+       and w.deleted_at is null
   ) then
     return jsonb_build_object('ok', false, 'reason', 'unavailable');
   end if;
@@ -163,7 +196,7 @@ end;
 $$;
 
 comment on function public.consume_widget_link is
-  'Block 19a (D2). Trades a code for the claims a widget session is minted from, and burns it in the same statement -- the UPDATE carries `consumed_at is null` in its predicate, so two simultaneous opens have exactly one winner and the loser reads no row rather than a stale one. Expired, used and unknown are ONE answer: the caller serves a public URL and the difference would only help somebody probing. A Station switched off since the code was minted refuses separately, because that is a configuration an operator can act on.';
+  'Block 19a (D2). Trades a code for the claims a widget session is minted from, and burns it in the same statement -- the UPDATE carries `consumed_at is null` in its predicate, so two simultaneous opens have exactly one winner and the loser reads no row rather than a stale one. Expired, used and unknown are ONE answer: the caller serves a public URL and the difference would only help somebody probing. A Station switched off, SUSPENDED, or whose Organization has been BLOCKED since the code was minted refuses separately as unavailable (Task 9 fix round 1, C1, joining companies and organizations the same way 0181''s mint_widget_link and widget_link_send_context already do) -- because those are all configurations an operator can act on, and because leaving out the join here let a suspended Station''s link mint a session anyway and land the visitor on the plain 404 this whole block exists to prevent.';
 
 revoke execute on function public.mint_widget_link(uuid, uuid, public.widget_link_purpose, uuid) from public, anon, authenticated;
 revoke execute on function public.consume_widget_link(text) from public, anon, authenticated;
