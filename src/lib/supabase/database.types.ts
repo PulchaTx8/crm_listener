@@ -5385,6 +5385,7 @@ export type Database = {
         Args: { p_member_id: string; p_public_key: string }
         Returns: Json
       }
+      widget_station_identity: { Args: { p_public_key: string }; Returns: Json }
       widget_verify_code: {
         Args: {
           p_code_hash: string
