@@ -908,9 +908,55 @@ git commit -m "feat(19a): the widget opens on what the link asked for"
 - Create: `src/app/(app)/templates/messages/hashtag-fields.tsx`
 - Modify: `src/app/(app)/templates/messages/{page,actions}.tsx|ts`, `src/services/templates.ts`, `messages/{en,pt,es}.json`
 
-- [ ] **Step 1: Service and action**
+- [ ] **Step 1: The read door, because there is no reading without one**
 
-`getServiceHashtags(companyId)` reads the two columns through PostgREST; `setServiceHashtags` calls Task 1's door with the caller's token, mapping `42501` → "you do not hold templates.manage", `22023` → the door's own sentence verbatim (it names the clashing hashtag), `P0002` → "this Station has no widget installation".
+`widget_installations` carries RLS with **no policy** and its ACL revoked (0159):
+every reader is inside a `SECURITY DEFINER` body, and even the service client is
+refused with 42501. So the screen cannot read the two columns through PostgREST,
+and `0182_service_hashtags_read.sql` adds:
+
+```sql
+create function public.service_hashtags_for(p_company_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_row public.widget_installations%rowtype;
+begin
+  if not public.has_permission('templates.view', p_company_id) then
+    raise exception 'permission denied: templates.view required' using errcode = '42501';
+  end if;
+
+  select * into v_row
+    from public.widget_installations
+   where company_id = p_company_id and deleted_at is null;
+
+  -- A Station with no installation is not an error: the screen shows the two
+  -- fields disabled with the reason, and creating an installation is a console
+  -- act (0159). `installed` is what tells the two states apart, since both
+  -- carry null hashtags.
+  if not found then
+    return jsonb_build_object('installed', false, 'music', null, 'service', null);
+  end if;
+
+  return jsonb_build_object(
+    'installed', true,
+    'music',     v_row.music_hashtag,
+    'service',   v_row.service_hashtag);
+end;
+$$;
+```
+
+Granted to `authenticated`, revoked from `public`/`anon`. Note it reads
+`deleted_at is null` but NOT `enabled`: a Station may configure its hashtags
+before switching the widget on, and hiding the current values from an operator
+who has not enabled it yet would look like the settings were lost.
+
+- [ ] **Step 1b: Service and action**
+
+`getServiceHashtags(companyId)` calls that door; `setServiceHashtags` calls Task 1's door with the caller's token, mapping `42501` → "you do not hold templates.manage", `22023` → the door's own sentence verbatim (it names the clashing hashtag), `P0002` → "this Station has no widget installation".
 
 - [ ] **Step 2: The fields**
 
