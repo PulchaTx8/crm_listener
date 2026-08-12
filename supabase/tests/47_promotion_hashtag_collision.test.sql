@@ -1,5 +1,5 @@
 begin;
-select plan(8);
+select plan(10);
 
 -- Block 19a, final review fix wave, Important #5. The collision guard was
 -- one-directional: set_service_hashtags (0177) already refuses a Station
@@ -76,6 +76,26 @@ $$, '22023', 'the hashtag #AJUDA already belongs to this Station''s service hash
   'create_promotion refuses a hashtag equal to this Station''s own service hashtag, naming which one');
 
 -- ---------------------------------------------------------------------------
+-- Second dispatch (regression in the round above). The first version of
+-- this guard refused UNCONDITIONALLY -- no window, unlike 0177's own clash
+-- check. An ENDED promotion whose hashtag equals the Station's own must
+-- save cleanly: 0177's window is `ends_at > now()` precisely because an
+-- ended promotion cannot shadow anything (ingest_whatsapp_event never
+-- matches outside a promotion's own window), and 0177 already let the
+-- Station claim this exact word on that basis. This promotion's id is
+-- captured for the "revival" assertion near the end of this file.
+-- ---------------------------------------------------------------------------
+create temporary table t47_ended as
+select public.create_promotion(
+  '00000000-0000-0000-0000-000000000702', 'Promo colide mas ja acabou',
+  now() - interval '40 days', now() - interval '10 days',
+  null, null, false, null, false, true, '#TOCA') as id;
+
+select isnt(
+  (select id from t47_ended), null,
+  'an ENDED promotion whose hashtag equals the Station''s own music hashtag saves cleanly (mirrors 0177''s ends_at > now() window)');
+
+-- ---------------------------------------------------------------------------
 -- 3. Tenancy. The same word at Station B, which has configured neither
 --    hashtag, is not this Station's word and is accepted.
 -- ---------------------------------------------------------------------------
@@ -142,6 +162,24 @@ select lives_ok($$
     (select id from t47_promo), 'Promo sem colisao renomeada', now() - interval '1 day', now() + interval '30 days',
     null, null, false, null, false, true, '#SEMCOLISAO')
 $$, 'an ordinary resave with no colliding hashtag still lives');
+
+-- ---------------------------------------------------------------------------
+-- Second dispatch. The assertion the coordinator named as missing: a resave
+-- of an UNCHANGED hashtag is never refused, even when the promotion is
+-- revived into a LIVE window and the hashtag it already carried collides
+-- with the Station's own -- the guard is skipped on the hashtag being
+-- unchanged, independent of the window ("whatever the window says"),
+-- because a save that does not touch the hashtag cannot be what introduces
+-- a collision. t47_ended is the promotion two assertions after the top of
+-- this file proved saves cleanly while ended; this is the same promotion,
+-- same hashtag, revived.
+-- ---------------------------------------------------------------------------
+select lives_ok($$
+  select public.update_promotion(
+    (select id from t47_ended), 'Promo colide mas ja acabou, revivida',
+    now() - interval '1 day', now() + interval '30 days',
+    null, null, false, null, false, true, '#TOCA')
+$$, 'reviving an ended promotion without touching its already-colliding hashtag is never refused');
 
 select * from finish();
 rollback;

@@ -24,6 +24,21 @@
 -- for update_promotion, after the freeze check and before the banner-erasure
 -- side effect and the UPDATE. CREATE OR REPLACE, not DROP + CREATE: neither
 -- signature changes, so the grants 0172 made survive untouched.
+--
+-- FIX ROUND, SECOND DISPATCH. The first version of the two checks below
+-- refused UNCONDITIONALLY -- no window, unlike 0177's own clash check
+-- (`ends_at > now()`), and no exemption for an update that leaves the
+-- hashtag untouched. Reachable entirely through supported doors: a
+-- promotion ends still holding a hashtag; the Station later claims that
+-- same word as its music_hashtag, which 0177 allows by design (an ended
+-- promotion cannot shadow anything); every later save of that promotion
+-- then re-posts the same unchanged hashtag (update_promotion's own
+-- wholesale-replace convention) and was refused, forever, over a field the
+-- operator never touched -- and if anybody had ever entered it, 0055's
+-- freeze forbids changing the hashtag away from the collision either,
+-- leaving no way out at all. Both checks now carry 0177's own window and,
+-- on update_promotion, skip whenever the hashtag itself is unchanged; see
+-- each function's own comment on its guard for the reasoning in full.
 
 create or replace function public.update_promotion(
   p_promotion_id              uuid,
@@ -136,7 +151,35 @@ begin
   -- why. Checked here, at write time, the one moment an operator is looking,
   -- and scoped to THIS Station: a hashtag belongs to a Station, and the same
   -- word at a sibling Station is a different Station's word.
-  if v_hashtag is not null and exists (
+  --
+  -- FIX ROUND, SECOND DISPATCH (regression in the round above). This guard
+  -- shipped with no window at all, which made ANY promotion whose hashtag a
+  -- Station later claimed as its own permanently unsaveable: 0177's OWN
+  -- clash check is deliberately `ends_at > now()` (its header explains why
+  -- at length -- an ended promotion cannot shadow the Station's hashtag,
+  -- because ingest_whatsapp_event only ever matches a promotion inside its
+  -- own starts_at..ends_at, so refusing reuse forever is worse than the
+  -- collision it prevents). This guard is the mirror of that rule and now
+  -- carries the SAME window -- `p_ends_at > now()` -- for the same reason:
+  -- a promotion that has ended cannot shadow anything either, and 0177
+  -- already let the Station claim its hashtag on exactly that basis. Without
+  -- this window, update_promotion's own wholesale-replace convention (every
+  -- field re-posted on every call) meant a promotion born before the
+  -- Station claimed its ended hashtag would refuse EVERY later save,
+  -- forever, over a field the operator never touched -- and once anybody
+  -- had entered it, 0055's freeze also refuses changing the hashtag away
+  -- from the collision, leaving no way out at all.
+  --
+  -- ALSO SKIPPED WHEN THE HASHTAG IS UNCHANGED (`is not distinct from`
+  -- v_current_hashtag), independent of the window: a save that does not
+  -- touch the hashtag cannot be what INTRODUCES a collision, whatever the
+  -- window says, and this is what makes an ordinary resave -- change the
+  -- name, flip a flag, nothing to do with the hashtag -- never trip a guard
+  -- about a field that was not part of the edit.
+  if v_hashtag is not null
+     and v_hashtag is distinct from v_current_hashtag
+     and p_ends_at > now()
+     and exists (
     select 1 from public.widget_installations w
      where w.company_id = v_company
        and w.deleted_at is null
@@ -146,7 +189,10 @@ begin
       using errcode = '22023';
   end if;
 
-  if v_hashtag is not null and exists (
+  if v_hashtag is not null
+     and v_hashtag is distinct from v_current_hashtag
+     and p_ends_at > now()
+     and exists (
     select 1 from public.widget_installations w
      where w.company_id = v_company
        and w.deleted_at is null
@@ -292,7 +338,17 @@ begin
   -- refused a NEW promotion being born with the Station's own music or
   -- service hashtag, which would silently kill that door the moment this
   -- row is created. Scoped to this Station, the same as the reverse guard.
-  if v_hashtag is not null and exists (
+  --
+  -- FIX ROUND, SECOND DISPATCH: carries the same window as 0177's own clash
+  -- check, `p_ends_at > now()` -- see update_promotion's own comment on the
+  -- identical guard for the full reasoning (0177's header, and the
+  -- permanently-unsaveable regression this window closes). A promotion
+  -- being CREATED with an end date already in the past is unusual but not
+  -- illegal (an operator backfilling a record, say), and it cannot shadow
+  -- the Station's hashtag on arrival for the same reason an ended one
+  -- already in the table cannot: ingest_whatsapp_event never matches
+  -- outside a promotion's own window.
+  if v_hashtag is not null and p_ends_at > now() and exists (
     select 1 from public.widget_installations w
      where w.company_id = p_company_id
        and w.deleted_at is null
@@ -302,7 +358,7 @@ begin
       using errcode = '22023';
   end if;
 
-  if v_hashtag is not null and exists (
+  if v_hashtag is not null and p_ends_at > now() and exists (
     select 1 from public.widget_installations w
      where w.company_id = p_company_id
        and w.deleted_at is null
@@ -354,10 +410,10 @@ comment on function public.update_promotion(
   uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean,
   boolean, text, text, text, public.promotion_requested_field[], integer,
   boolean, text) is
-  'Replaces a promotion''s fields wholesale, gated on promotions.edit. Freezes the hashtag and the start date once a participation exists (Block 4c). Final review fix wave, Important #5: also refuses a hashtag equal to THIS Station''s own music_hashtag or service_hashtag (0177) -- the reverse of the guard set_service_hashtags already carries -- because D3 matches a promotion''s hashtag ahead of the Station''s two general ones, so this direction was open to the identical silent collision until now.';
+  'Replaces a promotion''s fields wholesale, gated on promotions.edit. Freezes the hashtag and the start date once a participation exists (Block 4c). Final review fix wave, Important #5: also refuses a hashtag equal to THIS Station''s own music_hashtag or service_hashtag (0177) -- the reverse of the guard set_service_hashtags already carries -- because D3 matches a promotion''s hashtag ahead of the Station''s two general ones, so this direction was open to the identical silent collision until now. Mirrors 0177''s own window, `ends_at > now()` (its header has the full reasoning: an ended promotion cannot shadow anything, because ingest_whatsapp_event never matches outside a promotion''s own window, so refusing reuse forever is worse than the collision it prevents) -- without it this guard made any promotion whose hashtag a Station later claimed permanently unsaveable, since every call re-posts every field including the unchanged hashtag. Also skipped whenever the hashtag itself is unchanged, independent of the window: a save that does not touch it cannot be what introduces a collision.';
 
 comment on function public.create_promotion(
   uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean,
   boolean, text, text, text, public.promotion_requested_field[], integer,
   boolean, text) is
-  'Creates a promotion, gated on promotions.create. Born without pictures -- set_promotion_thumb/set_promotion_art are separate calls against the id this returns. Final review fix wave, Important #5: refuses a hashtag equal to THIS Station''s own music_hashtag or service_hashtag (0177), the same guard update_promotion now carries and for the same reason -- a promotion born with the Station''s own word would silently close that door.';
+  'Creates a promotion, gated on promotions.create. Born without pictures -- set_promotion_thumb/set_promotion_art are separate calls against the id this returns. Final review fix wave, Important #5: refuses a hashtag equal to THIS Station''s own music_hashtag or service_hashtag (0177), the same guard update_promotion now carries and for the same reason -- a promotion born with the Station''s own word would silently close that door. Carries the same window as 0177''s own clash check and update_promotion''s mirror of it, `p_ends_at > now()`: a promotion created with an end date already in the past cannot shadow the Station''s hashtag either.';
