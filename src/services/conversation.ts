@@ -128,6 +128,22 @@ const inboundTurnSchema = z.object({
  * would, and `mint_widget_link`'s own `now()` is authoritative for the
  * window and the expiry both. `dedupe_prefix` is checked as a sha256 hex
  * digest for the same reason `widget_link_tokens.token_hash` (0178) is.
+ *
+ * `phone` IS THE DELIVERED FORM, exactly as `inboundTurnSchema`'s own `phone`
+ * above is, and it is the ONLY phone this shape carries. Fix round 1's
+ * Critical finding: the first cut of 0179 returned the LOCAL form (country
+ * code stripped) under `phone` and the delivered form under a second field,
+ * `to_phone` -- the store's own contract (`src/lib/conversation/store.ts`)
+ * is keyed on the delivered form, so a caller that read `phone` for the
+ * store key (as `runConversationTurn` does, for every turn, before it even
+ * knows which shape arrived) missed the live conversation for essentially
+ * every Brazilian listener, and D7's guarantee -- a listener mid-conversation
+ * is never handed a link -- silently did not hold. 0179 now returns exactly
+ * one phone field, under the one name and the one meaning both shapes
+ * already agreed on; `to_phone` does not exist any more, on this shape or
+ * anywhere else in this file, rather than being kept alongside a corrected
+ * `phone` as a second name for a value a future caller could still reach for
+ * by mistake.
  */
 const linkIntentSchema = z.object({
   outcome: z.literal('link'),
@@ -135,7 +151,6 @@ const linkIntentSchema = z.object({
   integration_id: z.string().min(1),
   company_id: z.string().min(1),
   phone: z.string().min(1),
-  to_phone: z.string().min(1),
   member_id: z.string().min(1),
   purpose: z.enum(['MUSIC', 'MENU', 'PROMOTION']),
   promotion_id: z.string().nullable(),
@@ -215,6 +230,15 @@ export async function runConversationTurn(
   deps: ConversationDeps,
   turn: InboundTurn,
 ): Promise<TurnOutcome> {
+  // D7 is this key, as much as it is the branch order below. The store is
+  // keyed on the phone AS WHATSAPP DELIVERED IT (src/lib/conversation/store.ts),
+  // and every live conversation row was written under that form -- so
+  // `turn.phone` has to BE that form for every shape `parseInboundTurn` can
+  // produce, link intents included, or this lookup silently misses the row
+  // for whichever shape disagrees (fix round 1's Critical: 0179 briefly
+  // returned the LOCAL form here for a link intent, and the branch ordering
+  // two lines below this comment could not have caught it -- the ordering
+  // was right and the value the ordering keyed on was wrong).
   const key: ConversationKey = { integrationId: turn.integration_id, phone: turn.phone };
 
   const { data: token, error } = await deps.supabase.rpc('claim_conversation_turn', {

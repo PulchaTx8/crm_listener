@@ -365,6 +365,45 @@ describe('runTick: the inbound half', () => {
     expect(result.eventsFailed).toBe(0);
   });
 
+  /**
+   * Fix round 1, Important #4/M11. The line this proves --
+   * `outcome === 'link'` in `drainEvents` -- is the entire difference
+   * between this feature shipping and shipping as dead code: Block 19a's
+   * ingest (0179) renamed the matched-hashtag outcome from 'conversation' to
+   * 'link', and until Task 5 caught it the dispatch condition here still
+   * checked for the retired string. Nothing before this test exercised
+   * either 'link' or 'no_hashtag' at this layer at all.
+   *
+   * The payload is deliberately an UNUSABLE link intent (missing every field
+   * `parseInboundTurn`'s linkIntentSchema requires beyond `outcome`) rather
+   * than a fully-shaped one -- that is what proves `runTurn` was actually
+   * reached without also having to stand up a live-conversation fixture and
+   * every RPC a real turn calls: `parseInboundTurn` throws, `runTurn`'s own
+   * catch defers the event, and NEITHER of those things can happen while the
+   * dispatch condition still misses 'link' -- a regression back to
+   * `outcome === 'conversation'` sends this same payload to the `else`
+   * branch instead, where it is silently counted as `ingested` and
+   * `parseInboundTurn` is never called.
+   */
+  it('dispatches a matched-hashtag ("link") outcome to the turn handler, not to the ingested counter', async () => {
+    const db = new FakeDb({
+      events: [{ id: 'e1', attempts: 0 }],
+      ingest: () => ({
+        data: { outcome: 'link', event_id: 'e1', integration_id: 'i1', phone: '5511999998888' },
+        error: null,
+      }),
+    });
+
+    const result = await tick(db);
+
+    expect(result.ingested).toBe(0);
+    expect(result.eventsFailed).toBe(1);
+    expect(db.updates).toHaveLength(1);
+    expect(db.updates[0]?.table).toBe('webhook_events');
+    expect(db.updates[0]?.patch.status).toBe('FAILED');
+    expect(String(db.updates[0]?.patch.last_error)).toContain('unusable link intent');
+  });
+
   it('keeps a poisonous event from taking the batch down with it', async () => {
     const db = new FakeDb({
       events: [

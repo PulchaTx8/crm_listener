@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ConversationStore } from '@/lib/conversation/store';
-import { DEFAULT_MUSIC_LINK_TEXT, DEFAULT_PROMOTION_LINK_TEXT } from '@/lib/conversation/engine';
+import {
+  DEFAULT_MENU_LINK_TEXT,
+  DEFAULT_MUSIC_LINK_TEXT,
+  DEFAULT_PROMOTION_LINK_TEXT,
+} from '@/lib/conversation/engine';
 import type { Database } from '@/lib/supabase/database.types';
 import type { LinkIntent } from '@/services/conversation';
 
@@ -35,8 +39,14 @@ interface Fixture {
   /** undefined means "answer CODE-1"; null models D2's window (say nothing). */
   mintCode?: string | null;
   publicKey?: string;
-  /** Applied to every LINK_* key alike -- which one resolves depends on `purpose`, not on this fixture. */
-  systemMessage?: string;
+  /**
+   * Fix round 1, Important #4/M11: keyed per LINK_* text rather than one
+   * string applied to all three, so a test can give each purpose a DISTINCT
+   * body -- a wrong purpose-to-key mapping in `sendServiceLink` (e.g. MUSIC
+   * silently resolving LINK_MENU) fails loudly instead of passing because
+   * every key happened to say the same thing.
+   */
+  systemMessages?: Record<string, string>;
   mintError?: string;
   contextError?: string;
   enqueueError?: string;
@@ -62,14 +72,7 @@ class FakeDb {
         return Promise.resolve({ data: null, error: { message: this.fixture.contextError } });
       }
       const publicKey = this.fixture.publicKey ?? 'pw_test';
-      const systemMessages =
-        this.fixture.systemMessage === undefined
-          ? {}
-          : {
-              LINK_MUSIC: this.fixture.systemMessage,
-              LINK_MENU: this.fixture.systemMessage,
-              LINK_PROMOTION: this.fixture.systemMessage,
-            };
+      const systemMessages = this.fixture.systemMessages ?? {};
       return Promise.resolve({ data: { publicKey, systemMessages }, error: null });
     }
 
@@ -89,6 +92,10 @@ class FakeDb {
 
   called(fn: string): RpcCall[] {
     return this.rpcs.filter((call) => call.fn === fn);
+  }
+
+  order(): string[] {
+    return this.rpcs.map((call) => call.fn);
   }
 
   enqueueArgs(): Record<string, unknown> | undefined {
@@ -118,13 +125,22 @@ const untouchedStore: ConversationStore = {
   },
 };
 
+/**
+ * `phone` IS THE DELIVERED FORM, and the only phone this shape carries (fix
+ * round 1's Critical finding retired the second field, `to_phone`, that used
+ * to disagree with it -- see linkIntentSchema's own comment in
+ * conversation.ts). Given a value that actually differs from a plausible
+ * "local" form (55 + area code stripped) precisely so a regression that
+ * silently normalised it before addressing the reply would be visible in the
+ * `p_to_phone` assertion below rather than hidden by a fixture where the two
+ * forms happen to coincide.
+ */
 const intent: LinkIntent = {
   outcome: 'link',
   event_id: 'e1',
   integration_id: 'i1',
   company_id: 'c1',
-  phone: '11999998888',
-  to_phone: '5511999998888',
+  phone: '5511999998888',
   member_id: 'm1',
   purpose: 'MUSIC',
   promotion_id: null,
@@ -139,6 +155,14 @@ describe('sendServiceLink', () => {
     const outcome = await sendServiceLink({ supabase: asClient(db), store: untouchedStore }, intent);
 
     expect(outcome).toEqual({ kind: 'link_sent' });
+    // Fix round 1, Important #2: the context read runs BEFORE the mint, not
+    // after -- pinned here as the call order, not just as "both happened".
+    expect(db.order()).toEqual([
+      'widget_link_send_context',
+      'mint_widget_link',
+      'enqueue_whatsapp_outbound',
+      'finish_whatsapp_turn',
+    ]);
     expect(db.called('mint_widget_link')).toEqual([
       {
         fn: 'mint_widget_link',
@@ -151,7 +175,8 @@ describe('sendServiceLink', () => {
     ]);
     expect(db.enqueueArgs()).toEqual({
       p_integration_id: 'i1',
-      // Meta's own delivered form, never the local one (`phone`).
+      // turn.phone -- Meta's own delivered form. Fix round 1: this used to
+      // read turn.to_phone, a field that no longer exists.
       p_to_phone: '5511999998888',
       p_interactive: null,
       p_dedupe_key: `${'a'.repeat(64)}:link`,
@@ -179,6 +204,23 @@ describe('sendServiceLink', () => {
   });
 
   /**
+   * Fix round 1, Important #4/M11: MENU is the one purpose `buildServiceLink`
+   * (Task 4) adds no `open` parameter for, and the only LINK_* key nothing
+   * else in this file pins.
+   */
+  it('addresses a MENU link with no `open` query parameter, and finds the wording under LINK_MENU', async () => {
+    const db = new FakeDb();
+    const menuIntent: LinkIntent = { ...intent, purpose: 'MENU' };
+
+    await sendServiceLink({ supabase: asClient(db), store: untouchedStore }, menuIntent);
+
+    expect(db.called('mint_widget_link')[0]?.args).toMatchObject({ p_purpose: 'MENU' });
+    const body = String(db.enqueueArgs()?.p_body);
+    expect(body).toContain(`${DEFAULT_MENU_LINK_TEXT}\n\nhttps://app.example.test/w/pw_test/enter?k=CODE-1`);
+    expect(body).not.toContain('open=');
+  });
+
+  /**
    * D2's window: the door answers null when this listener already has a
    * working link, and null means SAY NOTHING. A second message here is the
    * whole defect the window exists to prevent.
@@ -190,16 +232,26 @@ describe('sendServiceLink', () => {
 
     expect(outcome).toEqual({ kind: 'already_answered' });
     expect(db.called('enqueue_whatsapp_outbound')).toHaveLength(0);
-    // The window answers before the public key / wording round trip is ever
-    // needed -- nothing to build a message for, so nothing fetched for it.
-    expect(db.called('widget_link_send_context')).toHaveLength(0);
+    // Fix round 1, Important #2: the context IS fetched even on this path
+    // now -- it runs before the mint, so it cannot yet know the mint will
+    // answer null. That is the one wasted read the reordering costs.
+    expect(db.order()).toEqual(['widget_link_send_context', 'mint_widget_link', 'finish_whatsapp_turn']);
     expect(db.called('finish_whatsapp_turn')).toEqual([
       { fn: 'finish_whatsapp_turn', args: { p_event_id: 'e1', p_outcome: 'already_answered' } },
     ]);
   });
 
-  it("uses the Station's own wording when it has one", async () => {
-    const db = new FakeDb({ systemMessage: 'Bora pedir!' });
+  it("uses the Station's own wording when it has one, from the right LINK_* key", async () => {
+    // Fix round 1, Important #4/M11: three DISTINCT texts. If sendServiceLink
+    // ever resolved the wrong key for MUSIC (LINK_MENU, say), this fixture
+    // makes that show up as the wrong string rather than passing by luck.
+    const db = new FakeDb({
+      systemMessages: {
+        LINK_MUSIC: 'Bora pedir!',
+        LINK_MENU: 'Fala com a gente!',
+        LINK_PROMOTION: 'Participa aí!',
+      },
+    });
 
     await sendServiceLink({ supabase: asClient(db), store: untouchedStore }, intent);
 
@@ -217,12 +269,16 @@ describe('sendServiceLink', () => {
     expect(db.called('enqueue_whatsapp_outbound')).toHaveLength(0);
   });
 
-  it('propagates a failure to resolve the public key rather than sending an unaddressed link', async () => {
+  it('propagates a failure to resolve the public key rather than minting a code for a message it cannot send', async () => {
     const db = new FakeDb({ contextError: 'no live installation' });
 
     await expect(
       sendServiceLink({ supabase: asClient(db), store: untouchedStore }, intent),
     ).rejects.toThrow('no live installation');
+    // Fix round 1, Important #2: the context read runs first now, so a
+    // failure here must never reach the mint at all -- D2's window stays
+    // unspent for a retry to find.
+    expect(db.called('mint_widget_link')).toHaveLength(0);
     expect(db.called('enqueue_whatsapp_outbound')).toHaveLength(0);
     expect(db.called('finish_whatsapp_turn')).toHaveLength(0);
   });
@@ -241,8 +297,8 @@ describe('sendServiceLink', () => {
    * optional in the environment schema (local stack, a build), and the
    * worst outcome available here is a listener tapping a link that resolves
    * to nothing. So this refuses to mint or send at all rather than guess a
-   * host -- checked BEFORE the mint, so D2's two-minute window is never
-   * spent on a message that was never going anywhere.
+   * host -- checked BEFORE either RPC call, so D2's two-minute window is
+   * never spent on a message that was never going anywhere.
    */
   describe('when NEXT_PUBLIC_SITE_URL is not configured', () => {
     it('mints nothing, sends nothing, and throws rather than sending a broken link', async () => {

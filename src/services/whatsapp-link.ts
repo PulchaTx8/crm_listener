@@ -72,6 +72,31 @@ export async function sendServiceLink(
     );
   }
 
+  // widget_link_send_context BEFORE mint_widget_link, not after (fix round 1,
+  // Important #2). mint_widget_link spends D2's two-minute window the
+  // instant it answers a code, keyed on (member, purpose); any failure past
+  // that point -- this call, the enqueue, a dropped connection -- throws,
+  // the event defers onto the retry ladder, and the RETRY lands inside the
+  // window, where the mint answers null and the event closes
+  // 'already_answered' having sent nothing. Reading the context first costs
+  // one wasted round trip on D2's own null path (this is exactly that path)
+  // and removes the class of failure entirely: the fallible read that
+  // cannot yet have spent anything runs before the one write that can.
+  //
+  // It also returns the installation's public_key, which mint_widget_link
+  // (0178) cannot -- D2's window means the null path has no code to attach
+  // one to -- and this Station's own wording for the three LINK_* texts, in
+  // the same call for the same reason whatsapp_prompt_context bundles a
+  // promotion's copy with its overrides. Since 0181's fix round 1 it also
+  // refuses a SUSPENDED Station or a BLOCKED Organization (0164) before any
+  // code is minted.
+  const { data: context, error: contextError } = await deps.supabase.rpc(
+    'widget_link_send_context',
+    { p_company_id: turn.company_id },
+  );
+  if (contextError) throw contextError;
+  const { publicKey, systemMessages } = parseSendContext(context);
+
   const { data: code, error: mintError } = await deps.supabase.rpc('mint_widget_link', {
     p_company_id: turn.company_id,
     p_member_id: turn.member_id,
@@ -88,24 +113,12 @@ export async function sendServiceLink(
   if (code === null) {
     // D2's window: this listener was already answered for this exact
     // purpose inside the last two minutes. Say nothing -- a second message
-    // here is the whole defect the window exists to prevent.
+    // here is the whole defect the window exists to prevent. The context
+    // read above ran anyway (the one wasted read this ordering costs) and
+    // its result is simply discarded.
     await finish(deps, turn.event_id, 'already_answered');
     return { kind: 'already_answered' };
   }
-
-  // mint_widget_link returns only the raw code (0178) -- by design, D2's
-  // window means it cannot also hand back a public_key on the null path.
-  // widget_link_send_context (0181) is the second, small round trip this
-  // needs: the installation's public_key, so buildServiceLink can address
-  // the URL, and this Station's own wording for the three LINK_* texts, in
-  // the same call for the same reason whatsapp_prompt_context bundles a
-  // promotion's copy with its overrides.
-  const { data: context, error: contextError } = await deps.supabase.rpc(
-    'widget_link_send_context',
-    { p_company_id: turn.company_id },
-  );
-  if (contextError) throw contextError;
-  const { publicKey, systemMessages } = parseSendContext(context);
 
   const link = buildServiceLink(baseUrl, {
     publicKey,
@@ -129,10 +142,12 @@ export async function sendServiceLink(
   // makes for every other outbound message in this block.
   const { error: enqueueError } = await deps.supabase.rpc('enqueue_whatsapp_outbound', {
     p_integration_id: turn.integration_id,
-    // Meta's own delivered form, never the local one: `phone` and `to_phone`
-    // differ for a listener registered with a country code, and a reply is
-    // addressed to the form Meta delivered (the ingest's own contract).
-    p_to_phone: turn.to_phone,
+    // `turn.phone` IS Meta's own delivered form (fix round 1's Critical
+    // finding: 0179 now returns exactly one phone field, under this name,
+    // the same value in this intent and its two siblings -- see
+    // linkIntentSchema's own comment in conversation.ts for the full
+    // account of what the earlier `to_phone` field was and why it is gone).
+    p_to_phone: turn.phone,
     p_body: body,
     p_interactive: null,
     p_dedupe_key: `${turn.dedupe_prefix}:link`,
