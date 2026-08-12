@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generatePublicKey } from '@/lib/widget/code';
 import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
 import { parseInboundTurn, runConversationTurn } from '@/services/conversation';
+import { LOCAL_SUPABASE_DB_URL } from '../local-supabase';
 import { admin, cleanupUsers, provisionCustomer, seedIntegration, signInAs } from './harness';
 
 /**
@@ -62,6 +64,34 @@ let outcomes: Awaited<ReturnType<typeof runConversationTurn>>[];
 
 function sha256Hex(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * `widget_link_tokens` grants NOTHING to `service_role` -- 0178's own
+ * comment states the design: RLS on with no policy AND the ACL revoked, so
+ * even the admin client this file uses everywhere else answers "permission
+ * denied for table widget_link_tokens", by construction, the same wall every
+ * listener-bearing table in this schema puts up. The pairing proof below
+ * needs to read the table directly rather than through a SECURITY DEFINER
+ * door (consuming the code through one would burn it, and burning two
+ * hundred codes here has nothing to do with what this test is proving), so
+ * it reaches Postgres directly as the local superuser -- the same
+ * `LOCAL_SUPABASE_DB_URL` connection `tests/isolation/retention.test.ts` and
+ * `job-health.test.ts` already use for the identical reason: a table or a
+ * procedure no API role can reach.
+ */
+async function superuserRows<T extends Record<string, unknown>>(
+  sql: string,
+  params: readonly unknown[],
+): Promise<T[]> {
+  const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+  await client.connect();
+  try {
+    const result = await client.query(sql, params as unknown[]);
+    return result.rows as T[];
+  } finally {
+    await client.end();
+  }
 }
 
 afterAll(cleanupUsers);
@@ -251,6 +281,76 @@ describe('Block 19a — two hundred listeners hashtagging in at once', () => {
     expect(distinctPhones.size, 'every phone appears at most once in the outbox').toBe(
       phones.length,
     );
+  });
+
+  it('resolves each code back to the SAME listener whose message actually carried it', async () => {
+    // Every assertion above proves a COUNT: two hundred codes, two hundred
+    // outbox rows, two hundred members. None of them proves the PAIRING the
+    // spec actually asks for -- "the right listener". A concurrency bug that
+    // crossed member_id between two mints (two mint_widget_link calls racing
+    // and each writing the other's member_id into its own token row) would
+    // leave every assertion above green while handing one listener a session
+    // as another -- the worst outcome this block can produce -- and nothing
+    // until now would catch it.
+    //
+    // The chain read back, per listener: the code in THAT listener's own
+    // outbox row -> sha256(code) -> widget_link_tokens.token_hash -> its
+    // member_id -> members.phone_normalized -> compared against the LOCAL
+    // phone that listener was seeded with. Keying by localPhone throughout
+    // (rather than re-deriving it from deliveredPhone) is deliberate: it is
+    // the one value this file already trusts as ground truth for "which
+    // listener this is", seeded before any of the concurrency below ran.
+    const rows = await fetchLoadOutboxRows();
+    expect(rows).toHaveLength(LISTENER_COUNT);
+
+    const rowByDedupeKey = new Map(rows.map((row) => [row.dedupe_key, row]));
+
+    const hashByLocalPhone = new Map<string, string>();
+    for (const listener of listeners) {
+      const row = rowByDedupeKey.get(`${listener.externalId}:link`);
+      if (!row) throw new Error(`no outbox row for listener ${listener.localPhone}`);
+      const match = row.body.match(/[?&]k=([^&\s]+)/);
+      const code = match?.[1];
+      if (!code) throw new Error(`outbox row carries no widget link code: ${row.body}`);
+      hashByLocalPhone.set(listener.localPhone, sha256Hex(code));
+    }
+
+    // Scoped by company_id and organization_id -- the same fix
+    // fetchLoadOutboxRows above already applies to its own query, and for a
+    // related reason: two hundred 64-character token_hash values (or two
+    // hundred uuids) in an `.in()` filter is the "URI too long" trap that
+    // comment already names, and widget_link_tokens answers service_role
+    // with 42501 regardless (see superuserRows's own comment) -- so this
+    // reads through the superuser connection, scoped by the ids unique to
+    // THIS fixture's Station/Organization (a fresh provisionCustomer call),
+    // which is exactly as precise as a two-hundred-item list and reachable
+    // in the one way this table actually allows.
+    const tokens = await superuserRows<{ token_hash: string; member_id: string }>(
+      'select token_hash, member_id from public.widget_link_tokens where company_id = $1',
+      [companyId],
+    );
+    expect(tokens, 'one minted token row per listener').toHaveLength(LISTENER_COUNT);
+
+    const memberIdByHash = new Map(tokens.map((row) => [row.token_hash, row.member_id]));
+
+    const members = await superuserRows<{ id: string; phone_normalized: string | null }>(
+      'select id, phone_normalized from public.members where organization_id = $1',
+      [organizationId],
+    );
+    const phoneByMemberId = new Map(members.map((row) => [row.id, row.phone_normalized]));
+
+    for (const listener of listeners) {
+      const hash = hashByLocalPhone.get(listener.localPhone);
+      const memberId = hash ? memberIdByHash.get(hash) : undefined;
+      expect(
+        memberId,
+        `the code sent to ${listener.deliveredPhone} resolves to a minted widget_link_tokens row`,
+      ).toBeDefined();
+      expect(
+        phoneByMemberId.get(memberId as string),
+        `the code sent to ${listener.deliveredPhone} resolves to THAT listener's own member row, never another listener's`,
+      ).toBe(listener.localPhone);
+    }
   });
 
   it('mints two hundred distinct codes -- no code repeated across any two listeners', async () => {
