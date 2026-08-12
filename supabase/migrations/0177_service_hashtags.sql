@@ -58,9 +58,41 @@ begin
     raise exception 'permission denied: templates.manage required' using errcode = '42501';
   end if;
 
+  -- THE CHECK CONSTRAINTS BELOW STILL ENFORCE BOTH RULES -- they are the
+  -- backstop for any writer that is not this door, the division save_show
+  -- (0175) already draws between a constrained column and a door that reads
+  -- like a sentence. But a CHECK violation surfaces as raw Postgres text
+  -- naming widget_installations_hashtag_shape, and Task 8's screen maps
+  -- 42501/22023/P0002 to sentences for an operator -- a hand-typed bad
+  -- hashtag is the single most likely refusal, so it gets one here, in 22023,
+  -- rather than falling through to the backstop's message.
+  if v_music is not null and v_music !~ '^#[^[:space:]#]{1,39}$' then
+    raise exception 'the music hashtag must start with # and hold one to thirty-nine characters with no space and no second #'
+      using errcode = '22023';
+  end if;
+
+  if v_service is not null and v_service !~ '^#[^[:space:]#]{1,39}$' then
+    raise exception 'the service hashtag must start with # and hold one to thirty-nine characters with no space and no second #'
+      using errcode = '22023';
+  end if;
+
+  if v_music is not null and v_service is not null and lower(v_music) = lower(v_service) then
+    raise exception 'the music and service hashtags must be different' using errcode = '22023';
+  end if;
+
   -- A LIVE PROMOTION'S HASHTAG WINS THE MATCH (D3), so a Station hashtag equal
   -- to one would never answer and no screen would say why. Refused at write
   -- time, which is the only moment somebody is looking.
+  --
+  -- NOT "live at this instant" -- ends_at > now() alone, so a promotion that
+  -- has not started yet still clashes: the day it opens it takes the tag, and
+  -- the Station's hashtag would go quiet with nothing on any screen saying
+  -- why. An ENDED promotion does NOT clash, or a hashtag could never be
+  -- reused once any promotion had ever carried it -- precisely the trade 0040
+  -- already weighed and refused for promotion-vs-promotion ("it would forbid
+  -- reusing #EUQUERO next year"), and ingest_whatsapp_event (0062) only ever
+  -- matches a promotion inside its own starts_at..ends_at, so an ended one
+  -- could never have shadowed the Station's hashtag in the first place.
   --
   -- Scoped to this Station: a hashtag belongs to a Station, and the same tag at
   -- a sister Station is a different Station's word.
@@ -70,6 +102,7 @@ begin
      and p.hashtag is not null
      and p.deleted_at is null
      and p.cancelled_at is null
+     and p.ends_at > now()
      and lower(p.hashtag) in (lower(coalesce(v_music, '')), lower(coalesce(v_service, '')))
    limit 1;
 
@@ -92,7 +125,7 @@ end;
 $$;
 
 comment on function public.set_service_hashtags is
-  'Block 19a (D6). Writes the Station''s two service hashtags, checking templates.manage -- the permission the screen that edits them is gated on, even though the row belongs to the console. That mismatch is deliberate and the spec''s section 5 carries the reasoning: a third permission for two text fields is the mistake Block 18 documented at length. Refuses a hashtag a live promotion already owns at this Station, because D3 matches promotions first and the Station''s would silently never answer. NULL clears. A Station with no installation is refused rather than silently written to nothing: creating an installation is a console act (0159).';
+  'Block 19a (D6). Writes the Station''s two service hashtags, checking templates.manage -- the permission the screen that edits them is gated on, even though the row belongs to the console. That mismatch is deliberate and the spec''s section 5 carries the reasoning: a third permission for two text fields is the mistake Block 18 documented at length. Validates shape and the differ rule itself and raises 22023 with its own sentence for each, the same division save_show (0175) draws -- the CHECK constraints stay exactly as strict and become the backstop for any other writer. Refuses a hashtag a promotion of this Station is live in now OR has not started yet (ends_at > now()); an ENDED promotion does not clash, or a hashtag already used once could never be reused (0040''s trade, weighed the same way for promotion-vs-promotion). NULL clears; an empty string is folded to NULL before any check runs, so clearing a field is never mistaken for a bad shape. A Station with no installation is refused rather than silently written to nothing: creating an installation is a console act (0159).';
 
 revoke execute on function public.set_service_hashtags(uuid, text, text) from public, anon, authenticated;
 grant execute on function public.set_service_hashtags(uuid, text, text) to authenticated;

@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(13);
 
 -- Block 19a (D6). The two hashtags a Station configures, and the door that
 -- writes them: set_service_hashtags. Fixtures follow 39_widget_installations
@@ -8,11 +8,19 @@ select plan(9);
 -- rather than only by RLS).
 --
 -- THREE STATIONS. A holds the installation everything is written to. B holds
--- a LIVE promotion whose hashtag exists only to prove assertion 7: a hashtag
+-- a live promotion whose hashtag exists only to prove assertion 7: a hashtag
 -- belongs to a Station, so the same tag at B must never block a write at A.
 -- C holds neither an installation nor a promotion -- it exists only to prove
 -- assertion 9, that a Station nobody has configured a widget for is refused
 -- rather than silently updating zero rows.
+--
+-- FOUR PROMOTIONS AT A. One live now (#EUQUERO), one already ENDED
+-- (#ACABOU), and one that has NOT STARTED YET (#EMBREVE) -- fix round 1's
+-- ruling on Finding 1: the clash predicate is `ends_at > now()`, so an ended
+-- promotion no longer shadows a Station hashtag (0040's own trade, applied
+-- here: forbidding reuse forever is worse than the collision it prevents) but
+-- an unstarted one still does, because the day it opens it silently takes the
+-- word. #SORTEIO belongs to Station B.
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000601', 'Org service hashtags');
@@ -29,15 +37,21 @@ insert into public.widget_installations (id, organization_id, company_id, public
   ('00000000-0000-0000-0000-000000000606', '00000000-0000-0000-0000-000000000601',
    '00000000-0000-0000-0000-000000000602', 'pw_9999888877776666555544');
 
--- LIVE promotions (deleted_at and cancelled_at both null) at A and at B,
--- each carrying a hashtag the assertions below collide against.
 insert into public.promotions
   (organization_id, company_id, name, starts_at, ends_at, whatsapp_enabled, hashtag)
 values
+  -- Station A, live right now.
   ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000602',
-   'Promo Station A', now() - interval '1 day', now() + interval '30 days', true, '#EUQUERO'),
+   'Promo Station A live', now() - interval '1 day', now() + interval '30 days', true, '#EUQUERO'),
+  -- Station A, ended weeks ago -- must NOT clash (Finding 1).
+  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000602',
+   'Promo Station A ended', now() - interval '40 days', now() - interval '10 days', true, '#ACABOU'),
+  -- Station A, opens next week -- must still clash (Finding 1's narrower ruling).
+  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000602',
+   'Promo Station A future', now() + interval '10 days', now() + interval '40 days', true, '#EMBREVE'),
+  -- Station B, live right now -- the tenancy fixture for assertion 7.
   ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000603',
-   'Promo Station B', now() - interval '1 day', now() + interval '30 days', true, '#SORTEIO');
+   'Promo Station B live', now() - interval '1 day', now() + interval '30 days', true, '#SORTEIO');
 
 -- A CALLER WITH templates.manage AT A AND AT C -- not at B, because no
 -- assertion ever calls the door for B; B only supplies the "another
@@ -93,28 +107,59 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';
 
 -- ---------------------------------------------------------------------------
--- 3. widget_installations_hashtag_shape, hit through the door rather than
---    against the table directly -- the same grammar promotions_hashtag_shape
---    (0040) states, stated again because a CHECK cannot reference another
---    table's constraint. A plain table CHECK violation, so 23514 -- the code
---    every other shape/shape-pair test in this suite expects (03_promotions,
---    06_whatsapp, 09_draws), not the 22023 this function reserves for the
---    business rule it raises itself (assertions 5 and 6 below).
+-- 3-4. Fix round 1, Finding 2. The CHECK constraints still exist (assertion
+--      below this pair proves they still fire for a writer that bypasses the
+--      door), but the door validates first and raises its own readable
+--      22023 -- Task 8's screen has nothing usable to show for a raw
+--      "violates check constraint widget_installations_hashtag_shape".
 -- ---------------------------------------------------------------------------
 select throws_ok($$
   select public.set_service_hashtags(
     '00000000-0000-0000-0000-000000000602', 'SemCerquilha', '#Ajuda2')
-$$, '23514', null, 'a hashtag not matching the shape is refused');
+$$, '22023', null, 'a hashtag not matching the shape is refused, with a readable sentence');
 
--- ---------------------------------------------------------------------------
--- 4. widget_installations_hashtags_differ -- also a table CHECK, so also
---    23514. "EUQUERO" spelled two ways proves the comparison is
---    case-insensitive, not merely a string-equality guard.
--- ---------------------------------------------------------------------------
 select throws_ok($$
   select public.set_service_hashtags(
     '00000000-0000-0000-0000-000000000602', '#Igual', '#IGUAL')
-$$, '23514', null, 'the two hashtags being equal, ignoring case, is refused');
+$$, '22023', null, 'the two hashtags being equal, ignoring case, is refused, with a readable sentence');
+
+-- ---------------------------------------------------------------------------
+-- The backstop. A writer that is not this door -- a migration, a console
+-- tool nobody has built yet -- still meets widget_installations_hashtag_shape
+-- head-on: a direct UPDATE, no session, and the native 23514 the door no
+-- longer lets an operator see.
+-- ---------------------------------------------------------------------------
+reset role;
+
+select throws_ok($$
+  update public.widget_installations
+     set music_hashtag = 'NoHash'
+   where company_id = '00000000-0000-0000-0000-000000000602'
+$$, '23514', null, 'and the CHECK constraint still bites a direct write that bypasses the door');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- Finding 3. '' is "clear this field", the same as it already was before
+-- this fix round -- the new shape validation must not turn an empty string
+-- into a bad-shape refusal, because nullif() folds it to NULL before either
+-- check runs.
+-- ---------------------------------------------------------------------------
+select public.set_service_hashtags(
+  '00000000-0000-0000-0000-000000000602', '', '#Valido');
+
+reset role;
+
+select is(
+  (select coalesce(music_hashtag, '<null>') || ':' || coalesce(service_hashtag, '<null>')
+     from public.widget_installations
+    where company_id = '00000000-0000-0000-0000-000000000602'),
+  '<null>:#Valido',
+  'an empty string clears music_hashtag rather than being refused as a bad shape');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';
 
 -- ---------------------------------------------------------------------------
 -- 5-6. A LIVE promotion's hashtag wins the match (D3), so a Station hashtag
@@ -133,6 +178,29 @@ select throws_ok($$
 $$, '22023', null, 'and the comparison ignores case');
 
 -- ---------------------------------------------------------------------------
+-- Fix round 1, Finding 1. #ACABOU ended ten days ago: ingest_whatsapp_event
+-- (0062) only ever matches a promotion inside its own window, so an ended
+-- one can never have shadowed the Station's hashtag, and refusing it would
+-- forbid reusing the word forever -- exactly what 0040 already refused for
+-- promotion-vs-promotion.
+-- ---------------------------------------------------------------------------
+select lives_ok($$
+  select public.set_service_hashtags(
+    '00000000-0000-0000-0000-000000000602', '#ACABOU', '#Extra')
+$$, 'a hashtag equal to an ENDED promotion''s hashtag is accepted');
+
+-- ---------------------------------------------------------------------------
+-- Fix round 1, Finding 1's narrower ruling. #EMBREVE opens in ten days: it
+-- has not started, but the day it does it takes the tag, and the Station's
+-- hashtag would go quiet with nothing on any screen saying why -- so this
+-- still clashes even though the promotion is not live YET.
+-- ---------------------------------------------------------------------------
+select throws_ok($$
+  select public.set_service_hashtags(
+    '00000000-0000-0000-0000-000000000602', '#EMBREVE', '#Extra2')
+$$, '22023', null, 'a hashtag equal to a promotion that has not started yet is refused');
+
+-- ---------------------------------------------------------------------------
 -- 7. A hashtag belongs to a Station. #SORTEIO is Station B's live promotion,
 --    scoped out of the clash query by company_id, so Station A may use it.
 -- ---------------------------------------------------------------------------
@@ -142,13 +210,17 @@ select lives_ok($$
 $$, 'a hashtag equal to a promotion''s at another Station is accepted');
 
 -- ---------------------------------------------------------------------------
--- 8. NULL clears a column. service_hashtag is passed back unchanged
---    ('#Premio', exactly what Station A already stores from assertion 7) to
---    prove clearing music_hashtag is not treated as a collision with the
---    value already sitting in the row it is writing to.
+-- 8. NULL clears a column. A known baseline is written first so this
+--    assertion does not depend on whatever the previous one happened to
+--    leave behind; service_hashtag is then passed back UNCHANGED to prove
+--    clearing music_hashtag is not treated as a collision with the value
+--    already sitting in the row it is writing to.
 -- ---------------------------------------------------------------------------
 select public.set_service_hashtags(
-  '00000000-0000-0000-0000-000000000602', null, '#Premio');
+  '00000000-0000-0000-0000-000000000602', '#Base', '#BaseService');
+
+select public.set_service_hashtags(
+  '00000000-0000-0000-0000-000000000602', null, '#BaseService');
 
 reset role;
 
@@ -156,7 +228,7 @@ select is(
   (select coalesce(music_hashtag, '<null>') || ':' || coalesce(service_hashtag, '<null>')
      from public.widget_installations
     where company_id = '00000000-0000-0000-0000-000000000602'),
-  '<null>:#Premio',
+  '<null>:#BaseService',
   'null clears a column, and clearing is not a collision with itself');
 
 set local role authenticated;

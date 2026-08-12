@@ -144,12 +144,24 @@ begin
   --
   -- Scoped to this Station: a hashtag belongs to a Station, and the same tag at
   -- a sister Station is a different Station's word.
+  -- ENDED PROMOTIONS DO NOT CLASH, and the window is the whole of the rule.
+  -- ingest_whatsapp_event matches a promotion only inside `starts_at`..`ends_at`,
+  -- so a Station hashtag equal to a promotion that finished last year is never
+  -- shadowed by it and refusing it would forbid reusing the word for ever --
+  -- which is exactly what 0040 weighed and rejected for promotion-vs-promotion
+  -- ("it would forbid reusing #EUQUERO next year").
+  --
+  -- A promotion that has not STARTED yet does clash: the day it opens it takes
+  -- the tag, and the Station's own hashtag would go quiet with nothing on any
+  -- screen to say why. So the predicate is `ends_at > now()` -- live now, or
+  -- live later.
   select p.hashtag into v_clash
     from public.promotions p
    where p.company_id = p_company_id
      and p.hashtag is not null
      and p.deleted_at is null
      and p.cancelled_at is null
+     and p.ends_at > now()
      and lower(p.hashtag) in (lower(coalesce(v_music, '')), lower(coalesce(v_service, '')))
    limit 1;
 
