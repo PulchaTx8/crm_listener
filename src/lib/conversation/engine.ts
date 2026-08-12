@@ -23,6 +23,7 @@ import type {
   Conversation,
   ConversationAnswers,
   InboundAnswer,
+  LinkPurpose,
   Outbound,
   PromptContext,
   QuestionPrompt,
@@ -126,12 +127,18 @@ export const FIELD_MESSAGE_KEYS: Record<RequestedField, SystemMessageKey> = {
 /**
  * Block 19a's mirror of `FIELD_MESSAGE_KEYS` above, for the one other family
  * of copy a purpose picks a key from rather than a field: which of the three
- * LINK_* texts `sendServiceLink` puts in front of the link, by the ingest's
- * own `purpose` union. TOTAL for the same reason FIELD_MESSAGE_KEYS is -- a
- * fourth purpose the enum grew would fail to compile here rather than
- * resolving to nothing.
+ * LINK_* texts `sendServiceLink` puts in front of the link. Keyed on
+ * `LinkPurpose` (`./steps`, the TypeScript form of `widget_link_purpose`,
+ * 0178) rather than a hand-written `'MUSIC' | 'MENU' | 'PROMOTION'` union --
+ * final review: the hand-written form made the same TOTAL claim this
+ * comment used to state ("a fourth purpose... would fail to compile here")
+ * without the compiler actually enforcing it, since a union re-typed by hand
+ * can drift silently from the enum it was meant to mirror. Derived, the
+ * claim is now true: a fourth value the enum grows fails this object
+ * literal until somebody writes the LINK_* key that goes with it, the same
+ * guarantee FIELD_MESSAGE_KEYS already has for RequestedField.
  */
-export const LINK_MESSAGE_KEYS: Record<'MUSIC' | 'MENU' | 'PROMOTION', SystemMessageKey> = {
+export const LINK_MESSAGE_KEYS: Record<LinkPurpose, SystemMessageKey> = {
   MUSIC: 'LINK_MUSIC',
   MENU: 'LINK_MENU',
   PROMOTION: 'LINK_PROMOTION',

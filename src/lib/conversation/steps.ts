@@ -36,6 +36,16 @@ export type QuestionKind = Enums<'promotion_question_kind'>;
 export type SystemMessageKey = Enums<'system_message_key'>;
 
 /**
+ * Which door a matched hashtag opens: `widget_link_purpose` (Block 19a,
+ * 0178). Derived for the same reason `RequestedField` and `SystemMessageKey`
+ * are: `LINK_MESSAGE_KEYS` (engine.ts) is `Record<LinkPurpose, ...>`, and a
+ * hand-written `'MUSIC' | 'MENU' | 'PROMOTION'` union here would be a second
+ * place a fourth purpose has to be added, with nothing to notice if it
+ * were not.
+ */
+export type LinkPurpose = Enums<'widget_link_purpose'>;
+
+/**
  * One Station's own wording. PARTIAL on purpose (D2): a row exists per
  * OVERRIDDEN text, never one per Station, so a missing key is the ordinary
  * case and `resolveSystemMessage` answers it with the code's own default.
