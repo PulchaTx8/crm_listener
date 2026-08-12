@@ -1,7 +1,11 @@
 import { cookies, headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { env } from '@/lib/env';
-import { choosePresentation } from '@/lib/widget/presentation';
+import {
+  choosePresentation,
+  WIDGET_PRESENTATION_COOKIE,
+  type WidgetPresentation,
+} from '@/lib/widget/presentation';
 import { parseOpenTarget } from '@/lib/widget/open-target';
 import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
 import { installationExists, stationIdentity } from '@/services/widget-installations';
@@ -19,6 +23,35 @@ import { WidgetMenu } from './menu';
  * not, and `readSessionFor` answers that without a round trip (design D5 chose
  * a signed token over a session row precisely so this page costs no lookup).
  */
+
+/**
+ * Block 19b, fix round found by Task 7's own e2e. THE COOKIE FIRST, THE
+ * HEADER ONLY AS A FALLBACK.
+ *
+ * `middleware.ts`'s widget branch writes `WIDGET_PRESENTATION_COOKIE` on
+ * every genuine document request to this route, from the SAME
+ * `Sec-Fetch-Dest` this file used to read directly — and, critically, leaves
+ * it untouched on every other request. Reading the header here directly
+ * broke the moment anything caused this component to re-render without a
+ * real navigation: `identify-form.tsx`'s post-verify `router.refresh()`, and
+ * every "Sair" submission, are Server Action / RSC fetches, and those always
+ * carry `Sec-Fetch-Dest: empty` — a script's own `fetch()` reports that
+ * regardless of whether the script is running inside an iframe, so this
+ * component cannot tell "an old browser opened this address directly" from
+ * "a listener just typed a correct code inside a Station's embedded widget"
+ * by reading that header on such a request. `isDocumentRequest`'s own
+ * comment (`presentation.ts`) has the rest.
+ *
+ * The header is read anyway, as a fallback for a request that somehow
+ * reaches this component with no cookie at all — not expected in production,
+ * since the middleware above runs first on every request this route serves.
+ */
+async function resolvePresentation(): Promise<WidgetPresentation> {
+  const cookieValue = (await cookies()).get(WIDGET_PRESENTATION_COOKIE)?.value;
+  if (cookieValue === 'embedded' || cookieValue === 'app') return cookieValue;
+  return choosePresentation((await headers()).get('sec-fetch-dest'));
+}
+
 export default async function WidgetPage({
   params,
   searchParams,
@@ -73,7 +106,7 @@ export default async function WidgetPage({
     // resolves to nothing to be identified.
     if (linkExpired) {
       const expired = <IdentifyForm publicKey={publicKey} linkExpired />;
-      return choosePresentation((await headers()).get('sec-fetch-dest')) === 'embedded' ? (
+      return (await resolvePresentation()) === 'embedded' ? (
         <EmbeddedFrame>{expired}</EmbeddedFrame>
       ) : (
         <AppFrame identity={null}>{expired}</AppFrame>
@@ -82,14 +115,17 @@ export default async function WidgetPage({
     notFound();
   }
 
-  // D1: the frame around it, and the frame decides. `Sec-Fetch-Dest` is read
-  // here rather than in the layout because a layout does not see the request.
+  // D1: the frame around it, and the frame decides. Resolved via
+  // `resolvePresentation` (this file's own header comment) rather than a
+  // direct `Sec-Fetch-Dest` read, because this call also has to answer
+  // correctly for `left=1` below — reached through a Server Action redirect,
+  // never a real navigation.
   // HOISTED ABOVE THE SESSION CHECK — Task 6, fix round 1 — so `left=1` below
   // can render the farewell in the correct frame, with the correct identity,
   // WITHOUT going anywhere near `claims`. Read ONCE either way: the header and
   // the farewell's way back are the same fact, and asking the identity door
   // twice per request would be two round trips to answer one question.
-  const presentation = choosePresentation((await headers()).get('sec-fetch-dest'));
+  const presentation = await resolvePresentation();
   const identity = presentation === 'app' ? await stationIdentity(publicKey) : null;
 
   // `signOutAction` (actions.ts) clears the cookie and redirects HERE with

@@ -4,6 +4,12 @@ import type { Database } from '@/lib/supabase/database.types';
 import { buildContentSecurityPolicy, CSP_NONCE_HEADER } from '@/lib/security/csp';
 import { frameOrigins } from '@/lib/widget/frame-cache';
 import { frameAncestorsValue } from '@/lib/widget/origins';
+import {
+  choosePresentation,
+  isDocumentRequest,
+  WIDGET_PRESENTATION_COOKIE,
+  WIDGET_PRESENTATION_SECONDS,
+} from '@/lib/widget/presentation';
 import { localeCookieUpdate } from '@/i18n/locales';
 
 /**
@@ -152,12 +158,36 @@ export async function middleware(request: NextRequest) {
    * that must never become a permissive fallback.
    */
   if (WIDGET_PATH.test(request.nextUrl.pathname)) {
-    const isDocument =
-      request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
+    const isDocument = isDocumentRequest(request.method, request.headers.get('accept'));
 
     const ancestors = isDocument
       ? frameAncestorsValue(await frameOrigins(request.nextUrl.pathname.split('/')[2] ?? ''))
       : "'none'";
+
+    /**
+     * Block 19b, fix round found by Task 7's own e2e. THE SAME `isDocument`
+     * ANSWERS A SECOND QUESTION: `choosePresentation` in `presentation.ts`
+     * needs `Sec-Fetch-Dest` from a genuine navigation, and this is the only
+     * request in the round trip that has one — a Server Action POST (the
+     * code-verify flow's `router.refresh()`, or any "Sair" submission) always
+     * reports `Sec-Fetch-Dest: empty`, indistinguishable from a very old
+     * browser opening the address directly, because a script's own `fetch()`
+     * carries that value regardless of whether the script is running inside an
+     * iframe. `page.tsx` cannot re-derive the answer on that request, so this
+     * writes it here, on every genuine document request, and touches nothing
+     * on any other — `WIDGET_PRESENTATION_COOKIE`'s own comment has the rest.
+     *
+     * `request.cookies.set` first, so `page.tsx` sees the fresh value on THIS
+     * SAME request (the pattern `cookieLocale` below already uses, for the
+     * same reason); `built.cookies.set` after `built` exists, so the browser
+     * carries it into whatever Server Action or refresh comes next.
+     */
+    const presentation = isDocument
+      ? choosePresentation(request.headers.get('sec-fetch-dest'))
+      : null;
+    if (presentation !== null) {
+      request.cookies.set(WIDGET_PRESENTATION_COOKIE, presentation);
+    }
 
     const widgetPolicy = buildContentSecurityPolicy(
       nonce,
@@ -167,6 +197,16 @@ export async function middleware(request: NextRequest) {
     );
     const built = NextResponse.next({ request: { headers: forwarded(widgetPolicy) } });
     built.headers.set('Content-Security-Policy', widgetPolicy);
+    if (presentation !== null) {
+      built.cookies.set(WIDGET_PRESENTATION_COOKIE, presentation, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        partitioned: true,
+        path: '/w',
+        maxAge: WIDGET_PRESENTATION_SECONDS,
+      });
+    }
     return built;
   }
 
