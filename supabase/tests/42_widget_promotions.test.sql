@@ -318,9 +318,10 @@ select is(
 -- participation_answers_shape). The listener taps through a blank screen, and
 -- the door counts a step the payload cannot answer.
 --
--- These three assertions establish whether that path is reachable at all. What
--- they must NOT do is assert the fix: 20 and 21 describe today's behaviour, and
--- Task 3 -- if it runs -- rewrites them.
+-- These three described the defect before 0186 closed it. They now describe
+-- the repair: the promotion is absent, its question is absent with it, and a
+-- submission against it is refused as closed rather than as the listener's
+-- fault.
 -- ---------------------------------------------------------------------------
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at,
@@ -353,34 +354,33 @@ insert into public.member_company_links (member_id, company_id, organization_id)
   ('00000000-0000-0000-0000-000000000422', '00000000-0000-0000-0000-000000000402',
    '00000000-0000-0000-0000-000000000401');
 
--- 20. The promotion IS offered to the widget today.
+-- 20. The promotion is NOT offered. Same treatment, for the same reason, as a
+--     promotion with no rules text (D3): a listener is not shown a door that
+--     can only close on them.
 select is(
   (select count(*) from jsonb_array_elements(
      public.widget_promotions('pw_promostationa012345678',
                               '00000000-0000-0000-0000-000000000422') -> 'promotions') e
     where (e ->> 'id') = '00000000-0000-0000-0000-000000000420'),
-  1::bigint, 'a promotion whose only question has no alternatives is offered');
+  0::bigint, 'a promotion whose only question has no alternatives is not offered');
 
--- 21. And its question arrives with an empty option list, which is what the
---     panel draws as nothing.
+-- 21. And nothing about it leaks into the payload by another route.
 select is(
-  (select e -> 'questions' -> '00000000-0000-0000-0000-000000000421'
-     from jsonb_array_elements(
-       public.widget_promotions('pw_promostationa012345678',
-                                '00000000-0000-0000-0000-000000000422') -> 'promotions') e
-    where (e ->> 'id') = '00000000-0000-0000-0000-000000000420'),
-  '[]'::jsonb, 'and its question carries no alternatives for the panel to draw');
+  (select public.widget_promotions('pw_promostationa012345678',
+                                   '00000000-0000-0000-0000-000000000422')::text
+     like '%00000000-0000-0000-0000-000000000421%'),
+  false, 'and its question is absent from the payload entirely');
 
--- 22. THE ASSERTION THIS SECTION EXISTS FOR. Every requested field answered,
---     consent given, and the entry is still refused -- for a question the
---     listener was never shown.
+-- 22. And a submission against it -- from a crafted payload, or from a browser
+--     that had the list open before the options were removed -- is refused as
+--     closed rather than as the listener's fault.
 select is(
   (select public.widget_enter_promotion(
      'pw_promostationa012345678', '00000000-0000-0000-0000-000000000422',
      '00000000-0000-0000-0000-000000000420', true,
      '{"city": "São Paulo"}'::jsonb, '[]'::jsonb) ->> 'reason'),
-  'missing_answers',
-  'and a complete payload is refused for the question nobody could answer');
+  'promotion_closed',
+  'and a submission against it is refused as closed, not as the listener''s fault');
 
 select * from finish();
 rollback;
