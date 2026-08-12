@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,33 @@ import type { ServiceHashtags } from '@/services/templates';
 import { saveServiceHashtagsAction, type ServiceHashtagsState } from './actions';
 
 const INITIAL: ServiceHashtagsState = { status: 'idle' };
+
+/** One thing that happened to the form since it last knew whether to show
+ * "Saved": the operator changed a field, or a save just landed. */
+export type HashtagFieldEvent = 'edited' | 'saved';
+
+/**
+ * Whether the "Saved" confirmation should be showing, given whatever it was
+ * showing before and the one event that just happened.
+ *
+ * FIX ROUND 1's FINDING, MADE UNABLE TO ROT BACK SILENTLY. The bug: `touched`
+ * was set `true` on every edit and never set back to `false` on a save, so on
+ * the ordinary path — type a hashtag, press Save — `touched` was already
+ * `true` by the time `state.status` became `'saved'`, and the confirmation
+ * could not render at all. The fix is this one line ('saved' wins outright,
+ * regardless of what came before) wired through a `useEffect` that answers
+ * `state` transitioning to `'saved'` — not the form's `key` remount, which
+ * resets the INPUTS (a sibling concern, still correct) but not this
+ * component's own state, since `HashtagFields` itself is never remounted.
+ *
+ * `previous` is threaded through, unused, because this is called as
+ * `setState((previous) => nextShowSavedConfirmation(previous, event))` at
+ * both call sites — the shape a reducer over one event needs, even though
+ * this particular rule happens to be a constant function of `event` alone.
+ */
+export function nextShowSavedConfirmation(previous: boolean, event: HashtagFieldEvent): boolean {
+  return event === 'saved';
+}
 
 /**
  * The two hashtags a Station answers with a link straight on WhatsApp,
@@ -38,9 +65,19 @@ export function HashtagFields({
 }) {
   const t = useTranslations('templates');
   const [state, action, pending] = useActionState(saveServiceHashtagsAction, INITIAL);
-  const [touched, setTouched] = useState(false);
+  const [showSaved, setShowSaved] = useState(false);
+
+  // The reset half of the fix: answered to `state` itself, which lives in
+  // THIS component and is untouched by the form's own key-driven remount
+  // below, rather than to any assumption about when that remount happens.
+  useEffect(() => {
+    if (state.status === 'saved') {
+      setShowSaved((previous) => nextShowSavedConfirmation(previous, 'saved'));
+    }
+  }, [state]);
 
   const disabled = pending || !hashtags.installed;
+  const onFieldEdited = () => setShowSaved((previous) => nextShowSavedConfirmation(previous, 'edited'));
 
   return (
     <div
@@ -82,7 +119,7 @@ export function HashtagFields({
                 placeholder="#TOCAAGORA"
                 maxLength={40}
                 disabled={disabled}
-                onChange={() => setTouched(true)}
+                onChange={onFieldEdited}
                 data-testid="service-hashtag-music"
               />
               <span className="text-xs text-muted-foreground">{t('musicHashtagHelp')}</span>
@@ -96,7 +133,7 @@ export function HashtagFields({
                 placeholder="#MENUAJUDA"
                 maxLength={40}
                 disabled={disabled}
-                onChange={() => setTouched(true)}
+                onChange={onFieldEdited}
                 data-testid="service-hashtag-service"
               />
               <span className="text-xs text-muted-foreground">{t('serviceHashtagHelp')}</span>
@@ -107,7 +144,7 @@ export function HashtagFields({
             <Button type="submit" size="sm" disabled={disabled} data-testid="service-hashtags-save">
               {pending ? t('saving') : t('save')}
             </Button>
-            {state.status === 'saved' && !touched && (
+            {showSaved && (
               <span className="text-sm text-muted-foreground">{t('hashtagsSaved')}</span>
             )}
           </div>
