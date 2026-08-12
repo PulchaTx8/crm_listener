@@ -121,7 +121,22 @@ const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'isolation');
  */
 const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/contact-requests.test.ts', minTests: 3 },
-  { path: 'tests/isolation/conversation.test.ts', minTests: 7 },
+  // Block 19a, Task 9. Lowered from 7: design spec D1 retired the contract
+  // two of this file's seven cases were proving -- a hashtag opening a
+  // whatsapp Q&A conversation and finishing it into an entry, a mechanism
+  // `ingest_whatsapp_event` (0179) no longer has any code path that reaches.
+  // Deleted rather than kept green some other way, the same ruling this
+  // repository already made for the identical retirement in pgTAP
+  // (supabase/tests/06_whatsapp.test.sql, commit 7eb172e) -- and the same
+  // reason a `.skip` was never an option: this guard fails the build on any
+  // pending or todo case, on purpose, and a skip is what THAT gap looks
+  // like from here. The race case this file still carries was rewritten,
+  // not dropped, onto the one thing about it that is still true: the lease
+  // `runConversationTurn` claims for every turn, link-sending ones
+  // included, still serialises two messages from one phone arriving at
+  // once. Five now: one rewritten lease race, two privilege-boundary cases,
+  // two operator-save cases -- unchanged by this edit.
+  { path: 'tests/isolation/conversation.test.ts', minTests: 5 },
   // Block 8a, Task 6: the three dashboard aggregates are all SECURITY
   // INVOKER (D4) precisely so RLS applies inside them -- pgTAP's own suite
   // (supabase/tests/20_dashboards.test.sql) runs under `set local role
@@ -295,6 +310,18 @@ const REQUIRED_TEST_FILES = [
   // difference, and deleting that clause was measured to turn this file red
   // (five wrong-code answers become ten) and restoring it green again.
   { path: 'tests/isolation/widget.test.ts', minTests: 7 },
+  // Block 19a, Task 9. The load test: two hundred distinct listeners
+  // hashtagging in at one Station, at once, and the only place this
+  // repository proves `mint_widget_link`'s code and
+  // `enqueue_whatsapp_outbound`'s addressing hold under REAL concurrency
+  // rather than the two-at-a-time races tests/isolation/whatsapp.test.ts
+  // already carries. Five cases, and the floor is the full count: each one
+  // is a distinct way "derived a code from shared state" could have shown
+  // up (a busy/already_answered turn, a missing or doubled outbox row, a
+  // misaddressed row, a repeated code, a collapsed listener), and pgTAP
+  // cannot reach any of them -- it runs single-session, so two hundred
+  // concurrent callers can never contend with each other there.
+  { path: 'tests/isolation/whatsapp-link-load.test.ts', minTests: 5 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */
