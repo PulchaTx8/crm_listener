@@ -12,8 +12,20 @@ const envSchema = z.object({
   // missing would be a worse outage than the one it is trying to report. Unset
   // means /api/worker/health-alert sends nothing and says so in its response.
   ALERT_EMAIL: z.string().email().optional(),
-  // Public base URL, used to build the password-reset callback link.
-  NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
+  // Public base URL, used to build the password-reset callback link and,
+  // since Block 19a, the widget link a hashtag reply carries.
+  //
+  // REQUIRED IN THE STRICT BRANCH, since Task 9's fix round 1 (I3) — until
+  // then it was `.optional()` while `sendServiceLink`
+  // (src/services/whatsapp-link.ts) throws without it. That combination let
+  // a real deployment boot clean with it unset and then defer EVERY
+  // matched hashtag onto the retry ladder until it parks — listeners
+  // answered with permanent, silent nothing, with nothing at startup
+  // saying why. Still absent under `SKIP_ENV_VALIDATION=1`
+  // (`looseEnvSchema` below, `.partial()` over this whole object): a build
+  // legitimately runs with no runtime configuration at all, and this is
+  // the one variable a build never needs.
+  NEXT_PUBLIC_SITE_URL: z.string().url(),
   // WhatsApp Cloud API. Optional so CI and `next build` run without them; the
   // webhook route refuses to serve when they are missing rather than the whole
   // app refusing to boot (design spec D6 — no secret lives in the database).
