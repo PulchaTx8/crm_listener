@@ -82,6 +82,9 @@ const SUSPENDED_STATION_DELIVERED_PHONE = `55${SUSPENDED_STATION_LOCAL_PHONE}`;
 const MUSIC_HASHTAG = '#MUSICA';
 const PHONE_NUMBER_ID = `e2e-entry-${stamp}`;
 
+/** Block 19b. The name the application presentation's header owes the listener. */
+const stationName = `WhatsApp Entry Station ${stamp}`;
+
 const PROMOTION_NAME = `Entry Journey Promotion ${stamp}`;
 const PROMOTION_RULES = `Regras exclusivas da promoção aberta por link direto, edição ${stamp}.`;
 const LISTENER_NOTE = 'pode tocar essa pra mim, por favor';
@@ -261,7 +264,7 @@ test.beforeAll(async () => {
   const { organization_id, company_id } = await provisionCustomer(adminClient, {
     userId: ownerUserId,
     organizationName: `WhatsApp Entry Org ${stamp}`,
-    companyName: `WhatsApp Entry Station ${stamp}`,
+    companyName: stationName,
   });
   organizationId = organization_id;
   companyId = company_id;
@@ -403,6 +406,13 @@ test('a hashtag becomes a link, the link identifies, and the widget answers the 
     // one showing, with no click on "Request a song", is what proves
     // `open=music` was honoured rather than merely accepted.
     await expect(page.getByTestId('widget-identify-form')).toHaveCount(0);
+
+    // Block 19b, D1/D2. THE PRESENTATION, ASSERTED FROM THE JOURNEY THAT
+    // PRODUCES IT — not from a page.goto with a hand-set cookie, which would
+    // prove the frame and skip the door. This navigation is a top-level one, so
+    // Sec-Fetch-Dest is `document` and the page owes a header.
+    await expect(page.getByTestId('widget-station-header')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('widget-station-header')).toContainText(stationName);
   });
 
   await test.step('a request from the identified visitor lands in music_requests with channel WEB', async () => {

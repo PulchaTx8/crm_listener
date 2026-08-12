@@ -1,9 +1,16 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { env } from '@/lib/env';
+import {
+  choosePresentation,
+  WIDGET_PRESENTATION_COOKIE,
+  type WidgetPresentation,
+} from '@/lib/widget/presentation';
 import { parseOpenTarget } from '@/lib/widget/open-target';
 import { WIDGET_SESSION_COOKIE, readSessionFor } from '@/lib/widget/session';
-import { installationExists } from '@/services/widget-installations';
+import { installationExists, stationIdentity } from '@/services/widget-installations';
+import { Farewell } from './farewell';
+import { AppFrame, EmbeddedFrame } from './frames';
 import { IdentifyForm } from './identify-form';
 import { WidgetMenu } from './menu';
 
@@ -16,15 +23,44 @@ import { WidgetMenu } from './menu';
  * not, and `readSessionFor` answers that without a round trip (design D5 chose
  * a signed token over a session row precisely so this page costs no lookup).
  */
+
+/**
+ * Block 19b, fix round found by Task 7's own e2e. THE COOKIE FIRST, THE
+ * HEADER ONLY AS A FALLBACK.
+ *
+ * `middleware.ts`'s widget branch writes `WIDGET_PRESENTATION_COOKIE` on
+ * every genuine document request to this route, from the SAME
+ * `Sec-Fetch-Dest` this file used to read directly — and, critically, leaves
+ * it untouched on every other request. Reading the header here directly
+ * broke the moment anything caused this component to re-render without a
+ * real navigation: `identify-form.tsx`'s post-verify `router.refresh()`, and
+ * every "Sair" submission, are Server Action / RSC fetches, and those always
+ * carry `Sec-Fetch-Dest: empty` — a script's own `fetch()` reports that
+ * regardless of whether the script is running inside an iframe, so this
+ * component cannot tell "an old browser opened this address directly" from
+ * "a listener just typed a correct code inside a Station's embedded widget"
+ * by reading that header on such a request. `isDocumentRequest`'s own
+ * comment (`presentation.ts`) has the rest.
+ *
+ * The header is read anyway, as a fallback for a request that somehow
+ * reaches this component with no cookie at all — not expected in production,
+ * since the middleware above runs first on every request this route serves.
+ */
+async function resolvePresentation(): Promise<WidgetPresentation> {
+  const cookieValue = (await cookies()).get(WIDGET_PRESENTATION_COOKIE)?.value;
+  if (cookieValue === 'embedded' || cookieValue === 'app') return cookieValue;
+  return choosePresentation((await headers()).get('sec-fetch-dest'));
+}
+
 export default async function WidgetPage({
   params,
   searchParams,
 }: {
   params: Promise<{ publicKey: string }>;
-  searchParams: Promise<{ open?: string | string[]; id?: string | string[]; link?: string }>;
+  searchParams: Promise<{ open?: string | string[]; id?: string | string[]; link?: string; left?: string }>;
 }) {
   const { publicKey } = await params;
-  const { open, id, link } = await searchParams;
+  const { open, id, link, left } = await searchParams;
 
   // Task 19a-6's door folds every failure of a WhatsApp link — a used code,
   // one whose fifteen minutes ran out, or (below) a Station that went dark in
@@ -63,8 +99,52 @@ export default async function WidgetPage({
     // redirect a listener can arrive carrying. An unknown key with NO
     // `link=expired` still 404s, unchanged — that probing answer is the one
     // 17a chose deliberately, and tests/e2e/widget-headers.spec.ts pins it.
-    if (linkExpired) return <IdentifyForm publicKey={publicKey} linkExpired />;
+    // D3: a listener whose link died has no session by definition, and this is
+    // the FIRST screen they see. Framing it as a 28rem transparent column in a
+    // full tab is the exact complaint this block exists to answer, so it takes
+    // the same decision the live page does — with no identity, because the key
+    // resolves to nothing to be identified.
+    if (linkExpired) {
+      const expired = <IdentifyForm publicKey={publicKey} linkExpired />;
+      return (await resolvePresentation()) === 'embedded' ? (
+        <EmbeddedFrame>{expired}</EmbeddedFrame>
+      ) : (
+        <AppFrame identity={null}>{expired}</AppFrame>
+      );
+    }
     notFound();
+  }
+
+  // D1: the frame around it, and the frame decides. Resolved via
+  // `resolvePresentation` (this file's own header comment) rather than a
+  // direct `Sec-Fetch-Dest` read, because this call also has to answer
+  // correctly for `left=1` below — reached through a Server Action redirect,
+  // never a real navigation.
+  // HOISTED ABOVE THE SESSION CHECK — Task 6, fix round 1 — so `left=1` below
+  // can render the farewell in the correct frame, with the correct identity,
+  // WITHOUT going anywhere near `claims`. Read ONCE either way: the header and
+  // the farewell's way back are the same fact, and asking the identity door
+  // twice per request would be two round trips to answer one question.
+  const presentation = await resolvePresentation();
+  const identity = presentation === 'app' ? await stationIdentity(publicKey) : null;
+
+  // `signOutAction` (actions.ts) clears the cookie and redirects HERE with
+  // `?left=1`, rather than leaving `WidgetMenu` to render the farewell as
+  // client state after the cookie clear — that action's own comment has the
+  // measurement: a Server Action that mutates a cookie makes Next.js force a
+  // refresh of the very route that decides `<WidgetMenu>` vs `<IdentifyForm>`
+  // from that cookie, and client state loses that race every time. Checked
+  // BEFORE the session check below on purpose: by the time this request
+  // lands, the cookie is already gone, and reaching the ordinary claims logic
+  // would draw the identify form — correct for a cookie that verifies to
+  // nothing, but not what a listener who just pressed "Sair" should see.
+  if (left === '1') {
+    const farewell = <Farewell exitHref={identity?.whatsappHref ?? null} publicKey={publicKey} />;
+    return presentation === 'embedded' ? (
+      <EmbeddedFrame>{farewell}</EmbeddedFrame>
+    ) : (
+      <AppFrame identity={identity}>{farewell}</AppFrame>
+    );
   }
 
   const cookieStore = await cookies();
@@ -106,9 +186,16 @@ export default async function WidgetPage({
   // question, asked with the same `listPromotionsAction` call it already
   // makes to draw its own list, so a bad or invisible id falls back to the
   // menu there rather than being refused here.
-  return claims !== null ? (
-    <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
+  const body =
+    claims !== null ? (
+      <WidgetMenu publicKey={publicKey} initialOpen={parseOpenTarget(open, id)} />
+    ) : (
+      <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
+    );
+
+  return presentation === 'embedded' ? (
+    <EmbeddedFrame>{body}</EmbeddedFrame>
   ) : (
-    <IdentifyForm publicKey={publicKey} linkExpired={linkExpired} />
+    <AppFrame identity={identity}>{body}</AppFrame>
   );
 }

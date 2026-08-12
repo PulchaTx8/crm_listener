@@ -1,6 +1,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { PostgresRateLimiter } from '@/lib/rate-limit';
@@ -385,6 +386,84 @@ export async function verifyCodeAction(
   });
 
   return { status: 'identified' };
+}
+
+/**
+ * Block 19b, D4. "Sair": the listener is finished, and the session goes with
+ * them.
+ *
+ * NOT `expireDeadSession`, WHICH IS ITS OPPOSITE. That helper clears a cookie
+ * only once it has proved the token inside is already dead, so an ordinary
+ * submission cannot log a listener out; this one clears unconditionally,
+ * because being asked is the whole condition. A listener whose token expired
+ * while they read the confirmation still pressed the button, and making the
+ * clear depend on a token that verifies would leave them signed in on the one
+ * interaction meant to sign them out.
+ *
+ * THE SIX ATTRIBUTES MATCH THE MINT EXACTLY (verifyCodeAction, and
+ * enter/route.ts, whose comments explain why each is load-bearing for a cookie
+ * a third-party iframe has to receive). A browser matches a clear against
+ * name, domain and PATH; `path: '/w'` omitted here would set a SECOND cookie at
+ * `/` and leave the real one exactly where it was.
+ *
+ * NOW TAKES A PUBLIC KEY — Task 6, fix round 1. The first version of this
+ * task left `WidgetMenu` to hold a `left` flag and render the farewell as
+ * ordinary client state after `await`ing this action, and its own manual
+ * walkthrough (the one Block 19b, Task 6 step 9 exists for) caught what that
+ * missed, measured rather than assumed:
+ *
+ * THIS ACTION MUTATES A COOKIE, and Next.js treats any cookie write inside a
+ * Server Action as proof the current route's Router Cache is stale — the
+ * third element of the `x-action-revalidated` response header
+ * (`isCookieRevalidated`, set in `next/dist/server/app-render/action-handler.js`)
+ * confirms it. `page.tsx` chooses between `<WidgetMenu>` and `<IdentifyForm>`
+ * from that very cookie, so the framework's forced refresh re-runs that
+ * choice with the cookie already gone and swaps the whole `<WidgetMenu>`
+ * subtree — `left` included — for the identify form. A DOM poll at 25ms
+ * resolution during the walkthrough caught the farewell rendering and then
+ * being replaced roughly 30ms later; a listener never got the chance to read
+ * it or tap "Voltar ao WhatsApp".
+ *
+ * THE FIX IS THIS REDIRECT, NOT A DIFFERENT PLACE TO HOLD THE FLAG. Client
+ * state inside `WidgetMenu` loses the same race no matter where it lives,
+ * because the race is between the FRAMEWORK's own forced refresh of THIS
+ * route and whatever the client does after awaiting this action — moving the
+ * flag does not make the client code run before the framework's refresh
+ * decides what this route is. `redirect()` sidesteps the race instead of
+ * trying to win it: it turns this call into a NAVIGATION to a different
+ * address (`?left=1`), so there is no "this same route, freshly rendered" for
+ * the forced refresh to contribute — by the time the browser has a response,
+ * that response already IS the farewell, drawn by `page.tsx` itself rather
+ * than by client state the framework can outrun.
+ *
+ * `redirect()` WORKS BY THROWING — Next's documented mechanism, caught by the
+ * framework rather than by this function — so it is the LAST statement here
+ * and outside any try/catch that could swallow it. The cookie write above it
+ * has to run first: `redirect` unwinds this function immediately, so any
+ * write placed after it would never execute.
+ *
+ * ENCODED AND SINGLE-SLASH-PREFIXED, same reasoning as `enter/route.ts`'s
+ * `redirectTo`: `publicKey` reaches this function as whatever the caller's
+ * `<form action={signOutAction.bind(null, publicKey)}>` closure carries, not
+ * as something already guaranteed to be one path segment, so
+ * `encodeURIComponent` keeps it to a single segment and the literal `/w/`
+ * this function prepends is what stops the result from ever starting `//`,
+ * which a browser would resolve as protocol-relative to another host — the
+ * same open-redirect shape `enter/route.ts` and `auth/callback/route.ts`
+ * guard against for their own redirect targets.
+ */
+export async function signOutAction(publicKey: string): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(WIDGET_SESSION_COOKIE, '', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    partitioned: true,
+    path: '/w',
+    maxAge: 0,
+  });
+
+  redirect(`/w/${encodeURIComponent(publicKey)}?left=1`);
 }
 
 /**

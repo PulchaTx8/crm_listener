@@ -10,6 +10,7 @@ import {
   type WidgetPromotion,
   type WidgetStep,
 } from '@/lib/widget/promotion-mapping';
+import { signOutAction } from './actions';
 import {
   enterPromotionAction,
   listPromotionsAction,
@@ -141,7 +142,7 @@ export function EnterPromotionPanel({
 
   if (state.status === 'entered' || state.status === 'declined') {
     return (
-      <Shell title={t('enterAPromotion')} onClose={onClose}>
+      <Shell title={t('enterAPromotion')} onClose={onClose} publicKey={publicKey}>
         <p className="text-sm" data-testid="widget-promotion-done">
           {state.status === 'entered' ? t('entryRecorded') : t('entryNotRecorded')}
         </p>
@@ -380,11 +381,24 @@ function Question({
 function Shell({
   title,
   onClose,
+  publicKey,
   closeLabel,
   children,
 }: {
   title: string;
   onClose: () => void;
+  /**
+   * Block 19b, D6. Present only on the screen that ENDS an errand — never
+   * beside a half-filled promotion form, where a button that discards the
+   * session sits next to the field being typed into.
+   *
+   * A PUBLIC KEY, NOT A CALLBACK — Task 6, fix round 1. "Sair" is a
+   * `<form action={signOutAction.bind(null, publicKey)}>`, the same shape
+   * `menu.tsx` uses, and for the same reason: `signOutAction` ends in a
+   * `redirect()`, which a real form submission carries through cleanly, and
+   * a callback threaded down from a parent's client state cannot.
+   */
+  publicKey?: string;
   /**
    * What the panel's own way out is called. Named by the caller because inside
    * a walk it leaves the promotion rather than the step, and two buttons both
@@ -403,9 +417,18 @@ function Shell({
     >
       <h1 className="text-base font-semibold">{title}</h1>
       {children}
-      <Button type="button" variant="ghost" onClick={onClose} className="self-start">
-        {closeLabel ?? t('back')}
-      </Button>
+      <div className="flex gap-2">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          {closeLabel ?? t('back')}
+        </Button>
+        {publicKey ? (
+          <form action={signOutAction.bind(null, publicKey)}>
+            <Button type="submit" variant="ghost" data-testid="widget-exit">
+              {t('exit')}
+            </Button>
+          </form>
+        ) : null}
+      </div>
     </div>
   );
 }

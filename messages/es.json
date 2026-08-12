@@ -1803,7 +1803,11 @@
     "forWhichProgramme": "¿Para qué programa?",
     "anyTime": "Cualquier horario",
     "onAirNow": "{name} — al aire ahora",
-    "linkExpired": "Este enlace ha expirado. Envía el hashtag de nuevo para recibir uno nuevo."
+    "linkExpired": "Este enlace ha expirado. Envía el hashtag de nuevo para recibir uno nuevo.",
+    "exit": "Salir",
+    "goodbye": "¡Gracias! Hasta la próxima.",
+    "backToWhatsApp": "Volver a WhatsApp",
+    "identifyAgainAction": "Identificarme de nuevo"
   },
   "shows": {
     "programmes": "Programas",

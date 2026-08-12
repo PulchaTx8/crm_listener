@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import type { WidgetOpenTarget } from '@/lib/widget/open-target';
+import { signOutAction } from './actions';
 import { EnterPromotionPanel } from './enter-promotion';
 import { RequestSongPanel } from './request-song';
 
@@ -26,6 +27,16 @@ import { RequestSongPanel } from './request-song';
  * block numbers are in the paragraph above, where the developer who needs them
  * looks; the tooltip says what a visitor needs to know, which is that the
  * button is not broken.
+ *
+ * NO `left` STATE HERE ANY MORE, AND NO `exitHref` EITHER — Task 6, fix round
+ * 1. The first version held both, rendering `<Farewell>` in place once
+ * `signOutAction` resolved; the walkthrough that version's own step 9 asked
+ * for caught that this component's local state cannot survive the action's
+ * cookie clear (see `signOutAction`'s own comment for the measurement).
+ * "Sair" is a `<form action={signOutAction.bind(null, publicKey)}>` now — a
+ * real navigation the action's own `redirect()` completes — so there is
+ * nothing left for this component to hold once the button is pressed, and
+ * `page.tsx` draws the farewell for the `?left=1` request that follows.
  */
 export function WidgetMenu({
   publicKey,
@@ -94,6 +105,16 @@ export function WidgetMenu({
           {t('enterAPromotion')}
         </Button>
       </div>
+
+      {/* D6. Below the two errands and separated from them: it is a way out,
+          not a third thing to do. A FORM, not a button with an onClick,
+          because `signOutAction` ends in a `redirect()` — the shape that
+          survives a real navigation, unlike a client state flag. */}
+      <form action={signOutAction.bind(null, publicKey)} className="self-start">
+        <Button type="submit" variant="ghost" data-testid="widget-exit">
+          {t('exit')}
+        </Button>
+      </form>
     </div>
   );
 }

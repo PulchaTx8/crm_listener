@@ -2,8 +2,11 @@ import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
 import { generatePublicKey } from '@/lib/widget/code';
+import { readStationIdentity, type StationIdentity } from '@/lib/widget/station-identity';
 import { InternalError, NotFoundError, UnauthorizedError, ValidationError } from '@/lib/errors';
 import type { Database } from '@/lib/supabase/database.types';
+
+export type { StationIdentity };
 
 /**
  * Block 17a, spec §11. The one question the widget's page asks before it
@@ -72,6 +75,39 @@ export async function installationExists(publicKey: string): Promise<boolean> {
   // payload, and the unknown case falls to the refusal.
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
   return (data as { found?: unknown }).found === true;
+}
+
+/**
+ * Block 19b. The Station behind a public key, for the header the application
+ * presentation draws — `null` when there is nothing to draw.
+ *
+ * THE ANON KEY, same as `installationExists` above and for the same reason:
+ * 0185 grants this door to `anon` precisely because its caller is a page served
+ * to an anonymous visitor. A service-role client here would be privilege with
+ * no use.
+ *
+ * A DATABASE THAT CANNOT ANSWER RETURNS `null`, and this is the ONE place in
+ * this file where a throw would be wrong — `installationExists` throws on
+ * purpose, because collapsing an outage into "no such installation" answers 404
+ * to a Station whose configuration is correct. Here the caller has already
+ * decided the installation exists; all that is left is a name and a picture,
+ * and design §7 says an unreachable door costs the header, never the page. A
+ * throw would take a working widget down to decorate it.
+ */
+export async function stationIdentity(publicKey: string): Promise<StationIdentity | null> {
+  if (!publicKey) return null;
+
+  const { url, anonKey } = getUserSupabaseConfig();
+  const supabase = createClient<Database>(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data, error } = await supabase.rpc('widget_station_identity', {
+    p_public_key: publicKey,
+  });
+  if (error) return null;
+
+  return readStationIdentity(data);
 }
 
 // ---------------------------------------------------------------------------
