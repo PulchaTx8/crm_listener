@@ -142,11 +142,29 @@ begin
     and v_when >= starts_at and v_when < ends_at
   limit 1;
 
-  select * into v_install
-  from public.widget_installations
-  where company_id = v_integ.company_id
-    and enabled
-    and deleted_at is null;
+  -- Final review, Important #1. Joins companies and organizations, the same
+  -- way 0164's fix wave already made mint_widget_link and
+  -- widget_link_send_context do (0181): "a live installation" has to mean
+  -- the same thing here that it means downstream, or the two disagree and
+  -- the disagreement parks an event. Without this join a SUSPENDED Station's
+  -- or a BLOCKED Organization's still-enabled row was found here anyway, a
+  -- hashtag matched, and the event reached the 'link' outcome below only to
+  -- fail two steps later at widget_link_send_context -- the identical
+  -- regression the PROMOTION gate a few lines down exists to close, just for
+  -- MUSIC and MENU, which were believed structurally safe from it and were
+  -- not.
+  select w.* into v_install
+  from public.widget_installations w
+  join public.companies c
+    on c.id = w.company_id
+   and c.deleted_at is null
+   and c.status = 'active'
+  join public.organizations o
+    on o.id = w.organization_id
+   and o.suspended_at is null
+  where w.company_id = v_integ.company_id
+    and w.enabled
+    and w.deleted_at is null;
 
   if v_promo.id is not null then
     v_purpose := 'PROMOTION';
@@ -263,6 +281,29 @@ begin
   -- earlier. Guarded on v_promo.id, not v_purpose, for the same reason the
   -- pre-check above needs no guard of its own: a MUSIC or MENU match never
   -- populates v_promo, so this never fires for either.
+  -- Final review, Important #1. A promotion's hashtag can match with no live
+  -- installation to answer through -- unlike MUSIC and MENU, whose match is
+  -- structurally impossible without one, because the elsif chain above tests
+  -- v_install's own columns. Every Station starts in exactly this state:
+  -- creating a widget installation is a separate console act (0159), so a
+  -- Station with a WhatsApp integration and a hashtagged, ruled promotion but
+  -- no installation yet is the ORDINARY case, not an exotic one. Without this
+  -- gate v_purpose stayed 'PROMOTION' regardless, the function reached the
+  -- 'link' outcome below, widget_link_send_context raised P0002, sendServiceLink
+  -- rethrew, and the event burned all six retry rungs and parked FAILED --
+  -- for a configuration that used to open a conversation and answer fine.
+  --
+  -- GATED HERE, BESIDE no_rules, and not folded into the diagnostic branch
+  -- above: v_diag there would find the very promotion v_promo already found
+  -- (same filters, minus the window) and misreport outside_window for a
+  -- promotion that is, in fact, live right now -- the wrong cause for the
+  -- right symptom. no_installation is its own named outcome so the two are
+  -- never confused reading webhook_events, the same reasoning no_rules
+  -- already states for itself two lines below.
+  if v_promo.id is not null and v_install.id is null then
+    return public.finish_whatsapp_event(v_event.id, 'no_installation', null, null);
+  end if;
+
   if v_promo.id is not null and (v_promo.rules is null or btrim(v_promo.rules) = '') then
     return public.finish_whatsapp_event(v_event.id, 'no_rules', null, null);
   end if;
@@ -310,4 +351,4 @@ revoke execute on function public.ingest_whatsapp_event(uuid, integer) from publ
 grant execute on function public.ingest_whatsapp_event(uuid, integer) to service_role;
 
 comment on function public.ingest_whatsapp_event(uuid, integer) is
-  'The bot''s door, and since Block 19a it answers with a LINK rather than opening a conversation. It claims the event FOR UPDATE SKIP LOCKED, resolves the Station and the hashtag, and matches it in ONE order: the Station''s live, uncancelled promotions first (D3), then its music_hashtag, then its service_hashtag -- first match wins, because a promotion''s tag is the specific word and the Station''s two are the general ones. Past that point the listener is resolved or registered exactly as 0070 left it (the local-then-delivered lookup pair, and the unique_violation race), and THEN, before rules is ever consulted: an attempt that could not become a VALID entry is recorded and answered exactly as 5a did, because a repeat or a spent ceiling is a fact about a message this Station received (0054, 4c) and has nothing to do with whether a promotion has rules text yet -- checking rules ahead of this would answer somebody who has already used their chances with silence, and their attempt would never reach the reports an operator reads (fix round 1). Only once the listener is confirmed able to enter does a promotion match with no rules text finish as no_rules and send nothing (D4): rules are the consent the web screen writes, and web_enabled is deliberately not tested, because sending the hashtag already is asking to take part. Anything else hands back {outcome: link, purpose, promotion_id, member_id, ...} for the caller to mint a code and send, and NEVER {outcome: conversation} -- this function starts no conversation any more. TWO PATHS LEAVE THE EVENT PROCESSING -- that one, and a message with no hashtag, which may be an answer to a question the bot asked and can only be told apart by looking in the conversation store the caller owns. Both are finished by the caller, through finish_whatsapp_turn for the no-hashtag path and by whatever Task 5 closes the link path with. That keeps the INBOUND arm of reclaim_stale_whatsapp_claims load-bearing: a worker that dies mid-decision leaves a claimed row that only the reclaim frees, five minutes later.';
+  'The bot''s door, and since Block 19a it answers with a LINK rather than opening a conversation. It claims the event FOR UPDATE SKIP LOCKED, resolves the Station and the hashtag, and matches it in ONE order: the Station''s live, uncancelled promotions first (D3), then its music_hashtag, then its service_hashtag -- first match wins, because a promotion''s tag is the specific word and the Station''s two are the general ones. v_install is resolved through the SAME join companies/organizations that mint_widget_link and widget_link_send_context use (0164, 0181): a suspended Station or a blocked Organization answers as no installation at all, everywhere in this block, not just downstream of here. Past that point the listener is resolved or registered exactly as 0070 left it (the local-then-delivered lookup pair, and the unique_violation race), and THEN, before rules is ever consulted: an attempt that could not become a VALID entry is recorded and answered exactly as 5a did, because a repeat or a spent ceiling is a fact about a message this Station received (0054, 4c) and has nothing to do with whether a promotion has rules text yet -- checking rules ahead of this would answer somebody who has already used their chances with silence, and their attempt would never reach the reports an operator reads (fix round 1). Only once the listener is confirmed able to enter does a matched promotion with no live installation finish as no_installation (final review: every Station starts in exactly that state, since creating one is a separate console act, 0159) or, past that, with no rules text finish as no_rules -- both send nothing (D4): rules are the consent the web screen writes, and web_enabled is deliberately not tested, because sending the hashtag already is asking to take part. MUSIC and MENU need no equivalent of the no_installation gate: their match is structurally impossible without v_install''s own columns populated, so an absent, disabled or now-dark Station''s general hashtag falls straight to the diagnostic branch and finishes no_promotion, silently, exactly as a promotion hashtag with no live installation now also does under its own name. Anything else hands back {outcome: link, purpose, promotion_id, member_id, ...} for the caller to mint a code and send, and NEVER {outcome: conversation} -- this function starts no conversation any more. TWO PATHS LEAVE THE EVENT PROCESSING -- that one, and a message with no hashtag, which may be an answer to a question the bot asked and can only be told apart by looking in the conversation store the caller owns. Both are finished by the caller, through finish_whatsapp_turn for the no-hashtag path and by whatever Task 5 closes the link path with. That keeps the INBOUND arm of reclaim_stale_whatsapp_claims load-bearing: a worker that dies mid-decision leaves a claimed row that only the reclaim frees, five minutes later.';

@@ -752,6 +752,18 @@ values
   ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c4',
    'WHATSAPP', '333333333333333', false);
 
+-- Block 19a, final review fix wave (Important #1). A promotion's hashtag now
+-- requires a live widget installation to reach outcome 'link' -- the fix
+-- that closes the one behaviour regression the whole-branch review found,
+-- gating v_purpose = 'PROMOTION' the same way MUSIC and MENU were already
+-- gated structurally. Every promotion below lives at 5c2, so this is the ONE
+-- row every "resolves to a link" assertion in this file needs; before this
+-- fix, PROMOTION reached 'link' regardless of an installation existing, so
+-- this file never needed one.
+insert into public.widget_installations (organization_id, company_id, public_key, enabled) values
+  ('00000000-0000-0000-0000-0000000005f1', '00000000-0000-0000-0000-0000000005c2',
+   'pw_00000000000000000005c2', true);
+
 -- Every fixed window below is in the PAST, deliberately and permanently.
 --
 -- The defect this block is most afraid of is the promotion being matched on

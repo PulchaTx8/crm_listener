@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(28);
 
 -- Block 19a (D6). The two hashtags a Station configures, and the door that
 -- writes them: set_service_hashtags. Fixtures follow 39_widget_installations
@@ -437,6 +437,155 @@ select is(
              'wamid.SVC-NORULES', '5511977776004', '#EUQUERO') as r) s),
   jsonb_build_object('outcome', 'no_rules', 'has_link', false),
   'a promotion with no rules text returns outcome no_rules, and no link');
+
+-- ---------------------------------------------------------------------------
+-- 15-21. Final review fix wave, Important #1. Before this fix, a promotion
+-- hashtag matched with no live installation to answer through anyway
+-- reached outcome 'link' -- widget_link_send_context then raised P0002,
+-- sendServiceLink rethrew, and the event burned all six retry rungs and
+-- parked FAILED, for a configuration (a Station with WhatsApp and a
+-- hashtagged promotion but no widget installation) that is the ORDINARY
+-- starting state, not an exotic one. MUSIC and MENU were already safe from
+-- an ABSENT or a DISABLED installation -- their match is structurally
+-- impossible without v_install's own columns populated -- but not from a
+-- SUSPENDED Station: the ingest's own v_install lookup carried no join to
+-- companies/organizations before this fix, so a still-enabled row was found
+-- anyway and a general hashtag reached 'link' too. All three states are
+-- proven here, for all three hashtags, and every one of the nine
+-- combinations answers silently with a named outcome, never 'link'.
+-- ---------------------------------------------------------------------------
+
+-- Station D: no widget_installations row at all -- the state every Station
+-- starts in, since creating one is a separate console act (0159).
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-000000000612', '00000000-0000-0000-0000-000000000601',
+   'Station D hashtags (absent installation)', 'America/Sao_Paulo');
+
+insert into public.integrations
+  (organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000612',
+   'WHATSAPP', '444444444444446', true);
+
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, rules)
+values
+  ('00000000-0000-0000-0000-000000000613', '00000000-0000-0000-0000-000000000601',
+   '00000000-0000-0000-0000-000000000612', 'Promo Station D sem widget',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#SEMWIDGET', 'Regulamento da promocao sem widget.');
+
+-- A second helper, taking the phone_number_id as an argument: Station D's
+-- integration is a different row from Station A's, and pg_temp.ingest_hashtag
+-- above hard-codes A's.
+create or replace function pg_temp.ingest_hashtag_at(
+  p_number text, p_wamid text, p_from text, p_text text)
+returns jsonb language plpgsql as $$
+declare v_id uuid;
+begin
+  insert into public.webhook_events (provider, external_id, payload)
+  values ('WHATSAPP', encode(sha256(convert_to(p_wamid, 'UTF8')), 'hex'),
+    jsonb_build_object(
+      'metadata',     jsonb_build_object('phone_number_id', p_number),
+      'from',         p_from, 'profile_name', 'Ouvinte Hashtag',
+      'timestamp',    extract(epoch from now())::bigint::text,
+      'text',         p_text))
+  returning id into v_id;
+
+  return public.ingest_whatsapp_event(v_id);
+end $$;
+
+-- 15. Absent installation, a live promotion's own hashtag: no_installation,
+--     never the 'link' outcome that used to reach widget_link_send_context
+--     and park the event.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag_at(
+             '444444444444446', 'wamid.D-PROMO', '5511977776010', '#SEMWIDGET') as r) s),
+  'no_installation',
+  'a live promotion''s hashtag at a Station with no widget installation at all answers no_installation, not link');
+
+-- 16. Absent installation, a word that names no promotion: falls through to
+--     the diagnostic exactly as it did before this fix -- MUSIC and MENU
+--     were never reachable here in the first place.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag_at(
+             '444444444444446', 'wamid.D-GENERIC', '5511977776011', '#QUALQUERCOISA') as r) s),
+  'no_promotion',
+  'a non-promotion hashtag at a Station with no installation at all falls through silently, unchanged by this fix');
+
+-- Station A's own installation, DISABLED. #GANHEJA (609) is still live and
+-- still carries rules; #TOCAAGORA/#MENUAJUDA are still stored on the row,
+-- just unreachable while enabled is false.
+update public.widget_installations
+   set enabled = false
+ where id = '00000000-0000-0000-0000-000000000606';
+
+-- 17. Disabled installation, the promotion hashtag: no_installation.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.DIS-PROMO', '5511977776012', '#GANHEJA') as r) s),
+  'no_installation',
+  'a live promotion''s hashtag at a Station whose installation is disabled answers no_installation');
+
+-- 18. Disabled installation, the music hashtag: no_promotion, exactly as
+--     spec section 7 promises -- structurally unreachable, before and after
+--     this fix.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.DIS-MUSIC', '5511977776013', '#TOCAAGORA') as r) s),
+  'no_promotion',
+  'the music hashtag at a Station whose installation is disabled falls through to no_promotion, silently');
+
+-- Station A's installation, RE-ENABLED, and the Station itself SUSPENDED --
+-- the state the ingest's own v_install lookup could not previously tell
+-- apart from a live one: enabled stayed true, and nothing joined companies
+-- before this fix, so this is the one row of the three states above that a
+-- fix scoped only to the PROMOTION branch would not have covered for MUSIC
+-- and MENU.
+update public.widget_installations
+   set enabled = true
+ where id = '00000000-0000-0000-0000-000000000606';
+update public.companies
+   set status = 'suspended'
+ where id = '00000000-0000-0000-0000-000000000602';
+
+-- 19. Suspended Station, the promotion hashtag: no_installation.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SUSP-PROMO', '5511977776014', '#GANHEJA') as r) s),
+  'no_installation',
+  'a live promotion''s hashtag at a SUSPENDED Station answers no_installation, not link');
+
+-- 20. Suspended Station, the music hashtag: no_promotion -- reachable ONLY
+--     because of this fix's join to companies; before it, v_install was
+--     found anyway (enabled stayed true) and this hashtag reached 'link'.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SUSP-MUSIC', '5511977776015', '#TOCAAGORA') as r) s),
+  'no_promotion',
+  'the music hashtag at a SUSPENDED Station falls through to no_promotion, silently, now that v_install joins companies');
+
+-- 21. Suspended Station, the service hashtag: same answer, same reason.
+select is(
+  (select r ->> 'outcome'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SUSP-MENU', '5511977776016', '#MENUAJUDA') as r) s),
+  'no_promotion',
+  'the service hashtag at a SUSPENDED Station falls through to no_promotion, silently, now that v_install joins companies');
+
+-- Left active: nothing after this point in the file depends on Station A
+-- being suspended, and leaving it so would be an accident of test order
+-- rather than a decision.
+update public.companies
+   set status = 'active'
+ where id = '00000000-0000-0000-0000-000000000602';
 
 select * from finish();
 rollback;
