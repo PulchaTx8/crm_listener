@@ -1,0 +1,253 @@
+# Block 20a — Two buttons called the same thing, and a refusal nobody earned
+
+**Status:** design agreed with the owner, 2026-08-12.
+**Extends:** Blocks 17b and 17c, whose two panels this repairs. Nothing new is
+built here.
+**First of three:** the owner's list of 2026-08-12 carries nine items. This
+block takes items 1 and 2 — the two defects. Items 3, 4, 8 and 9 (navigation)
+become Block 20b; items 5, 6 and 7 (the catalogue as three screens) become
+Block 20c. §6 records that split so the two blocks that follow are not
+re-derived from scratch.
+
+---
+
+## 1. What this is for
+
+Two complaints, from the owner, about the widget a listener reaches from
+WhatsApp. Both are about the same thing from opposite ends: a screen that tells
+the listener something untrue.
+
+**The first is a button that appears twice.** On the screen where a listener
+writes a note and sends a song request, there are two buttons reading "Voltar",
+one above the other, and they go to different places. The upper one returns to
+the search; the lower one abandons the request and returns to the menu. A
+listener choosing between them is choosing blind.
+
+**The second is a refusal for a form that was filled in.** A listener who is
+not yet in the database walks a promotion, types an address, a city, a
+neighbourhood and a date of birth, and reads *"Faltou alguma coisa. Volte e
+confira suas respostas."* under a form with nothing missing from it.
+
+Neither is a new capability. The first is one prop the sibling panel already
+has. The second is not yet a fix at all — it is a reproduction, and §4 says why
+that has to come first.
+
+---
+
+## 2. Decisions
+
+The owner's, taken 2026-08-12.
+
+**D1 — The lower button is the one that gets a name.** On the note screen it
+becomes "Voltar ao menu"; the upper one stays "Voltar". The rule this states,
+and which the panels can be read against from now on: *the lower button always
+names where it goes, the upper one always means one step back inside the errand
+in progress.* The rejected alternative was to name the upper button instead
+("Escolher outra"), mirroring `enter-promotion.tsx`'s own "Outras promoções" —
+rejected because in that panel the lower button IS the one that leaves, and
+naming a different button in each of two panels that sit behind the same menu
+is the confusion this item exists to end, moved rather than removed.
+
+**D2 — The block is split, and this one ships alone.** The two defects are on
+the screen listeners actually use, and the seven items after them are not. This
+block reaches production without waiting for three new catalogue screens.
+
+**D3 — Item 2 is reproduced before it is fixed.** §4 has the two candidate
+causes and why guessing between them from a screenshot would be a coin toss.
+The block commits to the reproduction, and to whichever of the two fixes it
+proves — not to a fix chosen in advance.
+
+**D4 — One improvement ships whichever cause it turns out to be.** When the
+door answers `missing_answers`, the panel returns the listener to the first
+screen still holding an unanswered step, instead of only printing a sentence.
+§4.3 has the reasoning; it is small, and it is the only part of item 2 that is
+worth doing even if the reproduction comes back clean.
+
+---
+
+## 3. Item 1 — the two "Voltar"
+
+### 3.1 What is actually there
+
+`src/app/(widget)/w/[publicKey]/request-song.tsx` has a local `Shell` that
+draws a title, its children, and a row of buttons at the bottom. The bottom row
+always renders `t('back')` wired to `onClose`, which returns to the widget
+menu. The note screen — the `chosen` branch — draws its own row inside the
+form: `Enviar pedido` (submit) and an outline button reading `t('back')` wired
+to `setChosen(null)`, which returns to the search.
+
+Both read "Voltar". Both are visible at once, on that one screen only: every
+other screen in the panel draws no button of its own, so the `Shell`'s is
+unambiguous there.
+
+### 3.2 The fix
+
+`enter-promotion.tsx`'s `Shell` already solved this in Block 19b, with an
+optional `closeLabel` prop whose own comment names the date this was first
+seen. The same prop comes to `request-song.tsx`'s `Shell`:
+
+- `closeLabel?: string`, defaulting to `t('back')` when absent, so the five
+  `<Shell>` call sites that pass nothing — loading, error, cooldown, recorded
+  and the search screen — are untouched;
+- the `chosen` branch passes `t('backToMenu')`.
+
+A new message key `backToMenu` is added to `messages/pt.json`, `en.json` and
+`es.json` under `widget`. Portuguese: "Voltar ao menu". English: "Back to the
+menu". Spanish: "Volver al menú".
+
+The key is spelled as a single-quoted literal in the call, never composed —
+`tests/unit/i18n/usage.test.ts` matches literal keys only, and next-intl
+renders the key itself for a missing message. That rule is already written
+into `identify-form.tsx`'s own comment and is restated here because this block
+adds a key.
+
+### 3.3 What proves it
+
+`tests/e2e/widget.spec.ts` already drives the song request through to the note
+screen. The assertion this block adds is about accessible names rather than
+about a count of buttons: on the note screen, exactly one control is named
+"Voltar" and exactly one is named "Voltar ao menu", and following the second
+one lands on the menu. Asserting "two buttons exist" would have passed before
+this change too.
+
+---
+
+## 4. Item 2 — the refusal for a completed form
+
+### 4.1 What the door actually checks
+
+`widget_enter_promotion` (0171) recomputes the step list with
+`whatsapp_conversation_steps(promotion, member)` and answers `missing_answers`
+in exactly two places: a `field` step with no non-blank value in `p_fields`,
+and a `question` step with no entry in `p_answers`.
+
+Both checks run **before** `apply_member_field_values`. This rules out a whole
+family of suspects that the screenshot invites: the date typed as `03/10/1978`
+into a field that maps to `members.birth_date` (`member_field_value`, 0065,
+maps `age` → `birth_date::text`) cannot produce this message, because nothing
+has tried to parse it yet when the message is decided. Neither can the CPF
+field, which maps to `cpf_hash`. Whatever this is, it is a step the door
+counts and the payload does not carry.
+
+### 4.2 The two candidates
+
+**(a) Production is running a build older than `origin/main`.** Two of the
+screenshot's details are signatures of code that has since changed:
+
+- the message appears on a screen whose primary button reads "Continuar",
+  which is `t('next')` — so it is not the last screen. On `origin/main` the
+  message is gated `state.status === 'refused' && last`, and cannot render
+  there at all;
+- the bottom button of the promotion walk reads "Voltar". On `origin/main`
+  that screen passes `closeLabel={t('otherPromotions')}` — "Outras promoções".
+
+`origin/main` is the merge of PR #63; the working branch carries twelve further
+commits (PR #64) that are not in it. The owner confirmed the screenshots are
+from `pulchatx.com`. If the deployed build predates the fixes above, both
+details are explained without a defect existing today, and item 2 is an
+implantação rather than a conserto. The project has shipped code ahead of its
+migrations three times (Blocks 13a, 17b, 17c); a deploy lagging the branch is
+in character for this system.
+
+**(b) A question with alternatives arrived without its options.** The panel
+draws such a question as *nothing at all* — a deliberate, documented choice in
+`enter-promotion.tsx`, on the grounds that an empty screen followed by the
+door's own refusal beats a text box whose every answer trips
+`participation_answers_shape` (0052). The listener taps through a blank screen
+without noticing, submits, and the door counts a `question` step the payload
+does not answer: `missing_answers`, for a form that looks complete.
+
+This cause is not new-listener-specific, and that is the point that makes it
+survive the screenshot. It refuses everybody equally. A listener already in the
+database is asked for no fields at all — `whatsapp_conversation_steps` only
+emits steps for values that are empty or stale — so their walk is consent, then
+the question, and the message lands somewhere else entirely. The new listener
+is simply the only one with a fields screen to photograph.
+
+### 4.3 The reproduction, and what follows from it
+
+Against the current branch, with a promotion carrying both requested fields and
+at least one question with alternatives, entered as a listener with no prior
+record:
+
+- **If it reproduces**, the cause is (b) or something the reproduction reveals,
+  and it is fixed under `superpowers:test-driven-development` — a failing test
+  first, at the layer the defect actually lives in. If the empty-options path
+  is confirmed, the fix belongs where the options go missing, not in the panel
+  that faithfully draws nothing.
+- **If it does not reproduce**, the cause is (a). Item 2 closes as a deployment
+  of what is already merged, said plainly and not dressed as a code change, and
+  the branch carries only D4 below.
+
+**D4, either way.** `EnterPromotionPanel` holds every answer in its own state
+and knows which screen each step sits on, so it can already compute the first
+screen holding an unanswered step. On `missing_answers` it moves there, and the
+sentence "Faltou alguma coisa. Volte e confira suas respostas." is shown at the
+place it is talking about instead of asking the listener to search for it. This
+is a courtesy and not a guard: the door stays the authority on what a promotion
+asks, exactly as 0171's own comment insists, and a panel that finds nothing
+unanswered leaves the listener where they are with the message unchanged —
+which is precisely the state that means the screen and the door disagree, and
+is worth being visible rather than smoothed over.
+
+### 4.4 What proves it
+
+A unit test over the "which screen is the first unanswered one" decision,
+extracted into `src/lib/widget/promotion-mapping.ts` beside `answersFor` and
+`decideAutoOpen` — the module that exists to be importable, since a `'use
+server'` file cannot be. A panel-level branch that only a browser can reach
+would be checked by nothing, which is the reason that module was split in the
+first place.
+
+If a fix for (b) is needed, its own test comes with it, written before it.
+
+---
+
+## 5. What this block does not touch
+
+- `identify-form.tsx`, and every refusal it renders. The screenshots are from
+  after identification.
+- The door functions in 0171, unless the reproduction proves the defect is
+  inside one. No migration is planned; if one becomes necessary it is because
+  §4.3 found a reason, and it travels with the deploy — the failure this
+  project has repeated three times.
+- The navigation, and the catalogue screens. §6.
+
+---
+
+## 6. The two blocks after this one
+
+Recorded here so they are not re-derived. Neither is designed yet; each gets
+its own spec.
+
+**Block 20b — navigation.** Owner's items 3, 4, 8 and 9: move Pedidos
+(`/music/requests`) from the Música section to Audiência; rename the Música
+section to Catálogo; move Relatórios and Administração above Modelos; and make
+the sidebar a tree whose sections collapse. Everything except the last is
+`src/lib/auth/shell.ts` plus `messages/*.json`; the tree is
+`src/components/layout/sidebar-nav.tsx`, and carries open questions this spec
+does not answer (what persists between visits, what is open on a first visit).
+
+**Block 20c — the catalogue as three screens.** Owner's items 5, 6 and 7:
+Gravadoras, Gêneros and Álbuns stop being `?tab=` on `/music/catalog` and
+become three nav items of their own, each following the Músicas screen's shape
+— a filtered list with a Cadastrar button opening a popup — and the album
+record grows a thumbnail. `albums` already carries `cover_md5`,
+`deezer_album_id`, `upc` and `release_date` (0136/0137), so the thumbnail has a
+source for anything registered from Deezer; where the picture comes from for an
+album typed in by hand is the open question that spec has to answer, and Block
+14's promotion and prize images are the precedent to weigh. `/music/catalog`
+itself disappears from the navigation, and what happens to the address is that
+spec's to decide.
+
+---
+
+## 7. Verification
+
+The gates this project already runs, in the order
+`portoes-e-banco-local-sujo` records — `db:test` before the e2e and isolation
+suites, never after, or two of them go red for reasons that are not the code.
+
+Nothing here changes the database, so a clean `db:test` is a regression check
+rather than a claim about new behaviour. The e2e widget spec is the one that
+matters: it drives both panels, and both are what this block edits.
