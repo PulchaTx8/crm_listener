@@ -265,10 +265,20 @@ async function drainEvents(
     if (ingestError) {
       await deferEvent(supabase, result, event.id, event.attempts, ingestError.message);
       result.eventsFailed += 1;
-    } else if (outcome === 'conversation' || outcome === 'no_hashtag') {
+    } else if (outcome === 'link' || outcome === 'no_hashtag') {
       // The door resolved the message and left the event PROCESSING, because
       // whether this is an answer depends on a conversation store this database
-      // may not hold (Block 5b). The turn decides, and closes the event.
+      // may not hold (Block 5b), and because a matched hashtag is an
+      // intention rather than a send (Block 19a, 0179) -- either way the
+      // decision belongs to Node. The turn decides, and closes the event.
+      //
+      // 'link', not 'conversation': 0179 (Block 19a, Task 3) retired the
+      // outcome this branch used to match on -- ingest_whatsapp_event opens
+      // no conversation any more -- and this condition went stale along with
+      // it until Task 5 caught it. Left unfixed, every matched hashtag would
+      // fall to the `else` below for ever: counted as "ingested", the link
+      // intention silently dropped, and the event retried on every tick with
+      // the same result.
       await runTurn(supabase, store, result, event, data);
     } else if (outcome === 'skipped') {
       // The door declined it: another tick holds it, or it stopped being

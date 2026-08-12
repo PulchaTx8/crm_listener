@@ -47,9 +47,9 @@ export interface SystemMessageRow {
 }
 
 /**
- * All ten, whether overridden or not.
+ * All thirteen, whether overridden or not.
  *
- * TEN ROWS ALWAYS, built from `SYSTEM_MESSAGE_DEFAULTS` and filled in from
+ * EVERY ROW ALWAYS, built from `SYSTEM_MESSAGE_DEFAULTS` and filled in from
  * whatever the Station has overridden — never the query's rows alone. A screen
  * rendering only what came back would show a brand-new Station an empty page,
  * and would be the same all-or-nothing misreading of D2 that the resolver's

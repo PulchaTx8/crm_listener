@@ -84,6 +84,20 @@ export const ABANDON_MESSAGE =
   'Não consegui entender a resposta. Vamos parar por aqui — é só mandar a hashtag de novo quando quiser tentar outra vez.';
 
 /**
+ * Block 19a. The three texts a matched hashtag now sends, one per purpose, in
+ * front of the link `sendServiceLink` (src/services/whatsapp-link.ts)
+ * appends. Portuguese, same rule as every other constant in this block: a
+ * listener reads these, so English identifiers, English comments, and the
+ * one exception is the words themselves.
+ */
+export const DEFAULT_MUSIC_LINK_TEXT =
+  'Toque no link para pedir sua música. Ele vale por 15 minutos:';
+export const DEFAULT_MENU_LINK_TEXT =
+  'Toque no link para falar com a gente. Ele vale por 15 minutos:';
+export const DEFAULT_PROMOTION_LINK_TEXT =
+  'Toque no link para participar. Ele vale por 15 minutos:';
+
+/**
  * The two override types live in `./steps` with the rest of the vocabulary and
  * are re-exported here, where the defaults and the resolver are — so a caller
  * needing "the ten texts" imports one module rather than two.
@@ -109,6 +123,20 @@ export const FIELD_MESSAGE_KEYS: Record<RequestedField, SystemMessageKey> = {
   discovery_source: 'DISCOVERY_SOURCE',
 };
 
+/**
+ * Block 19a's mirror of `FIELD_MESSAGE_KEYS` above, for the one other family
+ * of copy a purpose picks a key from rather than a field: which of the three
+ * LINK_* texts `sendServiceLink` puts in front of the link, by the ingest's
+ * own `purpose` union. TOTAL for the same reason FIELD_MESSAGE_KEYS is -- a
+ * fourth purpose the enum grew would fail to compile here rather than
+ * resolving to nothing.
+ */
+export const LINK_MESSAGE_KEYS: Record<'MUSIC' | 'MENU' | 'PROMOTION', SystemMessageKey> = {
+  MUSIC: 'LINK_MUSIC',
+  MENU: 'LINK_MENU',
+  PROMOTION: 'LINK_PROMOTION',
+};
+
 /** The constants above, collected under the keys a Station overrides them by. */
 export const SYSTEM_MESSAGE_DEFAULTS: Record<SystemMessageKey, string> = {
   REFUSAL: REFUSAL_MESSAGE,
@@ -121,6 +149,9 @@ export const SYSTEM_MESSAGE_DEFAULTS: Record<SystemMessageKey, string> = {
   CPF: FIELD_PROMPTS.cpf,
   PASSPORT: FIELD_PROMPTS.passport,
   DISCOVERY_SOURCE: FIELD_PROMPTS.discovery_source,
+  LINK_MUSIC: DEFAULT_MUSIC_LINK_TEXT,
+  LINK_MENU: DEFAULT_MENU_LINK_TEXT,
+  LINK_PROMOTION: DEFAULT_PROMOTION_LINK_TEXT,
 };
 
 /**

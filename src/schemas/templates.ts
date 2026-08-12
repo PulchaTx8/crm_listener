@@ -11,10 +11,11 @@ import type { Enums } from '@/lib/supabase/database.types';
  */
 
 /**
- * The ten keys, derived from `SYSTEM_MESSAGE_DEFAULTS` rather than listed
- * again. That record is total over `SystemMessageKey`, which is itself the
+ * The keys, derived from `SYSTEM_MESSAGE_DEFAULTS` rather than listed again.
+ * That record is total over `SystemMessageKey`, which is itself the
  * generated `system_message_key` enum, so this array cannot fall behind the
- * database — and an eleventh key arrives here with no edit at all.
+ * database — and a fourteenth key (as the three Block 19a added once did)
+ * arrives here with no edit at all.
  *
  * Ordered by the enum, which is the order the Messages screen renders in: the
  * two standalone messages first, then the eight field prompts in the order the

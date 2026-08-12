@@ -5,7 +5,7 @@ import { CONSENT_NO_ID, CONSENT_YES_ID } from '@/lib/conversation/engine';
 import type { Conversation } from '@/lib/conversation/steps';
 import type { ConversationKey, ConversationStore } from '@/lib/conversation/store';
 import type { Database } from '@/lib/supabase/database.types';
-import { runConversationTurn, type InboundTurn } from '@/services/conversation';
+import { runConversationTurn, type InboundTurn, type LinkIntent } from '@/services/conversation';
 
 /**
  * The turn, against a fake store and a fake client.
@@ -108,6 +108,27 @@ function turn(overrides: Partial<InboundTurn> = {}): InboundTurn {
     text: '',
     reply: null,
     start: null,
+    // Block 19a. Absent on every no_hashtag turn (parseInboundTurn's own
+    // contract) -- present only on the shape `link()` below builds.
+    link: null,
+    ...overrides,
+  };
+}
+
+/** The other shape parseInboundTurn produces: a matched hashtag, D3. */
+function link(overrides: Partial<LinkIntent> = {}): LinkIntent {
+  return {
+    outcome: 'link',
+    event_id: '77777777-7777-7777-7777-777777777777',
+    integration_id: INTEGRATION,
+    company_id: '99999999-9999-9999-9999-999999999999',
+    phone: '5511988887777',
+    to_phone: '5511988887777',
+    member_id: MEMBER,
+    purpose: 'MUSIC',
+    promotion_id: null,
+    promotion_name: null,
+    dedupe_prefix: EXTERNAL_ID,
     ...overrides,
   };
 }
@@ -304,6 +325,58 @@ describe('runConversationTurn', () => {
     expect(outcome).toEqual({ kind: 'ignored' });
     expect(db.called('enqueue_whatsapp_outbound')).toBeUndefined();
     expect(db.called('finish_whatsapp_turn')?.args.p_outcome).toBe('no_conversation');
+  });
+
+  /**
+   * Block 19a, D7. The bridge this task exists for: a live conversation
+   * outranks a matched hashtag, exactly as it already outranked `turn.start`
+   * before this task. Both `reply` (an answer to the live question) AND
+   * `link` (the ingest also resolved this same message as a hashtag match)
+   * are set on the same turn -- an edge case rather than the ordinary shape
+   * (parseInboundTurn never produces both at once), but it is the one
+   * arrangement that actually exercises the ORDER the two `if` statements are
+   * written in, which is the whole guarantee D7 asks for.
+   */
+  it('D7: a live conversation wins over a matched hashtag, and mints no link', async () => {
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+    });
+    const store = new FakeStore(conversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({
+        reply: { kind: 'button', id: CONSENT_YES_ID, title: 'Quero!' },
+        link: link(),
+      }),
+    );
+
+    expect(outcome).toEqual({ kind: 'prompted' });
+    // The whole point of D7: the branch below the live check is never
+    // reached, so sendServiceLink never mints anything.
+    expect(db.rpcs.some((call) => call.fn === 'mint_widget_link')).toBe(false);
+  });
+
+  /**
+   * The other half of Step 3's wiring: nobody is mid-conversation, so a
+   * matched hashtag DOES reach sendServiceLink -- proven here by the shape of
+   * the failure. This process has no NEXT_PUBLIC_SITE_URL configured (no test
+   * in this file sets one), so sendServiceLink refuses to mint or send
+   * (src/services/whatsapp-link.ts) and that specific refusal, not "ignored"
+   * or some other outcome, is what must come back -- which is only possible
+   * if `turn.link` was actually checked and routed.
+   */
+  it('routes a matched hashtag to sendServiceLink when nobody is mid-conversation, and still releases the lease', async () => {
+    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const store = new FakeStore(null);
+
+    await expect(
+      runConversationTurn({ supabase: asClient(db), store }, turn({ link: link() })),
+    ).rejects.toThrow(/NEXT_PUBLIC_SITE_URL/);
+
+    expect(db.rpcs.some((call) => call.fn === 'mint_widget_link')).toBe(false);
+    expect(db.called('release_conversation_turn')?.args).toMatchObject({ p_token: LEASE_TOKEN });
   });
 
   /**
