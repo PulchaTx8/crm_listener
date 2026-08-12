@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { generatePublicKey } from '@/lib/widget/code';
 import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
 import type { Json } from '@/lib/supabase/database.types';
 import { PostgresConversationStore } from '@/lib/conversation/postgres-store';
@@ -73,6 +74,20 @@ async function seedPromotionWithIntegration(
   const phoneNumberId = `pnid-${label}`;
   await seedIntegration(customer, phoneNumberId);
 
+  // Block 19a. A live widget installation, or `mint_widget_link` (0178) --
+  // reached the instant a hashtag matches, whatever it matches -- refuses
+  // with "this Station has no live widget installation" (P0002) before the
+  // race this fixture exists to provoke is even in play. Through the real
+  // door, as the platform admin it is gated on, the same pattern
+  // tests/isolation/widget.test.ts's own seedWidgetStation uses.
+  const { error: installError } = await customer.adminClient.rpc('upsert_widget_installation', {
+    p_company_id: customer.companyId,
+    p_public_key: generatePublicKey(),
+    p_enabled: true,
+    p_allowed_origins: ['https://race.example'],
+  });
+  if (installError) throw new Error(`upsert_widget_installation failed: ${installError.message}`);
+
   // Members store phones digits-only with no country code (an operator types
   // (11) 99999-0000, stored as 11999990000); WhatsApp delivers the sender
   // WITH the country code. whatsapp_local_phone (0062) strips it, so the two
@@ -102,6 +117,12 @@ async function seedPromotionWithIntegration(
     p_ends_at: new Date(Date.now() + HOUR).toISOString(),
     p_whatsapp_enabled: true,
     p_hashtag: hashtag,
+    // Block 19a (0179). Rules text is what keeps a first, eligible message
+    // finishing as `link` rather than `no_rules` -- without it,
+    // ingest_whatsapp_event never reaches the member race this fixture
+    // exists to provoke; it returns `no_rules` straight from the rules
+    // check, before either concurrent call's outcome matters at all.
+    p_rules: `Race rules ${label}`,
   });
   if (promotionError || !promotionId) {
     throw new Error(`create_promotion failed: ${promotionError?.message}`);
@@ -191,6 +212,19 @@ async function seedCrossStationRace(label: string): Promise<CrossStationFixture>
   await seedIntegration(customer, phoneNumberIdA);
   await seedIntegration(customer, phoneNumberIdB, companyIdB);
 
+  // Block 19a -- see seedPromotionWithIntegration's own comment. Both
+  // Stations need a live installation: each carries its own promotion and
+  // its own hashtag match, so each reaches mint_widget_link independently.
+  for (const companyId of [customer.companyId, companyIdB]) {
+    const { error: installError } = await customer.adminClient.rpc('upsert_widget_installation', {
+      p_company_id: companyId,
+      p_public_key: generatePublicKey(),
+      p_enabled: true,
+      p_allowed_origins: ['https://race.example'],
+    });
+    if (installError) throw new Error(`upsert_widget_installation failed: ${installError.message}`);
+  }
+
   const localPhone = '11999990003';
   const hashtag = `#${label.replace(/[^a-zA-Z0-9]/g, '')}`.slice(0, 40);
 
@@ -203,6 +237,8 @@ async function seedCrossStationRace(label: string): Promise<CrossStationFixture>
     p_ends_at: new Date(Date.now() + HOUR).toISOString(),
     p_whatsapp_enabled: true,
     p_hashtag: hashtag,
+    // Block 19a (0179) -- see seedPromotionWithIntegration's own comment.
+    p_rules: `Cross A rules ${label}`,
   });
   if (promoAError || !promotionIdA) {
     throw new Error(`create_promotion (Station A) failed: ${promoAError?.message}`);
@@ -215,6 +251,7 @@ async function seedCrossStationRace(label: string): Promise<CrossStationFixture>
     p_ends_at: new Date(Date.now() + HOUR).toISOString(),
     p_whatsapp_enabled: true,
     p_hashtag: hashtag,
+    p_rules: `Cross B rules ${label}`,
   });
   if (promoBError || !promotionIdB) {
     throw new Error(`create_promotion (Station B) failed: ${promoBError?.message}`);
@@ -337,20 +374,29 @@ describe('the WhatsApp door', () => {
         // through one of those with error: null, and the count below would
         // read 1 from event A alone: a non-race staying green for ever.
         // Asserting outcome is what stops that.
-        // CONVERTED FOR BLOCK 5b, not weakened. The door no longer writes an
-        // entry, so "one VALID and one DUPLICATE" is no longer a fact about
-        // this path -- the entry is written at the END of a conversation, and
-        // the double-send race that used to live here is now a race between two
-        // TURNS, serialised by the lease and proved in the conversation suite.
+        // CONVERTED FOR BLOCK 5b, not weakened, and CONVERTED AGAIN FOR BLOCK
+        // 19a (0179). The door no longer writes an entry, so "one VALID and
+        // one DUPLICATE" was never a fact about this path from Block 5b
+        // onward -- the entry is written at the END of a conversation, and the
+        // double-send race that used to live here is a race between two
+        // TURNS, serialised by the lease and proved in the conversation
+        // suite. 0179 then retired the door opening a conversation AT ALL: a
+        // matched hashtag now returns an INTENTION to send a link, decided by
+        // the caller, and 'link' is what a first, eligible message reaches --
+        // reachable only because the fixture carries rules text
+        // (seedPromotionWithIntegration's own comment); without it every
+        // round would finish 'no_rules' before either call's outcome could
+        // tell a race from a non-race apart.
         //
         // What this fixture still proves, and what still fails loudly if the
-        // fixture drifts: both messages are decided, both by the conversation
-        // path rather than by one of the six silent outcomes that also return
+        // fixture drifts: both messages are decided, both on the link path
+        // rather than by one of the six silent outcomes that also return
         // error: null, and NOBODY is entered by a message nobody has answered
-        // yet. That last one is the block's central promise.
+        // yet. That last one is the block's central promise, and it is
+        // unmoved by which outcome carries it.
         const results = [a.data, b.data] as Array<{ outcome: string }>;
         for (const result of results) {
-          expect(result.outcome, `round ${round}`).toBe('conversation');
+          expect(result.outcome, `round ${round}`).toBe('link');
         }
 
         const { count, error: countError } = await admin
@@ -398,13 +444,16 @@ describe('the WhatsApp door', () => {
         expect(a.error, `round ${round}, event A`).toBeNull();
         expect(b.error, `round ${round}, event B`).toBeNull();
 
-        // The registration is what this fixture is for, and it is untouched by
-        // Block 5b: the listener is resolved or created BEFORE the conversation
-        // is assembled, so two first messages from one stranger still meet
-        // inside apply_member_creation.
+        // The registration is what this fixture is for, and it is untouched
+        // by Block 5b or by 19a's 0179: the listener is resolved or created
+        // BEFORE either a conversation or a link intent is assembled, so two
+        // first messages from one stranger still meet inside
+        // apply_member_creation. 'link' rather than 'conversation' for the
+        // same reason the fixture above gives -- 0179 retired the outcome
+        // this assertion used to name.
         const results = [a.data, b.data] as Array<{ outcome: string }>;
         for (const result of results) {
-          expect(result.outcome, `round ${round}`).toBe('conversation');
+          expect(result.outcome, `round ${round}`).toBe('link');
         }
 
         // Exactly one members row for this phone, in this Organization —
@@ -450,10 +499,11 @@ describe('the WhatsApp door', () => {
         expect(b.error, `round ${round}, event B`).toBeNull();
 
         // Two DIFFERENT promotions at two Stations of one Organization, so
-        // both messages open a conversation of their own.
+        // both messages return a link intent of their own -- 'link' rather
+        // than 'conversation' since 0179 (Block 19a) retired the latter.
         const results = [a.data, b.data] as Array<{ outcome: string }>;
         for (const result of results) {
-          expect(result.outcome, `round ${round}`).toBe('conversation');
+          expect(result.outcome, `round ${round}`).toBe('link');
         }
 
         // Still one members row: cross-Station is still one Organization, and
@@ -517,34 +567,42 @@ describe('the privilege boundary pgTAP cannot see', () => {
     // live: has_table_privilege('service_role', 'public.outbox_messages',
     // 'INSERT') is false. Every row in it is written from inside a SECURITY
     // DEFINER body, so the two real rows this case needs are produced by
-    // driving two real ticks: each opens a conversation and enqueues its
-    // consent message through enqueue_whatsapp_outbound — a door added in
-    // Block 5b with a grant of its own, and therefore exactly the kind of thing
-    // that was missing three times in 5a. Sequential, not concurrent; this case
-    // is not the race, it only needs two real rows to update.
-    const fixture = await seedPromotionWithIntegration(`wa-outbox-priv-${Date.now()}`);
+    // driving two real link sends through enqueue_whatsapp_outbound — a door
+    // added in Block 5b with a grant of its own, and therefore exactly the
+    // kind of thing that was missing three times in 5a. Sequential, not
+    // concurrent; this case is not the race, it only needs two real rows to
+    // update.
+    //
+    // TWO SEPARATE FIXTURES, not one fixture's two messages. Since 0179
+    // (Block 19a) the door no longer opens a conversation for a second
+    // message from the same phone — it re-matches the SAME promotion's
+    // hashtag and mints a SECOND link, which mint_widget_link's own D2
+    // window (member, purpose, promotion) would answer with `null` ("say
+    // nothing, this listener already has a working link") for a message
+    // arriving this close behind the first. Two independent listeners is
+    // what still produces two real rows.
+    const fixtureA = await seedPromotionWithIntegration(`wa-outbox-priv-a-${Date.now()}`);
+    const fixtureB = await seedPromotionWithIntegration(`wa-outbox-priv-b-${Date.now()}`);
 
     // The door, then the turn — the two halves of the real path, driven
-    // directly rather than through runTick so that this fixture's own two
+    // directly rather than through runTick so that these fixtures' own
     // messages are the ones that produce the rows, whatever else the local
-    // stack happens to be holding.
+    // stack happens to be holding. Only the first event of each fixture is
+    // needed; the second is left untouched.
     const store = new PostgresConversationStore(admin);
-    for (const eventId of [fixture.eventA, fixture.eventB]) {
+    for (const fixture of [fixtureA, fixtureB]) {
       const opened = await admin.rpc('ingest_whatsapp_event', {
-        p_event_id: eventId,
+        p_event_id: fixture.eventA,
         p_window_seconds: 1800,
       });
       if (opened.error) throw new Error(`seed ingestion failed: ${opened.error.message}`);
       await runConversationTurn({ supabase: admin, store }, parseInboundTurn(opened.data));
     }
 
-    // ':consent' for the first and ':prompt' for the second, and that pairing
-    // is itself a fact worth pinning: both messages come from the SAME phone,
-    // so the second one finds a live conversation and is answered as a bad
-    // reply to the consent question rather than opening a second conversation.
-    // A live conversation wins over a new hashtag.
-    const dedupeKeyA = `${fixture.externalIdA}:consent`;
-    const dedupeKeyB = `${fixture.externalIdB}:prompt`;
+    // ':link', on both — one row per listener, addressed by the phone that
+    // asked (src/services/whatsapp-link.ts's own dedupe key).
+    const dedupeKeyA = `${fixtureA.externalIdA}:link`;
+    const dedupeKeyB = `${fixtureB.externalIdA}:link`;
     const { data: outboxRows, error: outboxSelectError } = await admin
       .from('outbox_messages')
       .select('id, dedupe_key')
@@ -678,9 +736,12 @@ describe('a whole tick, over the wire', () => {
     // rather than as "ingested 0".
     expect(result.dbErrors, 'every database call the tick made succeeded').toBe(0);
 
-    // `turns`, not `ingested`: since Block 5b the door hands a hashtag back as
-    // a conversation and the TURN decides it, so a tick that reported an
-    // ingestion here would be reporting a decision nobody made.
+    // `turns`, not `ingested`: since Block 5b the door hands a matched
+    // hashtag back to the caller and the TURN decides it, so a tick that
+    // reported an ingestion here would be reporting a decision nobody made.
+    // Since 0179 (Block 19a) that decision is never "open a conversation" --
+    // it is `sendServiceLink`, reached because `turn.link` is set and no
+    // live conversation exists for this phone (D7).
     expect(result.turns).toBe(1);
     expect(result.turnsBusy).toBe(0);
     expect(result.eventsFailed).toBe(0);
@@ -688,24 +749,28 @@ describe('a whole tick, over the wire', () => {
     expect(result.sent).toBe(1);
     expect(result.sendFailed).toBe(0);
 
-    // AND IT WENT OUT AS AN INTERACTIVE MESSAGE. This is the one assertion in
-    // the repository that crosses the whole new path end to end: the engine
-    // chose the consent message, the enqueue door stored it, claim_outbox_batch
-    // handed the payload back, and the transport sent it as buttons rather than
-    // as its body text — a question the listener could not otherwise answer.
-    expect(transport.sent).toHaveLength(0);
-    expect(transport.sentInteractive).toHaveLength(1);
-    expect(transport.sentInteractive[0]?.to).toBe(`55${fixture.localPhone}`);
-    expect(transport.sentInteractive[0]?.interactive.kind).toBe('buttons');
+    // AND IT WENT OUT AS PLAIN TEXT CARRYING THE LINK. This is the one
+    // assertion in the repository that crosses the whole Block 19a send path
+    // end to end: `sendServiceLink` minted a code, built the URL
+    // (src/lib/widget/service-link.ts), the enqueue door stored it with
+    // `p_interactive: null`, `claim_outbox_batch` handed the payload back,
+    // and the transport sent it as a text body rather than as buttons --
+    // unlike the consent message this path replaced, a link needs no reply
+    // Meta could turn into an interactive answer.
+    expect(transport.sentInteractive).toHaveLength(0);
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0]?.to).toBe(`55${fixture.localPhone}`);
+    expect(transport.sent[0]?.body).toMatch(/\/enter\?k=/);
 
     // The settle write, read back. outbox_messages_sent_shape (0059) makes SENT
     // a claim about sent_at and external_id together, so this is the assertion
     // that a patch which moved one of the three without the others — a 23514 in
-    // production — did not happen.
+    // production — did not happen. ':link', not ':consent': 0179 retired the
+    // conversation this dedupe suffix used to name (src/services/whatsapp-link.ts).
     const { data: row, error } = await admin
       .from('outbox_messages')
       .select('status, external_id, sent_at, attempts')
-      .eq('dedupe_key', `${fixture.externalIdA}:consent`)
+      .eq('dedupe_key', `${fixture.externalIdA}:link`)
       .single();
     expect(error).toBeNull();
     expect(row?.status).toBe('SENT');
@@ -751,7 +816,7 @@ describe('a whole tick, over the wire', () => {
     const result = await runTick({ supabase: admin, transport });
 
     expect(result.dbErrors, 'every database call the tick made succeeded').toBe(0);
-    // The good message is a conversation turn now, not an ingestion.
+    // The good message is a link-send turn now, not an ingestion (0179).
     expect(result.turns).toBe(1);
     expect(result.eventsFailed).toBe(1);
     expect(result.sent).toBe(0);
@@ -776,10 +841,11 @@ describe('a whole tick, over the wire', () => {
     const { data: settled, error: settledError } = await admin
       .from('outbox_messages')
       .select('status, attempts, last_error, external_id, sent_at')
-      // ':consent', because what event B produced is the message that OPENS
-      // the conversation. The ladder does not care which kind of message it is
+      // ':link', because what event B produced is the message that carries
+      // the widget link (0179 retired ':consent' along with the conversation
+      // it opened). The ladder does not care which kind of message it is
       // retrying, and that is the point of asserting it on this one.
-      .eq('dedupe_key', `${fixture.externalIdB}:consent`)
+      .eq('dedupe_key', `${fixture.externalIdB}:link`)
       .single();
     expect(settledError).toBeNull();
     // Retryable, so PENDING with a future next_attempt_at — never FAILED, which
