@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(19);
 
 -- Block 11a. The retention sweep, and the two lists it must never grow.
 
@@ -116,6 +116,23 @@ select ok(
   (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
     like '%status in (''DONE'', ''FAILED'')%',
   'both terminal webhook states are swept, including FAILED');
+
+-- ---------------------------------------------------------------------------
+-- Block 19a, final review fix wave, Important #2. widget_link_tokens (0178)
+-- carried a comment claiming this sweep already covered it, eighteen
+-- migrations before 0183 made that true. Asserted the same way the sweep's
+-- other tables are: on the source, because a table added or a table quietly
+-- dropped from this list is found by its damage otherwise.
+-- ---------------------------------------------------------------------------
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%widget_link_tokens%',
+  'the sweep names widget_link_tokens (0183) -- one row per matched hashtag, and it used to accumulate for ever');
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%widget_link_tokens%interval ''30 days''%',
+  'widget_link_tokens is kept for 30 days past expires_at, not past created_at');
 
 select * from finish();
 rollback;

@@ -46,7 +46,7 @@ alter table public.widget_link_tokens enable row level security;
 revoke all on public.widget_link_tokens from anon, authenticated;
 
 comment on table public.widget_link_tokens is
-  'Block 19a. One row per link a hashtag was answered with: who it is for, what it opens, and whether it has been used. RLS on with NO POLICY and the ACL revoked -- it names a listener, so it is reachable only from inside a SECURITY DEFINER body, the rule every listener-bearing table here follows. Rows past their expiry are removed by the retention sweep (Block 11a), never by a reader.';
+  'Block 19a. One row per link a hashtag was answered with: who it is for, what it opens, and whether it has been used. RLS on with NO POLICY and the ACL revoked -- it names a listener, so it is reachable only from inside a SECURITY DEFINER body, the rule every listener-bearing table here follows. Rows past their expiry are removed by the retention sweep (Block 11a, sweep_retention), 30 days past expires_at -- final review fix wave, Important #2: this table went unswept from this migration until 0183 actually added the delete, so a claim once true only of the intention is now true of the code.';
 
 create function public.mint_widget_link(
   p_company_id   uuid,
