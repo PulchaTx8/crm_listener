@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(22);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -303,6 +303,84 @@ select is(
       and ((kind = 'QUIZ' and option_id is not null and answer_text is null)
         or (kind = 'ESSAY' and answer_text is not null and option_id is null))),
   2::bigint, 'each answer landed in the shape its kind requires');
+
+-- ---------------------------------------------------------------------------
+-- 20-22. Block 20a, item 2, candidate (b): a question with alternatives and no
+--        alternatives in it.
+--
+-- 0041 constrains the option rows that exist -- not ESSAY, correct only on
+-- QUIZ, unique positions -- and says nothing about how many there must be,
+-- because a CHECK cannot count rows in another table. So a promotion can carry
+-- a MULTIPLE_CHOICE question with zero options, and 0173 answers '[]' for it.
+--
+-- The panel draws that question as NOTHING (enter-promotion.tsx's Question, on
+-- the grounds that an empty screen beats a text box whose every answer trips
+-- participation_answers_shape). The listener taps through a blank screen, and
+-- the door counts a step the payload cannot answer.
+--
+-- These three assertions establish whether that path is reachable at all. What
+-- they must NOT do is assert the fix: 20 and 21 describe today's behaviour, and
+-- Task 3 -- if it runs -- rewrites them.
+-- ---------------------------------------------------------------------------
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, requested_fields, rules, web_enabled)
+values
+  ('00000000-0000-0000-0000-000000000420', '00000000-0000-0000-0000-000000000401',
+   '00000000-0000-0000-0000-000000000402', 'Promo com pergunta sem alternativas',
+   now() - interval '1 day', now() + interval '7 days',
+   false, array['city']::public.promotion_requested_field[],
+   'Válido para maiores de 18 anos.', true);
+
+-- MULTIPLE_CHOICE, and deliberately no promotion_question_options rows.
+-- menu_title/button_label are required for ANY non-ESSAY question
+-- (promotion_questions_list_fields, 0041) regardless of how many options it
+-- has -- they are WhatsApp list-message fields, not evidence either way for
+-- this candidate -- so they are supplied here purely to make the row legal,
+-- the same way the QUIZ fixture above already does.
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt,
+   menu_title, button_label)
+values
+  ('00000000-0000-0000-0000-000000000421', '00000000-0000-0000-0000-000000000420',
+   '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000402',
+   1, 'MULTIPLE_CHOICE', 'Qual a sua rádio favorita?', 'Escolha uma', 'Responder');
+
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-000000000422', '00000000-0000-0000-0000-000000000401',
+   'Optionless Listener', '+5511999993333');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000422', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401');
+
+-- 20. The promotion IS offered to the widget today.
+select is(
+  (select count(*) from jsonb_array_elements(
+     public.widget_promotions('pw_promostationa012345678',
+                              '00000000-0000-0000-0000-000000000422') -> 'promotions') e
+    where (e ->> 'id') = '00000000-0000-0000-0000-000000000420'),
+  1::bigint, 'a promotion whose only question has no alternatives is offered');
+
+-- 21. And its question arrives with an empty option list, which is what the
+--     panel draws as nothing.
+select is(
+  (select e -> 'questions' -> '00000000-0000-0000-0000-000000000421'
+     from jsonb_array_elements(
+       public.widget_promotions('pw_promostationa012345678',
+                                '00000000-0000-0000-0000-000000000422') -> 'promotions') e
+    where (e ->> 'id') = '00000000-0000-0000-0000-000000000420'),
+  '[]'::jsonb, 'and its question carries no alternatives for the panel to draw');
+
+-- 22. THE ASSERTION THIS SECTION EXISTS FOR. Every requested field answered,
+--     consent given, and the entry is still refused -- for a question the
+--     listener was never shown.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000422',
+     '00000000-0000-0000-0000-000000000420', true,
+     '{"city": "São Paulo"}'::jsonb, '[]'::jsonb) ->> 'reason'),
+  'missing_answers',
+  'and a complete payload is refused for the question nobody could answer');
 
 select * from finish();
 rollback;
