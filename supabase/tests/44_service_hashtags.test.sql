@@ -1,5 +1,5 @@
 begin;
-select plan(13);
+select plan(17);
 
 -- Block 19a (D6). The two hashtags a Station configures, and the door that
 -- writes them: set_service_hashtags. Fixtures follow 39_widget_installations
@@ -245,6 +245,119 @@ select throws_ok($$
 $$, 'P0002', null, 'a Station with no installation is refused, not a silent no-op');
 
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- 10-14. Block 19a, Task 3 (D3): ingest_whatsapp_event (0179) answers a
+-- hashtag with a LINK rather than opening a conversation. Fixtures below give
+-- Station A a live integration, both service hashtags switched on, and a
+-- second promotion carrying rules text; assertions 11-14 exercise the ingest
+-- door itself, not this file's own set_service_hashtags.
+-- ---------------------------------------------------------------------------
+
+-- The installation defaults to enabled = false (0159): nobody has "switched
+-- on" the widget yet, which is exactly the state every assertion above ran
+-- in. The ingest's music/service match requires it, the same way its
+-- WhatsApp match already requires integrations.enabled.
+update public.widget_installations
+   set enabled = true
+ where id = '00000000-0000-0000-0000-000000000606';
+
+insert into public.integrations
+  (organization_id, company_id, provider, phone_number_id, enabled)
+values
+  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000602',
+   'WHATSAPP', '444444444444444', true);
+
+-- A LIVE promotion carrying rules text, so it can finish as a link (D4)
+-- rather than no_rules -- and web_enabled is left at its default FALSE,
+-- which is the exact case assertion 13 exists to pin: sending the hashtag is
+-- asking to take part, whether or not the widget's own list would ever have
+-- shown it.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   whatsapp_enabled, hashtag, rules)
+values
+  ('00000000-0000-0000-0000-000000000609', '00000000-0000-0000-0000-000000000601',
+   '00000000-0000-0000-0000-000000000602', 'Promo Station A com regras',
+   now() - interval '1 day', now() + interval '30 days',
+   true, '#GANHEJA', 'Regulamento completo desta promocao.');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000000608", "role": "authenticated"}';
+
+select public.set_service_hashtags(
+  '00000000-0000-0000-0000-000000000602', '#TOCAAGORA', '#MENUAJUDA');
+
+reset role;
+
+-- A helper so each case below is one call, following 06_whatsapp's own
+-- pg_temp.ingest: the INSERT has to live inside a function body, because a
+-- WITH containing a data-modifying statement is refused outside the top
+-- level of a query, and `select is(...)` makes this one an argument, not a
+-- top level.
+create or replace function pg_temp.ingest_hashtag(
+  p_wamid text, p_from text, p_text text)
+returns jsonb language plpgsql as $$
+declare v_id uuid;
+begin
+  insert into public.webhook_events (provider, external_id, payload)
+  values ('WHATSAPP', encode(sha256(convert_to(p_wamid, 'UTF8')), 'hex'),
+    jsonb_build_object(
+      'metadata',     jsonb_build_object('phone_number_id', '444444444444444'),
+      'from',         p_from, 'profile_name', 'Ouvinte Hashtag',
+      'timestamp',    extract(epoch from now())::bigint::text,
+      'text',         p_text))
+  returning id into v_id;
+
+  return public.ingest_whatsapp_event(v_id);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 11. The music hashtag, matched only after every live promotion has missed.
+-- ---------------------------------------------------------------------------
+select is(
+  (select jsonb_build_object('outcome', r ->> 'outcome', 'purpose', r ->> 'purpose')
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SVC-MUSIC', '5511977776001', '#TOCAAGORA') as r) s),
+  jsonb_build_object('outcome', 'link', 'purpose', 'MUSIC'),
+  'a message carrying the music hashtag returns outcome link with purpose MUSIC');
+
+-- ---------------------------------------------------------------------------
+-- 12. The service hashtag, matched last of the three (D3).
+-- ---------------------------------------------------------------------------
+select is(
+  (select r ->> 'purpose'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SVC-MENU', '5511977776002', '#MENUAJUDA') as r) s),
+  'MENU',
+  'a message carrying the service hashtag returns purpose MENU');
+
+-- ---------------------------------------------------------------------------
+-- 13. A LIVE promotion's hashtag still wins the match ahead of both Station
+--     hashtags, and names its own promotion -- even though web_enabled is
+--     FALSE on this fixture (D4): web_enabled governs only the widget's own
+--     list, not whether the hashtag itself answers.
+-- ---------------------------------------------------------------------------
+select is(
+  (select jsonb_build_object('outcome', r ->> 'outcome', 'purpose', r ->> 'purpose',
+                             'promotion_id', (r ->> 'promotion_id')::uuid)
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SVC-PROMO', '5511977776003', '#GANHEJA') as r) s),
+  jsonb_build_object('outcome', 'link', 'purpose', 'PROMOTION',
+                     'promotion_id', '00000000-0000-0000-0000-000000000609'::uuid),
+  'a message carrying a LIVE promotion''s hashtag returns purpose PROMOTION with that promotion''s id, even though web_enabled is false (D4)');
+
+-- ---------------------------------------------------------------------------
+-- 14. A matched promotion with no rules text finishes as no_rules and sends
+--     no link -- #EUQUERO (assertion 1's own fixture) never had rules
+--     written, which is the ordinary state for a promotion 17c never touched.
+-- ---------------------------------------------------------------------------
+select is(
+  (select jsonb_build_object('outcome', r ->> 'outcome', 'has_link', r ? 'purpose')
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SVC-NORULES', '5511977776004', '#EUQUERO') as r) s),
+  jsonb_build_object('outcome', 'no_rules', 'has_link', false),
+  'a promotion with no rules text returns outcome no_rules, and no link');
 
 select * from finish();
 rollback;
