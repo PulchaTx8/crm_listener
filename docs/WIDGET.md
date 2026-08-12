@@ -465,6 +465,17 @@ typed, no code to wait for. `ingest_whatsapp_event` never returns
 `{outcome: 'link', purpose, ...}`, and the worker's job is to turn that into
 one message.
 
+### `NEXT_PUBLIC_SITE_URL`, or every hashtag answers with silence
+
+A hard prerequisite of this whole path, unlike `WIDGET_SESSION_SECRET` in §1:
+`sendServiceLink` (`src/services/whatsapp-link.ts`) refuses to mint or send a
+link without it, and `src/lib/env.ts` has required it in the strict
+environment schema since Task 9's fix round 1 — a deployment missing it now
+fails to boot rather than booting clean and deferring every matched hashtag
+onto the retry ladder until it parks, silently, with nothing at startup
+saying why. Set it to the address customers actually reach; the widget link
+a listener receives is built directly from this value.
+
 ### Three hashtags, one order
 
 A Station configures two of them itself, on **Templates → Messages**
@@ -478,11 +489,17 @@ Block 4c).
 An inbound message is matched against exactly one of the three, in exactly
 this order, first match wins:
 
-1. **A live promotion's own hashtag.** "Live" means `ends_at > now()` — an
-   ended promotion no longer shadows a Station's word (Block 4c's own trade,
-   forbidding reuse forever is worse than the collision it prevents), but a
-   promotion that has not started YET still clashes, because the day it
-   opens it silently takes the word.
+1. **A live promotion's own hashtag.** The INGEST matches it inside its own
+   window — `starts_at <= <the message's own timestamp> < ends_at` — the
+   same rule Block 4c has always judged a promotion hashtag by, judged
+   against when the message arrived rather than against now(). A DIFFERENT,
+   WRITE-TIME rule governs whether a Station may set a general hashtag equal
+   to a promotion's own — `ends_at > now()` — and it is deliberately
+   broader: an ended promotion no longer shadows a Station's word (Block
+   4c's own trade, forbidding reuse forever is worse than the collision it
+   prevents), but a promotion that has not started YET still clashes,
+   because the day it opens it silently takes the word. See
+   `set_service_hashtags`, two paragraphs below, for that second rule.
 2. **The Station's music hashtag** — opens the music panel directly
    (`open=music`).
 3. **The Station's service hashtag** — opens the plain menu (`open` absent;
@@ -517,9 +534,12 @@ value nobody wrote down.
   second time even in principle — the window therefore answers **null**,
   and the worker reads null as *say nothing*, which is the whole of the
   protection against five hashtags in a row producing five messages. The
-  window is per **(listener, purpose)**: asking for a song and then, inside
-  the same two minutes, asking for the menu still gets two messages,
-  because those are two different things being asked for.
+  window is per **(listener, purpose, promotion)**: asking for a song and
+  then, inside the same two minutes, asking for the menu still gets two
+  messages, because those are two different things being asked for — and so
+  does asking to enter two DIFFERENT promotions inside the same two minutes,
+  because those are two different things too, even though both share the
+  PROMOTION purpose.
 
 ### Free-form, because the listener spoke first
 
@@ -558,10 +578,10 @@ other path into this widget.
 | what happened | `consume_widget_link` answers | visitor sees |
 | --- | --- | --- |
 | code never existed, already used, or its fifteen minutes ran out | `{ok: false, reason: 'unusable'}` | "ask again" |
-| the Station was switched off, suspended or archived after the link was minted | `{ok: false, reason: 'unavailable'}` | "ask again" |
+| the Station was switched off, suspended or archived, or its Organization was blocked, after the link was minted | `{ok: false, reason: 'unavailable'}` | "ask again" |
 | the code was minted for a *different* Station's public key | claims resolved, but the key does not match the one in the address | "ask again" |
 
-**The dark-Station case is the whole reason the third row of this table
+**The dark-Station case is the whole reason the second row of this table
 exists as a separate one from the first.** `page.tsx` 404s an unknown,
 disabled or archived installation on every ordinary visit — probing a
 public key must learn nothing an `<iframe src>` did not already say. A
@@ -572,6 +592,19 @@ between, and a 404 reads as a broken link rather than as "try again". So
 Station that resolves to "not found" still renders the identify form
 instead of 404ing. Probing that parameter learns nothing new either way — an
 unknown key and a real, dark Station render the identical sentence.
+
+**`consume_widget_link` decides this itself** — it does not trust the
+installation's `enabled` flag alone; it joins `companies` and
+`organizations`, the identical join `installationExists` already makes
+through `widget_frame_context` (0164). Both sides of the door have to agree
+for the same reason: the first version of this fix carried the join into
+`mint_widget_link` and `widget_link_send_context` (so a code is never
+*minted* for a Station that is already dark) but missed `consume_widget_link`
+itself, so a Station that went dark in the fifteen minutes *between* the
+mint and the tap answered `ok: true` anyway — the route minted a session
+and redirected without `link=expired`, and `page.tsx`, finding no
+installation, gave the plain 404 this section exists to rule out. Both
+doors now make the same check for the same reason.
 
 ### One session claim carries where the visitor came from
 
