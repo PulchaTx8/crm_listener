@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(21);
 
 -- Block 19a (D6). The two hashtags a Station configures, and the door that
 -- writes them: set_service_hashtags. Fixtures follow 39_widget_installations
@@ -379,6 +379,27 @@ select is(
              'wamid.SVC-MUSIC', '5511977776001', '#TOCAAGORA') as r) s),
   jsonb_build_object('outcome', 'link', 'purpose', 'MUSIC'),
   'a message carrying the music hashtag returns outcome link with purpose MUSIC');
+
+-- ---------------------------------------------------------------------------
+-- 11b. Carried from an earlier review. `phone` on a link intent must be the
+-- phone AS WHATSAPP DELIVERED IT -- with the country code -- and never the
+-- LOCAL form whatsapp_local_phone strips it to for member lookups. D7's own
+-- contract (src/lib/conversation/store.ts) keys every live conversation row
+-- on the delivered form, so a caller that read the local form here would
+-- miss that row for essentially every Brazilian number -- the one
+-- population whose local and delivered forms actually differ -- and hand a
+-- listener mid-conversation a link instead of having their answer read.
+-- Fix round 1's Critical finding was exactly this field silently reverting
+-- to the local form (0179's own comment on the 'link' branch tells the full
+-- story); until now only a TypeScript test guarded the contract, one layer
+-- above where it can actually revert.
+-- ---------------------------------------------------------------------------
+select is(
+  (select r ->> 'phone'
+     from (select pg_temp.ingest_hashtag(
+             'wamid.SVC-PHONE', '5511977776005', '#TOCAAGORA') as r) s),
+  '5511977776005',
+  'a link intent''s phone is the DELIVERED form (with the country code), never the local form the conversation store is not keyed on');
 
 -- ---------------------------------------------------------------------------
 -- 12. The service hashtag, matched last of the three (D3).
