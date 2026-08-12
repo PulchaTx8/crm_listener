@@ -168,16 +168,43 @@ is simply the only one with a fields screen to photograph.
 
 Against the current branch, with a promotion carrying both requested fields and
 at least one question with alternatives, entered as a listener with no prior
-record:
+record: it reproduced. Both candidates turned out to be true, and both are
+recorded here rather than one — a reader who found only the one that was
+fixed would draw the wrong conclusion about the other.
 
-- **If it reproduces**, the cause is (b) or something the reproduction reveals,
-  and it is fixed under `superpowers:test-driven-development` — a failing test
-  first, at the layer the defect actually lives in. If the empty-options path
-  is confirmed, the fix belongs where the options go missing, not in the panel
-  that faithfully draws nothing.
-- **If it does not reproduce**, the cause is (a). Item 2 closes as a deployment
-  of what is already merged, said plainly and not dressed as a code change, and
-  the branch carries only D4 below.
+**Candidate (b) is a live defect, and it is fixed.** Assertion 22 answered
+every requested field and gave consent, and `widget_enter_promotion` still
+returned `missing_answers` — a complete payload, refused, exactly as §4.2
+describes. The mechanism is not a guess: `whatsapp_conversation_steps` (0066)
+builds a question step for every row in `promotion_questions` with no join to
+`promotion_question_options`, so a question with zero alternatives still
+produces a step the payload has no way to answer. Verdict, verbatim from the
+diagnosis: *"reachable. Candidate (b) is a live defect; Task 3 runs."* It ran.
+Migration `0186` closes the path at both doors: `widget_promotions` stops
+offering a promotion that carries a non-`ESSAY` question with no option rows,
+and `widget_enter_promotion` restates the same condition and refuses a
+submission against one as `promotion_closed` rather than blaming the listener
+for an answer they were never shown a way to give.
+
+**Candidate (a) is also true, independently of (b), and no code in this block
+touches it.** The e2e journey that walks an ordinary promotion end to end
+passes on this branch, which is only possible if nothing in today's code can
+produce the screenshot's own signatures — a "Continuar" primary button on a
+screen that is not the last one, "Voltar" as the promotion walk's bottom
+button. `origin/main` is still the merge of PR #63; this branch's fixes have
+not reached it. The deployed build at `pulchatx.com` is behind `origin/main`,
+and nothing in Block 20a changes that — closing it needs a deployment, not
+another line of code. This is said plainly so that reading this block's
+commits is not mistaken for the screenshot being fixed: it is not, until
+`origin/main` — this branch included — is deployed.
+
+Both findings point at the same next action. `0186` exists locally and is
+applied to the local database only; this project has shipped application code
+ahead of its migrations three times already (Blocks 13a, 17b, 17c), and the
+two functions `0186` replaces are the ones the live widget actually calls. If
+the app deploys without it, item 1's fix reaches `pulchatx.com` and item 2's
+defect does not — the hosted behaviour is unchanged and a new listener can
+still be refused for a form the door never gave them a way to complete.
 
 **D4, either way.** `EnterPromotionPanel` holds every answer in its own state
 and knows which screen each step sits on, so it can already compute the first
