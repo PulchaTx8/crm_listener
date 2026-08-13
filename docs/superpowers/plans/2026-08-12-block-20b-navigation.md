@@ -127,7 +127,10 @@ await expect(catalogue.getByRole('link', { name: 'Albums' })).toBeVisible();
 // The item this replaces is gone: a section named Catalogue holding an item
 // named Catalogue is the "one link rendered twice" shell.ts warns about in
 // three separate comments.
-await expect(catalogue.getByRole('link', { name: 'Catalogue', exact: true })).toHaveCount(0);
+// 'Catalog', not 'Catalogue': messages/en.json spells it without the -ue, and
+// asserting the absence of a string the product never used would pass whether
+// or not the leftover item is actually gone.
+await expect(catalogue.getByRole('link', { name: 'Catalog', exact: true })).toHaveCount(0);
 
 // D3. The two administrative sections sit AFTER Organization, at the foot of
 // the list -- which is the opposite of what the owner's item 8 literally said
@@ -864,11 +867,17 @@ await page.getByRole('link', { name: 'Members' }).click();
 The section name for each link, in English, since the suite is pinned to
 `en-US`:
 
+**These are SECTION labels, read from `messages/en.json`'s `nav` object — not
+item labels, and the two differ where you would least expect.** The section is
+`Inventory` while the item inside it is `Stock`; the section is `Catalog`
+without the British `-ue`. Verify any name you are unsure of against that file
+rather than against this table.
+
 | Link | Section |
 |---|---|
 | Members, Participations, Programmes, Requests | `Audience` |
-| Songs, Artists, Record labels, Genres, Albums, Maintenance | `Catalogue` |
-| Stock, Movements | `Stock` |
+| Songs, Artists, Record labels, Genres, Albums, Maintenance | `Catalog` |
+| Stock, Movements | `Inventory` |
 | Promotions, Pickups | `Promotions` |
 | Messages, WhatsApp | `Templates` |
 | Team, Roles | `Organization` |
