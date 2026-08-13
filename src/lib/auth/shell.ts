@@ -208,7 +208,7 @@ export async function getShellContext(): Promise<{
       items: [
         { href: '/music/songs', label: t('songs'), icon: ICONS.music },
         { href: '/music/artists', label: t('artists'), icon: ICONS.users },
-        // Block 20b, D2. These three replace the single "Catalogue" item, which
+        // Block 20b, D2. These three replace the single "Catalog" item, which
         // could not survive the section's rename: a section and an item
         // spelling the same word read as one link rendered twice, the rule this
         // file already records for Inventory > Stock and for the three
