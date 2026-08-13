@@ -93,6 +93,25 @@ const MISSING_FIELD_VISITOR_LOCAL_PHONE = `31${String(stamp).slice(-9)}`;
 const MISSING_FIELD_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MISSING_FIELD_VISITOR_LOCAL_PHONE}`;
 const MISSING_FIELD_VISITOR_NAME = 'Listener Who Forgets A Field';
 
+/**
+ * Block 20a, whole-branch review. The listener who ticks one promotion's
+ * agreement box and then switches to another — a fourth phone, for the same
+ * per-number reason the other three journeys in this file each needed their
+ * own.
+ */
+const CONSENT_SWITCH_VISITOR_LOCAL_PHONE = `41${String(stamp).slice(-9)}`;
+const CONSENT_SWITCH_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${CONSENT_SWITCH_VISITOR_LOCAL_PHONE}`;
+const CONSENT_SWITCH_VISITOR_NAME = 'Listener Who Switches Promotions';
+
+/**
+ * Two promotions this journey needs open and visible at once. The `beforeAll`
+ * fixture above seeds exactly one (Block 17c's own), which is not enough to
+ * prove a listener can switch between two — so these are seeded alongside it,
+ * in the same style, through the same door.
+ */
+const CONSENT_SWITCH_PROMOTION_A_NAME = `Widget Journey Promotion Reset A ${stamp}`;
+const CONSENT_SWITCH_PROMOTION_B_NAME = `Widget Journey Promotion Reset B ${stamp}`;
+
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
 
@@ -497,6 +516,38 @@ test.beforeAll(async ({}, testInfo) => {
     ],
   });
   if (questionError) throw new Error(`could not seed the quiz: ${questionError.message}`);
+
+  // Block 20a, whole-branch review. TWO MORE PROMOTIONS, consent only — no
+  // requested fields, no question — because the journey below never walks
+  // past the consent screen of either one. It exists to prove what carries
+  // across a promotion SWITCH, not to prove a promotion can be entered; that
+  // is already proved above and by the missing-field case below. Seeded AFTER
+  // `seededPromotionId` is read back, on purpose: that lookup has no filter
+  // beyond `company_id`, and seeding these two first would leave it free to
+  // pick either one instead of Block 17c's own.
+  const { error: promotionAError } = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: CONSENT_SWITCH_PROMOTION_A_NAME,
+    p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    p_web_enabled: true,
+    p_rules: PROMOTION_RULES,
+  });
+  if (promotionAError) {
+    throw new Error(`could not seed the consent-switch promotion A: ${promotionAError.message}`);
+  }
+
+  const { error: promotionBError } = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: CONSENT_SWITCH_PROMOTION_B_NAME,
+    p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    p_web_enabled: true,
+    p_rules: PROMOTION_RULES,
+  });
+  if (promotionBError) {
+    throw new Error(`could not seed the consent-switch promotion B: ${promotionBError.message}`);
+  }
 
   // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
   // this journey shares with its own previous runs. Every limit in actions.ts
@@ -913,6 +964,63 @@ test('a listener who skips a field is refused, and the panel jumps back to it', 
   // stray value that would leave the listener looking at a field that
   // appears to explain nothing.
   await expect(widget.getByTestId('widget-promotion-field-city')).toHaveValue('');
+});
+
+/**
+ * Block 20a, whole-branch review. Block 17c's own defect, found reading the
+ * whole branch rather than introduced by this one: the list entry's
+ * `onClick` (`enter-promotion.tsx`) set `chosen` and `screen` for the newly
+ * picked promotion and left `consent` exactly where the LAST promotion's walk
+ * left it. A listener who ticked promotion A's agreement box, went back to
+ * the list through "Other promotions", and chose promotion B found B's box
+ * ALREADY TICKED -- an agreement B never showed them, for rules they never
+ * read. Submitting from there would write a `member_consents` row
+ * (`widget_enter_promotion`, 0171's `rules` consent) recording exactly that.
+ * A system that takes consent seriously enough to write a row for it cannot
+ * let that row exist for an agreement nobody gave, which is why the product
+ * owner ruled this fixed in this block rather than deferred with the rest of
+ * the review.
+ *
+ * STOPS AT EACH PROMOTION'S CONSENT SCREEN, deliberately never submitting
+ * either: the defect is entirely in what a promotion SWITCH carries forward,
+ * and reaching it needs nothing past the first screen of the second
+ * promotion.
+ */
+test("choosing a different promotion clears the previous one's agreement", async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: CONSENT_SWITCH_VISITOR_LOCAL_PHONE,
+    phone: CONSENT_SWITCH_VISITOR_PHONE,
+    name: CONSENT_SWITCH_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  // BY NAME, NOT BY POSITION -- the list is ordered by `ends_at`
+  // (`widget_promotions`, 0186), which this journey has no reason to pin, and
+  // picking by name proves the fix regardless of where either promotion lands.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_A_NAME, exact: true })
+    .click();
+
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-consent').check();
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeChecked();
+
+  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_B_NAME, exact: true })
+    .click();
+
+  // THE ASSERTION THAT MATTERS: a box this listener never touched, on a
+  // promotion whose rules they have not seen this walk, must not read as
+  // agreed.
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-consent')).not.toBeChecked();
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({

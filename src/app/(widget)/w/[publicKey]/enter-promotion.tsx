@@ -322,8 +322,30 @@ export function EnterPromotionPanel({
                 <button
                   type="button"
                   onClick={() => {
+                    // Block 20a, whole-branch review. Block 17c's own defect:
+                    // this handler set `chosen` and `screen` for the newly
+                    // picked promotion and left CONSENT EXACTLY WHERE THE LAST
+                    // PROMOTION'S WALK LEFT IT. A listener who ticked promotion
+                    // A's agreement box, came back here through "Other
+                    // promotions", and picked promotion B found B's box
+                    // ALREADY TICKED — agreed to rules B never showed them.
+                    // Submitting from there would write a `member_consents`
+                    // row (`widget_enter_promotion`, 0171's `rules` consent)
+                    // for an agreement nobody gave. `fields` and `answers`
+                    // carried the same way, and a stray `flagged` screen index
+                    // from A's walk could point at the wrong step of B's — none
+                    // of them describe anything true about a promotion this
+                    // listener has not opened yet. This is Block 17c's defect,
+                    // found reading the whole branch rather than introduced by
+                    // this one, and the product owner ruled it fixed here
+                    // rather than deferred: a consent record is not a detail
+                    // this system is willing to get wrong.
                     setChosen(promotion);
                     setScreen(0);
+                    setConsent(false);
+                    setFields({});
+                    setAnswers({});
+                    setFlagged(null);
                   }}
                   disabled={promotion.alreadyEntered}
                   className="flex w-full items-center gap-2 rounded-md border p-2 text-left hover:bg-accent disabled:opacity-60"
