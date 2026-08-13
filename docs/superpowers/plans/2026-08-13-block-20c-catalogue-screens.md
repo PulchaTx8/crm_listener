@@ -856,6 +856,24 @@ it, read it and check every behaviour it asserted is covered by
 switcher, the permission-less caller. Add whatever is missing. Deleting a spec
 without carrying its assertions across is how coverage vanishes silently.
 
+**Two write paths are named requirements of this step, not inferences from the
+deleted file.** Task 3's review found that **editing (rename) and archiving a
+record label or genre have ZERO automated coverage** — the whole of
+`reference-record-dialog.tsx` and the `updateReferenceAction` /
+`archiveReferenceAction` server actions are exercised by no committed test, and
+archiving is irreversible ("this cannot be undone… not by you, not by
+support"). Task 3's brief deferred that coverage here.
+
+So this step must add, to `catalog-screens.spec.ts`:
+
+1. a rename through the record dialog, asserting the new name appears in the
+   grid and the old one does not;
+2. an archive through the confirmation dialog, asserting the record leaves the
+   list.
+
+If either cannot be driven, stop and report rather than shipping the block with
+an untested irreversible write.
+
 - [ ] **Step 7: Run the whole e2e suite**
 
 ```bash
