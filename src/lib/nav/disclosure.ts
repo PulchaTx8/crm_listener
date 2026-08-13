@@ -44,6 +44,23 @@ export function serializeExpanded(keys: readonly string[]): string {
 }
 
 /**
+ * Adds a key that is absent, removes a key that is present.
+ *
+ * Extracted from `sidebar-nav.tsx`'s own click handler (Task 3 review, fix
+ * round 1) — the add/remove rule is exactly the kind of decision this module
+ * exists to hold, checkable by a unit test rather than only by a browser, and
+ * the component was about to grow a SECOND piece of toggle logic (the
+ * active-section override) beside it.
+ *
+ * Does not mutate `keys`: it is component state the caller re-renders from,
+ * and a `filter`/`splice` that touched the original array in place would
+ * break the caller's own comparison of "what changed" between renders.
+ */
+export function toggleExpanded(keys: readonly string[], key: string): string[] {
+  return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
+}
+
+/**
  * The section holding the page the caller is on, or null.
  *
  * THE LONGEST MATCHING HREF WINS, and that is not decoration: `/music/requests`

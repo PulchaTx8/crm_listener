@@ -115,6 +115,12 @@ test('the sidebar remembers which sections a member opened', async ({ page }) =>
   await expect(
     page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
   ).toBeHidden();
+  // toBeHidden() ALSO PASSES FOR AN ELEMENT THAT DOES NOT EXIST -- so on its
+  // own the assertion above proves nothing about the reason the panel is
+  // `hidden` rather than unmounted (aria-controls must point at something
+  // that exists). This is the one line in the suite that actually checks the
+  // panel stayed in the DOM.
+  await expect(page.locator('#nav-section-catalog')).toHaveCount(1);
 
   // The section holding the landing page is open without anybody opening it.
   // The landing page IS /app -- Overview's own item ('My stations', shell.ts)
@@ -127,7 +133,11 @@ test('the sidebar remembers which sections a member opened', async ({ page }) =>
 
   // 'Catalog', not 'Catalogue' -- the section's accessible name, same rule
   // nav-content.spec.ts's own first test already states for this exact word.
-  await page.getByRole('button', { name: 'Catalog' }).click();
+  // exact: true -- without it this is a case-insensitive SUBSTRING match, and
+  // it would have kept passing today only because no other button's
+  // accessible name happens to contain "Catalog" (nav.ts's own helper already
+  // gets this right).
+  await page.getByRole('button', { name: 'Catalog', exact: true }).click();
   await expect(
     page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
   ).toBeVisible();
@@ -141,9 +151,65 @@ test('the sidebar remembers which sections a member opened', async ({ page }) =>
 
   // And closing it is remembered too -- a one-way toggle would pass every
   // assertion above.
-  await page.getByRole('button', { name: 'Catalog' }).click();
+  await page.getByRole('button', { name: 'Catalog', exact: true }).click();
   await page.reload();
   await expect(
     page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
   ).toBeHidden();
+});
+
+test('the active section can be collapsed by hand, and it reopens on the next navigation', async ({
+  page,
+}) => {
+  // Sign in the same way the first test does.
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  // Reach a screen OUTSIDE Overview, so the section under test is one that
+  // holds more than the single item /app already shows -- collapsing
+  // Overview would prove nothing about a heading whose own section is what
+  // is on screen.
+  await openNavSection(page, 'Audience');
+  await page.getByRole('link', { name: 'Members' }).click();
+  await expect(page).toHaveURL(/\/members$/);
+
+  // Audience is now the ACTIVE section -- open because of WHERE the caller
+  // is (disclosure.ts's own contract), not because of anything they chose.
+  //
+  // THE BUG THIS TEST GUARDS: `toggle` used to run unconditionally while
+  // `isSectionOpen` keeps the ACTIVE section open no matter what `expanded`
+  // says -- so clicking this very heading changed nothing on screen,
+  // `aria-expanded` never moved, and the click still silently wrote the
+  // OPPOSITE of its own intent into the cookie (Audience "expanded", which
+  // opens it on every OTHER screen). A screen-reader user saw a disclosure
+  // button whose state never changed on activation.
+  const heading = page.getByRole('button', { name: 'Audience', exact: true });
+  await expect(heading).toHaveAttribute('aria-expanded', 'true');
+  await heading.click();
+  await expect(heading).toHaveAttribute('aria-expanded', 'false');
+  await expect(
+    page.locator('[data-nav-section="audience"]').getByRole('link', { name: 'Members' }),
+  ).toBeHidden();
+
+  // THE INVARIANT disclosure.ts states in prose: "the active section is
+  // never written to the cookie." A reload of this SAME page reads the
+  // cookie fresh (getShellContext, server-side) and rebuilds React state from
+  // scratch -- so if the collapse above had reached the cookie, Audience
+  // would still read closed here. It does not: the hand collapse lived only
+  // in this render.
+  await page.reload();
+  await expect(heading).toHaveAttribute('aria-expanded', 'true');
+
+  // §4.2: "it re-opens on the next navigation" -- collapse it again, leave
+  // the page entirely, then come back. The override must not follow.
+  await heading.click();
+  await expect(heading).toHaveAttribute('aria-expanded', 'false');
+  await page.goto('/app');
+  await openNavSection(page, 'Audience');
+  await page.getByRole('link', { name: 'Members' }).click();
+  await expect(page).toHaveURL(/\/members$/);
+  await expect(heading).toHaveAttribute('aria-expanded', 'true');
 });

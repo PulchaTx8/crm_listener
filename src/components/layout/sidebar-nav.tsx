@@ -11,6 +11,7 @@ import {
   activeSectionKey,
   isSectionOpen,
   serializeExpanded,
+  toggleExpanded,
 } from '@/lib/nav/disclosure';
 
 export interface NavItem {
@@ -58,8 +59,35 @@ export function SidebarNav({
   const [expanded, setExpanded] = useState<string[]>(expandedSections);
   const activeKey = activeSectionKey(sections, pathname);
 
+  // Task 3 review, fix round 1. `isSectionOpen` keeps the ACTIVE section open
+  // no matter what `expanded` says (disclosure.ts's own contract), so a click
+  // on that section's own heading can never be answered by `expanded`/the
+  // cookie -- there is nothing for the cookie to hold that would ever close
+  // it. THE BUG THIS REPLACES: `toggle` used to write there anyway, closing
+  // nothing on screen (the button visibly did not respond) while silently
+  // recording the OPPOSITE of what the click asked -- Audience "expanded",
+  // which then opened it on every OTHER screen.
+  //
+  // The fix (spec §4.2, "a caller may still collapse the active section by
+  // hand; it re-opens on the next navigation") is a LOCAL override that never
+  // reaches the cookie, carrying the pathname it was set for rather than the
+  // section key: comparing `override?.pathname === pathname` on read is what
+  // makes a stale override from the PREVIOUS page stop applying the instant
+  // the path changes, with no separate effect (and no extra render) needed to
+  // clear it -- the override is simply about a different question the moment
+  // `pathname` moves on.
+  const [activeOverride, setActiveOverride] = useState<{
+    pathname: string;
+    collapsed: boolean;
+  } | null>(null);
+  const activeCollapsedHere = activeOverride?.pathname === pathname && activeOverride.collapsed;
+
   function toggle(key: string) {
-    const next = expanded.includes(key) ? expanded.filter((k) => k !== key) : [...expanded, key];
+    if (key === activeKey) {
+      setActiveOverride({ pathname, collapsed: !activeCollapsedHere });
+      return;
+    }
+    const next = toggleExpanded(expanded, key);
     setExpanded(next);
     // Written straight to document.cookie rather than through a Server Action:
     // opening a section must not cost a round trip, and this value guards
@@ -70,7 +98,14 @@ export function SidebarNav({
   return (
     <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
       {sections.map((section) => {
-        const open = isSectionOpen(section.key, activeKey, expanded);
+        // The active section's own `isSectionOpen` answer is unconditionally
+        // true (that IS its contract), so the only thing that can ever close
+        // it is the local override above -- checked first and only for the
+        // section it actually names.
+        const open =
+          section.key === activeKey
+            ? !activeCollapsedHere
+            : isSectionOpen(section.key, activeKey, expanded);
         const panelId = `nav-section-${section.key}`;
         return (
           <div key={section.key} data-nav-section={section.key} className="flex flex-col gap-1">

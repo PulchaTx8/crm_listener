@@ -4,6 +4,7 @@ import {
   isSectionOpen,
   parseExpanded,
   serializeExpanded,
+  toggleExpanded,
 } from '@/lib/nav/disclosure';
 
 const SECTIONS = [
@@ -142,5 +143,28 @@ describe('isSectionOpen', () => {
 
   it('closes everything when there is no cookie and no active section', () => {
     expect(isSectionOpen('catalog', null, [])).toBe(false);
+  });
+});
+
+describe('toggleExpanded', () => {
+  it('adds a key that is absent', () => {
+    expect(toggleExpanded(['audience'], 'catalog')).toEqual(['audience', 'catalog']);
+  });
+
+  it('removes a key that is present', () => {
+    expect(toggleExpanded(['audience', 'catalog'], 'audience')).toEqual(['catalog']);
+  });
+
+  /**
+   * The caller (sidebar-nav.tsx) re-renders from `expanded`, comparing it to
+   * what was on screen before — a function that mutated its input in place
+   * would corrupt that comparison, and this is the case that would only fail
+   * quietly, in the browser, on the second click.
+   */
+  it('does not mutate its input', () => {
+    const before = ['audience'];
+    const snapshot = [...before];
+    toggleExpanded(before, 'catalog');
+    expect(before).toEqual(snapshot);
   });
 });
