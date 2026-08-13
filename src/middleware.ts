@@ -20,7 +20,19 @@ import { localeCookieUpdate } from '@/i18n/locales';
 // redirects it to /login before this list is consulted, so an entry would say
 // that `/` is a public page somebody can be shown — which it stopped being when
 // the landing page was deleted.
-const PUBLIC_PATHS = ['/contato', '/login', '/forgot-password', '/auth/callback', '/api/health'];
+const PUBLIC_PATHS = [
+  '/contato',
+  // The three pages a listener reaches from a link inside WhatsApp, with no
+  // account. Meta requires the first two published before it reviews an
+  // integration, and the LGPD requires them regardless.
+  '/privacy',
+  '/delete-data',
+  '/terms',
+  '/login',
+  '/forgot-password',
+  '/auth/callback',
+  '/api/health',
+];
 
 /**
  * Block 17a. "The widget route", which this product now spells in THREE places:

@@ -107,7 +107,13 @@
     "crmForEntertainmentCompaniesManageYour": "CRM for entertainment companies. Manage your audience relationship and the whole prize distribution cycle of your promotions.",
     "pulchatxIsSoldBySubscriptionGet": "PulchatX is sold by subscription. Get in touch and we will set your account up.",
     "pleaseCheckTheFieldsAndTry": "Please check the fields and try again.",
-    "somethingWentWrongPleaseTry": "Something went wrong. Please try again later."
+    "somethingWentWrongPleaseTry": "Something went wrong. Please try again later.",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service",
+    "dataDeletionRequest": "Data Deletion Request",
+    "legalDocuments": "Legal documents",
+    "language": "Language",
+    "requestForm": "Request form"
   },
   "admin": {
     "aBlockNeedsAReason": "A block needs a reason of at least three characters.",
