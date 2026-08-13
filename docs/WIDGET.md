@@ -370,16 +370,37 @@ not told the same thing as one who put art on a promotion that converses
 nowhere. **Art is erased when the last door is switched off**, which is what
 0144 always did when WhatsApp was the only one.
 
-### Two conditions to appear in the widget
+### Three conditions to appear in the widget
 
-`web_enabled` **and** a rules text. They say different things — where the
-promotion belongs, and what this door requires as content — and **ticking the box
-does not make the rules mandatory**: a promotion can be saved for the web while
-somebody writes the wording, and the form says it is not visible yet.
+`web_enabled` **and** a rules text **and**, since Block 20a's `0186`, no
+non-`ESSAY` question left with zero option rows. The first two say different
+things — where the promotion belongs, and what this door requires as content —
+and **ticking the box does not make the rules mandatory**: a promotion can be
+saved for the web while somebody writes the wording, and the form says it is
+not visible yet.
 
 **On the day this ships, every Station's widget list is empty.** `web_enabled`
 defaults to false and no promotion has rules. That is the design working, and it
 will look like a defect to anybody who has not read this.
+
+**The third condition exists because 0041 can constrain the option rows a
+question has, but not how many of them there are** — a CHECK cannot count rows
+in another table — so a `MULTIPLE_CHOICE` or `QUIZ` question with zero options
+has always been a legal row, and `0173` answers `'[]'` for it. `enter-promotion
+.tsx` draws such a question as nothing at all, on purpose: a blank screen beats
+a text box whose every answer trips `participation_answers_shape` (0052). A
+listener who never notices the blank screen taps through and submits, and the
+door then counts a step the payload cannot answer — a refusal for a form that
+looked complete. `widget_promotions` withholds the whole promotion for exactly
+this shape, the same call D3 already made for a promotion with no rules text:
+a promotion this door cannot present honestly is absent rather than broken on
+screen. `ESSAY` is excluded on purpose, not overlooked — an open question has
+no options by design, and catching it here would hide every promotion that
+asks anything in prose. `widget_enter_promotion` restates the same condition
+rather than trusting the list: a browser holding a page drawn before the
+options were deleted is refused `promotion_closed`, not blamed with
+`missing_answers` for a question it was never shown a way to answer. §13
+covers what deploying `0186` requires.
 
 ### What the door writes, and the one divergence
 
@@ -692,3 +713,33 @@ farewell was replaced by the identify form roughly 30ms after it appeared,
 before a listener could read it. Reloading `?left=1` now answers the farewell
 again, every time; only a request carrying no `left` param at all sees what the
 cookie's absence actually means.
+
+---
+
+## 13. Block 20a — two defects on the screen listeners already reach
+
+Both repairs are to panels 17b and 17c already built, and neither is a new
+capability. On the song-request note screen, the two "Voltar" buttons now
+differ: the lower one reads "Voltar ao menu", the upper stays "Voltar" — the
+rule is that the lower button always names where it goes and the upper always
+means one step back inside the errand in progress. And a promotion whose
+question has alternatives and no alternative rows is no longer offered at
+all, which is §9's third condition above.
+
+### Deploying this one is not like the others
+
+**`0186` is not additive, but it is not a signature change either — and that
+makes its own deploy hazard the quiet kind.** `0172` (§9) replaced
+`create_promotion`, `update_promotion` and `set_promotion_art` with new
+*signatures*, so getting the order wrong breaks loudly: a call the code makes
+no longer matches a function the database has. `0186` replaces the *bodies* of
+`widget_promotions` and `widget_enter_promotion` — the two functions the live
+widget calls on every list and every entry — without touching either
+signature. Nothing calls out a missing migration this time. The application
+deploys, the widget keeps listing and accepting promotions exactly as before,
+and a promotion whose question has no alternatives goes on being offered and
+refused right up until somebody notices, because there is no error anywhere
+for it to produce. This project has shipped application code ahead of its
+migrations three times already (Blocks 13a, 17b, 17c); `0186` is the shape
+that habit is most dangerous with, since a loud break at least announces
+itself. Apply it with this deploy, not "soon after".

@@ -168,43 +168,84 @@ is simply the only one with a fields screen to photograph.
 
 Against the current branch, with a promotion carrying both requested fields and
 at least one question with alternatives, entered as a listener with no prior
-record: it reproduced. Both candidates turned out to be true, and both are
-recorded here rather than one — a reader who found only the one that was
-fixed would draw the wrong conclusion about the other.
+record: it reproduced. Both candidates turned out to be true in different
+senses, and both are recorded here rather than one — a reader who found only
+the one that explains the screenshot would draw the wrong conclusion about the
+other.
 
-**Candidate (b) is a live defect, and it is fixed.** Assertion 22 answered
-every requested field and gave consent, and `widget_enter_promotion` still
-returned `missing_answers` — a complete payload, refused, exactly as §4.2
-describes. The mechanism is not a guess: `whatsapp_conversation_steps` (0066)
-builds a question step for every row in `promotion_questions` with no join to
-`promotion_question_options`, so a question with zero alternatives still
-produces a step the payload has no way to answer. Verdict, verbatim from the
-diagnosis: *"reachable. Candidate (b) is a live defect; Task 3 runs."* It ran.
-Migration `0186` closes the path at both doors: `widget_promotions` stops
-offering a promotion that carries a non-`ESSAY` question with no option rows,
-and `widget_enter_promotion` restates the same condition and refuses a
-submission against one as `promotion_closed` rather than blaming the listener
-for an answer they were never shown a way to give.
+**Candidate (a) is the explanation for the owner's screenshot, and it is the
+only one.** The e2e journey that walks an ordinary promotion end to end passes
+on this branch, which is only possible if nothing in today's code can produce
+the screenshot's own signatures — a "Continuar" primary button on a screen
+that is not the last one, "Voltar" as the promotion walk's bottom button.
+`origin/main` is still the merge of PR #63; this branch's fixes have not
+reached it. The deployed build at `pulchatx.com` is behind `origin/main`, and
+nothing in Block 20a changes that — closing it needs a deployment, not another
+line of code. This is said plainly so that reading this block's commits is not
+mistaken for the screenshot being fixed: it is not, until `origin/main` — this
+branch included — is deployed.
 
-**Candidate (a) is also true, independently of (b), and no code in this block
-touches it.** The e2e journey that walks an ordinary promotion end to end
-passes on this branch, which is only possible if nothing in today's code can
-produce the screenshot's own signatures — a "Continuar" primary button on a
-screen that is not the last one, "Voltar" as the promotion walk's bottom
-button. `origin/main` is still the merge of PR #63; this branch's fixes have
-not reached it. The deployed build at `pulchatx.com` is behind `origin/main`,
-and nothing in Block 20a changes that — closing it needs a deployment, not
-another line of code. This is said plainly so that reading this block's
-commits is not mistaken for the screenshot being fixed: it is not, until
-`origin/main` — this branch included — is deployed.
+**Candidate (b) is a real, provable defect, and it is now closed — but it did
+not produce the screenshot.** Assertion 22 answered every requested field and
+gave consent, and `widget_enter_promotion` still returned `missing_answers` —
+a complete payload, refused, exactly as §4.2 describes. The mechanism is not a
+guess: `whatsapp_conversation_steps` (0066) builds a question step for every
+row in `promotion_questions` with no join to `promotion_question_options`, so a
+question with zero alternatives still produces a step the payload has no way to
+answer. Verdict, verbatim from the diagnosis: *"reachable. Candidate (b) is a
+live defect; Task 3 runs."* It ran: migration `0186` closes the path at both
+doors, `widget_promotions` stops offering a promotion that carries a
+non-`ESSAY` question with no option rows, and `widget_enter_promotion` restates
+the same condition and refuses a submission against one as `promotion_closed`
+rather than blaming the listener for an answer they were never shown a way to
+give.
 
-Both findings point at the same next action. `0186` exists locally and is
-applied to the local database only; this project has shipped application code
-ahead of its migrations three times already (Blocks 13a, 17b, 17c), and the
-two functions `0186` replaces are the ones the live widget actually calls. If
-the app deploys without it, item 1's fix reaches `pulchatx.com` and item 2's
-defect does not — the hosted behaviour is unchanged and a new listener can
-still be refused for a form the door never gave them a way to complete.
+**"Reachable" there meant reachable from the fixture, not reachable from the
+product.** Tracing every writer of `promotion_questions` and
+`promotion_question_options` finds no door the product exposes that can leave a
+non-`ESSAY` question with zero options. `save_promotion_question`
+(`0055_promotion_freeze.sql:606-609`) refuses one before it is ever written —
+*"a choice question needs at least two options, and % were given"* — and it is
+the only function that inserts into either table, writing a question and its
+options together in one call whether the question is new or being replaced.
+`remove_promotion_question` deletes a question and its options together, never
+options alone. Neither table takes an `insert`, `update` or `delete` grant from
+any role, `service_role` included — `0044_rls_promotions.sql:36-37` grants
+`select` only — so there is no direct-DML path around those two RPCs, and no
+seed or script writes either table. Assertion 22's fixture reaches the state
+with a privileged direct insert, which is not a door the widget's own screens,
+or any script this project runs, expose. This project does hand-edit its
+hosted database on occasion, which is the reason the hardening is worth
+having; it is prophylactic rather than the explanation of what the owner
+reported.
+
+Whether it has ever actually happened in production is answerable, not merely
+arguable. This settles it, run against the hosted database before the deploy:
+
+```sql
+select q.promotion_id, q.id, q.kind
+  from public.promotion_questions q
+ where q.kind <> 'ESSAY'
+   and not exists (select 1 from public.promotion_question_options o
+                    where o.question_id = q.id);
+```
+
+Zero rows converts "candidate (b) cannot be produced by the product" into
+"candidate (b) never occurred" — an inference becomes a fact, and `0186` stays
+prophylactic exactly as described above. A non-zero result names the promotion
+it happened to and turns `0186` from a hardening measure into an urgent one:
+some hand-written statement produced a state the product's own screens cannot,
+and it is presently live.
+
+The deploy obligation holds regardless of which candidate explains the
+screenshot. `0186` exists locally and is applied to the local database only;
+this project has shipped application code ahead of its migrations three times
+already (Blocks 13a, 17b, 17c), and the two functions `0186` replaces are the
+ones the live widget actually calls. If the app deploys without it, item 1's
+fix reaches `pulchatx.com` and item 2's hardening does not — the hosted
+behaviour is unchanged, and if the settling query above ever returns a row, a
+listener can still be refused for a form the door never gave them a way to
+complete.
 
 **D4, either way.** `EnterPromotionPanel` holds every answer in its own state
 and knows which screen each step sits on, so it can already compute the first
@@ -226,7 +267,9 @@ server'` file cannot be. A panel-level branch that only a browser can reach
 would be checked by nothing, which is the reason that module was split in the
 first place.
 
-If a fix for (b) is needed, its own test comes with it, written before it.
+A fix for (b) turned out to be needed, and it shipped with its own test,
+written before it: assertion 22 in `42_widget_promotions.test.sql` was
+rewritten to describe the repair before `0186` existed to make it pass.
 
 ---
 
@@ -234,10 +277,11 @@ If a fix for (b) is needed, its own test comes with it, written before it.
 
 - `identify-form.tsx`, and every refusal it renders. The screenshots are from
   after identification.
-- The door functions in 0171, unless the reproduction proves the defect is
-  inside one. No migration is planned; if one becomes necessary it is because
-  §4.3 found a reason, and it travels with the deploy — the failure this
-  project has repeated three times.
+- The door functions in 0171 — except that the reproduction did prove the
+  defect was inside one, exactly as this bullet's own escape clause allowed
+  for. §4.3 found the reason, and migration `0186` is the result: it replaces
+  both `widget_promotions` and `widget_enter_promotion`, and it must travel
+  with the deploy — the failure this project has repeated three times.
 - The navigation, and the catalogue screens. §6.
 
 ---
@@ -275,6 +319,10 @@ The gates this project already runs, in the order
 `portoes-e-banco-local-sujo` records — `db:test` before the e2e and isolation
 suites, never after, or two of them go red for reasons that are not the code.
 
-Nothing here changes the database, so a clean `db:test` is a regression check
-rather than a claim about new behaviour. The e2e widget spec is the one that
-matters: it drives both panels, and both are what this block edits.
+`0186` does change the database, so a clean `db:test` is not purely a
+regression check this time: assertions 20 through 22 in
+`42_widget_promotions.test.sql` were rewritten to describe behaviour that did
+not exist before this block, and their passing is a claim about new behaviour
+rather than only the absence of a regression. The e2e widget spec still
+matters as much as either: it drives both panels, and both are what this
+block edits.
