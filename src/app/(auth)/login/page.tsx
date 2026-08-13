@@ -2,7 +2,6 @@ import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { MEMBER_HOME } from '@/lib/routes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -41,9 +40,8 @@ export default async function LoginPage({
     // Chosen here rather than left to the middleware. A middleware redirect
     // issued during a Server Action's RSC navigation leaves the address bar on
     // the old path, so the customer would see /change-password while looking at
-    // MEMBER_HOME. The middleware still enforces both rules for every other
-    // request.
-    redirect(profile?.must_change_password ? '/change-password' : MEMBER_HOME);
+    // /app. The middleware still enforces both rules for every other request.
+    redirect(profile?.must_change_password ? '/change-password' : '/app');
   }
 
   return (

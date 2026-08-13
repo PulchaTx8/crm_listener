@@ -2,7 +2,6 @@ import { getTranslations } from 'next-intl/server';
 import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { MEMBER_HOME } from '@/lib/routes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -41,7 +40,7 @@ export default async function ChangePasswordPage({
     const { error: rpcError } = await supabase.rpc('complete_password_change');
     if (rpcError) redirect('/change-password?error=failed');
 
-    redirect(MEMBER_HOME as Route);
+    redirect('/app' as Route);
   }
 
   return (

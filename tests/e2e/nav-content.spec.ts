@@ -48,8 +48,6 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
   await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  // Still /app -- see the full explanation on the second test below, at the
-  // assertion this one feeds into (the disclosure section that opens itself).
   await expect(page).toHaveURL(/\/app$/);
   await expect(page.getByText('Platform admin')).toBeVisible();
 
@@ -109,36 +107,6 @@ test('the sidebar remembers which sections a member opened', async ({ page }) =>
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
   await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  // Block 20b, Task 4 moved MEMBER_HOME (src/lib/routes.ts) to
-  // /dashboards/audience -- but this admin still lands on /app, and this was
-  // VERIFIED with a clean, isolated `db:reset` run rather than assumed.
-  //
-  // A platform admin's own courtesy branch in listCompanyAccess sees every
-  // ACTIVE Company on the whole platform, not only ones it belongs to -- so
-  // an earlier, tempting reasoning was "once the shared suite database holds
-  // at least one Company (left behind by some earlier-run file, since this
-  // codebase's fixtures never delete what they provision), this admin lands
-  // on the dashboard too." That reasoning was TRIED, in this exact spot, and
-  // is WRONG for what this line needs to prove: run alone against a freshly
-  // reset database (zero Companies anywhere), sign-in still settles at /app,
-  // reliably, every time -- confirmed with a standalone diagnostic
-  // (`page.waitForTimeout` after `networkidle`, no assertion polling to catch
-  // a transient hop) that read `page.url()` directly. A momentary flash of
-  // `/dashboards/audience` DOES cross the address bar first -- the sign-in
-  // Server Action's own redirect target -- before the dashboard's OWN
-  // `if (!first) redirect('/app')` (this admin owns no Station) sends it on;
-  // `toHaveURL`'s polling can catch that flash and report a false pass,
-  // which is exactly what made the first test in this file appear to land on
-  // /dashboards/audience during one investigation of this same question
-  // -- a flake, not a fact, and the standalone URL check above is what caught
-  // it.
-  //
-  // A caller who genuinely holds access -- an owner, or a platform admin
-  // signing in AFTER their own test has provisioned a Station -- really does
-  // settle on /dashboards/audience. login.spec.ts's new sign-in test proves
-  // that case directly; this file's admin is deliberately built without one
-  // (this file's own header comment), and is verified above to still bounce
-  // through.
   await expect(page).toHaveURL(/\/app$/);
 
   // D4. Everything closed except the section holding the current page. The
@@ -155,13 +123,10 @@ test('the sidebar remembers which sections a member opened', async ({ page }) =>
   await expect(page.locator('#nav-section-catalog')).toHaveCount(1);
 
   // The section holding the landing page is open without anybody opening it.
-  // STILL Overview -- this admin's settled landing page did not move (see the
-  // verification above), so activeSectionKey (disclosure.ts, matching a
-  // pathname against ITEM hrefs) still opens Overview, not Dashboards. Tried
-  // the flip to Dashboards/'Audience overview' here and it failed outright
-  // (element not found: the section never opens, because this admin never
-  // reaches it) -- a second, independent confirmation of the same fact the
-  // URL assertion above already proves.
+  // The landing page IS /app -- Overview's own item ('My stations', shell.ts)
+  // -- not Dashboards: activeSectionKey (disclosure.ts) matches a pathname
+  // against ITEM hrefs, and no Dashboards item's href is /app, so Dashboards
+  // would stay collapsed here same as Catalog above.
   await expect(
     page.locator('[data-nav-section="overview"]').getByRole('link', { name: 'My stations' }),
   ).toBeVisible();
@@ -201,8 +166,6 @@ test('the active section can be collapsed by hand, and it reopens on the next na
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
   await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  // Still /app -- same fact as the other two tests' landing assertions in
-  // this file (see the second test's full explanation).
   await expect(page).toHaveURL(/\/app$/);
 
   // Reach a screen OUTSIDE Overview, so the section under test is one that

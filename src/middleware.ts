@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/lib/supabase/database.types';
-import { MEMBER_HOME } from '@/lib/routes';
 import { buildContentSecurityPolicy, CSP_NONCE_HEADER } from '@/lib/security/csp';
 import { frameOrigins } from '@/lib/widget/frame-cache';
 import { frameAncestorsValue } from '@/lib/widget/origins';
@@ -42,6 +41,7 @@ const WIDGET_PATH = /^\/w\//i;
 
 const CHANGE_PASSWORD_PATH = '/change-password';
 const SIGN_OUT_PATH = '/auth/signout';
+const MEMBER_HOME = '/app';
 
 export async function middleware(request: NextRequest) {
   // Block 11b. btoa rather than Buffer: this file runs on the Edge runtime.
