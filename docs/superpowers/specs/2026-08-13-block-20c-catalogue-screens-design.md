@@ -52,7 +52,7 @@ identical tables, arguing in writing that twelve near-identical bodies would be
 would be the same mistake one layer up. One component, parameterised by kind;
 each route is a thin page supplying its own kind, title and copy.
 
-**D3 — Álbuns is its own screen.** Six columns against two, a record dialog with
+**D3 — Álbuns is its own screen.** Five columns against two, a record dialog with
 four editable fields, and a picture. Sharing a component with the reference
 screens would mean a component with two shapes, which is two components wearing
 one name.
@@ -125,10 +125,11 @@ every option, so paging it would silently truncate a control whose whole purpose
 is to offer the full set. The paged screens get `listMusicReferencesPage`
 alongside it, following `listSongsPage`'s shape.
 
-`listAlbums` is in the opposite position: `music/catalog/page.tsx` is its only
-caller, and that file is deleted here. It is replaced by `listAlbumsPage` rather
-than left behind as dead code — but check for callers before deleting, because
-"only one caller" is a fact about today.
+`listAlbums` looked like it would be in the opposite position: `music/catalog/page.tsx`
+was its only known caller, and that file is deleted here. But "only one caller"
+was a fact about today, not a guarantee — checking for callers before deleting
+found a second one, `music/songs/page.tsx`'s album picker, which survives this
+block. So `listAlbums` stays, unremoved, alongside the new `listAlbumsPage`.
 
 ---
 
