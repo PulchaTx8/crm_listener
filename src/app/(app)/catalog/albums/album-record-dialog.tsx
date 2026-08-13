@@ -298,14 +298,34 @@ function AlbumDataForm({
     >
       <input type="hidden" name="albumId" value={album.id} />
 
+      {/* Keyed on the canonical value itself, the same trick
+          reference-record-dialog.tsx's ReferenceDataForm uses for its own
+          name field: these only change once the CANONICAL value changes,
+          i.e. after a successful save has come back through the fresh
+          `album` prop (AlbumRecordDialog's `patch` sets it from the RPC's own
+          return) — forcing the uncontrolled input to remount and pick up the
+          new defaultValue. Without the key, a save that update_album
+          canonicalises (a trimmed title, a whitespace-only UPC stored as
+          NULL) would leave this input showing what was typed while the grid
+          shows what was stored. A failed save leaves `album` untouched, so
+          the key does not change and the operator's just-typed, unsaved text
+          stays on screen next to the error explaining why it was not saved. */}
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">{t('title')}</span>
-        <Input name="title" defaultValue={album.title} required maxLength={160} data-testid="album-title" />
+        <Input
+          key={album.title}
+          name="title"
+          defaultValue={album.title}
+          required
+          maxLength={160}
+          data-testid="album-title"
+        />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">{t('upc')}</span>
         <Input
+          key={album.upc ?? ''}
           name="upc"
           defaultValue={album.upc ?? ''}
           maxLength={14}
@@ -317,6 +337,7 @@ function AlbumDataForm({
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">{t('releaseDate')}</span>
         <Input
+          key={album.releaseDate ?? ''}
           type="date"
           name="releaseDate"
           defaultValue={album.releaseDate ?? ''}

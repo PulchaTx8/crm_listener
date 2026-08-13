@@ -68,10 +68,13 @@ export function toggleExpanded(keys: readonly string[], key: string): string[] {
  * first-match scan over a shared prefix would file the caller under whichever
  * section happened to be built first.
  *
- * The query string is stripped from each href before comparing. Catalogue's
- * three items differ from each other ONLY by `?tab=`, and a pathname never
- * carries one — matching on the raw href would leave that section permanently
- * inactive.
+ * The query string is stripped from each href before comparing. Defensive
+ * rather than load-bearing today: no nav href carries a query string any more
+ * (Block 20c gave Catalogue's three items real routes instead of the
+ * `?tab=` addresses that used to make this necessary), so `pathname` and
+ * `path` already agree without the strip. Kept because a pathname never
+ * carries a query string either way, so the strip costs nothing and a future
+ * href built the old way would silently work rather than silently break.
  */
 export function activeSectionKey(
   sections: readonly { key: string; items: readonly { href: string }[] }[],

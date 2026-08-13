@@ -11,7 +11,7 @@ const SECTIONS = [
   { key: 'overview', items: [{ href: '/app' }] },
   { key: 'inventory', items: [{ href: '/inventory' }, { href: '/inventory/movements' }] },
   { key: 'audience', items: [{ href: '/members' }, { href: '/music/requests' }] },
-  { key: 'catalog', items: [{ href: '/music/songs' }, { href: '/music/catalog?tab=labels' }] },
+  { key: 'catalog', items: [{ href: '/music/songs' }, { href: '/catalog/albums' }] },
 ];
 
 describe('parseExpanded', () => {
@@ -80,12 +80,16 @@ describe('activeSectionKey', () => {
   });
 
   /**
-   * The query string is where Block 20b's three catalogue items differ from
-   * each other, and it is not part of a pathname. Matching must ignore it, or
-   * the catalogue section is never active.
+   * Defensive rather than load-bearing today — no href in the real sidebar
+   * carries a query string any more (Block 20c gave Catalogue's three items
+   * real routes instead of the `?tab=` addresses this strip used to be
+   * necessary for). The function still promises to strip one, so this pins
+   * that promise with a synthetic fixture rather than a route that no longer
+   * exists.
    */
   it('matches an item whose href carries a query string', () => {
-    expect(activeSectionKey(SECTIONS, '/music/catalog')).toBe('catalog');
+    const withQuery = [{ key: 'catalog', items: [{ href: '/catalog/albums?tab=labels' }] }];
+    expect(activeSectionKey(withQuery, '/catalog/albums')).toBe('catalog');
   });
 
   /**
