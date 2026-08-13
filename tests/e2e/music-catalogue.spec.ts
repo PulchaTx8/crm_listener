@@ -120,10 +120,17 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   ).toBeVisible();
 
   // ===========================================================================
-  // 1. A genre and a label, on the Catalog screen — reached through the new
+  // 1. A genre and a label, on the Catalog screen — reached through the
   //    Music section this task adds to the sidebar.
+  //
+  //    Block 20b, Task 1 split the section's own "Catalog" item into three
+  //    (Record labels, Genres, Albums), each pointing at this same screen
+  //    with its own `?tab=` — the sidebar no longer has a link literally
+  //    named "Catalog" (only the section heading, which is not a link), so
+  //    this reaches the screen via "Record labels", which is CATALOG_TABS'
+  //    own default and lands on exactly the URL asserted below.
   // ===========================================================================
-  await ownerPage.getByRole('link', { name: 'Catalog' }).click();
+  await ownerPage.getByRole('link', { name: 'Record labels' }).click();
   // ReferenceTabs (reference-tabs.tsx) rewrites the address to a canonical
   // `?tab=` on mount via history.replaceState — labels is CATALOG_TABS' own
   // default — so the URL is never bare `/music/catalog` once this screen has

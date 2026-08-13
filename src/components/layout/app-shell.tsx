@@ -40,6 +40,16 @@ export const ICONS = {
   // nothing already declared means *a measure* — the one idea three read-only
   // aggregate screens are entirely about.
   chart: 'M3 3v18h18M8 17V10M13 17V6M18 17v-4',
+  // A tag, for Block 20b's Genres. Its own path rather than reusing anything
+  // here: `music` is Songs on an adjacent row of the SAME section, which is
+  // exactly the case the house rule forbids, and nothing else declared means
+  // *a label you file something under* — which is what a genre is.
+  tag: 'M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01',
+  // A disc, for Block 20b's Albums. Its own path for the same reason as `tag`
+  // directly above -- it sits two rows from Songs -- and because an album is a
+  // physical object in a way a note is not: `box` was the near miss and reads
+  // as a package, which is Inventory's meaning of it.
+  disc: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
 } as const;
 
 export interface ShellUser {

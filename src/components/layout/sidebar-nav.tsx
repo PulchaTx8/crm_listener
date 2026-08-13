@@ -13,6 +13,18 @@ export interface NavItem {
 }
 
 export interface NavSection {
+  /**
+   * A stable identifier, and NOT the label.
+   *
+   * Block 20b, D5. `label` is the output of `t('audience')` — translated, and
+   * different in every language. The disclosure cookie (Task 3) is keyed on
+   * this, so keying it on the label would forget every expansion the moment
+   * somebody switched language, and would key a Portuguese and an English
+   * installation differently for no reason. The two happen to spell the same
+   * word today; neither is derived from the other, and renaming a section's
+   * copy must never silently reset everybody's sidebar.
+   */
+  key: string;
   label: string;
   items: NavItem[];
 }
@@ -27,7 +39,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
   return (
     <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
       {sections.map((section) => (
-        <div key={section.label} className="flex flex-col gap-1">
+        <div key={section.key} data-nav-section={section.key} className="flex flex-col gap-1">
           <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-sidebar-muted">
             {section.label}
           </p>
