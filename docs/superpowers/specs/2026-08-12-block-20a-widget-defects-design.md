@@ -268,7 +268,7 @@ would be checked by nothing, which is the reason that module was split in the
 first place.
 
 A fix for (b) turned out to be needed, and it shipped with its own test,
-written before it: assertion 22 in `42_widget_promotions.test.sql` was
+written before it: assertion 23 in `42_widget_promotions.test.sql` was
 rewritten to describe the repair before `0186` existed to make it pass.
 
 ---
@@ -320,7 +320,7 @@ The gates this project already runs, in the order
 suites, never after, or two of them go red for reasons that are not the code.
 
 `0186` does change the database, so a clean `db:test` is not purely a
-regression check this time: assertions 20 through 22 in
+regression check this time: assertions 20 through 23 in
 `42_widget_promotions.test.sql` were rewritten to describe behaviour that did
 not exist before this block, and their passing is a claim about new behaviour
 rather than only the absence of a regression. The e2e widget spec still
