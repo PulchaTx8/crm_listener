@@ -2,6 +2,8 @@ import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
+import { env } from '@/lib/env';
+import { embeddedSignupUrl } from '@/lib/integrations/whatsapp/embedded-signup';
 import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
@@ -11,8 +13,9 @@ import type { RegisteredTemplate } from '@/services/templates';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
-import { canManageTemplates } from '../permissions';
+import { canManageTemplates, isStationOwner } from '../permissions';
 import { describeTemplateReadError } from '../errors';
+import { ConnectWhatsAppBusiness } from './connect-whatsapp';
 import { TemplateRegistry } from './template-registry';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -59,10 +62,12 @@ export default async function WhatsAppTemplatesPage({
 
   let templates: RegisteredTemplate[];
   let manage: boolean;
+  let owner: boolean;
   try {
-    [templates, manage] = await Promise.all([
+    [templates, manage, owner] = await Promise.all([
       listRegisteredTemplates(selected.id),
       canManageTemplates(supabase, selected.id),
+      isStationOwner(supabase, selected.id),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the template registry');
@@ -136,6 +141,17 @@ export default async function WhatsAppTemplatesPage({
         <p className="text-xs text-muted-foreground">
           {t('aRevokedOrEditedApprovalIs')}</p>
       </div>
+
+      {/*
+        Owners only, and the whole card rather than just its button: pairing
+        binds the Organization's telephone number to this product and cannot be
+        undone from here, so somebody holding templates.manage alone — a grant
+        handed out for transcribing approved bodies — should not find the
+        control at all, let alone a disabled one inviting them to ask for it.
+      */}
+      {owner && (
+        <ConnectWhatsAppBusiness url={embeddedSignupUrl(env.WHATSAPP_EMBEDDED_SIGNUP_URL)} />
+      )}
 
       <TemplateRegistry
         templates={templates}

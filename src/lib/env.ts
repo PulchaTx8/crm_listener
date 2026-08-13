@@ -32,6 +32,26 @@ const envSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().min(1).optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1).optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
+  // Where a Station pairs its own WhatsApp Business account with this product
+  // — Meta's Embedded Signup flow, carrying the deployment's Meta app id. Not
+  // a secret: it lands in an anchor's href on the Templates screen and the
+  // operator's browser follows it to Meta.
+  //
+  // Optional, following the three above: a deployment with no WhatsApp
+  // integration must still boot, and the screen says the pairing is not
+  // configured rather than the container refusing to start.
+  //
+  // NOT `NEXT_PUBLIC_`, deliberately, even though the value is public: that
+  // prefix is inlined at `next build` time, so a corrected app id would mean
+  // rebuilding the whole image and setting the variable in two places on
+  // EasyPanel. This one is read per render on a `force-dynamic` page, so the
+  // Environment tab and a restart are enough.
+  //
+  // `.url()` here is `new URL()`, which accepts every scheme there is —
+  // `javascript:` included. That is why the screen goes through
+  // `embeddedSignupUrl` (src/lib/integrations/whatsapp/embedded-signup.ts)
+  // rather than reading this field straight into an href.
+  WHATSAPP_EMBEDDED_SIGNUP_URL: z.string().url().optional(),
   // Shared secret pg_cron presents to the worker tick.
   WORKER_TICK_SECRET: z.string().min(1).optional(),
   // Signs the widget visitor session (Block 17a, design D5). OPTIONAL,
