@@ -23,9 +23,11 @@ export type LegalSlug = (typeof LEGAL_SLUGS)[number];
  *
  * A template-literal import (e.g. `import(\`./${slug}.${locale}\`)`) is
  * invisible to the bundler and to `tsc` — nothing here would catch a missing
- * module until the page 404s or 500s in front of a regulator. This object is
- * nine static `import` statements deep, so a missing module is a compile
- * error, not a runtime surprise.
+ * module until the page 404s or 500s in front of a regulator. Every entry
+ * below is a static `import` at the top of this file instead (three today,
+ * growing to nine once Task 2 adds `terms` and `delete-data`), so a missing
+ * module is a compile error, not a runtime surprise. It is the staticness
+ * that matters, not the count.
  */
 const DOCUMENTS: Record<LegalSlug, Record<Locale, LegalDocument>> = {
   privacy: { en: privacyEn, pt: privacyPt, es: privacyEs },

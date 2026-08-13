@@ -17,12 +17,20 @@ function Block({ block }: { block: LegalBlock }) {
     );
   }
   if (block.kind === 'link') {
+    // The period trails the anchor, in the renderer rather than in any
+    // module's `text`. A link block's grammar is fixed -- prose, then a URL,
+    // always at the end of the sentence -- so the full stop belongs to the
+    // shape, not to nine copies of it repeated across languages and
+    // documents. Placed as its own JSX text child (not inside the <a>) so it
+    // renders outside the underline, and JSX collapses the whitespace-only
+    // lines around it, so it abuts the link with no injected space.
     return (
       <p>
         {block.text}{' '}
         <a href={block.link.href} className="text-primary underline underline-offset-2">
           {block.link.label}
         </a>
+        .
       </p>
     );
   }

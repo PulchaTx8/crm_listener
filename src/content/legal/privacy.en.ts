@@ -138,7 +138,7 @@ export const privacy: LegalDocument = {
         { kind: 'paragraph', text: "PulchatX does not sell users' personal data." },
         {
           kind: 'paragraph',
-          text: "Sharing will be limited to what is necessary to provide the service, comply with legal obligations, protect the platform's security, or exercise a right.",
+          text: "Sharing will be limited to what is necessary to provide the service, comply with legal obligations, protect the platform's security, or for the regular exercise of rights.",
         },
       ],
     },
@@ -189,7 +189,7 @@ export const privacy: LegalDocument = {
           kind: 'list',
           items: [
             'compliance with a legal or regulatory obligation',
-            'the exercise of a right',
+            'the regular exercise of rights',
             'the prevention or investigation of fraud',
             'compliance with an order from a competent authority',
             'other cases of retention permitted by applicable law',
