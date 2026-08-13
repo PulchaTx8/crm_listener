@@ -3,9 +3,12 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reorder and rename the sidebar to describe the product, move Pedidos to
-Audiência, replace the Catálogo item with Gravadoras/Gêneros/Álbuns, turn every
-section into a collapsible disclosure remembered in a cookie, and land sign-in on
-the audience dashboard.
+Audiência, replace the Catálogo item with Gravadoras/Gêneros/Álbuns, and turn
+every section into a collapsible disclosure remembered in a cookie.
+
+*(An earlier draft also moved the sign-in landing to the audience dashboard.
+The owner withdrew that on 2026-08-13 — Task 4 and the design's §2 D6 record
+why.)*
 
 **Architecture:** Three of the four changes are the contents and order of one
 array in `src/lib/auth/shell.ts`. The fourth is a disclosure in
@@ -67,10 +70,12 @@ Playwright, Vitest.
 - `src/components/layout/app-shell.tsx` — two new `ICONS` paths. Task 1.
 - `messages/pt.json`, `en.json`, `es.json` — three new `nav` keys, one retired.
   Task 1.
-- `src/middleware.ts`, `src/app/(auth)/login/page.tsx`,
-  `src/app/(auth)/change-password/page.tsx` — the member home becomes one
-  constant pointing at the audience dashboard. Task 4.
-- Thirteen e2e specs — one helper call each. Task 3.
+- ~~`src/middleware.ts`, `src/app/(auth)/login/page.tsx`,
+  `src/app/(auth)/change-password/page.tsx`~~ — Task 4, WITHDRAWN. Untouched.
+- **Eighteen** e2e call sites, not thirteen — the count in this plan was wrong,
+  and five more files broke identically. `tests/e2e/provision.ts` is the one
+  worth naming: fixing the shared helper there covers roughly fourteen of them
+  at the source. Task 3.
 - `tests/e2e/dashboards.spec.ts` — the comment claiming the section heading is a
   `<p>`. Task 3.
 
