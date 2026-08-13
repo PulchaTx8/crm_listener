@@ -113,7 +113,15 @@
     "dataDeletionRequest": "Solicitação de Exclusão de Dados",
     "legalDocuments": "Documentos legais",
     "language": "Idioma",
-    "requestForm": "Formulário de solicitação"
+    "requestForm": "Formulário de solicitação",
+    "telephoneWithCountryCode": "Telefone, com código do país",
+    "radioStationOptional": "Rádio (opcional)",
+    "anythingElseWeShouldKnow": "Mais alguma coisa que devamos saber (opcional)",
+    "iAmThePersonNamed": "Sou a pessoa indicada acima, ou ajo em nome dela, e peço que estes dados sejam excluídos.",
+    "sendTheRequest": "Enviar a solicitação",
+    "yourRequestWasRecorded": "Sua solicitação foi registrada",
+    "yourProtocolNumber": "Seu número de protocolo",
+    "writeThisNumberDownAnd": "Anote este número e informe-o caso entre em contato sobre esta solicitação. Vamos confirmar quem você é antes de qualquer exclusão. Não há cobrança."
   },
   "admin": {
     "aBlockNeedsAReason": "Um bloqueio precisa de um motivo com pelo menos três caracteres.",

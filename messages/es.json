@@ -113,7 +113,15 @@
     "dataDeletionRequest": "Solicitud de Eliminación de Datos",
     "legalDocuments": "Documentos legales",
     "language": "Idioma",
-    "requestForm": "Formulario de solicitud"
+    "requestForm": "Formulario de solicitud",
+    "telephoneWithCountryCode": "Teléfono, con código de país",
+    "radioStationOptional": "Emisora (opcional)",
+    "anythingElseWeShouldKnow": "Algo más que debamos saber (opcional)",
+    "iAmThePersonNamed": "Soy la persona indicada arriba, o actúo en su nombre, y solicito que estos datos sean eliminados.",
+    "sendTheRequest": "Enviar la solicitud",
+    "yourRequestWasRecorded": "Su solicitud fue registrada",
+    "yourProtocolNumber": "Su número de protocolo",
+    "writeThisNumberDownAnd": "Anote este número e indíquelo si nos contacta sobre esta solicitud. Confirmaremos su identidad antes de eliminar nada. No hay ningún cargo."
   },
   "admin": {
     "aBlockNeedsAReason": "Un bloqueo necesita un motivo de al menos tres caracteres.",

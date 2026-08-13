@@ -113,7 +113,15 @@
     "dataDeletionRequest": "Data Deletion Request",
     "legalDocuments": "Legal documents",
     "language": "Language",
-    "requestForm": "Request form"
+    "requestForm": "Request form",
+    "telephoneWithCountryCode": "Telephone, with country code",
+    "radioStationOptional": "Radio station (optional)",
+    "anythingElseWeShouldKnow": "Anything else we should know (optional)",
+    "iAmThePersonNamed": "I am the person named above, or I am acting on their behalf, and I am asking for this data to be deleted.",
+    "sendTheRequest": "Send the request",
+    "yourRequestWasRecorded": "Your request was recorded",
+    "yourProtocolNumber": "Your protocol number",
+    "writeThisNumberDownAnd": "Write this number down and quote it if you contact us about this request. We will confirm who you are before anything is erased. There is no charge."
   },
   "admin": {
     "aBlockNeedsAReason": "A block needs a reason of at least three characters.",
