@@ -17,10 +17,16 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* Emerald 700, not the 500 the reference template uses. White text on
-       emerald-500 measures 2.3:1 and fails WCAG AA; this is 5.5:1. The lighter
-       green survives where it is legible — on the dark sidebar, below. */
-    --primary: 163 94% 24%; /* #047857 */
+    /* The brand purple, read out of the mark itself
+       (public/brand/pulchatx-mark.png) rather than matched by eye — it is the
+       tile's own background. White on it measures 8.1:1, which clears AAA, so
+       the foreground stays white.
+
+       THE DECIMALS ARE NOT NOISE. `254.9 87.4% 50.2%` is the only triple that
+       converts to #4811EF exactly; rounded to `255 87% 50%` it lands a shade
+       off, in a file nobody diffs closely. tests/unit/brand-tokens.test.ts
+       converts this line and asserts the hex, which is what holds it. */
+    --primary: 254.9 87.4% 50.2%; /* #4811EF */
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 40% 96%;
@@ -33,7 +39,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 214 32% 91%; /* #E2E8F0 */
     --input: 214 32% 91%;
-    --ring: 163 94% 24%;
+    --ring: 254.9 87.4% 50.2%;
     --radius: 0.625rem; /* 10px, matching the reference */
 
     /* The sidebar is its own surface with its own scale: it is far darker than
@@ -71,9 +77,14 @@
     --card-foreground: 213 27% 92%;
     --popover: 238 45% 10%;
     --popover-foreground: 213 27% 92%;
-    /* Brighter here: on a dark surface the AA-safe emerald-700 is the one that
-       becomes hard to read, so light and dark swap which green they use. */
-    --primary: 158 64% 52%; /* #34D399 */
+    /* A LIGHTER TINT OF THE BRAND HUE, NOT THE BRAND COLOUR ITSELF, and the
+       measurement is the whole reason: #4811EF against this theme's near-black
+       page is 2.3:1, under WCAG 1.4.11's 3:1 floor for the edge of a control
+       that has no border of its own — a purple button on a purple-black page
+       would read as a smudge. This tint measures 5.0:1 against the page and
+       carries the dark foreground below at 5.0:1. Light and dark swap which
+       purple they use, exactly as they did with the emerald before it. */
+    --primary: 255 87% 68%; /* #8A66F4 */
     --primary-foreground: 238 82% 9%;
     --secondary: 238 40% 16%;
     --secondary-foreground: 213 27% 92%;
@@ -85,7 +96,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 238 40% 18%;
     --input: 238 40% 18%;
-    --ring: 158 64% 52%;
+    --ring: 255 87% 68%;
 
     /* The sidebar keeps its own colour in both themes: it is the one surface
        that was already dark, so it does not invert. */

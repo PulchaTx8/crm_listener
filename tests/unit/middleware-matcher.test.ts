@@ -107,6 +107,26 @@ describe('middleware matcher', () => {
   // The negative space of the two cases above: the exclusion still does its
   // original job everywhere else, or every static picture in the product would
   // start paying for a middleware invocation it has no use for.
+  /**
+   * NOT A NEW BEHAVIOUR — a newly load-bearing one, which is why it is pinned
+   * here rather than left implied by the case below.
+   *
+   * `src/app/icon.png` and `src/app/apple-icon.png` are Next's file
+   * conventions for the browser tab and the iOS home screen, and `next build`
+   * publishes them at exactly these two paths (read off the build output, not
+   * assumed). They are requested by a browser that may hold no session at all
+   * — the sign-in screen is the first page most visitors ever load — so a
+   * matcher that caught them would 307 the favicon to /login and the tab would
+   * go back to the blank sheet this change existed to replace, with nothing
+   * broken enough to notice.
+   */
+  it('skips the icon routes Next publishes for the browser tab', () => {
+    expect(matcher.test('/icon.png')).toBe(false);
+    expect(matcher.test('/apple-icon.png')).toBe(false);
+    // The mark the sign-in screen and the sidebar draw, from /public.
+    expect(matcher.test('/brand/pulchatx-mark.png')).toBe(false);
+  });
+
   it('still skips an ordinary picture outside the widget route', () => {
     expect(matcher.test('/logo.png')).toBe(false);
     expect(matcher.test('/images/hero.webp')).toBe(false);
