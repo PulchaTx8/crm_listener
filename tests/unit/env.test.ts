@@ -37,6 +37,32 @@ describe('parseEnv', () => {
     const { NEXT_PUBLIC_SITE_URL: _omit, ...rest } = valid;
     expect(() => parseEnv(rest as NodeJS.ProcessEnv)).toThrow(/NEXT_PUBLIC_SITE_URL/);
   });
+
+  // The Embedded Signup address (Meta account pairing). Optional for the reason
+  // WHATSAPP_APP_SECRET above it is: a deployment with no WhatsApp integration
+  // must still boot, and the Templates screen simply says the pairing is not
+  // configured rather than the container refusing to start.
+  it('boots without WHATSAPP_EMBEDDED_SIGNUP_URL', () => {
+    expect(parseEnv(valid).WHATSAPP_EMBEDDED_SIGNUP_URL).toBeUndefined();
+  });
+
+  it('keeps WHATSAPP_EMBEDDED_SIGNUP_URL when it is set', () => {
+    const parsed = parseEnv({
+      ...valid,
+      WHATSAPP_EMBEDDED_SIGNUP_URL: 'https://business.facebook.com/messaging/whatsapp/onboard/',
+    });
+    expect(parsed.WHATSAPP_EMBEDDED_SIGNUP_URL).toBe(
+      'https://business.facebook.com/messaging/whatsapp/onboard/',
+    );
+  });
+
+  it('refuses a WHATSAPP_EMBEDDED_SIGNUP_URL that is not an address', () => {
+    // Fails at boot, where somebody is watching, rather than rendering a button
+    // that goes nowhere on a screen nobody opens for weeks.
+    expect(() =>
+      parseEnv({ ...valid, WHATSAPP_EMBEDDED_SIGNUP_URL: 'business.facebook.com' }),
+    ).toThrow(/WHATSAPP_EMBEDDED_SIGNUP_URL/);
+  });
 });
 
 // The Dockerfile declares NEXT_PUBLIC_* as build args and exports them

@@ -41,3 +41,39 @@ export async function canManageTemplates(
   }
   return data === true;
 }
+
+/**
+ * Whether this caller owns the Organization this Station belongs to.
+ *
+ * A SECOND predicate rather than a third permission code, and the distinction
+ * matters: `templates.manage` is a grant an owner hands out, and pairing the
+ * Station's WhatsApp Business account at Meta is not that kind of act — it
+ * binds a telephone number the Organization pays for to this product, and it
+ * cannot be undone from this screen. So it is gated on being the owner rather
+ * than on holding a code somebody could have been given for transcribing
+ * template bodies.
+ *
+ * `is_owner_of_company` (0044) is ALSO true for the platform admin, which is
+ * the house convention every other caller of it accepts (promotions/access.ts
+ * uses it for the archived-row rule). Support reaching this button on a
+ * customer's behalf is the intended reading, not a leak.
+ *
+ * A failed call throws rather than being folded into "not the owner", for the
+ * reason canManageTemplates above gives for its own: a transient RPC failure
+ * that renders as "you are not the owner" is indistinguishable, to the owner,
+ * from having lost the Organization.
+ */
+export async function isStationOwner(
+  supabase: UserClient,
+  companyId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_owner_of_company', {
+    p_company_id: companyId,
+  });
+  if (error) {
+    throw new InternalError(
+      `Could not check ownership of this station: ${error.message}`,
+    );
+  }
+  return data === true;
+}
