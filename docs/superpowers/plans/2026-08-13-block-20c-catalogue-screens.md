@@ -843,9 +843,10 @@ git rm tests/e2e/music-catalogue.spec.ts
 
 D1: `/music/catalog` does not redirect. Nothing replaces the route.
 
-Then remove `listAlbums` from `src/services/music.ts` — but **grep for callers
-first** (`grep -rn "listAlbums" src/`), and if anything other than the deleted
-page uses it, keep it and say so.
+**Do NOT remove `listAlbums` from `src/services/music.ts`.** Task 2's
+implementer ran the check this step used to ask for and found a second caller:
+`src/app/(app)/music/songs/page.tsx`. It stays. (The step previously said to
+remove it after grepping; the grep has been done and the answer is no.)
 
 - [ ] **Step 6: Carry across whatever the deleted spec proved**
 
