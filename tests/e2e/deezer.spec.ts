@@ -256,4 +256,11 @@ test('an operator registers a song from Deezer into an empty Station, then links
   await expect(ownerPage.getByTestId('song-deezer-id')).toHaveValue('921569');
   await expect(ownerPage.getByRole('textbox', { name: 'Title' })).toHaveValue(typedTitle);
   await expect(ownerPage.getByTestId('song-deezer-id')).toBeDisabled();
+
+  // Under workers: 1 (the local setting), this context outlives the test and
+  // remains open for subsequent tests. When a later test fails, Playwright's
+  // recorded error-context.md captures a page snapshot from the leaked context
+  // instead of the failing test's own page — a silent corruption that derails
+  // failure investigation.
+  await ownerContext.close();
 });
