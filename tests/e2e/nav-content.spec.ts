@@ -64,10 +64,13 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   await expect(catalogue.getByRole('link', { name: 'Record labels' })).toBeVisible();
   await expect(catalogue.getByRole('link', { name: 'Genres' })).toBeVisible();
   await expect(catalogue.getByRole('link', { name: 'Albums' })).toBeVisible();
-  // The item this replaces is gone: a section named Catalogue holding an item
-  // named Catalogue is the "one link rendered twice" shell.ts warns about in
-  // three separate comments.
-  await expect(catalogue.getByRole('link', { name: 'Catalogue', exact: true })).toHaveCount(0);
+  // The item this replaces is gone: a section named Catalog holding an item
+  // named Catalog is the "one link rendered twice" shell.ts warns about in
+  // three separate comments. 'Catalog', not 'Catalogue' -- en.json's nav.catalog
+  // spells it without the '-ue', and the British spelling appears nowhere in
+  // this codebase, so asserting the absence of a string the product never used
+  // would prove nothing about the regression this test exists to catch.
+  await expect(catalogue.getByRole('link', { name: 'Catalog', exact: true })).toHaveCount(0);
 
   // D3. The two administrative sections sit AFTER Organization, at the foot of
   // the list -- which is the opposite of what the owner's item 8 literally said

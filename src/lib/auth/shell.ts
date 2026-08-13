@@ -210,15 +210,16 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         { href: '/music/catalog?tab=genres', label: t('genres'), icon: ICONS.tag },
         { href: '/music/catalog?tab=albums', label: t('albums'), icon: ICONS.disc },
         // Last in the section on purpose: it is the destructive one, and a
-        // sidebar is read top to bottom. Every other Music item above is a
-        // place to build (register a song, an artist, a request); this is
-        // the only place to collapse two records into one, irreversibly
-        // (0106's apply_music_merge — see merge-panel.tsx's own comment).
-        // ICONS.shield rather than a new path: it is already declared for
-        // Roles, in a different section entirely (Organization), so the two
-        // never sit adjacent — the same non-adjacency Pickups' reuse of
-        // ICONS.box relies on, two comments above. Its guard-like shape
-        // reads reasonably as the one screen in Music that asks for care.
+        // sidebar is read top to bottom. Every other Catalog item above is a
+        // place to build (register a song, an artist, a label, a genre, an
+        // album); this is the only place to collapse two records into one,
+        // irreversibly (0106's apply_music_merge — see merge-panel.tsx's own
+        // comment). ICONS.shield rather than a new path: it is already
+        // declared for Roles, in a different section entirely (Organization),
+        // so the two never sit adjacent — the same non-adjacency Pickups'
+        // reuse of ICONS.box relies on, two comments above. Its guard-like
+        // shape reads reasonably as the one screen in Catalog that asks for
+        // care.
         { href: '/music/maintenance', label: t('maintenance'), icon: ICONS.shield },
       ],
     },

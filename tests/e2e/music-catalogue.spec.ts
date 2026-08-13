@@ -120,6 +120,22 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   ).toBeVisible();
 
   // ===========================================================================
+  // 0. Standing in for coverage the sidebar used to provide. Before Block 20b,
+  //    Task 1 the sidebar's own Catalog item pointed at a bare '/music/catalog'
+  //    (no `?tab=`), so simply reaching this screen through the nav proved
+  //    two things at once: parseCatalogTab's missing-parameter fallback
+  //    (music/catalog/page.tsx) and ReferenceTabs' mount-time
+  //    history.replaceState canonicalisation (reference-tabs.tsx) — a bare URL
+  //    settling on the canonical `?tab=labels`. The sidebar cannot provide
+  //    that any more: its three items (Record labels, Genres, Albums) each
+  //    carry their own `?tab=` now, so nothing else in this journey ever
+  //    lands here without one. Asserted directly instead, kept separate from
+  //    the journey's own steps below.
+  // ===========================================================================
+  await ownerPage.goto('/music/catalog');
+  await expect(ownerPage).toHaveURL(/\/music\/catalog\?tab=labels$/);
+
+  // ===========================================================================
   // 1. A genre and a label, on the Catalog screen — reached through the
   //    Music section this task adds to the sidebar.
   //
