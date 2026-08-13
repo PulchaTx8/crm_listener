@@ -30,6 +30,17 @@ import type { ReferenceScreenKind } from './list-params';
 // SAME cursor. That is the exact reasoning music/catalog/actions.ts records
 // for its own screen (deleted in Task 5), carried across because it still
 // holds here: these screens hold no keyset position the operator would lose.
+//
+// THE ONE CASE THIS ARGUMENT DOES NOT COVER: which ROW, not which PAGE. The
+// cursor surviving a fresh render says nothing about whether the record being
+// edited is still IN that page's rows. A rename that moves a row's
+// alphabetical position off the current page is exactly that: revalidatePath
+// re-runs the same keyset query at the same cursor, the row lands on a
+// different page, and references-grid.tsx's `rows.find(...)` (the record
+// dialog derives its open record from the live `rows` prop, by id) comes back
+// empty. The dialog closes itself, silently, immediately after "Saved."
+// appears — reachable only past a full page of rows, and not a reason to
+// abandon revalidatePath here, but not nothing either.
 // ---------------------------------------------------------------------------
 
 /**

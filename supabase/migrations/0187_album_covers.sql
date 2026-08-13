@@ -28,6 +28,20 @@
 -- every field it writes -- which is the house convention (update_prize,
 -- update_song, update_company_profile) rather than an exception to it.
 --
+-- BUT THIS FUNCTION DOES NOT LEAN ON THAT CONVENTION -- IT ENFORCES IT.
+-- update_prize, update_song and update_company_profile all carry the same
+-- wholesale-replace shape and all trust their caller to hold up the
+-- convention rather than the signature: update_song even ships
+-- `p_duration_seconds: input.durationSeconds ?? undefined` in the service
+-- layer, a live instance of the hazard, held safe only because that form
+-- happens to always populate the field. 0141 is what makes update_album
+-- different: the convention had ALREADY failed at this exact door once, so
+-- this signature does not merely follow the convention those three keep --
+-- it moves the enforcement out of the form and into the parameter list,
+-- where an omission cannot pass silently. The other three are not touched
+-- here; whether they need the same move is a question for whoever next
+-- finds one of them failed the same way.
+--
 -- SO THE TWO NEW PARAMETERS CARRY NO DEFAULT, AND THAT IS THE WHOLE FIX.
 -- 0141's real complaint was never the parameter; it was that an omitted
 -- argument and a cleared field were THE SAME REQUEST as far as this function

@@ -73,6 +73,17 @@ export function ReferencesGrid({
   // and re-deriving here is what lets the open dialog show the new name, or
   // close itself when the id it named is no longer in the list — with no
   // callback threaded back up from the dialog for either case.
+  //
+  // THE ARCHIVE CASE IS THE INTENDED ONE; A RENAME CAN TRIGGER THE SAME CLOSE
+  // BY ACCIDENT. actions.ts's header argues revalidatePath is safe here
+  // because the keyset CURSOR survives a fresh render unchanged — but that
+  // says nothing about whether this particular row is still on the page the
+  // cursor names. Renaming a row so its new alphabetical position falls off
+  // the current page means the next `rows` array simply does not contain it,
+  // `editing` goes null, and the dialog vanishes right after "Saved."
+  // appears — reachable only past a full page of rows. Not a reason to
+  // restructure this screen, but the header's safety argument has this one
+  // exception.
   const editing = rows.find((row) => row.id === editingId) ?? null;
 
   const ariaSort = state.direction === 'asc' ? 'ascending' : 'descending';
