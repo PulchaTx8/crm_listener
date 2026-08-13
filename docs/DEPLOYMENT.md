@@ -281,3 +281,31 @@ picture. That is the state of a brand-new environment, not a fault.
 **A note on transparency:** the image is drawn on the panel's light grey
 surface. A PNG with an opaque background renders as a rectangle of that colour;
 one with real transparency blends into the panel.
+
+## 11. The three public addresses Meta asks for (Block 21)
+
+Meta's App Dashboard will not review a WhatsApp integration without a published
+Privacy Policy URL and Terms of Service URL, and asks for a Data Deletion
+Instructions URL alongside them. This installation serves all three itself:
+
+| Meta field | Address |
+|---|---|
+| Privacy Policy URL | `https://<host>/privacy` |
+| Terms of Service URL | `https://<host>/terms` |
+| Data Deletion Instructions URL | `https://<host>/delete-data` |
+
+On the hosted installation the host is `pulchatx.com`.
+
+**They answer with no account.** All three are in `PUBLIC_PATHS`
+(`src/middleware.ts`), because the listener who opens one arrives from a link
+inside a WhatsApp conversation and has none. `tests/e2e/legal-pages.spec.ts`
+asserts that with no session at all rather than while signed in — signed in,
+every one of them would pass with the middleware misconfigured.
+
+**`/delete-data` is a form, not only a document.** It records a request and
+answers with a protocol; it erases nothing. See `docs/SECURITY.md` §8 for why,
+and `/admin/data-deletion-requests` for where the request is then worked.
+
+**Changing the text is a content change, not a deploy of new code**, but it is
+still a deploy: the documents live in `src/content/legal/*.ts` in three
+languages, so amending the policy is an edit, a commit and a rebuild.
