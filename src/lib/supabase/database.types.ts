@@ -517,6 +517,48 @@ export type Database = {
         }
         Relationships: []
       }
+      data_deletion_requests: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          email: string
+          id: string
+          ip_hash: string | null
+          message: string | null
+          name: string
+          phone: string | null
+          protocol: string
+          status: Database["public"]["Enums"]["data_deletion_request_status"]
+          updated_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          email: string
+          id?: string
+          ip_hash?: string | null
+          message?: string | null
+          name: string
+          phone?: string | null
+          protocol?: string
+          status?: Database["public"]["Enums"]["data_deletion_request_status"]
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          ip_hash?: string | null
+          message?: string | null
+          name?: string
+          phone?: string | null
+          protocol?: string
+          status?: Database["public"]["Enums"]["data_deletion_request_status"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       draw_entries: {
         Row: {
           company_id: string
@@ -4646,6 +4688,7 @@ export type Database = {
         Args: { p_kind: Database["public"]["Enums"]["music_reference_kind"] }
         Returns: string
       }
+      new_deletion_protocol: { Args: never; Returns: string }
       normalize_email: { Args: { p_email: string }; Returns: string }
       normalize_phone: { Args: { p_phone: string }; Returns: string }
       participation_status_for: {
@@ -5417,6 +5460,11 @@ export type Database = {
       broadcast_band: "FM" | "AM" | "WEB"
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
+      data_deletion_request_status:
+        | "new"
+        | "verifying"
+        | "completed"
+        | "refused"
       draw_status: "COMPLETED" | "CANCELLED"
       integration_provider: "WHATSAPP"
       inventory_bucket:
@@ -5647,6 +5695,12 @@ export const Constants = {
       broadcast_band: ["FM", "AM", "WEB"],
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
+      data_deletion_request_status: [
+        "new",
+        "verifying",
+        "completed",
+        "refused",
+      ],
       draw_status: ["COMPLETED", "CANCELLED"],
       integration_provider: ["WHATSAPP"],
       inventory_bucket: [
