@@ -173,7 +173,7 @@ test('the active section can be collapsed by hand, and it reopens on the next na
   // Overview would prove nothing about a heading whose own section is what
   // is on screen.
   await openNavSection(page, 'Audience');
-  await page.getByRole('link', { name: 'Members' }).click();
+  await page.getByRole('link', { name: 'Members', exact: true }).click();
   await expect(page).toHaveURL(/\/members$/);
 
   // Audience is now the ACTIVE section -- open because of WHERE the caller
@@ -204,12 +204,25 @@ test('the active section can be collapsed by hand, and it reopens on the next na
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
 
   // §4.2: "it re-opens on the next navigation" -- collapse it again, leave
-  // the page entirely, then come back. The override must not follow.
+  // the page THROUGH A CLICK (not page.goto), then come back THROUGH A CLICK.
+  //
+  // A goto() PROVES NOTHING HERE: it is a hard navigation that remounts the
+  // whole React tree, so it passes even for a version of this component that
+  // carries no override-clearing logic at all -- SidebarNav is mounted ONCE
+  // by the shared (app) layout and survives a client-side transition between
+  // sibling routes (standard App Router layout persistence), which is
+  // exactly the case a goto() cannot exercise. Reaching Promotions and coming
+  // back to Audience by clicking sidebar links is what actually asks the
+  // component to answer this on its own, without a fresh mount to fall back on.
   await heading.click();
   await expect(heading).toHaveAttribute('aria-expanded', 'false');
-  await page.goto('/app');
+
+  await openNavSection(page, 'Promotions');
+  await page.getByRole('link', { name: 'Promotions', exact: true }).click();
+  await expect(page).toHaveURL(/\/promotions$/);
+
   await openNavSection(page, 'Audience');
-  await page.getByRole('link', { name: 'Members' }).click();
+  await page.getByRole('link', { name: 'Members', exact: true }).click();
   await expect(page).toHaveURL(/\/members$/);
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
 });

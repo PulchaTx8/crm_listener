@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { Route } from 'next';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   NAV_COOKIE,
@@ -70,21 +70,33 @@ export function SidebarNav({
   //
   // The fix (spec §4.2, "a caller may still collapse the active section by
   // hand; it re-opens on the next navigation") is a LOCAL override that never
-  // reaches the cookie, carrying the pathname it was set for rather than the
-  // section key: comparing `override?.pathname === pathname` on read is what
-  // makes a stale override from the PREVIOUS page stop applying the instant
-  // the path changes, with no separate effect (and no extra render) needed to
-  // clear it -- the override is simply about a different question the moment
-  // `pathname` moves on.
-  const [activeOverride, setActiveOverride] = useState<{
-    pathname: string;
-    collapsed: boolean;
-  } | null>(null);
-  const activeCollapsedHere = activeOverride?.pathname === pathname && activeOverride.collapsed;
+  // reaches the cookie.
+  //
+  // Fix round 2. THE FIRST VERSION OF THIS COMMENT WAS WRONG. It carried the
+  // pathname the override was set for and compared on READ
+  // (`override.pathname === pathname`), on the theory that a stale value from
+  // the PREVIOUS page would simply stop matching once `pathname` moved on. It
+  // does not: `SidebarNav` is mounted ONCE by the shared `(app)` layout and is
+  // NOT remounted by a client-side navigation between sibling routes
+  // (standard App Router layout persistence) -- so navigating away and then
+  // BACK to the same page made the stored pathname match again, and the
+  // override revived. Collapse Audience on /members, visit /promotions,
+  // return to /members by clicking Members again: Audience rendered collapsed
+  // -- exactly the "re-opens on the next navigation" guarantee broken.
+  //
+  // So the override is cleared UNCONDITIONALLY on every pathname change
+  // instead, by the effect below, rather than merely stopping to apply. That
+  // costs one extra render right after a navigation (the effect runs after
+  // the DOM commits with the new pathname, so the stale value is still what
+  // renders on the FIRST pass; `setActiveCollapsed(false)` then triggers a
+  // second one) -- and that extra render is the actual price of "re-opens on
+  // the next navigation", not an optimisation to route around.
+  const [activeCollapsed, setActiveCollapsed] = useState(false);
+  useEffect(() => setActiveCollapsed(false), [pathname]);
 
   function toggle(key: string) {
     if (key === activeKey) {
-      setActiveOverride({ pathname, collapsed: !activeCollapsedHere });
+      setActiveCollapsed((collapsed) => !collapsed);
       return;
     }
     const next = toggleExpanded(expanded, key);
@@ -100,11 +112,13 @@ export function SidebarNav({
       {sections.map((section) => {
         // The active section's own `isSectionOpen` answer is unconditionally
         // true (that IS its contract), so the only thing that can ever close
-        // it is the local override above -- checked first and only for the
-        // section it actually names.
+        // it is `activeCollapsed` above -- and only for the section it
+        // actually names; `activeCollapsed` answers for whichever section is
+        // active RIGHT NOW, which is exactly what `section.key === activeKey`
+        // is checking.
         const open =
           section.key === activeKey
-            ? !activeCollapsedHere
+            ? !activeCollapsed
             : isSectionOpen(section.key, activeKey, expanded);
         const panelId = `nav-section-${section.key}`;
         return (
