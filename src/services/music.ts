@@ -14,6 +14,9 @@ import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import { logger } from '@/lib/logger';
+import { describeArtworkRejection } from '@/lib/security/artwork';
+import { readImageDimensions } from '@/lib/security/image-dimensions';
+import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
 import type { Database } from '@/lib/supabase/database.types';
 import { SONG_SEARCH_MAX_LENGTH } from '@/schemas/music';
 import type {
@@ -87,6 +90,102 @@ export async function listMusicReferences(
   return (data ?? []).map((row) => ({ id: row.id, name: row.name, legacyId: row.legacy_id }));
 }
 
+export interface ReferenceListParams {
+  companyId: string;
+  kind: MusicReferenceKind;
+  search?: string;
+  direction: SortDirection;
+  cursor: Cursor | null;
+  cursorSide: 'after' | 'before';
+}
+
+export interface ReferenceListPage {
+  rows: ReferenceSummary[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  /** Always exact: one Station's rows of this kind, cut by RLS before it touches disk. */
+  total: number;
+}
+
+/**
+ * The same four short lists as listMusicReferences above, one keyset page at a
+ * time — modelled directly on listArtistsPage further down this file: the
+ * same build() closure shared between the row read and the exact count, the
+ * same cursorSide/direction handling, the same SONG_PAGE_SIZE and
+ * SONG_SEARCH_MAX_LENGTH.
+ *
+ * DELIBERATELY BESIDE listMusicReferences, NOT A REPLACEMENT FOR IT.
+ * music/requests/page.tsx calls the unpaged function to build the programme
+ * `<select>` on the song-request screen, and a select needs every option —
+ * paging it would silently truncate the one control whose whole purpose is to
+ * offer the full set. Block 20c's catalogue screens are what this one feeds;
+ * do not "consolidate" the two later, and do not repoint that select at this.
+ *
+ * There is no `sort` parameter, unlike listArtistsPage's: these four tables
+ * carry only a name and a legacy id (REFERENCE_TABLES' own comment), so name
+ * is the only column there is to sort by.
+ */
+export async function listMusicReferencesPage(
+  params: ReferenceListParams,
+): Promise<ReferenceListPage> {
+  const supabase = await createUserClient();
+  const table = REFERENCE_TABLES[params.kind];
+
+  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const ascending = walkingBack ? params.direction === 'desc' : params.direction === 'asc';
+  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
+
+  const build = (options?: { count: 'exact'; head: true }) => {
+    let q = supabase
+      .from(table)
+      .select('id, name, legacy_id', options)
+      .eq('company_id', params.companyId)
+      .is('deleted_at', null);
+
+    const term = params.search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH);
+    if (term) {
+      const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
+      q = q.or(`name.ilike.${wildcard}`);
+    }
+
+    return q;
+  };
+
+  let query = build().order('name', { ascending });
+  if (params.cursor) {
+    // nullsLast is false: name is not nullable on any of the four tables
+    // (0098/0100), so there is no null region for a cursor to cross into.
+    query = query.or(keysetFilter('name', readDirection, params.cursor, false));
+  }
+  query = query.order('id', { ascending });
+
+  const { data, error } = await query.limit(SONG_PAGE_SIZE + 1);
+  if (error) {
+    throw new InternalError(`Could not read the ${params.kind.toLowerCase()} list: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as { id: string; name: string; legacy_id: string | null }[];
+
+  const { rows: page, nextCursor, previousCursor } = keysetPage(rows, {
+    pageSize: SONG_PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({ value: row.name, id: row.id }),
+  });
+
+  const { count, error: countError } = await build({ count: 'exact', head: true });
+  if (countError) {
+    throw new InternalError(`Could not count the ${params.kind.toLowerCase()} list: ${countError.message}`);
+  }
+
+  return {
+    rows: page.map((row) => ({ id: row.id, name: row.name, legacyId: row.legacy_id })),
+    nextCursor,
+    previousCursor,
+    total: count ?? 0,
+  };
+}
+
 /**
  * The album picker's options — the same shape and the same RLS consequence as
  * listMusicReferences above, but not folded into it: albums live in their own
@@ -110,6 +209,149 @@ export async function listAlbums(companyId: string): Promise<ReferenceSummary[]>
   if (error) throw new InternalError(`Could not read the album list: ${error.message}`);
 
   return (data ?? []).map((row) => ({ id: row.id, name: row.title, legacyId: row.legacy_id }));
+}
+
+const ALBUM_LIST_COLUMNS = 'id, title, upc, release_date, legacy_id, cover_md5, thumb_url';
+
+type AlbumListRow = Pick<
+  Database['public']['Tables']['albums']['Row'],
+  'id' | 'title' | 'upc' | 'release_date' | 'legacy_id' | 'cover_md5' | 'thumb_url'
+>;
+
+export interface AlbumSummary {
+  id: string;
+  title: string;
+  upc: string | null;
+  releaseDate: string | null;
+  legacyId: string | null;
+  /** Deezer's md5_image (0136/13a design D4). Null for an album typed by hand and never linked. */
+  coverMd5: string | null;
+  /** The operator's own upload (0187, D4). Wins over coverMd5 when both are set — the screen decides that, not this function. */
+  thumbUrl: string | null;
+}
+
+function toAlbumSummary(row: AlbumListRow): AlbumSummary {
+  return {
+    id: row.id,
+    title: row.title,
+    upc: row.upc,
+    releaseDate: row.release_date,
+    legacyId: row.legacy_id,
+    coverMd5: row.cover_md5,
+    thumbUrl: row.thumb_url,
+  };
+}
+
+export interface AlbumListParams {
+  companyId: string;
+  search?: string;
+  direction: SortDirection;
+  cursor: Cursor | null;
+  cursorSide: 'after' | 'before';
+}
+
+export interface AlbumListPage {
+  rows: AlbumSummary[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  /** Always exact: one Station's albums, cut by RLS before it touches disk. */
+  total: number;
+}
+
+/**
+ * The Albums screen's list, one keyset page at a time — modelled directly on
+ * listArtistsPage further down this file: same build() closure shared between
+ * the row read and the exact count, same cursorSide/direction handling, same
+ * SONG_PAGE_SIZE and SONG_SEARCH_MAX_LENGTH.
+ *
+ * Not listAlbums above: that function returns the ReferenceSummary shape a
+ * <Select> picker wants, reads the whole live list, and stays — its caller is
+ * the song form's album picker, not this screen. This one reads the six
+ * columns the Albums grid and record dialog actually need, including the two
+ * picture sources (D4) and the fields the record dialog edits.
+ *
+ * No archived filter is offered, for the same reason listMusicReferences and
+ * listAlbums above have none: 0099's/0136's select policy on albums is
+ * `deleted_at is null and has_permission(...)`, so an archived album is
+ * unreadable through RLS for every caller, not merely hidden.
+ */
+export async function listAlbumsPage(params: AlbumListParams): Promise<AlbumListPage> {
+  const supabase = await createUserClient();
+
+  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const ascending = walkingBack ? params.direction === 'desc' : params.direction === 'asc';
+  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
+
+  const build = (options?: { count: 'exact'; head: true }) => {
+    let q = supabase
+      .from('albums')
+      .select(ALBUM_LIST_COLUMNS, options)
+      .eq('company_id', params.companyId)
+      .is('deleted_at', null);
+
+    const term = params.search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH);
+    if (term) {
+      const wildcard = quoteForOrFilter(`%${escapeLikePattern(term)}%`);
+      q = q.or(`title.ilike.${wildcard}`);
+    }
+
+    return q;
+  };
+
+  let query = build().order('title', { ascending });
+  if (params.cursor) {
+    // nullsLast is false: title is not nullable (0098/0136), so there is no
+    // null region for a cursor to cross into.
+    query = query.or(keysetFilter('title', readDirection, params.cursor, false));
+  }
+  query = query.order('id', { ascending });
+
+  const { data, error } = await query.limit(SONG_PAGE_SIZE + 1);
+  if (error) throw new InternalError(`Could not read albums: ${error.message}`);
+
+  const rows: AlbumListRow[] = data ?? [];
+
+  const { rows: page, nextCursor, previousCursor } = keysetPage(rows, {
+    pageSize: SONG_PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({ value: row.title, id: row.id }),
+  });
+
+  const { count, error: countError } = await build({ count: 'exact', head: true });
+  if (countError) throw new InternalError(`Could not count albums: ${countError.message}`);
+
+  return {
+    rows: page.map(toAlbumSummary),
+    nextCursor,
+    previousCursor,
+    total: count ?? 0,
+  };
+}
+
+/**
+ * One album, for the record dialog's own read — the same role getArtistById
+ * plays for the Artists screen, on the same shape: `deleted_at is null` is not
+ * repeated here as a policy comment, because 0136's select policy already
+ * refuses an archived row for every caller, so a stale link to one reads as
+ * "not found" rather than a row nobody asked to see restored.
+ */
+export async function getAlbumById(
+  albumId: string,
+): Promise<{ companyId: string; album: AlbumSummary } | null> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select(`${ALBUM_LIST_COLUMNS}, company_id`)
+    .eq('id', albumId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the album: ${error.message}`);
+  if (!data) return null;
+
+  return { companyId: data.company_id, album: toAlbumSummary(data) };
 }
 
 // ---------------------------------------------------------------------------
@@ -539,39 +781,166 @@ export async function unlinkSongFromDeezer(
   if (error) throw mapMusicError(error.code, error.message);
 }
 
-/** Registers an album typed by hand. The Deezer path goes through create_song_from_deezer instead, which resolves or creates one atomically with the song. */
+/**
+ * Registers an album typed by hand. The Deezer path goes through
+ * create_song_from_deezer instead, which resolves or creates one atomically
+ * with the song.
+ *
+ * `upc` and `releaseDate` are optional, unlike update_album's (0187): this is
+ * create_album's own OWN default-carrying pair (0137), and 0187's header is
+ * explicit that a default is correct HERE — "registering a record with fields
+ * left blank is an intention somebody had", the opposite of a save that
+ * silently empties a column it already had a value for. Block 20c's record
+ * dialog collects title, UPC and release date on the same create form, so
+ * this is the one call that writes all three rather than a second write
+ * through updateAlbum immediately after.
+ */
 export async function createAlbum(
-  input: { companyId: string; title: string },
+  input: { companyId: string; title: string; upc?: string | null; releaseDate?: string | null },
   accessToken: string,
 ): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('create_album', {
     p_company_id: input.companyId,
     p_title: input.title,
+    p_upc: input.upc ?? undefined,
+    p_release_date: input.releaseDate ?? undefined,
   });
   if (error) throw mapMusicError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('create_album returned no id');
   return data;
 }
 
+/** The fields update_album replaces, as they stand right now. */
+export interface AlbumRecordFields {
+  title: string;
+  upc: string | null;
+  releaseDate: string | null;
+}
+
 /**
- * Renames an album. That is ALL it does — 0141 removed the UPC parameter 0137
- * had, because the catalogue panel is a one-field row and an omitted parameter
- * there is indistinguishable, to the RPC, from a cleared one. The UPC, the
- * cover and the Deezer id all come from the Deezer path alone.
+ * Saves an album record: title, UPC and release date, every one of them on
+ * every call. NOT "renames an album" any more, and the difference is the whole
+ * point of 0187.
+ *
+ * 0141 had cut the UPC parameter because the screen was a one-field row and
+ * `default null` on the RPC made "this form has no box for that" and "the
+ * operator cleared that box" the same request — so every rename erased the UPC.
+ * 0187 puts the field back WITHOUT a default, which separates them again: this
+ * function must state all three, and a caller that forgets one fails at the
+ * call with 42883 rather than quietly emptying a column. Passing null still
+ * clears, because an operator who empties a box means it.
+ *
+ * `deezerAlbumId` and `coverMd5` are absent and must stay absent — they travel
+ * together out of the Deezer path alone (0139). `thumbUrl` is absent for the
+ * other reason: it has its own writer, setAlbumCover, because this function
+ * replaces every field it takes and a cover on that list would be deleted by
+ * every ordinary save.
  */
 export async function updateAlbum(
-  input: { albumId: string; title: string },
+  input: { albumId: string } & AlbumRecordFields,
   accessToken: string,
 ): Promise<void> {
   const { error } = await asCaller(accessToken).rpc('update_album', {
     p_album_id: input.albumId,
     p_title: input.title,
+    // THE TWO ASSERTIONS ARE THE GENERATED TYPE'S LIMIT, NOT A RELAXED RULE.
+    // `supabase gen types` marks an argument optional exactly when the SQL
+    // declares a DEFAULT, and types it as the bare type otherwise — so it has
+    // no way to spell "required, and may be null", which is precisely what
+    // 0187 made these two. Giving them defaults would make the types honest and
+    // reintroduce 0141's defect, which is the wrong trade: an album with no UPC
+    // is ordinary, and null here means "cleared", not "unspecified".
+    //
+    // PostgREST sends the null through as SQL NULL, and the database is the
+    // authority: it refuses a call that OMITS either (42883) and accepts null,
+    // which 49_album_covers.test.sql asserts in both directions.
+    p_upc: input.upc as string,
+    p_release_date: input.releaseDate as string,
   });
   if (error) throw mapMusicError(error.code, error.message);
 }
 
 export async function archiveAlbum(albumId: string, accessToken: string): Promise<void> {
   const { error } = await asCaller(accessToken).rpc('archive_album', { p_album_id: albumId });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// The album's own picture (Block 20c, D4). Modelled on uploadPrizePhoto and
+// clearPrizePhoto (services/inventory.ts) — read both before changing either
+// of these.
+// ---------------------------------------------------------------------------
+
+/**
+ * Uploads the object and then files it, IN THAT ORDER, so the row can never
+ * point at bytes that failed to arrive — that is a broken image on every
+ * screen that names the album. A failed RPC leaves an object at a key derived
+ * from this album: unreferenced, harmless, and overwritten by the next
+ * upload, because the key never changes.
+ *
+ * On the CALLER's token rather than the service key. The bucket policy in
+ * 0143 (amended by 0187) checks music.manage against the Station in the path,
+ * and the service key would bypass the policy this block wrote and leave it
+ * proved by nothing.
+ *
+ * Validated as a `thumb`: an album cover identifies a record on a grid, the
+ * same role a prize photograph plays for uploadPrizePhoto. Nothing here sends
+ * it to WhatsApp, so none of Meta's rules decide anything about it — only the
+ * format and byte limits, which the bucket shares with the banner.
+ */
+export async function uploadAlbumCover(
+  accessToken: string,
+  input: { companyId: string; albumId: string; file: File },
+): Promise<string> {
+  const bytes = new Uint8Array(await input.file.arrayBuffer());
+  const rejection = describeArtworkRejection(
+    'thumb',
+    { type: input.file.type, size: input.file.size },
+    readImageDimensions(bytes),
+  );
+  // The bucket refuses the type and the size as well (0143). This is here so
+  // the failure is a sentence rather than a Storage error, so the pixel
+  // ceiling — which no bucket can express — is enforced somewhere a client
+  // cannot reach, and so nothing is uploaded first.
+  if (rejection) throw new ValidationError(rejection);
+
+  const key = artworkKey('album-covers', input.companyId, input.albumId);
+
+  const uploaded = await asCaller(accessToken)
+    .storage.from(ARTWORK_BUCKET)
+    .upload(key, input.file, {
+      // NOT optional: the key carries no extension, so an object uploaded
+      // with no content type is served back as application/octet-stream.
+      contentType: input.file.type,
+      // The whole point of a key derived from the record. Without this the
+      // SECOND upload for an album fails instead of replacing the first.
+      upsert: true,
+    });
+  if (uploaded.error) {
+    throw new InternalError(`Could not upload the cover: ${uploaded.error.message}`);
+  }
+
+  const url = artworkPublicUrl(getUserSupabaseConfig().url, key, Date.now());
+  const { error } = await asCaller(accessToken).rpc('set_album_cover', {
+    p_album_id: input.albumId,
+    p_url: url,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  return url;
+}
+
+/**
+ * Clears the column and queues the object, in one transaction (0187).
+ *
+ * NOTHING HERE DELETES ANYTHING: the bucket has no delete policy for
+ * `authenticated`, deliberately, and the worker drains the queue through
+ * service_role. p_url is OMITTED rather than sent as null — 0187 gives it
+ * `default null` precisely so clearing needs no cast.
+ */
+export async function clearAlbumCover(accessToken: string, albumId: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_album_cover', {
+    p_album_id: albumId,
+  });
   if (error) throw mapMusicError(error.code, error.message);
 }
 

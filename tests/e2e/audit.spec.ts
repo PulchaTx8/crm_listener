@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
 import { provisionCustomer } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 10a's round trip, and it closes the block's own loop in one assertion:
@@ -101,6 +102,7 @@ test('an administrator connects a Station, and the owner reads it in the trail',
   // wearing another name. A Station's connection is a fact about the Station, so
   // it is now the second tab of its record, reached by choosing the customer and
   // opening the radio.
+  await openNavSection(page, 'Platform');
   await page.getByRole('link', { name: 'Stations', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/stations$/);
   await page.getByTestId('station-organization-select').selectOption(organizationId);

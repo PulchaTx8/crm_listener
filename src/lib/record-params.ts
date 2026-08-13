@@ -135,6 +135,23 @@ export type ArtistTab = (typeof ARTIST_TABS)[number];
 export const SHOW_TABS = ['data'] as const;
 export type ShowTab = (typeof SHOW_TABS)[number];
 
+/**
+ * One, the same reasoning SHOW_TABS gives for its own: an album's record is
+ * its fields and its picture, not fields plus a second section. There is no
+ * songs tab the way an artist's record has one (ARTIST_TABS above) -- the
+ * songs naming an album are reached from the Songs screen, not from here --
+ * and catalog/albums does not share catalog/references' component set
+ * either (design spec §2 D3), so this is its own tuple rather than a branch
+ * of ReferenceScreenKind.
+ *
+ * Declared as a tuple rather than the screen passing `['data']` inline, for
+ * the same reason SHOW_TABS is: useRecordDialog keeps this array in a
+ * dependency list, and a literal rebuilt on every render would resubscribe
+ * its popstate listener on every render.
+ */
+export const ALBUM_TABS = ['data'] as const;
+export type AlbumTab = (typeof ALBUM_TABS)[number];
+
 export interface RecordParam {
   recordId: string | null;
   /** Null only when no record is open — an open record always resolves to a tab. */

@@ -16,7 +16,8 @@ export const ICONS = {
   box: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM3.27 6.96L12 12.01L20.73 6.96M12 22.08L12 12',
   headphones:
     'M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z',
-  megaphone: 'M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1zM16 9a3 3 0 0 1 0 6M19 6a7 7 0 0 1 0 12',
+  megaphone:
+    'M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1zM16 9a3 3 0 0 1 0 6M19 6a7 7 0 0 1 0 12',
   // A ticket, for the entries a promotion collects. Its own path rather than
   // reusing megaphone: the two sit next to each other in the Promotions
   // section, and one icon on both rows would make the pair read as one link
@@ -40,6 +41,16 @@ export const ICONS = {
   // nothing already declared means *a measure* — the one idea three read-only
   // aggregate screens are entirely about.
   chart: 'M3 3v18h18M8 17V10M13 17V6M18 17v-4',
+  // A tag, for Block 20b's Genres. Its own path rather than reusing anything
+  // here: `music` is Songs on an adjacent row of the SAME section, which is
+  // exactly the case the house rule forbids, and nothing else declared means
+  // *a label you file something under* — which is what a genre is.
+  tag: 'M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01',
+  // A disc, for Block 20b's Albums. Its own path for the same reason as `tag`
+  // directly above -- it sits two rows from Songs -- and because an album is a
+  // physical object in a way a note is not: `box` was the near miss and reads
+  // as a package, which is Inventory's meaning of it.
+  disc: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
 } as const;
 
 export interface ShellUser {
@@ -64,10 +75,12 @@ function initials(user: ShellUser): string {
 export async function AppShell({
   sections,
   user,
+  expandedSections,
   children,
 }: {
   sections: NavSection[];
   user: ShellUser;
+  expandedSections: string[];
   children: React.ReactNode;
 }) {
   // Block 12a. The shell is rendered by both layouts, so its wording is the
@@ -94,11 +107,13 @@ export async function AppShell({
           </span>
           <span className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-white">PulchatX</span>
-            <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">{t('tagline')}</span>
+            <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
+              {t('tagline')}
+            </span>
           </span>
         </div>
 
-        <SidebarNav sections={sections} />
+        <SidebarNav sections={sections} expandedSections={expandedSections} />
 
         <div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-4">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">

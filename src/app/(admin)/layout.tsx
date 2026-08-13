@@ -18,10 +18,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // belongs — bouncing them to /login would loop, since they are signed in.
   if (!isAdmin) redirect('/app');
 
-  const { sections, user } = await getShellContext();
+  const { sections, user, expandedSections } = await getShellContext();
 
   return (
-    <AppShell sections={sections} user={user}>
+    <AppShell sections={sections} user={user} expandedSections={expandedSections}>
       {children}
     </AppShell>
   );

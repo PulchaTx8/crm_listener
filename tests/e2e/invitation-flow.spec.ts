@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * The whole invitation journey through the real UI: an Owner invites, the link
@@ -76,6 +77,7 @@ test('an owner invites a colleague who joins with their own password', async ({ 
   await expect(ownerPage).toHaveURL(/\/app$/);
 
   // Sidebar entry added in Task 11 Step 4.
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 

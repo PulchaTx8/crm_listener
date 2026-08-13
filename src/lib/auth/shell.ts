@@ -1,8 +1,10 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { ICONS, type ShellUser } from '@/components/layout/app-shell';
 import type { NavSection } from '@/components/layout/sidebar-nav';
 import { getTranslations } from 'next-intl/server';
+import { NAV_COOKIE, parseExpanded } from '@/lib/nav/disclosure';
 
 /**
  * Everything the chrome needs, resolved once per request. Both the member area
@@ -11,12 +13,24 @@ import { getTranslations } from 'next-intl/server';
  * convenience, not the guard: the admin layout still redirects and every RPC
  * re-checks in its own body.
  */
-export async function getShellContext(): Promise<{ sections: NavSection[]; user: ShellUser }> {
+export async function getShellContext(): Promise<{
+  sections: NavSection[];
+  user: ShellUser;
+  /**
+   * Block 20b, D5. Which sections this caller has expanded, read on the SERVER
+   * so the sidebar arrives in the right state. Read in the browser instead, it
+   * would render open and collapse after hydration — a flash on every single
+   * navigation, on every screen, since the shell wraps all of them.
+   */
+  expandedSections: string[];
+}> {
   // Block 12a. The navigation is the one place a person sees every area of the
   // product at once, so its wording is the first thing that has to speak their
   // language. Fetched here because this function is already async and already
   // the single builder of the tree.
   const t = await getTranslations('nav');
+
+  const expandedSections = parseExpanded((await cookies()).get(NAV_COOKIE)?.value);
 
   const supabase = await createUserClient();
 
@@ -32,10 +46,12 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
 
   const sections: NavSection[] = [
     {
+      key: 'overview',
       label: t('overview'),
       items: [{ href: '/app', label: t('myStations'), icon: ICONS.radio }],
     },
     {
+      key: 'dashboards',
       // Visible to every member, including those holding members.view,
       // music.view and promotions.view in no Station at all — the same
       // courtesy every section below extends. Each of the three pages
@@ -64,37 +80,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
-      // Block 8b. Its own section rather than an item under Dashboards,
-      // because what it lists crosses every domain -- listeners, promotions,
-      // music and stock all export into the same place -- and filing it under
-      // one of them would misname where it belongs.
-      //
-      // "My reports" rather than "Reports", so the section and its single item
-      // do not spell the same word: the sidebar renders both, and Block 8a's
-      // own note here records what that looks like when they match.
-      //
-      // No permission guards this link, and none guards the page either. It
-      // lists the caller's OWN runs, limited by report_runs' RLS (0122), so
-      // there is nothing to hide from somebody whose list is empty. The
-      // boundary is on the export buttons, each guarded by its own domain's
-      // permission, and in request_report (0127), which re-checks regardless.
-      label: t('reports'),
-      items: [{ href: '/reports', label: t('myReports'), icon: ICONS.inbox }],
-    },
-    {
-      // Block 10a. The Organization's record of itself, not the platform's --
-      // so it lives here rather than in the admin console (design D7).
-      //
-      // Visible to every member, like every other section: the page carries no
-      // permission gate either, and deliberately. list_audit_logs is SECURITY
-      // INVOKER, so audit_logs' own policies decide every row -- a caller
-      // holding audit.view nowhere gets an empty page with a sentence saying
-      // why, which is more useful to somebody who expected to see something
-      // than a silent bounce to /app.
-      label: t('administration'),
-      items: [{ href: '/audit', label: t('auditTrail'), icon: ICONS.shield }],
-    },
-    {
+      key: 'inventory',
       // Visible to every member, including those holding no inventory
       // permission in any Station at all — the same courtesy Team and Roles
       // below already extend. /inventory redirects at the top of its own
@@ -133,6 +119,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
+      key: 'audience',
       // Visible to every member, including those holding members.view
       // nowhere in the Organization — the same courtesy Inventory just above
       // extends for inventory.view. /members redirects at the top of its own
@@ -169,9 +156,23 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         // shipping the screen behind a permission nobody holds would hide it
         // from everyone. The Block 18 spec's §5 carries the full reasoning.
         { href: '/shows', label: t('programmes'), icon: ICONS.radio },
+        // Block 20b, D1, on the owner's ruling. This is the listing of PEOPLE
+        // asking for something, and it belongs beside the audience rather than
+        // beside the recordings it happens to reference — the same argument
+        // Block 6c used to move Participations here out of Promotions. The
+        // href does not change.
+        //
+        // ICONS.music rather than ICONS.ticket, which is what it carried under
+        // the catalogue: `ticket` is Participations, two rows up in THIS SAME
+        // section, and one glyph on two adjacent rows reads as one link
+        // rendered twice. `music` is unused in Audience and a song request is
+        // the one thing here that is about a recording; its other uses are in
+        // Dashboards and Catalogue, distant sections.
+        { href: '/music/requests', label: t('requests'), icon: ICONS.music },
       ],
     },
     {
+      key: 'promotions',
       // Visible to every member, on the same courtesy the two sections above
       // extend: /promotions redirects at the top of its own page for anyone
       // holding promotions.view in no Station, and 0044's three select
@@ -195,6 +196,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
+      key: 'catalog',
       // Visible to every member, including those holding no music permission
       // in any Station at all — the same courtesy Inventory, Audience and
       // Promotions already extend. Each of the three pages redirects at the
@@ -202,26 +204,44 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // select policies in 0099 cut every read to the Stations that do hold
       // it, and every RPC in 0100/0101 re-checks has_permission in its own
       // body. Hiding a link is a courtesy; the boundary is in the database.
-      label: t('music'),
+      label: t('catalog'),
       items: [
         { href: '/music/songs', label: t('songs'), icon: ICONS.music },
         { href: '/music/artists', label: t('artists'), icon: ICONS.users },
-        { href: '/music/catalog', label: t('catalog'), icon: ICONS.box },
-        { href: '/music/requests', label: t('requests'), icon: ICONS.ticket },
+        // Block 20b, D2. These three replace the single "Catalog" item, which
+        // could not survive the section's rename: a section and an item
+        // spelling the same word read as one link rendered twice, the rule this
+        // file already records for Inventory > Stock and for the three
+        // Dashboards entries.
+        //
+        // Block 20c. These are the routes: `/catalog/labels`, `/catalog/genres`
+        // and `/catalog/albums`, three real screens rather than three tabs of
+        // one. The `?tab=` version was an interim — 20b shipped the navigation
+        // ahead of the screens it would eventually point at, and the design
+        // spec's §2 D2 amendment records why: 20c's three routes did not exist
+        // yet, so the sidebar had nowhere else to send anybody. ICONS.building
+        // for a label because a label is a company and `building`'s only other
+        // use is Platform > Organizations, a distant section; `tag` and `disc`
+        // are new (app-shell.tsx says why).
+        { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
+        { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
+        { href: '/catalog/albums', label: t('albums'), icon: ICONS.disc },
         // Last in the section on purpose: it is the destructive one, and a
-        // sidebar is read top to bottom. Every other Music item above is a
-        // place to build (register a song, an artist, a request); this is
-        // the only place to collapse two records into one, irreversibly
-        // (0106's apply_music_merge — see merge-panel.tsx's own comment).
-        // ICONS.shield rather than a new path: it is already declared for
-        // Roles, in a different section entirely (Organization), so the two
-        // never sit adjacent — the same non-adjacency Pickups' reuse of
-        // ICONS.box relies on, two comments above. Its guard-like shape
-        // reads reasonably as the one screen in Music that asks for care.
+        // sidebar is read top to bottom. Every other Catalog item above is a
+        // place to build (register a song, an artist, a label, a genre, an
+        // album); this is the only place to collapse two records into one,
+        // irreversibly (0106's apply_music_merge — see merge-panel.tsx's own
+        // comment). ICONS.shield rather than a new path: it is already
+        // declared for Roles, in a different section entirely (Organization),
+        // so the two never sit adjacent — the same non-adjacency Pickups'
+        // reuse of ICONS.box relies on, two comments above. Its guard-like
+        // shape reads reasonably as the one screen in Catalog that asks for
+        // care.
         { href: '/music/maintenance', label: t('maintenance'), icon: ICONS.shield },
       ],
     },
     {
+      key: 'templates',
       // Visible to every member, including those holding templates.view in no
       // Station at all — the same courtesy every section above extends. Both
       // pages redirect at the top of their own render for anyone holding it
@@ -247,6 +267,7 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       ],
     },
     {
+      key: 'organization',
       // Visible to every member, including those holding no organization-scoped
       // permission at all. Deliberate, and not a hole: Team renders the member
       // roster (widened per-permission by RLS, 0024), the role list, the
@@ -263,10 +284,51 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
         { href: '/roles', label: t('roles'), icon: ICONS.shield },
       ],
     },
+    {
+      key: 'reports',
+      // Block 8b. Its own section rather than an item under Dashboards,
+      // because what it lists crosses every domain -- listeners, promotions,
+      // music and stock all export into the same place -- and filing it under
+      // one of them would misname where it belongs.
+      //
+      // "My reports" rather than "Reports", so the section and its single item
+      // do not spell the same word: the sidebar renders both, and Block 8a's
+      // own note here records what that looks like when they match.
+      //
+      // No permission guards this link, and none guards the page either. It
+      // lists the caller's OWN runs, limited by report_runs' RLS (0122), so
+      // there is nothing to hide from somebody whose list is empty. The
+      // boundary is on the export buttons, each guarded by its own domain's
+      // permission, and in request_report (0127), which re-checks regardless.
+      //
+      // Block 20b, D3. Moved here from third in the list. The owner's item 8
+      // read "before Modelos", which was already true — these sat third and
+      // fourth and Templates was ninth — and the intent was the opposite
+      // direction: two administrative sections were cutting the operational
+      // ones (Stock, Audience, Promotions, Catalogue) in half, and they gather
+      // at the foot of the list instead.
+      label: t('reports'),
+      items: [{ href: '/reports', label: t('myReports'), icon: ICONS.inbox }],
+    },
+    {
+      key: 'administration',
+      // Block 10a. The Organization's record of itself, not the platform's --
+      // so it lives here rather than in the admin console (design D7).
+      //
+      // Visible to every member, like every other section: the page carries no
+      // permission gate either, and deliberately. list_audit_logs is SECURITY
+      // INVOKER, so audit_logs' own policies decide every row -- a caller
+      // holding audit.view nowhere gets an empty page with a sentence saying
+      // why, which is more useful to somebody who expected to see something
+      // than a silent bounce to /app.
+      label: t('administration'),
+      items: [{ href: '/audit', label: t('auditTrail'), icon: ICONS.shield }],
+    },
   ];
 
   if (isAdmin) {
     sections.push({
+      key: 'platform',
       label: t('platform'),
       // Block 16, design D6. THREE ITEMS WHERE THERE WERE THREE, but the third
       // is not the one that left.
@@ -306,5 +368,6 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // nav item beside it (Task 8 review, Important 3).
       roleLabel: isAdmin ? 'Platform admin' : 'Team member',
     },
+    expandedSections,
   };
 }

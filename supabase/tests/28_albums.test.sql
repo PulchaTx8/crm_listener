@@ -267,15 +267,28 @@ select is(
   'the resolver matches a hand-typed album by folded title, fills in the cover it lacked, and leaves the operator''s spelling alone');
 
 -- ---------------------------------------------------------------------------
--- 32-33: update_album renames and NOTHING else (0141).
+-- 32-33: update_album writes what it is handed and NOTHING else (0141, 0187).
 --
--- The catalogue panel that edits albums is a one-field row, so every rename
--- calls this function with nothing but a title. 0137 gave it a p_upc
--- defaulting to null and wrote it unconditionally — which would have erased
--- the UPC of every Deezer-registered album on its first rename, exactly the
--- defect 0102 had to correct for legacy_id. Pinned across every overload of
--- the name, because a CREATE OR REPLACE that left both would satisfy a check
--- that only looked at one.
+-- 0141 removed p_upc because the catalogue panel that edited albums was a
+-- one-field row: every rename called this function with p_upc omitted, the
+-- omission took the SQL default of null, and the UPDATE wrote that null over a
+-- UPC that came from Deezer — exactly the defect 0102 had already corrected
+-- once for legacy_id. Block 20c gives that screen a record dialog carrying
+-- title, UPC and release date together, so 0187 puts the parameter back. The
+-- objection is answered rather than forgotten: the function still writes every
+-- field on every call, and now every call sends every field.
+--
+-- SO THE EXACT ARGUMENT LIST IS PINNED IN 49_album_covers.test.sql, where the
+-- block that widened it can be read beside it. What is pinned HERE is the half
+-- of 0141's rule that nothing may ever change: no parameter of this function
+-- can reach deezer_album_id, cover_md5 or thumb_url. The first two travel
+-- together out of the Deezer path alone (0139); the picture has its own writer,
+-- set_album_cover, because update_album replaces every column it takes and a
+-- picture on that list would be cleared by every ordinary save (0144).
+--
+-- Both are counted across every overload of the name, because a CREATE OR
+-- REPLACE that left two would satisfy a check that only looked at one — which
+-- is the trap 0187 was written to avoid, and 0141 before it.
 -- ---------------------------------------------------------------------------
 
 select is(
@@ -285,11 +298,11 @@ select is(
   1, 'exactly one update_album exists — the old signature was dropped, not left beside the new one');
 
 select is(
-  (select pg_get_function_arguments(p.oid)
+  (select count(*)::int
      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname = 'update_album'),
-  'p_album_id uuid, p_title text',
-  'update_album takes an id and a title, and nothing that could clear the UPC or the cover');
+    where n.nspname = 'public' and p.proname = 'update_album'
+      and pg_get_function_arguments(p.oid) ~ '(deezer|cover|thumb)'),
+  0, 'no overload of update_album has a parameter that could write the Deezer id, the cover hash or the uploaded picture');
 
 select * from finish();
 rollback;

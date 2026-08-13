@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
 import { provisionCustomer } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 6c through the screen: the draw is a shuffle over a list somebody
@@ -189,6 +190,7 @@ test('an operator filters the participants list and draws over what is left', as
   // (1) From AUDIENCE, beside Members. Located through the section heading
   // rather than by the link alone, because the link existing somewhere is not
   // the claim — where it lives is.
+  await openNavSection(page, 'Audience');
   const audience = page
     .locator('nav > div')
     .filter({ has: page.getByText('Audience', { exact: true }) });

@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * The whole audience journey through the real UI (Block 3, Task 10).
@@ -189,6 +190,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // --- the owner composes "Audience Manager" from the permission catalogue -
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Roles' }).click();
   await expect(ownerPage).toHaveURL(/\/roles$/);
 
@@ -229,6 +231,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   await expect(roleRow.getByText('held by 0 user(s)')).toBeVisible();
 
   // --- the owner assigns it to delegate A, in Station A only ---------------
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
@@ -304,6 +307,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   ).toBeVisible();
 
   // --- delegate A registers a listener --------------------------------------
+  await openNavSection(delegateAPage, 'Audience');
   await delegateAPage.getByRole('link', { name: 'Members' }).click();
   await expect(delegateAPage).toHaveURL(/\/members$/);
 
@@ -459,6 +463,7 @@ test('a delegate holding a scoped Audience Manager role runs the whole listener 
   ).toHaveCount(0);
 
   // --- delegate B cannot find the listener at all ---------------------------
+  await openNavSection(delegateBPage, 'Audience');
   await delegateBPage.getByRole('link', { name: 'Members' }).click();
   await expect(delegateBPage).toHaveURL(/\/members$/);
   // members_select_reachable (0035) filters this listener's row out of the

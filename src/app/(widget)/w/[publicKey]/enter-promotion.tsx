@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import {
   answersFor,
   decideAutoOpen,
+  firstUnansweredScreen,
+  screensFor,
   type WidgetOption,
   type WidgetPromotion,
   type WidgetStep,
@@ -125,20 +127,75 @@ export function EnterPromotionPanel({
   }, [autoOpenId, list, onClose]);
 
   /**
-   * The step list collapsed into screens. Every `field` step shares one screen;
-   * everything else keeps its own. Derived rather than stored, so a promotion
-   * chosen twice cannot leave a stale screen count behind.
+   * The step list collapsed into screens — `screensFor` (promotion-mapping.ts),
+   * shared with `firstUnansweredScreen` so the two cannot disagree about what
+   * a screen index means. Derived rather than stored, so a promotion chosen
+   * twice cannot leave a stale screen count behind.
    */
-  const screens = useMemo(() => {
-    if (!chosen) return [] as WidgetStep[][];
-    const fieldSteps = chosen.steps.filter((s) => s.kind === 'field');
-    const questions = chosen.steps.filter((s) => s.kind === 'question');
-    return [
-      [{ kind: 'consent' } as WidgetStep],
-      ...(fieldSteps.length > 0 ? [fieldSteps] : []),
-      ...questions.map((q) => [q]),
-    ];
-  }, [chosen]);
+  const screens = useMemo(() => (chosen ? screensFor(chosen.steps) : []), [chosen]);
+
+  /**
+   * Which screen a `missing_answers` refusal was shown on, so the message can
+   * follow the listener there.
+   *
+   * The message is otherwise gated on `last` — because a refusal rendered
+   * under every screen the listener walks back through reads as if each of
+   * them were wrong, which is what happened on 2026-08-11. Moving the listener
+   * without moving the message would land them on a silent screen; this is the
+   * one screen other than the last where it has something to say.
+   */
+  const [flagged, setFlagged] = useState<number | null>(null);
+
+  /**
+   * Which promotion `state`'s most recent refusal actually belongs to.
+   *
+   * `state` COMES FROM `useActionState`, and nothing outside that hook's own
+   * reducer can reset it — the same fact `handledRefusal` below already lives
+   * with. So a refusal from promotion A is still sitting in `state` after the
+   * listener leaves it, and Block 20a's earlier consent fix (resetting
+   * `consent`/`fields`/`answers`/`flagged` when a different promotion is
+   * chosen) does not touch it either, because it CANNOT: there is no
+   * `setState` to call.
+   *
+   * THIS IS WHAT MAKES THAT SURVIVAL VISIBLE ANYWAY. Found in the same
+   * whole-branch review as the consent defect, one step further in: the
+   * message below is gated on `state.status === 'refused' && (last || screen
+   * === flagged)`, and `last` depends only on the CHOSEN PROMOTION'S OWN
+   * screen count — nothing the earlier fix resets. A promotion asking for
+   * nothing but consent has exactly one screen, so `last` is true on that
+   * screen's very first render, before the listener has touched anything on
+   * it. Without this guard, choosing such a promotion right after a refusal
+   * on a different one would show "Faltou alguma coisa. Volte e confira suas
+   * respostas." under rules the listener has not even finished reading — the
+   * precise shape of refusal-nobody-earned this whole block exists to close,
+   * reopened by the one piece of state that cannot be reset directly.
+   *
+   * RECORDED, NOT CLEARED — the same move `identify-form.tsx`'s `spentVerify`
+   * makes for a verification result the visitor has abandoned: since `state`
+   * itself is out of reach, the message is gated on whether it still
+   * describes what is on screen, not on making the stale value disappear.
+   */
+  const [refusalFor, setRefusalFor] = useState<string | null>(null);
+
+  /**
+   * `state`, ACTED ON ONCE — the same identity guard `identify-form.tsx` uses
+   * for `handledRequest`, and for the same reason. `fields` and `answers` are
+   * in this effect's dependencies, so without the guard every keystroke after
+   * a refusal would drag the listener back to the screen they had just left.
+   */
+  const [handledRefusal, setHandledRefusal] = useState<EnterState>(IDLE);
+  useEffect(() => {
+    if (state === handledRefusal) return;
+    setHandledRefusal(state);
+    if (state.status !== 'refused') return;
+    setRefusalFor(chosen?.id ?? null);
+
+    if (state.reason !== 'missing_answers') return;
+    const target = firstUnansweredScreen(screens, fields, answers);
+    if (target === null) return;
+    setScreen(target);
+    setFlagged(target);
+  }, [state, handledRefusal, screens, fields, answers, chosen]);
 
   if (state.status === 'entered' || state.status === 'declined') {
     return (
@@ -231,32 +288,87 @@ export function EnterPromotionPanel({
             }}
           /> : null}
 
-          {/* Only on the screen that submits. A refusal shown while the
-              listener walks back through earlier steps reads as if each of
-              them were wrong, which is how the same red line ended up under
-              the rules AND under the address on 2026-08-11. */}
-          {state.status === 'refused' && last ? (
+          {/* Only on the screen that submits, AND only about the promotion
+              that is actually on screen. The first half of that guard is a
+              refusal shown while the listener walks back through earlier
+              steps, which reads as if each of them were wrong — the same red
+              line ended up under the rules AND under the address on
+              2026-08-11. The second half (`refusalFor`) is a refusal from a
+              DIFFERENT promotion the listener has since left; without it, a
+              single-screen promotion chosen right after a refusal reads
+              `last` as true immediately and shows a stale message about
+              rules it has not finished displaying — see `refusalFor`'s own
+              comment above. */}
+          {state.status === 'refused' && refusalFor === chosen.id && (last || screen === flagged) ? (
             <p className="text-sm text-destructive" data-testid="widget-promotion-error">
               {refusalMessage(t, state.reason)}
             </p>
           ) : null}
 
+          {/*
+            THE TWO KEYS ARE LOAD-BEARING, the same defect class
+            identify-form.tsx's own "THE TWO KEYS ARE LOAD-BEARING" comment
+            documents for the name/code labels, and the same reasoning:
+            without them a listener pressing "Next" onto the last screen
+            recorded an entry.
+
+            Both branches occupy the same slot of this ternary, so React
+            reconciled them against each other rather than unmounting one and
+            mounting the other — one <Button>, its `type` toggled between
+            "button" and "submit" by which branch last rendered it. `onClick`
+            for "Next" runs inside the click's own dispatch and React 19
+            flushes a discrete-event update synchronously, so by the time the
+            browser ran this SAME node's post-dispatch activation behaviour,
+            `type` had already flipped to "submit" — and activation for a
+            submit button submits the enclosing `<form action={submit}>`. The
+            click meant to advance a screen posted the walk instead.
+
+            On screen this read as two different failures depending on what
+            the listener did next. Reaching the last screen for the first
+            time posted an incomplete answer, which the door correctly
+            refused with missing_answers — and that refusal, arriving after
+            Block 20a's jump had nothing to move (the fields were already
+            complete), is almost certainly the "Something is missing. Go back
+            and check your answers." the product owner reported seeing under
+            a form that had, in fact, been filled in correctly: a button that
+            said "Next" was the one that submitted, and its failure read back
+            as if the FORM had failed. A listener who then answered the
+            question, pressed "Back", and pressed "Next" again fared worse —
+            that second "Next" carried a complete answer, and the walk was
+            entered without "Enter now" ever being pressed.
+
+            Distinct keys say these are different elements, not one element
+            with different props, which is exactly what they are: the button
+            that submits now MOUNTS on the screen that needs it, rather than
+            the button that advances MUTATING into one mid-click.
+          */}
           <div className="flex gap-2">
             {last ? (
-              <Button type="submit" disabled={sending} data-testid="widget-promotion-send">
+              <Button key="send" type="submit" disabled={sending} data-testid="widget-promotion-send">
                 {sending ? t('sending') : t('enterNow')}
               </Button>
             ) : (
               <Button
+                key="next"
                 type="button"
-                onClick={() => setScreen((s) => s + 1)}
+                onClick={() => {
+                  setScreen((s) => s + 1);
+                  setFlagged(null);
+                }}
                 data-testid="widget-promotion-next"
               >
                 {t('next')}
               </Button>
             )}
             {screen > 0 ? (
-              <Button type="button" variant="outline" onClick={() => setScreen((s) => s - 1)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setScreen((s) => s - 1);
+                  setFlagged(null);
+                }}
+              >
                 {t('back')}
               </Button>
             ) : null}
@@ -288,8 +400,40 @@ export function EnterPromotionPanel({
                 <button
                   type="button"
                   onClick={() => {
+                    // Block 20a, whole-branch review. Block 17c's own defect:
+                    // this handler set `chosen` and `screen` for the newly
+                    // picked promotion and left CONSENT EXACTLY WHERE THE LAST
+                    // PROMOTION'S WALK LEFT IT. A listener who ticked promotion
+                    // A's agreement box, came back here through "Other
+                    // promotions", and picked promotion B found B's box
+                    // ALREADY TICKED — agreed to rules B never showed them.
+                    // Submitting from there would write a `member_consents`
+                    // row (`widget_enter_promotion`, 0171's `rules` consent)
+                    // for an agreement nobody gave. `fields` and `answers`
+                    // carried the same way, and a stray `flagged` screen index
+                    // from A's walk could point at the wrong step of B's — none
+                    // of them describe anything true about a promotion this
+                    // listener has not opened yet. This is Block 17c's defect,
+                    // found reading the whole branch rather than introduced by
+                    // this one, and the product owner ruled it fixed here
+                    // rather than deferred: a consent record is not a detail
+                    // this system is willing to get wrong.
+                    //
+                    // `refusalFor` RESET HERE TOO, second round of the same
+                    // review. `state` itself cannot be reset (see its own
+                    // comment above), so this is the only place left to say
+                    // "the last refusal was not about THIS promotion" —
+                    // without it, a refusal from the promotion just left can
+                    // still render under this one if it happens to have a
+                    // single screen (`refusalFor`'s comment has the full
+                    // mechanism).
                     setChosen(promotion);
                     setScreen(0);
+                    setConsent(false);
+                    setFields({});
+                    setAnswers({});
+                    setFlagged(null);
+                    setRefusalFor(null);
                   }}
                   disabled={promotion.alreadyEntered}
                   className="flex w-full items-center gap-2 rounded-md border p-2 text-left hover:bg-accent disabled:opacity-60"

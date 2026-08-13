@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { decideAutoOpen, enterRefusal, readSteps, type WidgetPromotion } from '@/lib/widget/promotion-mapping';
+import {
+  decideAutoOpen,
+  enterRefusal,
+  firstUnansweredScreen,
+  readSteps,
+  screensFor,
+  type WidgetPromotion,
+} from '@/lib/widget/promotion-mapping';
 
 describe('enterRefusal', () => {
   it('passes through the reasons the panel has a sentence for', () => {
@@ -121,5 +128,85 @@ describe('decideAutoOpen', () => {
 
   it('falls back to the menu for an empty list', () => {
     expect(decideAutoOpen([], 'target')).toEqual({ action: 'back-to-menu' });
+  });
+});
+
+describe('screensFor', () => {
+  /**
+   * The walk is not a chat. The bot asks one thing per message because a
+   * conversation has no other shape; a page groups every requested field onto
+   * one screen, which is what somebody filling in a form expects.
+   */
+  it('puts consent alone, every field together, and one question per screen', () => {
+    expect(
+      screensFor([
+        { kind: 'consent' },
+        { kind: 'field', field: 'city' },
+        { kind: 'field', field: 'address' },
+        { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+        { kind: 'question', questionId: 'q2', questionKind: 'ESSAY' },
+      ]),
+    ).toEqual([
+      [{ kind: 'consent' }],
+      [
+        { kind: 'field', field: 'city' },
+        { kind: 'field', field: 'address' },
+      ],
+      [{ kind: 'question', questionId: 'q1', questionKind: 'QUIZ' }],
+      [{ kind: 'question', questionId: 'q2', questionKind: 'ESSAY' }],
+    ]);
+  });
+
+  it('draws no field screen at all when nothing is asked for', () => {
+    expect(screensFor([{ kind: 'consent' }])).toEqual([[{ kind: 'consent' }]]);
+  });
+});
+
+describe('firstUnansweredScreen', () => {
+  const walk = screensFor([
+    { kind: 'consent' },
+    { kind: 'field', field: 'city' },
+    { kind: 'field', field: 'address' },
+    { kind: 'question', questionId: 'q1', questionKind: 'QUIZ' },
+  ]);
+
+  it('answers null when every step has something in it', () => {
+    expect(
+      firstUnansweredScreen(walk, { city: 'São Paulo', address: 'Rua X, 1' }, { q1: 'o1' }),
+    ).toBeNull();
+  });
+
+  it('finds the field screen when one field is empty', () => {
+    expect(firstUnansweredScreen(walk, { city: 'São Paulo' }, { q1: 'o1' })).toBe(1);
+  });
+
+  /**
+   * The same rule the door applies: `nullif(btrim(...), '')` in 0171, so
+   * whitespace is not an answer on either side of the wire.
+   */
+  it('treats whitespace as no answer, exactly as the door does', () => {
+    expect(
+      firstUnansweredScreen(walk, { city: '   ', address: 'Rua X, 1' }, { q1: 'o1' }),
+    ).toBe(1);
+  });
+
+  it('finds the question screen when the fields are done and the answer is not', () => {
+    expect(
+      firstUnansweredScreen(walk, { city: 'São Paulo', address: 'Rua X, 1' }, {}),
+    ).toBe(2);
+  });
+
+  it('answers with the FIRST unanswered screen, not the last', () => {
+    expect(firstUnansweredScreen(walk, {}, {})).toBe(1);
+  });
+
+  /**
+   * Consent is never this function's business. Declining is not a
+   * missing_answers refusal at all -- the door writes a promotion_refusals row
+   * and answers `refused` -- so a walk whose only screen is consent has
+   * nothing here to find.
+   */
+  it('never points at the consent screen', () => {
+    expect(firstUnansweredScreen(screensFor([{ kind: 'consent' }]), {}, {})).toBeNull();
   });
 });

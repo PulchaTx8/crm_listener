@@ -74,14 +74,61 @@ const VISITOR_NAME = 'Cross Origin Listener';
  * Block 19b. The listener who exits, below — a phone distinct from
  * VISITOR_LOCAL_PHONE above, deliberately, and not a name-only distinction.
  * `CODE_PER_PHONE_MINUTE` (`src/app/(widget)/w/[publicKey]/actions.ts`) allows
- * one code every 60 seconds per number; the two tests in this file share a
- * worker and run back to back, and a shared phone would make this file's own
+ * one code every 60 seconds per number; every test in this file shares a
+ * worker and runs back to back, and a shared phone would make this file's own
  * runtime the thing standing between the exit journey and a `rate_limited`
  * refusal that has nothing to do with what either test proves.
  */
 const EXIT_VISITOR_LOCAL_PHONE = `21${String(stamp).slice(-9)}`;
 const EXIT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${EXIT_VISITOR_LOCAL_PHONE}`;
 const EXIT_VISITOR_NAME = 'Listener Who Leaves';
+
+/**
+ * Block 20a, Task 4, fix round 1. The listener who leaves the field blank —
+ * a third phone, for the same reason the exit journey above needed a second
+ * one: `CODE_PER_PHONE_MINUTE` is per number, and every journey in this file
+ * shares a worker and runs back to back.
+ */
+const MISSING_FIELD_VISITOR_LOCAL_PHONE = `31${String(stamp).slice(-9)}`;
+const MISSING_FIELD_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MISSING_FIELD_VISITOR_LOCAL_PHONE}`;
+const MISSING_FIELD_VISITOR_NAME = 'Listener Who Forgets A Field';
+
+/**
+ * Block 20a, whole-branch review. The listener who ticks one promotion's
+ * agreement box and then switches to another — a fourth phone, for the same
+ * per-number reason the other three journeys in this file each needed their
+ * own.
+ */
+const CONSENT_SWITCH_VISITOR_LOCAL_PHONE = `41${String(stamp).slice(-9)}`;
+const CONSENT_SWITCH_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${CONSENT_SWITCH_VISITOR_LOCAL_PHONE}`;
+const CONSENT_SWITCH_VISITOR_NAME = 'Listener Who Switches Promotions';
+
+/**
+ * Two promotions this journey needs open and visible at once. The `beforeAll`
+ * fixture above seeds exactly one (Block 17c's own), which is not enough to
+ * prove a listener can switch between two — so these are seeded alongside it,
+ * in the same style, through the same door.
+ */
+const CONSENT_SWITCH_PROMOTION_A_NAME = `Widget Journey Promotion Reset A ${stamp}`;
+const CONSENT_SWITCH_PROMOTION_B_NAME = `Widget Journey Promotion Reset B ${stamp}`;
+
+/**
+ * Block 20a, second round. The listener who is refused on one promotion and
+ * then switches to another — a fifth phone, same per-number reason as the
+ * four before it.
+ */
+const REFUSAL_SWITCH_VISITOR_LOCAL_PHONE = `51${String(stamp).slice(-9)}`;
+const REFUSAL_SWITCH_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${REFUSAL_SWITCH_VISITOR_LOCAL_PHONE}`;
+const REFUSAL_SWITCH_VISITOR_NAME = 'Listener Whose Refusal Follows Them';
+
+/**
+ * .superpowers/ci-widget-failure-diagnosis.md. The listener who answers the
+ * question, steps back, and steps forward again — a sixth phone, same
+ * per-number reason as the five before it.
+ */
+const PHANTOM_ENTRY_VISITOR_LOCAL_PHONE = `61${String(stamp).slice(-9)}`;
+const PHANTOM_ENTRY_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${PHANTOM_ENTRY_VISITOR_LOCAL_PHONE}`;
+const PHANTOM_ENTRY_VISITOR_NAME = 'Listener Whose Next Button Writes Early';
 
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
@@ -102,6 +149,16 @@ const LISTENER_NOTE = 'toca pra minha mae, ela ouve todo dia';
 
 /** Block 17c. Without rules a promotion does not appear in the widget at all (D3). */
 const PROMOTION_RULES = 'Promoção válida para maiores de 18 anos. Um cupom por pessoa.';
+
+/**
+ * The Block 17c fixture promotion's own name — named here, not just inlined
+ * where it is created, because Block 20a's refusal-switch journey below
+ * needs to pick it out of a list by role rather than by position: that list
+ * holds three promotions once the two consent-switch fixtures join it, and
+ * `ends_at` ties between them (all seeded with the same offset) make
+ * position an unreliable way to tell them apart.
+ */
+const PRIMARY_PROMOTION_NAME = `Widget Journey Promotion ${stamp}`;
 
 /** The city this listener types into the one field the promotion asks for. */
 const LISTENER_CITY = 'Santos';
@@ -447,7 +504,7 @@ test.beforeAll(async ({}, testInfo) => {
   // session, not a second one for the sake of a second statement.
   const { error: promotionError } = await ownerClient.rpc('create_promotion', {
     p_company_id: companyId,
-    p_name: `Widget Journey Promotion ${stamp}`,
+    p_name: PRIMARY_PROMOTION_NAME,
     p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
     p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
     p_web_enabled: true,
@@ -488,6 +545,38 @@ test.beforeAll(async ({}, testInfo) => {
   });
   if (questionError) throw new Error(`could not seed the quiz: ${questionError.message}`);
 
+  // Block 20a, whole-branch review. TWO MORE PROMOTIONS, consent only — no
+  // requested fields, no question — because the journey below never walks
+  // past the consent screen of either one. It exists to prove what carries
+  // across a promotion SWITCH, not to prove a promotion can be entered; that
+  // is already proved above and by the missing-field case below. Seeded AFTER
+  // `seededPromotionId` is read back, on purpose: that lookup has no filter
+  // beyond `company_id`, and seeding these two first would leave it free to
+  // pick either one instead of Block 17c's own.
+  const { error: promotionAError } = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: CONSENT_SWITCH_PROMOTION_A_NAME,
+    p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    p_web_enabled: true,
+    p_rules: PROMOTION_RULES,
+  });
+  if (promotionAError) {
+    throw new Error(`could not seed the consent-switch promotion A: ${promotionAError.message}`);
+  }
+
+  const { error: promotionBError } = await ownerClient.rpc('create_promotion', {
+    p_company_id: companyId,
+    p_name: CONSENT_SWITCH_PROMOTION_B_NAME,
+    p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+    p_web_enabled: true,
+    p_rules: PROMOTION_RULES,
+  });
+  if (promotionBError) {
+    throw new Error(`could not seed the consent-switch promotion B: ${promotionBError.message}`);
+  }
+
   // THE PER-IP HOURLY BUCKETS, CLEARED, and they are the one piece of state
   // this journey shares with its own previous runs. Every limit in actions.ts
   // is keyed by the telephone number except these two, which are keyed by
@@ -507,10 +596,23 @@ test.beforeAll(async ({}, testInfo) => {
   // wearing the costume of a real failure. That suffix has now moved twice, so
   // it is not pinned here at all: everything after `widget:<step>:ip:` is
   // whatever the action decides, and this deliberately does not have an opinion
-  // about it. The two prefixes are still named separately rather than collapsed
-  // into one pattern, because they are two independent limits and a reader has
-  // to be able to see that both were cleared.
-  for (const prefix of ['widget:code:ip:', 'widget:verify:ip:']) {
+  // about it. The four prefixes are still named separately rather than
+  // collapsed into one pattern, because they are four independent limits and a
+  // reader has to be able to see that all of them were cleared.
+  //
+  // `widget:promo:list:ip:` and `widget:promo:enter:ip:`
+  // (`promotion-actions.ts`) joined the first two once this branch added a
+  // journey that calls `widget_enter_promotion`: `ENTER_PER_IP_HOUR` is the
+  // same shape of address-less, 20-per-hour bucket as the other two, and a
+  // full local run now spends two of the twenty instead of one. Left
+  // uncleared, that halves the headroom before an unrelated `rate_limited`
+  // for every run after the first.
+  for (const prefix of [
+    'widget:code:ip:',
+    'widget:verify:ip:',
+    'widget:promo:enter:ip:',
+    'widget:promo:list:ip:',
+  ]) {
     const { error: bucketError } = await admin
       .from('rate_limit_counters')
       .delete()
@@ -622,6 +724,24 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-song-results').getByRole('button').first().click();
 
   await widget.getByTestId('widget-song-note').fill(LISTENER_NOTE);
+
+  // Block 20a, item 1. THE NOTE SCREEN IS THE ONE PLACE TWO WAYS BACK ARE ON
+  // SCREEN AT ONCE -- the outline button returns to the search, the Shell's
+  // returns to the menu -- and until this block both of them read the same
+  // word. Asserted by accessible NAME rather than by counting buttons: a
+  // count of two passed before this change as well, which is the shape of
+  // assertion that proves nothing.
+  //
+  // ENGLISH, because playwright.config.ts pins locale: 'en-US' for the whole
+  // suite and this visitor has no profile, cookie or Accept-Language to
+  // resolve anything else from. `exact: true` is load-bearing: without it
+  // "Back" matches "Back to the menu" by substring and the first assertion
+  // reports two.
+  await expect(widget.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
+  await expect(
+    widget.getByRole('button', { name: 'Back to the menu', exact: true }),
+  ).toHaveCount(1);
+
   await widget.getByTestId('widget-song-send').click();
 
   await expect(widget.getByTestId('widget-song-recorded')).toBeVisible({ timeout: 30_000 });
@@ -660,7 +780,16 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
-  await widget.getByTestId('widget-promotion-list').getByRole('button').first().click();
+  // BY NAME, NOT `.first()`. Block 20a's whole-branch review added two more
+  // promotions to this same fixture pool (`CONSENT_SWITCH_PROMOTION_A/B`),
+  // seeded with the same `ends_at` offset as this one -- `widget_promotions`
+  // (0186) orders `by p.ends_at` alone, so a tie between three rows is not
+  // something Postgres promises to break the same way on every run. This walk
+  // needs the field and quiz question only `PRIMARY_PROMOTION_NAME` has.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
 
   // THE RULES ARE ON SCREEN, which is the whole reason that column exists: an
   // agreement box above nothing is what D2 was decided to prevent.
@@ -801,6 +930,312 @@ test('a listener who finishes an errand can leave, and the session leaves with t
   // of the two states this page renders and it decides from the cookie alone.
   await framedWidget!.goto(`${appOrigin}/w/${publicKey}`);
   await expect(widget.getByTestId('widget-identify-form')).toBeVisible({ timeout: 30_000 });
+});
+
+/**
+ * Block 20a, Task 4, fix round 1. `firstUnansweredScreen`'s jump, exercised by
+ * a browser rather than reasoned about — the unit tests reach only the pure
+ * function, and the happy-path journey above never produces a refusal at all.
+ *
+ * THE ROUTE TASK 3 LEFT OPEN. Task 3 stopped offering a promotion whose
+ * question has no alternatives, closing one way to `missing_answers`; the
+ * ordinary one stays wide open. A listener leaves a REQUESTED FIELD BLANK,
+ * walks to the end of the form, and submits — nothing on the fields screen
+ * stops "Next" from advancing over an empty box. The client then posts an
+ * empty string for it, and `widget_enter_promotion` (0171) tests
+ * `nullif(btrim(coalesce(p_fields ->> field, '')), '') is null`, which that
+ * empty string satisfies: the door refuses with `missing_answers`, same as
+ * any other listener mistake.
+ *
+ * REUSES THE JOURNEY FIXTURE rather than seeding a second promotion for one
+ * test: `beforeAll` already seeds one with a requested field ('city') and a
+ * QUIZ question, which is exactly the shape this case needs. A FRESH
+ * LISTENER (a third phone) rather than the one from the journey above, so
+ * this test does not depend on that one having run first, or on this
+ * promotion still being open to a listener who already entered it.
+ *
+ * A SEPARATE TEST, not a branch folded into the journey above: a test that
+ * asserts two different things breaks for two different reasons, and the
+ * journey above already has its own point to make (a session minted in a
+ * third-party frame can enter a promotion at all).
+ */
+test('a listener who skips a field is refused, and the panel jumps back to it', async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: MISSING_FIELD_VISITOR_LOCAL_PHONE,
+    phone: MISSING_FIELD_VISITOR_PHONE,
+    name: MISSING_FIELD_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  // BY NAME, NOT `.first()`. This walk needs the requested field and the quiz
+  // question that only `PRIMARY_PROMOTION_NAME` carries -- the two other
+  // promotions the fixture seeds are consent-only. `.first()` relied on
+  // `widget_promotions` (0186) ordering the list `by p.ends_at` with all
+  // three promotions sharing that column's value, which Postgres does not
+  // promise to break ties on the same way twice.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE FIELD, LEFT BLANK -- the mistake this test exists to make. Nothing on
+  // this screen validates before "Next" advances the walk, which is exactly
+  // what lets a listener leave it empty and never notice.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
+  await widget.getByTestId('widget-promotion-send').click();
+
+  // THE JUMP, NOT JUST THE MESSAGE. An assertion that stopped at the error
+  // text would have passed before this task existed -- 20a's starting
+  // behaviour was this same sentence, rendered under whichever screen the
+  // listener happened to submit from. The fields screen coming back into
+  // view is the only thing that proves firstUnansweredScreen's answer
+  // actually drove `setScreen`, rather than merely being correct in
+  // isolation.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-error')).toBeVisible();
+  await expect(widget.getByTestId('widget-promotion-error')).toContainText(
+    'Something is missing. Go back and check your answers.',
+  );
+
+  // AND STILL EMPTY -- the panel's own state surviving the round trip, not a
+  // stray value that would leave the listener looking at a field that
+  // appears to explain nothing.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toHaveValue('');
+});
+
+/**
+ * Block 20a, whole-branch review. Block 17c's own defect, found reading the
+ * whole branch rather than introduced by this one: the list entry's
+ * `onClick` (`enter-promotion.tsx`) set `chosen` and `screen` for the newly
+ * picked promotion and left `consent` exactly where the LAST promotion's walk
+ * left it. A listener who ticked promotion A's agreement box, went back to
+ * the list through "Other promotions", and chose promotion B found B's box
+ * ALREADY TICKED -- an agreement B never showed them, for rules they never
+ * read. Submitting from there would write a `member_consents` row
+ * (`widget_enter_promotion`, 0171's `rules` consent) recording exactly that.
+ * A system that takes consent seriously enough to write a row for it cannot
+ * let that row exist for an agreement nobody gave, which is why the product
+ * owner ruled this fixed in this block rather than deferred with the rest of
+ * the review.
+ *
+ * STOPS AT EACH PROMOTION'S CONSENT SCREEN, deliberately never submitting
+ * either: the defect is entirely in what a promotion SWITCH carries forward,
+ * and reaching it needs nothing past the first screen of the second
+ * promotion.
+ */
+test("choosing a different promotion clears the previous one's agreement", async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: CONSENT_SWITCH_VISITOR_LOCAL_PHONE,
+    phone: CONSENT_SWITCH_VISITOR_PHONE,
+    name: CONSENT_SWITCH_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  // BY NAME, NOT BY POSITION -- the list is ordered by `ends_at`
+  // (`widget_promotions`, 0186), which this journey has no reason to pin, and
+  // picking by name proves the fix regardless of where either promotion lands.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_A_NAME, exact: true })
+    .click();
+
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-consent').check();
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeChecked();
+
+  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_B_NAME, exact: true })
+    .click();
+
+  // THE ASSERTION THAT MATTERS: a box this listener never touched, on a
+  // promotion whose rules they have not seen this walk, must not read as
+  // agreed.
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-consent')).not.toBeChecked();
+});
+
+/**
+ * Block 20a, second round. The residual the consent fix above did not close:
+ * `state` (`useActionState`) cannot be reset from `enter-promotion.tsx` when a
+ * different promotion is chosen -- nothing outside that hook's own reducer
+ * can -- so a REFUSAL survives a promotion switch even after
+ * consent/fields/answers/flagged do not.
+ *
+ * REACHABLE ONLY BECAUSE PROMOTION B HAS ONE SCREEN. The error message's gate
+ * is `state.status === 'refused' && (last || screen === flagged)`, and `last`
+ * is computed from the CHOSEN PROMOTION'S OWN screen count alone -- nothing
+ * the consent fix touches. `CONSENT_SWITCH_PROMOTION_B_NAME` (consent only,
+ * no requested fields, no question) has exactly one screen, so `last` is true
+ * on that screen's very first render, before this listener has touched
+ * anything on it. A multi-screen second promotion would leave `last` false at
+ * screen 0 and this test would pass whether or not the fix existed -- which is
+ * why it has to be this promotion and not a fresh one built for convenience.
+ *
+ * PROMOTION A IS THE BLOCK 17c FIXTURE (a requested field plus a QUIZ), the
+ * same one "a listener who skips a field is refused..." above uses, and for
+ * the same reason: it is the route to an actual `refused` state that leaves
+ * the walk open. Declining (an unchecked box, submitted) was considered and
+ * rejected -- the panel treats `declined` as an ending screen of its own,
+ * with no "Other promotions" button back to the list, so it cannot set up the
+ * switch this test needs at all.
+ */
+test('a refusal on one promotion does not linger onto a different one', async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: REFUSAL_SWITCH_VISITOR_LOCAL_PHONE,
+    phone: REFUSAL_SWITCH_VISITOR_PHONE,
+    name: REFUSAL_SWITCH_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE FIELD, LEFT BLANK -- same mistake the "skips a field" journey makes,
+  // for the same reason: nothing on this screen stops "Next" from advancing
+  // over an empty box.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
+  await widget.getByTestId('widget-promotion-send').click();
+
+  // THE REFUSAL, ON SCREEN -- about the promotion it is actually about.
+  await expect(widget.getByTestId('widget-promotion-error')).toBeVisible({ timeout: 30_000 });
+
+  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_B_NAME, exact: true })
+    .click();
+
+  // THE ASSERTION THAT MATTERS: `last` is true here on the very first render
+  // of B's only screen, so before this fix `state.status === 'refused'` left
+  // over from promotion A was, on its own, enough to show A's message under
+  // B's rules.
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-error')).toHaveCount(0);
+});
+
+/**
+ * .superpowers/ci-widget-failure-diagnosis.md, the second consequence, proved
+ * directly rather than through the two jump tests above. Those two fail
+ * because of this same defect, but indirectly — a `missing_answers` refusal
+ * and Block 20a's jump are what a test watching the SCREEN sees. This test
+ * watches `participations` instead, because the more serious half of the
+ * defect never shows up as a refusal at all: it is a WRITE, and a screen that
+ * ends up looking correct a moment later would not prove it never happened.
+ *
+ * REACHES THE QUESTION SCREEN TWICE. The first arrival (fields screen →
+ * question screen) is the walk's only unavoidable trip through the exact
+ * transition the bug lives in — landing on the screen that has just become
+ * `last` — but nothing has been answered yet at that instant, so even under
+ * the bug this arrival can only be refused (missing_answers refuses before
+ * apply_participation is ever called, `widget_enter_promotion`, 0171). That
+ * is asserted below as a baseline, not the proof. The listener then answers
+ * the question, presses "Back" (a genuinely separate, stably-typed button —
+ * no defect there), and presses "Next" a second time. That second click is
+ * the one enter-promotion.tsx's own comment describes: the same DOM node
+ * `identify-form.tsx`'s "THE TWO KEYS ARE LOAD-BEARING" comment names for the
+ * name/code labels, reused rather than remounted, now carrying a complete
+ * answer when it flips to `type="submit"`. Before the fix, that click alone
+ * is enough to write a participation — the listener never touched "Enter
+ * now".
+ */
+test('an entry is recorded only when "Enter now" is pressed, never by "Next"', async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: PHANTOM_ENTRY_VISITOR_LOCAL_PHONE,
+    phone: PHANTOM_ENTRY_VISITOR_PHONE,
+    name: PHANTOM_ENTRY_VISITOR_NAME,
+  });
+
+  const { data: listenerRows, error: listenerError } = await admin
+    .from('members')
+    .select('id')
+    .eq('phone', PHANTOM_ENTRY_VISITOR_PHONE)
+    .limit(1);
+  if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
+  const memberId = listenerRows?.[0]?.id as string;
+  expect(memberId, 'identifying created a member row').toBeTruthy();
+
+  // FILTERED BY MEMBER, NOT BY STATION: earlier tests in this file already
+  // wrote rows to `participations` for `journeyCompanyId`, so a count scoped
+  // to the Station would be non-zero before this listener ever opened the
+  // panel.
+  async function participationCount(): Promise<number> {
+    const { data, error } = await admin.from('participations').select('id').eq('member_id', memberId);
+    if (error) throw new Error(`could not read participations back: ${error.message}`);
+    return data?.length ?? 0;
+  }
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  // PRIMARY_PROMOTION_NAME, BY NAME: the one fixture with both a requested
+  // field and a QUIZ question, same reason the two jump tests above pick it
+  // by name rather than position.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE BASELINE, NOT THE PROOF: the field is filled, so this first arrival
+  // at the question screen has nothing wrong to report except the question
+  // itself, which nobody has answered yet — the one auto-submit this walk
+  // cannot avoid can only be refused.
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  expect(await participationCount(), 'nothing recorded on first arrival').toBe(0);
+
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
+  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE ASSERTION THAT MATTERS. A plain wait, not a poll for a state that
+  // might never arrive — what is being proved is an ABSENCE, and 2s is
+  // generous headroom over the 40-80ms round trip the CI traces in the
+  // diagnosis measured for either outcome (a write that already happened, or
+  // one that was never sent) to settle before asking.
+  await page.waitForTimeout(2_000);
+  expect(await participationCount(), 'no entry exists before "Enter now" is pressed').toBe(0);
+
+  // ONLY NOW, explicitly.
+  await widget.getByTestId('widget-promotion-send').click();
+  await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+  expect(await participationCount(), 'the explicit submission is the one that writes').toBe(1);
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({

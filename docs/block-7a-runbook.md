@@ -12,25 +12,38 @@ acervo, one Station at a time.
 
 ## 1. Where it lives
 
-**Music → Songs**, or `/music/songs` — every song a Station has registered,
+**Catalog → Songs**, or `/music/songs` — every song a Station has registered,
 with its artist, label, genre, duration and internal code. This is the
 grid an operator opens to add a new song or fix one that was entered wrong.
 
-**Music → Artists**, or `/music/artists` — every artist. Opening an
+**Catalog → Artists**, or `/music/artists` — every artist. Opening an
 artist's record shows two tabs: the artist's own data, and every song
 registered against them — the second tab is how you check "does this
 artist already have songs in the catalogue?" before registering a new one.
 
-**Music → Catalog**, or `/music/catalog` — genres, record labels and shows,
-one screen, three tabs. These three are name-and-nothing-else lists — short
-enough to manage inline, in the row, with no separate record screen.
+**Catalog → Labels** (`/catalog/labels`) and **Catalog → Genres**
+(`/catalog/genres`) — each its own screen now, not a tab of a shared page.
+Block 20c retired the old tabbed `/music/catalog` screen entirely: it is
+deleted, not redirected, so a bookmark or an old link to it now goes
+nowhere. Labels and Genres are still name-and-nothing-else lists — a
+filtered, paged table with a **Register** button that opens a popup to
+create a row, and a click on any row's name reopens that same popup to
+rename or archive it. There is no more inline, in-the-row editing. (Shows
+left this group earlier still, in Block 18: a programme is now its own
+record, reached from Audience, not a name in a list here.)
 
-All three screens sit under a new **Music** section in the sidebar,
-between Promotions and Organization. The section is visible to every
-member, including someone holding no music permission anywhere — opening
-any of the three pages without `music.view` at the selected Station
-redirects away. The link being visible is a courtesy; the actual boundary
-is enforced twice over, underneath the screen, described next.
+**Catalog → Albums** (`/catalog/albums`) — new in Block 20c. An album is
+not a bare name: it carries a cover thumbnail (pulled from Deezer when the
+album was matched there, or uploaded by hand otherwise) alongside its
+title, so it gets the same filtered, paged grid Songs and Artists use,
+Register button and popup included.
+
+All of the above sit under the **Catalog** section in the sidebar (renamed
+from "Music" in Block 20b), between Promotions and Templates. The section
+is visible to every member, including someone holding no music permission
+anywhere — opening any of these pages without `music.view` at the selected
+Station redirects away. The link being visible is a courtesy; the actual
+boundary is enforced twice over, underneath the screen, described next.
 
 ---
 
@@ -55,8 +68,8 @@ order.)
 
 | Permission | Unlocks, today |
 |---|---|
-| `music.view` | Opens all three screens, read-only. Without it, none of the three pages loads — a caller lacking it at every Station is redirected, and even holding it, a caller cannot read a Station's catalogue they hold nothing at. |
-| `music.manage` | Register, edit and archive genres, labels, artists, shows and songs, on all three screens. Every write is checked again inside the database, on every call — a role holding `music.manage` in the UI carries no more weight than the database is willing to honour. |
+| `music.view` | Opens every screen listed in §1, read-only. Without it, none of them loads — a caller lacking it at every Station is redirected, and even holding it, a caller cannot read a Station's catalogue they hold nothing at. |
+| `music.manage` | Register, edit and archive genres, labels, artists and songs, on their respective screens (§1). Every write is checked again inside the database, on every call — a role holding `music.manage` in the UI carries no more weight than the database is willing to honour. |
 | `music.request` | **Does nothing yet.** The permission exists and can be assigned in a role today, at zero present capability — the door it will guard (recording a request by hand) is 7b's. Assigning it now costs nothing and grants nothing; a role that holds it will gain a real capability silently the day 7b ships, the same way this project has shipped a few permissions ahead of their door before. |
 | `music.merge` | **Does nothing yet**, for the same reason — the merge itself, the one operation in this domain that actually destroys data (it folds duplicate records into one), is 7b's. It is kept as its own separate code on purpose: whoever can build a catalogue should not automatically acquire the power to collapse it. |
 
@@ -134,13 +147,14 @@ directly.
 
 Every genre, label, artist, show and song can carry a **legacy id** — a
 short text handle that exists so Block 9's import can recognise a record
-it has already brought in from the old system on a second run. On Artists
-and on the Catalog screen's Add row, the field is present and can be typed
-into **when a record is first created** (this is mainly for the import to
-use, but nothing stops an operator typing one by hand); on Songs it is not
-offered at creation at all. On **every screen, once a record exists, the
-legacy id can never be changed again** — it shows on the record, read-only,
-and there is no path, on any screen, that writes a new value into it.
+it has already brought in from the old system on a second run. On Artists,
+and on the Labels and Genres screens' Register popup, the field is present
+and can be typed into **when a record is first created** (this is mainly
+for the import to use, but nothing stops an operator typing one by hand);
+on Songs it is not offered at creation at all. On **every screen, once a
+record exists, the legacy id can never be changed again** — it shows on the
+record, read-only, and there is no path, on any screen, that writes a new
+value into it.
 
 **Why it is locked after creation:** this handle is the only thing that
 stops a re-import from creating the same record twice. If it could be
@@ -173,7 +187,7 @@ screens.
   recorded yet — the table exists underneath, but no screen and no door
   write to it until 7b.
 - **Merging duplicates.** Covered in §4 — the cure for a duplicate is 7b's.
-- **An "archived" filter.** There is no way, on any of the three screens,
+- **An "archived" filter.** There is no way, on any of the screens in §1,
   to see a record that has been archived — an archived row is not merely
   hidden, it genuinely cannot be read back through any of these screens
   once archived, by design.

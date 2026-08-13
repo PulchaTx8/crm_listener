@@ -46,6 +46,7 @@ export type Database = {
           legacy_id: string | null
           organization_id: string
           release_date: string | null
+          thumb_url: string | null
           title: string
           upc: string | null
           updated_at: string
@@ -61,6 +62,7 @@ export type Database = {
           legacy_id?: string | null
           organization_id: string
           release_date?: string | null
+          thumb_url?: string | null
           title: string
           upc?: string | null
           updated_at?: string
@@ -76,6 +78,7 @@ export type Database = {
           legacy_id?: string | null
           organization_id?: string
           release_date?: string | null
+          thumb_url?: string | null
           title?: string
           upc?: string | null
           updated_at?: string
@@ -5073,6 +5076,10 @@ export type Database = {
         Returns: string
       }
       service_hashtags_for: { Args: { p_company_id: string }; Returns: Json }
+      set_album_cover: {
+        Args: { p_album_id: string; p_url?: string }
+        Returns: undefined
+      }
       set_company_thumb: {
         Args: { p_company_id: string; p_url?: string }
         Returns: undefined
@@ -5145,7 +5152,12 @@ export type Database = {
         Returns: undefined
       }
       update_album: {
-        Args: { p_album_id: string; p_title: string }
+        Args: {
+          p_album_id: string
+          p_release_date: string
+          p_title: string
+          p_upc: string
+        }
         Returns: undefined
       }
       update_company_profile: {

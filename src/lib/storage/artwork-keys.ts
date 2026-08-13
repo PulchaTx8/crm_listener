@@ -15,7 +15,11 @@ export type ArtworkSlot =
   // -- the record id is a constant because a Station has exactly one, and the
   // company_id still has to be the SECOND segment for may_write_artwork (0143,
   // amended by 0153) to read it out of the path.
-  | 'station-thumbs';
+  | 'station-thumbs'
+  // Block 20c. The album's own cover, keyed `album-covers/<company_id>/<album_id>`.
+  // Distinct from `cover_md5`, which is Deezer's and is not stored here at all:
+  // this slot holds only what an operator uploaded.
+  | 'album-covers';
 
 /**
  * `<slot>/<company_id>/<record_id>`, and DELIBERATELY NO FILE EXTENSION.

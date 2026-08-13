@@ -29,6 +29,26 @@ describe('artworkKey', () => {
   });
 });
 
+describe('artworkKey for album covers', () => {
+  /**
+   * The company id is the SECOND segment because may_write_artwork (0143)
+   * reads storage.foldername(name)[2] and decides from the path alone. Get
+   * the order wrong and the policy asks has_permission about a slot name.
+   */
+  it('puts the Station second and the album third', () => {
+    expect(artworkKey('album-covers', 'c0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002'))
+      .toBe('album-covers/c0000000-0000-0000-0000-000000000001/a0000000-0000-0000-0000-000000000002');
+  });
+
+  /**
+   * No extension, deliberately: that is what makes "uploading again replaces
+   * the last one" structural rather than hopeful.
+   */
+  it('carries no file extension', () => {
+    expect(artworkKey('album-covers', 'c1', 'a1')).not.toMatch(/\.(jpg|jpeg|png)$/);
+  });
+});
+
 describe('artworkPublicUrl', () => {
   it('builds the public address with a version stamp', () => {
     expect(artworkPublicUrl('https://abc.supabase.co', 'prize-photos/a/b', 1754582400000)).toBe(

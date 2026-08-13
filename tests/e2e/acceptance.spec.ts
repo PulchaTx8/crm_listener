@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { WORKER_TICK_SECRET_FOR_TESTS } from '../whatsapp-test-env';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * THE ACCEPTANCE JOURNEY — master spec §35.
@@ -165,6 +166,7 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
   });
 
   await test.step('a listener is registered at the first Station', async () => {
+    await openNavSection(ownerPage, 'Audience');
     await ownerPage.getByRole('link', { name: 'Members' }).click();
     await expect(ownerPage).toHaveURL(/\/members$/);
 
@@ -191,6 +193,7 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
 
   await test.step('a colleague is invited, restricted to one Station', async () => {
     await ownerPage.reload();
+    await openNavSection(ownerPage, 'Organization');
     await ownerPage.getByRole('link', { name: 'Roles' }).click();
     await expect(ownerPage).toHaveURL(/\/roles$/);
 
@@ -205,6 +208,7 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
       ownerPage.locator('[data-testid="role-row"]', { hasText: roleName }),
     ).toBeVisible({ timeout: 15_000 });
 
+    await openNavSection(ownerPage, 'Organization');
     await ownerPage.getByRole('link', { name: 'Team' }).click();
     await expect(ownerPage).toHaveURL(/\/team$/);
 
@@ -257,6 +261,7 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
     // the accept link cannot be lost, and a modal over the shell makes every
     // sidebar link inert.
     await ownerPage.reload();
+    await openNavSection(ownerPage, 'Inventory');
     await ownerPage.getByRole('link', { name: 'Stock' }).click();
     await expect(ownerPage).toHaveURL(/\/inventory$/);
 

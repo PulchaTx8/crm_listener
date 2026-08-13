@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(23);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -303,6 +303,98 @@ select is(
       and ((kind = 'QUIZ' and option_id is not null and answer_text is null)
         or (kind = 'ESSAY' and answer_text is not null and option_id is null))),
   2::bigint, 'each answer landed in the shape its kind requires');
+
+-- ---------------------------------------------------------------------------
+-- 20-23. Block 20a, item 2, candidate (b): a question with alternatives and no
+--        alternatives in it.
+--
+-- 0041 constrains the option rows that exist -- not ESSAY, correct only on
+-- QUIZ, unique positions -- and says nothing about how many there must be,
+-- because a CHECK cannot count rows in another table. So a promotion can carry
+-- a MULTIPLE_CHOICE question with zero options, and 0173 answers '[]' for it.
+--
+-- The panel draws that question as NOTHING (enter-promotion.tsx's Question, on
+-- the grounds that an empty screen beats a text box whose every answer trips
+-- participation_answers_shape). The listener taps through a blank screen, and
+-- the door counts a step the payload cannot answer.
+--
+-- These three described the defect before 0186 closed it. They now describe
+-- the repair: the promotion is absent, its question is absent with it, and a
+-- submission against it is refused as closed rather than as the listener's
+-- fault.
+-- ---------------------------------------------------------------------------
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, requested_fields, rules, web_enabled)
+values
+  ('00000000-0000-0000-0000-000000000420', '00000000-0000-0000-0000-000000000401',
+   '00000000-0000-0000-0000-000000000402', 'Promo com pergunta sem alternativas',
+   now() - interval '1 day', now() + interval '7 days',
+   false, array['city']::public.promotion_requested_field[],
+   'Válido para maiores de 18 anos.', true);
+
+-- MULTIPLE_CHOICE, and deliberately no promotion_question_options rows.
+-- menu_title/button_label are required for ANY non-ESSAY question
+-- (promotion_questions_list_fields, 0041) regardless of how many options it
+-- has -- they are WhatsApp list-message fields, not evidence either way for
+-- this candidate -- so they are supplied here purely to make the row legal,
+-- the same way the QUIZ fixture above already does.
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt,
+   menu_title, button_label)
+values
+  ('00000000-0000-0000-0000-000000000421', '00000000-0000-0000-0000-000000000420',
+   '00000000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000402',
+   1, 'MULTIPLE_CHOICE', 'Qual a sua rádio favorita?', 'Escolha uma', 'Responder');
+
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-000000000422', '00000000-0000-0000-0000-000000000401',
+   'Optionless Listener', '+5511999993333');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000422', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401');
+
+-- 20. THE ANCHOR. 21 and 22 below each pass if `widget_promotions` returns
+--     '[]'::jsonb worth of promotions -- but they would ALSO pass if the call
+--     errored instead: `-> 'promotions'` on an error payload (no such key) is
+--     SQL NULL, jsonb_array_elements(NULL) yields zero rows, and a "count is
+--     0" or a "does not contain this id" assertion is then true for the wrong
+--     reason. This pins that the call actually answers this listener before
+--     either of them is allowed to mean anything -- and it keeps meaning that
+--     even if some later edit deletes this very assertion by accident, since
+--     the plan count above would then be the thing that fails.
+select is(
+  (public.widget_promotions('pw_promostationa012345678',
+                            '00000000-0000-0000-0000-000000000422') ->> 'ok'),
+  'true', 'the list answers this listener at all -- what 20 and 21 rest on');
+
+-- 21. The promotion is NOT offered. Same treatment, for the same reason, as a
+--     promotion with no rules text (D3): a listener is not shown a door that
+--     can only close on them.
+select is(
+  (select count(*) from jsonb_array_elements(
+     public.widget_promotions('pw_promostationa012345678',
+                              '00000000-0000-0000-0000-000000000422') -> 'promotions') e
+    where (e ->> 'id') = '00000000-0000-0000-0000-000000000420'),
+  0::bigint, 'a promotion whose only question has no alternatives is not offered');
+
+-- 22. And nothing about it leaks into the payload by another route.
+select is(
+  (select public.widget_promotions('pw_promostationa012345678',
+                                   '00000000-0000-0000-0000-000000000422')::text
+     like '%00000000-0000-0000-0000-000000000421%'),
+  false, 'and its question is absent from the payload entirely');
+
+-- 23. And a submission against it -- from a crafted payload, or from a browser
+--     that had the list open before the options were removed -- is refused as
+--     closed rather than as the listener's fault.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000422',
+     '00000000-0000-0000-0000-000000000420', true,
+     '{"city": "São Paulo"}'::jsonb, '[]'::jsonb) ->> 'reason'),
+  'promotion_closed',
+  'and a submission against it is refused as closed, not as the listener''s fault');
 
 select * from finish();
 rollback;
