@@ -37,6 +37,11 @@ const ownerPassword = `Owner-catalog-${stamp}-provisional`;
 const ownerFinalPassword = `Owner-catalog-${stamp}-chosen`;
 
 const createdUserIds: string[] = [];
+// Set in beforeAll, read by the cover-key test below -- artworkKey
+// (src/lib/storage/artwork-keys.ts) keys an album's cover
+// `album-covers/<company_id>/<album_id>`, and that assertion needs the exact
+// id this Station provisioned under, not merely the slot name.
+let companyId: string;
 
 async function signIn(email: string, password: string) {
   const client = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
@@ -65,11 +70,11 @@ test.beforeAll(async () => {
   // regardless of which client created it — the sign-in below still meets the
   // change-password screen, the same as every other spec that uses this
   // helper.
-  await provisionCustomer(adminClient, {
+  ({ company_id: companyId } = await provisionCustomer(adminClient, {
     userId: ownerId,
     organizationName: `Catalog Org ${stamp}`,
     companyName: `Catalog Station ${stamp}`,
-  });
+  }));
 });
 
 test.afterAll(async () => {
@@ -116,7 +121,7 @@ async function signInAlbumsOwner(page: Page) {
   await expect(page).toHaveURL(/\/app$/);
 }
 
-test('a record label is registered, found and archived on its own screen', async ({ page }) => {
+test('a record label is registered and found on its own screen', async ({ page }) => {
   // Sign in as an owner with music.manage — provision_customer's owner bypass
   // (has_permission, 0024) grants an Organization's owner every permission,
   // music.view and music.manage included, in every active Company of that
@@ -150,6 +155,71 @@ test('a record label is registered, found and archived on its own screen', async
   await page.getByTestId('references-search').fill('nothing matches this');
   await page.getByTestId('references-search-submit').click();
   await expect(page.getByTestId('references-grid')).not.toContainText('Selo Teste 20c');
+});
+
+/**
+ * Task 3's review found rename and archive uninstrumented: the whole of
+ * reference-record-dialog.tsx and both write actions
+ * (updateReferenceAction/archiveReferenceAction) were exercised by no
+ * committed test. Two dedicated journeys rather than folding them into the
+ * test above: the label test above proves register/find, these prove the two
+ * write paths a click on an existing row reaches, and each is independent of
+ * the other's fixture data.
+ */
+test('a record label is renamed through its record dialog', async ({ page }) => {
+  await signInAlbumsOwner(page);
+
+  await page.goto('/catalog/labels');
+  await page.getByTestId('reference-create').click();
+  await page.getByTestId('reference-name').fill('Selo Antes Do Rename 20c');
+  await page.getByTestId('reference-save').click();
+  await expect(page.getByTestId('references-grid')).toContainText('Selo Antes Do Rename 20c');
+
+  // A click on the row's own name opens ReferenceRecordDialog
+  // (reference-record-dialog.tsx) -- the same button references-grid.tsx
+  // wires to setEditingId. Its edit form shares the data-testid
+  // "reference-name" with the create form above; only one of the two dialogs
+  // is ever open at a time, so the selector is unambiguous here.
+  await page.getByRole('button', { name: 'Selo Antes Do Rename 20c' }).click();
+  await page.getByTestId('reference-name').fill('Selo Depois Do Rename 20c');
+  await page.getByTestId('reference-save').click();
+  // updateReferenceAction landed and revalidatePath refreshed `rows` -- the
+  // form's own "Saved." feedback (reference-record-dialog.tsx) is the signal,
+  // not a fixed wait.
+  await expect(page.getByTestId('reference-data-form')).toContainText('Saved.');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // The new name appears in the grid, and -- the actual claim of a RENAME
+  // rather than a second record -- the old one does not.
+  await expect(page.getByTestId('references-grid')).toContainText('Selo Depois Do Rename 20c');
+  await expect(page.getByTestId('references-grid')).not.toContainText('Selo Antes Do Rename 20c');
+});
+
+test('a record label is archived through its confirmation dialog, and leaves the list', async ({
+  page,
+}) => {
+  await signInAlbumsOwner(page);
+
+  await page.goto('/catalog/labels');
+  await page.getByTestId('reference-create').click();
+  await page.getByTestId('reference-name').fill('Selo Para Arquivar 20c');
+  await page.getByTestId('reference-save').click();
+  await expect(page.getByTestId('references-grid')).toContainText('Selo Para Arquivar 20c');
+
+  await page.getByRole('button', { name: 'Selo Para Arquivar 20c' }).click();
+  await page.getByTestId('reference-archive').click();
+
+  // ArchiveReferenceDialog (reference-record-dialog.tsx) -- a styled <Dialog>
+  // stacked on the browser's own top layer, never window.confirm.
+  await page.getByTestId('reference-archive-confirm').click();
+
+  // onArchived (reference-record-dialog.tsx) closes both dialogs itself once
+  // archiveReferenceAction reports 'archived', so no explicit Close click is
+  // needed here -- and the row is gone from the list revalidatePath refreshed,
+  // which is the one claim this test exists to make: archiving is
+  // irreversible from this screen, "not by you, not by support" (the dialog's
+  // own copy), so there is no undo step left to assert.
+  await expect(page.getByTestId('references-grid')).not.toContainText('Selo Para Arquivar 20c');
 });
 
 test('an album is registered with its details and carries a picture', async ({ page }) => {
@@ -199,8 +269,15 @@ test("an album's cover reaches the bucket, keyed under its own record", async ({
 
   // Proves the upload reached the bucket under the right key, not merely that
   // a form submitted: artworkKey (src/lib/storage/artwork-keys.ts) names the
-  // object `album-covers/<company_id>/<album_id>`, and that slot name is what
-  // this asserts is actually in the row's <img src> once the grid re-renders.
+  // object `album-covers/<company_id>/<album_id>`. Matching only the slot
+  // name (`/album-covers/`) cannot tell that key apart from one with the
+  // segments swapped or dropped -- and the segment order is exactly what
+  // may_write_artwork (0187) reads via `storage.foldername(name)[2]` to
+  // decide who may write it. Asserting the company id as the SECOND segment
+  // is what actually proves the key, not merely the slot.
   const row = page.getByTestId('album-row').filter({ hasText: 'Álbum Capa 20c' });
-  await expect(row.getByTestId('album-thumb')).toHaveAttribute('src', /album-covers/);
+  await expect(row.getByTestId('album-thumb')).toHaveAttribute(
+    'src',
+    new RegExp(`/album-covers/${companyId}/`),
+  );
 });

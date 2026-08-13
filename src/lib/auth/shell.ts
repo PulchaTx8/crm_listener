@@ -214,15 +214,18 @@ export async function getShellContext(): Promise<{
         // file already records for Inventory > Stock and for the three
         // Dashboards entries.
         //
-        // The addresses already answer — `parseCatalogTab`
-        // (music/catalog/page.tsx) reads exactly this three-word vocabulary —
-        // so this block ships the NAVIGATION and Block 20c replaces what those
-        // addresses render. ICONS.building for a label because a label is a
-        // company and `building`'s only other use is Platform > Organizations,
-        // a distant section; `tag` and `disc` are new (app-shell.tsx says why).
-        { href: '/music/catalog?tab=labels', label: t('labels'), icon: ICONS.building },
-        { href: '/music/catalog?tab=genres', label: t('genres'), icon: ICONS.tag },
-        { href: '/music/catalog?tab=albums', label: t('albums'), icon: ICONS.disc },
+        // Block 20c. These are the routes: `/catalog/labels`, `/catalog/genres`
+        // and `/catalog/albums`, three real screens rather than three tabs of
+        // one. The `?tab=` version was an interim — 20b shipped the navigation
+        // ahead of the screens it would eventually point at, and the design
+        // spec's §2 D2 amendment records why: 20c's three routes did not exist
+        // yet, so the sidebar had nowhere else to send anybody. ICONS.building
+        // for a label because a label is a company and `building`'s only other
+        // use is Platform > Organizations, a distant section; `tag` and `disc`
+        // are new (app-shell.tsx says why).
+        { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
+        { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
+        { href: '/catalog/albums', label: t('albums'), icon: ICONS.disc },
         // Last in the section on purpose: it is the destructive one, and a
         // sidebar is read top to bottom. Every other Catalog item above is a
         // place to build (register a song, an artist, a label, a genre, an

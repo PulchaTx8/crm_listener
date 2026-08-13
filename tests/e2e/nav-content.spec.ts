@@ -263,7 +263,7 @@ test('the active section can be collapsed by hand, and it reopens on the next na
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
 });
 
-test('a catalogue tab lights up its own sidebar item, and only its own', async ({ page }) => {
+test('a catalogue route lights up its own sidebar item, and only its own', async ({ page }) => {
   // Sign in the same way the first test does.
   await page.goto('/login');
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
@@ -271,36 +271,17 @@ test('a catalogue tab lights up its own sidebar item, and only its own', async (
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  // Whole-branch review, I3. Record labels, Genres and Albums all point at
-  // `/music/catalog`, differing ONLY by `?tab=` -- and a pathname never
-  // carries a query string, so the plain `pathname === item.href` rule used
-  // everywhere else in this component left all three unable to ever match:
-  // no `aria-current`, no highlight, on any screen. Before this block the
-  // single `/music/catalog` item DID highlight, so this was a user-visible
-  // regression, and `aria-current` is how a screen-reader user is told where
-  // they are.
-  //
-  // No `openNavSection` needed first: `/music/catalog` makes Catalog the
-  // ACTIVE section (activeSectionKey strips the query the same way), which
-  // opens it regardless of the cookie -- the same D4 contract every other
-  // test in this file relies on.
-  await page.goto('/music/catalog?tab=genres');
-
-  const catalogue = page.locator('[data-nav-section="catalog"]');
-  await expect(catalogue.getByRole('link', { name: 'Genres' })).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
-  // Its two siblings share the same path and differ only by the query string
-  // that named Genres above -- exactly the case a path-only comparison cannot
-  // tell apart, so these two are the ones that would falsely light up too if
-  // the fix matched on path alone.
-  await expect(catalogue.getByRole('link', { name: 'Record labels' })).not.toHaveAttribute(
-    'aria-current',
-    'page',
-  );
-  await expect(catalogue.getByRole('link', { name: 'Albums' })).not.toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  // Block 20c. The three items point at real routes now, and therefore
+  // HIGHLIGHT -- which they could not do while their hrefs carried ?tab=,
+  // because the active-link test compares a pathname and a pathname never has
+  // a query string. This assertion is the one 20b could not make.
+  await openNavSection(page, 'Catalog');
+  await page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Genres' }).click();
+  await expect(page).toHaveURL(/\/catalog\/genres$/);
+  await expect(
+    page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Genres' }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(
+    page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Albums' }),
+  ).not.toHaveAttribute('aria-current', 'page');
 });

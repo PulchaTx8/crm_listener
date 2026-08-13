@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import type { Route } from 'next';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -56,7 +56,6 @@ export function SidebarNav({
   expandedSections: string[];
 }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [expanded, setExpanded] = useState<string[]>(expandedSections);
   const activeKey = activeSectionKey(sections, pathname);
 
@@ -169,34 +168,20 @@ export function SidebarNav({
             <div id={panelId} hidden={!open} className={cn('flex-col gap-1', open && 'flex')}>
               {section.items.map((item) => {
                 // Exact match, or a nested route beneath this one. Without the
-                // slash, /app would light up for /app-something too. Unchanged
-                // by this block: this compares pathname against item.href
-                // directly, not through activeSectionKey, which answers a
-                // different question (which SECTION owns the page) and strips
-                // query strings that this comparison must not strip --
-                // Catalog's three items differ from each other only by
-                // ?tab=.
+                // slash, /app would light up for /app-something too. This
+                // compares pathname against item.href directly, not through
+                // activeSectionKey, which answers a different question (which
+                // SECTION owns the page).
                 //
-                // Whole-branch review, I3. A pathname never carries a query
-                // string, so that comparison alone left Record labels, Genres
-                // and Albums -- whose hrefs are `/music/catalog?tab=...` --
-                // unable to ever match, on any screen: no aria-current, no
-                // highlight, ever. `hrefPath`/`hrefQuery` split the href apart
-                // so the path still has to match exactly as before (Songs does
-                // not light up for the catalogue's own /music/catalog), and
-                // when the href names a query string, every parameter it names
-                // must also match the current one. `hrefQuery` is `undefined`
-                // for every OTHER item in this sidebar, so `queryMatches`
-                // short-circuits to `true` and this branch changes nothing for
-                // them -- the plain-path rule is exactly what it was.
-                const [hrefPath = '', hrefQuery] = `${item.href}`.split('?');
-                const queryMatches =
-                  !hrefQuery ||
-                  [...new URLSearchParams(hrefQuery)].every(
-                    ([param, value]) => searchParams.get(param) === value,
-                  );
-                const active =
-                  (pathname === hrefPath || pathname.startsWith(`${hrefPath}/`)) && queryMatches;
+                // Block 20c. Record labels, Genres and Albums used to share one
+                // path (`/music/catalog`) differing only by `?tab=`, which this
+                // plain comparison could never match -- a pathname never
+                // carries a query string. The three now have real routes of
+                // their own, so the comparison that already worked for every
+                // other item here works for them too, and the query-matching
+                // branch that once compensated (Whole-branch review, I3) is
+                // gone with the hrefs that made it necessary.
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
                 return (
                   <Link
                     key={item.href}

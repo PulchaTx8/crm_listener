@@ -12,7 +12,7 @@ import type { SortDirection } from '@/lib/keyset';
  * ReferenceListState carries no `sort` either.
  *
  * Unlike the References contract, this DOES carry `record`/`tab`: albums do
- * not share References' component set (design spec §2 D3) — six columns
+ * not share References' component set (design spec §2 D3) — five columns
  * against two, and a picture control neither reference table has — so the
  * album record is its own dialog, addressed in the URL the way
  * music/artists/list-params.ts's is, not derived from a row already in the
