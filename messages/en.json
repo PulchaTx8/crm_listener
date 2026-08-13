@@ -92,7 +92,8 @@
     "thePasswordMustBeAtLeast10": "The password must be at least 10 characters.",
     "theTwoPasswordsDoNotMatch": "The two passwords do not match.",
     "couldNotCompleteTheInvitation": "Could not complete the invitation. Please ask for a new one.",
-    "couldNotChangeThePassword": "Could not change the password. Please try again."
+    "couldNotChangeThePassword": "Could not change the password. Please try again.",
+    "bySigningInYouAgreeTo": "By signing in, you agree to the <terms>Terms of Service</terms> and the <privacy>Privacy Policy</privacy> of {brand}."
   },
   "public": {
     "thankYou": "Thank you",

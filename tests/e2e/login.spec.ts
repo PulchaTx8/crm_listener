@@ -40,6 +40,29 @@ test('the sign-in screen offers labelled credentials and a reset', async ({ page
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 });
 
+test('the sign-in screen names the two documents, and they open with no session', async ({
+  page,
+}) => {
+  await page.goto('/login');
+
+  const terms = page.getByRole('link', { name: 'Terms of Service' });
+  const privacy = page.getByRole('link', { name: 'Privacy Policy' });
+  await expect(terms).toHaveAttribute('href', '/terms');
+  await expect(privacy).toHaveAttribute('href', '/privacy');
+
+  // FOLLOWED, not merely present. The visitor reading this has no session, and
+  // a path missing from PUBLIC_PATHS (src/middleware.ts) would bounce them back
+  // to /login — which from this screen looks like a link that does nothing.
+  await privacy.click();
+  await expect(page).toHaveURL(/\/privacy$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
+
+  await page.goto('/login');
+  await page.getByRole('link', { name: 'Terms of Service' }).click();
+  await expect(page).toHaveURL(/\/terms$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Terms of Service' })).toBeVisible();
+});
+
 test('the panel shows the picture from the branding bucket, actually loaded', async ({ page }) => {
   await page.goto('/login');
 
