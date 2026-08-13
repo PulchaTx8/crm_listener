@@ -12,6 +12,7 @@ import {
   archiveMusicReference,
   createAlbum,
   createMusicReference,
+  getAlbumRecordFields,
   updateAlbum,
   updateMusicReference,
 } from '@/services/music';
@@ -214,10 +215,24 @@ export async function updateReferenceAction(
 
     const token = await requireAccessToken();
     try {
-      // Renames and nothing else — 0141 removed update_album's UPC parameter
-      // precisely because this form has no field for it, and an omitted
-      // parameter is indistinguishable to the RPC from a cleared one.
-      await updateAlbum({ albumId, title }, token);
+      // A RENAME HERE MUST STAY A RENAME, and that now takes work. 0187 widened
+      // update_album to title, UPC and release date, and gave the two new
+      // parameters no default — so this row, which has one box and edits only
+      // the title, has to read the other two and send them back unchanged.
+      //
+      // Read from the database rather than carried forward in hidden inputs:
+      // that was the fix 0141 explicitly refused, because a value arriving from
+      // the browser is a value anybody who can craft a POST may choose, and
+      // these two are meant to be writable from the record dialog alone.
+      //
+      // This whole branch goes away with the screen in Block 20c's last task;
+      // the dialog that replaces it edits all three fields and reads nothing
+      // back.
+      const current = await getAlbumRecordFields(albumId);
+      await updateAlbum(
+        { albumId, title, upc: current.upc, releaseDate: current.releaseDate },
+        token,
+      );
       revalidatePath('/music/catalog');
       return { status: 'saved' };
     } catch (cause) {

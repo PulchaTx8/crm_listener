@@ -553,19 +553,87 @@ export async function createAlbum(
   return data;
 }
 
+/** The fields update_album replaces, as they stand right now. */
+export interface AlbumRecordFields {
+  title: string;
+  upc: string | null;
+  releaseDate: string | null;
+}
+
 /**
- * Renames an album. That is ALL it does — 0141 removed the UPC parameter 0137
- * had, because the catalogue panel is a one-field row and an omitted parameter
- * there is indistinguishable, to the RPC, from a cleared one. The UPC, the
- * cover and the Deezer id all come from the Deezer path alone.
+ * Reads back the three fields updateAlbum replaces.
+ *
+ * It exists because update_album writes ALL of them on every call and 0187
+ * removed the defaults that used to hide that: a caller holding only a new
+ * title has to fetch the other two and send them back unchanged, or it is not
+ * renaming an album, it is emptying two columns. The alternative — hidden
+ * inputs on the form carrying the current values forward — is the one 0141
+ * explicitly refused, because a value that arrives from the browser is a value
+ * anybody who can craft a POST may choose.
+ *
+ * Its only caller is the one-field rename row on /music/catalog, which Block
+ * 20c deletes; the record dialog that replaces it edits all three fields and
+ * has no use for this.
+ *
+ * An archived album is NotFoundError rather than an empty result, and so is one
+ * hidden by RLS — the same refusal for "no such album" and "not your Station",
+ * which is the distinction 0093 deliberately refuses to draw anywhere else.
+ */
+export async function getAlbumRecordFields(albumId: string): Promise<AlbumRecordFields> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select('title, upc, release_date')
+    .eq('id', albumId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the album: ${error.message}`);
+  if (!data) throw new NotFoundError('That album could not be found.');
+
+  return { title: data.title, upc: data.upc, releaseDate: data.release_date };
+}
+
+/**
+ * Saves an album record: title, UPC and release date, every one of them on
+ * every call. NOT "renames an album" any more, and the difference is the whole
+ * point of 0187.
+ *
+ * 0141 had cut the UPC parameter because the screen was a one-field row and
+ * `default null` on the RPC made "this form has no box for that" and "the
+ * operator cleared that box" the same request — so every rename erased the UPC.
+ * 0187 puts the field back WITHOUT a default, which separates them again: this
+ * function must state all three, and a caller that forgets one fails at the
+ * call with 42883 rather than quietly emptying a column. Passing null still
+ * clears, because an operator who empties a box means it.
+ *
+ * `deezerAlbumId` and `coverMd5` are absent and must stay absent — they travel
+ * together out of the Deezer path alone (0139). `thumbUrl` is absent for the
+ * other reason: it has its own writer, setAlbumCover, because this function
+ * replaces every field it takes and a cover on that list would be deleted by
+ * every ordinary save.
  */
 export async function updateAlbum(
-  input: { albumId: string; title: string },
+  input: { albumId: string } & AlbumRecordFields,
   accessToken: string,
 ): Promise<void> {
   const { error } = await asCaller(accessToken).rpc('update_album', {
     p_album_id: input.albumId,
     p_title: input.title,
+    // THE TWO ASSERTIONS ARE THE GENERATED TYPE'S LIMIT, NOT A RELAXED RULE.
+    // `supabase gen types` marks an argument optional exactly when the SQL
+    // declares a DEFAULT, and types it as the bare type otherwise — so it has
+    // no way to spell "required, and may be null", which is precisely what
+    // 0187 made these two. Giving them defaults would make the types honest and
+    // reintroduce 0141's defect, which is the wrong trade: an album with no UPC
+    // is ordinary, and null here means "cleared", not "unspecified".
+    //
+    // PostgREST sends the null through as SQL NULL, and the database is the
+    // authority: it refuses a call that OMITS either (42883) and accepts null,
+    // which 49_album_covers.test.sql asserts in both directions.
+    p_upc: input.upc as string,
+    p_release_date: input.releaseDate as string,
   });
   if (error) throw mapMusicError(error.code, error.message);
 }

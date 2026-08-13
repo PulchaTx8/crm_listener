@@ -28,11 +28,28 @@
 -- every field it writes -- which is the house convention (update_prize,
 -- update_song, update_company_profile) rather than an exception to it.
 --
--- THAT MAKES A CALLER'S OBLIGATION, AND IT IS NOT OPTIONAL. p_upc and
--- p_release_date are written on every call. Any caller left sending two
--- arguments will clear both, silently, which is 0141's defect wearing a second
--- coat. src/services/music.ts's updateAlbum sends two today and is widened in
--- this same block; nothing else in the repository calls this function.
+-- SO THE TWO NEW PARAMETERS CARRY NO DEFAULT, AND THAT IS THE WHOLE FIX.
+-- 0141's real complaint was never the parameter; it was that an omitted
+-- argument and a cleared field were THE SAME REQUEST as far as this function
+-- could tell. `default null` is what makes them the same. Without it they are
+-- different: omitting p_upc is 42883, "no function matches", at the call --
+-- while sending it as null still clears the UPC, deliberately, because an
+-- operator who empties the field means it.
+--
+-- Restoring the parameter WITH a default would have reproduced 0141's defect
+-- exactly, one block later and with its own migration explaining why it could
+-- not happen. It nearly did: the first draft of this file carried
+-- `p_upc text default null` and left updateAlbum sending two arguments, which
+-- typechecked and would have emptied the UPC of every album anybody renamed.
+--
+-- The next person to add a convenience default here should read 0141 first. A
+-- default on a wholesale-replace writer is not a convenience; it is a way for a
+-- form that forgot a field to delete data, and it cannot be caught by types,
+-- because "argument omitted" is what an optional argument is FOR.
+--
+-- create_album keeps its defaults, and the difference is real: registering a
+-- record with fields left blank is an intention somebody had. Emptying one by
+-- accident is not.
 --
 -- THE PICTURE HAS TWO SOURCES AND ONE COLUMN. `cover_md5` (0136) is Deezer's
 -- and stays exactly as it is; `thumb_url` is the operator's own upload. The
@@ -67,11 +84,16 @@ alter table public.albums
 
 drop function public.update_album(uuid, text);
 
+-- NO `default null` ON THE LAST TWO. See the header: the default is the thing
+-- that makes "not provided" and "set to nothing" indistinguishable, which is
+-- what 0141 removed p_upc over. A caller that omits one now fails at the call
+-- with 42883 instead of quietly emptying a column, and 49_album_covers.test.sql
+-- asserts both refusals.
 create function public.update_album(
   p_album_id     uuid,
   p_title        text,
-  p_upc          text default null,
-  p_release_date date default null
+  p_upc          text,
+  p_release_date date
 )
 returns void
 language plpgsql
@@ -113,7 +135,7 @@ end;
 $$;
 
 comment on function public.update_album(uuid, text, text, date) is
-  'Block 20c. Title, UPC and release date -- every one written on every call, the convention update_prize and update_song follow, which means a caller that omits one CLEARS it. That is exactly what 0141 had to remove p_upc over, and it is admissible again only because the screen editing albums is now a record dialog carrying all three rather than a one-field inline row. No parameter reaches deezer_album_id or cover_md5 (0137, 0139), and none reaches thumb_url, which has set_album_cover as its only writer.';
+  'Block 20c. Title, UPC and release date -- every one written on every call, the convention update_prize and update_song follow. NONE OF THE THREE HAS A DEFAULT, on purpose: 0141 removed p_upc because `default null` made an omitted argument indistinguishable from a cleared field, so a rename form with no UPC box erased the UPC. Without the default they are different requests -- omitting is 42883 at the call, sending null still clears, which is what an operator emptying the box means. Do not add a convenience default here; on a writer that replaces every field it is a way for a form that forgot one to delete data. No parameter reaches deezer_album_id or cover_md5 (0137, 0139), and none reaches thumb_url, which has set_album_cover as its only writer.';
 
 revoke execute on function public.update_album(uuid, text, text, date) from public;
 grant  execute on function public.update_album(uuid, text, text, date) to authenticated;

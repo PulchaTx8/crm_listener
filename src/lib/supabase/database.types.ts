@@ -5154,9 +5154,9 @@ export type Database = {
       update_album: {
         Args: {
           p_album_id: string
-          p_release_date?: string
+          p_release_date: string
           p_title: string
-          p_upc?: string
+          p_upc: string
         }
         Returns: undefined
       }

@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(20);
 
 -- Block 20c. The album record gets a picture, and update_album learns two
 -- fields it never had.
@@ -148,7 +148,49 @@ select is(
   'and all three arrive on the row');
 
 -- ---------------------------------------------------------------------------
--- 11-14. set_album_cover sets, clears, and queues rather than deletes.
+-- 11-14. NO DEFAULT ON THE TWO NEW PARAMETERS, which is the whole of 0141's
+--        lesson expressed in a signature.
+--
+-- 0141 removed p_upc because `default null` made "the form had no box for this"
+-- and "the operator emptied this box" the same request, so every rename erased
+-- the UPC. Putting the parameter back WITH a default would have reproduced that
+-- defect exactly. Without the default, a caller that omits a field does not get
+-- a silent null -- it gets 42883 at the call, which is a stack trace rather
+-- than a support ticket six months later about missing UPCs.
+--
+-- Both shapes are asserted because both are real. Two arguments is what
+-- updateAlbum sent before this block; three is the near-miss somebody makes
+-- adding the UPC box and forgetting the date one.
+-- ---------------------------------------------------------------------------
+
+select throws_ok(
+  $$select public.update_album(
+      '00000000-0000-0000-0000-00000000e7b1', 'Renamed and nothing else')$$,
+  '42883', null,
+  'a two-argument call no longer resolves, so a rename form cannot silently clear the UPC');
+
+select throws_ok(
+  $$select public.update_album(
+      '00000000-0000-0000-0000-00000000e7b1', 'Almost all of it', '731453833227')$$,
+  '42883', null,
+  'and neither does a three-argument one, so forgetting the release date is loud');
+
+-- Sending null is still allowed and still clears, because an operator who
+-- empties the box means it. THAT is the distinction the missing default buys:
+-- omitted and null are now two different requests rather than one.
+select lives_ok(
+  $$select public.update_album(
+      '00000000-0000-0000-0000-00000000e7b1', 'Album with a date', null, null)$$,
+  'an explicit null still clears the field, because emptying a box is an intention');
+
+select is(
+  (select coalesce(upc, '-') || '|' || coalesce(release_date::text, '-')
+     from public.albums where id = '00000000-0000-0000-0000-00000000e7b1'),
+  '-|-',
+  'and it really did clear both');
+
+-- ---------------------------------------------------------------------------
+-- 15-18. set_album_cover sets, clears, and queues rather than deletes.
 --
 -- The address is a loopback one because that is what development's Storage
 -- serves and what enqueue_artwork_erasure matches against: a URL that does not
@@ -183,7 +225,7 @@ select is(
   'the row goes back to holding no picture at all');
 
 -- ---------------------------------------------------------------------------
--- 15. The Station the caller does not belong to is refused, before anything is
+-- 19. The Station the caller does not belong to is refused, before anything is
 --     written and before anything is queued.
 -- ---------------------------------------------------------------------------
 
@@ -196,7 +238,7 @@ select throws_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- 16. storage_erasure_queue carries RLS and no policy at all -- a system table,
+-- 20. storage_erasure_queue carries RLS and no policy at all -- a system table,
 --     like whatsapp_conversations -- so the role above cannot see it and this
 --     read has to happen back as the owner.
 --
