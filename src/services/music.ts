@@ -329,6 +329,31 @@ export async function listAlbumsPage(params: AlbumListParams): Promise<AlbumList
   };
 }
 
+/**
+ * One album, for the record dialog's own read — the same role getArtistById
+ * plays for the Artists screen, on the same shape: `deleted_at is null` is not
+ * repeated here as a policy comment, because 0136's select policy already
+ * refuses an archived row for every caller, so a stale link to one reads as
+ * "not found" rather than a row nobody asked to see restored.
+ */
+export async function getAlbumById(
+  albumId: string,
+): Promise<{ companyId: string; album: AlbumSummary } | null> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('albums')
+    .select(`${ALBUM_LIST_COLUMNS}, company_id`)
+    .eq('id', albumId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the album: ${error.message}`);
+  if (!data) return null;
+
+  return { companyId: data.company_id, album: toAlbumSummary(data) };
+}
+
 // ---------------------------------------------------------------------------
 // Songs
 // ---------------------------------------------------------------------------
@@ -756,14 +781,29 @@ export async function unlinkSongFromDeezer(
   if (error) throw mapMusicError(error.code, error.message);
 }
 
-/** Registers an album typed by hand. The Deezer path goes through create_song_from_deezer instead, which resolves or creates one atomically with the song. */
+/**
+ * Registers an album typed by hand. The Deezer path goes through
+ * create_song_from_deezer instead, which resolves or creates one atomically
+ * with the song.
+ *
+ * `upc` and `releaseDate` are optional, unlike update_album's (0187): this is
+ * create_album's own OWN default-carrying pair (0137), and 0187's header is
+ * explicit that a default is correct HERE — "registering a record with fields
+ * left blank is an intention somebody had", the opposite of a save that
+ * silently empties a column it already had a value for. Block 20c's record
+ * dialog collects title, UPC and release date on the same create form, so
+ * this is the one call that writes all three rather than a second write
+ * through updateAlbum immediately after.
+ */
 export async function createAlbum(
-  input: { companyId: string; title: string },
+  input: { companyId: string; title: string; upc?: string | null; releaseDate?: string | null },
   accessToken: string,
 ): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('create_album', {
     p_company_id: input.companyId,
     p_title: input.title,
+    p_upc: input.upc ?? undefined,
+    p_release_date: input.releaseDate ?? undefined,
   });
   if (error) throw mapMusicError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('create_album returned no id');

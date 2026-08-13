@@ -177,6 +177,70 @@ export const deezerRegistrationSchema = z.object({
 
 export type DeezerRegistrationInput = z.infer<typeof deezerRegistrationSchema>;
 
+/**
+ * 12 to 14 digits -- albums_upc_shape (0136), restated here so a malformed
+ * barcode arrives as a field message rather than a round trip to the RPC's
+ * own check-constraint violation. Blank clears it (create_album and
+ * update_album both take that as "no UPC"), the same reading optionalText
+ * above gives every other optional text field.
+ */
+const upc = z.preprocess(
+  blankToUndefined,
+  z.string().regex(/^[0-9]{12,14}$/, 'A UPC is 12 to 14 digits.').optional(),
+);
+
+/**
+ * `<input type="date">` posts yyyy-mm-dd or '' -- the shape Postgres's `date`
+ * cast already accepts, so this exists only to turn an implausible
+ * hand-crafted value into a field message rather than a raw cast error at
+ * create_album/update_album.
+ */
+const releaseDate = z.preprocess(
+  blankToUndefined,
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'That date could not be read. Pick it again.')
+    .optional(),
+);
+
+/**
+ * The Albums screen's create form (catalog/albums), Block 20c. Unlike
+ * referenceFormSchema's four tables, an album is not a name and a legacy id
+ * (0136): it carries a UPC and a release date too, and create_album (0137)
+ * takes both as optional parameters of its own -- registering a record with
+ * some fields left blank is an intention somebody had, the reasoning 0187's
+ * header gives for why create_album keeps its defaults while update_album
+ * lost its.
+ */
+export const albumFormSchema = z.object({
+  companyId: z.string().uuid(),
+  title: z.string().trim().min(1, 'Give the album a title.').max(160),
+  upc,
+  releaseDate,
+});
+
+export type AlbumFormInput = z.infer<typeof albumFormSchema>;
+
+/**
+ * The album record dialog's save (catalog/albums), on update_album (0187):
+ * title, UPC and release date are the three fields it replaces on EVERY
+ * call, none of them optional at the RPC -- omitting either is 42883, not a
+ * clear. `upc`/`releaseDate` parse to `undefined` here, the same `optional()`
+ * as albumFormSchema's above (a blank box means "no value" whichever form it
+ * is typed into); the create/update actions differ only in what they DO with
+ * that undefined -- createAlbumAction passes it straight through to
+ * create_album's own default, updateAlbumAction coalesces it to `null`
+ * because update_album has none to fall back on.
+ */
+export const albumUpdateSchema = z.object({
+  albumId: z.string().uuid(),
+  title: z.string().trim().min(1, 'Give the album a title.').max(160),
+  upc,
+  releaseDate,
+});
+
+export type AlbumUpdateInput = z.infer<typeof albumUpdateSchema>;
+
 /** The five 0105's music_merge_kind carries. Shows are here on the owner's 2026-08-04 ruling. */
 export const MUSIC_MERGE_KINDS = ['SONG', 'ARTIST', 'LABEL', 'GENRE', 'SHOW'] as const;
 export type MusicMergeKind = (typeof MUSIC_MERGE_KINDS)[number];

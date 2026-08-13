@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import {
   LOCAL_SUPABASE_URL,
@@ -76,6 +76,46 @@ test.afterAll(async () => {
   for (const id of createdUserIds) await admin.auth.admin.deleteUser(id);
 });
 
+/**
+ * Signs the shared owner in, landing on /app unconditionally.
+ *
+ * The label journey above walks this SAME owner through /change-password —
+ * Playwright runs the tests in one file in declaration order, so by the time
+ * either album test below runs as part of the whole file, that has already
+ * happened. But run alone (Step 2's own `-g "carries a picture"`, or any
+ * other subset that skips the label test), the account is still on
+ * provision_customer's provisional password, and the label test's own
+ * fill-provisional-then-change-password script would be the wrong one to
+ * copy here.
+ *
+ * Rather than branch on which case this run is, both halves of the gate
+ * src/middleware.ts actually reads — the auth password, and profiles.
+ * must_change_password, the column that decides the redirect regardless of
+ * which password was used to sign in — are forced directly through the admin
+ * client first. Idempotent either way, so every test below can assume the
+ * account is already past onboarding without caring what ran before it.
+ */
+async function signInAlbumsOwner(page: Page) {
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', ownerEmail)
+    .single();
+  if (!profile) throw new Error(`no profile row for ${ownerEmail}`);
+
+  await admin.auth.admin.updateUserById(profile.id, { password: ownerFinalPassword });
+  await admin
+    .from('profiles')
+    .update({ must_change_password: false, provisional_expires_at: null })
+    .eq('id', profile.id);
+
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(ownerFinalPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+}
+
 test('a record label is registered, found and archived on its own screen', async ({ page }) => {
   // Sign in as an owner with music.manage — provision_customer's owner bypass
   // (has_permission, 0024) grants an Organization's owner every permission,
@@ -110,4 +150,57 @@ test('a record label is registered, found and archived on its own screen', async
   await page.getByTestId('references-search').fill('nothing matches this');
   await page.getByTestId('references-search-submit').click();
   await expect(page.getByTestId('references-grid')).not.toContainText('Selo Teste 20c');
+});
+
+test('an album is registered with its details and carries a picture', async ({ page }) => {
+  // Sign in as an owner with music.manage — provision_customer's owner bypass
+  // (has_permission, 0024) grants an Organization's owner every permission,
+  // music.view and music.manage included, in every active Company of that
+  // Organization, with no role to compose or assign.
+  await signInAlbumsOwner(page);
+
+  await page.goto('/catalog/albums');
+  await expect(page.getByRole('heading', { name: 'Albums' })).toBeVisible();
+
+  await page.getByTestId('album-create').click();
+  await page.getByTestId('album-title').fill('Álbum Teste 20c');
+  await page.getByTestId('album-upc').fill('123456789012');
+  await page.getByTestId('album-release-date').fill('2026-03-01');
+  await page.getByTestId('album-save').click();
+
+  await expect(page.getByTestId('albums-grid')).toContainText('Álbum Teste 20c');
+
+  // D6: the release date is a field this screen can actually write. Before
+  // Block 20c, update_album had no parameter to send it to -- so an assertion
+  // that only checked the title would have passed against the old door.
+  await expect(page.getByTestId('albums-grid')).toContainText('2026');
+});
+
+test("an album's cover reaches the bucket, keyed under its own record", async ({ page }) => {
+  await signInAlbumsOwner(page);
+
+  await page.goto('/catalog/albums');
+  await page.getByTestId('album-create').click();
+  await page.getByTestId('album-title').fill('Álbum Capa 20c');
+  await page.getByTestId('album-save').click();
+
+  // The create form auto-opens the new album's own record (the same shape
+  // music/artists/artists-grid.tsx uses for its own create), which is where
+  // the picture control lives -- D4, and why this journey needs no separate
+  // click to get there.
+  await page.getByTestId('album-cover-input').setInputFiles({
+    name: 'cover.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  });
+
+  // Proves the upload reached the bucket under the right key, not merely that
+  // a form submitted: artworkKey (src/lib/storage/artwork-keys.ts) names the
+  // object `album-covers/<company_id>/<album_id>`, and that slot name is what
+  // this asserts is actually in the row's <img src> once the grid re-renders.
+  const row = page.getByTestId('album-row').filter({ hasText: 'Álbum Capa 20c' });
+  await expect(row.getByTestId('album-thumb')).toHaveAttribute('src', /album-covers/);
 });
