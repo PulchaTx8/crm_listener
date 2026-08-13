@@ -121,6 +121,15 @@ const REFUSAL_SWITCH_VISITOR_LOCAL_PHONE = `51${String(stamp).slice(-9)}`;
 const REFUSAL_SWITCH_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${REFUSAL_SWITCH_VISITOR_LOCAL_PHONE}`;
 const REFUSAL_SWITCH_VISITOR_NAME = 'Listener Whose Refusal Follows Them';
 
+/**
+ * .superpowers/ci-widget-failure-diagnosis.md. The listener who answers the
+ * question, steps back, and steps forward again — a sixth phone, same
+ * per-number reason as the five before it.
+ */
+const PHANTOM_ENTRY_VISITOR_LOCAL_PHONE = `61${String(stamp).slice(-9)}`;
+const PHANTOM_ENTRY_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${PHANTOM_ENTRY_VISITOR_LOCAL_PHONE}`;
+const PHANTOM_ENTRY_VISITOR_NAME = 'Listener Whose Next Button Writes Early';
+
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
 
@@ -1132,6 +1141,101 @@ test('a refusal on one promotion does not linger onto a different one', async ({
   // B's rules.
   await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
   await expect(widget.getByTestId('widget-promotion-error')).toHaveCount(0);
+});
+
+/**
+ * .superpowers/ci-widget-failure-diagnosis.md, the second consequence, proved
+ * directly rather than through the two jump tests above. Those two fail
+ * because of this same defect, but indirectly — a `missing_answers` refusal
+ * and Block 20a's jump are what a test watching the SCREEN sees. This test
+ * watches `participations` instead, because the more serious half of the
+ * defect never shows up as a refusal at all: it is a WRITE, and a screen that
+ * ends up looking correct a moment later would not prove it never happened.
+ *
+ * REACHES THE QUESTION SCREEN TWICE. The first arrival (fields screen →
+ * question screen) is the walk's only unavoidable trip through the exact
+ * transition the bug lives in — landing on the screen that has just become
+ * `last` — but nothing has been answered yet at that instant, so even under
+ * the bug this arrival can only be refused (missing_answers refuses before
+ * apply_participation is ever called, `widget_enter_promotion`, 0171). That
+ * is asserted below as a baseline, not the proof. The listener then answers
+ * the question, presses "Back" (a genuinely separate, stably-typed button —
+ * no defect there), and presses "Next" a second time. That second click is
+ * the one enter-promotion.tsx's own comment describes: the same DOM node
+ * `identify-form.tsx`'s "THE TWO KEYS ARE LOAD-BEARING" comment names for the
+ * name/code labels, reused rather than remounted, now carrying a complete
+ * answer when it flips to `type="submit"`. Before the fix, that click alone
+ * is enough to write a participation — the listener never touched "Enter
+ * now".
+ */
+test('an entry is recorded only when "Enter now" is pressed, never by "Next"', async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: PHANTOM_ENTRY_VISITOR_LOCAL_PHONE,
+    phone: PHANTOM_ENTRY_VISITOR_PHONE,
+    name: PHANTOM_ENTRY_VISITOR_NAME,
+  });
+
+  const { data: listenerRows, error: listenerError } = await admin
+    .from('members')
+    .select('id')
+    .eq('phone', PHANTOM_ENTRY_VISITOR_PHONE)
+    .limit(1);
+  if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
+  const memberId = listenerRows?.[0]?.id as string;
+  expect(memberId, 'identifying created a member row').toBeTruthy();
+
+  // FILTERED BY MEMBER, NOT BY STATION: earlier tests in this file already
+  // wrote rows to `participations` for `journeyCompanyId`, so a count scoped
+  // to the Station would be non-zero before this listener ever opened the
+  // panel.
+  async function participationCount(): Promise<number> {
+    const { data, error } = await admin.from('participations').select('id').eq('member_id', memberId);
+    if (error) throw new Error(`could not read participations back: ${error.message}`);
+    return data?.length ?? 0;
+  }
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  // PRIMARY_PROMOTION_NAME, BY NAME: the one fixture with both a requested
+  // field and a QUIZ question, same reason the two jump tests above pick it
+  // by name rather than position.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE BASELINE, NOT THE PROOF: the field is filled, so this first arrival
+  // at the question screen has nothing wrong to report except the question
+  // itself, which nobody has answered yet — the one auto-submit this walk
+  // cannot avoid can only be refused.
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  expect(await participationCount(), 'nothing recorded on first arrival').toBe(0);
+
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
+  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE ASSERTION THAT MATTERS. A plain wait, not a poll for a state that
+  // might never arrive — what is being proved is an ABSENCE, and 2s is
+  // generous headroom over the 40-80ms round trip the CI traces in the
+  // diagnosis measured for either outcome (a write that already happened, or
+  // one that was never sent) to settle before asking.
+  await page.waitForTimeout(2_000);
+  expect(await participationCount(), 'no entry exists before "Enter now" is pressed').toBe(0);
+
+  // ONLY NOW, explicitly.
+  await widget.getByTestId('widget-promotion-send').click();
+  await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+  expect(await participationCount(), 'the explicit submission is the one that writes').toBe(1);
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({

@@ -305,13 +305,51 @@ export function EnterPromotionPanel({
             </p>
           ) : null}
 
+          {/*
+            THE TWO KEYS ARE LOAD-BEARING, the same defect class
+            identify-form.tsx's own "THE TWO KEYS ARE LOAD-BEARING" comment
+            documents for the name/code labels, and the same reasoning:
+            without them a listener pressing "Next" onto the last screen
+            recorded an entry.
+
+            Both branches occupy the same slot of this ternary, so React
+            reconciled them against each other rather than unmounting one and
+            mounting the other — one <Button>, its `type` toggled between
+            "button" and "submit" by which branch last rendered it. `onClick`
+            for "Next" runs inside the click's own dispatch and React 19
+            flushes a discrete-event update synchronously, so by the time the
+            browser ran this SAME node's post-dispatch activation behaviour,
+            `type` had already flipped to "submit" — and activation for a
+            submit button submits the enclosing `<form action={submit}>`. The
+            click meant to advance a screen posted the walk instead.
+
+            On screen this read as two different failures depending on what
+            the listener did next. Reaching the last screen for the first
+            time posted an incomplete answer, which the door correctly
+            refused with missing_answers — and that refusal, arriving after
+            Block 20a's jump had nothing to move (the fields were already
+            complete), is almost certainly the "Something is missing. Go back
+            and check your answers." the product owner reported seeing under
+            a form that had, in fact, been filled in correctly: a button that
+            said "Next" was the one that submitted, and its failure read back
+            as if the FORM had failed. A listener who then answered the
+            question, pressed "Back", and pressed "Next" again fared worse —
+            that second "Next" carried a complete answer, and the walk was
+            entered without "Enter now" ever being pressed.
+
+            Distinct keys say these are different elements, not one element
+            with different props, which is exactly what they are: the button
+            that submits now MOUNTS on the screen that needs it, rather than
+            the button that advances MUTATING into one mid-click.
+          */}
           <div className="flex gap-2">
             {last ? (
-              <Button type="submit" disabled={sending} data-testid="widget-promotion-send">
+              <Button key="send" type="submit" disabled={sending} data-testid="widget-promotion-send">
                 {sending ? t('sending') : t('enterNow')}
               </Button>
             ) : (
               <Button
+                key="next"
                 type="button"
                 onClick={() => {
                   setScreen((s) => s + 1);
