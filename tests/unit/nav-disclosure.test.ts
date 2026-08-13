@@ -88,13 +88,38 @@ describe('activeSectionKey', () => {
   });
 
   /**
-   * `/music/requests` is Audience's and `/music/songs` is Catalogue's. A naive
-   * first-match over a shared prefix would put the listener in the wrong
-   * section; the longest matching href wins.
+   * Both of these resolve correctly under ANY tie-break rule, because
+   * `/music/requests` and `/music/songs` are siblings rather than one being a
+   * prefix of the other. Kept because they are the real hrefs this block moves
+   * between two sections, and a regression there is what somebody would
+   * actually hit — but see the case below for the rule itself.
    */
-  it('prefers the longest matching href when two sections share a prefix', () => {
+  it('files the two /music routes under the sections that own them', () => {
     expect(activeSectionKey(SECTIONS, '/music/requests')).toBe('audience');
     expect(activeSectionKey(SECTIONS, '/music/songs')).toBe('catalog');
+  });
+
+  /**
+   * THE LONGEST-MATCH RULE ITSELF, and this fixture is deliberately synthetic:
+   * **no two sections in the real sidebar own hrefs in a prefix relationship
+   * today.** The only prefix pair that exists — `/inventory` and
+   * `/inventory/movements` — sits inside ONE section, where the tie-break
+   * cannot change the answer.
+   *
+   * So the rule is defensive, and this is what makes it testable rather than
+   * decorative: without a case that can only pass under longest-match, the
+   * rule could be replaced by `Array.prototype.find` and every test would stay
+   * green. One nav edit is all it would take for that to start mattering.
+   */
+  it('prefers the longest matching href when two sections genuinely overlap', () => {
+    const overlapping = [
+      { key: 'wide', items: [{ href: '/music' }] },
+      { key: 'narrow', items: [{ href: '/music/songs' }] },
+    ];
+    expect(activeSectionKey(overlapping, '/music/songs')).toBe('narrow');
+    expect(activeSectionKey(overlapping, '/music/songs/123')).toBe('narrow');
+    // And the wide one still wins where it is the only match.
+    expect(activeSectionKey(overlapping, '/music/other')).toBe('wide');
   });
 
   it('answers null for a path no section names', () => {
