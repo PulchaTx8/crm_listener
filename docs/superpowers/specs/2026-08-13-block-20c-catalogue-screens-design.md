@@ -141,8 +141,16 @@ dialog edits título, UPC and data de lançamento, and carries the picture contr
 (§6).
 
 **`update_album` must be widened, and this is where the block's one real trap
-is.** Its current signature is `update_album(p_album_id, p_title, p_upc)` — no
-release date, no picture. Widening it means a new argument list, and in
+is.** Its signature is `update_album(p_album_id, p_title)` — **not** the
+three-argument version 0137 created. Migration 0141 dropped the UPC parameter
+deliberately, and its reasoning binds this block: on a one-field row *"an
+omitted parameter is indistinguishable, to the RPC, from a cleared one"*. So
+the widened door takes **all four arguments with no defaults** on `p_upc` and
+`p_release_date` — a caller that omits one fails loudly instead of quietly
+emptying a column. (`create_album` keeps its defaults: creating a record with
+fields left blank is a real intention; updating one by accident is not.)
+
+Widening means a new argument list, and in
 PostgreSQL **`create or replace` does not change an argument list: it creates a
 SECOND overload, and existing callers go on resolving to the old one, silently.**
 This project has been caught by exactly that (Block 4b's memory records it, and

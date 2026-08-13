@@ -220,9 +220,22 @@ Then, in order:
 
 1. `alter table public.albums add column thumb_url text;` with a comment saying
    what it is and that `cover_md5` is a different thing.
-2. `drop function public.update_album(uuid, text, text);` — explicit, before the
+2. `drop function public.update_album(uuid, text);` — explicit, before the
    create, with a comment naming the trap.
-3. `create function public.update_album(p_album_id uuid, p_title text, p_upc text default null, p_release_date date default null)` — the live body from Step 1, plus `release_date = p_release_date` in the UPDATE. Keep its `music.manage` check, its `security definer`, and its `set search_path`.
+3. `create function public.update_album(p_album_id uuid, p_title text, p_upc text, p_release_date date)` — **no defaults on the last two**, the live body from Step 1 plus `upc` and `release_date` in the UPDATE. Keep its `music.manage` check, its `security definer`, and its `set search_path`.
+
+   **The absence of defaults is the point, and it is 0141's ruling, not a style
+   choice.** That migration dropped the UPC parameter 0137 had, because on a
+   one-field row *"an omitted parameter is indistinguishable, to the RPC, from
+   a cleared one"*. A `default null` here would resurrect exactly that: a
+   caller sending two arguments would silently empty two columns. With no
+   default, such a caller fails at the call. Say this in the header and in
+   `comment on function`, naming 0141, so the next person to add a convenience
+   default meets the reason not to.
+
+   Note the starting signature is `(uuid, text)` — 0141 already removed the
+   third argument — so the drop in step 2 names `(uuid, text)`. Confirm against
+   the live database rather than trusting this sentence.
 4. `create function public.set_album_cover(p_album_id uuid, p_url text default null)` — modelled on `set_prize_photo`: `music.manage` checked, sets `thumb_url = p_url`, and when `p_url` is null enqueues the old object for the worker to delete rather than deleting it. Read `set_prize_photo`'s live definition and follow it; **the parameter is omitted rather than passed null when clearing**, which is why it carries `default null`.
 5. `create or replace function public.may_write_artwork(p_name text)` — the live body from Step 1 with one branch added before the final `return false`:
 
