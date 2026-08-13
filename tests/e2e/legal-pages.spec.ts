@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { openNavSection } from './nav';
 
 /**
  * service_role, because `data_deletion_requests` grants anon nothing at all
@@ -20,6 +21,39 @@ const admin = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, 
  */
 const stamp = Date.now();
 const requesterEmail = `maria.teste-${stamp}@example.test`;
+
+const adminEmail = `legal-admin-${stamp}@example.test`;
+const adminPassword = `Admin-${stamp}-aA1!`;
+const createdUserIds: string[] = [];
+
+test.beforeAll(async () => {
+  const { data, error } = await admin.auth.admin.createUser({
+    email: adminEmail,
+    password: adminPassword,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`could not create ${adminEmail}: ${error?.message}`);
+  createdUserIds.push(data.user.id);
+
+  const { error: profileError } = await admin
+    .from('profiles')
+    .insert({ id: data.user.id, email: adminEmail });
+  if (profileError) throw new Error(`could not create a profile: ${profileError.message}`);
+
+  const { error: adminError } = await admin
+    .from('platform_admins')
+    .insert({ user_id: data.user.id });
+  if (adminError) throw new Error(`could not seed platform admin: ${adminError.message}`);
+});
+
+test.afterAll(async () => {
+  for (const id of createdUserIds) {
+    await admin.auth.admin.deleteUser(id).catch(() => undefined);
+  }
+  // The deletion request itself is deliberately NOT cleaned up. It is a
+  // statutory record, and a suite that erased one would be practising the
+  // single thing this whole block exists to make deliberate.
+});
 
 /**
  * NO SIGN-IN ANYWHERE IN THIS FILE, and that is the point.
@@ -115,4 +149,46 @@ test('a deletion request without the confirmation is refused', async ({ page }) 
     .select('id')
     .eq('email', `maria2-${stamp}@example.test`);
   expect(rows ?? []).toHaveLength(0);
+});
+
+/**
+ * Depends on the journey above having run, through the DATABASE rather than
+ * through a variable: what this asserts is that the row the public form wrote
+ * is the row the console reads, and the shared state that makes that a claim at
+ * all is the table. Tests in one file run in declaration order in one worker
+ * (playwright.config.ts sets no fullyParallel), so the order holds.
+ */
+test('the console lists the request under the protocol the requester was given', async ({
+  page,
+}) => {
+  const { data: row } = await admin
+    .from('data_deletion_requests')
+    .select('protocol')
+    .eq('email', requesterEmail)
+    .single();
+  expect(row?.protocol).toBeTruthy();
+
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(adminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(adminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  // Through the sidebar rather than by URL, so reaching the screen also asserts
+  // the nav entry exists and is scoped to a platform admin. Block 20b made
+  // every section a disclosure, so Platform has to be opened first.
+  await openNavSection(page, 'Platform');
+  await page.getByRole('link', { name: 'Deletion requests', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/data-deletion-requests$/);
+
+  // Scoped to the one card, because this table keeps every run's rows: an
+  // unscoped getByText('Maria Teste') would match a previous run's request and
+  // pass with this run's never rendered at all.
+  const card = page.locator('[data-testid="deletion-request-row"]', {
+    hasText: row!.protocol,
+  });
+  await expect(card).toBeVisible();
+  await expect(card.getByText('Maria Teste')).toBeVisible();
+  await expect(card.getByText(requesterEmail)).toBeVisible();
+  await expect(card.getByText('new')).toBeVisible();
 });

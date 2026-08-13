@@ -51,6 +51,15 @@ export const ICONS = {
   // physical object in a way a note is not: `box` was the near miss and reads
   // as a package, which is Inventory's meaning of it.
   disc: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  // A bin, for the deletion requests in the Platform section. Its own path
+  // rather than reusing anything above, and the two near misses are both worse
+  // than a new glyph: `inbox` is the ADJACENT row of that same section (Contact
+  // requests), which is exactly the case the house rule forbids; and `shield`,
+  // the other candidate, already means *a guard* on three rows elsewhere
+  // (Roles, Audit trail, Maintenance) -- it says protection, and this row is
+  // where somebody asks to be erased. Nothing declared here meant erasure.
+  trash:
+    'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6',
 } as const;
 
 export interface ShellUser {

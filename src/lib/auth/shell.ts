@@ -350,6 +350,21 @@ export async function getShellContext(): Promise<{
         { href: '/admin/organizations', label: t('organizations'), icon: ICONS.building },
         { href: '/admin/stations', label: t('stations'), icon: ICONS.message },
         { href: '/admin/contact-requests', label: t('contactRequests'), icon: ICONS.inbox },
+        // After Contact requests, and NOT sharing its glyph. The two rows are
+        // adjacent and read almost alike -- both are "somebody wrote in" --
+        // which is precisely why one icon on both would make the pair look like
+        // one link rendered twice. ICONS.trash is new for this row; see its
+        // comment for the two candidates it beat.
+        //
+        // The section is platform-admin only, which is also the correct
+        // audience for this screen: the erasure it leads to is a procedure run
+        // by hand across every Station's data, not something an Organization
+        // owner performs on their own tenant.
+        {
+          href: '/admin/data-deletion-requests',
+          label: t('deletionRequests'),
+          icon: ICONS.trash,
+        },
       ],
     });
   }
