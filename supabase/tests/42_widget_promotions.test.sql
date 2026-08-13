@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(23);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -305,7 +305,7 @@ select is(
   2::bigint, 'each answer landed in the shape its kind requires');
 
 -- ---------------------------------------------------------------------------
--- 20-22. Block 20a, item 2, candidate (b): a question with alternatives and no
+-- 20-23. Block 20a, item 2, candidate (b): a question with alternatives and no
 --        alternatives in it.
 --
 -- 0041 constrains the option rows that exist -- not ESSAY, correct only on
@@ -354,7 +354,21 @@ insert into public.member_company_links (member_id, company_id, organization_id)
   ('00000000-0000-0000-0000-000000000422', '00000000-0000-0000-0000-000000000402',
    '00000000-0000-0000-0000-000000000401');
 
--- 20. The promotion is NOT offered. Same treatment, for the same reason, as a
+-- 20. THE ANCHOR. 21 and 22 below each pass if `widget_promotions` returns
+--     '[]'::jsonb worth of promotions -- but they would ALSO pass if the call
+--     errored instead: `-> 'promotions'` on an error payload (no such key) is
+--     SQL NULL, jsonb_array_elements(NULL) yields zero rows, and a "count is
+--     0" or a "does not contain this id" assertion is then true for the wrong
+--     reason. This pins that the call actually answers this listener before
+--     either of them is allowed to mean anything -- and it keeps meaning that
+--     even if some later edit deletes this very assertion by accident, since
+--     the plan count above would then be the thing that fails.
+select is(
+  (public.widget_promotions('pw_promostationa012345678',
+                            '00000000-0000-0000-0000-000000000422') ->> 'ok'),
+  'true', 'the list answers this listener at all -- what 20 and 21 rest on');
+
+-- 21. The promotion is NOT offered. Same treatment, for the same reason, as a
 --     promotion with no rules text (D3): a listener is not shown a door that
 --     can only close on them.
 select is(
@@ -364,14 +378,14 @@ select is(
     where (e ->> 'id') = '00000000-0000-0000-0000-000000000420'),
   0::bigint, 'a promotion whose only question has no alternatives is not offered');
 
--- 21. And nothing about it leaks into the payload by another route.
+-- 22. And nothing about it leaks into the payload by another route.
 select is(
   (select public.widget_promotions('pw_promostationa012345678',
                                    '00000000-0000-0000-0000-000000000422')::text
      like '%00000000-0000-0000-0000-000000000421%'),
   false, 'and its question is absent from the payload entirely');
 
--- 22. And a submission against it -- from a crafted payload, or from a browser
+-- 23. And a submission against it -- from a crafted payload, or from a browser
 --     that had the list open before the options were removed -- is refused as
 --     closed rather than as the listener's fault.
 select is(

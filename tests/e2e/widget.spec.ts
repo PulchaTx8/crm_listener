@@ -74,7 +74,7 @@ const VISITOR_NAME = 'Cross Origin Listener';
  * Block 19b. The listener who exits, below — a phone distinct from
  * VISITOR_LOCAL_PHONE above, deliberately, and not a name-only distinction.
  * `CODE_PER_PHONE_MINUTE` (`src/app/(widget)/w/[publicKey]/actions.ts`) allows
- * one code every 60 seconds per number; the two tests in this file share a
+ * one code every 60 seconds per number; the four tests in this file share a
  * worker and run back to back, and a shared phone would make this file's own
  * runtime the thing standing between the exit journey and a `rate_limited`
  * refusal that has nothing to do with what either test proves.
@@ -517,10 +517,23 @@ test.beforeAll(async ({}, testInfo) => {
   // wearing the costume of a real failure. That suffix has now moved twice, so
   // it is not pinned here at all: everything after `widget:<step>:ip:` is
   // whatever the action decides, and this deliberately does not have an opinion
-  // about it. The two prefixes are still named separately rather than collapsed
-  // into one pattern, because they are two independent limits and a reader has
-  // to be able to see that both were cleared.
-  for (const prefix of ['widget:code:ip:', 'widget:verify:ip:']) {
+  // about it. The four prefixes are still named separately rather than
+  // collapsed into one pattern, because they are four independent limits and a
+  // reader has to be able to see that all of them were cleared.
+  //
+  // `widget:promo:list:ip:` and `widget:promo:enter:ip:`
+  // (`promotion-actions.ts`) joined the first two once this branch added a
+  // journey that calls `widget_enter_promotion`: `ENTER_PER_IP_HOUR` is the
+  // same shape of address-less, 20-per-hour bucket as the other two, and a
+  // full local run now spends two of the twenty instead of one. Left
+  // uncleared, that halves the headroom before an unrelated `rate_limited`
+  // for every run after the first.
+  for (const prefix of [
+    'widget:code:ip:',
+    'widget:verify:ip:',
+    'widget:promo:enter:ip:',
+    'widget:promo:list:ip:',
+  ]) {
     const { error: bucketError } = await admin
       .from('rate_limit_counters')
       .delete()
