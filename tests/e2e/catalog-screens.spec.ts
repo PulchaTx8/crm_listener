@@ -222,6 +222,81 @@ test('a record label is archived through its confirmation dialog, and leaves the
   await expect(page.getByTestId('references-grid')).not.toContainText('Selo Para Arquivar 20c');
 });
 
+/**
+ * Fix round 1. tests/e2e/music-catalogue.spec.ts (deleted in Task 5) proved
+ * this business rule once, for ARTIST: archiving a record that a live song
+ * still names is refused, not silently dropped. The code path is shared --
+ * mapMusicError's 23503 branch (services/music.ts) becomes a BusinessRuleError
+ * for every one of the four reference kinds alike, and describeMusicWriteError
+ * (music/errors.ts) renders the identical sentence, worded per kind only
+ * through the `action` phrase (ACTION_KEYS[kind].archive,
+ * catalog/references/actions.ts) -- so a LABEL-scoped journey proves the same
+ * branch this screen actually owns, without going near the Artists screen
+ * this block does not touch.
+ */
+test('a record label cannot be archived while a live song still names it, and the record survives', async ({
+  page,
+}) => {
+  await signInAlbumsOwner(page);
+
+  // The label under test.
+  await page.goto('/catalog/labels');
+  await page.getByTestId('reference-create').click();
+  await page.getByTestId('reference-name').fill('Selo Vinculado 20c');
+  await page.getByTestId('reference-save').click();
+  await expect(page.getByTestId('references-grid')).toContainText('Selo Vinculado 20c');
+
+  // An artist -- songFormSchema requires one (services/schemas/music.ts),
+  // even though the label is the field this test actually cares about.
+  await page.goto('/music/artists');
+  await page.getByTestId('artist-create').click();
+  const artistForm = page.locator('[data-testid="artist-create-form"]');
+  await artistForm.getByLabel('Name').fill('Artista Vinculado 20c');
+  await artistForm.getByRole('button', { name: 'Register artist' }).click();
+  await expect(artistForm.getByText('Artist registered.')).toBeVisible();
+  // CreateArtistDialog's own footer Close (artists-grid.tsx) -- always
+  // present, unlike the "View artist" link inside the form, which this test
+  // has no use for.
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // A song naming the label -- the live reference archive_music_reference
+  // (0102) refuses to break.
+  await page.goto('/music/songs');
+  await page.getByTestId('song-create').click();
+  const songForm = page.locator('[data-testid="song-create-form"]');
+  await songForm.getByLabel('Title').fill('Música Vinculada 20c');
+  await songForm.getByLabel('Artist').selectOption({ label: 'Artista Vinculado 20c' });
+  await songForm.getByLabel('Label').selectOption({ label: 'Selo Vinculado 20c' });
+  await songForm.getByRole('button', { name: 'Register song' }).click();
+  await expect(songForm.getByText('Song registered.')).toBeVisible();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // Back on the label's own screen, the archive is attempted and refused.
+  await page.goto('/catalog/labels');
+  await page.getByRole('button', { name: 'Selo Vinculado 20c' }).click();
+  await page.getByTestId('reference-archive').click();
+  await page.getByTestId('reference-archive-confirm').click();
+
+  // describeMusicWriteError's BusinessRuleError branch, worded for LABEL via
+  // ACTION_KEYS.LABEL.archive ('actionArchiveThisLabel' -> "archive this
+  // label") -- the operator sees a sentence naming the rule, not a raw
+  // Postgres error and not a dialog that quietly did nothing.
+  await expect(
+    page.getByText(
+      'You cannot archive this label yet — it still has other records registered against it. Move or archive them first.',
+    ),
+  ).toBeVisible();
+
+  // The record survives: archiveReferenceAction never reached 'archived', so
+  // no revalidatePath ran and the row is exactly where it was. Dismissed
+  // through the UI's own Cancel/Close rather than asserted on a DOM node
+  // still technically present under an open dialog -- the same claim the
+  // successful-archive test above makes for the opposite outcome.
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('references-grid')).toContainText('Selo Vinculado 20c');
+});
+
 test('an album is registered with its details and carries a picture', async ({ page }) => {
   // Sign in as an owner with music.manage — provision_customer's owner bypass
   // (has_permission, 0024) grants an Organization's owner every permission,

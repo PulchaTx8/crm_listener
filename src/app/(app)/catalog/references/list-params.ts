@@ -73,7 +73,8 @@ export interface ReferenceCursor {
  * tests/unit/i18n/usage.test.ts can only verify a literal `t('key')` — a call
  * built from a variable (`t(someLookup[kind])`) is invisible to it, the same
  * trap this codebase already worked around once with ACTION_KEYS
- * (music/catalog/actions.ts, carried into this screen's own actions.ts). A
+ * (music/catalog/actions.ts, deleted in Task 5 -- carried into this screen's
+ * own actions.ts before that deletion). A
  * plain string prop sidesteps the trap entirely: the only `t('key')` calls
  * for any of this copy are the literal ones inside the two page files, one
  * per kind, each checkable on its own.

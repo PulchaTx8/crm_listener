@@ -429,8 +429,8 @@ function RegistrationForm({
 
 /**
  * The removal confirmation, on the shape ArchiveReferenceDialog
- * (music/catalog/reference-panel.tsx) established: a styled `<Dialog>` with a
- * stable `data-testid`, never `window.confirm`.
+ * (music/catalog/reference-panel.tsx, deleted in Task 5) established: a
+ * styled `<Dialog>` with a stable `data-testid`, never `window.confirm`.
  *
  * The wording is deliberately not "this cannot be undone": unlike an archived
  * catalogue record, this one CAN be put back by transcribing the same approval

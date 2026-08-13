@@ -224,10 +224,10 @@ function ReferenceReadOnlyFields({ record }: { record: ReferenceSummary }) {
 
 /**
  * The archive confirmation, modelled directly on ArchiveReferenceDialog
- * (music/catalog/reference-panel.tsx) — a styled `<Dialog>` with a stable
- * `data-testid`, never `window.confirm` (unstyled, blocks the main thread,
- * and undrivable by the `getByTestId('...-archive-confirm')` pattern every
- * e2e spec that exercises an archive flow already uses).
+ * (music/catalog/reference-panel.tsx, deleted in Task 5) — a styled `<Dialog>`
+ * with a stable `data-testid`, never `window.confirm` (unstyled, blocks the
+ * main thread, and undrivable by the `getByTestId('...-archive-confirm')`
+ * pattern every e2e spec that exercises an archive flow already uses).
  */
 function ArchiveReferenceDialog({
   record,

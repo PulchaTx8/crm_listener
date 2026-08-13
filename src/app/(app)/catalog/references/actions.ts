@@ -55,10 +55,10 @@ async function requireAccessToken(): Promise<string> {
 
 /**
  * One whole action phrase per kind and per verb, as a catalogue key — the
- * same shape music/catalog/actions.ts's own ACTION_KEYS uses and for the same
- * reason: "save this label" is *salvar esta gravadora* and "save this genre"
- * is *salvar este gênero* — the article agrees with the noun's gender, so no
- * stem plus noun can assemble both.
+ * same shape music/catalog/actions.ts's own ACTION_KEYS used (deleted in
+ * Task 5) and for the same reason: "save this label" is *salvar esta
+ * gravadora* and "save this genre" is *salvar este gênero* — the article
+ * agrees with the noun's gender, so no stem plus noun can assemble both.
  */
 const ACTION_KEYS: Record<ReferenceScreenKind, { register: string; save: string; archive: string }> = {
   LABEL: {

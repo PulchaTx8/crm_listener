@@ -818,41 +818,6 @@ export interface AlbumRecordFields {
 }
 
 /**
- * Reads back the three fields updateAlbum replaces.
- *
- * It exists because update_album writes ALL of them on every call and 0187
- * removed the defaults that used to hide that: a caller holding only a new
- * title has to fetch the other two and send them back unchanged, or it is not
- * renaming an album, it is emptying two columns. The alternative — hidden
- * inputs on the form carrying the current values forward — is the one 0141
- * explicitly refused, because a value that arrives from the browser is a value
- * anybody who can craft a POST may choose.
- *
- * Its only caller is the one-field rename row on /music/catalog, which Block
- * 20c deletes; the record dialog that replaces it edits all three fields and
- * has no use for this.
- *
- * An archived album is NotFoundError rather than an empty result, and so is one
- * hidden by RLS — the same refusal for "no such album" and "not your Station",
- * which is the distinction 0093 deliberately refuses to draw anywhere else.
- */
-export async function getAlbumRecordFields(albumId: string): Promise<AlbumRecordFields> {
-  const supabase = await createUserClient();
-
-  const { data, error } = await supabase
-    .from('albums')
-    .select('title, upc, release_date')
-    .eq('id', albumId)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  if (error) throw new InternalError(`Could not read the album: ${error.message}`);
-  if (!data) throw new NotFoundError('That album could not be found.');
-
-  return { title: data.title, upc: data.upc, releaseDate: data.release_date };
-}
-
-/**
  * Saves an album record: title, UPC and release date, every one of them on
  * every call. NOT "renames an album" any more, and the difference is the whole
  * point of 0187.
