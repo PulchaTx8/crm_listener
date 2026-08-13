@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { openNavSection } from './nav';
 
 /**
  * Provisions a customer with one Station THROUGH THE CONSOLE, and returns the
@@ -25,6 +26,11 @@ export async function provisionThroughConsole(
   page: Page,
   input: { organizationName: string; companyName: string; ownerEmail: string },
 ): Promise<string> {
+  // Block 20b. Platform is a collapsed section like every other one now, and
+  // this helper is not among the thirteen specs that call openNavSection
+  // themselves -- it is the ONE place ~14 of them reach this link through,
+  // so fixing it here is the one edit rather than fourteen.
+  await openNavSection(page, 'Platform');
   await page.getByRole('link', { name: 'Organizations' }).click();
   await page.getByTestId('organization-create').click();
   await page.getByPlaceholder('Organization name').fill(input.organizationName);

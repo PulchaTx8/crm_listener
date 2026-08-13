@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * The whole per-Station roles journey through the real UI: an owner composes a
@@ -87,6 +88,7 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await expect(ownerPage).toHaveURL(/\/app$/);
 
   // --- the owner composes a role from the permission catalogue -------------
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Roles' }).click();
   await expect(ownerPage).toHaveURL(/\/roles$/);
 
@@ -127,6 +129,7 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   await page.keyboard.press('Escape');
 
   // --- the owner invites a colleague into ONLY the first Station -----------
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
@@ -197,6 +200,7 @@ test('an owner composes a role and assigns it per Station', async ({ page, brows
   // proves users.invite's Organization-wide reach, the same shape
   // create_invitation itself checks, not merely action within their own
   // membership.
+  await openNavSection(inviteePage, 'Organization');
   await inviteePage.getByRole('link', { name: 'Team' }).click();
   await expect(inviteePage).toHaveURL(/\/team$/);
 

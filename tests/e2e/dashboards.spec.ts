@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { collectCspViolations } from './csp-violations';
 import { provisionCustomer } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 8a's round trip (Task 10): the branches that live only in the three
@@ -347,8 +348,11 @@ test('the round trip: a known figure, the period switch that changes it, a rende
   // word is already the SECTION heading above Members and Participations,
   // and a section and its item spelling the same word read as one link
   // rendered twice — the rule shell.ts records for Inventory > Stock. The
-  // heading is a plain <p> (sidebar-nav.tsx never links a section label), so
-  // this selector was never ambiguous; it was the SCREEN that was.
+  // heading is now a <button> (Block 20b turned every section into a
+  // disclosure), and the selector below is on the LINK, not the heading, so
+  // it is still unambiguous either way; it was the SCREEN that was ever the
+  // question.
+  await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
@@ -389,6 +393,7 @@ test('a caller missing participations.view sees the permission named beside real
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
+  await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
@@ -463,6 +468,7 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
+  await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
   await page.getByRole('link', { name: stationTZAName }).click();

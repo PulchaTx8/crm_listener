@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 18's whole journey: an operator reaches Programmes from the sidebar,
@@ -90,6 +91,7 @@ test('an operator registers a programme with an overnight band and reads it back
   await expect(ownerPage).toHaveURL(/\/app$/);
 
   // --- Programmes, reached from the sidebar under Audiência ----------------
+  await openNavSection(ownerPage, 'Audience');
   await ownerPage.getByRole('link', { name: 'Programmes' }).click();
   await expect(ownerPage).toHaveURL(/\/shows/);
   await expect(ownerPage.getByTestId('shows-empty')).toBeVisible();

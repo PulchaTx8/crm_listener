@@ -6,6 +6,7 @@ import {
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 3c's proof.
@@ -208,6 +209,7 @@ test('the record opens over a list that is never re-queried', async ({ page, bro
   // --- the count starts here ------------------------------------------------
   const listRenders = countListRenders(ownerPage);
 
+  await openNavSection(ownerPage, 'Audience');
   await ownerPage.getByRole('link', { name: 'Members' }).click();
   await expect(ownerPage).toHaveURL(/\/members$/);
   await expect(ownerPage.locator('[data-testid="member-row"]')).toHaveCount(3);

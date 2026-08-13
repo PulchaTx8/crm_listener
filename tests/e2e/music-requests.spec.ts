@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 7b's whole journey (Task 10): the two doors this task adds to the
@@ -150,6 +151,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   //    Music section, reached for the first time in this journey by this
   //    task's own nav change.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Artists' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/artists$/);
 
@@ -162,6 +164,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   await expect(ownerPage.getByRole('heading', { name: artistName, level: 2 })).toBeVisible();
   await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
 
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Songs' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/songs$/);
 
@@ -203,6 +206,10 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   //    (services/music.ts), so this cannot accidentally land on the first
   //    song despite the two sharing a title.
   // ===========================================================================
+  // Requests moved to Audience in Block 20b, D1 -- a different section from
+  // Songs/Artists/Maintenance above and below, so this crosses sections rather
+  // than staying inside the one already open.
+  await openNavSection(ownerPage, 'Audience');
   await ownerPage.getByRole('link', { name: 'Requests' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/requests$/);
 
@@ -241,6 +248,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   //    not control) but by child_count: the row reading "0 requests" is the
   //    one nothing has been recorded against yet, which is the first song.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Maintenance' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/maintenance$/);
 
@@ -288,6 +296,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   //    The title text cannot show that difference — both songs shared it —
   //    which is exactly why this badge, not the title, is the assertion.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Audience');
   await ownerPage.getByRole('link', { name: 'Requests' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/requests$/);
 
@@ -303,6 +312,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   //    catalogue — songs_select (0099) makes the archived loser unreadable
   //    for every caller, owner included.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Songs' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/songs$/);
 

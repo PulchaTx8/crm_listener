@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 7a's whole journey (Task 11): an operator reaches the music
@@ -146,6 +147,11 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   //    this reaches the screen via "Record labels", which is CATALOG_TABS'
   //    own default and lands on exactly the URL asserted below.
   // ===========================================================================
+  // Already the active section (the goto above landed on /music/catalog, which
+  // activeSectionKey matches), so this call is a no-op in practice -- kept for
+  // the same reason the other twelve specs carry it: the next navigation
+  // change is one edit rather than a hunt across every caller.
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Record labels' }).click();
   // ReferenceTabs (reference-tabs.tsx) rewrites the address to a canonical
   // `?tab=` on mount via history.replaceState — labels is CATALOG_TABS' own
@@ -171,6 +177,7 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   // ===========================================================================
   // 2. An artist, on its own screen.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Artists' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/artists$/);
 
@@ -199,6 +206,7 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   //    would be empty, and the Genre/Label <select>s one option short, had any
   //    of the three steps above been skipped.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Songs' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/songs$/);
 
@@ -227,6 +235,7 @@ test('an operator builds a Station catalogue from nothing, reached from the side
   //    (getArtistRecordAction reads getArtistById and getArtistSongs
   //    together; switching tabs never calls the server again).
   // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Artists' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/artists$/);
 

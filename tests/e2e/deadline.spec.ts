@@ -8,6 +8,7 @@ import {
   LOCAL_SUPABASE_DB_URL,
 } from '../local-supabase';
 import { provisionCustomer } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 6d through the screen, and through the clock: a prize is drawn, its
@@ -246,6 +247,7 @@ test('the deadline expires, an operator reopens it and hands the prize over, and
   await expect(page).toHaveURL(/\/app$/);
 
   // --- /pickups, filtered to Return pending -------------------------------
+  await openNavSection(page, 'Promotions');
   await page.getByRole('link', { name: 'Pickups' }).click();
   await expect(page).toHaveURL(/\/pickups$/);
 
@@ -278,6 +280,7 @@ test('the deadline expires, an operator reopens it and hands the prize over, and
   await expect(row.getByTestId('pickup-status')).toHaveText('Delivered', { timeout: 15_000 });
 
   // --- /inventory/movements, the whole journey for this one prize ----------
+  await openNavSection(page, 'Inventory');
   await page.getByRole('link', { name: 'Movements' }).click();
   await expect(page).toHaveURL(/\/inventory\/movements$/);
 

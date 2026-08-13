@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * The whole prize-and-stock journey through the real UI (Block 2, Task 10).
@@ -112,6 +113,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // --- the owner composes "Stock Keeper" from the permission catalogue -----
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Roles' }).click();
   await expect(ownerPage).toHaveURL(/\/roles$/);
 
@@ -153,6 +155,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await expect(roleRow.getByText('held by 0 user(s)')).toBeVisible();
 
   // --- the owner assigns it to the delegate, in the one Station ------------
+  await openNavSection(ownerPage, 'Organization');
   await ownerPage.getByRole('link', { name: 'Team' }).click();
   await expect(ownerPage).toHaveURL(/\/team$/);
 
@@ -212,8 +215,10 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // href is unchanged, still /inventory) when a second item, Movements,
   // joined it under a section now itself labelled 'Inventory' — this
   // assertion is about reaching the stock screen, not about the section
-  // heading above it (which renders as a plain <p> in sidebar-nav.tsx and was
-  // never a link this could have selected anyway).
+  // heading above it. The heading is now a <button> (Block 20b's disclosure),
+  // and the selector below is still on the LINK, so it is unambiguous either
+  // way.
+  await openNavSection(delegatePage, 'Inventory');
   await delegatePage.getByRole('link', { name: 'Stock' }).click();
   await expect(delegatePage).toHaveURL(/\/inventory$/);
 

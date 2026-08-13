@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * Block 13a's journey: an operator registers a song from Deezer without typing
@@ -108,6 +109,7 @@ test('an operator registers a song from Deezer into an empty Station, then links
   // =========================================================================
   // 1. The Songs screen, empty. No artist, no label, no genre, no album.
   // =========================================================================
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Songs' }).click();
   await expect(ownerPage).toHaveURL(/\/music\/songs/);
   await expect(ownerPage.getByTestId('song-row')).toHaveCount(0);

@@ -1,8 +1,10 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { ICONS, type ShellUser } from '@/components/layout/app-shell';
 import type { NavSection } from '@/components/layout/sidebar-nav';
 import { getTranslations } from 'next-intl/server';
+import { NAV_COOKIE, parseExpanded } from '@/lib/nav/disclosure';
 
 /**
  * Everything the chrome needs, resolved once per request. Both the member area
@@ -11,12 +13,24 @@ import { getTranslations } from 'next-intl/server';
  * convenience, not the guard: the admin layout still redirects and every RPC
  * re-checks in its own body.
  */
-export async function getShellContext(): Promise<{ sections: NavSection[]; user: ShellUser }> {
+export async function getShellContext(): Promise<{
+  sections: NavSection[];
+  user: ShellUser;
+  /**
+   * Block 20b, D5. Which sections this caller has expanded, read on the SERVER
+   * so the sidebar arrives in the right state. Read in the browser instead, it
+   * would render open and collapse after hydration — a flash on every single
+   * navigation, on every screen, since the shell wraps all of them.
+   */
+  expandedSections: string[];
+}> {
   // Block 12a. The navigation is the one place a person sees every area of the
   // product at once, so its wording is the first thing that has to speak their
   // language. Fetched here because this function is already async and already
   // the single builder of the tree.
   const t = await getTranslations('nav');
+
+  const expandedSections = parseExpanded((await cookies()).get(NAV_COOKIE)?.value);
 
   const supabase = await createUserClient();
 
@@ -351,5 +365,6 @@ export async function getShellContext(): Promise<{ sections: NavSection[]; user:
       // nav item beside it (Task 8 review, Important 3).
       roleLabel: isAdmin ? 'Platform admin' : 'Team member',
     },
+    expandedSections,
   };
 }

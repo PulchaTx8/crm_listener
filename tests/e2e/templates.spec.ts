@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
 import { provisionThroughConsole } from './provision';
+import { openNavSection } from './nav';
 
 /**
  * The Templates block's round trip (Task 11): an operator reaches both new
@@ -141,6 +142,7 @@ test('a Station takes its own voice and records the template that lets it speak 
   //    no change to this screen's own code at all, and this count is the
   //    only thing in this file that needed to know the number moved.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Templates');
   await ownerPage.getByRole('link', { name: 'Messages' }).click();
   await expect(ownerPage).toHaveURL(/\/templates\/messages$/);
   await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(13);
@@ -191,6 +193,7 @@ test('a Station takes its own voice and records the template that lets it speak 
   // ===========================================================================
   // 4. The approved template, on the other screen in the same section.
   // ===========================================================================
+  await openNavSection(ownerPage, 'Templates');
   await ownerPage.getByRole('link', { name: 'WhatsApp' }).click();
   await expect(ownerPage).toHaveURL(/\/templates\/whatsapp$/);
 

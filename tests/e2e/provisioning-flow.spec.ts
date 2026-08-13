@@ -4,6 +4,7 @@ import {
   LOCAL_SUPABASE_URL,
   LOCAL_SUPABASE_SERVICE_ROLE_KEY,
 } from '../local-supabase';
+import { openNavSection } from './nav';
 
 /**
  * The whole customer journey through the real UI: a group is provisioned by a
@@ -68,6 +69,7 @@ test('provision a group, add a Station, fill its record, then block the customer
   await expect(page).toHaveURL(/\/app$/);
   // The platform links live in the sidebar, which only renders for a platform
   // admin — so reaching the console this way also asserts the nav is scoped.
+  await openNavSection(page, 'Platform');
   await page.getByRole('link', { name: 'Organizations' }).click();
   await expect(page).toHaveURL(/\/admin\/organizations$/);
 

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY } from '../local-supabase';
+import { openNavSection } from './nav';
 
 /**
  * Block 20b, Task 1. The sidebar's CONTENTS and ORDER — not merely that a
@@ -56,9 +57,16 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   // catalogue, which is the whole of item 3.
   //
   // English, because playwright.config.ts pins locale: 'en-US' for the suite.
+  //
+  // Block 20b, Task 3. Neither section is the one holding /app (Overview's
+  // own), so both are collapsed by default and have to be opened before their
+  // links can be asserted visible -- the same reason the thirteen e2e specs
+  // call openNavSection before a sidebar click.
+  await openNavSection(page, 'Audience');
   const audience = page.locator('[data-nav-section="audience"]');
   await expect(audience.getByRole('link', { name: 'Requests' })).toBeVisible();
 
+  await openNavSection(page, 'Catalog');
   const catalogue = page.locator('[data-nav-section="catalog"]');
   await expect(catalogue.getByRole('link', { name: 'Requests' })).toHaveCount(0);
   await expect(catalogue.getByRole('link', { name: 'Record labels' })).toBeVisible();
@@ -75,12 +83,67 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   // D3. The two administrative sections sit AFTER Organization, at the foot of
   // the list -- which is the opposite of what the owner's item 8 literally said
   // and what they actually meant (spec §2 D3).
-  const keys = await page.locator('[data-nav-section]').evaluateAll((nodes) =>
-    nodes.map((n) => n.getAttribute('data-nav-section')),
-  );
+  const keys = await page
+    .locator('[data-nav-section]')
+    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-nav-section')));
   expect(keys).toEqual([
-    'overview', 'dashboards', 'inventory', 'audience', 'promotions',
-    'catalog', 'templates', 'organization', 'reports', 'administration',
+    'overview',
+    'dashboards',
+    'inventory',
+    'audience',
+    'promotions',
+    'catalog',
+    'templates',
+    'organization',
+    'reports',
+    'administration',
     'platform',
   ]);
+});
+
+test('the sidebar remembers which sections a member opened', async ({ page }) => {
+  // Sign in the same way the first test does.
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  // D4. Everything closed except the section holding the current page. The
+  // links are in the DOM inside a `hidden` panel, so assert on VISIBILITY --
+  // toHaveCount would pass for a section that is merely collapsed.
+  await expect(
+    page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
+  ).toBeHidden();
+
+  // The section holding the landing page is open without anybody opening it.
+  // The landing page IS /app -- Overview's own item ('My stations', shell.ts)
+  // -- not Dashboards: activeSectionKey (disclosure.ts) matches a pathname
+  // against ITEM hrefs, and no Dashboards item's href is /app, so Dashboards
+  // would stay collapsed here same as Catalog above.
+  await expect(
+    page.locator('[data-nav-section="overview"]').getByRole('link', { name: 'My stations' }),
+  ).toBeVisible();
+
+  // 'Catalog', not 'Catalogue' -- the section's accessible name, same rule
+  // nav-content.spec.ts's own first test already states for this exact word.
+  await page.getByRole('button', { name: 'Catalog' }).click();
+  await expect(
+    page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
+  ).toBeVisible();
+
+  // THE STEP THAT PROVES THE COOKIE. Everything above passes with pure client
+  // state and no persistence at all; only a reload can tell the two apart.
+  await page.reload();
+  await expect(
+    page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
+  ).toBeVisible();
+
+  // And closing it is remembered too -- a one-way toggle would pass every
+  // assertion above.
+  await page.getByRole('button', { name: 'Catalog' }).click();
+  await page.reload();
+  await expect(
+    page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
+  ).toBeHidden();
 });
