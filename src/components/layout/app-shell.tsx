@@ -100,20 +100,17 @@ export async function AppShell({
     <div className="flex min-h-screen bg-background">
       <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
         <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-accent-foreground/15 text-sidebar-accent-foreground">
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-5 w-5"
-            >
-              <path d={ICONS.radio} />
-            </svg>
-          </span>
+          {/* The mark itself, on the reasoning src/components/auth/brand-mark.tsx
+              sets out: the tile carries its own background, so the tinted square
+              that used to sit behind the drawn glyph goes with it. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/pulchatx-mark.png"
+            alt=""
+            width={36}
+            height={36}
+            className="h-9 w-9 rounded-lg"
+          />
           <span className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-white">PulchatX</span>
             <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
