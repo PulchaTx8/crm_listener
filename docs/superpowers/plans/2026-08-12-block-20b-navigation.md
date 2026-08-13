@@ -460,13 +460,38 @@ describe('activeSectionKey', () => {
   });
 
   /**
-   * `/music/requests` is Audience's and `/music/songs` is Catalogue's. A naive
-   * first-match over a shared prefix would put the listener in the wrong
-   * section; the longest matching href wins.
+   * Both of these resolve correctly under ANY tie-break rule, because
+   * `/music/requests` and `/music/songs` are siblings rather than one being a
+   * prefix of the other. Kept because they are the real hrefs this block moves
+   * between two sections, and a regression there is what somebody would
+   * actually hit — but see the case below for the rule itself.
    */
-  it('prefers the longest matching href when two sections share a prefix', () => {
+  it('files the two /music routes under the sections that own them', () => {
     expect(activeSectionKey(SECTIONS, '/music/requests')).toBe('audience');
     expect(activeSectionKey(SECTIONS, '/music/songs')).toBe('catalog');
+  });
+
+  /**
+   * THE LONGEST-MATCH RULE ITSELF, and this fixture is deliberately synthetic:
+   * **no two sections in the real sidebar own hrefs in a prefix relationship
+   * today.** The only prefix pair that exists — `/inventory` and
+   * `/inventory/movements` — sits inside ONE section, where the tie-break
+   * cannot change the answer.
+   *
+   * So the rule is defensive, and this is what makes it testable rather than
+   * decorative: without a case that can only pass under longest-match, the
+   * rule could be replaced by `Array.prototype.find` and every test would stay
+   * green. One nav edit is all it would take for that to start mattering.
+   */
+  it('prefers the longest matching href when two sections genuinely overlap', () => {
+    const overlapping = [
+      { key: 'wide', items: [{ href: '/music' }] },
+      { key: 'narrow', items: [{ href: '/music/songs' }] },
+    ];
+    expect(activeSectionKey(overlapping, '/music/songs')).toBe('narrow');
+    expect(activeSectionKey(overlapping, '/music/songs/123')).toBe('narrow');
+    // And the wide one still wins where it is the only match.
+    expect(activeSectionKey(overlapping, '/music/other')).toBe('wide');
   });
 
   it('answers null for a path no section names', () => {
@@ -805,7 +830,13 @@ export function SidebarNav({
                 <path d="M9 18l6-6-6-6" />
               </svg>
             </button>
-            <div id={panelId} hidden={!open} className="flex flex-col gap-1">
+            {/* `flex` MUST be conditional. The `hidden` attribute works through
+                the user-agent rule `[hidden] { display: none }`, and an author
+                class setting `display: flex` beats it on specificity — so a
+                panel carrying both is fully visible while announcing itself as
+                collapsed. Found in implementation; the first draft of this plan
+                had the bug. */}
+            <div id={panelId} hidden={!open} className={cn('flex-col gap-1', open && 'flex')}>
               {section.items.map((item) => {
                 /* the existing Link block, unchanged */
               })}
@@ -950,6 +981,15 @@ EOF
 - Consumes: nothing from other tasks.
 - Produces: `MEMBER_HOME` exported from `src/lib/routes.ts` (new file), imported
   by all three.
+
+**Task 3's disclosure journey asserts which section opens itself on landing, and
+this task moves the landing.** Before this task, the home is `/app`, which is
+Overview's own item, so that journey asserts `overview` / `My stations`. After
+it, the home is `/dashboards/audience` and the section that opens itself is
+`dashboards` / `Audience overview`. **Update that assertion in
+`tests/e2e/nav-content.spec.ts` as part of this task** — it is not a separate
+concern, it is the same fact seen from the other end, and leaving it will fail
+the suite.
 
 - [ ] **Step 1: Write the failing assertion**
 
