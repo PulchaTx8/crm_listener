@@ -874,6 +874,22 @@ So this step must add, to `catalog-screens.spec.ts`:
 If either cannot be driven, stop and report rather than shipping the block with
 an untested irreversible write.
 
+**And two corrections to what Task 4 shipped, both mine:**
+
+3. **The cover assertion is too weak.** It matches `src` against
+   `/album-covers/` — the storage SLOT name, nothing more. It cannot tell
+   `album-covers/<company_id>/<album_id>` from a version with the segments
+   swapped or one dropped, which is precisely what `may_write_artwork` reads to
+   decide permission (`storage.foldername(name)[2]`). Tighten it to assert the
+   company id as the second segment; the test already knows that id from its own
+   provisioning. My brief specified the weak version and then described it as
+   proving the key — it does not.
+
+4. **A comment counts wrong.** `src/app/(app)/catalog/albums/list-params.ts:15`
+   says "six columns against two"; the real counts are five and two, and
+   `albums-grid.tsx:30` in the same commit says "Five columns." Fix the one that
+   is wrong.
+
 - [ ] **Step 7: Run the whole e2e suite**
 
 ```bash
