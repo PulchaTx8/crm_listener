@@ -55,6 +55,27 @@ The consequence, and it is the point: **the navigation is final when this block
 ships.** Block 20c changes what those three addresses render, not where they sit
 in the sidebar.
 
+**AMENDED 2026-08-13, on the owner's ruling: the `?tab=` addresses are an
+interim, and Block 20c replaces them with real routes** — `/catalog/labels`,
+`/catalog/genres`, `/catalog/albums`. `/music/catalog` goes away with them.
+
+The owner's words: *"o grande erro cometido é não ter eliminado a tab"*. They
+are right, and the shortcut cost more than it saved. Item 5 asked for the tabs
+to STOP EXISTING, not to be linked to from three places; pointing the sidebar at
+`?tab=` kept them alive under a new name. It also caused a defect that a real
+route could not have: the sidebar's active-link test compares a pathname against
+an href, and these three hrefs carry a query string that a pathname never does.
+Fixing that meant reading `useSearchParams()`, which then failed to observe the
+client-side canonicalisation the catalogue screen performs on a bare
+`/music/catalog` — so on that arrival no catalogue item highlights at all.
+
+**That defect is deliberately NOT patched here.** It is a property of the
+interim addresses, and it disappears with them. Patching a query-matching rule
+scheduled for deletion is polish on something already condemned.
+
+The sidebar's ITEMS and their order are still final. Only their `href`s change
+in 20c, and they change once.
+
 **D3 — Relatórios and Administração move to the end, after Organização.** Not
 "before Modelos", which is what the owner's item 8 says and which is already
 true — they sit third and fourth today and Modelos is ninth. The owner's intent,
@@ -291,9 +312,21 @@ changes the database, so `db:test` is a regression check.
 ## 9. What Block 20c inherits
 
 The sidebar as it will ship: Gravadoras, Gêneros and Álbuns as three items
-pointing at `?tab=` addresses. 20c replaces those with real screens — a filtered
-list and a Cadastrar button opening a popup, following the Músicas screen — and
-gives the album record a thumbnail. `albums` already carries `cover_md5`,
+pointing at `?tab=` addresses **that 20c must retire** (see D2's amendment).
+
+**20c's first task is the routes, not the screens.** `/catalog/labels`,
+`/catalog/genres` and `/catalog/albums` become real routes; the three sidebar
+`href`s move to them; `/music/catalog` disappears, and whatever should happen to
+anyone holding a link to it is 20c's to decide. Doing this first means the
+screens are built where they will live, rather than built under `?tab=` and
+moved afterwards — and it deletes the highlight defect D2's amendment records
+rather than working around it.
+
+Only then the screens themselves: a filtered list and a Cadastrar button opening
+a popup, following the Músicas screen, plus a thumbnail on the album record.
+
+Songs, Artists and Manutenção are NOT part of that move. The owner named three
+addresses; the other three work today and nothing about them is broken. `albums` already carries `cover_md5`,
 `deezer_album_id`, `upc` and `release_date` (0136/0137), so anything registered
 from Deezer has a picture; where the picture comes from for an album typed in by
 hand is 20c's open question, with Block 14's promotion and prize images as the
