@@ -93,6 +93,38 @@ export default async function LoginPage({
           {t('signIn')}
         </Button>
       </form>
+
+      {/* The two documents somebody is agreeing to, on the screen where they
+          agree — and the only place in the signed-out product that names them,
+          since the (public) header renders on the legal pages themselves and
+          nowhere else. Meta also asks for these two addresses to be reachable
+          before it will review the WhatsApp integration (docs/DEPLOYMENT.md
+          §11).
+
+          RICH TEXT rather than three concatenated fragments. The links sit in
+          the middle of a sentence whose word order differs in all three
+          languages — Portuguese and Spanish put the product name last, English
+          does not — and a sentence assembled from pieces is grammatical in
+          exactly one of them.
+
+          The product name is interpolated from `pulchatx` rather than written
+          into the three strings, so the wordmark above and this line can never
+          come to spell it differently. */}
+      <p className="text-center text-xs text-muted-foreground">
+        {t.rich('bySigningInYouAgreeTo', {
+          brand: t('pulchatx'),
+          terms: (chunks) => (
+            <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
+              {chunks}
+            </Link>
+          ),
+          privacy: (chunks) => (
+            <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
+              {chunks}
+            </Link>
+          ),
+        })}
+      </p>
     </div>
   );
 }

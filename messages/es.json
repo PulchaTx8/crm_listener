@@ -92,7 +92,8 @@
     "thePasswordMustBeAtLeast10": "La contraseña debe tener al menos 10 caracteres.",
     "theTwoPasswordsDoNotMatch": "Las dos contraseñas no coinciden.",
     "couldNotCompleteTheInvitation": "No se pudo completar la invitación. Pida una nueva.",
-    "couldNotChangeThePassword": "No se pudo cambiar la contraseña. Inténtelo de nuevo."
+    "couldNotChangeThePassword": "No se pudo cambiar la contraseña. Inténtelo de nuevo.",
+    "bySigningInYouAgreeTo": "Al iniciar sesión, usted acepta los <terms>Términos de Servicio</terms> y la <privacy>Política de Privacidad</privacy> de {brand}."
   },
   "public": {
     "thankYou": "Gracias",
