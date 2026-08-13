@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import type { Route } from 'next';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -56,6 +56,7 @@ export function SidebarNav({
   expandedSections: string[];
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [expanded, setExpanded] = useState<string[]>(expandedSections);
   const activeKey = activeSectionKey(sections, pathname);
 
@@ -88,15 +89,31 @@ export function SidebarNav({
   // instead, by the effect below, rather than merely stopping to apply. That
   // costs one extra render right after a navigation (the effect runs after
   // the DOM commits with the new pathname, so the stale value is still what
-  // renders on the FIRST pass; `setActiveCollapsed(false)` then triggers a
-  // second one) -- and that extra render is the actual price of "re-opens on
-  // the next navigation", not an optimisation to route around.
-  const [activeCollapsed, setActiveCollapsed] = useState(false);
-  useEffect(() => setActiveCollapsed(false), [pathname]);
+  // renders on the FIRST pass; the clearing effect then triggers a second one)
+  // -- and that extra render is the actual price of "re-opens on the next
+  // navigation", not an optimisation to route around.
+  //
+  // Whole-branch review, I1. THIS WAS STILL WRONG, in a way both fix rounds
+  // above missed: the override lived here as a bare `boolean`
+  // (`activeCollapsed`), answering for "whichever section is active right
+  // now" rather than for a specific section -- and `isSectionOpen` was never
+  // called for the active section at all, this file's own ternary bypassed it.
+  // Two costs, paid together: the settled rule (this whole comment block) was
+  // reachable only by a browser, exactly what `disclosure.ts` exists to
+  // prevent; and a bare boolean carried no memory of WHICH section it was set
+  // for, so the section that had just BECOME active inherited the outgoing
+  // section's collapsed flag for the one render before this effect fires --
+  // collapse Audience, navigate to Promotions, and Promotions rendered closed
+  // for a frame. `collapsedKey` fixes both: it is the single source `disclosure
+  // .ts`'s `isSectionOpen` now combines itself (`collapsedKey !== key` only
+  // when `key === activeKey`), so a section that is not the one just collapsed
+  // is never affected, active or not, on this render or any other.
+  const [collapsedKey, setCollapsedKey] = useState<string | null>(null);
+  useEffect(() => setCollapsedKey(null), [pathname]);
 
   function toggle(key: string) {
     if (key === activeKey) {
-      setActiveCollapsed((collapsed) => !collapsed);
+      setCollapsedKey((current) => (current === key ? null : key));
       return;
     }
     const next = toggleExpanded(expanded, key);
@@ -110,16 +127,12 @@ export function SidebarNav({
   return (
     <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
       {sections.map((section) => {
-        // The active section's own `isSectionOpen` answer is unconditionally
-        // true (that IS its contract), so the only thing that can ever close
-        // it is `activeCollapsed` above -- and only for the section it
-        // actually names; `activeCollapsed` answers for whichever section is
-        // active RIGHT NOW, which is exactly what `section.key === activeKey`
-        // is checking.
-        const open =
-          section.key === activeKey
-            ? !activeCollapsed
-            : isSectionOpen(section.key, activeKey, expanded);
+        // Whole-branch review, I1. `collapsedKey` now travels INTO
+        // `isSectionOpen` rather than being combined with its answer here --
+        // the hardest-won rule (this section's own history above) lives in
+        // `disclosure.ts`, where a unit test can reach it, for every section
+        // including the active one.
+        const open = isSectionOpen(section.key, activeKey, expanded, collapsedKey);
         const panelId = `nav-section-${section.key}`;
         return (
           <div key={section.key} data-nav-section={section.key} className="flex flex-col gap-1">
@@ -128,7 +141,7 @@ export function SidebarNav({
               onClick={() => toggle(section.key)}
               aria-expanded={open}
               aria-controls={panelId}
-              className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-left text-[11px] font-medium uppercase tracking-wider text-sidebar-muted transition-colors hover:text-white"
+              className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-left text-[11px] font-medium uppercase tracking-wider text-sidebar-muted transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
             >
               {section.label}
               <svg
@@ -163,7 +176,27 @@ export function SidebarNav({
                 // query strings that this comparison must not strip --
                 // Catalog's three items differ from each other only by
                 // ?tab=.
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                //
+                // Whole-branch review, I3. A pathname never carries a query
+                // string, so that comparison alone left Record labels, Genres
+                // and Albums -- whose hrefs are `/music/catalog?tab=...` --
+                // unable to ever match, on any screen: no aria-current, no
+                // highlight, ever. `hrefPath`/`hrefQuery` split the href apart
+                // so the path still has to match exactly as before (Songs does
+                // not light up for the catalogue's own /music/catalog), and
+                // when the href names a query string, every parameter it names
+                // must also match the current one. `hrefQuery` is `undefined`
+                // for every OTHER item in this sidebar, so `queryMatches`
+                // short-circuits to `true` and this branch changes nothing for
+                // them -- the plain-path rule is exactly what it was.
+                const [hrefPath = '', hrefQuery] = `${item.href}`.split('?');
+                const queryMatches =
+                  !hrefQuery ||
+                  [...new URLSearchParams(hrefQuery)].every(
+                    ([param, value]) => searchParams.get(param) === value,
+                  );
+                const active =
+                  (pathname === hrefPath || pathname.startsWith(`${hrefPath}/`)) && queryMatches;
                 return (
                   <Link
                     key={item.href}

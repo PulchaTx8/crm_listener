@@ -96,16 +96,36 @@ export function activeSectionKey(
 
 /**
  * A section is open when the caller expanded it, or when it is the one they are
- * standing in.
+ * standing in — UNLESS they collapsed that active section by hand, which
+ * `collapsedKey` records.
  *
  * The active section is never written to the cookie. It is open because of WHERE
  * THE CALLER IS, not because of anything they chose, and it has to go back to
- * whatever they did choose the moment they navigate away.
+ * whatever they did choose the moment they navigate away. A hand-collapse of the
+ * active section is the one exception the cookie must never learn about — spec
+ * §4.2's "a caller may still collapse the active section by hand; it re-opens on
+ * the next navigation" — which is why it travels as a separate, ungated
+ * argument rather than through `expanded`.
+ *
+ * WHOLE-BRANCH REVIEW, I1. This used to be sidebar-nav.tsx's own job — a ternary
+ * that answered `!activeCollapsed` for the active section and never called this
+ * function at all — which meant the rule that took two review rounds to settle
+ * (first it wrote the opposite preference into the cookie; then it revived on a
+ * round trip) was reachable only by a browser, in the one file this module
+ * exists to keep that from happening to. `collapsedKey` is KEYED rather than a
+ * bare boolean for the same reason: an unkeyed override answers for whichever
+ * section happens to be active right now, so the section that has just BECOME
+ * active inherits the previous section's collapsed flag for one render before
+ * the caller's clearing effect fires — a flash closed-then-open. Keyed to a
+ * specific section, it simply does not match a different `key`, active or not,
+ * so there is nothing to flash.
  */
 export function isSectionOpen(
   key: string,
   activeKey: string | null,
   expanded: readonly string[],
+  collapsedKey: string | null = null,
 ): boolean {
-  return key === activeKey || expanded.includes(key);
+  if (key === activeKey) return collapsedKey !== key;
+  return expanded.includes(key);
 }

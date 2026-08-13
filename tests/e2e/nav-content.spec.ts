@@ -60,7 +60,7 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   //
   // Block 20b, Task 3. Neither section is the one holding /app (Overview's
   // own), so both are collapsed by default and have to be opened before their
-  // links can be asserted visible -- the same reason the thirteen e2e specs
+  // links can be asserted visible -- the same reason eighteen e2e call sites
   // call openNavSection before a sidebar click.
   await openNavSection(page, 'Audience');
   const audience = page.locator('[data-nav-section="audience"]');
@@ -142,11 +142,24 @@ test('the sidebar remembers which sections a member opened', async ({ page }) =>
     page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
   ).toBeVisible();
 
+  // Whole-branch review. A SECOND section open at once, because that is the
+  // case that actually exercises the cookie's comma. `serializeExpanded`
+  // joins keys with ',', and the client writes the value through
+  // `encodeURIComponent`, which percent-escapes that very comma -- it
+  // round-trips today only because Next's cookie parser decodes the value on
+  // read, and nothing pinned that dependency before this. The failure mode is
+  // silent: a member with two sections open would lose both on reload, not
+  // get an error.
+  await openNavSection(page, 'Audience');
+
   // THE STEP THAT PROVES THE COOKIE. Everything above passes with pure client
   // state and no persistence at all; only a reload can tell the two apart.
   await page.reload();
   await expect(
     page.locator('[data-nav-section="catalog"]').getByRole('link', { name: 'Songs' }),
+  ).toBeVisible();
+  await expect(
+    page.locator('[data-nav-section="audience"]').getByRole('link', { name: 'Members' }),
   ).toBeVisible();
 
   // And closing it is remembered too -- a one-way toggle would pass every
@@ -186,20 +199,43 @@ test('the active section can be collapsed by hand, and it reopens on the next na
   // OPPOSITE of its own intent into the cookie (Audience "expanded", which
   // opens it on every OTHER screen). A screen-reader user saw a disclosure
   // button whose state never changed on activation.
+  //
+  // Whole-branch review. THE COOKIE HALF OF THAT BUG NEEDS PROVING DIRECTLY,
+  // not inferred from a render: Audience's own heading renders open
+  // unconditionally while it is active, no matter what the cookie says, so an
+  // aria-expanded check on THIS heading proves nothing about the cookie while
+  // the caller stays here -- and checking it on a LATER page does not rescue
+  // the idea either, because Audience was legitimately opened (and so
+  // legitimately written to the cookie) by the `openNavSection` call above,
+  // needed just to reach Members in the first place. That write stays in the
+  // cookie for the rest of this test, so a check for its ABSENCE after
+  // leaving the page would be red always, fix or no fix -- worse than the
+  // wrong claim it would replace. Comparing the cookie's raw value to itself,
+  // before and after the click, is not confused by any of that.
+  const navCookieValue = async () =>
+    (await page.context().cookies()).find((c) => c.name === 'pulchatx_nav_open')?.value ?? null;
+
   const heading = page.getByRole('button', { name: 'Audience', exact: true });
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
+  const cookieBeforeCollapse = await navCookieValue();
   await heading.click();
   await expect(heading).toHaveAttribute('aria-expanded', 'false');
   await expect(
     page.locator('[data-nav-section="audience"]').getByRole('link', { name: 'Members' }),
   ).toBeHidden();
+  // THE ASSERTION THAT ACTUALLY PROVES IT, in place of the wrong claim this
+  // replaces: unchanged, where the original bug would have flipped Audience
+  // out of `expanded` and rewritten the value.
+  expect(await navCookieValue()).toBe(cookieBeforeCollapse);
 
-  // THE INVARIANT disclosure.ts states in prose: "the active section is
-  // never written to the cookie." A reload of this SAME page reads the
-  // cookie fresh (getShellContext, server-side) and rebuilds React state from
-  // scratch -- so if the collapse above had reached the cookie, Audience
-  // would still read closed here. It does not: the hand collapse lived only
-  // in this render.
+  // A reload of this SAME page reads the cookie fresh (getShellContext,
+  // server-side) and rebuilds React state from scratch. This does NOT retest
+  // the invariant above -- it reads 'true' whether or not the cookie was
+  // touched, because Audience is still the ACTIVE section here, and an active
+  // section reads open regardless of `expanded`. What it proves instead: the
+  // hand collapse does not survive a hard reload of the very page it was set
+  // on, which is a different half of §4.2 than the click-based round trip
+  // below.
   await page.reload();
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
 
@@ -225,4 +261,46 @@ test('the active section can be collapsed by hand, and it reopens on the next na
   await page.getByRole('link', { name: 'Members', exact: true }).click();
   await expect(page).toHaveURL(/\/members$/);
   await expect(heading).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('a catalogue tab lights up its own sidebar item, and only its own', async ({ page }) => {
+  // Sign in the same way the first test does.
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  // Whole-branch review, I3. Record labels, Genres and Albums all point at
+  // `/music/catalog`, differing ONLY by `?tab=` -- and a pathname never
+  // carries a query string, so the plain `pathname === item.href` rule used
+  // everywhere else in this component left all three unable to ever match:
+  // no `aria-current`, no highlight, on any screen. Before this block the
+  // single `/music/catalog` item DID highlight, so this was a user-visible
+  // regression, and `aria-current` is how a screen-reader user is told where
+  // they are.
+  //
+  // No `openNavSection` needed first: `/music/catalog` makes Catalog the
+  // ACTIVE section (activeSectionKey strips the query the same way), which
+  // opens it regardless of the cookie -- the same D4 contract every other
+  // test in this file relies on.
+  await page.goto('/music/catalog?tab=genres');
+
+  const catalogue = page.locator('[data-nav-section="catalog"]');
+  await expect(catalogue.getByRole('link', { name: 'Genres' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  // Its two siblings share the same path and differ only by the query string
+  // that named Genres above -- exactly the case a path-only comparison cannot
+  // tell apart, so these two are the ones that would falsely light up too if
+  // the fix matched on path alone.
+  await expect(catalogue.getByRole('link', { name: 'Record labels' })).not.toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(catalogue.getByRole('link', { name: 'Albums' })).not.toHaveAttribute(
+    'aria-current',
+    'page',
+  );
 });

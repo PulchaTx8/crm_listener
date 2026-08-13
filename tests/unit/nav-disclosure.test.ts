@@ -144,6 +144,32 @@ describe('isSectionOpen', () => {
   it('closes everything when there is no cookie and no active section', () => {
     expect(isSectionOpen('catalog', null, [])).toBe(false);
   });
+
+  /**
+   * Whole-branch review, I1. `collapsedKey` is the hand-collapse override for
+   * the ACTIVE section — sidebar-nav.tsx used to answer this itself with a
+   * ternary that bypassed this function entirely for the section the caller is
+   * standing in, so the rule that took two review rounds to settle (first it
+   * wrote the opposite preference into the cookie; then it revived on a round
+   * trip) was reachable only by a browser. These three cases pin it here.
+   */
+  describe('the active-section override', () => {
+    it('closes only its own section', () => {
+      expect(isSectionOpen('audience', 'audience', [], 'audience')).toBe(false);
+    });
+
+    it('never closes a section that is not the active one, even if it shares the override key', () => {
+      // 'catalog' is expanded via the cookie and is NOT the active section here
+      // ('audience' is) — the override answers only for the section named by
+      // `activeKey`, so a stray or coincidental match on `collapsedKey` must not
+      // reach into a different section's answer.
+      expect(isSectionOpen('catalog', 'audience', ['catalog'], 'catalog')).toBe(true);
+    });
+
+    it('reopens once the override is cleared', () => {
+      expect(isSectionOpen('audience', 'audience', [], null)).toBe(true);
+    });
+  });
 });
 
 describe('toggleExpanded', () => {
