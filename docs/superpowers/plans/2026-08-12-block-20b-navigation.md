@@ -969,112 +969,29 @@ EOF
 
 ---
 
-## Task 4: Signing in lands on the audience dashboard
+## Task 4: WITHDRAWN — the member home stays where it is
 
-**Files:**
-- Modify: `src/middleware.ts` (`MEMBER_HOME`, line ~44)
-- Modify: `src/app/(auth)/login/page.tsx` (line ~44)
-- Modify: `src/app/(auth)/change-password/page.tsx` (line ~43)
-- Test: `tests/e2e/login.spec.ts`
+**Do not run this task.** The owner withdrew it on 2026-08-13, after it had been
+implemented and the cost became visible. Its two commits were reverted; `src/`
+and `tests/` are byte-identical to the state Task 3's review approved.
 
-**Interfaces:**
-- Consumes: nothing from other tasks.
-- Produces: `MEMBER_HOME` exported from `src/lib/routes.ts` (new file), imported
-  by all three.
+Why, in short: `/dashboards/audience` redirects to `/app` for a caller who can
+reach no Station with the permission it needs, so the landing stops being the
+same screen for every member — and forty-odd assertions across twenty e2e specs
+assert a fixed home after signing in. Some break outright; worse, which home a
+member gets depends on the Stations left behind by whichever spec ran first,
+making the suite's result depend on its execution order.
 
-**Task 3's disclosure journey asserts which section opens itself on landing, and
-this task moves the landing.** Before this task, the home is `/app`, which is
-Overview's own item, so that journey asserts `overview` / `My stations`. After
-it, the home is `/dashboards/audience` and the section that opens itself is
-`dashboards` / `Audience overview`. **Update that assertion in
-`tests/e2e/nav-content.spec.ts` as part of this task** — it is not a separate
-concern, it is the same fact seen from the other end, and leaving it will fail
-the suite.
+§2 D6 and §5 of the design carry the full reasoning. If the audience dashboard
+should be the front door, it is its own item with its own spec, and that spec
+has to decide what a member with no audience permission sees rather than
+bouncing them.
 
-- [ ] **Step 1: Write the failing assertion**
-
-In `tests/e2e/login.spec.ts`, find the test that signs a member in and assert
-where they land:
-
-```ts
-  // Block 20b, D6. Signing in lands on the audience dashboard, not on
-  // /app. A member who cannot reach the dashboard is redirected onward to
-  // /app by the page itself, so this asserts the ordinary case.
-  await expect(page).toHaveURL(/\/dashboards\/audience$/);
-```
-
-If the existing test already asserts a URL after sign-in, change that assertion
-rather than adding a second one.
-
-- [ ] **Step 2: Run it and watch it fail**
-
-```bash
-npx playwright test tests/e2e/login.spec.ts
-```
-
-Expected: FAIL — the URL is `/app`.
-
-- [ ] **Step 3: Create the constant**
-
-Create `src/lib/routes.ts`:
-
-```ts
-/**
- * Where a signed-in member lands.
- *
- * Block 20b, D6. This was spelled in three places — `MEMBER_HOME` in
- * middleware.ts, the sign-in redirect, and the redirect after a forced password
- * change — which is three copies of one fact and three places for it to drift.
- *
- * THERE IS NO REDIRECT LOOP, and this was checked rather than assumed:
- * /dashboards/audience redirects to /app for a caller who can reach no Station
- * with the permission it needs (its page.tsx, `if (!first) redirect('/app')`),
- * so a member who cannot see the dashboard lands exactly where they land today.
- */
-export const MEMBER_HOME = '/dashboards/audience';
-```
-
-- [ ] **Step 4: Use it in all three places**
-
-In `src/middleware.ts`, delete the local `const MEMBER_HOME = '/app';` and import
-the new one. In `src/app/(auth)/login/page.tsx` and
-`src/app/(auth)/change-password/page.tsx`, replace the `'/app'` literals in their
-`redirect(...)` calls with `MEMBER_HOME`.
-
-Leave every OTHER `'/app'` in the codebase alone — the nav link, and the
-`redirect('/app')` calls inside individual pages that bounce a caller lacking a
-permission. Those mean "the page that always works", which is a different fact
-from "where a member lands", and collapsing them would be wrong.
-
-- [ ] **Step 5: Run the tests**
-
-```bash
-npm run typecheck
-npx playwright test tests/e2e/login.spec.ts tests/e2e/signout.spec.ts tests/e2e/provisioning-flow.spec.ts tests/e2e/roles-flow.spec.ts
-```
-
-Expected: PASS. Those four navigate to `/app` explicitly or assert sign-in
-behaviour, and are where a wrong constant would show first.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/lib/routes.ts src/middleware.ts "src/app/(auth)/login/page.tsx" "src/app/(auth)/change-password/page.tsx" tests/e2e/login.spec.ts
-git commit -F- <<'EOF'
-feat(20b): signing in lands on the audience dashboard
-
-Where a member lands was spelled in three files -- middleware.ts, the sign-in
-redirect and the redirect after a forced password change -- which is three
-copies of one fact. It becomes one constant, and its value becomes the audience
-dashboard.
-
-No redirect loop, checked rather than assumed: /dashboards/audience already
-redirects to /app for a caller who can reach no Station with the permission it
-needs, so a member who cannot see it lands exactly where they land today.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-```
+**One consequence for Task 5:** the disclosure journey in
+`tests/e2e/nav-content.spec.ts` asserts that the section holding the landing
+page opens itself, and the landing page is `/app` — Overview's own item — so
+that assertion reads `overview` / `My stations` and is correct as it stands.
+Nothing about it needs to change.
 
 ---
 

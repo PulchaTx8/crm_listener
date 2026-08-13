@@ -74,9 +74,25 @@ right state rather than expanding and then collapsing after hydration. This
 project already carries two precedents for a cookie deciding presentation: the
 locale cookie, and `WIDGET_PRESENTATION_COOKIE` from Block 19b.
 
-**D6 — The home becomes the audience dashboard.** Signing in lands on
-`/dashboards/audience` rather than `/app`. Today `/app` is spelled in three
-places; it becomes one constant that all three import.
+**D6 — WITHDRAWN. The home stays `/app`.** This decision was taken on
+2026-08-12 and withdrawn by the owner on 2026-08-13, once implementing it made
+the cost visible. It is left here rather than deleted because the reasoning is
+worth keeping for whoever proposes it again.
+
+It was never one of the owner's nine numbered items: it came from
+disambiguating *"tudo recolhido e a /dashboards/audience aberta"*, and both
+readings were chosen before anyone knew what the second one cost.
+
+What it costs: `/dashboards/audience` redirects to `/app` for a caller who can
+reach no Station with the permission it needs, so **the landing stops being the
+same screen for every member**. Forty-odd assertions across twenty e2e specs
+assert a fixed home after signing in; some break outright, and — worse — which
+home a member gets depends on the Stations left behind by whichever spec ran
+first, so the suite's result would depend on its execution order.
+
+If the audience dashboard should be the front door, it is its own item with its
+own spec, and the honest version of it decides what a member with no audience
+permission sees rather than bouncing them somewhere else.
 
 ---
 
@@ -171,20 +187,24 @@ longer exists, is exactly the kind of lie this project has been bitten by.
 
 ---
 
-## 5. The home
+## 5. The home — not changed by this block
 
 `/app` appears in three places: `MEMBER_HOME` in `src/middleware.ts`, the
 sign-in redirect in `src/app/(auth)/login/page.tsx`, and the redirect after a
 forced password change in `src/app/(auth)/change-password/page.tsx`. All three
 mean "where a member lands", and they are three copies of one fact.
 
-They become one exported constant, and its value becomes `/dashboards/audience`.
+**They stay as they are.** D6 above records what was going to happen here, why
+it was withdrawn, and what a future block would have to settle first. The
+one-constant tidy-up existed only to serve the value change and went back with
+it; collapsing three copies into one is worth doing on the day something
+actually needs them to agree.
 
-**There is no redirect loop, and this was checked rather than assumed.**
+The fact that made the change expensive is worth keeping in view regardless:
 `/dashboards/audience` redirects to `/app` for a caller who can reach no Station
 with the permission it needs (`page.tsx:104`, `if (!first) redirect('/app')`).
-So a member who cannot see the dashboard lands on Minhas emissoras, which is
-where they land today. `/app` remains reachable, and keeps its nav link.
+That is correct behaviour for a dashboard and the wrong behaviour for a front
+door.
 
 ---
 
