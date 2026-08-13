@@ -210,15 +210,21 @@ door.
 
 ## 6. What this costs
 
-**Thirteen e2e specs reach screens by clicking sidebar links** — acceptance,
-deadline, deezer, filtered-draw, inventory-flow, invitation-flow, members-flow,
-music-catalogue, music-requests, record-dialog, roles-flow, shows and templates.
-With sections collapsed, those links are not in the DOM until the section is
-opened.
+**Eighteen e2e call sites reach screens by clicking sidebar links, not
+thirteen** — the count below was wrong when first written, and five more files
+broke identically once sections collapsed: acceptance, deadline, deezer,
+filtered-draw, inventory-flow, invitation-flow, members-flow, music-catalogue,
+music-requests, record-dialog, roles-flow, shows, templates, **audit,
+dashboards, nav-content and provisioning-flow** — plus the shared
+`tests/e2e/provision.ts`, the one worth naming separately: fixing its single
+call site covers roughly fourteen of the eighteen at the source, rather than
+fourteen individual edits. With sections collapsed, those links are not in the
+DOM until the section is opened.
 
 This is paid **once**, with one helper — `openNavSection(page, name)` in the e2e
-helpers — used by all thirteen, not with thirteen separate edits. A helper is
-also what keeps the next nav change from costing thirteen edits again.
+helpers — used by all eighteen call sites, not with eighteen separate edits. A
+helper is also what keeps the next nav change from costing eighteen edits
+again.
 
 **Four items need an icon that does not collide.** The house rule, written into
 `ICONS` and into `shell.ts` in four comments, is that two adjacent rows of the

@@ -58,8 +58,8 @@ Playwright, Vitest.
   a cookie value and a path. Exists to be importable by a test; the panel-level
   branch would otherwise be checked by nothing. Task 2.
 - `tests/unit/nav-disclosure.test.ts` — its tests. Task 2.
-- `tests/e2e/nav.ts` — the `openNavSection` helper the thirteen sidebar-driven
-  specs call. Task 3.
+- `tests/e2e/nav.ts` — the `openNavSection` helper the eighteen sidebar-driven
+  call sites use. Task 3.
 
 **Modified:**
 
@@ -670,7 +670,8 @@ EOF
 - Modify: `src/components/layout/sidebar-nav.tsx`
 - Modify: `src/lib/auth/shell.ts` (read the cookie, pass it down)
 - Create: `tests/e2e/nav.ts`
-- Modify: thirteen e2e specs, and `tests/e2e/dashboards.spec.ts`'s stale comment
+- Modify: eighteen e2e call sites, and `tests/e2e/dashboards.spec.ts`'s stale
+  comment
 - Test: `tests/e2e/nav-content.spec.ts` (extended with the disclosure journey)
 
 **Interfaces:**
@@ -679,13 +680,19 @@ EOF
   `tests/e2e/nav.ts`.
 
 **This task must land atomically.** The moment sections collapse, every spec that
-clicks a sidebar link stops finding it — so the helper and the thirteen callers
-ship in the same commit as the tree. A reviewer cannot sensibly approve the tree
-while the suite is red.
+clicks a sidebar link stops finding it — so the helper and its callers ship in
+the same commit as the tree. A reviewer cannot sensibly approve the tree while
+the suite is red.
 
-The thirteen: `acceptance`, `deadline`, `deezer`, `filtered-draw`,
-`inventory-flow`, `invitation-flow`, `members-flow`, `music-catalogue`,
-`music-requests`, `record-dialog`, `roles-flow`, `shows`, `templates`.
+Thirteen were named in advance: `acceptance`, `deadline`, `deezer`,
+`filtered-draw`, `inventory-flow`, `invitation-flow`, `members-flow`,
+`music-catalogue`, `music-requests`, `record-dialog`, `roles-flow`, `shows`,
+`templates`. **The real count was eighteen** — five more files broke under the
+identical failure mode during execution and needed the same fix: `nav-content`
+(its own pre-existing test), `dashboards`, `audit`, `provisioning-flow`, and the
+shared `tests/e2e/provision.ts`, the one worth naming separately, since fixing
+its one call site covers roughly fourteen of the eighteen at the source. See
+the File Structure correction above and Step 6 below.
 
 **Why they break, stated so nobody chases it:** the mobile header
 (`app-shell.tsx`, the `md:hidden` bar) renders every link of every section
@@ -837,7 +844,9 @@ export function SidebarNav({
             </button>
             {/* `flex` MUST be conditional. The `hidden` attribute works through
                 the user-agent rule `[hidden] { display: none }`, and an author
-                class setting `display: flex` beats it on specificity — so a
+                class setting `display: flex` beats it on cascade ORIGIN, not
+                specificity — the two selectors tie on specificity, and author
+                styles win ties against user-agent ones regardless — so a
                 panel carrying both is fully visible while announcing itself as
                 collapsed. Found in implementation; the first draft of this plan
                 had the bug. */}
@@ -872,8 +881,8 @@ import { expect, type Page } from '@playwright/test';
  *
  * Block 20b, D4 made every section a disclosure, closed by default except the
  * one holding the current page — so a spec that reaches a screen by clicking a
- * sidebar link has to open its section first. THIRTEEN specs do that, and this
- * exists so the next navigation change costs one edit rather than thirteen.
+ * sidebar link has to open its section first. EIGHTEEN specs do that, and this
+ * exists so the next navigation change costs one edit rather than eighteen.
  *
  * Idempotent: a section that is already open (because the caller is standing in
  * it) is left alone rather than toggled shut, which is what a bare click would
@@ -889,7 +898,7 @@ export async function openNavSection(page: Page, name: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 6: Call it from the thirteen**
+- [ ] **Step 6: Call it from the thirteen named above, and from the five more that surface the same way**
 
 In each spec, immediately before a `getByRole('link', { name: … })` that targets
 a sidebar link, add the matching call — for example, in
@@ -926,7 +935,12 @@ rather than against this table.
 Some clicks will already be inside the active section and need no call; the
 helper is idempotent, so adding it there is harmless rather than wrong. **Run
 each spec after editing it** rather than editing all thirteen and running once —
-a failure then names its own file.
+a failure then names its own file. Expect more than thirteen files to need this:
+`tests/e2e/dashboards.spec.ts`, `tests/e2e/audit.spec.ts`,
+`tests/e2e/provisioning-flow.spec.ts`, `tests/e2e/nav-content.spec.ts`'s own
+pre-existing first test, and `tests/e2e/provision.ts`'s shared
+`provisionThroughConsole` all click a sidebar link the same way and will show
+the identical failure in Step 8 if left unfixed.
 
 - [ ] **Step 7: Fix the stale comment**
 
@@ -942,7 +956,7 @@ spelling one word — is unchanged.
 npm run db:reset && npm run seed:branding && npm run test:e2e
 ```
 
-Expected: PASS, every spec. This is the gate that proves the thirteen were all
+Expected: PASS, every spec. This is the gate that proves every call site was
 found — a missed one fails here.
 
 - [ ] **Step 9: Commit**
@@ -971,6 +985,11 @@ collapsing the sidebar leaves the locator matching nothing at all.
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 ```
+
+This is the message as actually committed (`3eed61b`), reproduced here rather than
+rewritten — "thirteen" was the planned count at the time, not the real one. It
+was wrong the same way the rest of this task's body was: reproduced verbatim
+for the historical record, corrected everywhere else in this document.
 
 ---
 
@@ -1068,5 +1087,5 @@ State, in the final report:
 2. Whether the isolation suite needed a re-run, and which file dropped out if so.
 3. Which documentation Step 1 found, and what changed — or that nothing named
    the navigation.
-4. That the thirteen specs were each run individually as they were edited, and
-   the full suite afterwards.
+4. That each of the eighteen call sites was run individually as it was edited,
+   and the full suite afterwards.

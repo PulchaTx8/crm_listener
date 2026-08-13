@@ -18,6 +18,12 @@ import { openNavSection } from './nav';
  * assert the platform nav is scoped just before it, and that assertion stays
  * where it is, because it is about their own admin rather than about this.
  *
+ * The `openNavSection` call below is the same reason. Block 20b's design spec
+ * (§6) undercounted the specs that reach a screen through a sidebar click as
+ * thirteen; the real number was eighteen, and this file is the one worth
+ * naming among the five it missed — fixing the helper call HERE covers roughly
+ * fourteen of those eighteen at the source, rather than fourteen separate edits.
+ *
  * The dialog is CLOSED on the way out. It stays open in the product on purpose —
  * the password is shown once and stored nowhere — so this reads it before
  * closing, and hands it back as the return value.
@@ -27,9 +33,9 @@ export async function provisionThroughConsole(
   input: { organizationName: string; companyName: string; ownerEmail: string },
 ): Promise<string> {
   // Block 20b. Platform is a collapsed section like every other one now, and
-  // this helper is not among the thirteen specs that call openNavSection
-  // themselves -- it is the ONE place ~14 of them reach this link through,
-  // so fixing it here is the one edit rather than fourteen.
+  // this helper is not among the specs that call openNavSection themselves --
+  // it is the ONE place ~14 of them reach this link through, so fixing it
+  // here is the one edit rather than fourteen.
   await openNavSection(page, 'Platform');
   await page.getByRole('link', { name: 'Organizations' }).click();
   await page.getByTestId('organization-create').click();
