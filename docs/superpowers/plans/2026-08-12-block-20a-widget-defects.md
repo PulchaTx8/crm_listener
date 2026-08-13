@@ -108,18 +108,30 @@ immediately after the line that fills the note
 ```ts
   // Block 20a, item 1. THE NOTE SCREEN IS THE ONE PLACE TWO WAYS BACK ARE ON
   // SCREEN AT ONCE -- the outline button returns to the search, the Shell's
-  // returns to the menu -- and until this block both of them read "Voltar".
-  // Asserted by accessible NAME rather than by counting buttons: a count of
-  // two passed before this change as well, which is the shape of assertion
-  // that proves nothing.
-  await expect(widget.getByRole('button', { name: 'Voltar', exact: true })).toHaveCount(1);
+  // returns to the menu -- and until this block both of them read the same
+  // word. Asserted by accessible NAME rather than by counting buttons: a
+  // count of two passed before this change as well, which is the shape of
+  // assertion that proves nothing.
+  //
+  // ENGLISH, because playwright.config.ts pins locale: 'en-US' for the whole
+  // suite and this visitor has no profile, cookie or Accept-Language to
+  // resolve anything else from. `exact: true` is load-bearing: without it
+  // "Back" matches "Back to the menu" by substring and the first assertion
+  // reports two.
+  await expect(widget.getByRole('button', { name: 'Back', exact: true })).toHaveCount(1);
   await expect(
-    widget.getByRole('button', { name: 'Voltar ao menu', exact: true }),
+    widget.getByRole('button', { name: 'Back to the menu', exact: true }),
   ).toHaveCount(1);
 ```
 
-`exact: true` matters: without it, `name: 'Voltar'` also matches "Voltar ao
-menu" by substring, and the first assertion would report two.
+**These assertions are in English on purpose, and an earlier draft of this plan
+had them in Portuguese — which cannot pass.** `playwright.config.ts` pins
+`locale: 'en-US'` for the whole suite, with a comment explaining that the suite
+asserts roughly a hundred English strings and would otherwise render Portuguese
+on any developer machine set to `pt-BR`. `resolveLocale` (`src/i18n/locales.ts`)
+walks profile → cookie → `Accept-Language` → `DEFAULT_LOCALE`, and an anonymous
+widget visitor has none of the first three. The product's primary language is
+Portuguese; this one suite reads English. Both are true.
 
 - [ ] **Step 2: Run the test and watch it fail**
 
@@ -127,9 +139,13 @@ menu" by substring, and the first assertion would report two.
 npx playwright test tests/e2e/widget.spec.ts -g "asks for a song"
 ```
 
-Expected: FAIL on the second assertion — `toHaveCount(1)` receives `0`, because
-no button is named "Voltar ao menu" yet. (The first assertion also fails,
-receiving `2`.)
+Expected: FAIL. The first assertion receives `2` — both buttons on the note
+screen are named "Back" today, which is the defect. The second receives `0`,
+because nothing is named "Back to the menu" yet.
+
+If the first assertion receives something other than `2`, stop and report it.
+A `0` there would mean the panel is not rendering English, and the whole
+assertion strategy needs rethinking before any code changes.
 
 If the whole test fails earlier than the new assertions — before reaching the
 note screen — stop and report it. That would be a broken journey, not this
@@ -163,7 +179,10 @@ other, so all three change in this one step or none do.
 - [ ] **Step 4: Give the Shell a closeLabel**
 
 In `src/app/(widget)/w/[publicKey]/request-song.tsx`, add the prop to the local
-`Shell`'s signature and destructuring, between `onClose` and `publicKey`:
+`Shell`'s signature and destructuring. **Put it where `enter-promotion.tsx`
+puts it** — after `publicKey`, immediately before `children` — rather than
+anywhere this sentence might suggest: the mirror requirement is the binding
+one, and the two panels are meant to read as one hand's work.
 
 ```tsx
   /**
@@ -479,7 +498,19 @@ the migration edits.
 
 - [ ] **Step 2: Update assertions 20 and 22 to describe the fix**
 
-In `supabase/tests/42_widget_promotions.test.sql`, change assertion 20's
+**First, the section comment.** Task 2's header for this section says *"20 and
+21 describe today's behaviour, and Task 3 — if it runs — rewrites them"*. All
+three assertions are about to be rewritten, and once they are, that sentence is
+both stale and wrong. Replace it with what is then true:
+
+```sql
+-- These three described the defect before 0186 closed it. They now describe
+-- the repair: the promotion is absent, its question is absent with it, and a
+-- submission against it is refused as closed rather than as the listener's
+-- fault.
+```
+
+Then, in `supabase/tests/42_widget_promotions.test.sql`, change assertion 20's
 expectation from `1::bigint` to `0::bigint` and its description:
 
 ```sql
@@ -736,10 +767,13 @@ describe('firstUnansweredScreen', () => {
     ).toBe(1);
   });
 
+  // Index 2, not 3: this walk is three screens — consent (0), both fields
+  // together (1), the one question (2). `screensFor` puts every field on ONE
+  // screen, so four steps do not make four screens.
   it('finds the question screen when the fields are done and the answer is not', () => {
     expect(
       firstUnansweredScreen(walk, { city: 'São Paulo', address: 'Rua X, 1' }, {}),
-    ).toBe(3);
+    ).toBe(2);
   });
 
   it('answers with the FIRST unanswered screen, not the last', () => {
@@ -982,6 +1016,7 @@ npm run lint
 npm run test
 npm run db:reset
 npm run db:test
+npm run seed:branding
 npm run test:e2e
 npm run test:isolation
 ```
@@ -989,6 +1024,27 @@ npm run test:isolation
 `db:test` **before** `test:e2e` and `test:isolation`, never after. Reversing
 them leaves rows behind that make pgTAP report failures which are not about the
 code, and this project has chased that twice.
+
+`seed:branding` **after `db:reset`, before the e2e**, and it is not optional:
+`db:reset` empties Storage, and `login.spec.ts` asserts the branding image is
+there. CI already runs it for exactly this reason. Omitting it produces one
+failing spec that has nothing to do with the change under test.
+
+**The isolation suite crashes about two runs in five, and has since Block 4b.**
+Six crashes in fifteen full runs, on six different files, no repeats, no cause
+found — the suspected trigger was removed and the crash carried on. What
+`scripts/verify-isolation-suite.mjs` guarantees is that such a run can never be
+*mistaken* for a green one: it reads the manifest, the JSON reporter and
+vitest's own summary line, and fails loudly naming what is missing. Its message
+"do not re-run past this" means **do not accept this run as proof** — not "never
+run it again".
+
+So: a `Worker exited unexpectedly` crash is a re-run, from a clean database, and
+the second result is the one that counts. What is NOT allowed, ever, is
+weakening the guard or running the suite repeatedly until something goes green
+and reporting that. If it crashes twice in a row on the same file, that is a
+different animal — stop and report it, because the historical flake has never
+repeated a file.
 
 Expected: all green. Report the actual output of any failure rather than
 re-running until it passes.
