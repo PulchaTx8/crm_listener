@@ -74,8 +74,8 @@ const VISITOR_NAME = 'Cross Origin Listener';
  * Block 19b. The listener who exits, below — a phone distinct from
  * VISITOR_LOCAL_PHONE above, deliberately, and not a name-only distinction.
  * `CODE_PER_PHONE_MINUTE` (`src/app/(widget)/w/[publicKey]/actions.ts`) allows
- * one code every 60 seconds per number; the four tests in this file share a
- * worker and run back to back, and a shared phone would make this file's own
+ * one code every 60 seconds per number; every test in this file shares a
+ * worker and runs back to back, and a shared phone would make this file's own
  * runtime the thing standing between the exit journey and a `rate_limited`
  * refusal that has nothing to do with what either test proves.
  */
@@ -86,8 +86,8 @@ const EXIT_VISITOR_NAME = 'Listener Who Leaves';
 /**
  * Block 20a, Task 4, fix round 1. The listener who leaves the field blank —
  * a third phone, for the same reason the exit journey above needed a second
- * one: `CODE_PER_PHONE_MINUTE` is per number, and this file's three journeys
- * share a worker and run back to back.
+ * one: `CODE_PER_PHONE_MINUTE` is per number, and every journey in this file
+ * shares a worker and runs back to back.
  */
 const MISSING_FIELD_VISITOR_LOCAL_PHONE = `31${String(stamp).slice(-9)}`;
 const MISSING_FIELD_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MISSING_FIELD_VISITOR_LOCAL_PHONE}`;
@@ -771,7 +771,16 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
 
-  await widget.getByTestId('widget-promotion-list').getByRole('button').first().click();
+  // BY NAME, NOT `.first()`. Block 20a's whole-branch review added two more
+  // promotions to this same fixture pool (`CONSENT_SWITCH_PROMOTION_A/B`),
+  // seeded with the same `ends_at` offset as this one -- `widget_promotions`
+  // (0186) orders `by p.ends_at` alone, so a tie between three rows is not
+  // something Postgres promises to break the same way on every run. This walk
+  // needs the field and quiz question only `PRIMARY_PROMOTION_NAME` has.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
 
   // THE RULES ARE ON SCREEN, which is the whole reason that column exists: an
   // agreement box above nothing is what D2 was decided to prevent.
@@ -950,7 +959,17 @@ test('a listener who skips a field is refused, and the panel jumps back to it', 
 
   await widget.getByTestId('widget-enter-promotion').click();
   await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
-  await widget.getByTestId('widget-promotion-list').getByRole('button').first().click();
+
+  // BY NAME, NOT `.first()`. This walk needs the requested field and the quiz
+  // question that only `PRIMARY_PROMOTION_NAME` carries -- the two other
+  // promotions the fixture seeds are consent-only. `.first()` relied on
+  // `widget_promotions` (0186) ordering the list `by p.ends_at` with all
+  // three promotions sharing that column's value, which Postgres does not
+  // promise to break ties on the same way twice.
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
 
   await widget.getByTestId('widget-promotion-consent').check();
   await widget.getByTestId('widget-promotion-next').click();
