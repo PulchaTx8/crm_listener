@@ -104,7 +104,7 @@ Vitest.
 - Consumes: nothing.
 - Produces, all used by Task 2:
   - `albums.thumb_url text`
-  - `update_album(p_album_id uuid, p_title text, p_upc text default null, p_release_date date default null)` — and the three-argument version **gone**
+  - `update_album(p_album_id uuid, p_title text, p_upc text, p_release_date date)` — no defaults on the last two, and the old `(uuid, text)` version **gone**
   - `set_album_cover(p_album_id uuid, p_url text default null)`
   - `may_write_artwork` answering true for `album-covers/<company>/<album>` under `music.manage`
 
@@ -113,7 +113,7 @@ Vitest.
 Do not copy bodies from `0137_album_rpcs.sql` or `0143_artwork_bucket.sql`.
 
 ```bash
-npx supabase db psql -c "select pg_get_functiondef('public.update_album(uuid,text,text)'::regprocedure);"
+npx supabase db psql -c "select pg_get_functiondef('public.update_album(uuid,text)'::regprocedure);"
 npx supabase db psql -c "select pg_get_functiondef('public.may_write_artwork(text)'::regprocedure);"
 ```
 
@@ -138,7 +138,7 @@ literal uuids in their own range, numbered section comments explaining *why*,
 The assertions, in this order:
 
 ```sql
--- 1. The old three-argument update_album is GONE, not shadowed.
+-- 1. The old two-argument update_album is GONE, not shadowed.
 --
 -- THE ASSERTION THIS FILE EXISTS FOR. `create or replace` does not change an
 -- argument list -- it adds an overload, and every existing caller goes on
