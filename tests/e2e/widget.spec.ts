@@ -112,6 +112,15 @@ const CONSENT_SWITCH_VISITOR_NAME = 'Listener Who Switches Promotions';
 const CONSENT_SWITCH_PROMOTION_A_NAME = `Widget Journey Promotion Reset A ${stamp}`;
 const CONSENT_SWITCH_PROMOTION_B_NAME = `Widget Journey Promotion Reset B ${stamp}`;
 
+/**
+ * Block 20a, second round. The listener who is refused on one promotion and
+ * then switches to another — a fifth phone, same per-number reason as the
+ * four before it.
+ */
+const REFUSAL_SWITCH_VISITOR_LOCAL_PHONE = `51${String(stamp).slice(-9)}`;
+const REFUSAL_SWITCH_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${REFUSAL_SWITCH_VISITOR_LOCAL_PHONE}`;
+const REFUSAL_SWITCH_VISITOR_NAME = 'Listener Whose Refusal Follows Them';
+
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
 
@@ -131,6 +140,16 @@ const LISTENER_NOTE = 'toca pra minha mae, ela ouve todo dia';
 
 /** Block 17c. Without rules a promotion does not appear in the widget at all (D3). */
 const PROMOTION_RULES = 'Promoção válida para maiores de 18 anos. Um cupom por pessoa.';
+
+/**
+ * The Block 17c fixture promotion's own name — named here, not just inlined
+ * where it is created, because Block 20a's refusal-switch journey below
+ * needs to pick it out of a list by role rather than by position: that list
+ * holds three promotions once the two consent-switch fixtures join it, and
+ * `ends_at` ties between them (all seeded with the same offset) make
+ * position an unreliable way to tell them apart.
+ */
+const PRIMARY_PROMOTION_NAME = `Widget Journey Promotion ${stamp}`;
 
 /** The city this listener types into the one field the promotion asks for. */
 const LISTENER_CITY = 'Santos';
@@ -476,7 +495,7 @@ test.beforeAll(async ({}, testInfo) => {
   // session, not a second one for the sake of a second statement.
   const { error: promotionError } = await ownerClient.rpc('create_promotion', {
     p_company_id: companyId,
-    p_name: `Widget Journey Promotion ${stamp}`,
+    p_name: PRIMARY_PROMOTION_NAME,
     p_starts_at: new Date(Date.now() - 3_600_000).toISOString(),
     p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
     p_web_enabled: true,
@@ -1021,6 +1040,79 @@ test("choosing a different promotion clears the previous one's agreement", async
   // agreed.
   await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
   await expect(widget.getByTestId('widget-promotion-consent')).not.toBeChecked();
+});
+
+/**
+ * Block 20a, second round. The residual the consent fix above did not close:
+ * `state` (`useActionState`) cannot be reset from `enter-promotion.tsx` when a
+ * different promotion is chosen -- nothing outside that hook's own reducer
+ * can -- so a REFUSAL survives a promotion switch even after
+ * consent/fields/answers/flagged do not.
+ *
+ * REACHABLE ONLY BECAUSE PROMOTION B HAS ONE SCREEN. The error message's gate
+ * is `state.status === 'refused' && (last || screen === flagged)`, and `last`
+ * is computed from the CHOSEN PROMOTION'S OWN screen count alone -- nothing
+ * the consent fix touches. `CONSENT_SWITCH_PROMOTION_B_NAME` (consent only,
+ * no requested fields, no question) has exactly one screen, so `last` is true
+ * on that screen's very first render, before this listener has touched
+ * anything on it. A multi-screen second promotion would leave `last` false at
+ * screen 0 and this test would pass whether or not the fix existed -- which is
+ * why it has to be this promotion and not a fresh one built for convenience.
+ *
+ * PROMOTION A IS THE BLOCK 17c FIXTURE (a requested field plus a QUIZ), the
+ * same one "a listener who skips a field is refused..." above uses, and for
+ * the same reason: it is the route to an actual `refused` state that leaves
+ * the walk open. Declining (an unchecked box, submitted) was considered and
+ * rejected -- the panel treats `declined` as an ending screen of its own,
+ * with no "Other promotions" button back to the list, so it cannot set up the
+ * switch this test needs at all.
+ */
+test('a refusal on one promotion does not linger onto a different one', async ({ page }) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: REFUSAL_SWITCH_VISITOR_LOCAL_PHONE,
+    phone: REFUSAL_SWITCH_VISITOR_PHONE,
+    name: REFUSAL_SWITCH_VISITOR_NAME,
+  });
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: PRIMARY_PROMOTION_NAME, exact: true })
+    .click();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-next').click();
+
+  // THE FIELD, LEFT BLANK -- same mistake the "skips a field" journey makes,
+  // for the same reason: nothing on this screen stops "Next" from advancing
+  // over an empty box.
+  await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-next').click();
+
+  await expect(widget.getByTestId('widget-promotion-options')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-promotion-options').getByRole('radio').first().check();
+
+  await widget.getByTestId('widget-promotion-send').click();
+
+  // THE REFUSAL, ON SCREEN -- about the promotion it is actually about.
+  await expect(widget.getByTestId('widget-promotion-error')).toBeVisible({ timeout: 30_000 });
+
+  await widget.getByRole('button', { name: 'Other promotions' }).click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_B_NAME, exact: true })
+    .click();
+
+  // THE ASSERTION THAT MATTERS: `last` is true here on the very first render
+  // of B's only screen, so before this fix `state.status === 'refused'` left
+  // over from promotion A was, on its own, enough to show A's message under
+  // B's rules.
+  await expect(widget.getByTestId('widget-promotion-consent')).toBeVisible({ timeout: 30_000 });
+  await expect(widget.getByTestId('widget-promotion-error')).toHaveCount(0);
 });
 
 test('a page on an origin the Station did not name cannot frame the widget at all', async ({

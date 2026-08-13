@@ -147,6 +147,37 @@ export function EnterPromotionPanel({
   const [flagged, setFlagged] = useState<number | null>(null);
 
   /**
+   * Which promotion `state`'s most recent refusal actually belongs to.
+   *
+   * `state` COMES FROM `useActionState`, and nothing outside that hook's own
+   * reducer can reset it — the same fact `handledRefusal` below already lives
+   * with. So a refusal from promotion A is still sitting in `state` after the
+   * listener leaves it, and Block 20a's earlier consent fix (resetting
+   * `consent`/`fields`/`answers`/`flagged` when a different promotion is
+   * chosen) does not touch it either, because it CANNOT: there is no
+   * `setState` to call.
+   *
+   * THIS IS WHAT MAKES THAT SURVIVAL VISIBLE ANYWAY. Found in the same
+   * whole-branch review as the consent defect, one step further in: the
+   * message below is gated on `state.status === 'refused' && (last || screen
+   * === flagged)`, and `last` depends only on the CHOSEN PROMOTION'S OWN
+   * screen count — nothing the earlier fix resets. A promotion asking for
+   * nothing but consent has exactly one screen, so `last` is true on that
+   * screen's very first render, before the listener has touched anything on
+   * it. Without this guard, choosing such a promotion right after a refusal
+   * on a different one would show "Faltou alguma coisa. Volte e confira suas
+   * respostas." under rules the listener has not even finished reading — the
+   * precise shape of refusal-nobody-earned this whole block exists to close,
+   * reopened by the one piece of state that cannot be reset directly.
+   *
+   * RECORDED, NOT CLEARED — the same move `identify-form.tsx`'s `spentVerify`
+   * makes for a verification result the visitor has abandoned: since `state`
+   * itself is out of reach, the message is gated on whether it still
+   * describes what is on screen, not on making the stale value disappear.
+   */
+  const [refusalFor, setRefusalFor] = useState<string | null>(null);
+
+  /**
    * `state`, ACTED ON ONCE — the same identity guard `identify-form.tsx` uses
    * for `handledRequest`, and for the same reason. `fields` and `answers` are
    * in this effect's dependencies, so without the guard every keystroke after
@@ -156,13 +187,15 @@ export function EnterPromotionPanel({
   useEffect(() => {
     if (state === handledRefusal) return;
     setHandledRefusal(state);
-    if (state.status !== 'refused' || state.reason !== 'missing_answers') return;
+    if (state.status !== 'refused') return;
+    setRefusalFor(chosen?.id ?? null);
 
+    if (state.reason !== 'missing_answers') return;
     const target = firstUnansweredScreen(screens, fields, answers);
     if (target === null) return;
     setScreen(target);
     setFlagged(target);
-  }, [state, handledRefusal, screens, fields, answers]);
+  }, [state, handledRefusal, screens, fields, answers, chosen]);
 
   if (state.status === 'entered' || state.status === 'declined') {
     return (
@@ -255,11 +288,18 @@ export function EnterPromotionPanel({
             }}
           /> : null}
 
-          {/* Only on the screen that submits. A refusal shown while the
-              listener walks back through earlier steps reads as if each of
-              them were wrong, which is how the same red line ended up under
-              the rules AND under the address on 2026-08-11. */}
-          {state.status === 'refused' && (last || screen === flagged) ? (
+          {/* Only on the screen that submits, AND only about the promotion
+              that is actually on screen. The first half of that guard is a
+              refusal shown while the listener walks back through earlier
+              steps, which reads as if each of them were wrong — the same red
+              line ended up under the rules AND under the address on
+              2026-08-11. The second half (`refusalFor`) is a refusal from a
+              DIFFERENT promotion the listener has since left; without it, a
+              single-screen promotion chosen right after a refusal reads
+              `last` as true immediately and shows a stale message about
+              rules it has not finished displaying — see `refusalFor`'s own
+              comment above. */}
+          {state.status === 'refused' && refusalFor === chosen.id && (last || screen === flagged) ? (
             <p className="text-sm text-destructive" data-testid="widget-promotion-error">
               {refusalMessage(t, state.reason)}
             </p>
@@ -340,12 +380,22 @@ export function EnterPromotionPanel({
                     // this one, and the product owner ruled it fixed here
                     // rather than deferred: a consent record is not a detail
                     // this system is willing to get wrong.
+                    //
+                    // `refusalFor` RESET HERE TOO, second round of the same
+                    // review. `state` itself cannot be reset (see its own
+                    // comment above), so this is the only place left to say
+                    // "the last refusal was not about THIS promotion" —
+                    // without it, a refusal from the promotion just left can
+                    // still render under this one if it happens to have a
+                    // single screen (`refusalFor`'s comment has the full
+                    // mechanism).
                     setChosen(promotion);
                     setScreen(0);
                     setConsent(false);
                     setFields({});
                     setAnswers({});
                     setFlagged(null);
+                    setRefusalFor(null);
                   }}
                   disabled={promotion.alreadyEntered}
                   className="flex w-full items-center gap-2 rounded-md border p-2 text-left hover:bg-accent disabled:opacity-60"
