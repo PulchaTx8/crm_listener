@@ -1,11 +1,9 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useActionState, useEffect, useId, useState } from 'react';
-import { MoreVertical } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogBody, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   PageControls,
   Table,
@@ -18,13 +16,12 @@ import {
 import { SongThumb } from '@/components/music/song-thumb';
 import type { ReferenceSummary, RequestSummary } from '@/services/music';
 import { formatInstant } from '../../promotions/format';
-import { archiveRequestAction, type ArchiveRequestState } from './actions';
+import { AttendDialog } from './attend-dialog';
+import { maskedPhone, PlayStatusBadge, ReadStatusBadge } from './request-status';
 import { RecordRequestForm } from './record-request-form';
 
-/** The six columns every caller sees, before the Actions column that only canRequest adds. */
-const BASE_COLUMN_COUNT = 6;
-
-const INITIAL_ARCHIVE: ArchiveRequestState = { ok: null };
+/** Nine: the six that existed, the two statuses, and Attend — which every caller sees (design D10). */
+const COLUMN_COUNT = 9;
 
 // The shared `vocab` keys, not a second wording: this column and the
 // participations grid answer the same question about the same channels.
@@ -72,6 +69,8 @@ export function RequestsGrid({
   canRequest,
   canFindListeners,
   canRegisterListeners,
+  canAttend,
+  bounded,
 }: {
   rows: RequestSummary[];
   /**
@@ -94,12 +93,45 @@ export function RequestsGrid({
   canFindListeners: boolean;
   /** members.create, passed through to the manual form's registration half. */
   canRegisterListeners: boolean;
+  /** participations.view — the owner's choice of gate (design D5). A courtesy gate; all four doors re-check it themselves. */
+  canAttend: boolean;
+  /**
+   * Whether this read was a bounded batch rather than a page. Passed down
+   * rather than derived from previousHref/nextHref: both are also null on an
+   * ordinary single-page keyset result, so the cursors alone cannot tell a
+   * batch apart from a page that simply has no more rows — only page.tsx,
+   * which knows the sort and limit that produced this read, can say which.
+   */
+  bounded: boolean;
 }) {
   const t = useTranslations('music');
   // The shared enum vocabulary, which several screens render.
   const tv = useTranslations('vocab');
   const [recording, setRecording] = useState(false);
-  const [archiving, setArchiving] = useState<RequestSummary | null>(null);
+  // Derived from the live `rows` prop by id, every render, rather than a
+  // snapshot taken when the button was pressed: actions.ts calls
+  // revalidatePath after each mark, so re-deriving is what lets the open window
+  // show the new status with no callback threaded back up — the shape
+  // references-grid.tsx already uses for its record dialog. A request that
+  // falls off the page (a filter it no longer matches) closes the window, which
+  // is the honest outcome: the row it was showing is not on this list any more.
+  const [attendingId, setAttendingId] = useState<string | null>(null);
+  const attending = rows.find((row) => row.requestId === attendingId) ?? null;
+
+  // The id outlives the row unless something clears it: `attending` going null
+  // unmounts the dialog WITHOUT its onClose ever firing, so attendingId still
+  // names a request that is no longer on this page. Clearing a filter then
+  // brings the row back, `attending` matches again on its own, and the window
+  // the operator already finished with reopens unprompted. Found by the e2e
+  // journey walking the real path; the closing above is deliberate (this
+  // component's own comment says so), the resurrection was not — nothing
+  // chose it, so this effect is the fix, not a second opinion on the first
+  // comment.
+  useEffect(() => {
+    if (attendingId !== null && !rows.some((row) => row.requestId === attendingId)) {
+      setAttendingId(null);
+    }
+  }, [rows, attendingId]);
 
   return (
     <>
@@ -124,16 +156,16 @@ export function RequestsGrid({
                   walk — the identical reasoning ParticipationsGrid's own
                   header carries for its Entered column. */}
               <TableHead aria-sort="descending">{t('requested')}</TableHead>
-              {canRequest && (
-                <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
-              )}
+              <TableHead>{t('readStatusColumn')}</TableHead>
+              <TableHead>{t('playStatusColumn')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={canRequest ? BASE_COLUMN_COUNT + 1 : BASE_COLUMN_COUNT}
+                  colSpan={COLUMN_COUNT}
                   className="py-8 text-center text-muted-foreground"
                 >
                   {t('noRequestMatchesTheseFilters')}</TableCell>
@@ -172,9 +204,9 @@ export function RequestsGrid({
                     ) : (
                       <>
                         <span className="text-sm">{request.memberName}</span>
-                        {request.memberPhone && (
+                        {request.memberPhoneLast4 && (
                           <span className="mt-0.5 block text-xs text-muted-foreground">
-                            {request.memberPhone}
+                            {maskedPhone(request.memberPhoneLast4)}
                           </span>
                         )}
                       </>
@@ -227,17 +259,19 @@ export function RequestsGrid({
                   <TableCell className="whitespace-nowrap text-sm">
                     {formatInstant(request.requestedAt, timeZone)}
                   </TableCell>
-                  {canRequest && (
-                    <TableCell className="sticky right-0 bg-background text-right">
-                      <DropdownMenu
-                        label={t('actionsForRequest', { title: request.songTitle })}
-                        trigger={<MoreVertical className="size-4" aria-hidden="true" />}
-                      >
-                        <DropdownMenuItem destructive onSelect={() => setArchiving(request)}>
-                          {t('withdrawRequest')}</DropdownMenuItem>
-                      </DropdownMenu>
-                    </TableCell>
-                  )}
+                  <TableCell><ReadStatusBadge status={request.readStatus} /></TableCell>
+                  <TableCell><PlayStatusBadge status={request.playStatus} /></TableCell>
+                  <TableCell className="sticky right-0 bg-background text-right">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAttendingId(request.requestId)}
+                      aria-label={t('attendRequestFor', { title: request.songTitle })}
+                      data-testid="request-attend"
+                    >
+                      {t('attend')}
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -245,8 +279,19 @@ export function RequestsGrid({
         </Table>
 
         <PageControls
-          total={total}
-          label={t('requestsLabel', { count: total ?? 0 })}
+          // PageControls renders `${total} ${label}` whenever total is a
+          // number (table.tsx) — fine for requestsLabel, a bare plural noun,
+          // but showingOfTotal is a whole sentence that already carries both
+          // numbers itself. Sending total through the numeric branch too
+          // would print the count twice: "150 Showing 10 of 150". null routes
+          // a bounded read through the else-branch, which renders the label
+          // alone.
+          total={bounded ? null : total}
+          label={
+            bounded
+              ? t('showingOfTotal', { shown: rows.length, total })
+              : t('requestsLabel', { count: total })
+          }
           previousHref={previousHref}
           nextHref={nextHref}
         />
@@ -264,11 +309,13 @@ export function RequestsGrid({
         />
       )}
 
-      {archiving && (
-        <ArchiveDialog
-          request={archiving}
-          onCancel={() => setArchiving(null)}
-          onArchived={() => setArchiving(null)}
+      {attending && (
+        <AttendDialog
+          request={attending}
+          timeZone={timeZone}
+          canAttend={canAttend}
+          canFindListeners={canFindListeners}
+          onClose={() => setAttendingId(null)}
         />
       )}
     </>
@@ -309,57 +356,6 @@ function RecordDialog({
           onCancel={onClose}
         />
       </DialogBody>
-    </Dialog>
-  );
-}
-
-/**
- * The confirmation names what withdrawing actually does — D5's own line
- * (0107's comment on archive_music_request): deleted_at exists on this table
- * only so a mistyped manual entry can be taken back, not to erase the fact
- * that a song was asked for.
- */
-function ArchiveDialog({
-  request,
-  onCancel,
-  onArchived,
-}: {
-  request: RequestSummary;
-  onCancel: () => void;
-  onArchived: () => void;
-}) {
-  const t = useTranslations('music');
-  const titleId = useId();
-  const [state, action, pending] = useActionState(archiveRequestAction, INITIAL_ARCHIVE);
-
-  useEffect(() => {
-    if (state.ok === true) onArchived();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
-
-  return (
-    <Dialog open onClose={onCancel} labelledBy={titleId} className="max-w-lg">
-      <DialogHeader>
-        <DialogTitle id={titleId}>{t('withdrawThisRequest')}</DialogTitle>
-      </DialogHeader>
-      <DialogBody>
-        <p className="text-sm">
-          {t('theRequestFor')}{request.songTitle}” leaves this list. This is for a mistyped entry —
-          it does not undo the song being asked for, only the record of somebody having typed it
-          in by mistake.
-        </p>
-        {state.ok === false && <p className="mt-3 text-sm text-destructive">{state.message}</p>}
-      </DialogBody>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel}>
-          {t('cancel')}</Button>
-        <form action={action}>
-          <input type="hidden" name="requestId" value={request.requestId} />
-          <Button type="submit" disabled={pending} data-testid="request-archive-confirm">
-            {pending ? t('withdrawing') : t('withdraw')}
-          </Button>
-        </form>
-      </DialogFooter>
     </Dialog>
   );
 }

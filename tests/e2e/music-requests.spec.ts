@@ -322,3 +322,243 @@ test('a request survives a merge of the song it named, reached from the sidebar'
 
   await ownerContext.close();
 });
+
+/**
+ * Block 22's own Task 10 (unrelated to the Block 7b task 10 the spec above is
+ * named for): the studio's read/play round trip through the same screen, and
+ * the block's telephone decision (D8) proved at the only layer that can see
+ * the rendered page — the masked cell and the attend window both show
+ * `•••• 1234`, never the number resolveOrCreateMember stored.
+ *
+ * Preamble copied from the spec above rather than reinvented, on that spec's
+ * own note: the owner's bypass grants every permission in every active
+ * Company of the Organization, music.request and participations.view
+ * (design D10's gate on Attend) included, so no role composition is needed
+ * here either. A second Organization/Station, not the first spec's: the two
+ * tests must not race each other's rows through a shared read-status filter.
+ */
+test('the studio marks a request read, then played, and the phone stays masked throughout', async ({
+  page,
+  browser,
+}) => {
+  const journeyOrgName = `Music Requests Journey Org ${stamp}`;
+  const journeyStationName = `Music Requests Journey Station ${stamp}`;
+  const journeyOwnerEmail = `e2e-music-req-journey-owner-${stamp}@example.test`;
+  const journeyArtistName = `E2E Journey Artist ${stamp}`;
+  const journeySongTitle = `E2E Journey Song ${stamp}`;
+  const journeySongCode = `E2E-J-${stamp}`;
+  const journeyListenerName = `E2E Journey Listener ${stamp}`;
+  // A different area code from the first spec's listenerPhone, same shape —
+  // the two must not collide, but nothing here cares about the actual digits.
+  const journeyListenerPhone = `5521${stamp}`;
+
+  // --- the platform admin provisions a second customer with one Station ----
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
+  await page.getByLabel('Password', { exact: true }).fill(platformAdminPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+  await expect(page.getByText('Platform admin')).toBeVisible();
+
+  const journeyOwnerPassword = await provisionThroughConsole(page, {
+    organizationName: journeyOrgName,
+    companyName: journeyStationName,
+    ownerEmail: journeyOwnerEmail,
+  });
+
+  const { data: journeyOwnerProfile, error: journeyOwnerLookupError } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('email', journeyOwnerEmail)
+    .single();
+  expect(journeyOwnerLookupError).toBeNull();
+  if (!journeyOwnerProfile) throw new Error(`no profile row for ${journeyOwnerEmail}`);
+  createdUserIds.push(journeyOwnerProfile.id);
+
+  // --- the owner signs in and clears the provisional-password gate ---------
+  const ownerContext = await browser.newContext();
+  const ownerPage = await ownerContext.newPage();
+
+  await ownerPage.goto('/login');
+  await ownerPage.getByLabel('E-mail', { exact: true }).fill(journeyOwnerEmail);
+  await ownerPage.getByLabel('Password', { exact: true }).fill(journeyOwnerPassword);
+  await ownerPage.getByRole('button', { name: 'Sign in' }).click();
+  await expect(ownerPage).toHaveURL(/\/change-password$/);
+
+  const chosen = `Owner-${stamp}-journey-chosen`;
+  await ownerPage.getByPlaceholder('New password').fill(chosen);
+  await ownerPage.getByPlaceholder('Repeat the password').fill(chosen);
+  await ownerPage.getByRole('button', { name: 'Save' }).click();
+  await expect(ownerPage).toHaveURL(/\/app$/);
+
+  await expect(ownerPage.getByText(journeyOwnerEmail)).toBeVisible();
+  await expect(
+    ownerPage.locator('[data-testid="station-card"]', { hasText: journeyStationName }),
+  ).toBeVisible();
+
+  // ===========================================================================
+  // 1. One artist and one song — enough catalogue for a single request. No
+  //    merge in this journey, unlike the spec above, so one song is enough.
+  // ===========================================================================
+  await openNavSection(ownerPage, 'Catalog');
+  await ownerPage.getByRole('link', { name: 'Artists' }).click();
+  await expect(ownerPage).toHaveURL(/\/music\/artists$/);
+
+  await ownerPage.getByTestId('artist-create').click();
+  const artistCreateForm = ownerPage.locator('[data-testid="artist-create-form"]');
+  await artistCreateForm.getByLabel('Name').fill(journeyArtistName);
+  await artistCreateForm.getByRole('button', { name: 'Register artist' }).click();
+  await expect(artistCreateForm.getByText('Artist registered.')).toBeVisible();
+  await artistCreateForm.getByRole('button', { name: 'View artist' }).click();
+  await expect(
+    ownerPage.getByRole('heading', { name: journeyArtistName, level: 2 }),
+  ).toBeVisible();
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+
+  await openNavSection(ownerPage, 'Catalog');
+  await ownerPage.getByRole('link', { name: 'Songs' }).click();
+  await expect(ownerPage).toHaveURL(/\/music\/songs$/);
+
+  await ownerPage.getByTestId('song-create').click();
+  const songCreateForm = ownerPage.locator('[data-testid="song-create-form"]');
+  await songCreateForm.getByLabel('Title').fill(journeySongTitle);
+  await songCreateForm.getByLabel('Artist').selectOption({ label: journeyArtistName });
+  await songCreateForm.getByLabel('Internal code').fill(journeySongCode);
+  await songCreateForm.getByRole('button', { name: 'Register song' }).click();
+  await expect(songCreateForm.getByText('Song registered.')).toBeVisible();
+  await songCreateForm.getByRole('button', { name: 'View song' }).click();
+  await expect(ownerPage.getByRole('heading', { name: journeySongTitle, level: 2 })).toBeVisible();
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // ===========================================================================
+  // 2. Requests: record one, naming the song and a brand-new listener typed
+  //    by hand — resolveOrCreateMember registers them as part of the write.
+  // ===========================================================================
+  await openNavSection(ownerPage, 'Audience');
+  await ownerPage.getByRole('link', { name: 'Requests' }).click();
+  await expect(ownerPage).toHaveURL(/\/music\/requests$/);
+
+  await ownerPage.getByTestId('request-record').click();
+  const requestForm = ownerPage.locator('[data-testid="request-record-form"]');
+  await expect(requestForm).toBeVisible();
+
+  await requestForm.getByTestId('request-song-search').fill(journeySongCode);
+  await expect(requestForm.getByTestId('request-song-option')).toHaveCount(1);
+  await requestForm.getByTestId('request-song-option').click();
+  await expect(requestForm.getByTestId('request-picked-song')).toHaveText(
+    `${journeySongTitle} — ${journeyArtistName}`,
+  );
+
+  await requestForm.getByTestId('request-full-name').fill(journeyListenerName);
+  await requestForm.getByTestId('request-phone').fill(journeyListenerPhone);
+
+  await requestForm.getByTestId('request-record-submit').click();
+  await expect(requestForm.getByText('Request recorded.')).toBeVisible();
+  await requestForm.getByRole('button', { name: 'Close', exact: true }).click();
+
+  const requestRow = ownerPage.getByTestId('request-row');
+  await expect(requestRow).toHaveCount(1);
+
+  // ===========================================================================
+  // 3. The read filter, proven to actually filter: UNREAD shows the one row a
+  //    freshly recorded request always starts as.
+  // ===========================================================================
+  await ownerPage.getByTestId('request-read-filter').selectOption('UNREAD');
+  await expect(requestRow).toHaveCount(1);
+
+  // ===========================================================================
+  // 4. Attend, still filtered to UNREAD: the listener's name in full, the
+  //    phone in four digits only — design D8's proof at the only layer that
+  //    can see the rendered page. A regression that printed the whole number
+  //    fails this line; nothing in a database assertion could catch it,
+  //    because the database never held anything but the digits — it is the
+  //    render that must stay masked.
+  // ===========================================================================
+  await requestRow.getByTestId('request-attend').click();
+  await expect(ownerPage.getByTestId('attend-listener')).toHaveText(journeyListenerName);
+  await expect(ownerPage.getByTestId('attend-phone')).toHaveText(/^•••• \d{4}$/);
+
+  // ===========================================================================
+  // 5. THE STUDIO'S HABITUAL PATH, walked for real: filter to unread, open,
+  //    mark read — with the UNREAD filter still active when the mark lands.
+  //    This is documenting today's actual behaviour, not endorsing it; a
+  //    later, deliberate decision to change it should show up as a diff to
+  //    this assertion, not as a surprise nobody wrote down.
+  //
+  //    requests-grid.tsx derives the open AttendDialog's own `request` from
+  //    the live `rows` prop on every render (`attending = rows.find(row =>
+  //    row.requestId === attendingId)`), and markRequestReadAction's
+  //    revalidatePath refreshes that prop against the CURRENT url —
+  //    read=UNREAD included. The instant this request's read_status becomes
+  //    READ, the very refresh that would have set request.readAt to
+  //    something is the same refresh that drops the row from the UNREAD
+  //    result: `attending` goes straight to null and the window unmounts
+  //    without ever rendering attend-read-done. So the assertion below is
+  //    the window CLOSING (going hidden) and the row LEAVING the filtered
+  //    list, checked as web-first expectations rather than a timeout guess
+  //    at when that settles.
+  // ===========================================================================
+  await ownerPage.getByTestId('attend-mark-read').click();
+  await expect(ownerPage.getByTestId('attend-listener')).toBeHidden();
+  await expect(requestRow).toHaveCount(0);
+
+  // ===========================================================================
+  // 6. Clearing the filter is what brings the row back — read_status really
+  //    did become READ server-side, it only stopped matching UNREAD.
+  //    data-status, never the badge's translated label.
+  //
+  //    THE REGRESSION TEST: the window must stay CLOSED now that the row is
+  //    back. Before requests-grid.tsx's own attendingId-clearing effect, it
+  //    did not — attendingId outlived the row through step 5's auto-close
+  //    (nothing had ever called onClose), so the moment this same row
+  //    reappeared here, `attending` matched again on its own and the window
+  //    the operator had already finished with reopened unprompted, with no
+  //    click from anybody. That is the defect this journey found; this
+  //    assertion is what keeps it found. Without it, the fix above is
+  //    untested and a future edit can delete the effect silently.
+  // ===========================================================================
+  await ownerPage.getByTestId('request-read-filter').selectOption('');
+  await expect(requestRow).toHaveCount(1);
+  await expect(requestRow.getByTestId('request-read-status')).toHaveAttribute(
+    'data-status',
+    'READ',
+  );
+  await expect(ownerPage.getByTestId('attend-listener')).toBeHidden();
+
+  // ===========================================================================
+  // 7. Re-open — a real click this time, which only works because the window
+  //    is genuinely closed — mark played, close: the same round trip on the
+  //    OTHER column, checked the same way, so a defect that swapped the two
+  //    badges would fail one of these two data-status assertions rather
+  //    than neither.
+  // ===========================================================================
+  await requestRow.getByTestId('request-attend').click();
+  await ownerPage.getByTestId('attend-mark-played').click();
+  await expect(ownerPage.getByTestId('attend-played-done')).toBeVisible();
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(requestRow.getByTestId('request-play-status')).toHaveAttribute(
+    'data-status',
+    'PLAYED',
+  );
+
+  // ===========================================================================
+  // 8. The play filter, both ways: PLAYED finds the row, then it is cleared
+  //    again so the next step tests the read filter alone, not a compound
+  //    condition of both filters at once.
+  // ===========================================================================
+  await ownerPage.getByTestId('request-play-filter').selectOption('PLAYED');
+  await expect(requestRow).toHaveCount(1);
+  await ownerPage.getByTestId('request-play-filter').selectOption('');
+  await expect(requestRow).toHaveCount(1);
+
+  // ===========================================================================
+  // 9. And the read filter proves the other direction, alone: a request that
+  //    is READ is no longer UNREAD, so the filter that found it in step 3
+  //    now finds nothing — the empty state, not a stale row.
+  // ===========================================================================
+  await ownerPage.getByTestId('request-read-filter').selectOption('UNREAD');
+  await expect(requestRow).toHaveCount(0);
+  await expect(ownerPage.getByText('No request matches these filters.')).toBeVisible();
+
+  await ownerContext.close();
+});

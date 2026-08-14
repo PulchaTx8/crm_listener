@@ -198,6 +198,17 @@ const REQUIRED_TEST_FILES = [
   // either, for the identical reason as everything else in this file: it
   // runs as superuser with a null auth.uid().
   { path: 'tests/isolation/music-merge.test.ts', minTests: 11 },
+  // Block 22, Task 9: the four SECURITY DEFINER doors 0190 added (the three
+  // attend marks and the phone disclosure) never inherit the caller's RLS —
+  // pgTAP runs as superuser and gets `true` from has_permission
+  // unconditionally, so it cannot see any of this, on the identical reasoning
+  // this file's own entry above gives. The case that matters is the second:
+  // an attendant scoped to one Station, handed a request id belonging to
+  // another, refused by the door's own body rather than by anything the
+  // caller's scoping would have stopped on its own. The fourth proves design
+  // D5 and D8 are genuinely two separate powers — members.view alone reads
+  // the digits and still cannot attend.
+  { path: 'tests/isolation/music-triage.test.ts', minTests: 4 },
   // Block 13a, Task 11: the Deezer doors. Two of these prove things no
   // permission check could and no pgTAP assertion can reach.
   //

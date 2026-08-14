@@ -1,17 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { toSongOption, totalFromRequestBatch } from '@/services/music';
+import {
+  REQUEST_PAGE_SIZE,
+  requestReadLimit,
+  requestUsesKeyset,
+  toSongOption,
+  totalFromRequestBatch,
+} from '@/services/music';
 
 /**
- * The two pieces of Task 7's new code that are actual logic rather than a
- * pass-through to an RPC — everything else in this module's new exports
- * (listMusicRequestsPage, createMusicRequest, archiveMusicRequest,
- * mergeMusicRecords, listMergeCandidates) is a thin asCaller(...).rpc(...)
- * wrapper, and this codebase does not mock @supabase/supabase-js in
- * tests/unit (grep confirms it: only @/lib/supabase/user-client — a much
- * thinner, project-owned wrapper — is ever mocked, for the createUserClient
- * reads in music-song-embed.test.ts). Both functions here are exported
- * specifically so they can be pinned without a database, the same reasoning
- * their own doc comments in services/music.ts give.
+ * The pieces of services/music.ts that are actual logic rather than a
+ * pass-through to an RPC: totalFromRequestBatch, toSongOption, and Block 22's
+ * two paging decisions (requestUsesKeyset, requestReadLimit).
+ *
+ * Everything else in this module's requests surface is a thin
+ * asCaller(...).rpc(...) wrapper — listMusicRequestsPage, createMusicRequest,
+ * archiveMusicRequest, mergeMusicRecords, listMergeCandidates, and Block 22's
+ * four writers (markMusicRequestRead, markMusicRequestPlayed,
+ * cancelMusicRequest, revealRequestPhone) — and this codebase does not mock
+ * @supabase/supabase-js in tests/unit (grep confirms it: only
+ * @/lib/supabase/user-client — a much thinner, project-owned wrapper — is ever
+ * mocked, for the createUserClient reads in music-song-embed.test.ts). Those
+ * four are proved where their behaviour actually lives, in
+ * supabase/tests/51_music_request_triage.test.sql. Every function pinned here
+ * is exported specifically so it can be pinned without a database, the same
+ * reasoning their own doc comments in services/music.ts give.
  */
 
 describe('totalFromRequestBatch', () => {
@@ -82,5 +94,24 @@ describe('toSongOption', () => {
       albums: null,
     });
     expect(option.coverMd5).toBeNull();
+  });
+});
+
+describe('what the requests list asks the database for', () => {
+  it('sends one page plus one row when it is paging, and exactly the limit when it is not', () => {
+    // The two numbers are different questions. Paging reads one row past the
+    // page so keysetPage can tell there is a next one; a bounded batch has no
+    // next page to detect, and reading N + 1 there would show the operator one
+    // more row than they asked for.
+    expect(requestReadLimit({ sort: 'requested', limit: undefined })).toBe(REQUEST_PAGE_SIZE + 1);
+    expect(requestReadLimit({ sort: 'requested', limit: 10 })).toBe(10);
+    expect(requestReadLimit({ sort: 'song', limit: undefined })).toBe(REQUEST_PAGE_SIZE);
+    expect(requestReadLimit({ sort: 'song', limit: 10 })).toBe(10);
+  });
+
+  it('pages only for the ordering the cursor was built for', () => {
+    expect(requestUsesKeyset({ sort: 'requested', limit: undefined })).toBe(true);
+    expect(requestUsesKeyset({ sort: 'requested', limit: 10 })).toBe(false);
+    expect(requestUsesKeyset({ sort: 'artist', limit: undefined })).toBe(false);
   });
 });

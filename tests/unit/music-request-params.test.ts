@@ -21,6 +21,9 @@ describe('parseRequestListParams', () => {
       songId: 'song-1',
       showId: 'show-1',
       channel: 'IMPORT',
+      // Task 5, Block 22: sort is now a required field of RequestListState,
+      // defaulting to 'requested' when the URL carries none.
+      sort: 'requested',
     });
   });
 

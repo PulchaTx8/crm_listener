@@ -18,18 +18,30 @@ import { describeArtworkRejection } from '@/lib/security/artwork';
 import { readImageDimensions } from '@/lib/security/image-dimensions';
 import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
 import type { Database } from '@/lib/supabase/database.types';
-import { SONG_SEARCH_MAX_LENGTH } from '@/schemas/music';
+import { REQUEST_LIMIT_MAX, REQUEST_LIMIT_MIN, SONG_SEARCH_MAX_LENGTH } from '@/schemas/music';
 import type {
   MergeFormInput,
   MusicMergeKind,
   MusicReferenceKind,
+  MusicRequestPlayStatus,
+  MusicRequestReadStatus,
   ReferenceFormInput,
   ReferenceUpdateInput,
+  RequestSortKey,
   SongFormInput,
   SongUpdateInput,
 } from '@/schemas/music';
 
-export { SONG_SEARCH_MAX_LENGTH };
+// REQUEST_LIMIT_MIN/MAX are re-exported as the values schemas/music.ts
+// defines them as — not redefined here — so the URL parser
+// (music/requests/list-params.ts) and this service can never drift apart.
+// The two types are re-exported too; a type re-export is erased at compile
+// time, so doing it from this server-only module costs nothing and keeps
+// this file's stated public interface (brief's Task 4) intact. See
+// schemas/music.ts's own comment on MusicRequestReadStatus for why the
+// definitions themselves live there instead of here.
+export { SONG_SEARCH_MAX_LENGTH, REQUEST_LIMIT_MIN, REQUEST_LIMIT_MAX };
+export type { MusicRequestReadStatus, MusicRequestPlayStatus, RequestSortKey };
 
 /** A client bound to the caller's JWT — see services/inventory.ts's asCaller for why every write uses one. */
 function asCaller(accessToken: string) {
@@ -1368,6 +1380,27 @@ export type MusicRequestChannel = Database['public']['Enums']['music_request_cha
 /** The same number the Songs and Artists lists use: what a person can scan. */
 export const REQUEST_PAGE_SIZE = 50;
 
+/**
+ * Whether this read pages or returns one bounded batch. Exported and tested
+ * without a database because it is the single sentence the whole screen's
+ * paging behaviour hangs off: the cursor is meaningful for exactly one
+ * ordering, and a typed limit means the operator asked for a batch rather than
+ * a page.
+ */
+export function requestUsesKeyset(params: { sort: RequestSortKey; limit?: number }): boolean {
+  return params.sort === 'requested' && params.limit === undefined;
+}
+
+/**
+ * How many rows to ask for. One past the page when paging, so keysetPage can
+ * see there is a next one; exactly the limit otherwise, because a batch has no
+ * next page and N + 1 rows would answer a question nobody asked.
+ */
+export function requestReadLimit(params: { sort: RequestSortKey; limit?: number }): number {
+  if (params.limit !== undefined) return params.limit;
+  return requestUsesKeyset(params) ? REQUEST_PAGE_SIZE + 1 : REQUEST_PAGE_SIZE;
+}
+
 export interface RequestSummary {
   requestId: string;
   memberId: string;
@@ -1376,7 +1409,7 @@ export interface RequestSummary {
    * listParticipationsPage's own listenerName documents, which is itself two
    * causes, not one; do not conflate the two functions' reasons. Here: (1)
    * the caller holds music.view but not members.view, in which case 0107's
-   * RULE 2 withholds this and memberPhone, not the row — the list still
+   * RULE 2 withholds this and memberPhoneLast4, not the row — the list still
    * lists, every row, with the two names blank rather than the page refused;
    * or (2) the caller DOES hold members.view and the listener has since
    * exercised LGPD erasure — 0107's join carries no anonymized_at filter, and
@@ -1385,7 +1418,15 @@ export interface RequestSummary {
    * for exactly this reason).
    */
   memberName: string | null;
-  memberPhone: string | null;
+  /**
+   * The last four digits, or null — withheld with memberName from a caller
+   * without members.view, exactly as the whole number was (0107's RULE 2).
+   * The whole number is NOT here on purpose (Block 22 D8): it is asked for one
+   * request at a time through revealRequestPhone, which records the asking.
+   * Masking a number the page already carries would be a lock on a door
+   * standing in an open field.
+   */
+  memberPhoneLast4: string | null;
   songId: string;
   songTitle: string;
   /**
@@ -1406,11 +1447,17 @@ export interface RequestSummary {
    * request whose listener wrote nothing — the screen has no reason to tell
    * those apart, because both mean there is nothing to read.
    *
-   * NOT withheld with memberName and memberPhone when the caller lacks
+   * NOT withheld with memberName and memberPhoneLast4 when the caller lacks
    * members.view: a note is about the request, not about who made it.
    */
   listenerNote: string | null;
   requestedAt: string;
+  readStatus: MusicRequestReadStatus;
+  playStatus: MusicRequestPlayStatus;
+  /** When it was read out; null means nobody has. The screen shows it beside the button that is now a label. */
+  readAt: string | null;
+  playedAt: string | null;
+  cancelledAt: string | null;
 }
 
 export interface RequestListParams {
@@ -1420,6 +1467,11 @@ export interface RequestListParams {
   channel?: MusicRequestChannel;
   /** A listener search. Returns nothing at all without members.view — 0107's RULE 3, not a bug (music/requests/list-params.ts's own comment). */
   search?: string;
+  readStatus?: MusicRequestReadStatus;
+  playStatus?: MusicRequestPlayStatus;
+  sort: RequestSortKey;
+  /** Undefined means "page it"; a number means "one batch of this many". */
+  limit?: number;
   cursor: Cursor | null;
   cursorSide: 'after' | 'before';
 }
@@ -1452,11 +1504,18 @@ export function totalFromRequestBatch(rows: readonly { total_count: number }[]):
 }
 
 /**
- * One keyset page of a Station's music requests, newest first — modelled
- * directly on listParticipationsPage (services/participations.ts): the
- * cursor travels apart from the row values, the read takes
- * `REQUEST_PAGE_SIZE + 1` rows, and a walking-back read is reversed by
- * keysetPage before this returns.
+ * A Station's music requests, one keyset page at a time for the `requested`
+ * ordering and one bounded batch for the other three — modelled directly on
+ * listParticipationsPage (services/participations.ts) for the keyset case:
+ * the cursor travels apart from the row values, and a walking-back read is
+ * reversed by keysetPage before this returns.
+ *
+ * requestUsesKeyset/requestReadLimit above decide which mode this call is and
+ * how many rows to ask for; a batch gets no cursors below (nothing paginates
+ * it), which is why the keysetPage call is skipped rather than fed a cursor
+ * that would mean nothing for a text ordering — list_music_requests (0191)
+ * itself ignores the cursor for those three orderings, for the identical
+ * reason.
  *
  * Reads through asCaller rather than createUserClient(), for the identical
  * reason listParticipationsPage's own comment gives: list_music_requests
@@ -1468,7 +1527,8 @@ export async function listMusicRequestsPage(
   params: RequestListParams,
   accessToken: string,
 ): Promise<RequestListPage> {
-  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const keyset = requestUsesKeyset(params);
+  const walkingBack = keyset && params.cursorSide === 'before' && params.cursor !== null;
   const term = params.search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH) || undefined;
 
   const { data, error } = await asCaller(accessToken).rpc('list_music_requests', {
@@ -1477,34 +1537,42 @@ export async function listMusicRequestsPage(
     p_show_id: params.showId,
     p_channel: params.channel,
     p_search: term,
+    p_read_status: params.readStatus,
+    p_play_status: params.playStatus,
+    p_sort: params.sort,
     // Cursor.value is nullable because other screens sort by a nullable
     // column; requested_at is not null (0098), so a null here can only mean
     // "no cursor", which is what undefined says to the function's default —
     // listParticipationsPage's identical reasoning for participated_at.
-    p_cursor_at: params.cursor?.value ?? undefined,
-    p_cursor_id: params.cursor?.id,
+    // Only sent at all when this read pages: the cursor is meaningful for
+    // exactly the ordering it was built from (0191's own comment).
+    p_cursor_at: keyset ? (params.cursor?.value ?? undefined) : undefined,
+    p_cursor_id: keyset ? params.cursor?.id : undefined,
     p_walking_back: walkingBack,
-    // One past the page, which is how keysetPage knows there is a next one.
-    p_limit: REQUEST_PAGE_SIZE + 1,
+    p_limit: requestReadLimit(params),
   });
 
   if (error) throw mapMusicError(error.code, error.message);
 
   const fetched = data ?? [];
 
-  const { rows: page, nextCursor, previousCursor } = keysetPage(fetched, {
-    pageSize: REQUEST_PAGE_SIZE,
-    walkingBack,
-    hadCursor: params.cursor !== null,
-    cursorFor: (row) => ({ value: row.requested_at, id: row.request_id }),
-  });
+  // A batch has no next page, so it gets no cursors — the grid renders no
+  // pager without having to know the rule.
+  const { rows: page, nextCursor, previousCursor } = keyset
+    ? keysetPage(fetched, {
+        pageSize: REQUEST_PAGE_SIZE,
+        walkingBack,
+        hadCursor: params.cursor !== null,
+        cursorFor: (row) => ({ value: row.requested_at, id: row.request_id }),
+      })
+    : { rows: fetched, nextCursor: null, previousCursor: null };
 
   return {
     rows: page.map((row) => ({
       requestId: row.request_id,
       memberId: row.member_id,
       memberName: row.member_name,
-      memberPhone: row.member_phone,
+      memberPhoneLast4: row.member_phone_last4,
       songId: row.song_id,
       songTitle: row.song_title,
       songArchived: row.song_archived,
@@ -1514,6 +1582,11 @@ export async function listMusicRequestsPage(
       channel: row.channel,
       listenerNote: row.listener_note,
       requestedAt: row.requested_at,
+      readStatus: row.read_status,
+      playStatus: row.play_status,
+      readAt: row.read_at,
+      playedAt: row.played_at,
+      cancelledAt: row.cancelled_at,
     })),
     nextCursor,
     previousCursor,
@@ -1569,6 +1642,45 @@ export async function archiveMusicRequest(requestId: string, accessToken: string
     p_request_id: requestId,
   });
   if (error) throw mapMusicError(error.code, error.message);
+}
+
+/**
+ * The three attend marks and the disclosure. Each is a single RPC call through
+ * asCaller, matching archiveMusicRequest's shape: the permission, the
+ * idempotence and the refusals all live in 0190, and repeating any of them here
+ * would be a second opinion that can disagree with the first.
+ */
+export async function markMusicRequestRead(requestId: string, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('mark_music_request_read', {
+    p_request_id: requestId,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+export async function markMusicRequestPlayed(requestId: string, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('mark_music_request_played', {
+    p_request_id: requestId,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+export async function cancelMusicRequest(requestId: string, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('cancel_music_request', {
+    p_request_id: requestId,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+/** Null for a listener who has since exercised erasure — there is nothing to disclose, and 0190 still records that somebody asked. */
+export async function revealRequestPhone(
+  requestId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const { data, error } = await asCaller(accessToken).rpc('reveal_request_phone', {
+    p_request_id: requestId,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  return data ?? null;
 }
 
 const SONG_OPTION_COLUMNS = 'id, title, artists(name), albums(cover_md5)';

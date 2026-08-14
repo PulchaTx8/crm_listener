@@ -25,13 +25,14 @@ const INITIAL_ARCHIVE: ArchiveReferenceState = { status: 'idle' };
  * else) and there is no list this screen's kind is "for" the way an artist is
  * for its songs.
  *
- * Archive lives INSIDE this dialog, unlike ArtistRecordDialog's (whose
- * archive is a separate action on the grid row's dropdown menu): a record
- * this thin has no second surface worth splitting the write across. Clicking
- * Archive here opens ArchiveReferenceDialog, a second native `<dialog>`
- * stacked on top of this one via the browser's own top layer — the same
- * `showModal()` behaviour dialog.tsx documents, exercised twice rather than
- * once.
+ * Archive is reachable from two places — the footer button here, and the
+ * row's own dropdown menu (references-grid.tsx, matching ArtistRecordDialog's
+ * shape) — and both open the same ArchiveReferenceDialog, exported below
+ * rather than duplicated: one copy of the confirmation copy, one RPC call
+ * site, two callers. Clicking Archive from here opens it as a second native
+ * `<dialog>` stacked on top of this one via the browser's own top layer — the
+ * same `showModal()` behaviour dialog.tsx documents, exercised twice rather
+ * than once; opened from the grid row it has no dialog beneath it to stack on.
  */
 export function ReferenceRecordDialog({
   record,
@@ -228,8 +229,12 @@ function ReferenceReadOnlyFields({ record }: { record: ReferenceSummary }) {
  * with a stable `data-testid`, never `window.confirm` (unstyled, blocks the
  * main thread, and undrivable by the `getByTestId('...-archive-confirm')`
  * pattern every e2e spec that exercises an archive flow already uses).
+ *
+ * Exported so references-grid.tsx can open it directly from the row's
+ * dropdown menu — a second caller, not a second copy (see this file's header
+ * comment on ReferenceRecordDialog).
  */
-function ArchiveReferenceDialog({
+export function ArchiveReferenceDialog({
   record,
   kind,
   copy,

@@ -7,7 +7,14 @@ import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { requestFormSchema } from '@/schemas/music';
-import { archiveMusicRequest, createMusicRequest, searchSongs } from '@/services/music';
+import {
+  cancelMusicRequest,
+  createMusicRequest,
+  markMusicRequestPlayed,
+  markMusicRequestRead,
+  revealRequestPhone,
+  searchSongs,
+} from '@/services/music';
 import type { SongSearchPage } from '@/services/music';
 import { resolveOrCreateMember, searchStationListeners } from '@/services/participations';
 import type { StationListenerPage } from '@/services/participations';
@@ -246,50 +253,91 @@ export async function recordRequestAction(
   }
 }
 
-export type ArchiveRequestState = { ok: null } | { ok: true } | { ok: false; message: string };
+export type AttendRequestState = { ok: null } | { ok: true } | { ok: false; message: string };
 
 /**
- * A request id is never typed by an operator — it comes from the row the
- * dialog was opened on — but archive_music_request still reaches Postgres
- * with whatever this parses to, so a malformed value is refused here rather
- * than reaching the RPC as raw text and coming back as an opaque `22P02`,
- * the identical round trip requestFormSchema's own `requestedAt` guard
- * exists to close for the create side.
- *
- * A FUNCTION taking `t`, not a module-level constant, and that is not a style
- * choice: a `const` here is evaluated when the module first loads, which is
- * outside any request, and `getTranslations` reads `cookies()`. The whole
- * requests route failed to initialise — every Server Action in this file
- * included — for exactly one line of exactly that shape.
+ * A FUNCTION taking `t`, never a module-level constant — the same trap
+ * archiveRequestSchema documented before this file replaced it: a `const` here
+ * is evaluated when the module first loads, which is outside any request, and
+ * getTranslations reads cookies(). The whole route failed to initialise for one
+ * line of exactly that shape, and tests/unit/i18n/usage.test.ts now asks the AST
+ * about it.
  */
-function archiveRequestSchema(t: (key: string) => string) {
-  return z.object({
-    requestId: z.string().uuid(t('thatRequestCouldNotBeIdentified')),
-  });
+function requestIdSchema(t: (key: string) => string) {
+  return z.object({ requestId: z.string().uuid(t('thatRequestCouldNotBeIdentified')) });
 }
 
-/** Withdraws a mistyped manual entry — never a DELETE (0107's own comment on archive_music_request). */
-export async function archiveRequestAction(
-  _prev: ArchiveRequestState,
+/**
+ * The three marks are one body called three times, each naming its own door and
+ * its own log line, so a failure to mark played never reads as a failure to mark
+ * read. The permission, the idempotence and the two refusals all live in 0190 —
+ * nothing is re-decided here, because a second opinion is a thing that can
+ * disagree with the first.
+ */
+async function attend(
   formData: FormData,
-): Promise<ArchiveRequestState> {
+  door: (requestId: string, token: string) => Promise<void>,
+  logLabel: string,
+): Promise<AttendRequestState> {
   const t = await getTranslations('music');
-  const parsed = archiveRequestSchema(t).safeParse({
-    requestId: formData.get('requestId') ?? '',
-  });
+  const parsed = requestIdSchema(t).safeParse({ requestId: formData.get('requestId') ?? '' });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? t('missingRequest') };
   }
   const { requestId } = parsed.data;
-
   const token = await requireAccessToken();
 
   try {
-    await archiveMusicRequest(requestId, token);
+    await door(requestId, token);
     revalidatePath('/music/requests');
     return { ok: true };
   } catch (cause) {
-    logger.error({ err: cause, requestId }, 'withdraw request failed');
-    return { ok: false, message: describeMusicWriteError(cause, await getTranslations('music'), 'actionWithdrawThisRequest') };
+    logger.error({ err: cause, requestId }, logLabel);
+    return { ok: false, message: describeMusicWriteError(cause, t, 'actionAttendThisRequest') };
+  }
+}
+
+export async function markRequestReadAction(
+  _prev: AttendRequestState,
+  formData: FormData,
+): Promise<AttendRequestState> {
+  return attend(formData, markMusicRequestRead, 'mark a request read failed');
+}
+
+export async function markRequestPlayedAction(
+  _prev: AttendRequestState,
+  formData: FormData,
+): Promise<AttendRequestState> {
+  return attend(formData, markMusicRequestPlayed, 'mark a request played failed');
+}
+
+export async function callOffRequestAction(
+  _prev: AttendRequestState,
+  formData: FormData,
+): Promise<AttendRequestState> {
+  return attend(formData, cancelMusicRequest, 'call off a request failed');
+}
+
+export type RevealPhoneResult =
+  | { status: 'ok'; phone: string | null }
+  | { status: 'error'; message: string };
+
+/**
+ * Not a form action: this returns a value to the component that asked, the way
+ * searchRequestListenersAction does, because the answer is one string shown in
+ * place. No revalidatePath — nothing the list renders has changed.
+ */
+export async function revealRequestPhoneAction(requestId: string): Promise<RevealPhoneResult> {
+  const t = await getTranslations('music');
+  const parsed = requestIdSchema(t).safeParse({ requestId });
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? t('missingRequest') };
+  }
+  const token = await requireAccessToken();
+  try {
+    return { status: 'ok', phone: await revealRequestPhone(parsed.data.requestId, token) };
+  } catch (cause) {
+    logger.error({ err: cause, requestId }, 'reveal a listener telephone number failed');
+    return { status: 'error', message: t('couldNotShowTheNumber') };
   }
 }

@@ -199,17 +199,25 @@ describe('Block 7b — merging and requests across Stations', () => {
       p_song_id: winner.songId,
     });
     expect(listError).toBeNull();
-    const requestRows = rows as { member_phone: string | null }[];
+    const requestRows = rows as { member_phone_last4: string | null }[];
     expect(requestRows.length).toBe(1);
     // M3 (final whole-branch review), same class as I1: the case below
-    // proves member_phone comes back null without members.view, but nothing
-    // proved it comes back POPULATED for a caller who holds it — deleting
-    // f.phone from 0107's select list would have left every gate green.
-    // `owner` holds members.view through has_permission's owner bypass
+    // proves member_phone_last4 comes back null without members.view, but
+    // nothing proved it comes back POPULATED for a caller who holds it —
+    // deleting f.phone from 0107's select list would have left every gate
+    // green. `owner` holds members.view through has_permission's owner bypass
     // (0024: is_owner(organization_id) short-circuits the role check), and
     // this case already seeds its own request with a real phone number, so
     // no new fixture is needed.
-    expect(requestRows[0]?.member_phone).toBeTruthy();
+    //
+    // 0191 (Block 22 D8) replaced the whole number with its last four digits
+    // — right(normalize_phone(phone), 4) — so a bare toBeTruthy() no longer
+    // pins the actual contract: a value like "0" or a stray digit would also
+    // be truthy. The seeded number is `+5511${String(STAMP).slice(-9)}`;
+    // normalize_phone strips everything but digits, and the last four
+    // characters of that are the same as the last four of STAMP itself,
+    // whichever way the slicing lands.
+    expect(requestRows[0]?.member_phone_last4).toBe(String(STAMP).slice(-4));
   });
 
   it('lists requests without members.view, with the listener columns null', async () => {
@@ -244,16 +252,21 @@ describe('Block 7b — merging and requests across Stations', () => {
     expect(error).toBeNull();
     const rows = data as {
       member_name: string | null;
-      member_phone: string | null;
+      member_phone_last4: string | null;
       song_title: string;
     }[];
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.member_name === null)).toBe(true);
     // Fix round 1, Important 2: D6's rule 2 nulls BOTH columns (0107's list
-    // body cases on v_names for phone exactly as it does for name). Asserting
-    // only member_name left the phone column's own `case when v_names then
-    // f.phone else null end` unguarded by anything in this project.
-    expect(rows.every((r) => r.member_phone === null)).toBe(true);
+    // body cased on v_names for phone exactly as it does for name; 0191's
+    // Block 22 D8 rewrite kept that shape when it replaced the whole number
+    // with four digits — `case when v_names then
+    // right(normalize_phone(f.phone), 4) else null end`). Asserting only
+    // member_name left the phone column unguarded by anything in this
+    // project — still true after the rename, which is why this case is a
+    // rename in place rather than a rewrite: it withholds the four digits
+    // exactly as it withheld the whole number before them.
+    expect(rows.every((r) => r.member_phone_last4 === null)).toBe(true);
     // And the row is still useful: the song is there.
     expect(rows.every((r) => typeof r.song_title === 'string')).toBe(true);
   });
