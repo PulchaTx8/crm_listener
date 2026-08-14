@@ -1,5 +1,5 @@
 begin;
-select plan(33);
+select plan(34);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -557,11 +557,17 @@ select is(
   1, 'reversing writes exactly one audit row, naming the movement that was archived');
 
 -- ---------------------------------------------------------------------------
--- Block 23, Task 4: list_movements widened. 28-33, re-entering the same
+-- Block 23, Task 4: list_movements widened. 28-34, re-entering the same
 -- authenticated actor `reset role` above stepped out of -- list_movements is
 -- SECURITY DEFINER and raises 42501 with no auth.uid() to resolve
 -- has_permission against, so the audit-log read's superuser connection
 -- cannot be reused for these.
+--
+-- Every call below passes p_limit => 500 explicitly (fix round 1, minor):
+-- the default is 26, and this file has by now written more than that many
+-- movements for company 23c1 across all three prizes -- omitting it would
+-- couple every assertion's pass/fail to how many cases precede it in the
+-- file, rather than to what each assertion actually claims to test.
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", "role": "authenticated"}';
@@ -574,7 +580,8 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", 
 select ok(
   (select invoice_number = 'NF-2301' and unit_amount = 2.50 and total_amount = 125.00
      from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
-                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+                                 p_limit      => 500)
     where movement_id = (select movement_id from t23_purchase)),
   'list_movements returns invoice_number, unit_amount and total_amount on an entry that has them');
 
@@ -589,7 +596,8 @@ select ok(
   (select reversed_at is not null
       and reversal_id = (select movement_id from t23_entry_reversal)
      from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
-                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+                                 p_limit      => 500)
     where movement_id = (select movement_id from t23_reversible_entry)),
   'a reversed entry reports a non-null reversed_at and the reversal''s own id');
 
@@ -600,7 +608,8 @@ select ok(
 select is(
   (select reverses_movement_id
      from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
-                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+                                 p_limit      => 500)
     where movement_id = (select movement_id from t23_entry_reversal)),
   (select movement_id from t23_reversible_entry),
   'the reversal reports reverses_movement_id naming the entry it undoes');
@@ -620,7 +629,8 @@ select is(
 select is(
   (select remaining_quantity
      from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
-                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+                                 p_limit      => 500)
     where movement_id = (select movement_id from t23_reservation_anon)),
   2,
   'a reservation reports remaining_quantity as its own quantity minus the releases pointing at it, after a partial release');
@@ -632,33 +642,73 @@ select is(
 select is(
   (select show_name
      from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
-                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+                                 p_limit      => 500)
     where movement_id = (select movement_id from t23_reservation_show)),
   'Programa da Tarde',
   'a reservation held for a programme reports the programme''s show_name');
 
--- 33: the movement-type filter narrows to one kind, and the period filter
--- narrows by date -- two independent narrowings asserted together, because
--- each is a one-line boolean and a wrong read on either leaves this false.
--- p_types naming RESERVATION alone must exclude every other kind this prize
--- has accumulated by now (BARTER_ENTRY, TRANSFER_EXIT, MANUAL_ENTRY,
--- MANUAL_EXIT, RESERVATION_RELEASE among them) -- a read that ignores
--- p_types entirely would return every one of those and fail the left half.
--- p_from set past every fixture this whole file has written must return
--- nothing at all -- a read that ignores p_from would still return rows and
--- fail the right half.
+-- 33: the movement-type filter, BOTH directions (fix round 1, I5: the
+-- original version of this assertion only checked the negative direction --
+-- that no wrong-kind row survives the filter -- which is trivially true of
+-- an EMPTY result too, so a p_types bug that matched nothing at all would
+-- have passed it silently). p_types naming RESERVATION alone must return at
+-- least one row (positive: t23_reservation_anon and t23_reservation_show
+-- are both RESERVATION rows on this prize) AND every row it returns must
+-- actually be RESERVATION (negative, excluding BARTER_ENTRY, TRANSFER_EXIT,
+-- MANUAL_ENTRY, MANUAL_EXIT and RESERVATION_RELEASE, all of which this
+-- prize has accumulated by now). A read that ignores p_types entirely
+-- fails the negative half; one where the filter is wired to always exclude
+-- everything (a type mismatch, a broken cast) fails the new positive half.
 select ok(
   (select count(*) from public.list_movements(
       p_company_id => '00000000-0000-0000-0000-0000000023c1',
       p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
-      p_types      => array['RESERVATION']::public.inventory_movement_type[])
-   where movement_type <> 'RESERVATION') = 0
+      p_limit      => 500,
+      p_types      => array['RESERVATION']::public.inventory_movement_type[])) > 0
   and
   (select count(*) from public.list_movements(
       p_company_id => '00000000-0000-0000-0000-0000000023c1',
       p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
-      p_from       => now() + interval '1 day')) = 0,
-  'the movement-type filter narrows to one kind, and the period filter narrows by date');
+      p_limit      => 500,
+      p_types      => array['RESERVATION']::public.inventory_movement_type[])
+   where movement_type <> 'RESERVATION') = 0,
+  'p_types narrows to the one kind named, returning at least one row rather than merely none of the wrong kind');
+
+-- 34: the period filter, p_from AND p_to, each in BOTH directions (fix
+-- round 1, I5: the original assertion exercised only a p_from set past
+-- every fixture -- an all-negative case that a p_from wired to always
+-- return nothing would also have passed -- and never exercised p_to at
+-- all). Every fixture in this whole file was written "now", inside this one
+-- transaction, so a bound a year in the past or a day in the future is
+-- unambiguously on the correct side for every case below.
+select ok(
+  -- Positive: a p_from safely in the past admits rows.
+  (select count(*) from public.list_movements(
+      p_company_id => '00000000-0000-0000-0000-0000000023c1',
+      p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+      p_limit      => 500,
+      p_from       => now() - interval '1 year')) > 0
+  -- Negative: a p_from in the future excludes everything.
+  and (select count(*) from public.list_movements(
+      p_company_id => '00000000-0000-0000-0000-0000000023c1',
+      p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+      p_limit      => 500,
+      p_from       => now() + interval '1 day')) = 0
+  -- Positive: a p_to safely in the future admits rows -- p_to was not
+  -- exercised anywhere in this file before this fix round.
+  and (select count(*) from public.list_movements(
+      p_company_id => '00000000-0000-0000-0000-0000000023c1',
+      p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+      p_limit      => 500,
+      p_to         => now() + interval '1 day')) > 0
+  -- Negative: a p_to in the past excludes everything.
+  and (select count(*) from public.list_movements(
+      p_company_id => '00000000-0000-0000-0000-0000000023c1',
+      p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+      p_limit      => 500,
+      p_to         => now() - interval '1 year')) = 0,
+  'the period filter narrows by date in both directions, exercising p_from and p_to alike');
 
 reset role;
 

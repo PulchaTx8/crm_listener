@@ -174,13 +174,79 @@ describe('movementFormSchema — entry (record_stock_entry: note is the one opti
     expect(parsed.success).toBe(false);
   });
 
-  it('rejects an entryType outside the three entry kinds', () => {
+  it('rejects an entryType outside the four entry kinds', () => {
     const parsed = movementFormSchema.safeParse({
       kind: 'entry',
       companyId,
       prizeId,
       entryType: 'DELIVERY',
       quantity: 5,
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  // Block 23, Task 4 fix round 1 (I4): BARTER_ENTRY and the invoice trio were
+  // widened directly into this schema rather than left as a TypeScript-only
+  // intersection in services/inventory.ts. A TypeScript intersection type
+  // checks at compile time but Zod's discriminatedUnion strips (its default,
+  // with no .strict() anywhere in this file) any key the schema itself does
+  // not name — so the ONLY way to prove these fields actually survive
+  // parsing, rather than being silently dropped by a schema nobody widened,
+  // is to parse them and read them back off parsed.data.
+  it('accepts BARTER_ENTRY, the fourth entry kind (design D4)', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'entry',
+      companyId,
+      prizeId,
+      entryType: 'BARTER_ENTRY',
+      quantity: 5,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('accepts and keeps the invoice trio on an entry, not stripped', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'entry',
+      companyId,
+      prizeId,
+      entryType: 'PURCHASE_ENTRY',
+      quantity: 5,
+      invoiceNumber: 'NF-1001',
+      unitAmount: 2.5,
+      totalAmount: 12.5,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'entry') {
+      expect(parsed.data.invoiceNumber).toBe('NF-1001');
+      expect(parsed.data.unitAmount).toBe(2.5);
+      expect(parsed.data.totalAmount).toBe(12.5);
+    }
+  });
+
+  it('omits the invoice trio entirely when none is given, rather than stripping it to null', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'entry',
+      companyId,
+      prizeId,
+      entryType: 'MANUAL_ENTRY',
+      quantity: 5,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'entry') {
+      expect(parsed.data.invoiceNumber).toBeUndefined();
+      expect(parsed.data.unitAmount).toBeUndefined();
+      expect(parsed.data.totalAmount).toBeUndefined();
+    }
+  });
+
+  it('rejects a negative unitAmount — inventory_movements_amounts_nonnegative, checked before the round trip', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'entry',
+      companyId,
+      prizeId,
+      entryType: 'PURCHASE_ENTRY',
+      quantity: 5,
+      unitAmount: -1,
     });
     expect(parsed.success).toBe(false);
   });
@@ -272,6 +338,107 @@ describe.each(['exit', 'reserve', 'release'] as const)(
     });
   },
 );
+
+// Block 23, Task 4 fix round 1 (I4): the three fields below, one per kind,
+// are the same class of case as the invoice trio above — each widened
+// straight into movementFormSchema so a form that posts it gets it back,
+// rather than a TypeScript-only field that Zod's default strip behaviour
+// silently discards.
+
+describe('movementFormSchema — exit (record_stock_exit: the type option)', () => {
+  it('accepts and keeps TRANSFER_EXIT, not stripped', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'exit',
+      companyId,
+      prizeId,
+      quantity: 3,
+      note: 'Sent to another station',
+      type: 'TRANSFER_EXIT',
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'exit') {
+      expect(parsed.data.type).toBe('TRANSFER_EXIT');
+    }
+  });
+
+  it('omits type entirely when none is given, so record_stock_exit falls back to its own MANUAL_EXIT default', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'exit',
+      companyId,
+      prizeId,
+      quantity: 3,
+      note: 'Damaged in transit',
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'exit') {
+      expect(parsed.data.type).toBeUndefined();
+    }
+  });
+});
+
+describe('movementFormSchema — reserve (reserve_stock: the showId option)', () => {
+  it('accepts and keeps showId, not stripped', () => {
+    const showId = '44444444-4444-4444-4444-444444444444';
+    const parsed = movementFormSchema.safeParse({
+      kind: 'reserve',
+      companyId,
+      prizeId,
+      quantity: 2,
+      note: 'Held for the afternoon show',
+      showId,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'reserve') {
+      expect(parsed.data.showId).toBe(showId);
+    }
+  });
+
+  it('omits showId entirely when none is given — an anonymous hold, not a programme hold with a missing id', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'reserve',
+      companyId,
+      prizeId,
+      quantity: 2,
+      note: 'Anonymous hold',
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'reserve') {
+      expect(parsed.data.showId).toBeUndefined();
+    }
+  });
+});
+
+describe('movementFormSchema — release (release_reservation: the reservationId option)', () => {
+  it('accepts and keeps reservationId, not stripped', () => {
+    const reservationId = '55555555-5555-5555-5555-555555555555';
+    const parsed = movementFormSchema.safeParse({
+      kind: 'release',
+      companyId,
+      prizeId,
+      quantity: 2,
+      note: 'Partial release',
+      reservationId,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'release') {
+      expect(parsed.data.reservationId).toBe(reservationId);
+    }
+  });
+
+  it('omits reservationId entirely when none is given', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'release',
+      companyId,
+      prizeId,
+      quantity: 2,
+      note: 'Release with no reservation to attribute it to',
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'release') {
+      expect(parsed.data.reservationId).toBeUndefined();
+    }
+  });
+});
 
 describe('movementFormSchema — adjustment (adjust_stock: the counted figure)', () => {
   it('accepts a counted figure of zero — a real count of nothing on the shelf', () => {

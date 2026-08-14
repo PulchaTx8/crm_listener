@@ -62,13 +62,20 @@
 --         code -- 0194's own comment anticipates exactly this: "the same
 --         arithmetic the Reservas screen ... will show on each row."
 --   * show_name, a plain left join to `shows` for a reservation that names
---     one via reserved_for_show_id. No archival-hiding rule of the kind
---     promotion_name carries a few lines below (0044's owner-only carve-out,
---     because a promotion can belong to an Organization this caller is not
---     the owner of) -- nothing in 0098 gives shows an equivalent rule for
---     this function to honour, so this is a plain lookup, not a second
---     expression of that same archival logic for a table that never asked
---     for it.
+--     one via reserved_for_show_id -- NOT gated on shows.deleted_at, and
+--     that is deliberate rather than an omission (fix round 1, I6: an
+--     earlier draft of this comment said "nothing in 0098 gives shows an
+--     equivalent rule to honour", which is not why -- shows DOES have a
+--     deleted_at column). This is a ledger, and a ledger records what was
+--     true when the movement happened: a programme that is archived TODAY
+--     was real the day stock was reserved for it, and hiding its name here
+--     would make an old, correct reservation unexplainable on the one screen
+--     that exists to explain it. promotion_name's owner-only carve-out a few
+--     lines below answers a different question (an archived promotion can
+--     belong to an Organization this caller is not the owner of, which
+--     shows never can -- a show has no cross-Organization visibility
+--     question to answer), so it is not a second expression of the same
+--     rule left out here; it is a rule that does not apply.
 --
 -- RETURNS TABLE forces a drop: a function returning a table cannot be
 -- CREATE OR REPLACE'd into one returning a wider table, the same rule 0096's
@@ -189,8 +196,20 @@ begin
            -- was itself later undone reports its own reversed_at here too.
            -- Null on a RESERVATION always -- the predicate below excludes
            -- RESERVATION_RELEASE, and that is the only movement type ever
-           -- allowed to point at a RESERVATION
-           -- (inventory_movements_reversal_reference, 0193).
+           -- allowed to point at a RESERVATION. NOT because
+           -- inventory_movements_reversal_reference (0193) says so (fix
+           -- round 1, I6: an earlier draft of this comment cited it, but that
+           -- constraint restricts the REVERSAL's own type -- MANUAL_ENTRY,
+           -- MANUAL_EXIT or RESERVATION_RELEASE -- never what it points AT,
+           -- so relaxing it would not by itself let a MANUAL_ENTRY/
+           -- MANUAL_EXIT point at a RESERVATION). What actually makes it
+           -- true is reverse_movement's own runtime refusal (0195:231-232,
+           -- "only a stock entry or a stock exit can be reversed here"): it
+           -- never writes a MANUAL_ENTRY/MANUAL_EXIT reversal pointing at
+           -- anything but an entry or an exit, so a RESERVATION is never a
+           -- reversal's target in practice. A future author relaxing that
+           -- door check on the strength of the WRONG citation above would
+           -- have believed the constraint still protected this; it does not.
            rv.reversed_at,
            rv.reversal_id,
            -- A RESERVATION's own quantity minus every RESERVATION_RELEASE
@@ -236,6 +255,14 @@ begin
        -- with p_type above rather than replacing it -- no caller today
        -- passes both, and a caller that did would get the intersection,
        -- which is the honest reading of two filters given together.
+       --
+       -- DECIDED, not left ambiguous (fix round 1, minor): NULL means "no
+       -- filter" (the sentinel every other parameter here uses), but an
+       -- EMPTY array is a different value on purpose, and `= any('{}')` is
+       -- always false -- so p_types => ARRAY[]::inventory_movement_type[]
+       -- matches NOTHING, not "every kind". A caller computing this array
+       -- dynamically (Tasks 5-8, one constant group of kinds per tab) must
+       -- pass null, never an empty array, to mean "no filter".
        and (p_types is null        or m.movement_type = any(p_types))
        and (p_prize_id is null     or m.prize_id = p_prize_id)
        and (p_promotion_id is null or pp.promotion_id = p_promotion_id)

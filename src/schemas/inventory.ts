@@ -89,6 +89,57 @@ const idempotencyKey = z
   .optional()
   .transform((v) => (v === null || v === undefined || v === '' ? undefined : v));
 
+// Block 23, Task 4 fix round 1 (I4): every field below was, until this
+// round, only a TypeScript intersection bolted onto services/inventory.ts's
+// own Stock*Input types — never part of movementFormSchema itself.
+// movementFormSchema's discriminatedUnion is a plain z.object per variant,
+// with no .strict(), so Zod's default behaviour is to STRIP any key not
+// named in the schema. A form built against the intersection type would
+// still typecheck (every added field was optional), post an object carrying
+// invoiceNumber/unitAmount/totalAmount/showId/reservationId, parse it
+// through this schema, and get back an object with every one of those keys
+// silently removed — no compile error, no runtime error, no failing test,
+// and record_stock_entry called with p_invoice_number: undefined regardless
+// of what the operator typed. Widening the schema itself, rather than
+// trusting a TypeScript-only seam layered on top of it, is what makes that
+// failure loud (the field is simply absent from MovementFormInput) instead
+// of invisible.
+
+// The invoice number an entry came in on (0193, design D3). text on the
+// table with no length limit of its own; 80 characters is prizeFormSchema's
+// own internalCode bound, repurposed here for the identical reason — a
+// value the database would happily store but no screen could display or
+// compare sensibly.
+const optionalInvoiceNumber = z
+  .string()
+  .trim()
+  .max(80, 'Keep the invoice number to 80 characters or fewer.')
+  .nullable()
+  .optional()
+  .transform((v) => (v === null || v === undefined || v === '' ? undefined : v));
+
+// unit_amount/total_amount (0193): numeric(12,2), and
+// inventory_movements_amounts_nonnegative refuses a negative figure at the
+// database — validated here for the same reason `quantity` above is, to turn
+// that 22023 into a field-level message instead of a round trip.
+const optionalAmount = z
+  .number()
+  .nonnegative('Amount cannot be negative.')
+  .nullable()
+  .optional()
+  .transform((v) => (v === null || v === undefined ? undefined : v));
+
+// showId (reserve_stock's p_show_id) / reservationId (release_reservation's
+// p_reservation_id) — both design D7/D5, 0194. Omitted is each door's own
+// pre-Block-23 behaviour: an anonymous hold, or a release with no
+// reservation to attribute it to.
+const optionalUuid = z
+  .string()
+  .uuid()
+  .nullable()
+  .optional()
+  .transform((v) => (v === null || v === undefined ? undefined : v));
+
 const movementBase = {
   companyId: z.string().uuid(),
   prizeId: z.string().uuid(),
@@ -118,27 +169,37 @@ export const movementFormSchema = z.discriminatedUnion('kind', [
   z.object({
     ...movementBase,
     kind: z.literal('entry'),
-    entryType: z.enum(['INITIAL_ENTRY', 'PURCHASE_ENTRY', 'MANUAL_ENTRY']),
+    // BARTER_ENTRY (0192, design D4) widened in alongside record_stock_entry's
+    // own three (0194).
+    entryType: z.enum(['INITIAL_ENTRY', 'PURCHASE_ENTRY', 'MANUAL_ENTRY', 'BARTER_ENTRY']),
     quantity,
     note: optionalNote,
+    invoiceNumber: optionalInvoiceNumber,
+    unitAmount: optionalAmount,
+    totalAmount: optionalAmount,
   }),
   z.object({
     ...movementBase,
     kind: z.literal('exit'),
     quantity,
     note: mandatoryNote,
+    // record_stock_exit's own p_type (0194): MANUAL_EXIT or TRANSFER_EXIT.
+    // Omitted keeps the door's own default of MANUAL_EXIT.
+    type: z.enum(['MANUAL_EXIT', 'TRANSFER_EXIT']).optional(),
   }),
   z.object({
     ...movementBase,
     kind: z.literal('reserve'),
     quantity,
     note: mandatoryNote,
+    showId: optionalUuid,
   }),
   z.object({
     ...movementBase,
     kind: z.literal('release'),
     quantity,
     note: mandatoryNote,
+    reservationId: optionalUuid,
   }),
   z.object({
     ...movementBase,
