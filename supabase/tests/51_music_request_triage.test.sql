@@ -1,5 +1,5 @@
 begin;
-select plan(4);
+select plan(5);
 
 -- Block 22, Task 1. The stamps are the truth and the two statuses are derived
 -- from them by Postgres (D1), so this file proves the derivation rather than
@@ -50,7 +50,18 @@ select is(
     where id = '00000000-0000-0000-0000-00000000221a'),
   'READ/PLAYED', 'the two statuses follow their own stamps');
 
--- 4: cancellation outranks both (D2), which is why cancel_music_request
+-- 4: refused, not merely unnecessary. A BEFORE UPDATE trigger keeping a
+-- hand-written status column in step could never offer this -- it is the one
+-- behaviour that tells GENERATED ALWAYS apart from that alternative, the one
+-- D1 rejected, and every assertion above would still pass against it.
+-- 428C9 is Postgres' own SQLSTATE for generated_always, confirmed by running
+-- the statement rather than assumed from memory.
+select throws_ok($$
+  update public.music_requests set read_status = 'READ'
+    where id = '00000000-0000-0000-0000-00000000221a'
+$$, '428C9', null, 'a direct write to a generated column is refused outright');
+
+-- 5: cancellation outranks both (D2), which is why cancel_music_request
 -- refuses a played request -- see Task 2.
 update public.music_requests
    set cancelled_at = now()
