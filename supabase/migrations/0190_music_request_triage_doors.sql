@@ -223,9 +223,25 @@ begin
   -- Null for a listener who has since exercised erasure: anonymize_member (0034)
   -- scrubs the number, and there is nothing to disclose. The audit row is still
   -- written -- somebody asked, and that is the fact being recorded.
+  --
+  -- FOR SHARE, NOT A BARE READ. anonymize_member (0034) erases through a plain
+  -- UPDATE, which takes no lock a reader is obliged to respect; under READ
+  -- COMMITTED an unlocked select is never blocked by one, so without this lock
+  -- a disclosure racing an erasure could read the row a moment before the scrub
+  -- commits and hand a human the live number anyway -- seen once, unseeable
+  -- after, at the exact instant the erasure existed to prevent it. 0107:77-84
+  -- closed this identical race on this identical table for create_music_request,
+  -- and its header argues the case in full; this is the same lock for the same
+  -- reason one door over.
+  --
+  -- FOR SHARE, NOT FOR UPDATE: it conflicts with FOR UPDATE and nothing weaker,
+  -- so it serialises against the erasure and against nothing else -- two people
+  -- revealing the same listener's number in the same instant never queue behind
+  -- each other, which matters on a door that runs once per click.
   select phone into v_phone
     from public.members
-   where id = v_member and anonymized_at is null;
+   where id = v_member and anonymized_at is null
+   for share;
 
   insert into public.audit_logs
     (actor_id, action, target_table, target_id, organization_id, company_id, detail)
