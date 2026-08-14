@@ -179,8 +179,11 @@ test('a record label is renamed through its record dialog', async ({ page }) => 
   // (reference-record-dialog.tsx) -- the same button references-grid.tsx
   // wires to setEditingId. Its edit form shares the data-testid
   // "reference-name" with the create form above; only one of the two dialogs
-  // is ever open at a time, so the selector is unambiguous here.
-  await page.getByRole('button', { name: 'Selo Antes Do Rename 20c' }).click();
+  // is ever open at a time, so the selector is unambiguous here. exact: true
+  // is required since Task 11: the row's pencil ("Edit Selo Antes Do Rename
+  // 20c") and its dropdown ("Actions for Selo Antes Do Rename 20c") both
+  // carry this name as a substring of their own aria-label.
+  await page.getByRole('button', { name: 'Selo Antes Do Rename 20c', exact: true }).click();
   await page.getByTestId('reference-name').fill('Selo Depois Do Rename 20c');
   await page.getByTestId('reference-save').click();
   // updateReferenceAction landed and revalidatePath refreshed `rows` -- the
@@ -206,7 +209,9 @@ test('a record label is archived through its confirmation dialog, and leaves the
   await page.getByTestId('reference-save').click();
   await expect(page.getByTestId('references-grid')).toContainText('Selo Para Arquivar 20c');
 
-  await page.getByRole('button', { name: 'Selo Para Arquivar 20c' }).click();
+  // exact: true -- the row's pencil and dropdown menu both carry this name
+  // as a substring of their own aria-label (Task 11).
+  await page.getByRole('button', { name: 'Selo Para Arquivar 20c', exact: true }).click();
   await page.getByTestId('reference-archive').click();
 
   // ArchiveReferenceDialog (reference-record-dialog.tsx) -- a styled <Dialog>
@@ -220,6 +225,45 @@ test('a record label is archived through its confirmation dialog, and leaves the
   // irreversible from this screen, "not by you, not by support" (the dialog's
   // own copy), so there is no undo step left to assert.
   await expect(page.getByTestId('references-grid')).not.toContainText('Selo Para Arquivar 20c');
+});
+
+/**
+ * Task 11: the row actions references-grid.tsx grew beside the row --
+ * neither test above ever presses them, since both reach
+ * ReferenceRecordDialog through the row's NAME and archive through the
+ * dialog's own footer button. This journey presses the row's pencil and the
+ * row's own dropdown menu instead, proving the second door opens the SAME
+ * dialog (not a copy of it) and the SAME ArchiveReferenceDialog, exported
+ * from reference-record-dialog.tsx for exactly this second caller.
+ *
+ * Only /catalog/labels is driven here, same as every journey above in this
+ * file: /catalog/genres renders the exact same references-grid.tsx with only
+ * `kind`/`copy` swapped (design D12), so a second, near-identical journey
+ * through /catalog/genres would prove the copy differs and nothing else --
+ * not a second line of code this task added.
+ */
+test("a record label's row actions open the record dialog and archive it", async ({ page }) => {
+  await signInAlbumsOwner(page);
+
+  await page.goto('/catalog/labels');
+  await page.getByTestId('reference-create').click();
+  await page.getByTestId('reference-name').fill('Selo Ações Da Linha 20c');
+  await page.getByTestId('reference-save').click();
+  await expect(page.getByTestId('references-grid')).toContainText('Selo Ações Da Linha 20c');
+
+  // The pencil, not the name -- both are wired to the same setEditingId
+  // (references-grid.tsx), so the same ReferenceRecordDialog opens either way.
+  await page.getByRole('button', { name: 'Edit Selo Ações Da Linha 20c' }).click();
+  await expect(page.getByTestId('reference-data-form')).toBeVisible();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+  // The row's own dropdown menu, not the record dialog's footer Archive
+  // button, reaching the exported ArchiveReferenceDialog directly.
+  await page.getByRole('button', { name: 'Actions for Selo Ações Da Linha 20c' }).click();
+  await page.getByRole('menuitem', { name: 'Archive label…' }).click();
+  await page.getByTestId('reference-archive-confirm').click();
+
+  await expect(page.getByTestId('references-grid')).not.toContainText('Selo Ações Da Linha 20c');
 });
 
 /**
@@ -272,8 +316,10 @@ test('a record label cannot be archived while a live song still names it, and th
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // Back on the label's own screen, the archive is attempted and refused.
+  // exact: true -- the row's pencil and dropdown menu both carry this name
+  // as a substring of their own aria-label (Task 11).
   await page.goto('/catalog/labels');
-  await page.getByRole('button', { name: 'Selo Vinculado 20c' }).click();
+  await page.getByRole('button', { name: 'Selo Vinculado 20c', exact: true }).click();
   await page.getByTestId('reference-archive').click();
   await page.getByTestId('reference-archive-confirm').click();
 

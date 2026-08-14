@@ -2,8 +2,10 @@
 
 import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
+import { MoreVertical, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   PageControls,
@@ -19,10 +21,10 @@ import type { ReferenceSummary } from '@/services/music';
 import { createReferenceAction, type ReferenceFormState } from './actions';
 import { hasActiveReferenceFilters, referenceSortHref } from './list-params';
 import type { ReferenceListState, ReferenceScreenCopy, ReferenceScreenKind } from './list-params';
-import { ReferenceRecordDialog } from './reference-record-dialog';
+import { ArchiveReferenceDialog, ReferenceRecordDialog } from './reference-record-dialog';
 
-/** Two columns against music/artists/artists-grid.tsx's four: name and legacy id, and nothing else — 0100 gives neither table a `created_at` a screen would show, and there is no Actions column because every row action (save, archive) lives inside the dialog a click on the name opens, not beside the row. */
-const COLUMN_COUNT = 2;
+/** Three columns against music/artists/artists-grid.tsx's four: name, legacy id, and the row actions every other grid in the product carries (edit pencil, and — gated on `manage` — an archive item in a dropdown, the shape music/albums/albums-grid.tsx already uses). Clicking the name still opens the same record dialog read-only for a caller without music.manage; the pencil is the same door. */
+const COLUMN_COUNT = 3;
 
 const INITIAL_CREATE: ReferenceFormState = { status: 'idle' };
 
@@ -65,6 +67,18 @@ export function ReferencesGrid({
 }) {
   const t = useTranslations('music');
   const [editingId, setEditingId] = useState<string | null>(null);
+  // A snapshot object, not an id re-resolved against `rows` — the shape
+  // albums-grid.tsx already uses for its own `archiving`. That difference is
+  // exactly what keeps it out of editingId's resurrection trouble below:
+  // ArchiveReferenceDialog is mounted only while `archiving` is truthy
+  // ({archiving && <ArchiveReferenceDialog .../>}), it is never re-derived
+  // from a fresh `rows`, and nothing but onCancel/onArchived ever sets it back
+  // to null — so there is no re-render of `rows` that could hand this state
+  // back a match and reopen a dialog the operator never asked for. The cost is
+  // the mirror image: the confirmation can show a name one revalidatePath out
+  // of date if the record was renamed elsewhere while it was open, same as
+  // ArchiveAlbumDialog already accepts.
+  const [archiving, setArchiving] = useState<ReferenceSummary | null>(null);
   const [creating, setCreating] = useState(false);
 
   // Derived from the live `rows` prop by id, every render, rather than a
@@ -85,6 +99,26 @@ export function ReferencesGrid({
   // restructure this screen, but the header's safety argument has this one
   // exception.
   const editing = rows.find((row) => row.id === editingId) ?? null;
+
+  // The vanishing above leaves editingId still naming the row that just fell
+  // off the page — nothing clears it, because ReferenceRecordDialog itself
+  // never unmounts (it is rendered unconditionally below; only its internal
+  // `open` prop toggles), so there is no unmount to hang a cleanup off of, and
+  // its own onClose fires only on an operator's explicit Close/ESC/backdrop
+  // click, none of which happened here. Page back, clear the search that
+  // excluded the renamed row, or flip the sort, and the SAME row can come back
+  // into `rows` while editingId still names it — `editing` goes non-null
+  // again on its own, and the dialog reopens on whatever the row now says,
+  // with no click behind it. The requests screen hit the identical shape
+  // (requests-grid.tsx's attendingId) by a different route (there,
+  // AttendDialog unmounts instead of merely closing) and was fixed the same
+  // way: clear the id once its row is confirmed gone, so there is nothing
+  // left for a later `rows` to accidentally match back up with.
+  useEffect(() => {
+    if (editingId !== null && !rows.some((row) => row.id === editingId)) {
+      setEditingId(null);
+    }
+  }, [rows, editingId]);
 
   const ariaSort = state.direction === 'asc' ? 'ascending' : 'descending';
 
@@ -108,6 +142,7 @@ export function ReferencesGrid({
                 </SortLink>
               </TableHead>
               <TableHead>{t('legacyId')}</TableHead>
+              <TableHead className="sticky right-0 bg-background text-right">{t('actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -130,6 +165,28 @@ export function ReferencesGrid({
                     </button>
                   </TableCell>
                   <TableCell>{item.legacyId ?? '—'}</TableCell>
+                  <TableCell className="sticky right-0 bg-background">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        aria-label={t('editRecord', { name: item.name })}
+                        onClick={() => setEditingId(item.id)}
+                        className="rounded-md p-1.5 ring-offset-background hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <Pencil className="size-4" aria-hidden="true" />
+                      </button>
+                      {manage && (
+                        <DropdownMenu
+                          label={t('actionsForRecord', { name: item.name })}
+                          trigger={<MoreVertical className="size-4" aria-hidden="true" />}
+                        >
+                          <DropdownMenuItem destructive onSelect={() => setArchiving(item)}>
+                            {copy.archiveButton}
+                          </DropdownMenuItem>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -151,6 +208,16 @@ export function ReferencesGrid({
         copy={copy}
         onClose={() => setEditingId(null)}
       />
+
+      {archiving && (
+        <ArchiveReferenceDialog
+          record={archiving}
+          kind={kind}
+          copy={copy}
+          onCancel={() => setArchiving(null)}
+          onArchived={() => setArchiving(null)}
+        />
+      )}
 
       {manage && (
         <CreateReferenceDialog
