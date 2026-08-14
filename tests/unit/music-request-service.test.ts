@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { toSongOption, totalFromRequestBatch } from '@/services/music';
+import {
+  REQUEST_PAGE_SIZE,
+  requestReadLimit,
+  requestUsesKeyset,
+  toSongOption,
+  totalFromRequestBatch,
+} from '@/services/music';
 
 /**
  * The two pieces of Task 7's new code that are actual logic rather than a
@@ -82,5 +88,24 @@ describe('toSongOption', () => {
       albums: null,
     });
     expect(option.coverMd5).toBeNull();
+  });
+});
+
+describe('what the requests list asks the database for', () => {
+  it('sends one page plus one row when it is paging, and exactly the limit when it is not', () => {
+    // The two numbers are different questions. Paging reads one row past the
+    // page so keysetPage can tell there is a next one; a bounded batch has no
+    // next page to detect, and reading N + 1 there would show the operator one
+    // more row than they asked for.
+    expect(requestReadLimit({ sort: 'requested', limit: undefined })).toBe(REQUEST_PAGE_SIZE + 1);
+    expect(requestReadLimit({ sort: 'requested', limit: 10 })).toBe(10);
+    expect(requestReadLimit({ sort: 'song', limit: undefined })).toBe(REQUEST_PAGE_SIZE);
+    expect(requestReadLimit({ sort: 'song', limit: 10 })).toBe(10);
+  });
+
+  it('pages only for the ordering the cursor was built for', () => {
+    expect(requestUsesKeyset({ sort: 'requested', limit: undefined })).toBe(true);
+    expect(requestUsesKeyset({ sort: 'requested', limit: 10 })).toBe(false);
+    expect(requestUsesKeyset({ sort: 'artist', limit: undefined })).toBe(false);
   });
 });

@@ -1524,6 +1524,8 @@ export type Database = {
       }
       music_requests: {
         Row: {
+          cancelled_at: string | null
+          cancelled_by: string | null
           channel: Database["public"]["Enums"]["music_request_channel"]
           company_id: string
           created_at: string
@@ -1535,12 +1537,24 @@ export type Database = {
           listener_note: string | null
           member_id: string
           organization_id: string
+          play_status:
+            | Database["public"]["Enums"]["music_request_play_status"]
+            | null
+          played_at: string | null
+          played_by: string | null
+          read_at: string | null
+          read_by: string | null
+          read_status:
+            | Database["public"]["Enums"]["music_request_read_status"]
+            | null
           requested_at: string
           show_id: string | null
           song_id: string
           updated_at: string
         }
         Insert: {
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           channel?: Database["public"]["Enums"]["music_request_channel"]
           company_id: string
           created_at?: string
@@ -1552,12 +1566,24 @@ export type Database = {
           listener_note?: string | null
           member_id: string
           organization_id: string
+          play_status?:
+            | Database["public"]["Enums"]["music_request_play_status"]
+            | null
+          played_at?: string | null
+          played_by?: string | null
+          read_at?: string | null
+          read_by?: string | null
+          read_status?:
+            | Database["public"]["Enums"]["music_request_read_status"]
+            | null
           requested_at?: string
           show_id?: string | null
           song_id: string
           updated_at?: string
         }
         Update: {
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           channel?: Database["public"]["Enums"]["music_request_channel"]
           company_id?: string
           created_at?: string
@@ -1569,6 +1595,16 @@ export type Database = {
           listener_note?: string | null
           member_id?: string
           organization_id?: string
+          play_status?:
+            | Database["public"]["Enums"]["music_request_play_status"]
+            | null
+          played_at?: string | null
+          played_by?: string | null
+          read_at?: string | null
+          read_by?: string | null
+          read_status?:
+            | Database["public"]["Enums"]["music_request_read_status"]
+            | null
           requested_at?: string
           show_id?: string | null
           song_id?: string
@@ -3861,6 +3897,10 @@ export type Database = {
         Args: { p_draw_id: string; p_reason: string }
         Returns: undefined
       }
+      cancel_music_request: {
+        Args: { p_request_id: string }
+        Returns: undefined
+      }
       cancel_promotion: {
         Args: { p_promotion_id: string; p_reason: string }
         Returns: undefined
@@ -4500,18 +4540,26 @@ export type Database = {
           p_cursor_at?: string
           p_cursor_id?: string
           p_limit?: number
+          p_play_status?: Database["public"]["Enums"]["music_request_play_status"]
+          p_read_status?: Database["public"]["Enums"]["music_request_read_status"]
           p_search?: string
           p_show_id?: string
           p_song_id?: string
+          p_sort?: string
           p_walking_back?: boolean
         }
         Returns: {
           artist_name: string
+          cancelled_at: string
           channel: Database["public"]["Enums"]["music_request_channel"]
           listener_note: string
           member_id: string
           member_name: string
-          member_phone: string
+          member_phone_last4: string
+          play_status: Database["public"]["Enums"]["music_request_play_status"]
+          played_at: string
+          read_at: string
+          read_status: Database["public"]["Enums"]["music_request_read_status"]
           request_id: string
           requested_at: string
           show_id: string
@@ -4614,6 +4662,14 @@ export type Database = {
           prize_name: string
           promotion_prize_id: string
         }[]
+      }
+      mark_music_request_played: {
+        Args: { p_request_id: string }
+        Returns: undefined
+      }
+      mark_music_request_read: {
+        Args: { p_request_id: string }
+        Returns: undefined
       }
       may_write_artwork: { Args: { p_name: string }; Returns: boolean }
       member_block_active: {
@@ -5075,6 +5131,7 @@ export type Database = {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
         Returns: number
       }
+      reveal_request_phone: { Args: { p_request_id: string }; Returns: string }
       revoke_api_credential: {
         Args: { p_credential_id: string }
         Returns: undefined
@@ -5509,6 +5566,8 @@ export type Database = {
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
       music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
       music_request_channel: "MANUAL" | "IMPORT" | "API" | "WEB"
+      music_request_play_status: "NOT_PLAYED" | "PLAYED" | "CANCELLED"
+      music_request_read_status: "UNREAD" | "READ" | "CANCELLED"
       music_vocal: "MALE" | "FEMALE" | "DUO" | "GROUP" | "INSTRUMENTAL"
       org_role: "owner" | "member"
       outbox_status: "PENDING" | "SENDING" | "SENT" | "FAILED"
@@ -5749,6 +5808,8 @@ export const Constants = {
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
       music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
       music_request_channel: ["MANUAL", "IMPORT", "API", "WEB"],
+      music_request_play_status: ["NOT_PLAYED", "PLAYED", "CANCELLED"],
+      music_request_read_status: ["UNREAD", "READ", "CANCELLED"],
       music_vocal: ["MALE", "FEMALE", "DUO", "GROUP", "INSTRUMENTAL"],
       org_role: ["owner", "member"],
       outbox_status: ["PENDING", "SENDING", "SENT", "FAILED"],

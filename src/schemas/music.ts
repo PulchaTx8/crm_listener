@@ -248,6 +248,35 @@ export type MusicMergeKind = (typeof MUSIC_MERGE_KINDS)[number];
 export const MUSIC_REQUEST_CHANNELS = ['MANUAL', 'IMPORT'] as const;
 
 /**
+ * The two derived statuses 0189 stores as GENERATED ALWAYS columns and 0190's
+ * three doors write the stamps behind. Defined here, not in services/music.ts
+ * where the rest of Block 22's requests surface lives, because
+ * src/services/music.ts:1 is `import 'server-only'` and
+ * music/requests/list-params.ts (Task 5) needs REQUEST_LIMIT_MIN/MAX at
+ * runtime from a module in the client graph (requests-filters.tsx is
+ * 'use client' and imports from list-params.ts). This file is already
+ * imported by that same client component for MUSIC_REQUEST_CHANNELS, so it is
+ * the client-safe home; services/music.ts re-exports both types (erased at
+ * compile time, so re-exporting them from a server-only module is harmless)
+ * and both constants (re-exported as values, not redefined, so there is
+ * exactly one definition for the URL parser and the RPC to agree on).
+ */
+export type MusicRequestReadStatus = 'UNREAD' | 'READ' | 'CANCELLED';
+export type MusicRequestPlayStatus = 'NOT_PLAYED' | 'PLAYED' | 'CANCELLED';
+
+/**
+ * The four orderings the Requests screen offers. `requested` is the one a
+ * keyset cursor can walk — list_music_requests (0191) orders by
+ * (requested_at desc, id desc) for it and compares exactly those columns —
+ * so it is also the only one that pages.
+ */
+export type RequestSortKey = 'requested' | 'song' | 'artist' | 'show';
+
+/** The bounds the URL parser and the RPC both enforce, exported so neither can drift from the other. */
+export const REQUEST_LIMIT_MIN = 1;
+export const REQUEST_LIMIT_MAX = 200;
+
+/**
  * A reason has to fit in a sentence somebody will read in six months.
  * `text` in Postgres has no length of its own, so the bound is here.
  */
