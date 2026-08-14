@@ -402,7 +402,11 @@ changes.
 `tests/e2e/music-requests.spec.ts` gets one journey: filter to *Não lido*, open
 Atender, read the note, mark Lido, see the badge change, mark Tocado, and find
 the row again through the *Tocadas* filter. Plus one assertion for the masked
-telephone. `tests/e2e/music-catalogue.spec.ts` gets the two action columns.
+telephone. `tests/e2e/catalog-screens.spec.ts` gets the two action columns.
+
+The pgTAP work lands in a new file, `supabase/tests/51_music_request_triage.test.sql`.
+`17_music_requests.test.sql` keeps its eighteen assertions untouched — none of
+them selects `member_phone`, so the column D8 replaces is not one it reads.
 
 Copy lands in `messages/en.json`, `pt.json` and `es.json` in the same commit as
 the component that reads it — Block 12c's rule, and its lesson about a key that
