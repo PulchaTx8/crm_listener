@@ -283,21 +283,34 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
     await expect(entryForm).toBeVisible();
     await entryForm.getByLabel('Quantity').fill('50');
     await entryForm.getByRole('button', { name: 'Add stock' }).click();
-    // Waited for explicitly, now that the two forms no longer sit on the same
-    // tab: switching to Reservations before this resolves would race the
-    // record's own re-read (prize-record-dialog.tsx's refreshAfterMovement)
-    // against EntriesTab unmounting.
+    // THIS is the exact window the fix-round Critical is about, corrected
+    // from an earlier, backwards account of it: "Stock added." is a LOCAL
+    // state flip inside StockEntryForm, not a wait for the record's own
+    // re-read (prize-record-dialog.tsx's refreshAfterMovement) to finish —
+    // that re-read is a separate, still in-flight Server Action dispatch at
+    // the moment this text appears. Clicking the Reservations tab right here
+    // places `useRecordDialog`'s own `history.replaceState`
+    // (use-record-dialog.ts:89) exactly while that action is pending, which
+    // is the condition the queue hazard needs (the reviewer's own finding:
+    // a null history state reads as an ACTION_RESTORE, which discards the
+    // pending action rather than letting it drain). This wait does not
+    // prevent that window; it walks straight into it — which is why this
+    // exact spot, in this exact spec, is what surfaced the defect
+    // record.ts now documents in full. Kept anyway, for ordinary
+    // determinism: Reservas no longer dispatches anything of its own
+    // (record.ts's own header explains the fold), so there is nothing left
+    // here for a tab switch to race regardless of this wait's timing.
     await expect(entryForm.getByText('Stock added.')).toBeVisible();
 
     await ownerPage.getByRole('tab', { name: 'Reservations' }).click();
     const reserveForm = ownerPage.locator('[data-testid="reserve-form"]');
-    // Unlike Entradas, Reservas gates its form behind its own read
-    // (listReservationTargetsAction, for the programme/promotion pickers) —
-    // reservations-tab.tsx renders "Loading…" until that resolves. The
-    // generous timeout matches every other first-time wait in this journey
-    // (this file's own established idiom, e.g. line 273 above), not a new
-    // one invented here.
-    await expect(reserveForm).toBeVisible({ timeout: 15_000 });
+    // The stall this 15s timeout was introduced for is gone: Reservas no
+    // longer gates its form behind a read of its own (record.ts's own
+    // header on `PrizeRecord.shows`/`.promotions`), so `shows`/`promotions`
+    // arrive as ordinary props, already loaded with the rest of the record,
+    // and this form appears exactly as promptly as Entradas' own. Back to
+    // the file's normal bound.
+    await expect(reserveForm).toBeVisible();
     await reserveForm.getByLabel('Quantity').fill('10');
     await reserveForm.getByLabel('Note').fill('Reserved for the acceptance journey');
     await reserveForm.getByRole('button', { name: 'Reserve stock' }).click();

@@ -34,10 +34,7 @@ import type { InventoryMovementType, PrizeMovementsPage, PrizeSummary, Reconcili
 // promotion id AND a prize id as flat, independent parameters rather than a
 // promotion as its sole subject, so calling it from a PRIZE's own record is
 // exactly as sensible as calling it from a promotion's. Not a second door.
-import { linkPrizeToPromotion, listLinkablePromotions } from '@/services/promotions';
-import type { LinkablePromotion } from '@/services/promotions';
-import { listReservableShows } from '@/services/shows';
-import type { ReservableShow } from '@/services/shows';
+import { linkPrizeToPromotion } from '@/services/promotions';
 import { logger } from '@/lib/logger';
 import { describeInventoryReadError, describeInventoryWriteError } from './errors';
 
@@ -457,36 +454,16 @@ export async function linkPrizeToPromotionAction(
   }
 }
 
-export interface ReservationTargets {
-  shows: ReservableShow[];
-  promotions: LinkablePromotion[];
-}
-
-/**
- * The Reservas tab's own picker reads (Task 7): programmes and promotions
- * "active or starting in the future", for "Vincular programa" and "Vincular
- * promoção" respectively. Not bound to `useActionState` — like
- * searchLinkablePrizesAction on the Promotions screen, this is called
- * directly with an argument rather than posted as a form, and it runs once
- * when the tab opens rather than per keystroke, so both reads travel
- * together in one round trip.
- */
-export async function listReservationTargetsAction(
-  companyId: string,
-): Promise<
-  { status: 'ok'; targets: ReservationTargets } | { status: 'error'; message: string }
-> {
-  try {
-    const [shows, promotions] = await Promise.all([
-      listReservableShows(companyId),
-      listLinkablePromotions(companyId),
-    ]);
-    return { status: 'ok', targets: { shows, promotions } };
-  } catch (cause) {
-    logger.error({ err: cause, companyId }, 'could not read the reservation pickers');
-    return { status: 'error', message: describeInventoryReadError(cause, await getTranslations('inventory')) };
-  }
-}
+// listReservationTargetsAction (Task 7) lived here — a second Server Action
+// dispatch, called directly from a `useEffect` in reservations-tab.tsx.
+// Removed in a Task 9 follow-up: record.ts's own header states the reasoning
+// at length, but in short, a Server Action dispatched from an effect on a
+// tab that has just been switched to can land inside the window
+// `useRecordDialog.setTab`'s `history.replaceState` opens (`use-record-dialog.ts:89`)
+// and never run. The two reads it made (`listReservableShows`,
+// `listLinkablePromotions`) now travel inside `getPrizeRecordAction`'s own
+// round trip instead, so Reservas dispatches nothing of its own for a tab
+// switch to ever race.
 
 export interface MovementsFilterInput {
   types?: InventoryMovementType[];

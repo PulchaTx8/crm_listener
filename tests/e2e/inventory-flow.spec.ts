@@ -275,13 +275,21 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // so this locator must resolve to exactly one row (Playwright's expect(locator)
   // throws a strict-mode violation if it matched more than one) — proof this
   // exact figure landed on the ledger, not just that a "success" toast
-  // appeared.
+  // appeared. The quantity and the bucket pair are asserted here too (fix
+  // round, item A) — a bare count would pass just as well for a movement of
+  // the wrong quantity or into the wrong bucket, which is exactly what this
+  // exists to catch. `movement-quantity` and the row's own `data-*-bucket`
+  // attributes are the enum values themselves, never a translated sentence.
   //
   // The ledger reaches this state without a page render: the record re-reads
   // itself after a movement written inside it, where the retired detail page
   // used revalidatePath. Everything the count in record-dialog.spec.ts
   // forbids is therefore also being exercised here.
   await expect(delegatePage.locator('[data-testid="movement-row"]')).toHaveCount(1);
+  const entryOnEntradas = delegatePage.locator('[data-testid="movement-row"]');
+  await expect(entryOnEntradas.getByTestId('movement-quantity')).toHaveText('50');
+  await expect(entryOnEntradas).toHaveAttribute('data-from-bucket', 'outside');
+  await expect(entryOnEntradas).toHaveAttribute('data-to-bucket', 'available');
 
   // --- reserves 10 with a note, on Reservas ---------------------------------
   await delegatePage.getByRole('tab', { name: 'Reservations' }).click();
@@ -292,6 +300,10 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await reserveForm.getByRole('button', { name: 'Reserve stock' }).click();
   await expect(reserveForm.getByText('Reserved.')).toBeVisible();
   await expect(delegatePage.locator('[data-testid="movement-row"]')).toHaveCount(1);
+  const reservationOnReservas = delegatePage.locator('[data-testid="movement-row"]');
+  await expect(reservationOnReservas.getByTestId('movement-quantity')).toHaveText('10');
+  await expect(reservationOnReservas).toHaveAttribute('data-from-bucket', 'available');
+  await expect(reservationOnReservas).toHaveAttribute('data-to-bucket', 'reserved');
 
   // --- Movimentação explains the numbers, both movements together -----------
   // Movimentação keeps the old tab's own catalogue key ('stockMovements')
@@ -306,13 +318,20 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   // The reservation is the only one of the two carrying a remaining
   // quantity — a field list_movements computes for RESERVATION rows alone
   // (services/inventory.ts) — which is what tells the two rows apart without
-  // matching either one's translated sentence.
+  // matching either one's translated sentence. Quantity and bucket pair
+  // asserted again here, on the combined view, for the same reason as above.
   const reserveMovement = allMovements.filter({ has: delegatePage.getByTestId('movement-remaining') });
   await expect(reserveMovement).toHaveCount(1);
   await expect(reserveMovement.getByText(reserveNote)).toBeVisible();
+  await expect(reserveMovement.getByTestId('movement-quantity')).toHaveText('10');
+  await expect(reserveMovement).toHaveAttribute('data-from-bucket', 'available');
+  await expect(reserveMovement).toHaveAttribute('data-to-bucket', 'reserved');
 
   const entryMovement = allMovements.filter({ hasNot: delegatePage.getByTestId('movement-remaining') });
   await expect(entryMovement).toHaveCount(1);
+  await expect(entryMovement.getByTestId('movement-quantity')).toHaveText('50');
+  await expect(entryMovement).toHaveAttribute('data-from-bucket', 'outside');
+  await expect(entryMovement).toHaveAttribute('data-to-bucket', 'available');
 
   // --- finds no way to adjust, on Saídas ------------------------------------
   // The Stock Keeper role never held inventory.adjust, and it never held
@@ -510,13 +529,21 @@ test('a prize is bought, undone by arithmetic, and left partly reserved for a pr
   await ownerPage.getByTestId('reversal-reason').fill(journeyArchiveReason);
   await ownerPage.getByTestId('movement-archive-confirm').click();
 
-  // Still the same two rows on Entradas — the purchase itself, now reading
-  // as reversed, and the seed beneath it, untouched — never a THIRD row: the
-  // reversal the archive produced is a MANUAL_EXIT, which belongs to Saídas
-  // (format.ts's EXIT_MOVEMENT_TYPES), never to Entradas (Task 9 brief, item
-  // 3 — the design is Task 3's, not a bug to route around).
-  await expect(ownerPage.locator('[data-testid="movement-row"]')).toHaveCount(2);
+  // The reversed marker FIRST, deliberately (fix round, item D): checked
+  // before the row count, because it is the assertion that can only pass
+  // once the archive has genuinely landed — Playwright waits for it to
+  // appear, since it was absent before the click. The count was already 2
+  // before the archive (the seed plus the purchase), so asserting it FIRST
+  // would pass on the pre-archive DOM just as readily as the post-archive
+  // one and prove nothing. Checked here, second, it is confirmed against a
+  // DOM already known to reflect the write: still the same two rows on
+  // Entradas — the purchase itself, now reading as reversed, and the seed
+  // beneath it, untouched — never a THIRD row, because the reversal the
+  // archive produced is a MANUAL_EXIT, which belongs to Saídas (format.ts's
+  // EXIT_MOVEMENT_TYPES), never to Entradas (Task 9 brief, item 3 — the
+  // design is Task 3's, not a bug to route around).
   await expect(entryRow.getByTestId('movement-reversed')).toBeVisible();
+  await expect(ownerPage.locator('[data-testid="movement-row"]')).toHaveCount(2);
 
   // The reversal itself surfaces on Saídas: exactly one row, carrying the
   // badge that names what it is.

@@ -103,7 +103,21 @@ export function MovementHistory({
         const actionKey = onReverse ? actionLabelKey(movement) : null;
 
         return (
-          <li key={movement.id} data-testid="movement-row" className="rounded-md border p-3">
+          <li
+            key={movement.id}
+            data-testid="movement-row"
+            className="rounded-md border p-3"
+            // The bucket pair, as the enum values themselves rather than
+            // their translated names (formatBucket's own rendering, in the
+            // paragraph below) — a fix-round finding (Task 9 follow-up, item
+            // A): a test asserting only a bare row count could not tell a
+            // movement of the wrong quantity or into the wrong bucket from a
+            // correct one. `'outside'` is this component's own sentinel for
+            // the null a bucket carries to mean "outside the Station"
+            // (0026's own column comment), never a value the enum itself has.
+            data-from-bucket={movement.fromBucket ?? 'outside'}
+            data-to-bucket={movement.toBucket ?? 'outside'}
+          >
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <span className={cn('font-medium', reversed && 'line-through')}>
                 {t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}
@@ -119,7 +133,11 @@ export function MovementHistory({
             </div>
 
             <p className={cn(reversed && 'text-muted-foreground line-through')}>
-              {movement.quantity} {t('unitsLabel', { count: movement.quantity })}{' '}
+              {/* The quantity, wrapped alone — the same discipline every
+                  other testid in this file follows: the raw number, not the
+                  translated "unit(s)" beside it. */}
+              <span data-testid="movement-quantity">{movement.quantity}</span>{' '}
+              {t('unitsLabel', { count: movement.quantity })}{' '}
               {formatBucket(movement.fromBucket, t)} → {formatBucket(movement.toBucket, t)}
             </p>
 

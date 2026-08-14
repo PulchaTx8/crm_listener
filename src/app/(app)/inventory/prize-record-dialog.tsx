@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { ImageUploadField } from '@/components/media/image-upload-field';
-import type { PrizeCategorySummary, PrizeMovementsPage, PrizeSummary } from '@/services/inventory';
+import type { InventoryMovementType, PrizeCategorySummary, PrizeMovementsPage, PrizeSummary } from '@/services/inventory';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
 // a value out of a client module. See src/lib/record-params.ts.
@@ -36,6 +36,31 @@ const TAB_LABEL_KEYS: Record<PrizeTab, string> = {
   reservations: 'stockReservations',
   movements: 'stockMovements',
 };
+
+/**
+ * Whether a Consultar submission on Movimentação actually narrowed anything,
+ * as opposed to merely having been pressed — the fix-round finding that a
+ * caller who filters, clears all three fields and presses Consultar again
+ * must read the same as the tab's own opening view, never as "no movement
+ * matches these filters" on a prize that simply has no history. The same
+ * distinction `hasActiveMovementFilters` (movements/list-params.ts) draws
+ * for the standalone screen's own filter bar.
+ *
+ * `types`/`from`/`to` are `undefined` for "nothing chosen"
+ * (`movementTypeFilter`/`fromZonedDay`'s own contracts state this), so this
+ * is `true` exactly when at least one of the three carried something.
+ * Exported and tested as a pure function (tests/unit/prize-record-dialog.test.ts)
+ * rather than only through the component, the same reasoning
+ * `promotion-record-dialog.tsx`'s own `nextRecordAfterFailedRead` gives for
+ * its own extraction.
+ */
+export function isMovementFilterApplied(
+  types: InventoryMovementType[] | undefined,
+  from: string | undefined,
+  to: string | undefined,
+): boolean {
+  return types !== undefined || from !== undefined || to !== undefined;
+}
 
 export interface PrizeRecordPowers {
   catalogue: boolean;
@@ -269,6 +294,8 @@ export function PrizeRecordDialog({
                 prizeId={record.prize.id}
                 page={record.reservations}
                 timeZone={timeZone}
+                shows={record.shows}
+                promotions={record.promotions}
                 canReserve={powers.reserve}
                 canLinkPromotion={canLinkPromotion}
                 onRecorded={refreshAfterMovement}
@@ -401,11 +428,7 @@ function MovementsTabPanel({
     setPending(false);
     if (result.status === 'ok') {
       setFiltered(result.page);
-      // A genuine narrowing, not merely a click: `movementTypeFilter`/
-      // `fromZonedDay` already answer `undefined` for "nothing chosen" (their
-      // own comments state this), so this is true exactly when at least one
-      // of the three fields carried something.
-      setFilterApplied(types !== undefined || from !== undefined || to !== undefined);
+      setFilterApplied(isMovementFilterApplied(types, from, to));
     } else {
       setError(result.message);
     }
