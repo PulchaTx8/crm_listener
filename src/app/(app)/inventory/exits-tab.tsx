@@ -144,7 +144,17 @@ function ArchiveMovementDialog({
           <input type="hidden" name="movementId" value={movement.id} />
           <label className="flex flex-col gap-1 text-sm">
             {t('reversalReason')}
-            <Textarea name="note" required maxLength={2000} placeholder={t('reversalReasonHint')} />
+            {/* A distinct testid, not just `name="note"`: the exit form
+                sitting above this dialog on Saídas has its own note field
+                of the same name, and the two coexist in the DOM while this
+                dialog is open. */}
+            <Textarea
+              name="note"
+              required
+              maxLength={2000}
+              placeholder={t('reversalReasonHint')}
+              data-testid="reversal-reason"
+            />
           </label>
         </form>
         {state.status === 'error' && <p className="mt-3 text-sm text-destructive">{state.message}</p>}

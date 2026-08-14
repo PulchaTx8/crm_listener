@@ -109,7 +109,10 @@ export function MovementHistory({
                 {t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}
               </span>
               {movement.reversesMovementId !== null && (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                <span
+                  className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                  data-testid="movement-reversal-badge"
+                >
                   {t('reversalOfAnEntry')}
                 </span>
               )}
@@ -121,12 +124,16 @@ export function MovementHistory({
             </p>
 
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+              {/* Wrapped around the raw value alone, not the "By:" label
+                  beside it — the only layer that renders who did this
+                  (Task 9 brief), and a test asserting on it must not have to
+                  match translated copy to reach the name. */}
               <span>
-                {t('performedBy')}: {describeActor(movement, t)}
+                {t('performedBy')}: <span data-testid="movement-actor">{describeActor(movement, t)}</span>
               </span>
               {movement.invoiceNumber !== null && (
                 <span>
-                  {t('invoiceNumber')}: {movement.invoiceNumber}
+                  {t('invoiceNumber')}: <span data-testid="movement-invoice">{movement.invoiceNumber}</span>
                 </span>
               )}
               {movement.unitAmount !== null && (
@@ -141,11 +148,13 @@ export function MovementHistory({
               )}
               {movement.showName !== null && (
                 <span>
-                  {t('programme')}: {movement.showName}
+                  {t('programme')}: <span data-testid="movement-programme">{movement.showName}</span>
                 </span>
               )}
               {movement.remainingQuantity !== null && (
-                <span>{t('remainingOfReserved', { remaining: movement.remainingQuantity, total: movement.quantity })}</span>
+                <span data-testid="movement-remaining">
+                  {t('remainingOfReserved', { remaining: movement.remainingQuantity, total: movement.quantity })}
+                </span>
               )}
             </div>
 
@@ -155,7 +164,7 @@ export function MovementHistory({
             </span>
 
             {movement.reversedAt !== null && (
-              <span className="mt-1 block text-xs text-muted-foreground">
+              <span className="mt-1 block text-xs text-muted-foreground" data-testid="movement-reversed">
                 {t('reversedOn', { date: formatInstant(movement.reversedAt, timeZone) })}
               </span>
             )}

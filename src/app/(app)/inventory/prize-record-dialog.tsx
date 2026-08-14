@@ -369,6 +369,15 @@ function MovementsTabPanel({
   const [draftFrom, setDraftFrom] = useState('');
   const [draftTo, setDraftTo] = useState('');
   const [filtered, setFiltered] = useState<PrizeMovementsPage | null>(null);
+  // Whether the LAST Consultar that produced `filtered` actually narrowed
+  // anything — kept apart from "has Consultar been clicked" (`filtered !==
+  // null`) on purpose. An operator who filters, clears all three fields and
+  // presses Consultar again gets a fresh, unfiltered read back: `filtered`
+  // is non-null (there was a click), but nothing was asked to narrow it, so
+  // the empty state below must read the same as the tab's own opening view,
+  // not as "no movement matches these filters" on a prize that simply has no
+  // history.
+  const [filterApplied, setFilterApplied] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -377,6 +386,7 @@ function MovementsTabPanel({
     setDraftFrom('');
     setDraftTo('');
     setFiltered(null);
+    setFilterApplied(false);
     setError(null);
   }, [page]);
 
@@ -384,14 +394,18 @@ function MovementsTabPanel({
     event.preventDefault();
     setPending(true);
     setError(null);
-    const result = await getPrizeMovementsAction(companyId, prizeId, {
-      types: movementTypeFilter(draftType),
-      from: fromZonedDay(draftFrom, timeZone, false),
-      to: fromZonedDay(draftTo, timeZone, true),
-    });
+    const types = movementTypeFilter(draftType);
+    const from = fromZonedDay(draftFrom, timeZone, false);
+    const to = fromZonedDay(draftTo, timeZone, true);
+    const result = await getPrizeMovementsAction(companyId, prizeId, { types, from, to });
     setPending(false);
     if (result.status === 'ok') {
       setFiltered(result.page);
+      // A genuine narrowing, not merely a click: `movementTypeFilter`/
+      // `fromZonedDay` already answer `undefined` for "nothing chosen" (their
+      // own comments state this), so this is true exactly when at least one
+      // of the three fields carried something.
+      setFilterApplied(types !== undefined || from !== undefined || to !== undefined);
     } else {
       setError(result.message);
     }
@@ -411,7 +425,7 @@ function MovementsTabPanel({
           <Select
             value={draftType}
             onChange={(event) => setDraftType(event.target.value)}
-            data-testid="movement-tab-type-filter"
+            data-testid="movements-tab-type-filter"
           >
             <option value="">{t('everyMovementType')}</option>
             {MOVEMENT_TYPES.map((type) => (
@@ -429,7 +443,7 @@ function MovementsTabPanel({
             value={draftFrom}
             onChange={(event) => setDraftFrom(event.target.value)}
             aria-label={t('showMovementsRecordedOnOrAfter')}
-            data-testid="movement-tab-from-filter"
+            data-testid="movements-tab-from-filter"
           />
         </label>
 
@@ -440,7 +454,7 @@ function MovementsTabPanel({
             value={draftTo}
             onChange={(event) => setDraftTo(event.target.value)}
             aria-label={t('showMovementsRecordedOnOrBefore')}
-            data-testid="movement-tab-to-filter"
+            data-testid="movements-tab-to-filter"
           />
         </label>
 
@@ -463,8 +477,10 @@ function MovementsTabPanel({
         // a prize that has never moved at all — noMovementMatchesTheseFilters
         // is the same key movements-grid.tsx already shows the standalone
         // screen's own empty state with, reused here rather than a second
-        // wording of the identical fact.
-        emptyMessage={filtered ? t('noMovementMatchesTheseFilters') : t('noMovementsOfThisKind')}
+        // wording of the identical fact. Keyed on `filterApplied`, not on
+        // `filtered !== null`: a Consultar pressed with every field blank did
+        // narrow nothing, and must not claim it did.
+        emptyMessage={filterApplied ? t('noMovementMatchesTheseFilters') : t('noMovementsOfThisKind')}
       />
     </div>
   );
