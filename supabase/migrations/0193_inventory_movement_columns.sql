@@ -73,9 +73,13 @@ comment on column public.inventory_movements.reverses_movement_id is
   'The movement this one undoes. Set on an entry or exit reversal and on a reservation release; null everywhere else. The original is never updated — it cannot be, and does not need to be.';
 
 -- The composite foreign key reverses_movement_id needed, added as its own
--- statement because it depends on inventory_movements_id_company_unique
--- above: a foreign key cannot be created in the same ALTER TABLE clause that
--- creates the unique constraint it targets. Whatever RPC later writes a
+-- statement -- not because Postgres requires it. A single ALTER TABLE clause
+-- combining inventory_movements_id_company_unique above with this foreign key
+-- was tested directly against a freshly reset database and succeeds; the
+-- split is a clarity choice, not a technical necessity -- each statement
+-- reads as one fact (first that (id, company_id) is unique, then that this
+-- column trusts that uniqueness) rather than one statement asserting both at
+-- once. Whatever RPC later writes a
 -- reversal will copy company_id from the movement it points at rather than
 -- accept one from its caller, so this constraint can never actually fire in
 -- practice -- but that makes it defence, not a fix to a live bug: a reversal

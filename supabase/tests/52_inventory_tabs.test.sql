@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(17);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -138,6 +138,168 @@ select throws_ok($$
      '00000000-0000-0000-0000-0000000023d1', 'MANUAL_EXIT', 1, 'available', null,
      '00000000-0000-0000-0000-0000000023e2')
 $$, '23503', null, 'a reversal cannot point at a movement from another Station');
+
+-- ---------------------------------------------------------------------------
+-- Block 23, Task 2: the widened doors. A caller holding inventory.entry,
+-- inventory.exit and inventory.reserve — a real role, role_permissions grant,
+-- auth.users row and company_membership, never a platform_admin bypass — the
+-- same fixture shape 13_pickup_reads.test.sql's own family uses, so
+-- has_permission's own predicate is exercised the way a real caller reaches
+-- it rather than bypassed by running as the unauthenticated pgTAP session.
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-000000002341', '00000000-0000-0000-0000-0000000023f1', 'Inventory operator 23');
+-- inventory.view too -- not to exercise any door, but because
+-- inventory_movements_select_inventory_view (0029) gates SELECT on it, and
+-- without it every assertion below that reads the movement back through this
+-- role's own connection (rather than through the door's SECURITY DEFINER
+-- body, which is not subject to RLS) would find nothing: the row would exist
+-- and be correct, and this suite would report it as absent regardless.
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-000000002341', 'inventory.entry'),
+  ('00000000-0000-0000-0000-000000002341', 'inventory.exit'),
+  ('00000000-0000-0000-0000-000000002341', 'inventory.reserve'),
+  ('00000000-0000-0000-0000-000000002341', 'inventory.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000002342', 'inventory-doors-23@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-000000002342', '00000000-0000-0000-0000-0000000023c1',
+   '00000000-0000-0000-0000-0000000023f1', '00000000-0000-0000-0000-000000002341');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", "role": "authenticated"}';
+
+-- 10: record_stock_entry with PURCHASE_ENTRY and an invoice stores all three
+-- invoice columns. A door that never threads p_invoice_number/p_unit_amount/
+-- p_total_amount through to apply_inventory_movement — or threads them onto
+-- the wrong positional slot — leaves one or more of the three null here.
+create temporary table t23_purchase as
+select public.record_stock_entry(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  'PURCHASE_ENTRY', 50, 'opening purchase', null,
+  'NF-2301', 2.50, 125.00) as movement_id;
+
+select ok(
+  (select invoice_number = 'NF-2301' and unit_amount = 2.50 and total_amount = 125.00
+     from public.inventory_movements where id = (select movement_id from t23_purchase)),
+  'record_stock_entry with PURCHASE_ENTRY and an invoice stores all three invoice columns'
+);
+
+-- 11: the same call with BARTER_ENTRY stores the type as barter, not
+-- purchase. A door that ignores p_type, or that refuses BARTER_ENTRY because
+-- its own allow-list was never widened past 0027's original three, fails
+-- this — either the type comes back wrong or the call throws.
+create temporary table t23_barter as
+select public.record_stock_entry(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  'BARTER_ENTRY', 20, 'traded stock', null,
+  'NF-2302', 0, 0) as movement_id;
+
+select is(
+  (select movement_type::text from public.inventory_movements where id = (select movement_id from t23_barter)),
+  'BARTER_ENTRY',
+  'record_stock_entry with BARTER_ENTRY stores the type as barter, distinguishable from a purchase in a later sum'
+);
+
+-- 12: record_stock_exit with TRANSFER_EXIT writes that type, not the door's
+-- old hardcoded MANUAL_EXIT. A door that still ignores its new p_type
+-- parameter (or defaults it away silently) writes MANUAL_EXIT regardless of
+-- what the caller asked for, and this assertion catches exactly that.
+create temporary table t23_transfer as
+select public.record_stock_exit(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  5, 'sent to another station', null, 'TRANSFER_EXIT') as movement_id;
+
+select is(
+  (select movement_type::text from public.inventory_movements where id = (select movement_id from t23_transfer)),
+  'TRANSFER_EXIT',
+  'record_stock_exit with TRANSFER_EXIT writes that type, not MANUAL_EXIT'
+);
+
+-- 13: reserve_stock with a programme stores reserved_for_show_id. A door
+-- that drops p_show_id on the floor leaves this column null here too, the
+-- same failure case 14 checks from the other direction.
+create temporary table t23_reservation_show as
+select public.reserve_stock(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  10, 'held for the afternoon show', null,
+  '00000000-0000-0000-0000-0000000023aa') as movement_id;
+
+select is(
+  (select reserved_for_show_id from public.inventory_movements where id = (select movement_id from t23_reservation_show)),
+  '00000000-0000-0000-0000-0000000023aa'::uuid,
+  'reserve_stock with a programme stores reserved_for_show_id'
+);
+
+-- 14: reserve_stock without one stores null — an anonymous hold is not a
+-- programme hold with a missing name. A door that defaulted to some other
+-- show, or that always wrote the last show_id it ever saw (a variable-reuse
+-- bug), would fail this precisely because case 13 ran first.
+--
+-- The call is captured into a temporary table in its own statement, the same
+-- shape every other case in this block uses, rather than nested inline inside
+-- the assertion's own WHERE clause: a volatile, row-inserting function nested
+-- that way is hoisted into an InitPlan evaluated against the snapshot the
+-- outer SELECT already holds, so the row it just inserted is invisible to
+-- that same SELECT — reproduced directly against this database (a working
+-- two-statement call found the row; the identical call nested inline found
+-- none). Not a defect in reserve_stock — a Postgres same-statement MVCC
+-- visibility gap this suite avoids by never relying on it.
+create temporary table t23_reservation_anon as
+select public.reserve_stock(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  5, 'anonymous hold', null) as movement_id;
+
+select ok(
+  (select reserved_for_show_id is null
+     from public.inventory_movements where id = (select movement_id from t23_reservation_anon)),
+  'reserve_stock without a programme stores reserved_for_show_id null'
+);
+
+-- 15: release_reservation naming a reservation stores reverses_movement_id
+-- pointing at it. A door that still ignores p_reservation_id releases the
+-- stock but leaves no trace of which reservation shrank, and this column
+-- comes back null instead of matching case 13's own movement id.
+create temporary table t23_release_1 as
+select public.release_reservation(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  4, 'partial release', null,
+  (select movement_id from t23_reservation_show)) as movement_id;
+
+select is(
+  (select reverses_movement_id from public.inventory_movements where id = (select movement_id from t23_release_1)),
+  (select movement_id from t23_reservation_show),
+  'release_reservation naming a reservation stores reverses_movement_id pointing at it'
+);
+
+-- 16: releasing more than the reservation has left is refused with 22023.
+-- Case 13 reserved 10, case 15 already released 4, so 6 remain; asking for 7
+-- must be refused. A door with no arithmetic at all (or one that checks the
+-- reservation's original quantity instead of what remains after case 15)
+-- would let this succeed instead of throwing.
+select throws_ok($$
+  select public.release_reservation(
+    '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+    7, 'too much', null,
+    (select movement_id from t23_reservation_show))
+$$, '22023', null, 'releasing more than a reservation has left is refused, naming the remainder');
+
+-- 17: a second release_reservation on the same reservation, within what
+-- remains (exactly the 6 units left after case 15, and unaffected by case
+-- 16's refusal), succeeds. Releases are instalments, and
+-- inventory_movements_reversal_unique (0193) deliberately excludes
+-- RESERVATION_RELEASE from the one-reversal-per-movement rule so two releases
+-- pointing at one reservation do not collide. A door that treated a release
+-- like any other reversal, or an index that forgot that exclusion, would
+-- refuse this with 23505 instead of succeeding.
+select lives_ok($$
+  select public.release_reservation(
+    '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+    6, 'final release', null,
+    (select movement_id from t23_reservation_show))
+$$, 'a second release on the same reservation, within what remains, succeeds');
+
+reset role;
 
 select * from finish();
 rollback;

@@ -381,9 +381,9 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 --
 -- The three assertions below cannot see that, and the distinction is worth
 -- being exact about because the block got it wrong for seven tasks. They spell
--- the nine-argument signature out in full rather than matching by name, which
--- is right and is what pins their properties on the correct function if a later
--- block widens the list again. But ::regprocedure RESOLVES the signature it is
+-- the signature out in full rather than matching by name, which is right and
+-- is what pins their properties on the correct function if a later block
+-- widens the list again. But ::regprocedure RESOLVES the signature it is
 -- handed and succeeds regardless of what else shares the name. Comment out
 -- 0047's drop and this whole file stays green — measured, 331 of 331 — while
 -- the exact state 0047 exists to prevent is live in pg_proc. What actually
@@ -391,12 +391,23 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 -- and the block's own commit message, migration header and PR draft all claimed
 -- these three did. A mutation in Task 10 found otherwise; this assertion is the
 -- answer to it, and it is proved by re-running that mutation against it.
+--
+-- Block 23, Task 2 widened the signature again — nine arguments to fourteen,
+-- appending p_invoice_number, p_unit_amount, p_total_amount, p_show_id and
+-- p_reverses — dropping and recreating for the identical reason 0047 gives
+-- above, confirmed the same way: tested directly against this database that
+-- CREATE OR REPLACE with an appended, defaulted parameter produces a second,
+-- ambiguous overload rather than a true replacement. The count-based
+-- assertion below needed no change — it was never signature-specific — but
+-- the three ::regprocedure lookups after it had to move to the new fourteen-
+-- argument signature, or they would resolve nothing and this file would fail
+-- to run at all rather than fail meaningfully.
 select is(
   (select count(*)::int from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'apply_inventory_movement'),
   1,
-  'exactly one apply_inventory_movement exists — 0047 dropped the eight-argument form rather than leaving a twin'
+  'exactly one apply_inventory_movement exists — dropped and recreated rather than leaving a twin behind'
 );
 
 -- Important #3: apply_inventory_movement's protective properties — SECURITY
@@ -406,20 +417,20 @@ select is(
 -- have left this suite green while an unchecked write path opened.
 select is(
   (select prosecdef from pg_proc
-     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)'::regprocedure),
+     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)'::regprocedure),
   false,
   'apply_inventory_movement is SECURITY INVOKER, not DEFINER'
 );
 select ok(
-  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)', 'EXECUTE'),
   'anon may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)', 'EXECUTE'),
   'authenticated may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid)', 'EXECUTE'),
+  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)', 'EXECUTE'),
   'service_role may not call apply_inventory_movement'
 );
 
