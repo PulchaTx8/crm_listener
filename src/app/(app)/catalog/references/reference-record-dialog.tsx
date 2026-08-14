@@ -18,21 +18,23 @@ const INITIAL_SAVE: ReferenceSaveState = { status: 'idle' };
 const INITIAL_ARCHIVE: ArchiveReferenceState = { status: 'idle' };
 
 /**
- * One record's whole editable surface: a name, a read-only legacy id, a Save
- * button and an Archive button — no tabs, unlike
- * music/artists/artist-record-dialog.tsx's two, and no related-records panel,
- * because the record IS the name (0100: a name and a legacy id, nothing
- * else) and there is no list this screen's kind is "for" the way an artist is
- * for its songs.
+ * One record's whole editable surface: a name, a read-only legacy id and a
+ * Save button — no tabs, unlike music/artists/artist-record-dialog.tsx's two,
+ * and no related-records panel, because the record IS the name (0100: a name
+ * and a legacy id, nothing else) and there is no list this screen's kind is
+ * "for" the way an artist is for its songs.
  *
- * Archive is reachable from two places — the footer button here, and the
- * row's own dropdown menu (references-grid.tsx, matching ArtistRecordDialog's
- * shape) — and both open the same ArchiveReferenceDialog, exported below
- * rather than duplicated: one copy of the confirmation copy, one RPC call
- * site, two callers. Clicking Archive from here opens it as a second native
- * `<dialog>` stacked on top of this one via the browser's own top layer — the
- * same `showModal()` behaviour dialog.tsx documents, exercised twice rather
- * than once; opened from the grid row it has no dialog beneath it to stack on.
+ * NO ARCHIVE BUTTON HERE, by the owner's decision of 2026-08-14. It had one
+ * until Block 22 gave the row its own dropdown menu, at which point archiving
+ * was reachable from two places at once and this was the redundant one: the
+ * grid's menu sits beside the record it destroys, while a button in this
+ * footer sat beside Save and Close, one slip away from either. Archiving now
+ * has exactly one door on this screen.
+ *
+ * ArchiveReferenceDialog stays here and is exported: it is the confirmation
+ * both this file and references-grid.tsx were written around, and moving it
+ * would separate the confirmation copy from the record dialog it was worded
+ * for. Its only caller is now the grid.
  */
 export function ReferenceRecordDialog({
   record,
@@ -51,7 +53,6 @@ export function ReferenceRecordDialog({
   const t = useTranslations('music');
   const titleId = useId();
   const [dirty, setDirty] = useState(false);
-  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   function requestClose() {
     if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
@@ -60,65 +61,34 @@ export function ReferenceRecordDialog({
   }
 
   return (
-    <>
-      <Dialog open={record !== null} onClose={requestClose} labelledBy={titleId} className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle id={titleId}>{record?.name ?? copy.title}</DialogTitle>
-        </DialogHeader>
+    <Dialog open={record !== null} onClose={requestClose} labelledBy={titleId} className="max-w-lg">
+      <DialogHeader>
+        <DialogTitle id={titleId}>{record?.name ?? copy.title}</DialogTitle>
+      </DialogHeader>
 
-        <DialogBody>
-          {record &&
-            (manage ? (
-              <ReferenceDataForm
-                record={record}
-                kind={kind}
-                onDirty={setDirty}
-                onSaved={() => setDirty(false)}
-              />
-            ) : (
-              <div className="flex flex-col gap-4">
-                <p className="text-sm text-muted-foreground">{copy.readOnlyNotice}</p>
-                <ReferenceReadOnlyFields record={record} />
-              </div>
-            ))}
-        </DialogBody>
+      <DialogBody>
+        {record &&
+          (manage ? (
+            <ReferenceDataForm
+              record={record}
+              kind={kind}
+              onDirty={setDirty}
+              onSaved={() => setDirty(false)}
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">{copy.readOnlyNotice}</p>
+              <ReferenceReadOnlyFields record={record} />
+            </div>
+          ))}
+      </DialogBody>
 
-        <DialogFooter>
-          {manage && record && (
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => setConfirmingArchive(true)}
-              data-testid="reference-archive"
-            >
-              {copy.archiveButton}
-            </Button>
-          )}
-          <Button type="button" variant="outline" onClick={requestClose}>
-            {t('close')}
-          </Button>
-        </DialogFooter>
-      </Dialog>
-
-      {confirmingArchive && record && (
-        <ArchiveReferenceDialog
-          record={record}
-          kind={kind}
-          copy={copy}
-          onCancel={() => setConfirmingArchive(false)}
-          onArchived={() => {
-            setConfirmingArchive(false);
-            // revalidatePath (actions.ts) removes the row from the list this
-            // dialog's `record` prop is derived from (references-grid.tsx),
-            // which alone would close the outer dialog too — closed
-            // explicitly here anyway, rather than left to that side effect,
-            // so this dialog does not depend on a refresh landing before the
-            // operator's next click.
-            onClose();
-          }}
-        />
-      )}
-    </>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={requestClose}>
+          {t('close')}
+        </Button>
+      </DialogFooter>
+    </Dialog>
   );
 }
 
