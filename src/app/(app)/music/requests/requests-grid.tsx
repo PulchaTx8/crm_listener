@@ -264,11 +264,18 @@ export function RequestsGrid({
         </Table>
 
         <PageControls
-          total={total}
+          // PageControls renders `${total} ${label}` whenever total is a
+          // number (table.tsx) — fine for requestsLabel, a bare plural noun,
+          // but showingOfTotal is a whole sentence that already carries both
+          // numbers itself. Sending total through the numeric branch too
+          // would print the count twice: "150 Showing 10 of 150". null routes
+          // a bounded read through the else-branch, which renders the label
+          // alone.
+          total={bounded ? null : total}
           label={
             bounded
               ? t('showingOfTotal', { shown: rows.length, total })
-              : t('requestsLabel', { count: total ?? 0 })
+              : t('requestsLabel', { count: total })
           }
           previousHref={previousHref}
           nextHref={nextHref}

@@ -58,12 +58,31 @@ export function AttendDialog({
   const titleId = useId();
   const [size, setSize] = useState(readStoredSize);
   const [phone, setPhone] = useState<string | null>(null);
+  /**
+   * True once a reveal has come back with `phone: null` — the listener has
+   * exercised erasure between the list read and this click (revealRequestPhone's
+   * own comment). Kept apart from `phone` itself: both start at null, and
+   * without this flag "not yet revealed" and "revealed, and there is nothing
+   * to reveal" render identically — the mask stays up and the button stays
+   * offered, so a second click spends another audit row to learn the same
+   * nothing.
+   */
+  const [phoneErased, setPhoneErased] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [revealing, startReveal] = useTransition();
 
   const [readState, readAction, readPending] = useActionState(markRequestReadAction, INITIAL);
   const [playState, playAction, playPending] = useActionState(markRequestPlayedAction, INITIAL);
   const [offState, offAction, offPending] = useActionState(callOffRequestAction, INITIAL);
+
+  /**
+   * Which of the three marks was submitted most recently, so `failure` below
+   * can show that one's own message rather than the first of the three that
+   * happens to be non-null — a stale call-off failure would otherwise keep
+   * showing under the window after a later, successful mark-read. Set on
+   * submit, read once the corresponding useActionState settles.
+   */
+  const [lastAction, setLastAction] = useState<'read' | 'play' | 'off' | null>(null);
 
   function resize(step: number) {
     const next = Math.min(SIZES.length - 1, Math.max(0, size + step));
@@ -72,18 +91,28 @@ export function AttendDialog({
   }
 
   function reveal() {
+    // Cleared up front, not only on the next success: a fixed number must not
+    // keep showing the error from the attempt before it.
+    setPhoneError(null);
     startReveal(async () => {
       const result = await revealRequestPhoneAction(request.requestId);
-      if (result.status === 'ok') setPhone(result.phone);
-      else setPhoneError(result.message);
+      if (result.status === 'ok') {
+        setPhone(result.phone);
+        setPhoneErased(result.phone === null);
+      } else {
+        setPhoneError(result.message);
+      }
     });
   }
 
   const failure =
-    (readState.ok === false && readState.message) ||
-    (playState.ok === false && playState.message) ||
-    (offState.ok === false && offState.message) ||
-    null;
+    lastAction === 'read'
+      ? readState.ok === false && readState.message
+      : lastAction === 'play'
+        ? playState.ok === false && playState.message
+        : lastAction === 'off'
+          ? offState.ok === false && offState.message
+          : null;
 
   return (
     <Dialog open onClose={onClose} labelledBy={titleId} className="max-w-2xl">
@@ -97,8 +126,12 @@ export function AttendDialog({
 
         {request.memberPhoneLast4 && (
           <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            <span data-testid="attend-phone">{phone ?? maskedPhone(request.memberPhoneLast4)}</span>
-            {phone === null && canFindListeners && (
+            <span data-testid="attend-phone">
+              {phoneErased
+                ? t('thisListenerHasSinceExercisedTheir')
+                : (phone ?? maskedPhone(request.memberPhoneLast4))}
+            </span>
+            {phone === null && !phoneErased && canFindListeners && (
               <button
                 type="button"
                 onClick={reveal}
@@ -174,7 +207,7 @@ export function AttendDialog({
                 {t('readAtTime', { time: formatInstant(request.readAt, timeZone) })}
               </span>
             ) : (
-              <form action={readAction}>
+              <form action={readAction} onSubmit={() => setLastAction('read')}>
                 <input type="hidden" name="requestId" value={request.requestId} />
                 <Button type="submit" disabled={readPending} data-testid="attend-mark-read">
                   {t('markRead')}
@@ -187,7 +220,7 @@ export function AttendDialog({
                 {t('playedAtTime', { time: formatInstant(request.playedAt, timeZone) })}
               </span>
             ) : (
-              <form action={playAction}>
+              <form action={playAction} onSubmit={() => setLastAction('play')}>
                 <input type="hidden" name="requestId" value={request.requestId} />
                 <Button type="submit" disabled={playPending} data-testid="attend-mark-played">
                   {t('markPlayed')}
@@ -205,7 +238,7 @@ export function AttendDialog({
               </span>
             ) : (
               request.playedAt === null && (
-                <form action={offAction}>
+                <form action={offAction} onSubmit={() => setLastAction('off')}>
                   <input type="hidden" name="requestId" value={request.requestId} />
                   <Button
                     type="submit"
