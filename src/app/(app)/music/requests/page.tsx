@@ -12,6 +12,7 @@ import {
   coversForSongs,
   listMusicReferences,
   listMusicRequestsPage,
+  requestUsesKeyset,
   SONG_SEARCH_MAX_LENGTH,
 } from '@/services/music';
 import type { ReferenceSummary, RequestListPage } from '@/services/music';
@@ -57,6 +58,31 @@ async function canRegisterListenersHere(
   if (error) {
     throw new InternalError(
       `Could not check whether this caller may register listeners here: ${error.message}`,
+    );
+  }
+  return data === true;
+}
+
+/**
+ * Whether this caller may attend requests at this Station — mark one read or
+ * played, or call it off.
+ *
+ * participations.view, which is not a music code and reads oddly here. It is the
+ * owner's decision of 2026-08-13 (design D5), taken over a code of this block's
+ * own and recorded rather than quietly implemented: whoever may see promotion
+ * entries acquires this, and removing it removes the promotions screen with it.
+ * Kept local for the same reason canRegisterListenersHere is — getMusicPermissions
+ * asks only about music.* codes, and widening it to a fourth domain's code would
+ * make every music screen ask a question only this one has.
+ */
+async function canAttendRequestsHere(supabase: UserClient, companyId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('has_permission', {
+    p_permission: 'participations.view',
+    p_company_id: companyId,
+  });
+  if (error) {
+    throw new InternalError(
+      `Could not check whether this caller may attend requests here: ${error.message}`,
     );
   }
   return data === true;
@@ -126,17 +152,19 @@ export default async function RequestsPage({
   let permissions: MusicPermissions;
   let canSearch: boolean;
   let canRegister: boolean;
+  let canAttend: boolean;
   try {
     // canSearch decides whether the listener search term is sent at all —
     // resolved before the list read, the same ordering participations/page.tsx
     // uses for the identical reason: without members.view the search matches
     // nothing (0107's RULE 3), and sending the term anyway would render an
     // empty page indistinguishable from "no request matched".
-    [shows, permissions, canSearch, canRegister] = await Promise.all([
+    [shows, permissions, canSearch, canRegister, canAttend] = await Promise.all([
       listMusicReferences(selected.id, 'SHOW'),
       getMusicPermissions(supabase, selected.id),
       canSearchByListener(supabase, selected.id),
       canRegisterListenersHere(supabase, selected.id),
+      canAttendRequestsHere(supabase, selected.id),
     ]);
 
     page = await listMusicRequestsPage(
@@ -242,6 +270,8 @@ export default async function RequestsPage({
         canRequest={permissions.request}
         canFindListeners={canSearch}
         canRegisterListeners={canRegister}
+        canAttend={canAttend}
+        bounded={!requestUsesKeyset({ sort: state.sort, limit: state.limit })}
       />
     </>
   );
