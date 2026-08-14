@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { ImageUploadField } from '@/components/media/image-upload-field';
-import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
+import type { PrizeCategorySummary, PrizeMovementsPage, PrizeSummary } from '@/services/inventory';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
 // a value out of a client module. See src/lib/record-params.ts.
@@ -15,14 +15,21 @@ import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
 import { updatePrizeAction, type PrizeSaveState } from './actions';
 import { getPrizeRecordAction, type PrizeRecord } from './record';
 import { BalanceStats } from './balance-stats';
-import { AdjustmentForm } from './adjustment-form';
-import { ReleaseForm, ReserveForm } from './reservation-forms';
-import { StockEntryForm } from './stock-entry-form';
-import { StockExitForm } from './stock-exit-form';
-import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABEL_KEYS } from './format';
+import { MovementHistory } from './movement-history';
 
 // Catalogue keys, not words: a module body has no request behind it.
-const TAB_LABEL_KEYS: Record<PrizeTab, string> = { data: 'prizeData', movements: 'stockMovements' };
+//
+// `movements` keeps the pre-existing `stockMovements` label ("Stock
+// movements") rather than a new key: it is still what this tab shows —
+// Movimentação, the one unified history (design D10) — only the four forms
+// that used to sit above it (D8) are gone.
+const TAB_LABEL_KEYS: Record<PrizeTab, string> = {
+  data: 'prizeData',
+  entries: 'stockEntries',
+  exits: 'stockExits',
+  reservations: 'stockReservations',
+  movements: 'stockMovements',
+};
 
 export interface PrizeRecordPowers {
   catalogue: boolean;
@@ -36,7 +43,7 @@ const INITIAL_SAVE: PrizeSaveState = { status: 'idle' };
 
 /**
  * One prize's whole record over the inventory list. Same shape as the audience
- * record and for the same reason: one read per opening, both tabs rendered
+ * record and for the same reason: one read per opening, every tab rendered
  * from it, so nothing here can re-run the list query behind the dialog.
  */
 export function PrizeRecordDialog({
@@ -44,6 +51,7 @@ export function PrizeRecordDialog({
   tab,
   categories,
   powers,
+  timeZone,
   onTab,
   onClose,
   onSaved,
@@ -53,6 +61,8 @@ export function PrizeRecordDialog({
   tab: PrizeTab;
   categories: PrizeCategorySummary[];
   powers: PrizeRecordPowers;
+  /** The Station's own zone (spec §7) — passed down to MovementHistory so a movement's date renders in the zone it actually happened in, not the reader's. */
+  timeZone: string;
   onTab: (tab: PrizeTab) => void;
   onClose: () => void;
   onSaved: (prize: PrizeSummary) => void;
@@ -117,20 +127,15 @@ export function PrizeRecordDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId, reloadToken]);
 
-  /**
-   * Re-reads this one prize after a movement recorded inside the dialog, so the
-   * ledger and the balance above it show what was just written.
-   *
-   * The detail page these forms used to live on got that from
-   * revalidatePath('/inventory/[prizeId]'); that route is gone (Task 10) and
-   * the list route must never be revalidated (the rule this block rests on), so
-   * the record refreshes itself — one server action for one id, with nothing
-   * about the list behind the dialog re-rendered or re-queried.
-   */
-  function refreshAfterMovement() {
-    movementPending.current = true;
-    setReloadToken((token) => token + 1);
-  }
+  // refreshAfterMovement (re-read the record and flag movementPending so the
+  // balance reaches the grid's row) lived here for the old two-tab dialog.
+  // No tab this task renders can record a movement yet — the four forms move
+  // to Entradas/Saídas/Reservas in Tasks 6/7, none of which touch this file's
+  // reload plumbing — so nothing calls it today. Tasks 6/7 each need the same
+  // shape (bump `reloadToken`, set `movementPending.current`) for their own
+  // `onRecorded`/`onReverse` callbacks; left for them to add back beside the
+  // form that actually calls it, rather than kept here unused, which the
+  // repository's own lint config (`no-unused-vars`) refuses to ship.
 
   function requestClose() {
     if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
@@ -207,72 +212,33 @@ export function PrizeRecordDialog({
               </div>
             )}
 
-            {tab === 'movements' && (
-              <div className="flex flex-col gap-6">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {powers.entry && (
-                    <StockEntryForm
-                      companyId={record.companyId}
-                      prizeId={record.prize.id}
-                      onRecorded={refreshAfterMovement}
-                    />
-                  )}
-                  {powers.exit && (
-                    <StockExitForm
-                      companyId={record.companyId}
-                      prizeId={record.prize.id}
-                      onRecorded={refreshAfterMovement}
-                    />
-                  )}
-                  {powers.adjust && (
-                    <AdjustmentForm
-                      companyId={record.companyId}
-                      prizeId={record.prize.id}
-                      balance={record.prize.balance}
-                      onRecorded={refreshAfterMovement}
-                    />
-                  )}
-                  {powers.reserve && (
-                    <>
-                      <ReserveForm
-                        companyId={record.companyId}
-                        prizeId={record.prize.id}
-                        onRecorded={refreshAfterMovement}
-                      />
-                      <ReleaseForm
-                        companyId={record.companyId}
-                        prizeId={record.prize.id}
-                        onRecorded={refreshAfterMovement}
-                      />
-                    </>
-                  )}
-                </div>
+            {tab === 'entries' && (
+              // Task 6 adds the Entradas form (Tipo, Nota fiscal, Valor
+              // unitário, Valor total) above this history, plus the Arquivar
+              // action this history is already built to offer once a tab
+              // passes it an onReverse. Until then this is the complete
+              // rendering of the tab, not a stub of one — a caller with
+              // inventory.entry simply cannot record one here yet.
+              <MovementsTabPanel page={record.entries} timeZone={timeZone} />
+            )}
 
-                <ul className="flex flex-col gap-2 text-sm">
-                  {record.movements.map((movement) => (
-                    <li key={movement.id} data-testid="movement-row" className="rounded-md border p-3">
-                      <span className="font-medium">{t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}</span>
-                      {' · '}
-                      {/* Both ends of the transition, always — formatBucket
-                          renders a null bucket as "outside the Station" (0026's
-                          own column comment), which is the whole reason it
-                          takes null at all. Skipping the null end, as this did
-                          when the ledger moved into the dialog, left a stock
-                          entry reading "50 · to Available" with nowhere named
-                          for the stock to have come from. */}
-                      {movement.quantity} {t('unitS')}{' '}{formatBucket(movement.fromBucket, t)} →{' '}
-                      {formatBucket(movement.toBucket, t)}
-                      <span className="block text-xs text-muted-foreground">
-                        {formatDateTime(movement.createdAt)}
-                        {movement.note ? ` — ${movement.note}` : ''}
-                      </span>
-                    </li>
-                  ))}
-                  {record.movements.length === 0 && (
-                    <li className="text-sm text-muted-foreground">{t('thisPrizeHasNeverMoved')}</li>
-                  )}
-                </ul>
-              </div>
+            {tab === 'exits' && (
+              // Task 6 adds the Saídas form above this history, the same way.
+              <MovementsTabPanel page={record.exits} timeZone={timeZone} />
+            )}
+
+            {tab === 'reservations' && (
+              // Task 7 adds the Reservas form (Tipo: Reservar / Vincular
+              // Programa / Vincular Promoção) above this history.
+              <MovementsTabPanel page={record.reservations} timeZone={timeZone} />
+            )}
+
+            {tab === 'movements' && (
+              // Movimentação never gets a form of its own (design D8/D10):
+              // this unfiltered history — every kind, newest first — IS the
+              // finished tab. Task 8 adds De/Até and a type filter above it;
+              // it does not add writing.
+              <MovementsTabPanel page={record.movements} timeZone={timeZone} />
             )}
           </>
         )}
@@ -283,6 +249,39 @@ export function PrizeRecordDialog({
           {t('close')}</Button>
       </DialogFooter>
     </Dialog>
+  );
+}
+
+/**
+ * The frame the four movement tabs share: their own filtered history
+ * (`MovementHistory`), with a notice above it when `list_movements`' own cap
+ * (`PRIZE_MOVEMENTS_LIMIT`, 500 per call) has truncated what that tab's own
+ * read returned.
+ *
+ * `totalCount` is the count of the FILTERED set, from the same read the rows
+ * came from (services/inventory.ts's own comment on `PrizeMovementsPage`) —
+ * comparing it against the rows actually on hand is what tells a cut history
+ * apart from a complete one, rather than letting the list simply end with no
+ * word on whether that was everything.
+ *
+ * Kept in this file rather than folded into `MovementHistory` itself:
+ * `MovementHistory`'s four props are the exact shape Task 5's own "Produces"
+ * line commits Tasks 6–8 to calling it with, and a fifth prop here would be a
+ * signature none of them asked for. `onReverse` is not wired yet — no tab
+ * built by this task offers archiving — so every row today shows history
+ * only, exactly as the comments beside each of the four call sites above say.
+ */
+function MovementsTabPanel({ page, timeZone }: { page: PrizeMovementsPage; timeZone: string }) {
+  const t = useTranslations('inventory');
+  return (
+    <div className="flex flex-col gap-3">
+      {page.totalCount > page.movements.length && (
+        <p className="text-xs text-muted-foreground" data-testid="movements-truncated">
+          {t('showingOfTotalMovements', { shown: page.movements.length, total: page.totalCount })}
+        </p>
+      )}
+      <MovementHistory movements={page.movements} timeZone={timeZone} emptyMessage={t('noMovementsOfThisKind')} />
+    </div>
   );
 }
 

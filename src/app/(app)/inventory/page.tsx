@@ -192,6 +192,7 @@ export default async function InventoryPage({
         }
         categories={categories}
         powers={permissions}
+        timeZone={selected.timezone}
         initialRecord={parseRecordParam(params as Record<string, string | undefined>, PRIZE_TABS)}
       />
     </>

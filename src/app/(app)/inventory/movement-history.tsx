@@ -1,0 +1,179 @@
+'use client';
+
+import { useTranslations } from 'next-intl';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import type { MovementEntry } from '@/services/inventory';
+import { formatInstant } from '../promotions/format';
+import { ENTRY_MOVEMENT_TYPES, EXIT_MOVEMENT_TYPES, formatBucket, MOVEMENT_TYPE_LABEL_KEYS } from './format';
+
+export type Translator = (key: string, values?: Record<string, string | number>) => string;
+
+/**
+ * `actorId` and `actorName` are both nullable, and the two nulls mean
+ * different things (design D11; MovementEntry's own header on `actorName`
+ * states the discipline this follows): `actorId === null` is an automated
+ * write with no operator behind it at all — today, only the deadline sweep
+ * (0092/0094) — never rendered as "unnamed", which would credit a machine
+ * for something nobody did. `actorId` present with `actorName === null` is a
+ * real person who simply has no display name on record
+ * (`profiles.full_name` is nullable). Read `actorId` FIRST and branch on
+ * that alone, the same discipline movements/list-params.ts's own
+ * describeMovementActor keeps for the standalone screen — except this one
+ * goes through `t` rather than a hard-coded English string, because this is
+ * new code and "No user-facing sentence outside next-intl" applies to it.
+ */
+export function describeActor(movement: MovementEntry, t: Translator): string {
+  if (movement.actorId === null) return t('movementActorDeadline');
+  return movement.actorName ?? t('unnamedOperator');
+}
+
+/**
+ * Whether this row offers an action through `onReverse`, and which catalogue
+ * key labels it — driven entirely by the movement's OWN type and its own
+ * reversal/remaining state, never by which tab happens to be rendering it.
+ * A `PROMOTION_LINK` row reads the same way in Reservas and in Movimentação;
+ * a `RESERVATION` already fully released offers nothing further in either.
+ *
+ * `null` covers three different reasons a row has no action, on purpose:
+ * already reversed/fully released, a promotion link (undone on the
+ * promotion's own screen — see the caller for that text), or a type this
+ * door was never going to touch (a draw, a delivery, an adjustment, a
+ * reversal that was itself reversed already). The caller does not need to
+ * tell those apart; it only needs to know whether to render a button.
+ */
+export function actionLabelKey(movement: MovementEntry): string | null {
+  if (movement.movementType === 'RESERVATION') {
+    return movement.remainingQuantity !== null && movement.remainingQuantity > 0
+      ? 'releaseThisReservation'
+      : null;
+  }
+  if (movement.movementType === 'PROMOTION_LINK' || movement.movementType === 'PROMOTION_UNLINK') {
+    return null;
+  }
+  if (
+    movement.reversedAt === null &&
+    (ENTRY_MOVEMENT_TYPES.includes(movement.movementType) || EXIT_MOVEMENT_TYPES.includes(movement.movementType))
+  ) {
+    return 'archiveMovement';
+  }
+  return null;
+}
+
+/** `unit_amount`/`total_amount` carry no currency column (design §4) — a plain figure, `en-GB` grouping like every other number this codebase formats, never a symbol this product does not know it is entitled to print. */
+function formatAmount(amount: number): string {
+  return new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+}
+
+/**
+ * One prize's movement history, rendered the same way under all four tabs
+ * that have one (Entradas, Saídas, Reservas, Movimentação) — the four lists
+ * differ in what they are filtered to (each tab's own `types` argument to
+ * `getPrizeMovements`, Task 4/5) and in nothing else, so this is the one
+ * place a row's shape is decided.
+ *
+ * Every field the read (Task 4's `list_movements`) can carry is read here,
+ * never recomputed: the reversed state, the reversal's own existence, the
+ * remaining quantity on a reservation, and the actor are all values that
+ * arrived on the row, not judgements this component makes about it.
+ */
+export function MovementHistory({
+  movements,
+  timeZone,
+  onReverse,
+  emptyMessage,
+}: {
+  movements: MovementEntry[];
+  /** The Station's own zone (spec §7) — every date renders in the zone the movement actually happened in, not the reader's. */
+  timeZone: string;
+  /** Absent on a tab that offers no archiving/releasing at all (Movimentação, and any tab the caller's own powers do not open a form on). */
+  onReverse?: (movement: MovementEntry) => void;
+  emptyMessage: string;
+}) {
+  const t = useTranslations('inventory');
+
+  if (movements.length === 0) {
+    return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+  }
+
+  return (
+    <ul className="flex flex-col gap-2 text-sm">
+      {movements.map((movement) => {
+        const reversed = movement.reversedAt !== null;
+        const actionKey = onReverse ? actionLabelKey(movement) : null;
+
+        return (
+          <li key={movement.id} data-testid="movement-row" className="rounded-md border p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className={cn('font-medium', reversed && 'line-through')}>
+                {t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}
+              </span>
+              {movement.reversesMovementId !== null && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  {t('reversalOfAnEntry')}
+                </span>
+              )}
+            </div>
+
+            <p className={cn(reversed && 'text-muted-foreground line-through')}>
+              {movement.quantity} {t('unitsLabel', { count: movement.quantity })}{' '}
+              {formatBucket(movement.fromBucket, t)} → {formatBucket(movement.toBucket, t)}
+            </p>
+
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+              <span>
+                {t('performedBy')}: {describeActor(movement, t)}
+              </span>
+              {movement.invoiceNumber !== null && (
+                <span>
+                  {t('invoiceNumber')}: {movement.invoiceNumber}
+                </span>
+              )}
+              {movement.unitAmount !== null && (
+                <span>
+                  {t('unitAmount')}: {formatAmount(movement.unitAmount)}
+                </span>
+              )}
+              {movement.totalAmount !== null && (
+                <span>
+                  {t('totalAmount')}: {formatAmount(movement.totalAmount)}
+                </span>
+              )}
+              {movement.showName !== null && (
+                <span>
+                  {t('programme')}: {movement.showName}
+                </span>
+              )}
+              {movement.remainingQuantity !== null && (
+                <span>{t('remainingOfReserved', { remaining: movement.remainingQuantity, total: movement.quantity })}</span>
+              )}
+            </div>
+
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {formatInstant(movement.createdAt, timeZone)}
+              {movement.note ? ` — ${movement.note}` : ''}
+            </span>
+
+            {movement.reversedAt !== null && (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {t('reversedOn', { date: formatInstant(movement.reversedAt, timeZone) })}
+              </span>
+            )}
+
+            {onReverse && movement.movementType === 'PROMOTION_LINK' && (
+              <p className="mt-2 text-xs text-muted-foreground">{t('unlinkOnThePromotionScreen')}</p>
+            )}
+
+            {onReverse && actionKey && (
+              <div className="mt-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => onReverse(movement)}>
+                  {t(actionKey)}
+                </Button>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

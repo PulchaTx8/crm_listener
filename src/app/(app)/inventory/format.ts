@@ -66,6 +66,39 @@ export const MOVEMENT_TYPE_LABEL_KEYS: Record<InventoryMovementType, string> = {
 };
 
 /**
+ * Block 23's four tabs, and which of `InventoryMovementType`'s values belongs
+ * to each (design spec §7). `record.ts` passes these to `getPrizeMovements`'s
+ * own `types` filter, one array per tab; `movement-history.tsx` reads the
+ * first two again to decide whether a row's own Arquivar action is legal —
+ * the same three arrays rather than two copies of the same classification,
+ * which is exactly the kind of pair this codebase's own record-params.ts
+ * comment warns drifts apart when it is kept in two places by hand.
+ *
+ * `RESERVATION_MOVEMENT_TYPES` includes `PROMOTION_LINK`/`PROMOTION_UNLINK`:
+ * "Vincular Promoção" (Task 7, D6) writes a `PROMOTION_LINK` through the
+ * Promotions screen's own door, and its history belongs beside the
+ * reservations it stands beside on the owner's own screen, not folded into
+ * Movimentação alone.
+ *
+ * `movements` (Movimentação) has no array of its own here: `getPrizeMovements`
+ * is called for it with `types` omitted entirely, which is what makes it the
+ * one unified view (D10) rather than "every type not claimed above".
+ */
+export const ENTRY_MOVEMENT_TYPES: InventoryMovementType[] = [
+  'INITIAL_ENTRY',
+  'PURCHASE_ENTRY',
+  'MANUAL_ENTRY',
+  'BARTER_ENTRY',
+];
+export const EXIT_MOVEMENT_TYPES: InventoryMovementType[] = ['MANUAL_EXIT', 'TRANSFER_EXIT'];
+export const RESERVATION_MOVEMENT_TYPES: InventoryMovementType[] = [
+  'RESERVATION',
+  'RESERVATION_RELEASE',
+  'PROMOTION_LINK',
+  'PROMOTION_UNLINK',
+];
+
+/**
  * available + reserved + linked + awaiting_pickup + pending_return — the five
  * buckets a unit occupies while still physically in the Station (design
  * spec §4's equation). `delivered` and `written_off` are cumulative counters
