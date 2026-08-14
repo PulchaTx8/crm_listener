@@ -89,7 +89,12 @@
 --    rather than cancel it -- both rows carry a positive amount, because
 --    quantities in this ledger are positive and direction lives in the bucket
 --    pair. Copying it would corrupt the very sum D3 indexed the column for.
---    Reported to the coordinator rather than resolved unilaterally.
+--
+--    Reported rather than resolved unilaterally, and RULED ON: the spec's S5
+--    was corrected during this task (commit bc784ca) to drop the sentence and
+--    say why, so the two halves of the spec now agree with each other and with
+--    this file. Left here rather than deleted because the constraint, not this
+--    comment and not the test, is what actually forbids the copy.
 -- ---------------------------------------------------------------------------
 --
 -- WHAT THIS DOOR REFUSES, and why the refusals are the feature:
