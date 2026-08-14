@@ -22,16 +22,38 @@
 -- 1. apply_inventory_movement takes FOURTEEN arguments, not thirteen. The
 --    brief's body calls it positionally against an order that never existed:
 --    the live function was already at nine before this block (0047 appended
---    p_promotion_prize_id), and 0194 appended five more. A positional call
---    against the brief's list would have put the invoice number into
---    p_promotion_prize_id and the reversal target into p_show_id -- and every
---    assertion in 52_inventory_tabs could still have passed, because a
---    promotion_prize_id that names nothing is refused by a foreign key only
---    when it is not null, and a reversal whose reverses_movement_id is null is
---    a row that balances perfectly and simply forgets what it undid. The call
---    below is BY NAME for that reason: fourteen positional arguments is a
---    fourteen-slot opportunity to be silently wrong, and 0194's four doors
---    already established the named form for exactly this.
+--    p_promotion_prize_id), and 0194 appended five more.
+--
+--    WHAT THE BRIEF'S POSITIONAL CALL ACTUALLY DOES, measured rather than
+--    reasoned about -- its exact thirteen-argument body run in a rolled-back
+--    transaction against this database, once on an entry carrying an invoice
+--    and once on an exit carrying none:
+--
+--      SQLSTATE=42883
+--      function public.apply_inventory_movement(uuid, uuid,
+--        inventory_movement_type, integer, text, text, text, unknown, text,
+--        numeric, numeric, unknown, uuid) does not exist
+--
+--    Both cases, identically. It fails LOUDLY, on the first reversal anybody
+--    attempts, for two reasons that do not depend on each other: the brief's
+--    `case ... then 'available' else null end` resolves to text rather than
+--    inventory_bucket, and v_m.invoice_number (text) has no implicit coercion
+--    to p_promotion_prize_id (uuid). PL/pgSQL resolves an overload by STATIC
+--    argument type, so an exit reversal -- where all three invoice values are
+--    null at runtime -- resolves exactly as the entry case does. There is no
+--    interleaving in which this is quiet. And had the types been made to line
+--    up, the shift puts p_movement_id on p_show_id, which
+--    inventory_movements_show_reference (0193) refuses with 23514 on anything
+--    but a RESERVATION -- also measured, also loud.
+--
+--    So the case for naming is NOT that it averted a silent corruption; the
+--    schema had two loud defences here and would have used them. It is that
+--    fourteen positional arguments cannot be read -- nobody checking this call
+--    against the signature counts to fourteen correctly twice -- and that the
+--    call is one appended parameter away from breaking, at which point the
+--    breakage is again loud but again nobody's plan. Named arguments bind to
+--    intent rather than to a position that keeps moving, which is why 0194's
+--    four doors already use them.
 --
 -- 2. apply_inventory_movement DOES refuse an insufficient bucket, and this
 --    door pre-checks anyway. The live function raises
@@ -116,7 +138,15 @@
 -- reversed", both proceed, and the loser meets the unique index as a bare
 -- 23505 instead of the sentence this door raises.
 
-create function public.reverse_movement(p_movement_id uuid, p_note text default null)
+-- p_note carries NO default, which is the shape record_stock_exit,
+-- reserve_stock and release_reservation all have and the shape the design spec
+-- states (S5: reverse_movement(p_movement_id uuid, p_note text)). A defaulted
+-- parameter that the body then refuses is a signature advertising "optional"
+-- over a contract that says otherwise; here the note is required, so the
+-- signature says so too. The runtime check below is still needed on top of it,
+-- for the same reason the siblings carry one: a caller can pass an explicit
+-- null, or a string of spaces.
+create function public.reverse_movement(p_movement_id uuid, p_note text)
 returns uuid
 language plpgsql
 security definer
@@ -125,6 +155,7 @@ as $$
 declare
   v_actor     uuid := auth.uid();
   v_m         record;
+  v_note      text := nullif(trim(coalesce(p_note, '')), '');
   v_new_type  public.inventory_movement_type;
   v_available integer;
   v_id        uuid;
@@ -174,6 +205,21 @@ begin
   if not found then
     raise log 'reverse_movement denied: actor=% movement=%', v_actor, p_movement_id;
     raise exception 'permission denied' using errcode = '42501';
+  end if;
+
+  -- A reversal must say why. Every sibling door that takes stock out of a
+  -- bucket already refuses a blank note with this code -- record_stock_exit,
+  -- reserve_stock and release_reservation, all in 0194 -- and a reversal is
+  -- the row in the Saidas tab a reader most wants explained: it is not a sale
+  -- or a transfer, it is somebody undoing a colleague's entry, and "why" is
+  -- the only thing on it that is not derivable from the pair.
+  --
+  -- Placed immediately after the permission check and before every refusal
+  -- that reads the ROW, which is where the three siblings put theirs: a
+  -- complaint about the caller's own arguments should not depend on anything
+  -- about the movement, so it cannot be used to tell two movements apart.
+  if v_note is null then
+    raise exception 'a note is required to reverse a movement' using errcode = '22023';
   end if;
 
   if v_m.needed is null then
@@ -270,7 +316,7 @@ begin
                          then 'available'::public.inventory_bucket end,
     p_to         => case when v_new_type = 'MANUAL_ENTRY'
                          then 'available'::public.inventory_bucket end,
-    p_note       => p_note,
+    p_note       => v_note,
     p_idempotency_key => null,
     p_reverses   => p_movement_id
   );
@@ -301,4 +347,4 @@ revoke execute on function public.reverse_movement(uuid, text) from public;
 grant execute on function public.reverse_movement(uuid, text) to authenticated;
 
 comment on function public.reverse_movement(uuid, text) is
-  'Archives a stock entry or a stock exit by writing its opposite (design D1): the ledger is append-only, so a correction is a second movement carrying reverses_movement_id, never an edit or a flag. Gated on the permission the ORIGINAL movement''s kind required -- inventory.entry to undo an entry, inventory.exit to undo an exit -- resolved in the same query that finds the row, so a movement in an unreachable Station and a movement id that names nothing both answer 42501. Refuses with 22023: anything that is not a plain entry or exit (a draw, a delivery and a promotion link are undone by their own doors), a movement already reversed (inventory_movements_reversal_unique is the truth, the check is the sentence), and a reversal the available bucket cannot pay for, naming the shortfall. The reversal does NOT carry the original''s invoice number -- inventory_movements_invoice_reference (0193) permits the trio on entry types alone, and reverses_movement_id is what pairs the two rows. Takes FOR UPDATE on the original before calling apply_inventory_movement, which puts this door''s locks in the same order as release_reservation''s and makes the second-reversal refusal atomic instead of a race against the unique index.';
+  'Archives a stock entry or a stock exit by writing its opposite (design D1): the ledger is append-only, so a correction is a second movement carrying reverses_movement_id, never an edit or a flag. Gated on the permission the ORIGINAL movement''s kind required -- inventory.entry to undo an entry, inventory.exit to undo an exit -- resolved in the same query that finds the row, so a movement in an unreachable Station and a movement id that names nothing both answer 42501. Refuses with 22023: a blank or absent note (mandatory, as it is on record_stock_exit, reserve_stock and release_reservation -- a reversal is the row in the history that most needs a reason, and p_note carries no default so the signature says so too), anything that is not a plain entry or exit (a draw, a delivery and a promotion link are undone by their own doors), a movement already reversed (inventory_movements_reversal_unique is the truth, the check is the sentence), and a reversal the available bucket cannot pay for, naming the shortfall. The reversal does NOT carry the original''s invoice number -- inventory_movements_invoice_reference (0193) permits the trio on entry types alone, and reverses_movement_id is what pairs the two rows. Takes FOR UPDATE on the original before calling apply_inventory_movement, which puts this door''s locks in the same order as release_reservation''s and makes the second-reversal refusal atomic instead of a race against the unique index.';

@@ -37,7 +37,11 @@ type ReverseResult = {
 
 function reverseMovement(
   client: SupabaseClient<Database>,
-  args: { p_movement_id: string; p_note?: string },
+  // p_note is REQUIRED, not optional: 0195 gives it no default, the same shape
+  // record_stock_exit, reserve_stock and release_reservation all have, and the
+  // body refuses a blank one with 22023. Typed required here so a call that
+  // omits it is a compile error rather than a 42883 at run time.
+  args: { p_movement_id: string; p_note: string },
 ): Promise<ReverseResult> {
   // `.bind(client)` is load-bearing, not tidiness: supabase-js's `rpc` reads
   // `this.rest` off the client, so a bare `client.rpc` lifted out of the object
@@ -45,7 +49,7 @@ function reverseMovement(
   // ever reaches the database — measured, on the first run of this file.
   const call = client.rpc.bind(client) as unknown as (
     fn: 'reverse_movement',
-    args: { p_movement_id: string; p_note?: string },
+    args: { p_movement_id: string; p_note: string },
   ) => Promise<ReverseResult>;
   return call('reverse_movement', args);
 }

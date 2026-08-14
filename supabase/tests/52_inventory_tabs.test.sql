@@ -1,5 +1,5 @@
 begin;
-select plan(26);
+select plan(27);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -168,7 +168,7 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
 
 -- ---------------------------------------------------------------------------
 -- Block 23, Task 3's fixtures, seeded HERE rather than beside the assertions
--- that use them (19-26, at the foot of this file). Everything below `set local
+-- that use them (19-27, at the foot of this file). Everything below `set local
 -- role authenticated` runs as a role holding no INSERT grant on any of these
 -- tables — 0029 revokes every write on the inventory tables from every role
 -- including service_role, and 0044/0046 do the same for promotions and
@@ -369,7 +369,7 @@ select is(
 
 -- ---------------------------------------------------------------------------
 -- Block 23, Task 3: reverse_movement, the one door behind every Arquivar
--- button. These eight are the assertions that matter most in the block: a
+-- button. These nine are the assertions that matter most in the block: a
 -- wrong reverse_movement does not fail loudly, it corrupts a balance quietly.
 
 -- 19: an entry reversed once returns the available balance to what it was
@@ -412,11 +412,19 @@ select is(
 -- it would be an impossible one (23514), and the pair is already joined by
 -- reverses_movement_id, which is what 0196's read follows.
 --
--- A door that drops p_reverses (or threads it onto the wrong positional slot
--- of apply_inventory_movement's fourteen-argument list) leaves
+-- BE CLEAR ABOUT WHICH HALF OF THIS ASSERTION CAN ACTUALLY FAIL. The three
+-- invoice pins cannot: the row is asserted MANUAL_EXIT two lines above, and
+-- the constraint makes those columns unwritable on that type, so a door that
+-- started copying the invoice would abort this whole FILE back at the
+-- reversal, not turn this assertion red. The pins are a statement of intent,
+-- and the CONSTRAINT is the guarantee — so relaxing
+-- inventory_movements_invoice_reference on the belief that this test covers
+-- the behaviour would remove the only thing that does.
+--
+-- What can fail here is the rest of it. A door that drops p_reverses leaves
 -- reverses_movement_id null; one that picks the wrong mirror direction writes
--- MANUAL_ENTRY. Both score `not ok`, and so does a door that ever starts
--- copying the invoice.
+-- MANUAL_ENTRY; one that reverses the wrong quantity writes something other
+-- than 10. Each scores `not ok`.
 select ok(
   (select r.reverses_movement_id = (select movement_id from t23_reversible_entry)
       and r.movement_type = 'MANUAL_EXIT'
@@ -504,9 +512,33 @@ select throws_ok($$
 $$, '22023', 'only a stock entry or a stock exit can be reversed here',
   'a promotion link cannot be reversed here');
 
+-- 26: a reversal must say why. record_stock_exit (0194:375-377), reserve_stock
+-- and release_reservation (0194:529-531) all refuse a blank note with 22023,
+-- and a reversal is the row in the Saidas tab a reader most wants explained —
+-- without this it would be the one movement the history can show with no
+-- reason at all.
+--
+-- Asserted against an entry that is otherwise perfectly reversible: recorded
+-- immediately above, with stock behind it and nothing pointing at it, so the
+-- refusal below can only be the note. A door that never checks writes the
+-- reversal and returns an id instead of raising; a door that checks only
+-- `p_note is null` while its siblings also trim would still pass this one, so
+-- the migration keeps the siblings' nullif(trim(...)) shape rather than a bare
+-- null test.
+create temporary table t23_unexplained_entry as
+select public.record_stock_entry(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d3',
+  'MANUAL_ENTRY', 2, 'two more in', null) as movement_id;
+
+select throws_ok($$
+  select public.reverse_movement(
+    (select movement_id from t23_unexplained_entry), null::text)
+$$, '22023', 'a note is required to reverse a movement',
+  'a reversal must say why: a blank note is refused, as it is on every other door that moves stock out');
+
 reset role;
 
--- 26: exactly one audit row per reversal, naming the movement that was
+-- 27: exactly one audit row per reversal, naming the movement that was
 -- archived. Read as the superuser pgTAP connects as, deliberately: audit_logs'
 -- only select policy (0006_rls_policies.sql) is platform-admin-only and this
 -- actor is not one, so under `authenticated` this count reads 0 whether or not
