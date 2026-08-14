@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(26);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -166,6 +166,49 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
   ('00000000-0000-0000-0000-000000002342', '00000000-0000-0000-0000-0000000023c1',
    '00000000-0000-0000-0000-0000000023f1', '00000000-0000-0000-0000-000000002341');
 
+-- ---------------------------------------------------------------------------
+-- Block 23, Task 3's fixtures, seeded HERE rather than beside the assertions
+-- that use them (19-26, at the foot of this file). Everything below `set local
+-- role authenticated` runs as a role holding no INSERT grant on any of these
+-- tables — 0029 revokes every write on the inventory tables from every role
+-- including service_role, and 0044/0046 do the same for promotions and
+-- promotion_prizes — so a direct insert down there is refused with 42501
+-- before it can seed anything.
+
+-- A second prize with a ledger of its own. Assertions 22 and 23 need one
+-- bucket at an exact figure (10 in, 6 out, so 4 available), and the eighteen
+-- movements above have already moved Camiseta 23's.
+insert into public.prizes (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000000023d3', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c1', 'Bone 23');
+
+-- A draw and a promotion link, for assertions 24 and 25. Written directly
+-- rather than through their own doors: reaching a real DRAW means a promotion
+-- window, a participation and a winner, and what those two assertions test is
+-- what reverse_movement REFUSES, not how the row came to exist. The promotion
+-- and the link above them exist only because
+-- inventory_movements_promotion_reference (0045, widened in 0077) requires
+-- both of these movement types to name a promotion link.
+insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000000023ba', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c1', 'Promo 23 tabs', '2026-08-01Z', '2026-08-31Z');
+insert into public.promotion_prizes
+  (id, promotion_id, prize_id, organization_id, company_id) values
+  ('00000000-0000-0000-0000-0000000023bb', '00000000-0000-0000-0000-0000000023ba',
+   '00000000-0000-0000-0000-0000000023d1', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c1');
+insert into public.inventory_movements
+  (id, organization_id, company_id, prize_id, movement_type, quantity,
+   from_bucket, to_bucket, promotion_prize_id)
+values
+  ('00000000-0000-0000-0000-0000000023e3', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+   'DRAW', 1, 'linked', 'awaiting_pickup', '00000000-0000-0000-0000-0000000023bb'),
+  ('00000000-0000-0000-0000-0000000023e4', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+   'PROMOTION_LINK', 1, 'available', 'linked', '00000000-0000-0000-0000-0000000023bb');
+-- ---------------------------------------------------------------------------
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", "role": "authenticated"}';
 
@@ -324,7 +367,162 @@ select is(
   'a retried release_reservation with the same idempotency key returns the original movement id, not a 22023 refusal'
 );
 
+-- ---------------------------------------------------------------------------
+-- Block 23, Task 3: reverse_movement, the one door behind every Arquivar
+-- button. These eight are the assertions that matter most in the block: a
+-- wrong reverse_movement does not fail loudly, it corrupts a balance quietly.
+
+-- 19: an entry reversed once returns the available balance to what it was
+-- BEFORE the entry — the whole of design D1 in one number. The figure is
+-- captured first rather than hard-coded, because it is the sum of eighteen
+-- earlier assertions and a hard-coded 63 would go red for the wrong reason
+-- the first time anybody edits one of them.
+--
+-- A door that mirrors an entry with another entry leaves this at before + 20;
+-- one that never reaches apply_inventory_movement at all leaves it at
+-- before + 10; one that reverses the wrong quantity leaves it somewhere else
+-- again. Each scores `not ok`.
+create temporary table t23_available_before as
+select available from public.inventory_balances
+ where company_id = '00000000-0000-0000-0000-0000000023c1'
+   and prize_id = '00000000-0000-0000-0000-0000000023d1';
+
+create temporary table t23_reversible_entry as
+select public.record_stock_entry(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  'PURCHASE_ENTRY', 10, 'entry that will be archived', null,
+  'NF-2304', 4.00, 40.00) as movement_id;
+
+create temporary table t23_entry_reversal as
+select public.reverse_movement(
+  (select movement_id from t23_reversible_entry),
+  'archived by the operator') as movement_id;
+
+select is(
+  (select available from public.inventory_balances
+    where company_id = '00000000-0000-0000-0000-0000000023c1'
+      and prize_id = '00000000-0000-0000-0000-0000000023d1'),
+  (select available from t23_available_before),
+  'an entry reversed once returns the available balance to what it was before the entry');
+
+-- 20: the reversal row itself. It is a MANUAL_EXIT of the same quantity
+-- naming the entry, and it carries NO invoice of its own —
+-- inventory_movements_invoice_reference (0193) permits the trio on the four
+-- entry types alone, so a reversal that copied it would not be a wrong row,
+-- it would be an impossible one (23514), and the pair is already joined by
+-- reverses_movement_id, which is what 0196's read follows.
+--
+-- A door that drops p_reverses (or threads it onto the wrong positional slot
+-- of apply_inventory_movement's fourteen-argument list) leaves
+-- reverses_movement_id null; one that picks the wrong mirror direction writes
+-- MANUAL_ENTRY. Both score `not ok`, and so does a door that ever starts
+-- copying the invoice.
+select ok(
+  (select r.reverses_movement_id = (select movement_id from t23_reversible_entry)
+      and r.movement_type = 'MANUAL_EXIT'
+      and r.quantity = 10
+      and r.invoice_number is null
+      and r.unit_amount is null
+      and r.total_amount is null
+     from public.inventory_movements r
+    where r.id = (select movement_id from t23_entry_reversal)),
+  'the reversal of an entry is a manual exit of the same quantity naming it, carrying no invoice of its own');
+
+-- 21: one entry is reversed once. The unique index (0193) is the backstop;
+-- this door owes the operator a sentence instead of a constraint name. A door
+-- with no check of its own collides on the index and raises 23505; a door
+-- reaching a database whose index was dropped raises nothing at all. Either
+-- way throws_ok fails.
+select throws_ok($$
+  select public.reverse_movement(
+    (select movement_id from t23_reversible_entry), 'archived twice')
+$$, '22023', 'this movement has already been reversed',
+  'the same entry cannot be reversed a second time');
+
+-- 22: the refusal an operator will actually meet. Ten in, six out, four left
+-- — reversing the entry of ten would drive available to minus six.
+-- apply_inventory_movement would refuse it too, with 23514 and a message
+-- about buckets; this door refuses it first, with a business code and the
+-- number that is in the way.
+--
+-- A door with no pre-check of its own scores `not ok` on BOTH halves: wrong
+-- errcode (23514) and wrong message. A door with no check anywhere drives the
+-- bucket negative and dies on inventory_balances' own CHECK — 23514 again.
+create temporary table t23_short_entry as
+select public.record_stock_entry(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d3',
+  'MANUAL_ENTRY', 10, 'ten in', null) as movement_id;
+
+create temporary table t23_short_exit as
+select public.record_stock_exit(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d3',
+  6, 'six out', null) as movement_id;
+
+select throws_ok($$
+  select public.reverse_movement(
+    (select movement_id from t23_short_entry), 'archive what is no longer here')
+$$, '22023', 'only 4 unit(s) are available, and 10 are needed to reverse this entry',
+  'reversing an entry whose stock has since left is refused, naming the shortfall');
+
+-- 23: the other direction. Reversing the exit of six puts six units back, as
+-- a MANUAL_ENTRY naming the exit — available goes 4 back to 10. A door that
+-- mirrors an exit with another exit would try to take six more out of four
+-- and raise; a door that ignores direction entirely leaves the balance at 4.
+create temporary table t23_exit_reversal as
+select public.reverse_movement(
+  (select movement_id from t23_short_exit), 'the transfer was cancelled') as movement_id;
+
+select ok(
+  (select b.available = 10
+     from public.inventory_balances b
+    where b.company_id = '00000000-0000-0000-0000-0000000023c1'
+      and b.prize_id = '00000000-0000-0000-0000-0000000023d3')
+  and (select r.movement_type = 'MANUAL_ENTRY'
+          and r.quantity = 6
+          and r.reverses_movement_id = (select movement_id from t23_short_exit)
+         from public.inventory_movements r
+        where r.id = (select movement_id from t23_exit_reversal)),
+  'reversing an exit puts the stock back, as a manual entry naming the exit');
+
+-- 24 and 25: this door is not a general-purpose eraser. A draw and a
+-- promotion link are each undone by their own screen's own door, with rules
+-- this one does not know.
+--
+-- Both are worth more than they look. A door with no type gate does not
+-- refuse these and does not fail on them either: a DRAW's to_bucket is
+-- awaiting_pickup and a PROMOTION_LINK's is linked, so a mirror derived from
+-- "not available" writes a MANUAL_ENTRY INTO available — inventing stock out
+-- of units that are already committed elsewhere, and passing every constraint
+-- on the way. throws_ok is what catches that: the call would simply succeed.
+select throws_ok($$
+  select public.reverse_movement('00000000-0000-0000-0000-0000000023e3', 'not this door')
+$$, '22023', 'only a stock entry or a stock exit can be reversed here',
+  'a draw cannot be reversed here');
+
+select throws_ok($$
+  select public.reverse_movement('00000000-0000-0000-0000-0000000023e4', 'not this door')
+$$, '22023', 'only a stock entry or a stock exit can be reversed here',
+  'a promotion link cannot be reversed here');
+
 reset role;
+
+-- 26: exactly one audit row per reversal, naming the movement that was
+-- archived. Read as the superuser pgTAP connects as, deliberately: audit_logs'
+-- only select policy (0006_rls_policies.sql) is platform-admin-only and this
+-- actor is not one, so under `authenticated` this count reads 0 whether or not
+-- the row was written — the precedent is 15_music_rpcs.test.sql:109-115.
+--
+-- Counted on action + target_id rather than on the whole table because
+-- apply_inventory_movement writes its own 'inventory_movement' row for the
+-- mirror movement; the two are different facts and both belong there. A door
+-- that writes no audit row of its own scores 0; one that names the reversal
+-- instead of the original in target_id also scores 0; one that writes the row
+-- more than once scores 2.
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'reverse_movement'
+      and target_id = (select movement_id from t23_reversible_entry)),
+  1, 'reversing writes exactly one audit row, naming the movement that was archived');
 
 select * from finish();
 rollback;

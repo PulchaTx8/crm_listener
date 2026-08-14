@@ -173,6 +173,26 @@ const REQUIRED_TEST_FILES = [
   // sides of the grant.
   { path: 'tests/isolation/draw.test.ts', minTests: 11 },
   { path: 'tests/isolation/inventory.test.ts', minTests: 19 },
+  // Block 23, Task 3. `reverse_movement` (0195) is the one door in the
+  // inventory family that takes a movement id and NO Station, so there is no
+  // p_company_id for a caller to be scoped against and its entire tenant
+  // boundary is the has_permission call inside its own body, resolved from the
+  // movement's own company_id. 52_inventory_tabs.test.sql asserts what the door
+  // refuses and what arithmetic it writes, and cannot assert this — pgTAP runs
+  // as superuser with a null auth.uid(), where has_permission answers true
+  // unconditionally and RLS never applies, the reason every other entry in this
+  // manifest gives.
+  //
+  // Three cases, and the floor is the full count because each proves a
+  // different half of the gate. The second is the one that matters: a delegate
+  // holding inventory.entry in Station A, holding inventory.view in Station B
+  // (so it genuinely CAN read the row), handed a Station B movement id — and
+  // refused, with the same client still reversing at home as the control that
+  // makes the refusal scope rather than a broken grant. The third is the other
+  // axis: inventory.exit does not confer inventory.entry, proved with the same
+  // client succeeding on an exit and failing on an entry, so a door that
+  // refused everybody scores identically on one half and red on the other.
+  { path: 'tests/isolation/inventory-reversal.test.ts', minTests: 3 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
   { path: 'tests/isolation/members.test.ts', minTests: 21 },
