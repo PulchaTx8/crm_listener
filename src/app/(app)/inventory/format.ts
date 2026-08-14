@@ -32,7 +32,18 @@ export const MOVEMENT_TYPE_LABEL_KEYS: Record<InventoryMovementType, string> = {
   INITIAL_ENTRY: 'initialEntry',
   PURCHASE_ENTRY: 'purchase',
   MANUAL_ENTRY: 'manualEntry',
+  // BARTER_ENTRY and TRANSFER_EXIT (0192, Block 23, design D4) were missing
+  // the day the enum values landed, the same gap RETURN_PENDING_CANCEL's own
+  // comment below already names -- this Record is checked against the
+  // generated type, and the generated type had not been regenerated since.
+  // `barter` and `sentToAnotherStation` name what the movement WAS (a
+  // history label, past tense), never to be confused with `exitTransfer`
+  // (Task 5/6's own key, "Send to another station" -- a form's Tipo option,
+  // imperative): the two catalogues serve different grammatical moments and
+  // Portuguese/Spanish only happen to spell both the same way.
+  BARTER_ENTRY: 'barter',
   MANUAL_EXIT: 'manualExit',
+  TRANSFER_EXIT: 'sentToAnotherStation',
   ADJUSTMENT_POSITIVE: 'adjustmentIncrease',
   ADJUSTMENT_NEGATIVE: 'adjustmentDecrease',
   RESERVATION: 'reservation',

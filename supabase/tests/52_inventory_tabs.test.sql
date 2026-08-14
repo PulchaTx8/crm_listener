@@ -1,5 +1,5 @@
 begin;
-select plan(27);
+select plan(33);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -555,6 +555,112 @@ select is(
     where action = 'reverse_movement'
       and target_id = (select movement_id from t23_reversible_entry)),
   1, 'reversing writes exactly one audit row, naming the movement that was archived');
+
+-- ---------------------------------------------------------------------------
+-- Block 23, Task 4: list_movements widened. 28-33, re-entering the same
+-- authenticated actor `reset role` above stepped out of -- list_movements is
+-- SECURITY DEFINER and raises 42501 with no auth.uid() to resolve
+-- has_permission against, so the audit-log read's superuser connection
+-- cannot be reused for these.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", "role": "authenticated"}';
+
+-- 28: the invoice trio, projected rather than dropped. t23_purchase
+-- (assertion 10) is a PURCHASE_ENTRY carrying NF-2301/2.50/125.00 on the
+-- table itself; this is the first assertion checking that list_movements'
+-- SELECT list actually names those three columns rather than silently
+-- leaving them off the RETURNS TABLE the way a copy-paste from 0096 would.
+select ok(
+  (select invoice_number = 'NF-2301' and unit_amount = 2.50 and total_amount = 125.00
+     from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+    where movement_id = (select movement_id from t23_purchase)),
+  'list_movements returns invoice_number, unit_amount and total_amount on an entry that has them');
+
+-- 29: the ORIGINAL of a reversed pair reports a non-null reversed_at and the
+-- reversal's own id. t23_reversible_entry (assertion 19) was reversed once,
+-- by t23_entry_reversal (assertion 20), and inventory_movements_reversal_
+-- unique (0193) guarantees there is exactly one such row for the lateral to
+-- find. A read with no lateral leaves both columns null here; one that joins
+-- the opposite direction, or that forgets the RESERVATION_RELEASE exclusion
+-- the unique index itself carries, finds nothing or the wrong row.
+select ok(
+  (select reversed_at is not null
+      and reversal_id = (select movement_id from t23_entry_reversal)
+     from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+    where movement_id = (select movement_id from t23_reversible_entry)),
+  'a reversed entry reports a non-null reversed_at and the reversal''s own id');
+
+-- 30: the REVERSAL half of the same pair reports reverses_movement_id
+-- naming the entry it undoes. Stored, not derived (0193) -- this is the
+-- assertion that catches a SELECT list that carries every other column
+-- forward but forgets this one.
+select is(
+  (select reverses_movement_id
+     from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+    where movement_id = (select movement_id from t23_entry_reversal)),
+  (select movement_id from t23_reversible_entry),
+  'the reversal reports reverses_movement_id naming the entry it undoes');
+
+-- 31: remaining_quantity on a reservation, asserted AFTER A PARTIAL RELEASE
+-- -- the exact case the brief calls out, because it is the one a wrong
+-- implementation cannot pass by accident. t23_reservation_anon (case 14)
+-- reserved 5 units; case 18's replay probe released 3 of them exactly once
+-- (the SECOND call is a same-idempotency-key replay that returns the first
+-- movement rather than writing a second one -- fix round 1's own subject),
+-- leaving 2. A read that returns the raw stored quantity (5) instead of the
+-- derived remainder scores a DIFFERENT number here, not merely a null --
+-- t23_reservation_show (cases 13/15/17) is deliberately NOT used for this:
+-- it is fully exhausted by the time this runs (10 reserved, 4 then 6
+-- released), and 0 remaining would not discriminate "raw quantity" (10) from
+-- "some other wrong arithmetic" as sharply as 2 does against 5.
+select is(
+  (select remaining_quantity
+     from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+    where movement_id = (select movement_id from t23_reservation_anon)),
+  2,
+  'a reservation reports remaining_quantity as its own quantity minus the releases pointing at it, after a partial release');
+
+-- 32: show_name on a reservation held for a programme. t23_reservation_show
+-- (case 13) named Programa da Tarde (00...23aa) -- unaffected by how much of
+-- it has since been released, which is assertion 31's concern, not this
+-- one's.
+select is(
+  (select show_name
+     from public.list_movements(p_company_id => '00000000-0000-0000-0000-0000000023c1',
+                                 p_prize_id   => '00000000-0000-0000-0000-0000000023d1')
+    where movement_id = (select movement_id from t23_reservation_show)),
+  'Programa da Tarde',
+  'a reservation held for a programme reports the programme''s show_name');
+
+-- 33: the movement-type filter narrows to one kind, and the period filter
+-- narrows by date -- two independent narrowings asserted together, because
+-- each is a one-line boolean and a wrong read on either leaves this false.
+-- p_types naming RESERVATION alone must exclude every other kind this prize
+-- has accumulated by now (BARTER_ENTRY, TRANSFER_EXIT, MANUAL_ENTRY,
+-- MANUAL_EXIT, RESERVATION_RELEASE among them) -- a read that ignores
+-- p_types entirely would return every one of those and fail the left half.
+-- p_from set past every fixture this whole file has written must return
+-- nothing at all -- a read that ignores p_from would still return rows and
+-- fail the right half.
+select ok(
+  (select count(*) from public.list_movements(
+      p_company_id => '00000000-0000-0000-0000-0000000023c1',
+      p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+      p_types      => array['RESERVATION']::public.inventory_movement_type[])
+   where movement_type <> 'RESERVATION') = 0
+  and
+  (select count(*) from public.list_movements(
+      p_company_id => '00000000-0000-0000-0000-0000000023c1',
+      p_prize_id   => '00000000-0000-0000-0000-0000000023d1',
+      p_from       => now() + interval '1 day')) = 0,
+  'the movement-type filter narrows to one kind, and the period filter narrows by date');
+
+reset role;
 
 select * from finish();
 rollback;

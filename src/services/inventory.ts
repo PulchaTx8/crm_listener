@@ -93,7 +93,43 @@ export interface MovementEntry {
   toBucket: InventoryBucket | null;
   note: string | null;
   actorId: string | null;
+  /**
+   * Null does NOT by itself mean "the clock did it" (list_movements' own
+   * header, 0096): a human operator with no display name on record also has
+   * a null actorName, and actorId is what tells the two apart -- the same
+   * discipline services/movements.ts's describeMovementActor already keys
+   * on for the standalone screen.
+   */
+  actorName: string | null;
   createdAt: string;
+  // Block 23, Task 1's five columns (0193), projected straight through by
+  // list_movements (0196) -- none of the five below are computed.
+  /** The supplier invoice this entry came in on (design D3). Null on anything but an entry. */
+  invoiceNumber: string | null;
+  unitAmount: number | null;
+  totalAmount: number | null;
+  /** The programme this reservation is held for (design D7). Null on anything but a reservation naming one. */
+  reservedForShowId: string | null;
+  /** reservedForShowId's own name, resolved by list_movements (0196) -- never stored. */
+  showName: string | null;
+  /** The movement this one undoes (0193). Null except on a reversal or a reservation release. */
+  reversesMovementId: string | null;
+  /**
+   * Block 23, Task 4: two more values list_movements (0196) DERIVES from a
+   * left join lateral onto the row whose reverses_movement_id names this
+   * one, rather than storing -- 0193's own header states why ("The original
+   * is never updated -- it cannot be, and does not need to be"). Null on a
+   * row that has not been reversed, and on a reversal or a release, neither
+   * of which reverse_movement (0195) can itself undo.
+   */
+  reversedAt: string | null;
+  reversalId: string | null;
+  /**
+   * A RESERVATION's own quantity minus every RESERVATION_RELEASE pointing at
+   * it -- derived by list_movements (0196), never stored. Null on every
+   * movement type but RESERVATION.
+   */
+  remainingQuantity: number | null;
 }
 
 export interface ReconciliationRow {
@@ -370,17 +406,41 @@ export async function archivePrize(prizeId: string, accessToken: string): Promis
   if (error) throw mapInventoryError(error.code, error.message);
 }
 
+/**
+ * A generous single page rather than a paginated read: a prize's own history
+ * is bounded in a way a Station's whole ledger is not (services/movements.ts's
+ * own MOVEMENT_PAGE_SIZE of 25 is a screen's worth for exactly the opposite
+ * reason), and the record dialog has always fetched one prize's whole history
+ * in the one round trip its own comment describes (record.ts).
+ */
+const PRIZE_MOVEMENTS_LIMIT = 500;
+
+/**
+ * One prize's whole movement history, scoped by prize_id rather than a
+ * second read path of its own.
+ *
+ * Through list_movements (0096, widened 0196 for Block 23) rather than a
+ * plain table select — the module's OTHER RPC read, reconcileInventory
+ * below, already establishes the convention: reversed_at/reversal_id/
+ * remaining_quantity/show_name are computed there, by a left join lateral and
+ * a correlated sum, and reimplementing that arithmetic here would be a
+ * second mechanism that can drift, exactly what 0193's own header warns
+ * reverses_movement_id itself was designed to avoid. Read through asCaller,
+ * like every RPC call in this file: list_movements is SECURITY DEFINER and
+ * re-checks has_permission against auth.uid() in its own body, so the
+ * caller's token has to travel, not the cookie session createUserClient()
+ * carries for a plain select.
+ */
 export async function getPrizeMovements(
   companyId: string,
   prizeId: string,
+  accessToken: string,
 ): Promise<MovementEntry[]> {
-  const supabase = await createUserClient();
-  const { data, error } = await supabase
-    .from('inventory_movements')
-    .select('id, movement_type, quantity, from_bucket, to_bucket, note, actor_id, created_at')
-    .eq('company_id', companyId)
-    .eq('prize_id', prizeId)
-    .order('created_at', { ascending: false });
+  const { data, error } = await asCaller(accessToken).rpc('list_movements', {
+    p_company_id: companyId,
+    p_prize_id: prizeId,
+    p_limit: PRIZE_MOVEMENTS_LIMIT,
+  });
 
   // The ledger IS the feature on the prize detail screen ("why does this say
   // 47" is the question it exists to answer) — a discarded error here would
@@ -389,14 +449,24 @@ export async function getPrizeMovements(
   if (error) throw new InternalError(`Could not read the movement history: ${error.message}`);
 
   return (data ?? []).map((row) => ({
-    id: row.id,
+    id: row.movement_id,
     movementType: row.movement_type,
     quantity: row.quantity,
     fromBucket: row.from_bucket,
     toBucket: row.to_bucket,
     note: row.note,
     actorId: row.actor_id,
+    actorName: row.actor_name,
     createdAt: row.created_at,
+    invoiceNumber: row.invoice_number,
+    unitAmount: row.unit_amount,
+    totalAmount: row.total_amount,
+    reservedForShowId: row.reserved_for_show_id,
+    showName: row.show_name,
+    reversesMovementId: row.reverses_movement_id,
+    reversedAt: row.reversed_at,
+    reversalId: row.reversal_id,
+    remainingQuantity: row.remaining_quantity,
   }));
 }
 
@@ -444,7 +514,22 @@ export async function createPrize(input: PrizeFormInput, accessToken: string): P
 // nothing but a form author's care kept a hand-mapping between the two
 // honest. `kind` rides along unused by the RPC call below, the same as it
 // does on every other Stock*Input type in this file.
-export type StockEntryInput = Extract<MovementFormInput, { kind: 'entry' }>;
+/**
+ * Widened with an intersection rather than in movementFormSchema itself
+ * (schemas/inventory.ts): that schema's `entryType` enum still stops at
+ * record_stock_entry's original three (INITIAL_ENTRY/PURCHASE_ENTRY/
+ * MANUAL_ENTRY) and wiring BARTER_ENTRY and the invoice trio into the actual
+ * form's validation is stock-entry-form.tsx's own task, not this one's. This
+ * intersection is the target shape that form will fill in — every field
+ * below is optional, so nothing that constructs a StockEntryInput today
+ * breaks, and record_stock_entry (0194) already defaults each of its own
+ * matching parameters to null when a caller omits them.
+ */
+export type StockEntryInput = Extract<MovementFormInput, { kind: 'entry' }> & {
+  invoiceNumber?: string;
+  unitAmount?: number;
+  totalAmount?: number;
+};
 
 export async function recordStockEntry(
   input: StockEntryInput,
@@ -457,13 +542,26 @@ export async function recordStockEntry(
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_invoice_number: input.invoiceNumber,
+    p_unit_amount: input.unitAmount,
+    p_total_amount: input.totalAmount,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('record_stock_entry returned no id');
   return data;
 }
 
-export type StockExitInput = Extract<MovementFormInput, { kind: 'exit' }>;
+/**
+ * `type`, not `exitType`: record_stock_exit's own new parameter (0194) is
+ * `p_type`, and the movement type itself is the field's whole content here
+ * (movementFormSchema's 'exit' variant carries no such field at all yet —
+ * Task 6's own scope, not this one's). Optional and defaulted to
+ * MANUAL_EXIT by the door itself when omitted, so an existing five-argument
+ * caller is unaffected.
+ */
+export type StockExitInput = Extract<MovementFormInput, { kind: 'exit' }> & {
+  type?: Extract<InventoryMovementType, 'MANUAL_EXIT' | 'TRANSFER_EXIT'>;
+};
 
 export async function recordStockExit(input: StockExitInput, accessToken: string): Promise<string> {
   const { data, error } = await asCaller(accessToken).rpc('record_stock_exit', {
@@ -472,6 +570,7 @@ export async function recordStockExit(input: StockExitInput, accessToken: string
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_type: input.type,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('record_stock_exit returned no id');
@@ -510,8 +609,22 @@ export async function adjustStock(
   return movementId;
 }
 
-export type StockReservationInput = Extract<MovementFormInput, { kind: 'reserve' }>;
-export type StockReservationReleaseInput = Extract<MovementFormInput, { kind: 'release' }>;
+/** `showId`: the programme this reservation is held for (design D7, 0194). Optional; omitted is an anonymous hold, exactly as reserve_stock always behaved. */
+export type StockReservationInput = Extract<MovementFormInput, { kind: 'reserve' }> & {
+  showId?: string;
+};
+
+/**
+ * `reservationId`: which RESERVATION this release points at (design D5,
+ * 0194) — what makes release_reservation's own remaining-quantity arithmetic
+ * run at all, and what list_movements' remaining_quantity (0196) is a sum
+ * over. Optional; omitted behaves exactly as release_reservation always did,
+ * a release with no reservation to attribute it to and no arithmetic to
+ * check.
+ */
+export type StockReservationReleaseInput = Extract<MovementFormInput, { kind: 'release' }> & {
+  reservationId?: string;
+};
 
 export async function reserveStock(
   input: StockReservationInput,
@@ -523,6 +636,7 @@ export async function reserveStock(
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_show_id: input.showId,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('reserve_stock returned no id');
@@ -539,9 +653,35 @@ export async function releaseReservation(
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_reservation_id: input.reservationId,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('release_reservation returned no id');
+  return data;
+}
+
+/**
+ * Archives a stock entry or exit by writing its opposite (design D1, 0195) —
+ * the ledger is append-only, so a correction is a second movement, never an
+ * edit. Two arguments, not three: reverse_movement's own p_note is mandatory
+ * and carries no default (0195's own header explains why), but the
+ * confirmation this door sits behind (Task 6's own scope) asks only whether
+ * to archive, not for a typed reason — so this wrapper supplies the note
+ * itself rather than pretending the UI collects one it does not. The reason
+ * a specific movement was archived is what reverses_movement_id already
+ * carries (list_movements, 0196, is what turns that pointer into
+ * reversedAt/reversalId on the original) — this fixed string is what the
+ * mandatory note asks for, not a substitute for that pointer.
+ */
+const REVERSAL_NOTE = 'Archived by the operator';
+
+export async function reverseMovement(movementId: string, accessToken: string): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('reverse_movement', {
+    p_movement_id: movementId,
+    p_note: REVERSAL_NOTE,
+  });
+  if (error) throw mapInventoryError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('reverse_movement returned no id');
   return data;
 }
 
