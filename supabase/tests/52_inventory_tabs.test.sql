@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(18);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -282,7 +282,8 @@ select throws_ok($$
     '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
     7, 'too much', null,
     (select movement_id from t23_reservation_show))
-$$, '22023', null, 'releasing more than a reservation has left is refused, naming the remainder');
+$$, '22023', 'only 6 unit(s) remain on this reservation, and 7 were requested',
+  'releasing more than a reservation has left is refused, naming the remainder');
 
 -- 17: a second release_reservation on the same reservation, within what
 -- remains (exactly the 6 units left after case 15, and unaffected by case
@@ -298,6 +299,30 @@ select lives_ok($$
     6, 'final release', null,
     (select movement_id from t23_reservation_show))
 $$, 'a second release on the same reservation, within what remains, succeeds');
+
+-- 18: a retried release_reservation carrying the same idempotency key returns
+-- the original movement id rather than raising -- the replay hole from fix
+-- round 1. A door whose arithmetic runs before the replay is resolved counts
+-- the first attempt's own release in v_released and refuses the identical
+-- retry with 22023, naming a remainder that is a lie about what already
+-- happened. Uses t23_reservation_anon (case 14's anonymous hold of 5, never
+-- released before this point) rather than t23_reservation_show, which case
+-- 17 already exhausted -- this assertion needs a reservation with room left,
+-- not one at its own remainder of zero.
+create temporary table t23_release_replay_1 as
+select public.release_reservation(
+  '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+  3, 'replay probe', 'BLOCK23-RELEASE-REPLAY-1',
+  (select movement_id from t23_reservation_anon)) as movement_id;
+
+select is(
+  (select public.release_reservation(
+    '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+    3, 'replay probe', 'BLOCK23-RELEASE-REPLAY-1',
+    (select movement_id from t23_reservation_anon))),
+  (select movement_id from t23_release_replay_1),
+  'a retried release_reservation with the same idempotency key returns the original movement id, not a 22023 refusal'
+);
 
 reset role;
 

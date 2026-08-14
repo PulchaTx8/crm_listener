@@ -462,7 +462,7 @@ drop function public.release_reservation(uuid, uuid, integer, text, text);
 -- arithmetic the Reservas screen (0195/23d) will show on each row.
 --
 -- p_reservation_id stays optional (defaulted to null) for the same reason
--- every other appended parameter here is: record_stock_exit's own five-
+-- every other appended parameter here is: release_reservation's own five-
 -- argument callers, if any exist by the time this ships, keep working
 -- unchanged, releasing stock with no reservation attribution exactly as
 -- release_reservation always did. When it IS given, the reservation is
@@ -481,8 +481,17 @@ drop function public.release_reservation(uuid, uuid, integer, text, text);
 -- (the whole prize's reserved bucket, summed across every reservation on it)
 -- and would not catch an over-release of ONE reservation while the prize's
 -- total reserved stock is still sufficient. No other function in this schema
--- locks an inventory_movements row (checked by grep before adding this one),
--- so this lock cannot participate in a cycle with any existing lock order.
+-- takes an EXPLICIT lock on an inventory_movements row (checked by grep
+-- before adding this one). inventory_movements_reversal_company_fk (0193)
+-- does take an IMPLICIT one — any insert that sets reverses_movement_id
+-- takes FOR KEY SHARE on the row it references — but today this door is the
+-- only writer of that column on a row this FOR UPDATE also touches, and it
+-- takes its own FOR UPDATE first, so there is genuinely no cycle yet. Task
+-- 3's reverse_movement will become the second writer of reverses_movement_id
+-- and will reach these same two locks — this FOR UPDATE, and the FK's
+-- implicit FOR KEY SHARE on whatever it reverses — possibly in the opposite
+-- order; getting that ordering right is that task's own problem, not one
+-- this comment can settle in advance.
 create function public.release_reservation(
   p_company_id      uuid,
   p_prize_id        uuid,
@@ -502,6 +511,7 @@ declare
   v_reserved  integer;
   v_released  integer;
   v_remaining integer;
+  v_existing  uuid;
 begin
   -- Existence only — see record_stock_entry's comment for why apply_inventory_movement's
   -- own resolution from the prize is the fact that matters.
@@ -518,6 +528,31 @@ begin
 
   if v_note is null then
     raise exception 'a note is required to release a reservation' using errcode = '22023';
+  end if;
+
+  -- Fix round 1: resolve a replay BEFORE the arithmetic below reads anything.
+  -- apply_inventory_movement's own ON CONFLICT replay path (0027) only fires
+  -- once this function has already called it — which is after v_released has
+  -- been summed. A retry carrying the same idempotency key would therefore
+  -- count its own first attempt in that sum and refuse itself with 22023,
+  -- reporting a remainder that is a lie about what actually happened. Guarded
+  -- on p_idempotency_key is not null and scoped to (company_id,
+  -- idempotency_key) — the exact partial unique index apply_inventory_
+  -- movement's own INSERT ... ON CONFLICT already keys on — so this is the
+  -- same replay, found earlier rather than differently. Left unconditional on
+  -- p_reservation_id: a replay of the pre-Block-23 anonymous-release shape
+  -- (p_reservation_id null) already worked correctly through apply_inventory_
+  -- movement's own path, and this earlier check returns the identical id for
+  -- it too, just without first bootstrapping a balance-row lock nothing ends
+  -- up needing.
+  if p_idempotency_key is not null then
+    select id into v_existing
+    from public.inventory_movements
+    where company_id = p_company_id and idempotency_key = p_idempotency_key;
+
+    if found then
+      return v_existing;
+    end if;
   end if;
 
   if p_reservation_id is not null then
@@ -557,4 +592,4 @@ revoke execute on function public.release_reservation(uuid, uuid, integer, text,
 grant execute on function public.release_reservation(uuid, uuid, integer, text, text, uuid) to authenticated;
 
 comment on function public.release_reservation(uuid, uuid, integer, text, text, uuid) is
-  'Moves reserved stock back to available (RESERVATION_RELEASE). Gated on inventory.reserve — the same code reserve_stock uses. Note is mandatory. Block 23 appended p_reservation_id (design D5): when given, it must name a live RESERVATION in this Station and this prize (P0002 otherwise, FOR UPDATE locked before the arithmetic below reads it), and the release is refused with 22023, naming the remainder, when it exceeds that reservation''s own quantity minus every RESERVATION_RELEASE already pointing at it. inventory_movements_reversal_unique (0193) deliberately excludes RESERVATION_RELEASE from its one-reversal-per-movement rule, so several releases legitimately point at one reservation — that is what "remaining" sums over. p_reservation_id left null behaves exactly as this door always did: a release with no reservation to attribute it to and no arithmetic to check.';
+  'Moves reserved stock back to available (RESERVATION_RELEASE). Gated on inventory.reserve — the same code reserve_stock uses. Note is mandatory. Block 23 appended p_reservation_id (design D5): when given, it must name a live RESERVATION in this Station and this prize (P0002 otherwise, FOR UPDATE locked before the arithmetic below reads it), and the release is refused with 22023, naming the remainder, when it exceeds that reservation''s own quantity minus every RESERVATION_RELEASE already pointing at it. inventory_movements_reversal_unique (0193) deliberately excludes RESERVATION_RELEASE from its one-reversal-per-movement rule, so several releases legitimately point at one reservation — that is what "remaining" sums over. p_reservation_id left null behaves exactly as this door always did: a release with no reservation to attribute it to and no arithmetic to check. Fix round 1: a replay carrying p_idempotency_key is resolved by this function itself, before the arithmetic runs — a retry would otherwise count its own first attempt in the remaining-quantity sum and refuse itself with 22023 instead of returning the original movement.';
