@@ -215,7 +215,9 @@ test('linking a prize moves stock without the list behind the dialog being re-qu
   await expect(prizeForm.getByText('Prize registered.')).toBeVisible();
   await prizeForm.getByRole('button', { name: 'View prize' }).click();
 
-  await ownerPage.getByRole('tab', { name: 'Stock movements' }).click();
+  // Block 23 split the record's one old "Stock movements" tab into five —
+  // an entry now lives on its own tab, Entradas.
+  await ownerPage.getByRole('tab', { name: 'Entries' }).click();
   const entryForm = ownerPage.locator('[data-testid="stock-entry-form"]');
   await expect(entryForm).toBeVisible();
   await entryForm.getByLabel('Quantity').fill('10');

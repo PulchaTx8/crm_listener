@@ -275,14 +275,29 @@ test('§35 — from an empty database to an audited delivery', async ({ page, br
     await prizeForm.getByRole('button', { name: 'View prize' }).click();
     await expect(ownerPage.getByRole('heading', { name: prizeName, level: 2 })).toBeVisible();
 
-    await ownerPage.getByRole('tab', { name: 'Stock movements' }).click();
+    // Block 23 split the record's one old "Stock movements" tab into five —
+    // an entry now lives on Entradas and a reservation on Reservas, rather
+    // than beside each other on one tab.
+    await ownerPage.getByRole('tab', { name: 'Entries' }).click();
     const entryForm = ownerPage.locator('[data-testid="stock-entry-form"]');
     await expect(entryForm).toBeVisible();
     await entryForm.getByLabel('Quantity').fill('50');
     await entryForm.getByRole('button', { name: 'Add stock' }).click();
+    // Waited for explicitly, now that the two forms no longer sit on the same
+    // tab: switching to Reservations before this resolves would race the
+    // record's own re-read (prize-record-dialog.tsx's refreshAfterMovement)
+    // against EntriesTab unmounting.
+    await expect(entryForm.getByText('Stock added.')).toBeVisible();
 
+    await ownerPage.getByRole('tab', { name: 'Reservations' }).click();
     const reserveForm = ownerPage.locator('[data-testid="reserve-form"]');
-    await expect(reserveForm).toBeVisible();
+    // Unlike Entradas, Reservas gates its form behind its own read
+    // (listReservationTargetsAction, for the programme/promotion pickers) —
+    // reservations-tab.tsx renders "Loading…" until that resolves. The
+    // generous timeout matches every other first-time wait in this journey
+    // (this file's own established idiom, e.g. line 273 above), not a new
+    // one invented here.
+    await expect(reserveForm).toBeVisible({ timeout: 15_000 });
     await reserveForm.getByLabel('Quantity').fill('10');
     await reserveForm.getByLabel('Note').fill('Reserved for the acceptance journey');
     await reserveForm.getByRole('button', { name: 'Reserve stock' }).click();

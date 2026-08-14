@@ -62,18 +62,47 @@ export function ReservationsTab({
   // since `canReserve` cannot change for the life of one dialog opening. A
   // caller without it never renders the form at all, so there is nothing for
   // this read to serve.
+  //
+  // THE CALL ITSELF IS DEFERRED TO A MICROTASK, and that deferral is the
+  // whole fix (Task 9 follow-up, diagnosed against this exact effect rather
+  // than assumed): React Strict Mode double-invokes this effect on mount —
+  // mount, cleanup, mount again — synchronously, inside one commit, with no
+  // yield to the microtask queue in between (measured with timestamped
+  // logging: all four steps landed within 1–2ms of each other). Calling a
+  // Next.js Server Action directly from an effect does not survive that.
+  // Both invocations DID reach `listReservationTargetsAction` and each got a
+  // Promise back — this is not a guard skipping the second call, and it is
+  // not a slow request an AbortController would tidy up — but neither
+  // Promise ever settled and neither call ever reached the server (verified
+  // with a log at the top of the action itself: zero hits, for either
+  // invocation). Two Server Action calls issued back to back, synchronously,
+  // from the same fiber, lose both requests rather than completing either.
+  //
+  // Deferring the call past that synchronous window changes nothing about
+  // WHAT is fetched or WHEN the operator sees it settle, only when the
+  // request itself is allowed to leave: by the time a queued microtask
+  // runs, React has already finished the synchronous mount → cleanup →
+  // mount sequence, so the FIRST invocation's own microtask finds `current`
+  // already false (its cleanup ran before its microtask could) and never
+  // calls the action at all; only the SECOND (surviving) invocation's
+  // microtask still sees `current` true, and it is the only one that ever
+  // calls it — one real request, cleanly dispatched, exactly the shape a
+  // mount that was never double-invoked would have produced.
   useEffect(() => {
     if (!canReserve) return;
     let current = true;
-    void listReservationTargetsAction(companyId).then((result) => {
+    queueMicrotask(() => {
       if (!current) return;
-      if (result.status === 'ok') {
-        setTargets(result.targets);
-        setTargetsError(null);
-        return;
-      }
-      setTargets({ shows: [], promotions: [] });
-      setTargetsError(result.message);
+      void listReservationTargetsAction(companyId).then((result) => {
+        if (!current) return;
+        if (result.status === 'ok') {
+          setTargets(result.targets);
+          setTargetsError(null);
+          return;
+        }
+        setTargets({ shows: [], promotions: [] });
+        setTargetsError(result.message);
+      });
     });
     return () => {
       current = false;
