@@ -25,8 +25,20 @@ alter table public.inventory_movements
   add column reserved_for_show_id uuid,
   -- "This movement undoes that one" (design D1 and D2). One column for the
   -- entry reversal, the exit reversal and the reservation release alike, rather
-  -- than three mechanisms that can drift.
-  add column reverses_movement_id uuid references public.inventory_movements (id),
+  -- than three mechanisms that can drift. Left bare here -- no inline
+  -- `references public.inventory_movements (id)` -- because a plain reference
+  -- proves nothing about which Station the pointer lands in; the composite
+  -- form below is what actually constrains it, and it needs
+  -- inventory_movements_id_company_unique to exist first.
+  add column reverses_movement_id uuid,
+
+  -- What every other cross-table reference in this migration already leans
+  -- on -- prizes, shows, promotions and companies all carry a composite
+  -- unique key for exactly this reason (0025's own comments argue it at
+  -- length) -- turned on this table itself, so a foreign key naming
+  -- (reverses_movement_id, company_id) can pin both the row and its Station
+  -- together rather than trusting company_id to agree by convention.
+  add constraint inventory_movements_id_company_unique unique (id, company_id),
 
   add constraint inventory_movements_show_company_fk
     foreign key (reserved_for_show_id, company_id)
@@ -59,6 +71,22 @@ comment on column public.inventory_movements.reserved_for_show_id is
   'The programme a reservation is held for. A programme reservation separates and labels stock and does nothing else on its own — somebody from that programme writes it off through the Exits tab when it is handed over (design D7).';
 comment on column public.inventory_movements.reverses_movement_id is
   'The movement this one undoes. Set on an entry or exit reversal and on a reservation release; null everywhere else. The original is never updated — it cannot be, and does not need to be.';
+
+-- The composite foreign key reverses_movement_id needed, added as its own
+-- statement because it depends on inventory_movements_id_company_unique
+-- above: a foreign key cannot be created in the same ALTER TABLE clause that
+-- creates the unique constraint it targets. Whatever RPC later writes a
+-- reversal will copy company_id from the movement it points at rather than
+-- accept one from its caller, so this constraint can never actually fire in
+-- practice -- but that makes it defence, not a fix to a live bug: a reversal
+-- that pointed across Stations would be a row no screen could explain and no
+-- reconciliation could balance, and this constraint makes that row impossible
+-- to write rather than merely unlikely, the same argument 0026 already made
+-- for inventory_movements_legal_transition.
+alter table public.inventory_movements
+  add constraint inventory_movements_reversal_company_fk
+    foreign key (reverses_movement_id, company_id)
+    references public.inventory_movements (id, company_id);
 
 -- ONE ENTRY IS REVERSED ONCE. Partial and excluding releases on purpose: a
 -- reservation is released in instalments, so several releases legitimately point

@@ -1,5 +1,5 @@
 begin;
-select plan(8);
+select plan(9);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -15,6 +15,22 @@ insert into public.prizes (id, organization_id, company_id, name) values
 insert into public.shows (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-0000000023aa', '00000000-0000-0000-0000-0000000023f1',
    '00000000-0000-0000-0000-0000000023c1', 'Programa da Tarde');
+
+-- A second Station, and a movement that belongs to it, for assertion 9: a
+-- reversal that reaches across Stations has to have something on the other
+-- side to reach for.
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000000023c2', '00000000-0000-0000-0000-0000000023f1',
+   'Station 23 tabs B', 'America/Sao_Paulo');
+insert into public.prizes (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000000023d2', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c2', 'Caneca 23');
+insert into public.inventory_movements
+  (id, organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket)
+values
+  ('00000000-0000-0000-0000-0000000023e2', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c2', '00000000-0000-0000-0000-0000000023d2',
+   'INITIAL_ENTRY', 5, null, 'available');
 
 -- 1-2: the two new movement types exist in the vocabulary.
 select is(
@@ -107,6 +123,21 @@ select throws_ok($$
     from public.inventory_movements m
    where m.movement_type = 'BARTER_ENTRY'
 $$, '23505', null, 'a movement cannot be reversed twice');
+
+-- 9: a reversal cannot point at a movement belonging to another Station.
+-- inventory_movements_reversal_company_fk is the composite foreign key that
+-- makes that row impossible to write, closing the one reference in 0193 that
+-- used to be weaker than its siblings -- reserved_for_show_id already proved
+-- the Station through its own composite FK to shows.
+select throws_ok($$
+  insert into public.inventory_movements
+    (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket,
+     reverses_movement_id)
+  values
+    ('00000000-0000-0000-0000-0000000023f1', '00000000-0000-0000-0000-0000000023c1',
+     '00000000-0000-0000-0000-0000000023d1', 'MANUAL_EXIT', 1, 'available', null,
+     '00000000-0000-0000-0000-0000000023e2')
+$$, '23503', null, 'a reversal cannot point at a movement from another Station');
 
 select * from finish();
 rollback;
