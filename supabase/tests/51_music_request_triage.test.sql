@@ -1,5 +1,5 @@
 begin;
-select plan(15);
+select plan(25);
 
 -- Block 22, Task 1. The stamps are the truth and the two statuses are derived
 -- from them by Postgres (D1), so this file proves the derivation rather than
@@ -189,6 +189,107 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", 
 select throws_ok($$
   select public.mark_music_request_read('00000000-0000-0000-0000-0000000000ff')
 $$, '42501', null, 'an unknown request id is refused the way an unreachable one is');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Block 22, Task 3. The list.
+-- ---------------------------------------------------------------------------
+
+-- Three more requests, so ordering and limits have something to order and cut.
+insert into public.artists (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000000022b2', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', 'Adoniran Barbosa');
+insert into public.songs (id, organization_id, company_id, title, artist_id) values
+  ('00000000-0000-0000-0000-0000000022d2', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', 'Trem das Onze',
+   '00000000-0000-0000-0000-0000000022b2');
+insert into public.shows (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000000022aa', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', 'Manha Musical');
+insert into public.music_requests
+  (id, organization_id, company_id, member_id, song_id, show_id, channel, requested_at)
+values
+  ('00000000-0000-0000-0000-00000000221b', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e1',
+   '00000000-0000-0000-0000-0000000022d2', '00000000-0000-0000-0000-0000000022aa',
+   'MANUAL', now() - interval '1 hour'),
+  ('00000000-0000-0000-0000-00000000221c', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e1',
+   '00000000-0000-0000-0000-0000000022d2', null,
+   'MANUAL', now() - interval '2 hours');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+
+-- 16: four digits, never the number. This is D8's whole point: the browser is
+-- not sent something it has to be trusted to hide.
+select is(
+  (select member_phone_last4 from public.list_music_requests('00000000-0000-0000-0000-0000000022c1')
+    where request_id = '00000000-0000-0000-0000-00000000221a'),
+  '7777', 'the list returns four digits of the telephone number');
+
+-- 17: and there is no column carrying the whole one. Asked of the function's
+-- RESULT shape rather than of a row, because a column that was removed cannot
+-- be selected to prove its own absence -- the query would fail to parse rather
+-- than fail an assertion, and a parse error is not a test result.
+select is(
+  (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'list_music_requests'
+      and pg_get_function_result(p.oid) like '%member_phone_last4%'
+      and pg_get_function_result(p.oid) not like '%member_phone text%'),
+  1, 'the list offers four digits and no whole-number column at all');
+
+-- 18-19: the two status columns arrive with the row.
+select is(
+  (select read_status::text from public.list_music_requests('00000000-0000-0000-0000-0000000022c1')
+    where request_id = '00000000-0000-0000-0000-00000000221a'),
+  'READ', 'read_status comes with the row');
+select is(
+  (select play_status::text from public.list_music_requests('00000000-0000-0000-0000-0000000022c1')
+    where request_id = '00000000-0000-0000-0000-00000000221a'),
+  'PLAYED', 'play_status comes with the row');
+
+-- 20-21: the two status filters narrow.
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, 'UNREAD')),
+  2, 'the read-status filter narrows to the untouched requests');
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, 'PLAYED')),
+  1, 'the play-status filter narrows to the one that went to air');
+
+-- 22: ordering by song title, A to Z. The cut is made by the function's OWN
+-- p_limit, not by a `limit 1` outside it: a set-returning function in a FROM
+-- clause carries no ordering guarantee to the query above it, so an outer LIMIT
+-- would be asserting on whichever row the planner happened to hand over first.
+select is(
+  (select song_title from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
+     'song', null, null, false, 1)),
+  'Aguas de Marco', 'ordering by song puts the first title first');
+
+-- 23: ordering by artist, A to Z, cut the same way.
+select is(
+  (select artist_name from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
+     'artist', null, null, false, 1)),
+  'Adoniran Barbosa', 'ordering by artist puts the first name first');
+
+-- 24: the limit cuts.
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
+     'song', null, null, false, 1)),
+  1, 'the limit returns exactly as many rows as it asks for');
+
+-- 25: an unrecognised sort key narrows nothing and raises nothing -- it falls
+-- back to time, the way an unrecognised channel already does.
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null, 'nonsense')),
+  3, 'an unknown sort key falls back to newest-first rather than raising');
 
 reset role;
 
