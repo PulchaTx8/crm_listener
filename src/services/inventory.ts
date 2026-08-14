@@ -452,18 +452,29 @@ export interface PrizeMovementsPage {
  * re-checks has_permission against auth.uid() in its own body, so the
  * caller's token has to travel, not the cookie session createUserClient()
  * carries for a plain select.
+ *
+ * `from`/`to` (Block 23, Task 8): the Movimentação tab's own De/Até, forwarded
+ * to `p_from`/`p_to` — parameters list_movements has carried since 0096, never
+ * exercised from this side of the call until now because no caller before
+ * Task 8 needed a per-prize read narrowed by period. Instants, the same shape
+ * services/movements.ts's own `listMovements` already sends the standalone
+ * screen's identical p_from/p_to.
  */
 export async function getPrizeMovements(
   companyId: string,
   prizeId: string,
   accessToken: string,
   types?: InventoryMovementType[],
+  from?: string,
+  to?: string,
 ): Promise<PrizeMovementsPage> {
   const { data, error } = await asCaller(accessToken).rpc('list_movements', {
     p_company_id: companyId,
     p_prize_id: prizeId,
     p_limit: PRIZE_MOVEMENTS_LIMIT,
     p_types: types,
+    p_from: from,
+    p_to: to,
   });
 
   // The ledger IS the feature on the prize detail screen ("why does this say

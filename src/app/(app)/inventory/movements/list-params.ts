@@ -79,6 +79,28 @@ function parseType(raw: string | undefined): InventoryMovementType | undefined {
   return MOVEMENT_TYPES.find((type) => type === value);
 }
 
+/**
+ * Turns a type `<select>`'s raw value into what `getPrizeMovements`'s own
+ * `types` parameter (services/inventory.ts) wants for the Movimentação tab
+ * (Block 23, Task 8): `undefined` for the "every kind" option, never `[]`.
+ * list_movements' own comment on `p_types` (0196) draws this distinction on
+ * purpose — `null` means no filter, an EMPTY ARRAY matches nothing — so a
+ * control whose "nothing chosen" state got mapped to `[]` here would render
+ * Movimentação as though the prize had no history at all, not as the
+ * unfiltered view it is supposed to fall back to.
+ *
+ * Built on `parseType` above rather than a second reading of MOVEMENT_TYPES:
+ * the standalone screen's own type filter still narrows with the scalar
+ * `p_type` (services/movements.ts), because `list_movements` has carried
+ * both since 0196 and a single selection has no need of the plural form —
+ * this helper exists only for the caller that has to hand that same single
+ * selection to the array-shaped parameter instead.
+ */
+export function movementTypeFilter(raw: string): InventoryMovementType[] | undefined {
+  const type = parseType(raw);
+  return type ? [type] : undefined;
+}
+
 /** Anything unparseable is ignored rather than refused, the same contract parseInstant in participations/list-params.ts carries for its own filter. */
 function parseInstant(raw: string | undefined): string | undefined {
   const value = raw?.trim();

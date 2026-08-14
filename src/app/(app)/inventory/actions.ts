@@ -17,6 +17,7 @@ import {
   createPrize,
   createPrizeCategory,
   getPrizeById,
+  getPrizeMovements,
   reconcileInventory,
   recordStockEntry,
   recordStockExit,
@@ -26,7 +27,7 @@ import {
   updatePrize,
   uploadPrizePhoto,
 } from '@/services/inventory';
-import type { PrizeSummary, ReconciliationRow } from '@/services/inventory';
+import type { InventoryMovementType, PrizeMovementsPage, PrizeSummary, ReconciliationRow } from '@/services/inventory';
 // The promotion-link door itself (design D6): "Vincular promoção" calls the
 // SAME linkPrizeToPromotion the Promotions screen's own prizes-tab.tsx calls
 // (src/app/(app)/promotions/actions.ts's linkPrizeAction) — it takes a
@@ -483,6 +484,44 @@ export async function listReservationTargetsAction(
     return { status: 'ok', targets: { shows, promotions } };
   } catch (cause) {
     logger.error({ err: cause, companyId }, 'could not read the reservation pickers');
+    return { status: 'error', message: describeInventoryReadError(cause, await getTranslations('inventory')) };
+  }
+}
+
+export interface MovementsFilterInput {
+  types?: InventoryMovementType[];
+  from?: string;
+  to?: string;
+}
+
+/**
+ * The Movimentação tab's own Consultar (Block 23, Task 8): a fresh,
+ * narrower `getPrizeMovements` read, called directly with an argument
+ * rather than posted as a form — the same shape `listReservationTargetsAction`
+ * above uses for the same reason, and it runs once per Consultar click
+ * rather than per keystroke, which is the whole point of gating it behind a
+ * button instead of firing on every change (the tab's own header comment on
+ * `MovementsTabPanel` in prize-record-dialog.tsx says why).
+ *
+ * Deliberately its OWN round trip rather than re-running the whole-record
+ * `getPrizeRecordAction`: that call fetches the prize, its balance and all
+ * FOUR movement histories in one `Promise.all` for the dialog's initial
+ * open, and re-running all of that on every Consultar click would refetch
+ * three histories and a balance nothing here changed, just to narrow the
+ * fourth.
+ */
+export async function getPrizeMovementsAction(
+  companyId: string,
+  prizeId: string,
+  filter: MovementsFilterInput,
+): Promise<{ status: 'ok'; page: PrizeMovementsPage } | { status: 'error'; message: string }> {
+  const token = await requireAccessToken();
+
+  try {
+    const page = await getPrizeMovements(companyId, prizeId, token, filter.types, filter.from, filter.to);
+    return { status: 'ok', page };
+  } catch (cause) {
+    logger.error({ err: cause, companyId, prizeId }, 'could not read the filtered movement history');
     return { status: 'error', message: describeInventoryReadError(cause, await getTranslations('inventory')) };
   }
 }

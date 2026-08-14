@@ -5,6 +5,7 @@ import {
   describeMovementPromotion,
   hasActiveMovementFilters,
   movementsHref,
+  movementTypeFilter,
   parseMovementCursor,
   parseMovementListState,
 } from '@/app/(app)/inventory/movements/list-params';
@@ -222,6 +223,31 @@ describe('describeMovementPromotion', () => {
     expect(describeMovementPromotion('promo-1', 'should not show', true, t)).toBe(
       '(archived promotion)',
     );
+  });
+});
+
+// Block 23, Task 8: the Movimentação tab's own type filter hands a single
+// selection to getPrizeMovements' array-shaped `types` parameter. list_movements'
+// own comment on `p_types` (0196) draws a hard line between the two ways to say
+// "nothing selected": `null`/`undefined` means no filter, an EMPTY ARRAY matches
+// NOTHING. This is the exact case a naive `selected ? [selected] : []` would get
+// backwards.
+describe('movementTypeFilter', () => {
+  it('wraps a real movement type in a one-element array', () => {
+    expect(movementTypeFilter('DELIVERY')).toEqual(['DELIVERY']);
+  });
+
+  // The case this function exists for: "no kind chosen" must reach
+  // getPrizeMovements as undefined (no filter), never as [] (matches nothing).
+  it('maps the empty selection to undefined, never to an empty array', () => {
+    expect(movementTypeFilter('')).toBeUndefined();
+  });
+
+  // Hostile input gets the same "widest reading" contract every other parser in
+  // this file carries: a value that is not a real inventory_movement_type is
+  // read as no filter, not as a filter matching nothing.
+  it('falls back to undefined for an unrecognised type, not to an empty array', () => {
+    expect(movementTypeFilter('NOT_A_REAL_TYPE')).toBeUndefined();
   });
 });
 

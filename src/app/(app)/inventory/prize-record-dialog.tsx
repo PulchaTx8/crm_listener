@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useActionState, useEffect, useId, useRef, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,7 +12,10 @@ import type { PrizeCategorySummary, PrizeMovementsPage, PrizeSummary } from '@/s
 // page that validates `tab=` against it is a Server Component and cannot import
 // a value out of a client module. See src/lib/record-params.ts.
 import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
-import { updatePrizeAction, type PrizeSaveState } from './actions';
+import { fromZonedDay } from '../promotions/zone';
+import { MOVEMENT_TYPE_LABEL_KEYS } from './format';
+import { MOVEMENT_TYPES, movementTypeFilter } from './movements/list-params';
+import { getPrizeMovementsAction, updatePrizeAction, type PrizeSaveState } from './actions';
 import { getPrizeRecordAction, type PrizeRecord } from './record';
 import { BalanceStats } from './balance-stats';
 import { MovementHistory } from './movement-history';
@@ -277,7 +280,12 @@ export function PrizeRecordDialog({
               // this unfiltered history — every kind, newest first — IS the
               // finished tab. Task 8 adds De/Até and a type filter above it;
               // it does not add writing.
-              <MovementsTabPanel page={record.movements} timeZone={timeZone} />
+              <MovementsTabPanel
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                page={record.movements}
+                timeZone={timeZone}
+              />
             )}
           </>
         )}
@@ -313,17 +321,151 @@ export function PrizeRecordDialog({
  * treatment in `reservations-tab.tsx` for its own Release action — so
  * `movements` (Movimentação, which never offers a write of its own, D8/D10)
  * is the only tab still rendered through this panel.
+ *
+ * Task 8 adds De/Até and a type filter (design D10), gated behind a
+ * Consultar button rather than applying as the operator types — deliberately
+ * unlike every other filter this codebase has (movements-filters.tsx's own
+ * header comment on the standalone `/inventory/movements` screen states the
+ * identical reasoning for its own copy of these same three controls): a
+ * period is typed in two halves, and re-running the read after De alone,
+ * before Até has even been touched, is a wasted round trip and a list that
+ * visibly narrows twice under the operator's hands.
+ *
+ * Consultar calls `getPrizeMovementsAction` directly (actions.ts) for a fresh,
+ * narrower `PrizeMovementsPage`, rather than filtering `page.movements`
+ * client-side: `page` is already `PRIZE_MOVEMENTS_LIMIT`-capped and
+ * unfiltered, so a client-side filter over it could never tell "nothing
+ * matches" apart from "something matches, past the 500 already loaded" —
+ * and it would leave the truncation notice above comparing the FILTERED
+ * `shown.movements` against the UNFILTERED `page.totalCount`, two different
+ * questions dressed as one number. Asking the server again keeps `totalCount`
+ * what it has always been here — the count of the SAME filtered set the rows
+ * came from — so the notice stays honest for whichever filter is active
+ * without this component needing to know that.
+ *
+ * `filtered` is `null` until the first Consultar returns; `shown` falls back
+ * to the unfiltered `page` prop until then, which is what keeps this tab
+ * looking exactly as it did before Task 8 when nobody has touched the
+ * filter. `page` changing identity — a write on Entradas/Saídas/Reservas
+ * reloading the whole record — resets `filtered` (and the drafts) back to
+ * that same starting point: a Consultar result is a read against one
+ * snapshot of this prize's ledger, and letting it linger after the ledger
+ * itself just changed would show a "filtered" view the operator never asked
+ * for against data that is no longer what they saw when they asked.
  */
-function MovementsTabPanel({ page, timeZone }: { page: PrizeMovementsPage; timeZone: string }) {
+function MovementsTabPanel({
+  companyId,
+  prizeId,
+  page,
+  timeZone,
+}: {
+  companyId: string;
+  prizeId: string;
+  page: PrizeMovementsPage;
+  timeZone: string;
+}) {
   const t = useTranslations('inventory');
+  const [draftType, setDraftType] = useState('');
+  const [draftFrom, setDraftFrom] = useState('');
+  const [draftTo, setDraftTo] = useState('');
+  const [filtered, setFiltered] = useState<PrizeMovementsPage | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraftType('');
+    setDraftFrom('');
+    setDraftTo('');
+    setFiltered(null);
+    setError(null);
+  }, [page]);
+
+  async function handleConsult(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+    const result = await getPrizeMovementsAction(companyId, prizeId, {
+      types: movementTypeFilter(draftType),
+      from: fromZonedDay(draftFrom, timeZone, false),
+      to: fromZonedDay(draftTo, timeZone, true),
+    });
+    setPending(false);
+    if (result.status === 'ok') {
+      setFiltered(result.page);
+    } else {
+      setError(result.message);
+    }
+  }
+
+  const shown = filtered ?? page;
+
   return (
     <div className="flex flex-col gap-3">
-      {page.totalCount > page.movements.length && (
+      <form
+        onSubmit={handleConsult}
+        className="flex flex-wrap items-end gap-3"
+        data-testid="movements-tab-filters"
+      >
+        <label className="flex w-52 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('type')}</span>
+          <Select
+            value={draftType}
+            onChange={(event) => setDraftType(event.target.value)}
+            data-testid="movement-tab-type-filter"
+          >
+            <option value="">{t('everyMovementType')}</option>
+            {MOVEMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(MOVEMENT_TYPE_LABEL_KEYS[type])}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <label className="flex w-40 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('periodFrom')}</span>
+          <Input
+            type="date"
+            value={draftFrom}
+            onChange={(event) => setDraftFrom(event.target.value)}
+            aria-label={t('showMovementsRecordedOnOrAfter')}
+            data-testid="movement-tab-from-filter"
+          />
+        </label>
+
+        <label className="flex w-40 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('periodTo')}</span>
+          <Input
+            type="date"
+            value={draftTo}
+            onChange={(event) => setDraftTo(event.target.value)}
+            aria-label={t('showMovementsRecordedOnOrBefore')}
+            data-testid="movement-tab-to-filter"
+          />
+        </label>
+
+        <Button type="submit" disabled={pending} data-testid="movements-tab-consult">
+          {pending ? t('loading') : t('consult')}
+        </Button>
+      </form>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {shown.totalCount > shown.movements.length && (
         <p className="text-xs text-muted-foreground" data-testid="movements-truncated">
-          {t('showingOfTotalMovements', { shown: page.movements.length, total: page.totalCount })}
+          {t('showingOfTotalMovements', { shown: shown.movements.length, total: shown.totalCount })}
         </p>
       )}
-      <MovementHistory movements={page.movements} timeZone={timeZone} emptyMessage={t('noMovementsOfThisKind')} />
+      <MovementHistory
+        movements={shown.movements}
+        timeZone={timeZone}
+        // A filter that narrowed the read to nothing reads differently from
+        // a prize that has never moved at all — noMovementMatchesTheseFilters
+        // is the same key movements-grid.tsx already shows the standalone
+        // screen's own empty state with, reused here rather than a second
+        // wording of the identical fact.
+        emptyMessage={filtered ? t('noMovementMatchesTheseFilters') : t('noMovementsOfThisKind')}
+      />
     </div>
   );
 }
