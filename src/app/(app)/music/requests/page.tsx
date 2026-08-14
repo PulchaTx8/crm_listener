@@ -150,6 +150,10 @@ export default async function RequestsPage({
         // Dropped rather than forwarded when this caller cannot search, for
         // the reason above.
         search: canSearch ? state.search?.slice(0, SONG_SEARCH_MAX_LENGTH) : undefined,
+        readStatus: state.readStatus,
+        playStatus: state.playStatus,
+        sort: state.sort,
+        limit: state.limit,
         cursor,
         cursorSide: cursorParam?.side ?? 'after',
       },

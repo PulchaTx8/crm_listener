@@ -5,6 +5,7 @@ import {
   parseRequestListParams,
   requestHref,
 } from '@/app/(app)/music/requests/list-params';
+import { REQUEST_LIMIT_MAX, REQUEST_LIMIT_MIN } from '@/schemas/music';
 
 const COMPANY = '00000000-0000-0000-0000-0000000022c1';
 
@@ -17,6 +18,16 @@ describe('the requests screen URL contract', () => {
     expect(state.readStatus).toBe('UNREAD');
     expect(state.playStatus).toBe('PLAYED');
     expect(state.sort).toBe('artist');
+  });
+
+  it('accepts every status the enum offers, not only the first one a test happens to reach', () => {
+    // READ and CANCELLED for the read filter, CANCELLED for the play filter —
+    // the earlier test above only ever exercised UNREAD/PLAYED.
+    const read = parseRequestListParams({ read: 'READ' }, COMPANY);
+    expect(read.readStatus).toBe('READ');
+    const cancelled = parseRequestListParams({ read: 'CANCELLED', play: 'CANCELLED' }, COMPANY);
+    expect(cancelled.readStatus).toBe('CANCELLED');
+    expect(cancelled.playStatus).toBe('CANCELLED');
   });
 
   it('ignores values that are not one of the offered ones rather than erroring', () => {
@@ -36,6 +47,30 @@ describe('the requests screen URL contract', () => {
     expect(parseRequestLimit(undefined)).toBeUndefined();
     // A fraction is a typo, not a request for two and a half rows.
     expect(parseRequestLimit('2.5')).toBe(2);
+  });
+
+  it('stays inside the enforced range for hostile input, one input at a time', () => {
+    // A negative number is out of range on the low side, same as 0 above —
+    // clamped up to the minimum, not passed through negative.
+    expect(parseRequestLimit('-5')).toBe(REQUEST_LIMIT_MIN);
+    // Number('Infinity') is a real, non-finite JS number. Number.isFinite
+    // rejects it the same way it would reject NaN, so this reads as "no
+    // limit was typed" rather than as an unbounded read.
+    expect(parseRequestLimit('Infinity')).toBeUndefined();
+    // Number('NaN') is NaN, also caught by the finite check.
+    expect(parseRequestLimit('NaN')).toBeUndefined();
+    // Number() reads a hex literal — this parses to 16, which is inside
+    // [REQUEST_LIMIT_MIN, REQUEST_LIMIT_MAX], so it is returned as-is rather
+    // than clamped or rejected. Surprising, but bounded: 16 rows is still a
+    // safe answer to send to the RPC.
+    expect(parseRequestLimit('0x10')).toBe(16);
+    // Number() also reads exponent notation — 1e9 is finite but far past the
+    // top of the range, so it clamps down to the maximum exactly like 9999
+    // does above.
+    expect(parseRequestLimit('1e9')).toBe(REQUEST_LIMIT_MAX);
+    // Whitespace-only trims down to the empty string, which is the same
+    // "nothing was typed" case '' already covers above.
+    expect(parseRequestLimit(' ')).toBeUndefined();
   });
 
   it('carries every filter into the href, and drops the cursor when one changes', () => {
