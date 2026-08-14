@@ -244,9 +244,18 @@ correctness lives:
   of 10 when only 4 remain available is refused rather than driving the bucket
   negative. This is the failure everyone will hit in practice and the message
   must name the number that is in the way;
-- writes the mirror movement through `apply_inventory_movement`, carrying the
-  original's `invoice_number` so the pair reads as a pair, with
-  `reverses_movement_id` naming the original;
+- writes the mirror movement through `apply_inventory_movement`, with
+  `reverses_movement_id` naming the original.
+
+  **Corrected 2026-08-14, during Task 3.** This section first said the reversal
+  should carry the original's `invoice_number` "so the pair reads as a pair".
+  That contradicts §4 twice over: an entry's reversal is a `MANUAL_EXIT`, and the
+  invoice trio is permitted only on entry types — so the row would be refused by
+  its own constraint. And it would be wrong even if it were legal: a sum over
+  `invoice_number` is how "what did we spend" gets answered, and a reversal
+  repeating the number would double-count what it was supposed to cancel. The
+  pair reads as a pair through `reverses_movement_id`, which is a pointer rather
+  than a repeated string, and the read joins on it;
 - writes an `audit_logs` row.
 
 Reservations are released rather than reversed: `release_reservation` already
