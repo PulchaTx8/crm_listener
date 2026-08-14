@@ -3,7 +3,12 @@
 import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { prizeFormSchema, prizeUpdateSchema, movementFormSchema } from '@/schemas/inventory';
+import {
+  prizeFormSchema,
+  prizeUpdateSchema,
+  movementFormSchema,
+  reverseMovementSchema,
+} from '@/schemas/inventory';
 import {
   adjustStock,
   archivePrize,
@@ -16,6 +21,7 @@ import {
   recordStockExit,
   releaseReservation,
   reserveStock,
+  reverseMovement,
   updatePrize,
   uploadPrizePhoto,
 } from '@/services/inventory';
@@ -195,6 +201,18 @@ export interface MovementFormState {
   message?: string;
 }
 
+/**
+ * `unitAmount`/`totalAmount` are optional numeric fields (movementFormSchema's
+ * own `optionalAmount`): an empty string from a number input has to read as
+ * "not given", never as the number 0 — `Number('')` is 0 in JavaScript, which
+ * would silently record a zero-value invoice line for every entry the
+ * operator left blank rather than omitting the figure entirely.
+ */
+function parseOptionalAmount(value: FormDataEntryValue | null): number | null {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed === '' ? null : Number(trimmed);
+}
+
 export async function recordStockEntryAction(
   _prev: MovementFormState,
   formData: FormData,
@@ -206,6 +224,9 @@ export async function recordStockEntryAction(
     entryType: formData.get('entryType'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note') || null,
+    invoiceNumber: formData.get('invoiceNumber') || null,
+    unitAmount: parseOptionalAmount(formData.get('unitAmount')),
+    totalAmount: parseOptionalAmount(formData.get('totalAmount')),
   });
 
   if (!parsed.success) {
@@ -235,6 +256,7 @@ export async function recordStockExitAction(
     prizeId: formData.get('prizeId'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note'),
+    type: formData.get('type') || undefined,
   });
 
   if (!parsed.success) {
@@ -360,6 +382,57 @@ export async function releaseReservationAction(
     return {
       status: 'error',
       message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionReleaseAReservation'),
+    };
+  }
+}
+
+export type ReverseMovementState =
+  | { status: 'idle' }
+  | { status: 'saved' }
+  | { status: 'error'; message: string };
+
+/**
+ * The single door behind every Arquivar button (Task 6, design spec §5/D1):
+ * archives an entry or an exit by writing its opposite through
+ * reverse_movement (0195). Gated on the ORIGINAL movement's own permission
+ * (entry or exit), never a separate inventory.reverse code — the same
+ * borrowing reverse_movement's own body does, so this action needs no
+ * permission check of its own beyond what the RPC re-checks.
+ *
+ * The reason is REQUIRED (Task 6 brief, note 1): reverse_movement refuses a
+ * blank p_note with 22023 exactly as record_stock_exit/reserve_stock/
+ * release_reservation already do, and reversalReason/reversalReasonHint's
+ * dialog is what collects it — never invented here.
+ *
+ * A ValidationError's message passes through describeInventoryWriteError
+ * verbatim, which matters more here than on any of its siblings: the refusal
+ * this door hits in practice is "the stock is no longer there to take back"
+ * (spec §5), and that message names the shortfall — the whole point of
+ * showing it at all.
+ */
+export async function reverseMovementAction(
+  _prev: ReverseMovementState,
+  formData: FormData,
+): Promise<ReverseMovementState> {
+  const parsed = reverseMovementSchema.safeParse({
+    movementId: formData.get('movementId'),
+    note: formData.get('note'),
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await reverseMovement(parsed.data.movementId, parsed.data.note, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, movementId: parsed.data.movementId }, 'reverse movement failed');
+    return {
+      status: 'error',
+      message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionArchiveMovement'),
     };
   }
 }

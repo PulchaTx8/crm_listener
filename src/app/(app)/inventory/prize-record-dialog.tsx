@@ -16,6 +16,8 @@ import { updatePrizeAction, type PrizeSaveState } from './actions';
 import { getPrizeRecordAction, type PrizeRecord } from './record';
 import { BalanceStats } from './balance-stats';
 import { MovementHistory } from './movement-history';
+import { EntriesTab } from './entries-tab';
+import { ExitsTab } from './exits-tab';
 
 // Catalogue keys, not words: a module body has no request behind it.
 //
@@ -127,15 +129,24 @@ export function PrizeRecordDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordId, reloadToken]);
 
-  // refreshAfterMovement (re-read the record and flag movementPending so the
-  // balance reaches the grid's row) lived here for the old two-tab dialog.
-  // No tab this task renders can record a movement yet — the four forms move
-  // to Entradas/Saídas/Reservas in Tasks 6/7, none of which touch this file's
-  // reload plumbing — so nothing calls it today. Tasks 6/7 each need the same
-  // shape (bump `reloadToken`, set `movementPending.current`) for their own
-  // `onRecorded`/`onReverse` callbacks; left for them to add back beside the
-  // form that actually calls it, rather than kept here unused, which the
-  // repository's own lint config (`no-unused-vars`) refuses to ship.
+  /**
+   * Re-reads this one prize after a movement recorded or reversed inside the
+   * dialog, so the ledger and the balance above it show what was just
+   * written. Task 5's own comment on this file named the shape Tasks 6/7
+   * would need — bump `reloadToken`, set `movementPending.current` — and this
+   * is that: `onRecorded` on both EntriesTab and ExitsTab (Task 6) and, once
+   * Task 7 lands, ReservasTab as well.
+   *
+   * The detail page these forms used to live on got the same effect from
+   * `revalidatePath('/inventory/[prizeId]')`; that route is gone (Task 10)
+   * and the list route must never be revalidated (the rule this block rests
+   * on), so the record refreshes itself — one server action for one id, with
+   * nothing about the list behind the dialog re-rendered or re-queried.
+   */
+  function refreshAfterMovement() {
+    movementPending.current = true;
+    setReloadToken((token) => token + 1);
+  }
 
   function requestClose() {
     if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
@@ -213,18 +224,29 @@ export function PrizeRecordDialog({
             )}
 
             {tab === 'entries' && (
-              // Task 6 adds the Entradas form (Tipo, Nota fiscal, Valor
-              // unitário, Valor total) above this history, plus the Arquivar
-              // action this history is already built to offer once a tab
-              // passes it an onReverse. Until then this is the complete
-              // rendering of the tab, not a stub of one — a caller with
-              // inventory.entry simply cannot record one here yet.
-              <MovementsTabPanel page={record.entries} timeZone={timeZone} />
+              <EntriesTab
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                balance={record.prize.balance}
+                page={record.entries}
+                timeZone={timeZone}
+                canEnter={powers.entry}
+                canAdjust={powers.adjust}
+                onRecorded={refreshAfterMovement}
+              />
             )}
 
             {tab === 'exits' && (
-              // Task 6 adds the Saídas form above this history, the same way.
-              <MovementsTabPanel page={record.exits} timeZone={timeZone} />
+              <ExitsTab
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                balance={record.prize.balance}
+                page={record.exits}
+                timeZone={timeZone}
+                canExit={powers.exit}
+                canAdjust={powers.adjust}
+                onRecorded={refreshAfterMovement}
+              />
             )}
 
             {tab === 'reservations' && (

@@ -165,6 +165,22 @@ export const prizeUpdateSchema = prizeFormSchema.omit({ companyId: true }).exten
 
 export type PrizeUpdateInput = z.infer<typeof prizeUpdateSchema>;
 
+/**
+ * reverse_movement's own two parameters (0194/0195, Task 6): a movement id
+ * and a mandatory reason. The owner's ruling (Task 6 brief, note 1) is that
+ * the Arquivar confirmation collects this reason rather than inventing a
+ * fixed sentence on the operator's behalf — reverse_movement refuses a
+ * blank note with 22023 exactly as record_stock_exit/reserve_stock/
+ * release_reservation already do, so `note` reuses `mandatoryNote` for the
+ * identical field-level message instead of a round trip.
+ */
+export const reverseMovementSchema = z.object({
+  movementId: z.string().uuid('Missing movement.'),
+  note: mandatoryNote,
+});
+
+export type ReverseMovementInput = z.infer<typeof reverseMovementSchema>;
+
 export const movementFormSchema = z.discriminatedUnion('kind', [
   z.object({
     ...movementBase,
