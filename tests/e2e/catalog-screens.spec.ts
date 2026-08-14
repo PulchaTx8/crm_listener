@@ -209,16 +209,18 @@ test('a record label is archived through its confirmation dialog, and leaves the
   await page.getByTestId('reference-save').click();
   await expect(page.getByTestId('references-grid')).toContainText('Selo Para Arquivar 20c');
 
-  // exact: true -- the row's pencil and dropdown menu both carry this name
-  // as a substring of their own aria-label (Task 11).
-  await page.getByRole('button', { name: 'Selo Para Arquivar 20c', exact: true }).click();
-  await page.getByTestId('reference-archive').click();
+  // The row's own dropdown menu, which is the ONLY door to archiving on this
+  // screen since the owner had the record dialog's footer button removed on
+  // 2026-08-14. exact: true -- the row's pencil and menu both carry the
+  // record's name as a substring of their own aria-label (Task 11).
+  await page.getByRole('button', { name: 'Actions for Selo Para Arquivar 20c', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Archive label…' }).click();
 
   // ArchiveReferenceDialog (reference-record-dialog.tsx) -- a styled <Dialog>
   // stacked on the browser's own top layer, never window.confirm.
   await page.getByTestId('reference-archive-confirm').click();
 
-  // onArchived (reference-record-dialog.tsx) closes both dialogs itself once
+  // onArchived (references-grid.tsx) closes the confirmation itself once
   // archiveReferenceAction reports 'archived', so no explicit Close click is
   // needed here -- and the row is gone from the list revalidatePath refreshed,
   // which is the one claim this test exists to make: archiving is
@@ -228,13 +230,16 @@ test('a record label is archived through its confirmation dialog, and leaves the
 });
 
 /**
- * Task 11: the row actions references-grid.tsx grew beside the row --
- * neither test above ever presses them, since both reach
- * ReferenceRecordDialog through the row's NAME and archive through the
- * dialog's own footer button. This journey presses the row's pencil and the
- * row's own dropdown menu instead, proving the second door opens the SAME
- * dialog (not a copy of it) and the SAME ArchiveReferenceDialog, exported
- * from reference-record-dialog.tsx for exactly this second caller.
+ * Task 11: the row actions references-grid.tsx grew beside the row. The
+ * tests above reach ReferenceRecordDialog through the row's NAME; this
+ * journey presses the row's PENCIL instead, proving the second door opens
+ * the SAME dialog rather than a copy of it.
+ *
+ * Archiving is no longer a second door at all: the owner had the record
+ * dialog's footer Archive button removed on 2026-08-14, so the row's menu is
+ * the only way to reach ArchiveReferenceDialog — which is why the tests above
+ * now go through it too, and why this journey's archive half is no longer the
+ * thing that distinguishes it from them.
  *
  * Only /catalog/labels is driven here, same as every journey above in this
  * file: /catalog/genres renders the exact same references-grid.tsx with only
@@ -257,8 +262,8 @@ test("a record label's row actions open the record dialog and archive it", async
   await expect(page.getByTestId('reference-data-form')).toBeVisible();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
-  // The row's own dropdown menu, not the record dialog's footer Archive
-  // button, reaching the exported ArchiveReferenceDialog directly.
+  // The row's own dropdown menu, reaching the exported ArchiveReferenceDialog
+  // directly — no record dialog beneath it to stack on.
   await page
     .getByRole('button', { name: 'Actions for Selo Ações Da Linha 20c', exact: true })
     .click();
@@ -317,12 +322,14 @@ test('a record label cannot be archived while a live song still names it, and th
   await expect(songForm.getByText('Song registered.')).toBeVisible();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
-  // Back on the label's own screen, the archive is attempted and refused.
-  // exact: true -- the row's pencil and dropdown menu both carry this name
-  // as a substring of their own aria-label (Task 11).
+  // Back on the label's own screen, the archive is attempted and refused —
+  // through the row's dropdown menu, the only door left since the record
+  // dialog's footer button was removed on 2026-08-14. exact: true -- the
+  // row's pencil and menu both carry this name as a substring of their own
+  // aria-label (Task 11).
   await page.goto('/catalog/labels');
-  await page.getByRole('button', { name: 'Selo Vinculado 20c', exact: true }).click();
-  await page.getByTestId('reference-archive').click();
+  await page.getByRole('button', { name: 'Actions for Selo Vinculado 20c', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Archive label…' }).click();
   await page.getByTestId('reference-archive-confirm').click();
 
   // describeMusicWriteError's BusinessRuleError branch, worded for LABEL via
@@ -337,11 +344,12 @@ test('a record label cannot be archived while a live song still names it, and th
 
   // The record survives: archiveReferenceAction never reached 'archived', so
   // no revalidatePath ran and the row is exactly where it was. Dismissed
-  // through the UI's own Cancel/Close rather than asserted on a DOM node
-  // still technically present under an open dialog -- the same claim the
-  // successful-archive test above makes for the opposite outcome.
+  // through the UI's own Cancel rather than asserted on a DOM node still
+  // technically present under an open dialog -- the same claim the
+  // successful-archive test above makes for the opposite outcome. One
+  // dismissal, not two: the confirmation now opens from the row rather than
+  // from on top of the record dialog, so there is no second dialog beneath it.
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('references-grid')).toContainText('Selo Vinculado 20c');
 });
 
