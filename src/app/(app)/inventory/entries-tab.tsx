@@ -7,6 +7,7 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/c
 import { Textarea } from '@/components/ui/input';
 import type { MovementEntry, PrizeBalance, PrizeMovementsPage } from '@/services/inventory';
 import { reverseMovementAction, type ReverseMovementState } from './actions';
+import { AdjustmentForm } from './adjustment-form';
 import { MovementHistory } from './movement-history';
 import { StockEntryForm } from './stock-entry-form';
 
@@ -53,6 +54,21 @@ export function EntriesTab({
           canAdjust={canAdjust}
           onRecorded={onRecorded}
         />
+      ) : canAdjust ? (
+        // A caller who holds inventory.adjust but not inventory.entry — a
+        // stocktaker doing periodic physical counts, never trusted with
+        // ad-hoc entries — is squarely inside this product's own permission
+        // model (the five inventory codes are independently grantable per
+        // Company role) and existed before Block 23: the old standalone
+        // AdjustmentForm served them, and narrowing that away as a side
+        // effect of this layout change is not a decision to make silently.
+        // StockEntryForm's own Tipo chooser has nothing to offer someone who
+        // cannot also choose Compra/Permuta, so this renders AdjustmentForm
+        // on its own instead — one form, no chooser, no dead option. The
+        // adjustment is a different door with a different permission
+        // (inventory.adjust, not inventory.entry); this tab is where it
+        // lives, not what gates it.
+        <AdjustmentForm companyId={companyId} prizeId={prizeId} balance={balance} onRecorded={onRecorded} />
       ) : (
         <p className="text-sm text-muted-foreground">{t('youDoNotHoldInventoryEntry')}</p>
       )}

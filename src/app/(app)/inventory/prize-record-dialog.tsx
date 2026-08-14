@@ -275,7 +275,7 @@ export function PrizeRecordDialog({
 }
 
 /**
- * The frame the four movement tabs share: their own filtered history
+ * The frame Reservas and Movimentação still share: their own filtered history
  * (`MovementHistory`), with a notice above it when `list_movements`' own cap
  * (`PRIZE_MOVEMENTS_LIMIT`, 500 per call) has truncated what that tab's own
  * read returned.
@@ -289,9 +289,12 @@ export function PrizeRecordDialog({
  * Kept in this file rather than folded into `MovementHistory` itself:
  * `MovementHistory`'s four props are the exact shape Task 5's own "Produces"
  * line commits Tasks 6–8 to calling it with, and a fifth prop here would be a
- * signature none of them asked for. `onReverse` is not wired yet — no tab
- * built by this task offers archiving — so every row today shows history
- * only, exactly as the comments beside each of the four call sites above say.
+ * signature none of them asked for. `onReverse` is not wired here — Task 6
+ * offers archiving on Entradas/Saídas through their own tab components
+ * (`entries-tab.tsx`/`exits-tab.tsx`), each with its own copy of this same
+ * truncation-notice-plus-history frame rather than a shared prop on this
+ * function, so the 'reservations' and 'movements' tabs below are the only
+ * two still rendered through this panel, and neither offers archiving yet.
  */
 function MovementsTabPanel({ page, timeZone }: { page: PrizeMovementsPage; timeZone: string }) {
   const t = useTranslations('inventory');

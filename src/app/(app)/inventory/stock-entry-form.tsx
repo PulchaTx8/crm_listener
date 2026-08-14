@@ -59,6 +59,18 @@ export function StockEntryForm({
   const [totalAmount, setTotalAmount] = useState('');
   const touched = useRef(false);
 
+  // invoiceNumber and note carry no computed logic of their own, but they
+  // live inside the SAME conditionally-unmounted branch below (only rendered
+  // when tipo !== 'ADJUSTMENT') as quantity/unitAmount/totalAmount above.
+  // Left uncontrolled, they would be wiped the instant the operator toggled
+  // Tipo to Ajuste and back — the branch unmounts and remounts, and an
+  // uncontrolled input has no memory of what was typed before it existed.
+  // Lifted here so the whole form behaves one way rather than two: every
+  // field in this branch survives a Tipo round trip, not just the three that
+  // happened to need state for another reason.
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [note, setNote] = useState('');
+
   useEffect(() => {
     if (touched.current) return;
     const q = Number(quantity);
@@ -79,6 +91,8 @@ export function StockEntryForm({
     setQuantity('');
     setUnitAmount('');
     setTotalAmount('');
+    setInvoiceNumber('');
+    setNote('');
     touched.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
@@ -117,7 +131,13 @@ export function StockEntryForm({
 
           <label className="flex flex-col gap-1 text-sm">
             {t('invoiceNumber')}
-            <Input name="invoiceNumber" maxLength={80} placeholder={t('optional')} />
+            <Input
+              name="invoiceNumber"
+              maxLength={80}
+              placeholder={t('optional')}
+              value={invoiceNumber}
+              onChange={(event) => setInvoiceNumber(event.target.value)}
+            />
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
@@ -148,7 +168,14 @@ export function StockEntryForm({
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            {t('note')}<Textarea name="note" maxLength={2000} placeholder={t('optional')} />
+            {t('note')}
+            <Textarea
+              name="note"
+              maxLength={2000}
+              placeholder={t('optional')}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
           </label>
 
           <div className="flex items-center gap-3">

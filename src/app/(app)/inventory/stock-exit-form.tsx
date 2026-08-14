@@ -41,8 +41,20 @@ export function StockExitForm({
   const [tipo, setTipo] = useState<ExitTipo>('TRANSFER_EXIT');
   const [state, action, pending] = useActionState(recordStockExitAction, INITIAL);
 
+  // Lifted for the same reason stock-entry-form.tsx lifts its own fields:
+  // quantity and note live inside the conditionally-unmounted branch below
+  // (only rendered when tipo !== 'ADJUSTMENT'). Left uncontrolled, toggling
+  // Tipo to Ajuste and back would silently discard whatever was typed —
+  // the branch unmounts and remounts, and an uncontrolled input has no
+  // memory of what was there before it existed.
+  const [quantity, setQuantity] = useState('');
+  const [note, setNote] = useState('');
+
   useEffect(() => {
-    if (state.status === 'saved') onRecorded?.();
+    if (state.status !== 'saved') return;
+    onRecorded?.();
+    setQuantity('');
+    setNote('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
@@ -65,11 +77,28 @@ export function StockExitForm({
           <input type="hidden" name="type" value="TRANSFER_EXIT" />
 
           <label className="flex flex-col gap-1 text-sm">
-            {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
+            {t('quantity')}
+            <Input
+              name="quantity"
+              type="number"
+              min={1}
+              step={1}
+              required
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+            />
           </label>
 
           <label className="flex flex-col gap-1 text-sm">
-            {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whyIsThisLeavingStock')} />
+            {t('note')}
+            <Textarea
+              name="note"
+              required
+              maxLength={2000}
+              placeholder={t('whyIsThisLeavingStock')}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
           </label>
 
           <div className="flex items-center gap-3">
