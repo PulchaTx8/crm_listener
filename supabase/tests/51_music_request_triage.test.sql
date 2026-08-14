@@ -1,5 +1,5 @@
 begin;
-select plan(25);
+select plan(28);
 
 -- Block 22, Task 1. The stamps are the truth and the two statuses are derived
 -- from them by Postgres (D1), so this file proves the derivation rather than
@@ -23,12 +23,18 @@ insert into public.members (id, organization_id, full_name, phone) values
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-0000000022e1', '00000000-0000-0000-0000-0000000022c1',
    '00000000-0000-0000-0000-0000000022f1');
+-- Stamped three hours behind: Task 3 below adds two more requests at -1h and
+-- -2h, and this one has to be the OLDEST of the three even though its song's
+-- title ('Aguas de Marco') sorts first alphabetically. Without that gap, the
+-- default (newest-first) ordering and the song-title ordering agree on this
+-- row for free, and the song-sort assertion below would pass whether or not
+-- p_sort is honoured (Block 22 Task 9 review, finding 1).
 insert into public.music_requests
-  (id, organization_id, company_id, member_id, song_id, channel)
+  (id, organization_id, company_id, member_id, song_id, channel, requested_at)
 values
   ('00000000-0000-0000-0000-00000000221a', '00000000-0000-0000-0000-0000000022f1',
    '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e1',
-   '00000000-0000-0000-0000-0000000022d1', 'MANUAL');
+   '00000000-0000-0000-0000-0000000022d1', 'MANUAL', now() - interval '3 hours');
 
 -- 1-2: a request that nobody has touched.
 select is(
@@ -229,7 +235,21 @@ select is(
     where request_id = '00000000-0000-0000-0000-00000000221a'),
   '7777', 'the list returns four digits of the telephone number');
 
--- 17: and there is no column carrying the whole one. Asked of the function's
+-- 17: and the OTHER half of D8 -- withheld outright, not merely masked, for a
+-- caller who does not hold members.view. Assertion 16 above runs as the
+-- attendant, who HOLDS members.view, so it proves only that the column is
+-- populated; only the onlooker (music.view alone) proves the `else null` half
+-- of the projection actually withholds it (Block 22 Task 9 review, finding 3).
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a4", "role": "authenticated"}';
+select is(
+  (select member_phone_last4 from public.list_music_requests('00000000-0000-0000-0000-0000000022c1')
+    where request_id = '00000000-0000-0000-0000-00000000221a'),
+  null, 'member_phone_last4 is withheld from a caller without members.view');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+
+-- 18: and there is no column carrying the whole one. Asked of the function's
 -- RESULT shape rather than of a row, because a column that was removed cannot
 -- be selected to prove its own absence -- the query would fail to parse rather
 -- than fail an assertion, and a parse error is not a test result.
@@ -240,7 +260,7 @@ select is(
       and pg_get_function_result(p.oid) not like '%member_phone text%'),
   1, 'the list offers four digits and no whole-number column at all');
 
--- 18-19: the two status columns arrive with the row.
+-- 19-20: the two status columns arrive with the row.
 select is(
   (select read_status::text from public.list_music_requests('00000000-0000-0000-0000-0000000022c1')
     where request_id = '00000000-0000-0000-0000-00000000221a'),
@@ -250,7 +270,7 @@ select is(
     where request_id = '00000000-0000-0000-0000-00000000221a'),
   'PLAYED', 'play_status comes with the row');
 
--- 20-21: the two status filters narrow.
+-- 21-22: the two status filters narrow.
 select is(
   (select count(*)::int from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, 'UNREAD')),
@@ -260,36 +280,71 @@ select is(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, 'PLAYED')),
   1, 'the play-status filter narrows to the one that went to air');
 
--- 22: ordering by song title, A to Z. The cut is made by the function's OWN
+-- 23: ordering by song title, A to Z. The cut is made by the function's OWN
 -- p_limit, not by a `limit 1` outside it: a set-returning function in a FROM
 -- clause carries no ordering guarantee to the query above it, so an outer LIMIT
 -- would be asserting on whichever row the planner happened to hand over first.
+-- Discriminates from the default ordering only because the fixture above puts
+-- 'Aguas de Marco' at -3h, the OLDEST of the three -- were it the newest (as
+-- it was before that re-timing), this would pass under plain requested_at
+-- ordering too (Block 22 Task 9 review, finding 1).
 select is(
   (select song_title from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'song', null, null, false, 1)),
   'Aguas de Marco', 'ordering by song puts the first title first');
 
--- 23: ordering by artist, A to Z, cut the same way.
+-- 24: ordering by artist, A to Z, cut the same way.
 select is(
   (select artist_name from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'artist', null, null, false, 1)),
   'Adoniran Barbosa', 'ordering by artist puts the first name first');
 
--- 24: the limit cuts.
+-- 25: ordering by show, nulls last. Only 221b carries a show at all --
+-- 221a and 221c both have a null show_id, seeded precisely so this could be
+-- proven -- so nulls-last means the one named show sorts AHEAD of both nulls,
+-- not merely that the column is read (Block 22 Task 9 review, finding 5).
+select is(
+  (select show_name from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
+     'show', null, null, false, 1)),
+  'Manha Musical', 'ordering by show puts the one named show first, nulls last');
+
+-- 26: the limit cuts.
 select is(
   (select count(*)::int from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'song', null, null, false, 1)),
   1, 'the limit returns exactly as many rows as it asks for');
 
--- 25: an unrecognised sort key narrows nothing and raises nothing -- it falls
--- back to time, the way an unrecognised channel already does.
+-- 27: an unrecognised sort key falls back to the requested_at ordering
+-- (newest first) rather than raising. Asserted on the actual FIRST ROW under
+-- p_limit 1 rather than on a row count: a count of 3 is what ANY non-raising
+-- fallback would also produce (arbitrary order, no order at all, or a crash
+-- swallowed somewhere upstream), so it never actually pinned "falls back to
+-- newest-first" (Block 22 Task 9 review, finding 2). 221b is the newest of
+-- the three (-1h, against 221c's -2h and 221a's -3h).
+select is(
+  (select request_id from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
+     'nonsense', null, null, false, 1)),
+  '00000000-0000-0000-0000-00000000221b',
+  'an unknown sort key falls back to newest-first rather than raising');
+
+-- 28: the cursor is ignored under a text ordering -- the guard 0191's own
+-- comment names ("to make impossible rather than merely unlikely"), pinned
+-- here rather than left to the comment alone (Block 22 Task 9 review, finding
+-- 4). p_cursor_at sits strictly between 221b's -1h and 221c's -2h, so a cursor
+-- WRONGLY applied under a text sort (p_walking_back false: keep only
+-- requested_at < p_cursor_at) would exclude 221b and return 2 rows; the guard
+-- means it is never applied at all, and the whole batch of 3 comes back.
 select is(
   (select count(*)::int from public.list_music_requests(
-     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null, 'nonsense')),
-  3, 'an unknown sort key falls back to newest-first rather than raising');
+     '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
+     'song', now() - interval '90 minutes', '00000000-0000-0000-0000-00000000221b',
+     false, 51)),
+  3, 'a cursor passed alongside a text ordering is ignored, returning the whole batch');
 
 reset role;
 
