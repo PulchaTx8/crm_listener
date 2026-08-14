@@ -55,6 +55,23 @@ export default defineConfig({
     reuseExistingServer: !isCI,
     // The default is 60s, which a Next build does not fit into.
     timeout: isCI ? 180_000 : 60_000,
+    // Playwright pipes the server's stderr into the log and DISCARDS its
+    // stdout. pino writes to stdout. So every server-side exception this suite
+    // provokes — the ones a Server Component catches and turns into "Could not
+    // load X. Refresh the page and try again." — reaches CI as that sentence in
+    // a page snapshot and nothing else.
+    //
+    // Paid for once, on PR #72: one journey failed on a promotions list that
+    // rendered its load-error state, and the cause was unrecoverable from the
+    // run. It took rebuilding CI's configuration locally, four full suite runs
+    // and a read of the Kong container's own log to learn the answer — a single
+    // PostgREST request lost to a 502, one of thirty-seven across six days on
+    // unrelated endpoints. One line here would have printed it.
+    //
+    // The cost is about seven expected `level:50` lines per run, from the
+    // refusals several specs deliberately provoke. That is a fair price for
+    // every unexpected one arriving with its own cause attached.
+    stdout: 'pipe',
     // The server points at the local stack, not at whatever `.env` holds:
     // `.env` names the hosted project and the middleware calls Supabase on
     // every request, so without this the suite would exercise production.
