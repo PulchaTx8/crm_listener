@@ -1,5 +1,5 @@
 import { getTranslations } from 'next-intl/server';
-import { buttonVariants } from '@/components/ui/button';
+import { ConnectWhatsAppButton } from './connect-whatsapp-button';
 
 /**
  * Where a Station pairs its own WhatsApp Business account with this product,
@@ -35,23 +35,10 @@ export async function ConnectWhatsAppBusiness({ url }: { url: string | null }) {
       </div>
 
       {url ? (
-        // Wrapped so the anchor takes its own width instead of stretching the
+        // Wrapped so the control takes its own width instead of stretching the
         // full column, the way the archive button in template-registry.tsx is.
-        //
-        // `rel="noreferrer"` rather than only `noopener`: this address carries
-        // the deployment's Meta app id in its query string, and there is no
-        // reason to hand Meta's page the console URL of the Station that
-        // opened it.
         <div>
-          <a
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className={buttonVariants({ size: 'sm' })}
-            data-testid="connect-whatsapp-start"
-          >
-            {t('connectWhatsAppButton')}
-          </a>
+          <ConnectWhatsAppButton url={url} label={t('connectWhatsAppButton')} />
         </div>
       ) : (
         <p

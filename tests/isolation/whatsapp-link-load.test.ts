@@ -17,7 +17,11 @@ import { admin, cleanupUsers, provisionCustomer, seedIntegration, signInAs } fro
  * code from `extensions.gen_random_bytes(24)`, which SHOULD be immune to
  * that class of bug by construction, and this file is what actually asks the
  * question rather than trusting the construction: two hundred distinct
- * listeners, at one Station, hashtagging in at once.
+ * listeners, at one Station, hashtagging in over one overlapping window --
+ * twenty-five of them in flight at any instant, which is what the stack
+ * actually serves. See IN_FLIGHT below for why that number is the honest one
+ * and why "all two hundred at literally the same instant" was never a thing
+ * this stack did, only a thing it failed at.
  *
  * THIS IS THE TEST THAT FALLS OVER IF ANYBODY LATER DERIVES A CODE FROM
  * SHARED STATE. A per-process counter, a value seeded from `now()` truncated
@@ -46,6 +50,64 @@ import { admin, cleanupUsers, provisionCustomer, seedIntegration, signInAs } fro
 
 const STATION_LABEL = `wa-link-load-${Date.now()}`;
 const LISTENER_COUNT = 200;
+
+/**
+ * How many of the two hundred chains are in flight at any instant.
+ *
+ * NOT A REDUCTION IN WHAT THIS FILE PROVES, and the measurement is why. The
+ * first version issued all two hundred at once through `Promise.all`, and
+ * PostgREST answered what its own pool actually allows:
+ *
+ *     ingest_whatsapp_event failed for 11900000121:
+ *     Timed out acquiring connection from connection pool.
+ *
+ * Roughly one run in seven, measured locally at 2 failures in 14 — and in CI
+ * the same exhaustion arrives in its harsher form, the connection dropped
+ * before any answer at all, which surfaces as `TypeError: fetch failed` with
+ * no cause vitest can render and takes the whole file down as a suite error.
+ * (Seen on run 31711257965 of `block-19-whatsapp-entry`, and again on 31753576133.)
+ *
+ * So the burst never delivered two hundred SIMULTANEOUS database operations —
+ * the pool was always the ceiling. What it delivered above that ceiling was
+ * queueing, and past the timeout, failure. Twenty-five sits just above what
+ * the stack serves, which keeps every bit of contention that was ever real:
+ * `mint_widget_link` still generates codes concurrently, and
+ * `enqueue_whatsapp_outbound` still addresses rows concurrently, which is the
+ * class of bug this file exists to catch. All two hundred listeners still run,
+ * still overlap in time, and every assertion below is unchanged.
+ *
+ * `supabase/config.toml` exposes no PostgREST pool setting — `[db.pooler]` is
+ * supavisor, which PostgREST does not use locally — so raising the ceiling
+ * instead of respecting it was not available.
+ */
+const IN_FLIGHT = 25;
+
+/**
+ * `items` through `run`, at most `limit` at a time, results in input order.
+ *
+ * Every worker's promise goes into one `Promise.all`, so a second failure
+ * after the first still has a handler attached and cannot escape as an
+ * unhandled rejection — which is the shape that made the original failure
+ * unreadable.
+ */
+async function mapWithBoundedConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await run(items[index]!, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 interface ListenerFixture {
   /** Digits only, no country code -- what members.phone_normalized stores. */
@@ -192,19 +254,20 @@ beforeAll(async () => {
   // never contends across the two hundred -- what IS contended, genuinely,
   // is the one thing this file exists to test: mint_widget_link generating
   // two hundred codes and enqueue_whatsapp_outbound addressing two hundred
-  // rows, all inside the same window of wall-clock time.
+  // rows, with twenty-five of those calls live against the database at any
+  // instant and every one of the two hundred inside one overlapping window.
+  // IN_FLIGHT's own comment records why twenty-five is the number, and what
+  // the unbounded version actually bought (failures, not contention).
   const store = new PostgresConversationStore(admin);
-  outcomes = await Promise.all(
-    listeners.map(async (listener) => {
-      const { data, error } = await admin.rpc('ingest_whatsapp_event', {
-        p_event_id: listener.eventId,
-      });
-      if (error) {
-        throw new Error(`ingest_whatsapp_event failed for ${listener.localPhone}: ${error.message}`);
-      }
-      return runConversationTurn({ supabase: admin, store }, parseInboundTurn(data));
-    }),
-  );
+  outcomes = await mapWithBoundedConcurrency(listeners, IN_FLIGHT, async (listener) => {
+    const { data, error } = await admin.rpc('ingest_whatsapp_event', {
+      p_event_id: listener.eventId,
+    });
+    if (error) {
+      throw new Error(`ingest_whatsapp_event failed for ${listener.localPhone}: ${error.message}`);
+    }
+    return runConversationTurn({ supabase: admin, store }, parseInboundTurn(data));
+  });
 }, 300_000);
 
 /**

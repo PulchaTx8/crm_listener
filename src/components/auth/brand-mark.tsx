@@ -18,20 +18,28 @@ export async function BrandMark({ className }: { className?: string }) {
   const t = await getTranslations('auth');
   return (
     <div className={className}>
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar text-sidebar-accent-foreground">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="h-5 w-5"
-        >
-          <path d="M12 12h.01M7.05 16.95a7 7 0 0 1 0-9.9M16.95 7.05a7 7 0 0 1 0 9.9M4.22 19.78a11 11 0 0 1 0-15.56M19.78 4.22a11 11 0 0 1 0 15.56" />
-        </svg>
-      </span>
+      {/*
+        NO WRAPPER AND NO BACKGROUND, unlike the drawn glyph this replaces. The
+        artwork is a tile that already carries its own #4811EF to every edge, so
+        a coloured square behind it would only show as a fringe when the two
+        purples disagree by a shade.
+
+        A plain <img> rather than next/image, the choice every other picture in
+        this project makes (src/app/(widget)/w/[publicKey]/frames.tsx says why
+        at length): the file is a fixed 128px asset served from this origin,
+        which is the case next/image's optimiser has nothing to add to.
+
+        alt="" on purpose. The wordmark beside it is the same name in text, and
+        a screen reader announcing "PulchatX PulchatX" is noise.
+      */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/pulchatx-mark.png"
+        alt=""
+        width={36}
+        height={36}
+        className="h-9 w-9 rounded-lg"
+      />
       <span className="text-lg font-semibold">{t('pulchatx')}</span>
     </div>
   );
