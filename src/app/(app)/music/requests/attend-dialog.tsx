@@ -84,13 +84,37 @@ export function AttendDialog({
    */
   const [lastAction, setLastAction] = useState<'read' | 'play' | 'off' | null>(null);
 
+  /**
+   * The call-off button, armed. Cancelling is the one irreversible thing this
+   * window does — no door clears `cancelled_at`, so a cancelled request can
+   * never afterwards be marked read or played — and it sat one click away, in
+   * the same footer row as two buttons that undo nothing, behind a permission
+   * borrowed from another domain (D5). Every archive in the catalogue screens
+   * asks twice; the withdraw flow this replaced asked twice. A second modal on
+   * top of a modal is the wrong way to ask, so the button asks itself: the
+   * first press arms it, the second submits, and touching anything else in the
+   * window disarms it again.
+   */
+  const [confirmingCallOff, setConfirmingCallOff] = useState(false);
+
+  /**
+   * Every other interactive thing in the window routes through here. An armed
+   * destructive button that survives the operator going off to resize the note
+   * or reveal a number is a loaded button they have forgotten about.
+   */
+  function disarm() {
+    setConfirmingCallOff(false);
+  }
+
   function resize(step: number) {
+    disarm();
     const next = Math.min(SIZES.length - 1, Math.max(0, size + step));
     setSize(next);
     window.localStorage.setItem(SIZE_KEY, String(next));
   }
 
   function reveal() {
+    disarm();
     // Cleared up front, not only on the next success: a fixed number must not
     // keep showing the error from the attempt before it.
     setPhoneError(null);
@@ -201,18 +225,40 @@ export function AttendDialog({
           <>
             {/* A fact already true is a label, not a disabled button that looks
                 broken — and it carries the time, which is what somebody coming
-                back to the row actually wants to know. */}
+                back to the row actually wants to know.
+
+                NOT OFFERED AT ALL once the request has been called off: 0190
+                refuses both marks on a cancelled request with a 22023, and that
+                refusal reaches the operator as the SQL's own English sentence in
+                every locale. The design tolerates an untranslated refusal only
+                where it is "reachable only by a genuine race" (§5) — and this
+                one was not a race at all: the filter bar offers Cancelado in
+                both status selects, so filter → Atender → Lido was three clicks,
+                and it was one click away straight after cancelling from this
+                same window. So the two buttons are withheld exactly as Cancelar
+                is withheld once the song has played, and for the same reason:
+                the screen does not offer what the database will refuse. A stamp
+                that already exists still shows its time — cancelling later does
+                not un-read a request that was read. */}
             {request.readAt ? (
               <span className="text-sm text-muted-foreground" data-testid="attend-read-done">
                 {t('readAtTime', { time: formatInstant(request.readAt, timeZone) })}
               </span>
             ) : (
-              <form action={readAction} onSubmit={() => setLastAction('read')}>
-                <input type="hidden" name="requestId" value={request.requestId} />
-                <Button type="submit" disabled={readPending} data-testid="attend-mark-read">
-                  {t('markRead')}
-                </Button>
-              </form>
+              request.cancelledAt === null && (
+                <form
+                  action={readAction}
+                  onSubmit={() => {
+                    disarm();
+                    setLastAction('read');
+                  }}
+                >
+                  <input type="hidden" name="requestId" value={request.requestId} />
+                  <Button type="submit" disabled={readPending} data-testid="attend-mark-read">
+                    {t('markRead')}
+                  </Button>
+                </form>
+              )
             )}
 
             {request.playedAt ? (
@@ -220,12 +266,20 @@ export function AttendDialog({
                 {t('playedAtTime', { time: formatInstant(request.playedAt, timeZone) })}
               </span>
             ) : (
-              <form action={playAction} onSubmit={() => setLastAction('play')}>
-                <input type="hidden" name="requestId" value={request.requestId} />
-                <Button type="submit" disabled={playPending} data-testid="attend-mark-played">
-                  {t('markPlayed')}
-                </Button>
-              </form>
+              request.cancelledAt === null && (
+                <form
+                  action={playAction}
+                  onSubmit={() => {
+                    disarm();
+                    setLastAction('play');
+                  }}
+                >
+                  <input type="hidden" name="requestId" value={request.requestId} />
+                  <Button type="submit" disabled={playPending} data-testid="attend-mark-played">
+                    {t('markPlayed')}
+                  </Button>
+                </form>
+              )
             )}
 
             {/* NOT OFFERED once the song has played (design D2): 0190 refuses it,
@@ -238,16 +292,46 @@ export function AttendDialog({
               </span>
             ) : (
               request.playedAt === null && (
-                <form action={offAction} onSubmit={() => setLastAction('off')}>
+                <form
+                  action={offAction}
+                  onSubmit={() => {
+                    setLastAction('off');
+                    // Disarmed on the way out, so a refusal (D2's race) leaves
+                    // the button back in its safe state rather than one press
+                    // from firing again.
+                    setConfirmingCallOff(false);
+                  }}
+                >
                   <input type="hidden" name="requestId" value={request.requestId} />
-                  <Button
-                    type="submit"
-                    variant="destructive"
-                    disabled={offPending}
-                    data-testid="attend-call-off"
-                  >
-                    {t('callOff')}
-                  </Button>
+                  {/* TWO BUTTONS IN ONE POSITION, WITH KEYS. This repository has
+                      already shipped the defect this shape invites — two
+                      <Button> elements swapped at the same slot without a key,
+                      reconciled in place, and recording participations nobody
+                      asked for. The keys make React unmount one and mount the
+                      other rather than mutate a submit button's type under a
+                      finger that is already on it. */}
+                  {confirmingCallOff ? (
+                    <Button
+                      key="call-off-confirm"
+                      type="submit"
+                      variant="destructive"
+                      disabled={offPending}
+                      data-testid="attend-call-off-confirm"
+                    >
+                      {t('callOffConfirm')}
+                    </Button>
+                  ) : (
+                    <Button
+                      key="call-off-arm"
+                      type="button"
+                      variant="destructive"
+                      disabled={offPending}
+                      onClick={() => setConfirmingCallOff(true)}
+                      data-testid="attend-call-off"
+                    >
+                      {t('callOff')}
+                    </Button>
+                  )}
                 </form>
               )
             )}

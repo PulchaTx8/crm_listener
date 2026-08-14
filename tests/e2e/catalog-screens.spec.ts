@@ -253,13 +253,15 @@ test("a record label's row actions open the record dialog and archive it", async
 
   // The pencil, not the name -- both are wired to the same setEditingId
   // (references-grid.tsx), so the same ReferenceRecordDialog opens either way.
-  await page.getByRole('button', { name: 'Edit Selo Ações Da Linha 20c' }).click();
+  await page.getByRole('button', { name: 'Edit Selo Ações Da Linha 20c', exact: true }).click();
   await expect(page.getByTestId('reference-data-form')).toBeVisible();
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   // The row's own dropdown menu, not the record dialog's footer Archive
   // button, reaching the exported ArchiveReferenceDialog directly.
-  await page.getByRole('button', { name: 'Actions for Selo Ações Da Linha 20c' }).click();
+  await page
+    .getByRole('button', { name: 'Actions for Selo Ações Da Linha 20c', exact: true })
+    .click();
   await page.getByRole('menuitem', { name: 'Archive label…' }).click();
   await page.getByTestId('reference-archive-confirm').click();
 

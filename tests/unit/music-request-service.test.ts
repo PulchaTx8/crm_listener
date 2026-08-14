@@ -8,16 +8,22 @@ import {
 } from '@/services/music';
 
 /**
- * The two pieces of Task 7's new code that are actual logic rather than a
- * pass-through to an RPC — everything else in this module's new exports
- * (listMusicRequestsPage, createMusicRequest, archiveMusicRequest,
- * mergeMusicRecords, listMergeCandidates) is a thin asCaller(...).rpc(...)
- * wrapper, and this codebase does not mock @supabase/supabase-js in
- * tests/unit (grep confirms it: only @/lib/supabase/user-client — a much
- * thinner, project-owned wrapper — is ever mocked, for the createUserClient
- * reads in music-song-embed.test.ts). Both functions here are exported
- * specifically so they can be pinned without a database, the same reasoning
- * their own doc comments in services/music.ts give.
+ * The pieces of services/music.ts that are actual logic rather than a
+ * pass-through to an RPC: totalFromRequestBatch, toSongOption, and Block 22's
+ * two paging decisions (requestUsesKeyset, requestReadLimit).
+ *
+ * Everything else in this module's requests surface is a thin
+ * asCaller(...).rpc(...) wrapper — listMusicRequestsPage, createMusicRequest,
+ * archiveMusicRequest, mergeMusicRecords, listMergeCandidates, and Block 22's
+ * four writers (markMusicRequestRead, markMusicRequestPlayed,
+ * cancelMusicRequest, revealRequestPhone) — and this codebase does not mock
+ * @supabase/supabase-js in tests/unit (grep confirms it: only
+ * @/lib/supabase/user-client — a much thinner, project-owned wrapper — is ever
+ * mocked, for the createUserClient reads in music-song-embed.test.ts). Those
+ * four are proved where their behaviour actually lives, in
+ * supabase/tests/51_music_request_triage.test.sql. Every function pinned here
+ * is exported specifically so it can be pinned without a database, the same
+ * reasoning their own doc comments in services/music.ts give.
  */
 
 describe('totalFromRequestBatch', () => {

@@ -1409,7 +1409,7 @@ export interface RequestSummary {
    * listParticipationsPage's own listenerName documents, which is itself two
    * causes, not one; do not conflate the two functions' reasons. Here: (1)
    * the caller holds music.view but not members.view, in which case 0107's
-   * RULE 2 withholds this and memberPhone, not the row — the list still
+   * RULE 2 withholds this and memberPhoneLast4, not the row — the list still
    * lists, every row, with the two names blank rather than the page refused;
    * or (2) the caller DOES hold members.view and the listener has since
    * exercised LGPD erasure — 0107's join carries no anonymized_at filter, and
@@ -1447,7 +1447,7 @@ export interface RequestSummary {
    * request whose listener wrote nothing — the screen has no reason to tell
    * those apart, because both mean there is nothing to read.
    *
-   * NOT withheld with memberName and memberPhone when the caller lacks
+   * NOT withheld with memberName and memberPhoneLast4 when the caller lacks
    * members.view: a note is about the request, not about who made it.
    */
   listenerNote: string | null;
