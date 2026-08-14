@@ -29,20 +29,38 @@ type ReservationTipo = 'RESERVE' | 'PROGRAMME' | 'PROMOTION';
  * Reservar and Vincular Programa both write through `reserve_stock` (D7 — a
  * programme reservation is a reservation with an owner, and nothing else) —
  * the same shape stock-entry-form.tsx keeps Compra and Permuta in ONE form
- * under, so this stays one `<form>` too, with the Programa control appearing
- * only for the second value and the `showId` field travelling with it.
+ * under, so both are handled by ONE sub-component, `ReserveOrProgrammeForm`,
+ * with the Programa control appearing only for the second value and the
+ * `showId` field travelling with it.
  *
  * Vincular Promoção calls a DIFFERENT door — the existing promotion-link RPC
  * (D6), gated on `promotions.prizes` rather than `inventory.reserve` — so it
- * swaps to its own `<form>` entirely, the same way stock-entry-form.tsx swaps
- * out to AdjustmentForm for Ajuste de estoque rather than folding a second
- * door's fields into the first form.
+ * is its own sub-component, `PromotionLinkForm`, the same way
+ * stock-entry-form.tsx swaps out to AdjustmentForm for Ajuste de estoque
+ * rather than folding a second door's fields into the first form. Its own
+ * `<option>` renders only when `canLinkPromotion` holds (fix round 1): a
+ * caller who durably lacks `promotions.prizes` would otherwise see a
+ * permanently dead option on every render, never offered here rather than
+ * left to fail on submit (station-access.ts's own comment on
+ * `canLinkPromotion` says why that is not the stale-render case this screen
+ * otherwise leans on). The door itself still re-checks the permission — this
+ * is the courtesy gate, never the boundary.
+ *
+ * Each of the two doors' `useActionState` lives INSIDE its own sub-component
+ * rather than up here, and each sub-component is mounted with `key={tipo}`
+ * (fix round 1, Minor): switching Tipo away and back — RESERVE to PROGRAMME,
+ * or either to PROMOTION and back — unmounts the previous instance and
+ * mounts a fresh one, which is what clears a stale "Reserved."/"Linked to
+ * the promotion." banner left over from a submission under a DIFFERENT Tipo.
+ * Holding the action state up here, shared across every Tipo value, was the
+ * defect: the state survived a Tipo change with nothing to invalidate it.
  */
 export function ReservationForm({
   companyId,
   prizeId,
   shows,
   promotions,
+  canLinkPromotion,
   onRecorded,
 }: {
   companyId: string;
@@ -51,21 +69,17 @@ export function ReservationForm({
   shows: ReservableShow[];
   /** Promotions active or starting in the future (design spec §7). */
   promotions: LinkablePromotion[];
+  /**
+   * promotions.prizes (fix round 1): link_prize_to_promotion's OWN
+   * permission, a different domain than `inventory.reserve`, which is what
+   * gates this whole form's existence (ReservationsTab's own `canReserve`).
+   * False hides the "Vincular promoção" option entirely rather than
+   * rendering a control the door would refuse.
+   */
+  canLinkPromotion: boolean;
 } & MovementReport) {
   const t = useTranslations('inventory');
   const [tipo, setTipo] = useState<ReservationTipo>('RESERVE');
-  const [reserveState, reserveAction, reservePending] = useActionState(reserveStockAction, INITIAL);
-  const [linkState, linkAction, linkPending] = useActionState(linkPrizeToPromotionAction, INITIAL);
-
-  useEffect(() => {
-    if (reserveState.status === 'saved') onRecorded?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reserveState]);
-
-  useEffect(() => {
-    if (linkState.status === 'saved') onRecorded?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkState]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -74,85 +88,142 @@ export function ReservationForm({
         <Select value={tipo} onChange={(event) => setTipo(event.target.value as ReservationTipo)}>
           <option value="RESERVE">{t('reservationTypeReserve')}</option>
           <option value="PROGRAMME">{t('reservationTypeProgramme')}</option>
-          <option value="PROMOTION">{t('reservationTypePromotion')}</option>
+          {canLinkPromotion && <option value="PROMOTION">{t('reservationTypePromotion')}</option>}
         </Select>
       </label>
 
-      {tipo === 'PROMOTION' ? (
-        <form action={linkAction} data-testid="promotion-link-form" className="flex flex-col gap-3">
-          <input type="hidden" name="prizeId" value={prizeId} />
-
-          <label className="flex flex-col gap-1 text-sm">
-            {t('promotion')}
-            <Select name="promotionId" required data-testid="promotion-link-select">
-              <option value="">{t('chooseAPromotion')}</option>
-              {promotions.map((promotion) => (
-                <option key={promotion.id} value={promotion.id}>
-                  {promotion.name}
-                </option>
-              ))}
-            </Select>
-            {promotions.length === 0 && (
-              <span className="text-xs text-muted-foreground">{t('noActiveOrUpcomingPromotions')}</span>
-            )}
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm">
-            {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
-          </label>
-
-          <div className="flex items-center gap-3">
-            <Button type="submit" disabled={linkPending || promotions.length === 0}>
-              {linkPending ? t('saving') : t('linkToPromotion')}
-            </Button>
-            {linkState.status === 'saved' && (
-              <p className="text-sm text-emerald-700">{t('linkedToThePromotion')}</p>
-            )}
-          </div>
-
-          {linkState.status === 'error' && <p className="text-sm text-destructive">{linkState.message}</p>}
-        </form>
+      {tipo === 'PROMOTION' && canLinkPromotion ? (
+        <PromotionLinkForm prizeId={prizeId} promotions={promotions} onRecorded={onRecorded} />
       ) : (
-        <form action={reserveAction} data-testid="reserve-form" className="flex flex-col gap-3">
-          <input type="hidden" name="companyId" value={companyId} />
-          <input type="hidden" name="prizeId" value={prizeId} />
-
-          {tipo === 'PROGRAMME' && (
-            <label className="flex flex-col gap-1 text-sm">
-              {t('programme')}
-              <Select name="showId" required data-testid="reservation-show-select">
-                <option value="">{t('chooseAProgramme')}</option>
-                {shows.map((show) => (
-                  <option key={show.id} value={show.id}>
-                    {show.name}
-                  </option>
-                ))}
-              </Select>
-              {shows.length === 0 && (
-                <span className="text-xs text-muted-foreground">{t('noActiveOrUpcomingProgrammes')}</span>
-              )}
-            </label>
-          )}
-
-          <label className="flex flex-col gap-1 text-sm">
-            {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
-          </label>
-
-          <label className="flex flex-col gap-1 text-sm">
-            {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whatIsThisHeldFor')} />
-          </label>
-
-          <div className="flex items-center gap-3">
-            <Button type="submit" disabled={reservePending || (tipo === 'PROGRAMME' && shows.length === 0)}>
-              {reservePending ? t('saving') : t('reserveStock')}
-            </Button>
-            {reserveState.status === 'saved' && <p className="text-sm text-emerald-700">{t('reserved2')}</p>}
-          </div>
-
-          {reserveState.status === 'error' && <p className="text-sm text-destructive">{reserveState.message}</p>}
-        </form>
+        // `canLinkPromotion` false with `tipo` somehow still 'PROMOTION' is
+        // unreachable through the select above (the option does not exist to
+        // pick), but this branch is what a stray 'PROMOTION' state falls
+        // through to regardless — the same door RESERVE/PROGRAMME always
+        // offer, never a blank tab.
+        <ReserveOrProgrammeForm
+          key={tipo}
+          companyId={companyId}
+          prizeId={prizeId}
+          shows={shows}
+          withProgramme={tipo === 'PROGRAMME'}
+          onRecorded={onRecorded}
+        />
       )}
     </div>
+  );
+}
+
+function ReserveOrProgrammeForm({
+  companyId,
+  prizeId,
+  shows,
+  withProgramme,
+  onRecorded,
+}: {
+  companyId: string;
+  prizeId: string;
+  shows: ReservableShow[];
+  /** Whether this render is "Vincular programa" (the Programa control and its `showId` field) rather than a plain "Reservar". */
+  withProgramme: boolean;
+} & MovementReport) {
+  const t = useTranslations('inventory');
+  const [state, action, pending] = useActionState(reserveStockAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={action} data-testid="reserve-form" className="flex flex-col gap-3">
+      <input type="hidden" name="companyId" value={companyId} />
+      <input type="hidden" name="prizeId" value={prizeId} />
+
+      {withProgramme && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('programme')}
+          <Select name="showId" required data-testid="reservation-show-select">
+            <option value="">{t('chooseAProgramme')}</option>
+            {shows.map((show) => (
+              <option key={show.id} value={show.id}>
+                {show.name}
+              </option>
+            ))}
+          </Select>
+          {shows.length === 0 && (
+            <span className="text-xs text-muted-foreground">{t('noActiveOrUpcomingProgrammes')}</span>
+          )}
+        </label>
+      )}
+
+      <label className="flex flex-col gap-1 text-sm">
+        {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm">
+        {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whatIsThisHeldFor')} />
+      </label>
+
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending || (withProgramme && shows.length === 0)}>
+          {pending ? t('saving') : t('reserveStock')}
+        </Button>
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('reserved2')}</p>}
+      </div>
+
+      {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
+    </form>
+  );
+}
+
+function PromotionLinkForm({
+  prizeId,
+  promotions,
+  onRecorded,
+}: {
+  prizeId: string;
+  promotions: LinkablePromotion[];
+} & MovementReport) {
+  const t = useTranslations('inventory');
+  const [state, action, pending] = useActionState(linkPrizeToPromotionAction, INITIAL);
+
+  useEffect(() => {
+    if (state.status === 'saved') onRecorded?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={action} data-testid="promotion-link-form" className="flex flex-col gap-3">
+      <input type="hidden" name="prizeId" value={prizeId} />
+
+      <label className="flex flex-col gap-1 text-sm">
+        {t('promotion')}
+        <Select name="promotionId" required data-testid="promotion-link-select">
+          <option value="">{t('chooseAPromotion')}</option>
+          {promotions.map((promotion) => (
+            <option key={promotion.id} value={promotion.id}>
+              {promotion.name}
+            </option>
+          ))}
+        </Select>
+        {promotions.length === 0 && (
+          <span className="text-xs text-muted-foreground">{t('noActiveOrUpcomingPromotions')}</span>
+        )}
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm">
+        {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
+      </label>
+
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending || promotions.length === 0}>
+          {pending ? t('saving') : t('linkToPromotion')}
+        </Button>
+        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('linkedToThePromotion')}</p>}
+      </div>
+
+      {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
+    </form>
   );
 }
 

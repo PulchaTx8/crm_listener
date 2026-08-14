@@ -232,3 +232,47 @@ export async function getInventoryPermissions(
     reserve: flags[4] ?? false,
   };
 }
+
+/**
+ * Whether the caller holds `promotions.prizes` in this one Station — the one
+ * permission the Reservas tab's own Tipo list needs from OUTSIDE
+ * `inventory.*` (Block 23, Task 7 fix round 1). `inventory.reserve` gates
+ * the Reservas tab as a whole (design spec §8), but "Vincular promoção"
+ * reaches `link_prize_to_promotion` (0049), which checks `promotions.prizes`
+ * — a different domain's code, not one of the five MOVEMENT_PERMISSION_CODES
+ * above, so it is resolved separately rather than folded into
+ * InventoryPermissions, which really is only the five.
+ *
+ * This is NOT the stale-render case getInventoryPermissions' own comment
+ * excuses. That is about a permission revoked mid-session — a transient. A
+ * caller who durably holds `inventory.reserve` and never holds
+ * `promotions.prizes` is a standing role configuration: for them, "Vincular
+ * promoção" would be a permanently dead option on every single render of
+ * this tab, not a stale one — worse than an absent option, because it reads
+ * as a capability the operator has and does not. So the option itself is
+ * hidden when this is false, the same way `canAdjust` already keeps
+ * `adjust_stock`'s option out of the Entradas/Saídas Tipo lists for a caller
+ * without `inventory.adjust`.
+ *
+ * The courtesy gate, never the boundary: link_prize_to_promotion still
+ * re-checks this exact permission itself before writing anything, so a
+ * caller who loses it between this read and a submission already in flight
+ * is still refused where it actually matters.
+ *
+ * A failed has_permission call throws rather than being folded into "not
+ * granted", the same reasoning getInventoryPermissions gives for its own
+ * five checks.
+ */
+export async function canLinkPromotion(
+  supabase: UserClient,
+  companyId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('has_permission', {
+    p_permission: 'promotions.prizes',
+    p_company_id: companyId,
+  });
+  if (error) {
+    throw new InternalError(`Could not check promotions.prizes access for this station: ${error.message}`);
+  }
+  return data === true;
+}

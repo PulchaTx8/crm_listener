@@ -21,14 +21,16 @@ interface ReservationTargets {
  * Vincular Promoção) above this tab's own filtered history, exactly the
  * frame Entradas and Saídas already establish. `canReserve` gates the whole
  * form the same way `powers.entry`/`powers.exit` gate theirs (spec §8: "each
- * tab renders only what its holder may use") — including the Vincular
- * Promoção branch, whose OWN door is gated on `promotions.prizes` rather
- * than `inventory.reserve`: spec §8 is explicit that permissions on this
- * block are unchanged and that `inventory.reserve` is what gates Reservas as
- * a whole, so a caller without `promotions.prizes` still sees the option and
- * is refused by the door itself — the same stale-render discipline every
- * other write on this screen already accepts (station-access.ts's own
- * comment on `getInventoryPermissions`).
+ * tab renders only what its holder may use").
+ *
+ * "Vincular Promoção" is narrower still (fix round 1): its own door
+ * (`link_prize_to_promotion`) is gated on `promotions.prizes`, a permission
+ * `inventory.reserve` says nothing about. `canLinkPromotion` is that check,
+ * resolved once alongside `powers` (station-access.ts's own comment on
+ * `canLinkPromotion` explains why this is a courtesy HIDE rather than the
+ * stale-render discipline the rest of this screen leans on) and threaded
+ * down to `ReservationForm`, which is what actually decides whether the
+ * option renders at all.
  */
 export function ReservationsTab({
   companyId,
@@ -36,6 +38,7 @@ export function ReservationsTab({
   page,
   timeZone,
   canReserve,
+  canLinkPromotion,
   onRecorded,
 }: {
   companyId: string;
@@ -44,6 +47,8 @@ export function ReservationsTab({
   /** The Station's own zone (spec §7) — every date renders in the zone the movement actually happened in, not the reader's. */
   timeZone: string;
   canReserve: boolean;
+  /** promotions.prizes — see this function's own header. */
+  canLinkPromotion: boolean;
   /** Asks the record to re-read, so the ledger, the balance and this tab's own history show what was just written or released. */
   onRecorded: () => void;
 }) {
@@ -85,6 +90,7 @@ export function ReservationsTab({
               prizeId={prizeId}
               shows={targets.shows}
               promotions={targets.promotions}
+              canLinkPromotion={canLinkPromotion}
               onRecorded={onRecorded}
             />
             {targetsError && <p className="text-sm text-destructive">{targetsError}</p>}

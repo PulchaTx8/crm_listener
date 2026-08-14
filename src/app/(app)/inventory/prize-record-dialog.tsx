@@ -54,6 +54,7 @@ export function PrizeRecordDialog({
   tab,
   categories,
   powers,
+  canLinkPromotion,
   timeZone,
   onTab,
   onClose,
@@ -64,6 +65,15 @@ export function PrizeRecordDialog({
   tab: PrizeTab;
   categories: PrizeCategorySummary[];
   powers: PrizeRecordPowers;
+  /**
+   * promotions.prizes (fix round 1) — not one of `powers`' five inventory
+   * codes, so it travels as its own prop rather than widening that interface
+   * to a permission outside the domain it names. Gates whether Reservas'
+   * own Tipo list offers "Vincular promoção" at all (station-access.ts's
+   * own comment on `canLinkPromotion` says why a courtesy hide, not a
+   * disabled option, is the right call here).
+   */
+  canLinkPromotion: boolean;
   /** The Station's own zone (spec §7) — passed down to MovementHistory so a movement's date renders in the zone it actually happened in, not the reader's. */
   timeZone: string;
   onTab: (tab: PrizeTab) => void;
@@ -257,6 +267,7 @@ export function PrizeRecordDialog({
                 page={record.reservations}
                 timeZone={timeZone}
                 canReserve={powers.reserve}
+                canLinkPromotion={canLinkPromotion}
                 onRecorded={refreshAfterMovement}
               />
             )}

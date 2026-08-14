@@ -11,7 +11,7 @@ import { listPrizeCategories, listPrizesPage, PRIZE_SEARCH_MAX_LENGTH } from '@/
 import { STATION_SEARCH_MAX_LENGTH } from './station-access';
 import { StationSearchForm } from './station-search-form';
 import type { PrizeCategorySummary, PrizeListPage } from '@/services/inventory';
-import { getInventoryPermissions, listCompanyAccess } from './station-access';
+import { canLinkPromotion, getInventoryPermissions, listCompanyAccess } from './station-access';
 import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './station-access';
 import { describeInventoryReadError } from './errors';
 import { InventoryFilters } from './inventory-filters';
@@ -89,8 +89,13 @@ export default async function InventoryPage({
   let categories: PrizeCategorySummary[];
   let page: PrizeListPage;
   let permissions: InventoryPermissions;
+  // promotions.prizes, resolved alongside the five inventory codes above for
+  // the identical reason (station-access.ts's own comment on
+  // canLinkPromotion) — a different domain's permission, not folded into
+  // InventoryPermissions because it genuinely is not one of the five.
+  let linkPromotion: boolean;
   try {
-    [categories, page, permissions] = await Promise.all([
+    [categories, page, permissions, linkPromotion] = await Promise.all([
       listPrizeCategories(selected.id),
       listPrizesPage({
         companyId: selected.id,
@@ -104,6 +109,7 @@ export default async function InventoryPage({
         cursorSide: cursorParam?.side ?? 'after',
       }),
       getInventoryPermissions(supabase, selected.id),
+      canLinkPromotion(supabase, selected.id),
     ]);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the inventory list');
@@ -192,6 +198,7 @@ export default async function InventoryPage({
         }
         categories={categories}
         powers={permissions}
+        canLinkPromotion={linkPromotion}
         timeZone={selected.timezone}
         initialRecord={parseRecordParam(params as Record<string, string | undefined>, PRIZE_TABS)}
       />
