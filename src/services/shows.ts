@@ -204,6 +204,39 @@ export async function listShowsPage(params: ShowListParams): Promise<ShowListPag
   };
 }
 
+export interface ReservableShow {
+  id: string;
+  name: string;
+}
+
+/**
+ * Programmes a reservation can be labelled for (Block 23's Reservas tab,
+ * "Vincular programa"): active or starting in the future — the exact same
+ * predicate listShowsPage's own `includeEnded` (default false) already
+ * applies to its list, `ends_on` null or not yet reached, reused verbatim
+ * here rather than a second wording of the same rule.
+ *
+ * A light read rather than that paginated one: the picker needs a name to
+ * choose from, not a schedule, a picture or a total count, so this skips the
+ * keyset apparatus entirely — the same reasoning listLinkablePromotions
+ * (services/promotions.ts) gives for its own equivalent picker.
+ */
+export async function listReservableShows(companyId: string): Promise<ReservableShow[]> {
+  const supabase = await createUserClient();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from('shows')
+    .select('id, name')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .or(`ends_on.is.null,ends_on.gte.${today}`)
+    .order('name');
+
+  if (error) throw new InternalError(`Could not read programmes: ${error.message}`);
+  return data ?? [];
+}
+
 /** One programme by id. RLS already scopes this, so an unreachable one comes back null. */
 export async function getShowById(showId: string): Promise<ShowSummary | null> {
   const supabase = await createUserClient();

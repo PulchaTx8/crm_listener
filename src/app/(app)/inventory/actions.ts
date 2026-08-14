@@ -9,6 +9,7 @@ import {
   movementFormSchema,
   reverseMovementSchema,
 } from '@/schemas/inventory';
+import { promotionPrizeLinkSchema } from '@/schemas/promotions';
 import {
   adjustStock,
   archivePrize,
@@ -26,8 +27,18 @@ import {
   uploadPrizePhoto,
 } from '@/services/inventory';
 import type { PrizeSummary, ReconciliationRow } from '@/services/inventory';
+// The promotion-link door itself (design D6): "Vincular promoção" calls the
+// SAME linkPrizeToPromotion the Promotions screen's own prizes-tab.tsx calls
+// (src/app/(app)/promotions/actions.ts's linkPrizeAction) — it takes a
+// promotion id AND a prize id as flat, independent parameters rather than a
+// promotion as its sole subject, so calling it from a PRIZE's own record is
+// exactly as sensible as calling it from a promotion's. Not a second door.
+import { linkPrizeToPromotion, listLinkablePromotions } from '@/services/promotions';
+import type { LinkablePromotion } from '@/services/promotions';
+import { listReservableShows } from '@/services/shows';
+import type { ReservableShow } from '@/services/shows';
 import { logger } from '@/lib/logger';
-import { describeInventoryWriteError } from './errors';
+import { describeInventoryReadError, describeInventoryWriteError } from './errors';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
@@ -335,6 +346,12 @@ export async function reserveStockAction(
     prizeId: formData.get('prizeId'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note'),
+    // "Vincular programa" (Task 7): reservation-forms.tsx only renders this
+    // field for that Tipo, so a plain "Reservar" submission arrives with the
+    // field absent — `|| null` reads that as the door's own anonymous hold
+    // (movementFormSchema's optionalUuid, which reserve_stock's own p_show_id
+    // already treats as "no owner").
+    showId: formData.get('showId') || null,
   });
 
   if (!parsed.success) {
@@ -364,6 +381,16 @@ export async function releaseReservationAction(
     prizeId: formData.get('prizeId'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note'),
+    // Task 7 brief, note 1: release_reservation's own remaining-quantity
+    // arithmetic is gated on `p_reservation_id`, and a call omitting it
+    // over-releases freely — that compatibility shape (optionalUuid on the
+    // schema, `default null` on the RPC) exists only for callers that
+    // predate D5. This screen's own ReleaseForm (reservation-forms.tsx)
+    // always carries this as a hidden field naming the reservation it is
+    // releasing, so `|| null` here is read from formData for the same
+    // uniform reason every other field on this call is, never as a
+    // deliberate anonymous-release path this door offers.
+    reservationId: formData.get('reservationId') || null,
   });
 
   if (!parsed.success) {
@@ -383,6 +410,80 @@ export async function releaseReservationAction(
       status: 'error',
       message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionReleaseAReservation'),
     };
+  }
+}
+
+/**
+ * "Vincular promoção" (Reservas tab, Task 7, design D6): the SAME door
+ * promotions/actions.ts's linkPrizeAction calls, parsed with the SAME
+ * promotionPrizeLinkSchema that door's own form posts against — not a
+ * movementFormSchema variant, because this is not a movement-ledger form at
+ * all on this side of the call; it is the promotion-prize link, reached from
+ * the prize's own record instead of the promotion's. `note` is deliberately
+ * absent (link_prize_to_promotion's own comment, 0049: "the link itself
+ * names the promotion, which is the explanation an exit or a reservation
+ * lacks"), matching the Promotions screen's own LinkForm, which collects
+ * none either.
+ */
+export async function linkPrizeToPromotionAction(
+  _prev: MovementFormState,
+  formData: FormData,
+): Promise<MovementFormState> {
+  const parsed = promotionPrizeLinkSchema.safeParse({
+    promotionId: formData.get('promotionId'),
+    prizeId: formData.get('prizeId'),
+    quantity: Number(formData.get('quantity')),
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await linkPrizeToPromotion(parsed.data, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error(
+      { err: cause, prizeId: parsed.data.prizeId, promotionId: parsed.data.promotionId },
+      'link prize to promotion failed',
+    );
+    return {
+      status: 'error',
+      message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionLinkAPrizeToAPromotion'),
+    };
+  }
+}
+
+export interface ReservationTargets {
+  shows: ReservableShow[];
+  promotions: LinkablePromotion[];
+}
+
+/**
+ * The Reservas tab's own picker reads (Task 7): programmes and promotions
+ * "active or starting in the future", for "Vincular programa" and "Vincular
+ * promoção" respectively. Not bound to `useActionState` — like
+ * searchLinkablePrizesAction on the Promotions screen, this is called
+ * directly with an argument rather than posted as a form, and it runs once
+ * when the tab opens rather than per keystroke, so both reads travel
+ * together in one round trip.
+ */
+export async function listReservationTargetsAction(
+  companyId: string,
+): Promise<
+  { status: 'ok'; targets: ReservationTargets } | { status: 'error'; message: string }
+> {
+  try {
+    const [shows, promotions] = await Promise.all([
+      listReservableShows(companyId),
+      listLinkablePromotions(companyId),
+    ]);
+    return { status: 'ok', targets: { shows, promotions } };
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'could not read the reservation pickers');
+    return { status: 'error', message: describeInventoryReadError(cause, await getTranslations('inventory')) };
   }
 }
 

@@ -18,6 +18,7 @@ import { BalanceStats } from './balance-stats';
 import { MovementHistory } from './movement-history';
 import { EntriesTab } from './entries-tab';
 import { ExitsTab } from './exits-tab';
+import { ReservationsTab } from './reservations-tab';
 
 // Catalogue keys, not words: a module body has no request behind it.
 //
@@ -250,9 +251,14 @@ export function PrizeRecordDialog({
             )}
 
             {tab === 'reservations' && (
-              // Task 7 adds the Reservas form (Tipo: Reservar / Vincular
-              // Programa / Vincular Promoção) above this history.
-              <MovementsTabPanel page={record.reservations} timeZone={timeZone} />
+              <ReservationsTab
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                page={record.reservations}
+                timeZone={timeZone}
+                canReserve={powers.reserve}
+                onRecorded={refreshAfterMovement}
+              />
             )}
 
             {tab === 'movements' && (
@@ -275,7 +281,7 @@ export function PrizeRecordDialog({
 }
 
 /**
- * The frame Reservas and Movimentação still share: their own filtered history
+ * The frame Movimentação still uses: its own filtered history
  * (`MovementHistory`), with a notice above it when `list_movements`' own cap
  * (`PRIZE_MOVEMENTS_LIMIT`, 500 per call) has truncated what that tab's own
  * read returned.
@@ -292,9 +298,10 @@ export function PrizeRecordDialog({
  * signature none of them asked for. `onReverse` is not wired here — Task 6
  * offers archiving on Entradas/Saídas through their own tab components
  * (`entries-tab.tsx`/`exits-tab.tsx`), each with its own copy of this same
- * truncation-notice-plus-history frame rather than a shared prop on this
- * function, so the 'reservations' and 'movements' tabs below are the only
- * two still rendered through this panel, and neither offers archiving yet.
+ * truncation-notice-plus-history frame, and Task 7 gives Reservas the same
+ * treatment in `reservations-tab.tsx` for its own Release action — so
+ * `movements` (Movimentação, which never offers a write of its own, D8/D10)
+ * is the only tab still rendered through this panel.
  */
 function MovementsTabPanel({ page, timeZone }: { page: PrizeMovementsPage; timeZone: string }) {
   const t = useTranslations('inventory');
