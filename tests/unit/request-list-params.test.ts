@@ -38,6 +38,12 @@ describe('the requests screen URL contract', () => {
     expect(state.sort).toBe(DEFAULT_REQUEST_SORT);
   });
 
+  // "the database also enforces" is a claim about 0191, and this file has no
+  // database in it. The other half of the pair is
+  // supabase/tests/51_music_request_triage.test.sql, which asks the RPC for
+  // two thousand million rows against a Station holding 201 and gets 200 —
+  // and asks for -1 and 0 and gets one row rather than an error and an empty
+  // list. Two clamps, because a URL is not a form (design D7).
   it('clamps the limit to the range the database also enforces', () => {
     expect(parseRequestLimit('10')).toBe(10);
     expect(parseRequestLimit('0')).toBe(1);

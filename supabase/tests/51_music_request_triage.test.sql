@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(37);
 
 -- Block 22, Task 1. The stamps are the truth and the two statuses are derived
 -- from them by Postgres (D1), so this file proves the derivation rather than
@@ -203,12 +203,15 @@ reset role;
 -- Block 22, Task 3. The list.
 -- ---------------------------------------------------------------------------
 
--- Four more requests, so ordering and limits have something to order and
--- cut. 221d is the fourth (fix round 1): 221b and 221c share BOTH an artist
--- and the newest timestamp, so a correct artist-sort answer and a
--- fallback-to-newest bug's answer were the same row -- 221b -- once 221a
--- stopped being the newest (finding 1's fix). Same mechanism broke the
--- show-sort assertion: 221b is also the only row that carried a show.
+-- Three more requests, so ordering and limits have something to order and
+-- cut -- four in all with 221a. 221d is the one fix round 1 added, and this
+-- is why: 221b and 221c share an artist, and 221b is ALSO the newest row of
+-- the fixture (-1h). So the correct artist-sort answer was 'Adoniran
+-- Barbosa' and a fallback-to-newest bug's answer was 221b, whose artist is
+-- 'Adoniran Barbosa' as well -- the same string either way, once 221a stopped
+-- being the newest (finding 1's fix). Same mechanism broke the show-sort
+-- assertion: 221b was the only row that carried a show at all, so it was both
+-- the correct answer and the fallback's.
 -- 221d gets its OWN artist and its OWN show, each named to sort first
 -- alphabetically among this fixture's artists/shows, and a timestamp that is
 -- NOT the newest -- so the correct artist/show answer and the
@@ -382,6 +385,160 @@ select is(
      'song', now() - interval '90 minutes', '00000000-0000-0000-0000-00000000221b',
      false, 51)),
   4, 'a cursor passed alongside a text ordering is ignored, returning the whole batch');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Fix round 2, Important 2. cancel_music_request's SUCCESS path.
+--
+-- Everything above touches that door exactly once, at assertion 10, and that
+-- is a throws_ok: nothing in this repository had ever cancelled a request and
+-- looked at the result. So its UPDATE, its audit row, its second-call no-op
+-- (D4) and the CANCELLED/CANCELLED derivation THROUGH THE DOOR were all
+-- unproven -- assertion 5 above derives the same pair from a hand-written
+-- `update`, which is a different statement in a different file. plpgsql
+-- resolves identifiers at run time, so a column renamed out from under that
+-- branch raises nothing until somebody presses the button in production.
+--
+-- A SECOND request, inserted HERE rather than beside the other four: every
+-- assertion above has already run by this point. Several of them count rows,
+-- name the newest row or read the whole batch, and fix round 1 already had to
+-- add a fourth row and re-time a third to decouple two orderings from each
+-- other -- a fifth row placed up there would have to be decoupled against all
+-- of them again, for no gain.
+-- ---------------------------------------------------------------------------
+
+insert into public.music_requests
+  (id, organization_id, company_id, member_id, song_id, channel, requested_at)
+values
+  ('00000000-0000-0000-0000-00000000221e', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e1',
+   '00000000-0000-0000-0000-0000000022d1', 'MANUAL', now() - interval '5 hours');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+
+-- 29: the door calls a request off without raising.
+select lives_ok($$
+  select public.cancel_music_request('00000000-0000-0000-0000-00000000221e')
+$$, 'cancel_music_request calls off a request that has not played');
+
+-- 30: and BOTH derived statuses follow the stamp the DOOR wrote (D2). This is
+-- assertion 5's pair reached through the function rather than through a
+-- hand-written update -- the two prove different things, and only this one
+-- proves the door writes cancelled_at at all.
+select is(
+  (select read_status::text || '/' || play_status::text from public.music_requests
+    where id = '00000000-0000-0000-0000-00000000221e'),
+  'CANCELLED/CANCELLED', 'a request called off through the door reads CANCELLED on both sides');
+
+-- 31: one audit row for the one call-off. Read as the superuser pgTAP
+-- connects as, for assertion 8's reason: audit_logs' select policies admit a
+-- platform admin or a caller holding audit.view, and this attendant is
+-- neither, so under `authenticated` the count reads 0 whatever the door did.
+reset role;
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-00000000221e'
+      and action = 'cancel_music_request'),
+  1, 'calling a request off leaves exactly one audit row');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+
+-- 32-33: a second call-off is a no-op, not an error and not a second row (D4).
+select lives_ok($$
+  select public.cancel_music_request('00000000-0000-0000-0000-00000000221e')
+$$, 'a second call-off is accepted rather than raising');
+reset role;
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-00000000221e'
+      and action = 'cancel_music_request'),
+  1, 'a second call-off writes no second audit row');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+
+-- 34: and the mirror of assertion 10 -- a cancelled request cannot then be
+-- marked read. This is the refusal the attend window now keeps off the screen
+-- (fix round 2, Important 1): the button used to be offered on a cancelled
+-- request, so a raw English 22023 was three clicks away in any locale rather
+-- than reachable only by a race, which is the whole argument section 5 of the
+-- design rests on.
+select throws_ok($$
+  select public.mark_music_request_read('00000000-0000-0000-0000-00000000221e')
+$$, '22023', null, 'a request that has been called off cannot be marked read');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- Fix round 2, Important 3. D7's second clamp, at the function.
+--
+-- The clamp needs MORE ROWS THAN THE CAP to prove anything at all: against
+-- this file's five requests, "p_limit 2000000000 returns 5 rows" is true of
+-- the clamped function and of the unclamped one alike, and an assertion that
+-- passes either way is decoration. So a Station of its own, with 201 rows in
+-- it -- one past the cap, which is the smallest fixture that can tell 200
+-- from "all of them".
+--
+-- ITS OWN STATION, and inserted here, for the reason the block above gives:
+-- 201 extra rows in Station 22c1 would break the four ordering assertions,
+-- both status counts and the cursor assertion, all of which count or name
+-- rows in that Station's whole batch.
+-- ---------------------------------------------------------------------------
+
+insert into public.companies (id, organization_id, name, timezone) values
+  ('00000000-0000-0000-0000-0000000022c3', '00000000-0000-0000-0000-0000000022f1',
+   'Station 22 bulk', 'America/Sao_Paulo');
+insert into public.artists (id, organization_id, company_id, name) values
+  ('00000000-0000-0000-0000-0000000022b4', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c3', 'Zulmira Volume');
+insert into public.songs (id, organization_id, company_id, title, artist_id) values
+  ('00000000-0000-0000-0000-0000000022d4', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c3', 'Uma So Cancao',
+   '00000000-0000-0000-0000-0000000022b4');
+-- The same attendant, so the assertion below reads through the same grant a
+-- real caller holds: authenticated, music.view, nothing special.
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000022a2', '00000000-0000-0000-0000-0000000022c3',
+   '00000000-0000-0000-0000-0000000022f1', '00000000-0000-0000-0000-0000000022a1');
+insert into public.music_requests
+  (organization_id, company_id, member_id, song_id, channel, requested_at)
+select '00000000-0000-0000-0000-0000000022f1',
+       '00000000-0000-0000-0000-0000000022c3',
+       '00000000-0000-0000-0000-0000000022e1',
+       '00000000-0000-0000-0000-0000000022d4',
+       'MANUAL',
+       now() - (n || ' minutes')::interval
+  from generate_series(1, 201) as n;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+
+-- 35: an absurd p_limit is cut to the cap. Two thousand million is what a
+-- caller types into a POST body against PostgREST; before the clamp it read
+-- all 201 rows, and would have read a Station's whole request table.
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c3', null, null, null, null, null, null,
+     null, null, null, false, 2000000000)),
+  200, 'an absurd p_limit is clamped to 200 rows at the function');
+
+-- 36-37: and the other end of the same clamp. A negative p_limit used to be a
+-- 2201W raised by LIMIT itself -- an error page rather than a page of rows --
+-- and 0 used to be a legitimately empty list from a list that is never
+-- legitimately empty. Both now read as the minimum.
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c3', null, null, null, null, null, null,
+     null, null, null, false, -1)),
+  1, 'a negative p_limit is clamped up to one row rather than raising');
+select is(
+  (select count(*)::int from public.list_music_requests(
+     '00000000-0000-0000-0000-0000000022c3', null, null, null, null, null, null,
+     null, null, null, false, 0)),
+  1, 'a zero p_limit is clamped up to one row rather than returning nothing');
 
 reset role;
 

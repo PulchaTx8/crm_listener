@@ -163,6 +163,16 @@ begin
          -- cannot narrow differently (0090's rule).
          (select count(*) from visible)::integer as total_count
     from visible f
+   -- THE FIRST DISJUNCT IS THE ORDERING GUARD, NOT A NULL GUARD (D6/D7).
+   -- `not v_keyset` short-circuits the whole keyset comparison for the three
+   -- text orderings: a cursor names a position in ONE ordering, so comparing
+   -- requested_at while sorting by title would drop rows that belong in the
+   -- batch and keep rows that do not. It is written here, in the WHERE, rather
+   -- than by refusing the parameters, because the caller is allowed to pass a
+   -- stale cursor along with a new sort -- the URL carries both and the
+   -- operator changed one of them.
+   --
+   -- The two that follow are about NULLs and nothing else.
    -- Fix round 1, Important 2: guard on BOTH p_cursor_at is null and
    -- p_cursor_id is null, matching list_participations (0090:191-192) and
    -- list_movements (0096:193-194) — both NOT NULL sort keys, exactly this
@@ -203,12 +213,20 @@ begin
      case when v_sort = 'artist' then f.artist_name end asc nulls last,
      case when v_sort = 'show'   then f.show_name   end asc nulls last,
      case when not v_keyset then f.id end asc
-   limit p_limit;
+   -- D7'S SECOND CLAMP, AND THE REASON THERE ARE TWO. The URL parser clamps a
+   -- typed limit to 1-200 (music/requests/list-params.ts), and that is the
+   -- only clamp a form can be made to respect -- but this function is granted
+   -- to `authenticated`, so anybody holding music.view can POST
+   -- p_limit: 2000000000 straight at PostgREST and never touch the parser at
+   -- all. A URL is not a form, and a grant is not a screen. `coalesce` first
+   -- because LIMIT NULL in Postgres means "no limit", which is the same
+   -- unbounded read arriving by a quieter route.
+   limit greatest(1, least(coalesce(p_limit, 51), 200));
 end;
 $$;
 
 comment on function public.list_music_requests(uuid, uuid, uuid, public.music_request_channel, text, public.music_request_read_status, public.music_request_play_status, text, timestamptz, uuid, boolean, integer) is
-  'Block 7b''s list, extended by 17b and again by Block 22. One page of a Station''s music requests, with 0107''s three rules unchanged: (1) music.view or a 42501 rather than an empty page; (2) the listener''s name and telephone withheld rather than the page refused without members.view; (3) a listener search made without members.view returns nothing at all. Block 22 changes three things: the two derived statuses and their stamps come with every row; the telephone arrives as FOUR DIGITS and the rest is asked for through reveal_request_phone; and p_sort chooses between the keyset ordering (requested_at desc, cursor honoured) and three text orderings that ignore the cursor and return one bounded batch, because a keyset compares exactly the columns it orders by.';
+  'Block 7b''s list, extended by 17b and again by Block 22. One page of a Station''s music requests, with 0107''s three rules unchanged: (1) music.view or a 42501 rather than an empty page; (2) the listener''s name and telephone withheld rather than the page refused without members.view; (3) a listener search made without members.view returns nothing at all. Block 22 changes three things: the two derived statuses and their stamps come with every row; the telephone arrives as FOUR DIGITS and the rest is asked for through reveal_request_phone; and p_sort chooses between the keyset ordering (requested_at desc, cursor honoured) and three text orderings that ignore the cursor and return one bounded batch, because a keyset compares exactly the columns it orders by. p_limit is clamped to 1-200 HERE as well as in the URL parser (D7): this function is granted to authenticated, so the parser is not the last word on how many rows one call may read.';
 
 revoke execute on function public.list_music_requests(uuid, uuid, uuid, public.music_request_channel, text, public.music_request_read_status, public.music_request_play_status, text, timestamptz, uuid, boolean, integer) from public;
 grant  execute on function public.list_music_requests(uuid, uuid, uuid, public.music_request_channel, text, public.music_request_read_status, public.music_request_play_status, text, timestamptz, uuid, boolean, integer) to authenticated;
