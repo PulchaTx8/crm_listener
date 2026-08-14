@@ -162,10 +162,15 @@ describe('movementsHref / parseMovementListState round trip', () => {
 });
 
 describe('describeMovementActor', () => {
+  // The one catalogue this function can reach, resolved the way a screen
+  // would -- the same shape describeMovementPromotion's own tests use below.
+  const t = (key: string) =>
+    key === 'movementActorDeadline' ? '(deadline)' : key === 'unnamedOperator' ? 'Unnamed operator' : key;
+
   // The case this task exists for: the sweep (0094) runs under pg_cron with
   // no auth.uid(), so it leaves no actor at all.
   it('renders the deadline sweep as "(deadline)" when actorId is null', () => {
-    expect(describeMovementActor(null, null)).toBe('(deadline)');
+    expect(describeMovementActor(null, null, t)).toBe('(deadline)');
   });
 
   // The case review caught once already (Task 6's coalesce onto an email):
@@ -174,13 +179,13 @@ describe('describeMovementActor', () => {
   // "(deadline)" whenever the name were absent) this would wrongly return
   // "(deadline)" here instead of naming an unnamed operator.
   it('renders a human with no display name as an unnamed operator, never "(deadline)"', () => {
-    const result = describeMovementActor('operator-1', null);
+    const result = describeMovementActor('operator-1', null, t);
     expect(result).not.toBe('(deadline)');
     expect(result).toBe('Unnamed operator');
   });
 
   it('renders a named operator by name', () => {
-    expect(describeMovementActor('operator-1', 'Ana Souza')).toBe('Ana Souza');
+    expect(describeMovementActor('operator-1', 'Ana Souza', t)).toBe('Ana Souza');
   });
 
   // The exact defect this task's brief warns against: keying the label off
@@ -189,7 +194,7 @@ describe('describeMovementActor', () => {
   // implementation checked actorName first, this row would wrongly print the
   // name instead.
   it('keys off actorId alone: a null actorId still reads "(deadline)" even if actorName were somehow present', () => {
-    expect(describeMovementActor(null, 'should never be shown')).toBe('(deadline)');
+    expect(describeMovementActor(null, 'should never be shown', t)).toBe('(deadline)');
   });
 });
 

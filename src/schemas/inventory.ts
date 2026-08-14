@@ -122,9 +122,20 @@ const optionalInvoiceNumber = z
 // inventory_movements_amounts_nonnegative refuses a negative figure at the
 // database — validated here for the same reason `quantity` above is, to turn
 // that 22023 into a field-level message instead of a round trip.
+//
+// The upper bound is the same reasoning, on the other side (fix-round
+// finding: this field was the one bound in this file with no ceiling at all,
+// unlike optionalInvoiceNumber's 80 characters and prizeFormSchema's own
+// internalCode/description limits above). numeric(12,2) has 12 significant
+// digits and 2 of them after the point, so 9,999,999,999.99 is the largest
+// value the column can hold — a figure past that fails PostgreSQL's own
+// numeric-overflow check (22003, not 23514), which this codebase's action
+// layer surfaces as a generic "could not save" rather than a field-level
+// message, exactly the gap every other bound here exists to close.
 const optionalAmount = z
   .number()
   .nonnegative('Amount cannot be negative.')
+  .max(9_999_999_999.99, 'Amount cannot exceed 9,999,999,999.99.')
   .nullable()
   .optional()
   .transform((v) => (v === null || v === undefined ? undefined : v));

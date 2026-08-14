@@ -250,6 +250,36 @@ describe('movementFormSchema — entry (record_stock_entry: note is the one opti
     });
     expect(parsed.success).toBe(false);
   });
+
+  // The other bound: unit_amount/total_amount are numeric(12,2) (0193), so
+  // 9,999,999,999.99 is the largest figure the column can hold. Past it, a
+  // save reaches PostgreSQL's own numeric-overflow check (22003) instead of
+  // this field-level message — a fix-round finding, since every other bound
+  // in this file (internalCode, description, optionalInvoiceNumber) already
+  // had a ceiling and this one did not.
+  it('rejects a totalAmount past what numeric(12,2) can hold', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'entry',
+      companyId,
+      prizeId,
+      entryType: 'PURCHASE_ENTRY',
+      quantity: 5,
+      totalAmount: 10_000_000_000,
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('accepts the largest totalAmount numeric(12,2) can hold', () => {
+    const parsed = movementFormSchema.safeParse({
+      kind: 'entry',
+      companyId,
+      prizeId,
+      entryType: 'PURCHASE_ENTRY',
+      quantity: 5,
+      totalAmount: 9_999_999_999.99,
+    });
+    expect(parsed.success).toBe(true);
+  });
 });
 
 describe.each(['exit', 'reserve', 'release'] as const)(

@@ -89,7 +89,7 @@ export async function MovementsGrid({
                   )}
                 </TableCell>
                 <TableCell className="text-sm" data-testid="movement-actor">
-                  {describeMovementActor(row.actorId, row.actorName)}
+                  {describeMovementActor(row.actorId, row.actorName, t)}
                 </TableCell>
                 <TableCell className="text-sm">{row.note ?? '—'}</TableCell>
               </TableRow>

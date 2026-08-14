@@ -205,9 +205,10 @@ export function movementsHref(state: MovementListState, cursor?: MovementCursor 
 export function describeMovementActor(
   actorId: MovementRow['actorId'],
   actorName: MovementRow['actorName'],
+  t: (key: string) => string,
 ): string {
-  if (actorId === null) return '(deadline)';
-  return actorName ?? 'Unnamed operator';
+  if (actorId === null) return t('movementActorDeadline');
+  return actorName ?? t('unnamedOperator');
 }
 
 /**

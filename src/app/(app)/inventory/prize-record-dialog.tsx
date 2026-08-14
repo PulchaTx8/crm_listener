@@ -407,8 +407,22 @@ function MovementsTabPanel({
   const [filterApplied, setFilterApplied] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Which `page` this tab's own Consultar is answering — the same `let
+   * current = true` guard the record read above (:139-165) uses, adapted
+   * from an effect's cleanup to an event handler's own async gap:
+   * `getPrizeMovementsAction` can resolve AFTER `page` has already moved on
+   * (a write on another tab reloading the whole record), and applying that
+   * response then would put a pre-write snapshot into `filtered`,
+   * overwriting the fresh, unfiltered page the effect below has already
+   * reset this tab to. Bumped whenever `page` changes; `handleConsult`
+   * captures the value at the start of its own request and checks it again
+   * before touching state.
+   */
+  const pageGeneration = useRef(0);
 
   useEffect(() => {
+    pageGeneration.current += 1;
     setDraftType('');
     setDraftFrom('');
     setDraftTo('');
@@ -419,12 +433,17 @@ function MovementsTabPanel({
 
   async function handleConsult(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const generation = pageGeneration.current;
     setPending(true);
     setError(null);
     const types = movementTypeFilter(draftType);
     const from = fromZonedDay(draftFrom, timeZone, false);
     const to = fromZonedDay(draftTo, timeZone, true);
     const result = await getPrizeMovementsAction(companyId, prizeId, { types, from, to });
+    // page moved on while this request was in flight -- a re-read from a
+    // write elsewhere in the record already reset this tab, and that reset
+    // is what stands, not this now-stale response.
+    if (pageGeneration.current !== generation) return;
     setPending(false);
     if (result.status === 'ok') {
       setFiltered(result.page);

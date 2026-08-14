@@ -1,5 +1,5 @@
 begin;
-select plan(34);
+select plan(37);
 
 -- Block 23, Task 1. The columns, and the constraints that keep each of them on
 -- the movement kinds it belongs to.
@@ -16,7 +16,7 @@ insert into public.shows (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-0000000023aa', '00000000-0000-0000-0000-0000000023f1',
    '00000000-0000-0000-0000-0000000023c1', 'Programa da Tarde');
 
--- A second Station, and a movement that belongs to it, for assertion 9: a
+-- A second Station, and a movement that belongs to it, for assertion 11: a
 -- reversal that reaches across Stations has to have something on the other
 -- side to reach for.
 insert into public.companies (id, organization_id, name, timezone) values
@@ -65,7 +65,35 @@ select lives_ok($$
      '00000000-0000-0000-0000-0000000023d1', 'TRANSFER_EXIT', 1, 'available', null)
 $$, 'a transfer exit lands');
 
--- 5: the invoice trio is refused on a movement that is not an entry. This is
+-- 5: a barter entry cannot be written with an EXIT's own bucket pair -- moving
+-- out of available rather than into it. Assertion 3 proves only the accepted
+-- half of what the constraint enforces for this type; this is the rejected
+-- half, and it is exactly the assertion that would catch a future author
+-- collapsing the enumerated movement_type check into a bare to_bucket rule --
+-- 'available' appears as BOTH a valid from_bucket (for an exit type) and a
+-- valid to_bucket (for BARTER_ENTRY itself, three lines above), so a
+-- constraint that stopped keying off movement_type would let this through by
+-- accident. Verified live against this database before being written here.
+select throws_ok($$
+  insert into public.inventory_movements
+    (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket)
+  values
+    ('00000000-0000-0000-0000-0000000023f1', '00000000-0000-0000-0000-0000000023c1',
+     '00000000-0000-0000-0000-0000000023d1', 'BARTER_ENTRY', 1, 'available', null)
+$$, '23514', null, 'a barter entry out of available -- the wrong bucket pair -- is refused by the transition constraint');
+
+-- 6: the mirror case. A transfer exit cannot be written with an ENTRY's own
+-- bucket pair -- moving into available rather than out of it. Verified live
+-- against this database before being written here.
+select throws_ok($$
+  insert into public.inventory_movements
+    (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket)
+  values
+    ('00000000-0000-0000-0000-0000000023f1', '00000000-0000-0000-0000-0000000023c1',
+     '00000000-0000-0000-0000-0000000023d1', 'TRANSFER_EXIT', 1, null, 'available')
+$$, '23514', null, 'a transfer exit into available -- the wrong bucket pair -- is refused by the transition constraint');
+
+-- 7: the invoice trio is refused on a movement that is not an entry. This is
 -- the constraint that stops "how much did we spend" from summing over rows that
 -- were never a purchase.
 select throws_ok($$
@@ -77,7 +105,7 @@ select throws_ok($$
      '00000000-0000-0000-0000-0000000023d1', 'RESERVATION', 1, 'available', 'reserved', 'NF-2')
 $$, '23514', null, 'an invoice number is refused on anything but an entry');
 
--- 6: a programme belongs to a reservation and nowhere else.
+-- 8: a programme belongs to a reservation and nowhere else.
 select throws_ok($$
   insert into public.inventory_movements
     (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket,
@@ -88,7 +116,7 @@ select throws_ok($$
      '00000000-0000-0000-0000-0000000023aa')
 $$, '23514', null, 'a programme is refused on anything but a reservation');
 
--- 7: a reservation CAN name one.
+-- 9: a reservation CAN name one.
 select lives_ok($$
   insert into public.inventory_movements
     (organization_id, company_id, prize_id, movement_type, quantity, from_bucket, to_bucket,
@@ -99,7 +127,7 @@ select lives_ok($$
      '00000000-0000-0000-0000-0000000023aa')
 $$, 'a reservation names the programme it is held for');
 
--- 8: one entry is reversed once. The second reversal collides on the unique
+-- 10: one entry is reversed once. The second reversal collides on the unique
 -- index rather than on a check somebody has to remember to write.
 --
 -- Every literal in this UNION ALL is cast explicitly. Two SELECTs of bare
@@ -124,7 +152,7 @@ select throws_ok($$
    where m.movement_type = 'BARTER_ENTRY'
 $$, '23505', null, 'a movement cannot be reversed twice');
 
--- 9: a reversal cannot point at a movement belonging to another Station.
+-- 11: a reversal cannot point at a movement belonging to another Station.
 -- inventory_movements_reversal_company_fk is the composite foreign key that
 -- makes that row impossible to write, closing the one reference in 0193 that
 -- used to be weaker than its siblings -- reserved_for_show_id already proved
@@ -168,27 +196,27 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
 
 -- ---------------------------------------------------------------------------
 -- Block 23, Task 3's fixtures, seeded HERE rather than beside the assertions
--- that use them (19-27, at the foot of this file). Everything below `set local
+-- that use them (21-30, at the foot of this file). Everything below `set local
 -- role authenticated` runs as a role holding no INSERT grant on any of these
 -- tables — 0029 revokes every write on the inventory tables from every role
 -- including service_role, and 0044/0046 do the same for promotions and
 -- promotion_prizes — so a direct insert down there is refused with 42501
 -- before it can seed anything.
 
--- A second prize with a ledger of its own. Assertions 22 and 23 need one
--- bucket at an exact figure (10 in, 6 out, so 4 available), and the eighteen
--- movements above have already moved Camiseta 23's.
+-- A second prize with a ledger of its own. Assertions 24 and 25 need one
+-- bucket at an exact figure (10 in, 6 out, so 4 available), and the movements
+-- above have already moved Camiseta 23's.
 insert into public.prizes (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-0000000023d3', '00000000-0000-0000-0000-0000000023f1',
    '00000000-0000-0000-0000-0000000023c1', 'Bone 23');
 
--- A draw and a promotion link, for assertions 24 and 25. Written directly
--- rather than through their own doors: reaching a real DRAW means a promotion
--- window, a participation and a winner, and what those two assertions test is
--- what reverse_movement REFUSES, not how the row came to exist. The promotion
--- and the link above them exist only because
--- inventory_movements_promotion_reference (0045, widened in 0077) requires
--- both of these movement types to name a promotion link.
+-- A draw, a promotion link and a delivery, for assertions 26, 27 and 28.
+-- Written directly rather than through their own doors: reaching a real DRAW
+-- or DELIVERY means a promotion window, a participation and a winner, and
+-- what those three assertions test is what reverse_movement REFUSES, not how
+-- the row came to exist. The promotion and the link above them exist only
+-- because inventory_movements_promotion_reference (0045, widened in 0077 and
+-- 0092) requires all three of these movement types to name a promotion link.
 insert into public.promotions (id, organization_id, company_id, name, starts_at, ends_at) values
   ('00000000-0000-0000-0000-0000000023ba', '00000000-0000-0000-0000-0000000023f1',
    '00000000-0000-0000-0000-0000000023c1', 'Promo 23 tabs', '2026-08-01Z', '2026-08-31Z');
@@ -206,13 +234,16 @@ values
    'DRAW', 1, 'linked', 'awaiting_pickup', '00000000-0000-0000-0000-0000000023bb'),
   ('00000000-0000-0000-0000-0000000023e4', '00000000-0000-0000-0000-0000000023f1',
    '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
-   'PROMOTION_LINK', 1, 'available', 'linked', '00000000-0000-0000-0000-0000000023bb');
+   'PROMOTION_LINK', 1, 'available', 'linked', '00000000-0000-0000-0000-0000000023bb'),
+  ('00000000-0000-0000-0000-0000000023e5', '00000000-0000-0000-0000-0000000023f1',
+   '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
+   'DELIVERY', 1, 'awaiting_pickup', 'delivered', '00000000-0000-0000-0000-0000000023bb');
 -- ---------------------------------------------------------------------------
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", "role": "authenticated"}';
 
--- 10: record_stock_entry with PURCHASE_ENTRY and an invoice stores all three
+-- 12: record_stock_entry with PURCHASE_ENTRY and an invoice stores all three
 -- invoice columns. A door that never threads p_invoice_number/p_unit_amount/
 -- p_total_amount through to apply_inventory_movement — or threads them onto
 -- the wrong positional slot — leaves one or more of the three null here.
@@ -228,7 +259,7 @@ select ok(
   'record_stock_entry with PURCHASE_ENTRY and an invoice stores all three invoice columns'
 );
 
--- 11: the same call with BARTER_ENTRY stores the type as barter, not
+-- 13: the same call with BARTER_ENTRY stores the type as barter, not
 -- purchase. A door that ignores p_type, or that refuses BARTER_ENTRY because
 -- its own allow-list was never widened past 0027's original three, fails
 -- this — either the type comes back wrong or the call throws.
@@ -244,7 +275,7 @@ select is(
   'record_stock_entry with BARTER_ENTRY stores the type as barter, distinguishable from a purchase in a later sum'
 );
 
--- 12: record_stock_exit with TRANSFER_EXIT writes that type, not the door's
+-- 14: record_stock_exit with TRANSFER_EXIT writes that type, not the door's
 -- old hardcoded MANUAL_EXIT. A door that still ignores its new p_type
 -- parameter (or defaults it away silently) writes MANUAL_EXIT regardless of
 -- what the caller asked for, and this assertion catches exactly that.
@@ -259,9 +290,9 @@ select is(
   'record_stock_exit with TRANSFER_EXIT writes that type, not MANUAL_EXIT'
 );
 
--- 13: reserve_stock with a programme stores reserved_for_show_id. A door
+-- 15: reserve_stock with a programme stores reserved_for_show_id. A door
 -- that drops p_show_id on the floor leaves this column null here too, the
--- same failure case 14 checks from the other direction.
+-- same failure case 16 checks from the other direction.
 create temporary table t23_reservation_show as
 select public.reserve_stock(
   '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
@@ -274,10 +305,10 @@ select is(
   'reserve_stock with a programme stores reserved_for_show_id'
 );
 
--- 14: reserve_stock without one stores null — an anonymous hold is not a
+-- 16: reserve_stock without one stores null — an anonymous hold is not a
 -- programme hold with a missing name. A door that defaulted to some other
 -- show, or that always wrote the last show_id it ever saw (a variable-reuse
--- bug), would fail this precisely because case 13 ran first.
+-- bug), would fail this precisely because case 15 ran first.
 --
 -- The call is captured into a temporary table in its own statement, the same
 -- shape every other case in this block uses, rather than nested inline inside
@@ -299,10 +330,10 @@ select ok(
   'reserve_stock without a programme stores reserved_for_show_id null'
 );
 
--- 15: release_reservation naming a reservation stores reverses_movement_id
+-- 17: release_reservation naming a reservation stores reverses_movement_id
 -- pointing at it. A door that still ignores p_reservation_id releases the
 -- stock but leaves no trace of which reservation shrank, and this column
--- comes back null instead of matching case 13's own movement id.
+-- comes back null instead of matching case 15's own movement id.
 create temporary table t23_release_1 as
 select public.release_reservation(
   '00000000-0000-0000-0000-0000000023c1', '00000000-0000-0000-0000-0000000023d1',
@@ -315,10 +346,10 @@ select is(
   'release_reservation naming a reservation stores reverses_movement_id pointing at it'
 );
 
--- 16: releasing more than the reservation has left is refused with 22023.
--- Case 13 reserved 10, case 15 already released 4, so 6 remain; asking for 7
+-- 18: releasing more than the reservation has left is refused with 22023.
+-- Case 15 reserved 10, case 17 already released 4, so 6 remain; asking for 7
 -- must be refused. A door with no arithmetic at all (or one that checks the
--- reservation's original quantity instead of what remains after case 15)
+-- reservation's original quantity instead of what remains after case 17)
 -- would let this succeed instead of throwing.
 select throws_ok($$
   select public.release_reservation(
@@ -328,9 +359,9 @@ select throws_ok($$
 $$, '22023', 'only 6 unit(s) remain on this reservation, and 7 were requested',
   'releasing more than a reservation has left is refused, naming the remainder');
 
--- 17: a second release_reservation on the same reservation, within what
--- remains (exactly the 6 units left after case 15, and unaffected by case
--- 16's refusal), succeeds. Releases are instalments, and
+-- 19: a second release_reservation on the same reservation, within what
+-- remains (exactly the 6 units left after case 17, and unaffected by case
+-- 18's refusal), succeeds. Releases are instalments, and
 -- inventory_movements_reversal_unique (0193) deliberately excludes
 -- RESERVATION_RELEASE from the one-reversal-per-movement rule so two releases
 -- pointing at one reservation do not collide. A door that treated a release
@@ -343,14 +374,14 @@ select lives_ok($$
     (select movement_id from t23_reservation_show))
 $$, 'a second release on the same reservation, within what remains, succeeds');
 
--- 18: a retried release_reservation carrying the same idempotency key returns
+-- 20: a retried release_reservation carrying the same idempotency key returns
 -- the original movement id rather than raising -- the replay hole from fix
 -- round 1. A door whose arithmetic runs before the replay is resolved counts
 -- the first attempt's own release in v_released and refuses the identical
 -- retry with 22023, naming a remainder that is a lie about what already
--- happened. Uses t23_reservation_anon (case 14's anonymous hold of 5, never
+-- happened. Uses t23_reservation_anon (case 16's anonymous hold of 5, never
 -- released before this point) rather than t23_reservation_show, which case
--- 17 already exhausted -- this assertion needs a reservation with room left,
+-- 19 already exhausted -- this assertion needs a reservation with room left,
 -- not one at its own remainder of zero.
 create temporary table t23_release_replay_1 as
 select public.release_reservation(
@@ -369,14 +400,14 @@ select is(
 
 -- ---------------------------------------------------------------------------
 -- Block 23, Task 3: reverse_movement, the one door behind every Arquivar
--- button. These nine are the assertions that matter most in the block: a
--- wrong reverse_movement does not fail loudly, it corrupts a balance quietly.
+-- button. These are the assertions that matter most in the block: a wrong
+-- reverse_movement does not fail loudly, it corrupts a balance quietly.
 
--- 19: an entry reversed once returns the available balance to what it was
+-- 21: an entry reversed once returns the available balance to what it was
 -- BEFORE the entry — the whole of design D1 in one number. The figure is
--- captured first rather than hard-coded, because it is the sum of eighteen
--- earlier assertions and a hard-coded 63 would go red for the wrong reason
--- the first time anybody edits one of them.
+-- captured first rather than hard-coded, because it is the sum of the earlier
+-- assertions and a hard-coded number would go red for the wrong reason the
+-- first time anybody edits one of them.
 --
 -- A door that mirrors an entry with another entry leaves this at before + 20;
 -- one that never reaches apply_inventory_movement at all leaves it at
@@ -405,7 +436,7 @@ select is(
   (select available from t23_available_before),
   'an entry reversed once returns the available balance to what it was before the entry');
 
--- 20: the reversal row itself. It is a MANUAL_EXIT of the same quantity
+-- 22: the reversal row itself. It is a MANUAL_EXIT of the same quantity
 -- naming the entry, and it carries NO invoice of its own —
 -- inventory_movements_invoice_reference (0193) permits the trio on the four
 -- entry types alone, so a reversal that copied it would not be a wrong row,
@@ -436,7 +467,7 @@ select ok(
     where r.id = (select movement_id from t23_entry_reversal)),
   'the reversal of an entry is a manual exit of the same quantity naming it, carrying no invoice of its own');
 
--- 21: one entry is reversed once. The unique index (0193) is the backstop;
+-- 23: one entry is reversed once. The unique index (0193) is the backstop;
 -- this door owes the operator a sentence instead of a constraint name. A door
 -- with no check of its own collides on the index and raises 23505; a door
 -- reaching a database whose index was dropped raises nothing at all. Either
@@ -447,7 +478,7 @@ select throws_ok($$
 $$, '22023', 'this movement has already been reversed',
   'the same entry cannot be reversed a second time');
 
--- 22: the refusal an operator will actually meet. Ten in, six out, four left
+-- 24: the refusal an operator will actually meet. Ten in, six out, four left
 -- — reversing the entry of ten would drive available to minus six.
 -- apply_inventory_movement would refuse it too, with 23514 and a message
 -- about buckets; this door refuses it first, with a business code and the
@@ -472,7 +503,7 @@ select throws_ok($$
 $$, '22023', 'only 4 unit(s) are available, and 10 are needed to reverse this entry',
   'reversing an entry whose stock has since left is refused, naming the shortfall');
 
--- 23: the other direction. Reversing the exit of six puts six units back, as
+-- 25: the other direction. Reversing the exit of six puts six units back, as
 -- a MANUAL_ENTRY naming the exit — available goes 4 back to 10. A door that
 -- mirrors an exit with another exit would try to take six more out of four
 -- and raise; a door that ignores direction entirely leaves the balance at 4.
@@ -492,7 +523,7 @@ select ok(
         where r.id = (select movement_id from t23_exit_reversal)),
   'reversing an exit puts the stock back, as a manual entry naming the exit');
 
--- 24 and 25: this door is not a general-purpose eraser. A draw and a
+-- 26 and 27: this door is not a general-purpose eraser. A draw and a
 -- promotion link are each undone by their own screen's own door, with rules
 -- this one does not know.
 --
@@ -512,7 +543,20 @@ select throws_ok($$
 $$, '22023', 'only a stock entry or a stock exit can be reversed here',
   'a promotion link cannot be reversed here');
 
--- 26: a reversal must say why. record_stock_exit (0194:375-377), reserve_stock
+-- 28: delivery takes the identical branch as a draw and a promotion link: it
+-- is undone by its own screen's own door (DELIVERY_CANCEL, 0083), never by
+-- this one. Its to_bucket is 'delivered', not 'available', so the same
+-- "mirror derived from not available" defect assertions 26 and 27 catch for a
+-- draw and a link would invent available stock here too if this refusal were
+-- missing — the spec (§10) names "a draw, a delivery or a promotion link" as
+-- the three this door must refuse, and the first two fixture rows only
+-- covered two of the three.
+select throws_ok($$
+  select public.reverse_movement('00000000-0000-0000-0000-0000000023e5', 'not this door')
+$$, '22023', 'only a stock entry or a stock exit can be reversed here',
+  'a delivery cannot be reversed here');
+
+-- 29: a reversal must say why. record_stock_exit (0194:375-377), reserve_stock
 -- and release_reservation (0194:529-531) all refuse a blank note with 22023,
 -- and a reversal is the row in the Saidas tab a reader most wants explained —
 -- without this it would be the one movement the history can show with no
@@ -538,7 +582,7 @@ $$, '22023', 'a note is required to reverse a movement',
 
 reset role;
 
--- 27: exactly one audit row per reversal, naming the movement that was
+-- 30: exactly one audit row per reversal, naming the movement that was
 -- archived. Read as the superuser pgTAP connects as, deliberately: audit_logs'
 -- only select policy (0006_rls_policies.sql) is platform-admin-only and this
 -- actor is not one, so under `authenticated` this count reads 0 whether or not
@@ -557,7 +601,7 @@ select is(
   1, 'reversing writes exactly one audit row, naming the movement that was archived');
 
 -- ---------------------------------------------------------------------------
--- Block 23, Task 4: list_movements widened. 28-34, re-entering the same
+-- Block 23, Task 4: list_movements widened. 31-37, re-entering the same
 -- authenticated actor `reset role` above stepped out of -- list_movements is
 -- SECURITY DEFINER and raises 42501 with no auth.uid() to resolve
 -- has_permission against, so the audit-log read's superuser connection
@@ -572,8 +616,8 @@ select is(
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-000000002342", "role": "authenticated"}';
 
--- 28: the invoice trio, projected rather than dropped. t23_purchase
--- (assertion 10) is a PURCHASE_ENTRY carrying NF-2301/2.50/125.00 on the
+-- 31: the invoice trio, projected rather than dropped. t23_purchase
+-- (assertion 12) is a PURCHASE_ENTRY carrying NF-2301/2.50/125.00 on the
 -- table itself; this is the first assertion checking that list_movements'
 -- SELECT list actually names those three columns rather than silently
 -- leaving them off the RETURNS TABLE the way a copy-paste from 0096 would.
@@ -585,9 +629,9 @@ select ok(
     where movement_id = (select movement_id from t23_purchase)),
   'list_movements returns invoice_number, unit_amount and total_amount on an entry that has them');
 
--- 29: the ORIGINAL of a reversed pair reports a non-null reversed_at and the
--- reversal's own id. t23_reversible_entry (assertion 19) was reversed once,
--- by t23_entry_reversal (assertion 20), and inventory_movements_reversal_
+-- 32: the ORIGINAL of a reversed pair reports a non-null reversed_at and the
+-- reversal's own id. t23_reversible_entry (assertion 21) was reversed once,
+-- by t23_entry_reversal (assertion 22), and inventory_movements_reversal_
 -- unique (0193) guarantees there is exactly one such row for the lateral to
 -- find. A read with no lateral leaves both columns null here; one that joins
 -- the opposite direction, or that forgets the RESERVATION_RELEASE exclusion
@@ -601,7 +645,7 @@ select ok(
     where movement_id = (select movement_id from t23_reversible_entry)),
   'a reversed entry reports a non-null reversed_at and the reversal''s own id');
 
--- 30: the REVERSAL half of the same pair reports reverses_movement_id
+-- 33: the REVERSAL half of the same pair reports reverses_movement_id
 -- naming the entry it undoes. Stored, not derived (0193) -- this is the
 -- assertion that catches a SELECT list that carries every other column
 -- forward but forgets this one.
@@ -614,15 +658,15 @@ select is(
   (select movement_id from t23_reversible_entry),
   'the reversal reports reverses_movement_id naming the entry it undoes');
 
--- 31: remaining_quantity on a reservation, asserted AFTER A PARTIAL RELEASE
+-- 34: remaining_quantity on a reservation, asserted AFTER A PARTIAL RELEASE
 -- -- the exact case the brief calls out, because it is the one a wrong
--- implementation cannot pass by accident. t23_reservation_anon (case 14)
--- reserved 5 units; case 18's replay probe released 3 of them exactly once
+-- implementation cannot pass by accident. t23_reservation_anon (case 16)
+-- reserved 5 units; case 20's replay probe released 3 of them exactly once
 -- (the SECOND call is a same-idempotency-key replay that returns the first
 -- movement rather than writing a second one -- fix round 1's own subject),
 -- leaving 2. A read that returns the raw stored quantity (5) instead of the
 -- derived remainder scores a DIFFERENT number here, not merely a null --
--- t23_reservation_show (cases 13/15/17) is deliberately NOT used for this:
+-- t23_reservation_show (cases 15/17/19) is deliberately NOT used for this:
 -- it is fully exhausted by the time this runs (10 reserved, 4 then 6
 -- released), and 0 remaining would not discriminate "raw quantity" (10) from
 -- "some other wrong arithmetic" as sharply as 2 does against 5.
@@ -635,9 +679,9 @@ select is(
   2,
   'a reservation reports remaining_quantity as its own quantity minus the releases pointing at it, after a partial release');
 
--- 32: show_name on a reservation held for a programme. t23_reservation_show
--- (case 13) named Programa da Tarde (00...23aa) -- unaffected by how much of
--- it has since been released, which is assertion 31's concern, not this
+-- 35: show_name on a reservation held for a programme. t23_reservation_show
+-- (case 15) named Programa da Tarde (00...23aa) -- unaffected by how much of
+-- it has since been released, which is assertion 34's concern, not this
 -- one's.
 select is(
   (select show_name
@@ -648,7 +692,7 @@ select is(
   'Programa da Tarde',
   'a reservation held for a programme reports the programme''s show_name');
 
--- 33: the movement-type filter, BOTH directions (fix round 1, I5: the
+-- 36: the movement-type filter, BOTH directions (fix round 1, I5: the
 -- original version of this assertion only checked the negative direction --
 -- that no wrong-kind row survives the filter -- which is trivially true of
 -- an EMPTY result too, so a p_types bug that matched nothing at all would
@@ -675,7 +719,7 @@ select ok(
    where movement_type <> 'RESERVATION') = 0,
   'p_types narrows to the one kind named, returning at least one row rather than merely none of the wrong kind');
 
--- 34: the period filter, p_from AND p_to, each in BOTH directions (fix
+-- 37: the period filter, p_from AND p_to, each in BOTH directions (fix
 -- round 1, I5: the original assertion exercised only a p_from set past
 -- every fixture -- an all-negative case that a p_from wired to always
 -- return nothing would also have passed -- and never exercised p_to at

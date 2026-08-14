@@ -1,6 +1,6 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MovementEntry } from '@/services/inventory';
@@ -60,9 +60,20 @@ export function actionLabelKey(movement: MovementEntry): string | null {
   return null;
 }
 
-/** `unit_amount`/`total_amount` carry no currency column (design §4) — a plain figure, `en-GB` grouping like every other number this codebase formats, never a symbol this product does not know it is entitled to print. */
-function formatAmount(amount: number): string {
-  return new Intl.NumberFormat('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+/**
+ * `unit_amount`/`total_amount` carry no currency column (design §4) — a plain
+ * figure, never a symbol this product does not know it is entitled to print.
+ *
+ * Grouped through next-intl's own formatter rather than a hard-coded
+ * `Intl.NumberFormat('en-GB', …)` (a fix-round finding): this is money, and a
+ * Brazilian station reading 1234.5 as "1,234.50" instead of "1.234,50" is not
+ * a cosmetic gap. `useFormatter` already resolves the reader's own locale the
+ * same way `t` does, so `format` is threaded in here rather than reached for
+ * globally — a plain function, not a hook, so it stays callable from the
+ * render body without its own rules-of-hooks concerns.
+ */
+function formatAmount(amount: number, format: ReturnType<typeof useFormatter>): string {
+  return format.number(amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**
@@ -91,6 +102,7 @@ export function MovementHistory({
   emptyMessage: string;
 }) {
   const t = useTranslations('inventory');
+  const format = useFormatter();
 
   if (movements.length === 0) {
     return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
@@ -122,7 +134,22 @@ export function MovementHistory({
               <span className={cn('font-medium', reversed && 'line-through')}>
                 {t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}
               </span>
-              {movement.reversesMovementId !== null && (
+              {/*
+                `reverses_movement_id` is also set on a RESERVATION_RELEASE
+                (design D2: one column serves the entry reversal, the exit
+                reversal AND a release alike) — a fix-round finding: gating on
+                the column alone put this badge on every release row too,
+                reading "Estorno" beside a RESERVATION_RELEASE's own label,
+                which is not a reversal of anything in the entry/exit sense
+                this badge means. Gated on ENTRY_MOVEMENT_TYPES/
+                EXIT_MOVEMENT_TYPES membership instead — the same two arrays
+                actionLabelKey (above) already uses to decide whether a row
+                offers an Arquivar action at all, so a reversal is exactly a
+                MANUAL_EXIT or MANUAL_ENTRY that names the movement it undoes.
+              */}
+              {movement.reversesMovementId !== null &&
+                (ENTRY_MOVEMENT_TYPES.includes(movement.movementType) ||
+                  EXIT_MOVEMENT_TYPES.includes(movement.movementType)) && (
                 <span
                   className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
                   data-testid="movement-reversal-badge"
@@ -156,12 +183,12 @@ export function MovementHistory({
               )}
               {movement.unitAmount !== null && (
                 <span>
-                  {t('unitAmount')}: {formatAmount(movement.unitAmount)}
+                  {t('unitAmount')}: {formatAmount(movement.unitAmount, format)}
                 </span>
               )}
               {movement.totalAmount !== null && (
                 <span>
-                  {t('totalAmount')}: {formatAmount(movement.totalAmount)}
+                  {t('totalAmount')}: {formatAmount(movement.totalAmount, format)}
                 </span>
               )}
               {movement.showName !== null && (

@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import {
   addCompany,
@@ -16,65 +15,25 @@ import {
 afterAll(cleanupUsers);
 
 /**
- * `reverse_movement` (0195) is not in `database.types.ts` yet, and this file
- * deliberately does not put it there. Regenerating that file also pulls in
- * Block 23's two new `inventory_movement_type` values, which
- * `src/app/(app)/inventory/format.ts` maps to translation keys through an
- * exhaustive `Record<InventoryMovementType, string>` — so a regeneration turns
- * `npm run typecheck` red until those two labels and their copy exist in three
- * languages, which is a later task's work. That file's own comment records the
- * identical episode for `RETURN_PENDING_CANCEL`.
- *
- * So the call is typed here instead. Narrowly: the argument shape and the
- * result shape are both spelled out, so a wrong parameter name is still a
- * compile error — this is a bridge over one stale generated file, not an
- * escape from type checking.
+ * `reverse_movement` (0195) — the generated `database.types.ts` carries it,
+ * both `BARTER_ENTRY`/`TRANSFER_EXIT` enum values, and all five columns 0193
+ * added to `inventory_movements`, so every call and every read below goes
+ * straight through `client.rpc`/`.select('*')` against the real generated
+ * types. No bridge: an earlier revision of this file hand-rolled one because
+ * regenerating used to turn `npm run typecheck` red until
+ * `src/app/(app)/inventory/format.ts` carried labels for the two new enum
+ * values — that gap was closed once those labels landed, and the bridge
+ * outlived the reason for it. Verified against the live generated file
+ * rather than assumed: `reverse_movement`'s `Args`/`Returns` and every one of
+ * `inventory_movements`' five new columns are present before this bridge was
+ * removed.
  */
-type ReverseResult = {
-  data: string | null;
-  error: { message: string; code: string } | null;
-};
-
-function reverseMovement(
-  client: SupabaseClient<Database>,
-  // p_note is REQUIRED, not optional: 0195 gives it no default, the same shape
-  // record_stock_exit, reserve_stock and release_reservation all have, and the
-  // body refuses a blank one with 22023. Typed required here so a call that
-  // omits it is a compile error rather than a 42883 at run time.
-  args: { p_movement_id: string; p_note: string },
-): Promise<ReverseResult> {
-  // `.bind(client)` is load-bearing, not tidiness: supabase-js's `rpc` reads
-  // `this.rest` off the client, so a bare `client.rpc` lifted out of the object
-  // throws "Cannot read properties of undefined (reading 'rest')" before it
-  // ever reaches the database — measured, on the first run of this file.
-  const call = client.rpc.bind(client) as unknown as (
-    fn: 'reverse_movement',
-    args: { p_movement_id: string; p_note: string },
-  ) => Promise<ReverseResult>;
-  return call('reverse_movement', args);
-}
-
-/**
- * The same stale-types bridge on the read side: `reverses_movement_id` is one
- * of the five columns 0193 added, so the generated Row type does not know it
- * either. `select('*')` is legal against the stale type and returns every
- * column the database actually has; only the shape assigned to it is restated
- * here.
- */
-type MovementRow = {
-  id: string;
-  movement_type: string;
-  quantity: number;
-  from_bucket: string | null;
-  to_bucket: string | null;
-  reverses_movement_id: string | null;
-  actor_id: string | null;
-};
+type MovementRow = Database['public']['Tables']['inventory_movements']['Row'];
 
 async function movementsForPrize(prizeId: string): Promise<MovementRow[]> {
   const { data, error } = await admin.from('inventory_movements').select('*').eq('prize_id', prizeId);
   expect(error).toBeNull();
-  return (data ?? []) as unknown as MovementRow[];
+  return data ?? [];
 }
 
 async function movementById(id: string): Promise<MovementRow> {
@@ -84,7 +43,7 @@ async function movementById(id: string): Promise<MovementRow> {
     .eq('id', id)
     .single();
   expect(error).toBeNull();
-  return data as unknown as MovementRow;
+  return data as MovementRow;
 }
 
 /**
@@ -123,7 +82,7 @@ describe('inventory reversal', () => {
     expect(entry.error).toBeNull();
     const entryId = entry.data as string;
 
-    const reversal = await reverseMovement(client, {
+    const reversal = await client.rpc('reverse_movement', {
       p_movement_id: entryId,
       p_note: 'archived by the operator',
     });
@@ -205,7 +164,7 @@ describe('inventory reversal', () => {
     expect(visible.error).toBeNull();
     expect(visible.data?.id).toBe(movementInB);
 
-    const denied = await reverseMovement(client, {
+    const denied = await client.rpc('reverse_movement', {
       p_movement_id: movementInB,
       p_note: 'reaching across the boundary',
     });
@@ -241,7 +200,7 @@ describe('inventory reversal', () => {
     });
     expect(entryInA.error).toBeNull();
 
-    const allowed = await reverseMovement(client, {
+    const allowed = await client.rpc('reverse_movement', {
       p_movement_id: entryInA.data as string,
       p_note: 'archived at home',
     });
@@ -279,7 +238,7 @@ describe('inventory reversal', () => {
     const delegate = await grantRoleWith(customer, label, ['inventory.view', 'inventory.exit']);
     const client = await signInAs(delegate.email, delegate.password);
 
-    const deniedEntry = await reverseMovement(client, {
+    const deniedEntry = await client.rpc('reverse_movement', {
       p_movement_id: entryId,
       p_note: 'not mine to undo',
     });
@@ -290,7 +249,7 @@ describe('inventory reversal', () => {
     // SAME prize, undoing the EXIT instead — allowed, because it holds
     // inventory.exit. Without this half, a door that refused everybody would
     // score identically on the assertion above.
-    const allowedExit = await reverseMovement(client, {
+    const allowedExit = await client.rpc('reverse_movement', {
       p_movement_id: exitId,
       p_note: 'the write-off was a mistake',
     });

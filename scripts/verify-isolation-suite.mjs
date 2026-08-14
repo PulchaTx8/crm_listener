@@ -327,6 +327,19 @@ const REQUIRED_TEST_FILES = [
   // commits, and pgTAP rolls every file back -- which is exactly how a version
   // that deleted nothing at all stayed green.
   { path: 'tests/isolation/retention.test.ts', minTests: 3 },
+  // Block 11b: the stamping, CALLED. pgTAP cannot -- it wraps every file in a
+  // transaction it rolls back, and a routine that COMMITS raises inside one,
+  // which is how the first retention sweep shipped deleting nothing with every
+  // pgTAP assertion green. A direct Postgres connection can call it, the same
+  // way pg_cron does. Present on disk without an entry here until this fix
+  // round -- the exact gap this manifest exists to close, found on itself.
+  { path: 'tests/isolation/job-health.test.ts', minTests: 2 },
+  // Block 12a: the interface language a person may set is their own, and only
+  // their own. 27_profile_locale.test.sql asserts the grant exists; only this
+  // file can assert the POLICY, since pgTAP runs as superuser with a null
+  // auth.uid() and never exercises RLS. Also present on disk without an entry
+  // here until this fix round.
+  { path: 'tests/isolation/profile-locale.test.ts', minTests: 3 },
   { path: 'tests/isolation/audit.test.ts', minTests: 7 },
   { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },

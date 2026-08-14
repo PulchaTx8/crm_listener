@@ -68,7 +68,7 @@ export const STATION_SEARCH_MAX_LENGTH = 100;
  * normalize_phone/normalize_email) is about — two copies of the same shape
  * that can silently disagree the next time either one is fixed. Every caller
  * still names its own permission explicitly (inventory/page.tsx and
- * inventory/[prizeId]/page.tsx pass `'inventory.view'`; members/page.tsx
+ * inventory/movements/page.tsx both pass `'inventory.view'`; members/page.tsx
  * passes `'members.create'`), so this function widens no capability and
  * narrows no existing caller's behaviour — it only removes the duplication.
  *
