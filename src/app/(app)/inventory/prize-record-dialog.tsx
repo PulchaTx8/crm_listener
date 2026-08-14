@@ -440,11 +440,20 @@ function MovementsTabPanel({
     const from = fromZonedDay(draftFrom, timeZone, false);
     const to = fromZonedDay(draftTo, timeZone, true);
     const result = await getPrizeMovementsAction(companyId, prizeId, { types, from, to });
+    // `pending` is THIS request's own flag, and it comes down unconditionally
+    // -- before the staleness check below, not inside either branch of it.
+    // The `[page]` effect above already clears the drafts, `filtered`,
+    // `filterApplied` and `error` for a new page, but it fires on the page
+    // change itself, not on this request's own resolution; a version that
+    // only cleared `pending` on the non-stale path left Consultar (the tab's
+    // only control) disabled reading "loading" for the life of the panel in
+    // exactly the race this guard exists for, with no later response ever
+    // due to clear it (a fix-round finding).
+    setPending(false);
     // page moved on while this request was in flight -- a re-read from a
     // write elsewhere in the record already reset this tab, and that reset
     // is what stands, not this now-stale response.
     if (pageGeneration.current !== generation) return;
-    setPending(false);
     if (result.status === 'ok') {
       setFiltered(result.page);
       setFilterApplied(isMovementFilterApplied(types, from, to));
