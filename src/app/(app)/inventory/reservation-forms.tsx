@@ -54,6 +54,16 @@ type ReservationTipo = 'RESERVE' | 'PROGRAMME' | 'PROMOTION';
  * the promotion." banner left over from a submission under a DIFFERENT Tipo.
  * Holding the action state up here, shared across every Tipo value, was the
  * defect: the state survived a Tipo change with nothing to invalidate it.
+ *
+ * `quantity` and `note` are lifted INTO THIS component and passed down to
+ * `ReserveOrProgrammeForm` as controlled values (fix round 2) — ABOVE the
+ * `key={tipo}` remount boundary that clears the action-state banner. That
+ * key remounts the child on every Tipo change, and an uncontrolled input has
+ * no memory across a remount; without lifting, the same fix that clears the
+ * stale banner between Reservar and Vincular Programa was also silently
+ * discarding whatever the operator had already typed. The exact papercut
+ * Task 6 fixed the identical way in stock-entry-form.tsx/stock-exit-form.tsx,
+ * whose own comments state the same reasoning for the same shape.
  */
 export function ReservationForm({
   companyId,
@@ -80,6 +90,14 @@ export function ReservationForm({
 } & MovementReport) {
   const t = useTranslations('inventory');
   const [tipo, setTipo] = useState<ReservationTipo>('RESERVE');
+  // Reservar/Vincular Programa's own quantity and note (fix round 2) — see
+  // this function's own header for why these two, and only these two, live
+  // here rather than inside ReserveOrProgrammeForm. Vincular Promoção's own
+  // quantity is a different field entirely (a different door, a different
+  // meaning) and is not lifted here, the same as AdjustmentForm's own fields
+  // were never lifted into stock-entry-form.tsx's parent.
+  const [quantity, setQuantity] = useState('');
+  const [note, setNote] = useState('');
 
   return (
     <div className="flex flex-col gap-3">
@@ -106,6 +124,10 @@ export function ReservationForm({
           prizeId={prizeId}
           shows={shows}
           withProgramme={tipo === 'PROGRAMME'}
+          quantity={quantity}
+          onQuantityChange={setQuantity}
+          note={note}
+          onNoteChange={setNote}
           onRecorded={onRecorded}
         />
       )}
@@ -118,6 +140,10 @@ function ReserveOrProgrammeForm({
   prizeId,
   shows,
   withProgramme,
+  quantity,
+  onQuantityChange,
+  note,
+  onNoteChange,
   onRecorded,
 }: {
   companyId: string;
@@ -125,12 +151,24 @@ function ReserveOrProgrammeForm({
   shows: ReservableShow[];
   /** Whether this render is "Vincular programa" (the Programa control and its `showId` field) rather than a plain "Reservar". */
   withProgramme: boolean;
+  /** Lifted into the parent (fix round 2) — see ReservationForm's own header for why. */
+  quantity: string;
+  onQuantityChange: (value: string) => void;
+  note: string;
+  onNoteChange: (value: string) => void;
 } & MovementReport) {
   const t = useTranslations('inventory');
   const [state, action, pending] = useActionState(reserveStockAction, INITIAL);
 
   useEffect(() => {
-    if (state.status === 'saved') onRecorded?.();
+    if (state.status !== 'saved') return;
+    onRecorded?.();
+    // Cleared on a successful save, not on every remount: the whole point of
+    // lifting these two into the parent was to let them survive a Tipo round
+    // trip, so only a real write — the same trigger stock-entry-form.tsx's
+    // own reset effect uses — should empty them again.
+    onQuantityChange('');
+    onNoteChange('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
@@ -157,11 +195,28 @@ function ReserveOrProgrammeForm({
       )}
 
       <label className="flex flex-col gap-1 text-sm">
-        {t('quantity')}<Input name="quantity" type="number" min={1} step={1} required />
+        {t('quantity')}
+        <Input
+          name="quantity"
+          type="number"
+          min={1}
+          step={1}
+          required
+          value={quantity}
+          onChange={(event) => onQuantityChange(event.target.value)}
+        />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        {t('note')}<Textarea name="note" required maxLength={2000} placeholder={t('whatIsThisHeldFor')} />
+        {t('note')}
+        <Textarea
+          name="note"
+          required
+          maxLength={2000}
+          placeholder={t('whatIsThisHeldFor')}
+          value={note}
+          onChange={(event) => onNoteChange(event.target.value)}
+        />
       </label>
 
       <div className="flex items-center gap-3">
