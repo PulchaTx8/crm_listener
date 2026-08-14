@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -117,6 +117,21 @@ export function RequestsGrid({
   // is the honest outcome: the row it was showing is not on this list any more.
   const [attendingId, setAttendingId] = useState<string | null>(null);
   const attending = rows.find((row) => row.requestId === attendingId) ?? null;
+
+  // The id outlives the row unless something clears it: `attending` going null
+  // unmounts the dialog WITHOUT its onClose ever firing, so attendingId still
+  // names a request that is no longer on this page. Clearing a filter then
+  // brings the row back, `attending` matches again on its own, and the window
+  // the operator already finished with reopens unprompted. Found by the e2e
+  // journey walking the real path; the closing above is deliberate (this
+  // component's own comment says so), the resurrection was not — nothing
+  // chose it, so this effect is the fix, not a second opinion on the first
+  // comment.
+  useEffect(() => {
+    if (attendingId !== null && !rows.some((row) => row.requestId === attendingId)) {
+      setAttendingId(null);
+    }
+  }, [rows, attendingId]);
 
   return (
     <>

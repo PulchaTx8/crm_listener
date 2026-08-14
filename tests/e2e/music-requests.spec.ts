@@ -466,48 +466,71 @@ test('the studio marks a request read, then played, and the phone stays masked t
   await ownerPage.getByTestId('request-read-filter').selectOption('UNREAD');
   await expect(requestRow).toHaveCount(1);
 
-  // Cleared again before opening the attend window. requests-grid.tsx derives
-  // the open AttendDialog's own `request` from the live `rows` prop on every
-  // render — that is what lets the window show a mark as soon as it lands —
-  // and, by the identical mechanism, closes the window the instant its row no
-  // longer matches an active filter ("falls off the page", that file's own
-  // comment). Marking this request read while `read=UNREAD` stayed selected
-  // would make exactly that happen: the row leaves the UNREAD result in the
-  // very same refresh that would have shown attend-read-done, so the window
-  // would close before this test could ever observe it. The filter is reset
-  // here, before attend, and re-applied only once the window is done with
-  // this row (step 6, below), where losing the row under the filter is
-  // precisely the fact being proved.
-  await ownerPage.getByTestId('request-read-filter').selectOption('');
-  await expect(requestRow).toHaveCount(1);
-
   // ===========================================================================
-  // 4. Attend: the listener's name in full, the phone in four digits only —
-  //    design D8's proof at the only layer that can see the rendered page. A
-  //    regression that printed the whole number fails this line; nothing in
-  //    a database assertion could catch it, because the database never held
-  //    anything but the digits — it is the render that must stay masked.
+  // 4. Attend, still filtered to UNREAD: the listener's name in full, the
+  //    phone in four digits only — design D8's proof at the only layer that
+  //    can see the rendered page. A regression that printed the whole number
+  //    fails this line; nothing in a database assertion could catch it,
+  //    because the database never held anything but the digits — it is the
+  //    render that must stay masked.
   // ===========================================================================
   await requestRow.getByTestId('request-attend').click();
   await expect(ownerPage.getByTestId('attend-listener')).toHaveText(journeyListenerName);
   await expect(ownerPage.getByTestId('attend-phone')).toHaveText(/^•••• \d{4}$/);
 
   // ===========================================================================
-  // 5. Mark read, close, and check the row's own badge by data-status, never
-  //    by the translated label a locale change would rewrite.
+  // 5. THE STUDIO'S HABITUAL PATH, walked for real: filter to unread, open,
+  //    mark read — with the UNREAD filter still active when the mark lands.
+  //    This is documenting today's actual behaviour, not endorsing it; a
+  //    later, deliberate decision to change it should show up as a diff to
+  //    this assertion, not as a surprise nobody wrote down.
+  //
+  //    requests-grid.tsx derives the open AttendDialog's own `request` from
+  //    the live `rows` prop on every render (`attending = rows.find(row =>
+  //    row.requestId === attendingId)`), and markRequestReadAction's
+  //    revalidatePath refreshes that prop against the CURRENT url —
+  //    read=UNREAD included. The instant this request's read_status becomes
+  //    READ, the very refresh that would have set request.readAt to
+  //    something is the same refresh that drops the row from the UNREAD
+  //    result: `attending` goes straight to null and the window unmounts
+  //    without ever rendering attend-read-done. So the assertion below is
+  //    the window CLOSING (going hidden) and the row LEAVING the filtered
+  //    list, checked as web-first expectations rather than a timeout guess
+  //    at when that settles.
   // ===========================================================================
   await ownerPage.getByTestId('attend-mark-read').click();
-  await expect(ownerPage.getByTestId('attend-read-done')).toBeVisible();
-  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(ownerPage.getByTestId('attend-listener')).toBeHidden();
+  await expect(requestRow).toHaveCount(0);
+
+  // ===========================================================================
+  // 6. Clearing the filter is what brings the row back — read_status really
+  //    did become READ server-side, it only stopped matching UNREAD.
+  //    data-status, never the badge's translated label.
+  //
+  //    THE REGRESSION TEST: the window must stay CLOSED now that the row is
+  //    back. Before requests-grid.tsx's own attendingId-clearing effect, it
+  //    did not — attendingId outlived the row through step 5's auto-close
+  //    (nothing had ever called onClose), so the moment this same row
+  //    reappeared here, `attending` matched again on its own and the window
+  //    the operator had already finished with reopened unprompted, with no
+  //    click from anybody. That is the defect this journey found; this
+  //    assertion is what keeps it found. Without it, the fix above is
+  //    untested and a future edit can delete the effect silently.
+  // ===========================================================================
+  await ownerPage.getByTestId('request-read-filter').selectOption('');
+  await expect(requestRow).toHaveCount(1);
   await expect(requestRow.getByTestId('request-read-status')).toHaveAttribute(
     'data-status',
     'READ',
   );
+  await expect(ownerPage.getByTestId('attend-listener')).toBeHidden();
 
   // ===========================================================================
-  // 6. Re-open, mark played, close — the same round trip on the OTHER column,
-  //    checked the same way, so a defect that swapped the two badges would
-  //    fail one of these two data-status assertions rather than neither.
+  // 7. Re-open — a real click this time, which only works because the window
+  //    is genuinely closed — mark played, close: the same round trip on the
+  //    OTHER column, checked the same way, so a defect that swapped the two
+  //    badges would fail one of these two data-status assertions rather
+  //    than neither.
   // ===========================================================================
   await requestRow.getByTestId('request-attend').click();
   await ownerPage.getByTestId('attend-mark-played').click();
@@ -518,13 +541,20 @@ test('the studio marks a request read, then played, and the phone stays masked t
     'PLAYED',
   );
 
+  // ===========================================================================
+  // 8. The play filter, both ways: PLAYED finds the row, then it is cleared
+  //    again so the next step tests the read filter alone, not a compound
+  //    condition of both filters at once.
+  // ===========================================================================
   await ownerPage.getByTestId('request-play-filter').selectOption('PLAYED');
+  await expect(requestRow).toHaveCount(1);
+  await ownerPage.getByTestId('request-play-filter').selectOption('');
   await expect(requestRow).toHaveCount(1);
 
   // ===========================================================================
-  // 7. And the read filter proves the other direction: a request that is READ
-  //    is no longer UNREAD, so the filter that found it in step 3 now finds
-  //    nothing — the empty state, not a stale row.
+  // 9. And the read filter proves the other direction, alone: a request that
+  //    is READ is no longer UNREAD, so the filter that found it in step 3
+  //    now finds nothing — the empty state, not a stale row.
   // ===========================================================================
   await ownerPage.getByTestId('request-read-filter').selectOption('UNREAD');
   await expect(requestRow).toHaveCount(0);
