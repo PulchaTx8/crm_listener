@@ -23,12 +23,13 @@ insert into public.members (id, organization_id, full_name, phone) values
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-0000000022e1', '00000000-0000-0000-0000-0000000022c1',
    '00000000-0000-0000-0000-0000000022f1');
--- Stamped three hours behind: Task 3 below adds two more requests at -1h and
--- -2h, and this one has to be the OLDEST of the three even though its song's
--- title ('Aguas de Marco') sorts first alphabetically. Without that gap, the
--- default (newest-first) ordering and the song-title ordering agree on this
--- row for free, and the song-sort assertion below would pass whether or not
--- p_sort is honoured (Block 22 Task 9 review, finding 1).
+-- Stamped three hours behind: Task 3 below adds three more requests (-1h,
+-- -2h and -4h, fix round 1), and this one has to be NOT THE NEWEST of the
+-- four even though its song's title ('Aguas de Marco') sorts first
+-- alphabetically. Without that gap, the default (newest-first) ordering and
+-- the song-title ordering agree on this row for free, and the song-sort
+-- assertion below would pass whether or not p_sort is honoured (Block 22
+-- Task 9 review, finding 1).
 insert into public.music_requests
   (id, organization_id, company_id, member_id, song_id, channel, requested_at)
 values
@@ -202,17 +203,33 @@ reset role;
 -- Block 22, Task 3. The list.
 -- ---------------------------------------------------------------------------
 
--- Three more requests, so ordering and limits have something to order and cut.
+-- Four more requests, so ordering and limits have something to order and
+-- cut. 221d is the fourth (fix round 1): 221b and 221c share BOTH an artist
+-- and the newest timestamp, so a correct artist-sort answer and a
+-- fallback-to-newest bug's answer were the same row -- 221b -- once 221a
+-- stopped being the newest (finding 1's fix). Same mechanism broke the
+-- show-sort assertion: 221b is also the only row that carried a show.
+-- 221d gets its OWN artist and its OWN show, each named to sort first
+-- alphabetically among this fixture's artists/shows, and a timestamp that is
+-- NOT the newest -- so the correct artist/show answer and the
+-- fallback-to-newest answer are two different rows again.
 insert into public.artists (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-0000000022b2', '00000000-0000-0000-0000-0000000022f1',
-   '00000000-0000-0000-0000-0000000022c1', 'Adoniran Barbosa');
+   '00000000-0000-0000-0000-0000000022c1', 'Adoniran Barbosa'),
+  ('00000000-0000-0000-0000-0000000022b3', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', 'Ademar Duarte');
 insert into public.songs (id, organization_id, company_id, title, artist_id) values
   ('00000000-0000-0000-0000-0000000022d2', '00000000-0000-0000-0000-0000000022f1',
    '00000000-0000-0000-0000-0000000022c1', 'Trem das Onze',
-   '00000000-0000-0000-0000-0000000022b2');
+   '00000000-0000-0000-0000-0000000022b2'),
+  ('00000000-0000-0000-0000-0000000022d3', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', 'Nova Trilha',
+   '00000000-0000-0000-0000-0000000022b3');
 insert into public.shows (id, organization_id, company_id, name) values
   ('00000000-0000-0000-0000-0000000022aa', '00000000-0000-0000-0000-0000000022f1',
-   '00000000-0000-0000-0000-0000000022c1', 'Manha Musical');
+   '00000000-0000-0000-0000-0000000022c1', 'Manha Musical'),
+  ('00000000-0000-0000-0000-0000000022ab', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', 'Bom Dia');
 insert into public.music_requests
   (id, organization_id, company_id, member_id, song_id, show_id, channel, requested_at)
 values
@@ -223,7 +240,11 @@ values
   ('00000000-0000-0000-0000-00000000221c', '00000000-0000-0000-0000-0000000022f1',
    '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e1',
    '00000000-0000-0000-0000-0000000022d2', null,
-   'MANUAL', now() - interval '2 hours');
+   'MANUAL', now() - interval '2 hours'),
+  ('00000000-0000-0000-0000-00000000221d', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e1',
+   '00000000-0000-0000-0000-0000000022d3', '00000000-0000-0000-0000-0000000022ab',
+   'MANUAL', now() - interval '4 hours');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
@@ -270,11 +291,14 @@ select is(
     where request_id = '00000000-0000-0000-0000-00000000221a'),
   'PLAYED', 'play_status comes with the row');
 
--- 21-22: the two status filters narrow.
+-- 21-22: the two status filters narrow. Three untouched requests now
+-- (221b, 221c, 221d) since fix round 1 added 221d as UNREAD/NOT_PLAYED;
+-- the PLAYED count is unaffected -- 221a is still the only one that went
+-- to air.
 select is(
   (select count(*)::int from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, 'UNREAD')),
-  2, 'the read-status filter narrows to the untouched requests');
+  3, 'the read-status filter narrows to the untouched requests');
 select is(
   (select count(*)::int from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, 'PLAYED')),
@@ -285,31 +309,42 @@ select is(
 -- clause carries no ordering guarantee to the query above it, so an outer LIMIT
 -- would be asserting on whichever row the planner happened to hand over first.
 -- Discriminates from the default ordering only because the fixture above puts
--- 'Aguas de Marco' at -3h, the OLDEST of the three -- were it the newest (as
--- it was before that re-timing), this would pass under plain requested_at
--- ordering too (Block 22 Task 9 review, finding 1).
+-- 'Aguas de Marco' at -3h, NOT the newest of the four -- were it the newest
+-- (as it was before that re-timing), this would pass under plain
+-- requested_at ordering too (Block 22 Task 9 review, finding 1).
 select is(
   (select song_title from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'song', null, null, false, 1)),
   'Aguas de Marco', 'ordering by song puts the first title first');
 
--- 24: ordering by artist, A to Z, cut the same way.
+-- 24: ordering by artist, A to Z, cut the same way. 221d's artist ('Ademar
+-- Duarte') is the correct answer -- it sorts before 'Adoniran Barbosa'
+-- (221b/221c's shared artist) and before 'Elis Regina' (221a's). NOT
+-- 'Adoniran Barbosa': that was 221b's answer while 221b was ALSO the newest
+-- row, so a fallback-to-requested-at-desc bug scored an accidental pass
+-- (fix round 1, Important finding). 221d is stamped -4h, the OLDEST of the
+-- four, so the fallback's answer (221b, newest) and the correct answer
+-- (221d) are now different rows.
 select is(
   (select artist_name from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'artist', null, null, false, 1)),
-  'Adoniran Barbosa', 'ordering by artist puts the first name first');
+  'Ademar Duarte', 'ordering by artist puts the first name first');
 
--- 25: ordering by show, nulls last. Only 221b carries a show at all --
--- 221a and 221c both have a null show_id, seeded precisely so this could be
--- proven -- so nulls-last means the one named show sorts AHEAD of both nulls,
--- not merely that the column is read (Block 22 Task 9 review, finding 5).
+-- 25: ordering by show, nulls last. 221d's show ('Bom Dia') is the correct
+-- answer -- it sorts before 'Manha Musical' (221b's) and every other row is
+-- null. NOT 'Manha Musical': that was 221b's answer while 221b was ALSO the
+-- newest row, so a fallback-to-requested-at-desc bug -- the exact defect
+-- class finding 1 exists to catch -- scored an accidental pass here too
+-- (fix round 1, Important finding). 221d's -4h stamp is the oldest of the
+-- four, so the fallback's answer (221b) and the correct answer (221d)
+-- disagree, the same fix applied to the artist case just above.
 select is(
   (select show_name from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'show', null, null, false, 1)),
-  'Manha Musical', 'ordering by show puts the one named show first, nulls last');
+  'Bom Dia', 'ordering by show puts the first show first, nulls last');
 
 -- 26: the limit cuts.
 select is(
@@ -320,11 +355,11 @@ select is(
 
 -- 27: an unrecognised sort key falls back to the requested_at ordering
 -- (newest first) rather than raising. Asserted on the actual FIRST ROW under
--- p_limit 1 rather than on a row count: a count of 3 is what ANY non-raising
+-- p_limit 1 rather than on a row count: a count of 4 is what ANY non-raising
 -- fallback would also produce (arbitrary order, no order at all, or a crash
 -- swallowed somewhere upstream), so it never actually pinned "falls back to
 -- newest-first" (Block 22 Task 9 review, finding 2). 221b is the newest of
--- the three (-1h, against 221c's -2h and 221a's -3h).
+-- the four (-1h, against 221c's -2h, 221a's -3h and 221d's -4h).
 select is(
   (select request_id from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
@@ -337,14 +372,16 @@ select is(
 -- here rather than left to the comment alone (Block 22 Task 9 review, finding
 -- 4). p_cursor_at sits strictly between 221b's -1h and 221c's -2h, so a cursor
 -- WRONGLY applied under a text sort (p_walking_back false: keep only
--- requested_at < p_cursor_at) would exclude 221b and return 2 rows; the guard
--- means it is never applied at all, and the whole batch of 3 comes back.
+-- requested_at < p_cursor_at) would exclude 221b alone -- 221a (-3h), 221c
+-- (-2h) and 221d (-4h) all satisfy "< 90 minutes ago" and would still be kept
+-- -- and return 3 rows; the guard means it is never applied at all, and the
+-- whole batch of 4 comes back.
 select is(
   (select count(*)::int from public.list_music_requests(
      '00000000-0000-0000-0000-0000000022c1', null, null, null, null, null, null,
      'song', now() - interval '90 minutes', '00000000-0000-0000-0000-00000000221b',
      false, 51)),
-  3, 'a cursor passed alongside a text ordering is ignored, returning the whole batch');
+  4, 'a cursor passed alongside a text ordering is ignored, returning the whole batch');
 
 reset role;
 
