@@ -5,6 +5,7 @@ import {
   describeMovementPromotion,
   hasActiveMovementFilters,
   movementsHref,
+  movementTypeFilter,
   parseMovementCursor,
   parseMovementListState,
 } from '@/app/(app)/inventory/movements/list-params';
@@ -161,10 +162,15 @@ describe('movementsHref / parseMovementListState round trip', () => {
 });
 
 describe('describeMovementActor', () => {
+  // The one catalogue this function can reach, resolved the way a screen
+  // would -- the same shape describeMovementPromotion's own tests use below.
+  const t = (key: string) =>
+    key === 'movementActorDeadline' ? '(deadline)' : key === 'unnamedOperator' ? 'Unnamed operator' : key;
+
   // The case this task exists for: the sweep (0094) runs under pg_cron with
   // no auth.uid(), so it leaves no actor at all.
   it('renders the deadline sweep as "(deadline)" when actorId is null', () => {
-    expect(describeMovementActor(null, null)).toBe('(deadline)');
+    expect(describeMovementActor(null, null, t)).toBe('(deadline)');
   });
 
   // The case review caught once already (Task 6's coalesce onto an email):
@@ -173,13 +179,13 @@ describe('describeMovementActor', () => {
   // "(deadline)" whenever the name were absent) this would wrongly return
   // "(deadline)" here instead of naming an unnamed operator.
   it('renders a human with no display name as an unnamed operator, never "(deadline)"', () => {
-    const result = describeMovementActor('operator-1', null);
+    const result = describeMovementActor('operator-1', null, t);
     expect(result).not.toBe('(deadline)');
     expect(result).toBe('Unnamed operator');
   });
 
   it('renders a named operator by name', () => {
-    expect(describeMovementActor('operator-1', 'Ana Souza')).toBe('Ana Souza');
+    expect(describeMovementActor('operator-1', 'Ana Souza', t)).toBe('Ana Souza');
   });
 
   // The exact defect this task's brief warns against: keying the label off
@@ -188,7 +194,7 @@ describe('describeMovementActor', () => {
   // implementation checked actorName first, this row would wrongly print the
   // name instead.
   it('keys off actorId alone: a null actorId still reads "(deadline)" even if actorName were somehow present', () => {
-    expect(describeMovementActor(null, 'should never be shown')).toBe('(deadline)');
+    expect(describeMovementActor(null, 'should never be shown', t)).toBe('(deadline)');
   });
 });
 
@@ -222,6 +228,31 @@ describe('describeMovementPromotion', () => {
     expect(describeMovementPromotion('promo-1', 'should not show', true, t)).toBe(
       '(archived promotion)',
     );
+  });
+});
+
+// Block 23, Task 8: the Movimentação tab's own type filter hands a single
+// selection to getPrizeMovements' array-shaped `types` parameter. list_movements'
+// own comment on `p_types` (0196) draws a hard line between the two ways to say
+// "nothing selected": `null`/`undefined` means no filter, an EMPTY ARRAY matches
+// NOTHING. This is the exact case a naive `selected ? [selected] : []` would get
+// backwards.
+describe('movementTypeFilter', () => {
+  it('wraps a real movement type in a one-element array', () => {
+    expect(movementTypeFilter('DELIVERY')).toEqual(['DELIVERY']);
+  });
+
+  // The case this function exists for: "no kind chosen" must reach
+  // getPrizeMovements as undefined (no filter), never as [] (matches nothing).
+  it('maps the empty selection to undefined, never to an empty array', () => {
+    expect(movementTypeFilter('')).toBeUndefined();
+  });
+
+  // Hostile input gets the same "widest reading" contract every other parser in
+  // this file carries: a value that is not a real inventory_movement_type is
+  // read as no filter, not as a filter matching nothing.
+  it('falls back to undefined for an unrecognised type, not to an empty array', () => {
+    expect(movementTypeFilter('NOT_A_REAL_TYPE')).toBeUndefined();
   });
 });
 

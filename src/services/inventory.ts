@@ -93,7 +93,43 @@ export interface MovementEntry {
   toBucket: InventoryBucket | null;
   note: string | null;
   actorId: string | null;
+  /**
+   * Null does NOT by itself mean "the clock did it" (list_movements' own
+   * header, 0096): a human operator with no display name on record also has
+   * a null actorName, and actorId is what tells the two apart -- the same
+   * discipline services/movements.ts's describeMovementActor already keys
+   * on for the standalone screen.
+   */
+  actorName: string | null;
   createdAt: string;
+  // Block 23, Task 1's five columns (0193), projected straight through by
+  // list_movements (0196) -- none of the five below are computed.
+  /** The supplier invoice this entry came in on (design D3). Null on anything but an entry. */
+  invoiceNumber: string | null;
+  unitAmount: number | null;
+  totalAmount: number | null;
+  /** The programme this reservation is held for (design D7). Null on anything but a reservation naming one. */
+  reservedForShowId: string | null;
+  /** reservedForShowId's own name, resolved by list_movements (0196) -- never stored. */
+  showName: string | null;
+  /** The movement this one undoes (0193). Null except on a reversal or a reservation release. */
+  reversesMovementId: string | null;
+  /**
+   * Block 23, Task 4: two more values list_movements (0196) DERIVES from a
+   * left join lateral onto the row whose reverses_movement_id names this
+   * one, rather than storing -- 0193's own header states why ("The original
+   * is never updated -- it cannot be, and does not need to be"). Null on a
+   * row that has not been reversed, and on a reversal or a release, neither
+   * of which reverse_movement (0195) can itself undo.
+   */
+  reversedAt: string | null;
+  reversalId: string | null;
+  /**
+   * A RESERVATION's own quantity minus every RESERVATION_RELEASE pointing at
+   * it -- derived by list_movements (0196), never stored. Null on every
+   * movement type but RESERVATION.
+   */
+  remainingQuantity: number | null;
 }
 
 export interface ReconciliationRow {
@@ -370,34 +406,116 @@ export async function archivePrize(prizeId: string, accessToken: string): Promis
   if (error) throw mapInventoryError(error.code, error.message);
 }
 
+/**
+ * A generous single page rather than a paginated read: a prize's own history
+ * is bounded in a way a Station's whole ledger is not (services/movements.ts's
+ * own MOVEMENT_PAGE_SIZE of 25 is a screen's worth for exactly the opposite
+ * reason), and the record dialog has always fetched one prize's whole history
+ * in the one round trip its own comment describes (record.ts).
+ *
+ * This is a cap on ONE call, not on the prize's whole history: `types`
+ * below lets a caller narrow to one kind first and get its own 500 of THAT
+ * kind, rather than 500 of every kind with a tab's own rows sliced out of
+ * whatever survived the cap (fix round 1, I3 — a prize with 500 recent
+ * DRAW/DELIVERY movements was making the Entradas tab render empty while
+ * entries plainly existed).
+ */
+const PRIZE_MOVEMENTS_LIMIT = 500;
+
+export interface PrizeMovementsPage {
+  movements: MovementEntry[];
+  /**
+   * list_movements' own total_count (0096/0196), computed from the SAME
+   * filtered set the rows come from, so a page and its count cannot narrow
+   * differently. What lets a screen say "there are more than the 500 shown"
+   * instead of silently rendering a capped read as if it were complete (fix
+   * round 1, I3).
+   */
+  totalCount: number;
+}
+
+/**
+ * One prize's movement history, scoped by prize_id rather than a second read
+ * path of its own, and optionally narrowed to one or more kinds — Tasks 5–8
+ * pass `types` so each of the Entradas/Saídas/Reservas/Movimentação tabs
+ * asks for its own group of kinds and gets its own PRIZE_MOVEMENTS_LIMIT,
+ * rather than every tab slicing one shared, capped array (fix round 1, I3).
+ *
+ * Through list_movements (0096, widened 0196 for Block 23) rather than a
+ * plain table select — the module's OTHER RPC read, reconcileInventory
+ * below, already establishes the convention: reversed_at/reversal_id/
+ * remaining_quantity/show_name are computed there, by a left join lateral and
+ * a correlated sum, and reimplementing that arithmetic here would be a
+ * second mechanism that can drift, exactly what 0193's own header warns
+ * reverses_movement_id itself was designed to avoid. Read through asCaller,
+ * like every RPC call in this file: list_movements is SECURITY DEFINER and
+ * re-checks has_permission against auth.uid() in its own body, so the
+ * caller's token has to travel, not the cookie session createUserClient()
+ * carries for a plain select.
+ *
+ * `from`/`to` (Block 23, Task 8): the Movimentação tab's own De/Até, forwarded
+ * to `p_from`/`p_to` — parameters list_movements has carried since 0096, never
+ * exercised from this side of the call until now because no caller before
+ * Task 8 needed a per-prize read narrowed by period. Instants, the same shape
+ * services/movements.ts's own `listMovements` already sends the standalone
+ * screen's identical p_from/p_to.
+ */
 export async function getPrizeMovements(
   companyId: string,
   prizeId: string,
-): Promise<MovementEntry[]> {
-  const supabase = await createUserClient();
-  const { data, error } = await supabase
-    .from('inventory_movements')
-    .select('id, movement_type, quantity, from_bucket, to_bucket, note, actor_id, created_at')
-    .eq('company_id', companyId)
-    .eq('prize_id', prizeId)
-    .order('created_at', { ascending: false });
+  accessToken: string,
+  types?: InventoryMovementType[],
+  from?: string,
+  to?: string,
+): Promise<PrizeMovementsPage> {
+  const { data, error } = await asCaller(accessToken).rpc('list_movements', {
+    p_company_id: companyId,
+    p_prize_id: prizeId,
+    p_limit: PRIZE_MOVEMENTS_LIMIT,
+    p_types: types,
+    p_from: from,
+    p_to: to,
+  });
 
   // The ledger IS the feature on the prize detail screen ("why does this say
   // 47" is the question it exists to answer) — a discarded error here would
   // render a blank history that looks like an uneventful prize rather than a
-  // failed read.
-  if (error) throw new InternalError(`Could not read the movement history: ${error.message}`);
+  // failed read. Routed through mapInventoryError (fix round 1, I2) rather
+  // than a raw InternalError: this used to be a plain table select, where a
+  // caller who had lost inventory.view simply saw RLS return zero rows —
+  // now it is a SECURITY DEFINER RPC that RAISES 42501 for exactly that
+  // caller, and mapInventoryError already turns that into the
+  // UnauthorizedError this deserves instead of a generic 500 that hides
+  // which of the two actually happened.
+  if (error) throw mapInventoryError(error.code, error.message);
 
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    movementType: row.movement_type,
-    quantity: row.quantity,
-    fromBucket: row.from_bucket,
-    toBucket: row.to_bucket,
-    note: row.note,
-    actorId: row.actor_id,
-    createdAt: row.created_at,
-  }));
+  const rows = data ?? [];
+  return {
+    movements: rows.map((row) => ({
+      id: row.movement_id,
+      movementType: row.movement_type,
+      quantity: row.quantity,
+      fromBucket: row.from_bucket,
+      toBucket: row.to_bucket,
+      note: row.note,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      createdAt: row.created_at,
+      invoiceNumber: row.invoice_number,
+      unitAmount: row.unit_amount,
+      totalAmount: row.total_amount,
+      reservedForShowId: row.reserved_for_show_id,
+      showName: row.show_name,
+      reversesMovementId: row.reverses_movement_id,
+      reversedAt: row.reversed_at,
+      reversalId: row.reversal_id,
+      remainingQuantity: row.remaining_quantity,
+    })),
+    // The same fallback services/movements.ts's own listMovements uses for
+    // the identical shape: no rows means no total_count to read off any of
+    // them, and zero is the honest reading of an empty filtered set.
+    totalCount: rows[0]?.total_count ?? 0,
+  };
 }
 
 export async function createPrizeCategory(
@@ -457,6 +575,9 @@ export async function recordStockEntry(
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_invoice_number: input.invoiceNumber,
+    p_unit_amount: input.unitAmount,
+    p_total_amount: input.totalAmount,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('record_stock_entry returned no id');
@@ -472,6 +593,7 @@ export async function recordStockExit(input: StockExitInput, accessToken: string
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_type: input.type,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('record_stock_exit returned no id');
@@ -523,6 +645,7 @@ export async function reserveStock(
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_show_id: input.showId,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('reserve_stock returned no id');
@@ -539,9 +662,41 @@ export async function releaseReservation(
     p_quantity: input.quantity,
     p_note: input.note,
     p_idempotency_key: input.idempotencyKey,
+    p_reservation_id: input.reservationId,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('release_reservation returned no id');
+  return data;
+}
+
+/**
+ * Archives a stock entry or exit by writing its opposite (design D1, 0195) —
+ * the ledger is append-only, so a correction is a second movement, never an
+ * edit. `note` is the operator's own, not invented here: fix round 1 (I1)
+ * removed an earlier version of this function that supplied a fixed English
+ * string ('Archived by the operator') on the caller's behalf. This ledger's
+ * own note column is rendered raw on screen (prize-record-dialog.tsx,
+ * movements-grid.tsx) and the row that carries it can never be edited or
+ * deleted (0026's own grant), so a hard-coded note would have put an
+ * English sentence into a Portuguese- or Spanish-speaking Station's history
+ * permanently — no later translation pass can reach a row already written.
+ * reverse_movement's own p_note is mandatory with no default (0195's own
+ * header explains why: every sibling exit door demands a reason), so this
+ * wrapper's signature says so too, exactly as record_stock_exit/reserve_stock
+ * /release_reservation's own Stock*Input types already require `note`.
+ * Task 6's Arquivar dialog collects it as a required field.
+ */
+export async function reverseMovement(
+  movementId: string,
+  note: string,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('reverse_movement', {
+    p_movement_id: movementId,
+    p_note: note,
+  });
+  if (error) throw mapInventoryError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('reverse_movement returned no id');
   return data;
 }
 

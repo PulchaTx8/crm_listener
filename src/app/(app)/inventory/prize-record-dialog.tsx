@@ -1,28 +1,66 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useActionState, useEffect, useId, useRef, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { ImageUploadField } from '@/components/media/image-upload-field';
-import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
+import type { InventoryMovementType, PrizeCategorySummary, PrizeMovementsPage, PrizeSummary } from '@/services/inventory';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
 // a value out of a client module. See src/lib/record-params.ts.
 import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
-import { updatePrizeAction, type PrizeSaveState } from './actions';
+import { fromZonedDay } from '../promotions/zone';
+import { MOVEMENT_TYPE_LABEL_KEYS } from './format';
+import { MOVEMENT_TYPES, movementTypeFilter } from './movements/list-params';
+import { getPrizeMovementsAction, updatePrizeAction, type PrizeSaveState } from './actions';
 import { getPrizeRecordAction, type PrizeRecord } from './record';
 import { BalanceStats } from './balance-stats';
-import { AdjustmentForm } from './adjustment-form';
-import { ReleaseForm, ReserveForm } from './reservation-forms';
-import { StockEntryForm } from './stock-entry-form';
-import { StockExitForm } from './stock-exit-form';
-import { formatBucket, formatDateTime, MOVEMENT_TYPE_LABEL_KEYS } from './format';
+import { MovementHistory } from './movement-history';
+import { EntriesTab } from './entries-tab';
+import { ExitsTab } from './exits-tab';
+import { ReservationsTab } from './reservations-tab';
 
 // Catalogue keys, not words: a module body has no request behind it.
-const TAB_LABEL_KEYS: Record<PrizeTab, string> = { data: 'prizeData', movements: 'stockMovements' };
+//
+// `movements` keeps the pre-existing `stockMovements` label ("Stock
+// movements") rather than a new key: it is still what this tab shows —
+// Movimentação, the one unified history (design D10) — only the four forms
+// that used to sit above it (D8) are gone.
+const TAB_LABEL_KEYS: Record<PrizeTab, string> = {
+  data: 'prizeData',
+  entries: 'stockEntries',
+  exits: 'stockExits',
+  reservations: 'stockReservations',
+  movements: 'stockMovements',
+};
+
+/**
+ * Whether a Consultar submission on Movimentação actually narrowed anything,
+ * as opposed to merely having been pressed — the fix-round finding that a
+ * caller who filters, clears all three fields and presses Consultar again
+ * must read the same as the tab's own opening view, never as "no movement
+ * matches these filters" on a prize that simply has no history. The same
+ * distinction `hasActiveMovementFilters` (movements/list-params.ts) draws
+ * for the standalone screen's own filter bar.
+ *
+ * `types`/`from`/`to` are `undefined` for "nothing chosen"
+ * (`movementTypeFilter`/`fromZonedDay`'s own contracts state this), so this
+ * is `true` exactly when at least one of the three carried something.
+ * Exported and tested as a pure function (tests/unit/prize-record-dialog.test.ts)
+ * rather than only through the component, the same reasoning
+ * `promotion-record-dialog.tsx`'s own `nextRecordAfterFailedRead` gives for
+ * its own extraction.
+ */
+export function isMovementFilterApplied(
+  types: InventoryMovementType[] | undefined,
+  from: string | undefined,
+  to: string | undefined,
+): boolean {
+  return types !== undefined || from !== undefined || to !== undefined;
+}
 
 export interface PrizeRecordPowers {
   catalogue: boolean;
@@ -36,7 +74,7 @@ const INITIAL_SAVE: PrizeSaveState = { status: 'idle' };
 
 /**
  * One prize's whole record over the inventory list. Same shape as the audience
- * record and for the same reason: one read per opening, both tabs rendered
+ * record and for the same reason: one read per opening, every tab rendered
  * from it, so nothing here can re-run the list query behind the dialog.
  */
 export function PrizeRecordDialog({
@@ -44,6 +82,8 @@ export function PrizeRecordDialog({
   tab,
   categories,
   powers,
+  canLinkPromotion,
+  timeZone,
   onTab,
   onClose,
   onSaved,
@@ -53,6 +93,17 @@ export function PrizeRecordDialog({
   tab: PrizeTab;
   categories: PrizeCategorySummary[];
   powers: PrizeRecordPowers;
+  /**
+   * promotions.prizes (fix round 1) — not one of `powers`' five inventory
+   * codes, so it travels as its own prop rather than widening that interface
+   * to a permission outside the domain it names. Gates whether Reservas'
+   * own Tipo list offers "Vincular promoção" at all (station-access.ts's
+   * own comment on `canLinkPromotion` says why a courtesy hide, not a
+   * disabled option, is the right call here).
+   */
+  canLinkPromotion: boolean;
+  /** The Station's own zone (spec §7) — passed down to MovementHistory so a movement's date renders in the zone it actually happened in, not the reader's. */
+  timeZone: string;
   onTab: (tab: PrizeTab) => void;
   onClose: () => void;
   onSaved: (prize: PrizeSummary) => void;
@@ -118,14 +169,18 @@ export function PrizeRecordDialog({
   }, [recordId, reloadToken]);
 
   /**
-   * Re-reads this one prize after a movement recorded inside the dialog, so the
-   * ledger and the balance above it show what was just written.
+   * Re-reads this one prize after a movement recorded or reversed inside the
+   * dialog, so the ledger and the balance above it show what was just
+   * written. Task 5's own comment on this file named the shape Tasks 6/7
+   * would need — bump `reloadToken`, set `movementPending.current` — and this
+   * is that: `onRecorded` on both EntriesTab and ExitsTab (Task 6) and, once
+   * Task 7 lands, ReservasTab as well.
    *
-   * The detail page these forms used to live on got that from
-   * revalidatePath('/inventory/[prizeId]'); that route is gone (Task 10) and
-   * the list route must never be revalidated (the rule this block rests on), so
-   * the record refreshes itself — one server action for one id, with nothing
-   * about the list behind the dialog re-rendered or re-queried.
+   * The detail page these forms used to live on got the same effect from
+   * `revalidatePath('/inventory/[prizeId]')`; that route is gone (Task 10)
+   * and the list route must never be revalidated (the rule this block rests
+   * on), so the record refreshes itself — one server action for one id, with
+   * nothing about the list behind the dialog re-rendered or re-queried.
    */
   function refreshAfterMovement() {
     movementPending.current = true;
@@ -207,72 +262,57 @@ export function PrizeRecordDialog({
               </div>
             )}
 
-            {tab === 'movements' && (
-              <div className="flex flex-col gap-6">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {powers.entry && (
-                    <StockEntryForm
-                      companyId={record.companyId}
-                      prizeId={record.prize.id}
-                      onRecorded={refreshAfterMovement}
-                    />
-                  )}
-                  {powers.exit && (
-                    <StockExitForm
-                      companyId={record.companyId}
-                      prizeId={record.prize.id}
-                      onRecorded={refreshAfterMovement}
-                    />
-                  )}
-                  {powers.adjust && (
-                    <AdjustmentForm
-                      companyId={record.companyId}
-                      prizeId={record.prize.id}
-                      balance={record.prize.balance}
-                      onRecorded={refreshAfterMovement}
-                    />
-                  )}
-                  {powers.reserve && (
-                    <>
-                      <ReserveForm
-                        companyId={record.companyId}
-                        prizeId={record.prize.id}
-                        onRecorded={refreshAfterMovement}
-                      />
-                      <ReleaseForm
-                        companyId={record.companyId}
-                        prizeId={record.prize.id}
-                        onRecorded={refreshAfterMovement}
-                      />
-                    </>
-                  )}
-                </div>
+            {tab === 'entries' && (
+              <EntriesTab
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                balance={record.prize.balance}
+                page={record.entries}
+                timeZone={timeZone}
+                canEnter={powers.entry}
+                canAdjust={powers.adjust}
+                onRecorded={refreshAfterMovement}
+              />
+            )}
 
-                <ul className="flex flex-col gap-2 text-sm">
-                  {record.movements.map((movement) => (
-                    <li key={movement.id} data-testid="movement-row" className="rounded-md border p-3">
-                      <span className="font-medium">{t(MOVEMENT_TYPE_LABEL_KEYS[movement.movementType])}</span>
-                      {' · '}
-                      {/* Both ends of the transition, always — formatBucket
-                          renders a null bucket as "outside the Station" (0026's
-                          own column comment), which is the whole reason it
-                          takes null at all. Skipping the null end, as this did
-                          when the ledger moved into the dialog, left a stock
-                          entry reading "50 · to Available" with nowhere named
-                          for the stock to have come from. */}
-                      {movement.quantity} {t('unitS')}{' '}{formatBucket(movement.fromBucket, t)} →{' '}
-                      {formatBucket(movement.toBucket, t)}
-                      <span className="block text-xs text-muted-foreground">
-                        {formatDateTime(movement.createdAt)}
-                        {movement.note ? ` — ${movement.note}` : ''}
-                      </span>
-                    </li>
-                  ))}
-                  {record.movements.length === 0 && (
-                    <li className="text-sm text-muted-foreground">{t('thisPrizeHasNeverMoved')}</li>
-                  )}
-                </ul>
-              </div>
+            {tab === 'exits' && (
+              <ExitsTab
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                balance={record.prize.balance}
+                page={record.exits}
+                timeZone={timeZone}
+                canExit={powers.exit}
+                canAdjust={powers.adjust}
+                onRecorded={refreshAfterMovement}
+              />
+            )}
+
+            {tab === 'reservations' && (
+              <ReservationsTab
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                page={record.reservations}
+                timeZone={timeZone}
+                shows={record.shows}
+                promotions={record.promotions}
+                canReserve={powers.reserve}
+                canLinkPromotion={canLinkPromotion}
+                onRecorded={refreshAfterMovement}
+              />
+            )}
+
+            {tab === 'movements' && (
+              // Movimentação never gets a form of its own (design D8/D10):
+              // this unfiltered history — every kind, newest first — IS the
+              // finished tab. Task 8 adds De/Até and a type filter above it;
+              // it does not add writing.
+              <MovementsTabPanel
+                companyId={record.companyId}
+                prizeId={record.prize.id}
+                page={record.movements}
+                timeZone={timeZone}
+              />
             )}
           </>
         )}
@@ -283,6 +323,217 @@ export function PrizeRecordDialog({
           {t('close')}</Button>
       </DialogFooter>
     </Dialog>
+  );
+}
+
+/**
+ * The frame Movimentação still uses: its own filtered history
+ * (`MovementHistory`), with a notice above it when `list_movements`' own cap
+ * (`PRIZE_MOVEMENTS_LIMIT`, 500 per call) has truncated what that tab's own
+ * read returned.
+ *
+ * `totalCount` is the count of the FILTERED set, from the same read the rows
+ * came from (services/inventory.ts's own comment on `PrizeMovementsPage`) —
+ * comparing it against the rows actually on hand is what tells a cut history
+ * apart from a complete one, rather than letting the list simply end with no
+ * word on whether that was everything.
+ *
+ * Kept in this file rather than folded into `MovementHistory` itself:
+ * `MovementHistory`'s four props are the exact shape Task 5's own "Produces"
+ * line commits Tasks 6–8 to calling it with, and a fifth prop here would be a
+ * signature none of them asked for. `onReverse` is not wired here — Task 6
+ * offers archiving on Entradas/Saídas through their own tab components
+ * (`entries-tab.tsx`/`exits-tab.tsx`), each with its own copy of this same
+ * truncation-notice-plus-history frame, and Task 7 gives Reservas the same
+ * treatment in `reservations-tab.tsx` for its own Release action — so
+ * `movements` (Movimentação, which never offers a write of its own, D8/D10)
+ * is the only tab still rendered through this panel.
+ *
+ * Task 8 adds De/Até and a type filter (design D10), gated behind a
+ * Consultar button rather than applying as the operator types — deliberately
+ * unlike every other filter this codebase has (movements-filters.tsx's own
+ * header comment on the standalone `/inventory/movements` screen states the
+ * identical reasoning for its own copy of these same three controls): a
+ * period is typed in two halves, and re-running the read after De alone,
+ * before Até has even been touched, is a wasted round trip and a list that
+ * visibly narrows twice under the operator's hands.
+ *
+ * Consultar calls `getPrizeMovementsAction` directly (actions.ts) for a fresh,
+ * narrower `PrizeMovementsPage`, rather than filtering `page.movements`
+ * client-side: `page` is already `PRIZE_MOVEMENTS_LIMIT`-capped and
+ * unfiltered, so a client-side filter over it could never tell "nothing
+ * matches" apart from "something matches, past the 500 already loaded" —
+ * and it would leave the truncation notice above comparing the FILTERED
+ * `shown.movements` against the UNFILTERED `page.totalCount`, two different
+ * questions dressed as one number. Asking the server again keeps `totalCount`
+ * what it has always been here — the count of the SAME filtered set the rows
+ * came from — so the notice stays honest for whichever filter is active
+ * without this component needing to know that.
+ *
+ * `filtered` is `null` until the first Consultar returns; `shown` falls back
+ * to the unfiltered `page` prop until then, which is what keeps this tab
+ * looking exactly as it did before Task 8 when nobody has touched the
+ * filter. `page` changing identity — a write on Entradas/Saídas/Reservas
+ * reloading the whole record — resets `filtered` (and the drafts) back to
+ * that same starting point: a Consultar result is a read against one
+ * snapshot of this prize's ledger, and letting it linger after the ledger
+ * itself just changed would show a "filtered" view the operator never asked
+ * for against data that is no longer what they saw when they asked.
+ */
+function MovementsTabPanel({
+  companyId,
+  prizeId,
+  page,
+  timeZone,
+}: {
+  companyId: string;
+  prizeId: string;
+  page: PrizeMovementsPage;
+  timeZone: string;
+}) {
+  const t = useTranslations('inventory');
+  const [draftType, setDraftType] = useState('');
+  const [draftFrom, setDraftFrom] = useState('');
+  const [draftTo, setDraftTo] = useState('');
+  const [filtered, setFiltered] = useState<PrizeMovementsPage | null>(null);
+  // Whether the LAST Consultar that produced `filtered` actually narrowed
+  // anything — kept apart from "has Consultar been clicked" (`filtered !==
+  // null`) on purpose. An operator who filters, clears all three fields and
+  // presses Consultar again gets a fresh, unfiltered read back: `filtered`
+  // is non-null (there was a click), but nothing was asked to narrow it, so
+  // the empty state below must read the same as the tab's own opening view,
+  // not as "no movement matches these filters" on a prize that simply has no
+  // history.
+  const [filterApplied, setFilterApplied] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * Which `page` this tab's own Consultar is answering — the same `let
+   * current = true` guard the record read above (:139-165) uses, adapted
+   * from an effect's cleanup to an event handler's own async gap:
+   * `getPrizeMovementsAction` can resolve AFTER `page` has already moved on
+   * (a write on another tab reloading the whole record), and applying that
+   * response then would put a pre-write snapshot into `filtered`,
+   * overwriting the fresh, unfiltered page the effect below has already
+   * reset this tab to. Bumped whenever `page` changes; `handleConsult`
+   * captures the value at the start of its own request and checks it again
+   * before touching state.
+   */
+  const pageGeneration = useRef(0);
+
+  useEffect(() => {
+    pageGeneration.current += 1;
+    setDraftType('');
+    setDraftFrom('');
+    setDraftTo('');
+    setFiltered(null);
+    setFilterApplied(false);
+    setError(null);
+  }, [page]);
+
+  async function handleConsult(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const generation = pageGeneration.current;
+    setPending(true);
+    setError(null);
+    const types = movementTypeFilter(draftType);
+    const from = fromZonedDay(draftFrom, timeZone, false);
+    const to = fromZonedDay(draftTo, timeZone, true);
+    const result = await getPrizeMovementsAction(companyId, prizeId, { types, from, to });
+    // `pending` is THIS request's own flag, and it comes down unconditionally
+    // -- before the staleness check below, not inside either branch of it.
+    // The `[page]` effect above already clears the drafts, `filtered`,
+    // `filterApplied` and `error` for a new page, but it fires on the page
+    // change itself, not on this request's own resolution; a version that
+    // only cleared `pending` on the non-stale path left Consultar (the tab's
+    // only control) disabled reading "loading" for the life of the panel in
+    // exactly the race this guard exists for, with no later response ever
+    // due to clear it (a fix-round finding).
+    setPending(false);
+    // page moved on while this request was in flight -- a re-read from a
+    // write elsewhere in the record already reset this tab, and that reset
+    // is what stands, not this now-stale response.
+    if (pageGeneration.current !== generation) return;
+    if (result.status === 'ok') {
+      setFiltered(result.page);
+      setFilterApplied(isMovementFilterApplied(types, from, to));
+    } else {
+      setError(result.message);
+    }
+  }
+
+  const shown = filtered ?? page;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <form
+        onSubmit={handleConsult}
+        className="flex flex-wrap items-end gap-3"
+        data-testid="movements-tab-filters"
+      >
+        <label className="flex w-52 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('type')}</span>
+          <Select
+            value={draftType}
+            onChange={(event) => setDraftType(event.target.value)}
+            data-testid="movements-tab-type-filter"
+          >
+            <option value="">{t('everyMovementType')}</option>
+            {MOVEMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(MOVEMENT_TYPE_LABEL_KEYS[type])}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <label className="flex w-40 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('periodFrom')}</span>
+          <Input
+            type="date"
+            value={draftFrom}
+            onChange={(event) => setDraftFrom(event.target.value)}
+            aria-label={t('showMovementsRecordedOnOrAfter')}
+            data-testid="movements-tab-from-filter"
+          />
+        </label>
+
+        <label className="flex w-40 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('periodTo')}</span>
+          <Input
+            type="date"
+            value={draftTo}
+            onChange={(event) => setDraftTo(event.target.value)}
+            aria-label={t('showMovementsRecordedOnOrBefore')}
+            data-testid="movements-tab-to-filter"
+          />
+        </label>
+
+        <Button type="submit" disabled={pending} data-testid="movements-tab-consult">
+          {pending ? t('loading') : t('consult')}
+        </Button>
+      </form>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {shown.totalCount > shown.movements.length && (
+        <p className="text-xs text-muted-foreground" data-testid="movements-truncated">
+          {t('showingOfTotalMovements', { shown: shown.movements.length, total: shown.totalCount })}
+        </p>
+      )}
+      <MovementHistory
+        movements={shown.movements}
+        timeZone={timeZone}
+        // A filter that narrowed the read to nothing reads differently from
+        // a prize that has never moved at all — noMovementMatchesTheseFilters
+        // is the same key movements-grid.tsx already shows the standalone
+        // screen's own empty state with, reused here rather than a second
+        // wording of the identical fact. Keyed on `filterApplied`, not on
+        // `filtered !== null`: a Consultar pressed with every field blank did
+        // narrow nothing, and must not claim it did.
+        emptyMessage={filterApplied ? t('noMovementMatchesTheseFilters') : t('noMovementsOfThisKind')}
+      />
+    </div>
   );
 }
 

@@ -173,6 +173,26 @@ const REQUIRED_TEST_FILES = [
   // sides of the grant.
   { path: 'tests/isolation/draw.test.ts', minTests: 11 },
   { path: 'tests/isolation/inventory.test.ts', minTests: 19 },
+  // Block 23, Task 3. `reverse_movement` (0195) is the one door in the
+  // inventory family that takes a movement id and NO Station, so there is no
+  // p_company_id for a caller to be scoped against and its entire tenant
+  // boundary is the has_permission call inside its own body, resolved from the
+  // movement's own company_id. 52_inventory_tabs.test.sql asserts what the door
+  // refuses and what arithmetic it writes, and cannot assert this — pgTAP runs
+  // as superuser with a null auth.uid(), where has_permission answers true
+  // unconditionally and RLS never applies, the reason every other entry in this
+  // manifest gives.
+  //
+  // Three cases, and the floor is the full count because each proves a
+  // different half of the gate. The second is the one that matters: a delegate
+  // holding inventory.entry in Station A, holding inventory.view in Station B
+  // (so it genuinely CAN read the row), handed a Station B movement id — and
+  // refused, with the same client still reversing at home as the control that
+  // makes the refusal scope rather than a broken grant. The third is the other
+  // axis: inventory.exit does not confer inventory.entry, proved with the same
+  // client succeeding on an exit and failing on an entry, so a door that
+  // refused everybody scores identically on one half and red on the other.
+  { path: 'tests/isolation/inventory-reversal.test.ts', minTests: 3 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
   { path: 'tests/isolation/members.test.ts', minTests: 21 },
@@ -307,6 +327,19 @@ const REQUIRED_TEST_FILES = [
   // commits, and pgTAP rolls every file back -- which is exactly how a version
   // that deleted nothing at all stayed green.
   { path: 'tests/isolation/retention.test.ts', minTests: 3 },
+  // Block 11b: the stamping, CALLED. pgTAP cannot -- it wraps every file in a
+  // transaction it rolls back, and a routine that COMMITS raises inside one,
+  // which is how the first retention sweep shipped deleting nothing with every
+  // pgTAP assertion green. A direct Postgres connection can call it, the same
+  // way pg_cron does. Present on disk without an entry here until this fix
+  // round -- the exact gap this manifest exists to close, found on itself.
+  { path: 'tests/isolation/job-health.test.ts', minTests: 2 },
+  // Block 12a: the interface language a person may set is their own, and only
+  // their own. 27_profile_locale.test.sql asserts the grant exists; only this
+  // file can assert the POLICY, since pgTAP runs as superuser with a null
+  // auth.uid() and never exercises RLS. Also present on disk without an entry
+  // here until this fix round.
+  { path: 'tests/isolation/profile-locale.test.ts', minTests: 3 },
   { path: 'tests/isolation/audit.test.ts', minTests: 7 },
   { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },

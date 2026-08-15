@@ -71,7 +71,22 @@
 export const PROMOTION_TABS = ['data', 'whatsapp', 'quiz', 'prizes', 'participations'] as const;
 export type PromotionTab = (typeof PROMOTION_TABS)[number];
 
-export const PRIZE_TABS = ['data', 'movements'] as const;
+/**
+ * Five since Block 23, where the record had two: the record itself, and a
+ * Movements tab where four forms sat above one undifferentiated ledger
+ * (design spec §1). Split so each kind of movement reads on its own —
+ * `entries` and `exits` appended after `data`, `reservations` after them,
+ * and `movements` kept last and legal so a link already pointing at it still
+ * resolves to what is now the unified Movimentação view (spec §7, D10)
+ * rather than a tab that no longer exists.
+ *
+ * `data` stays first — the tab an unknown `tab=` falls back to and a record
+ * opens on — so no existing link changes meaning. APPEND, never insert: the
+ * comment above this tuple's siblings in this file states the same rule, and
+ * PROMOTION_TABS's own comment explains exactly what inserting instead once
+ * cost.
+ */
+export const PRIZE_TABS = ['data', 'entries', 'exits', 'reservations', 'movements'] as const;
 export type PrizeTab = (typeof PRIZE_TABS)[number];
 
 export const MEMBER_TABS = ['data', 'stations', 'consents', 'notes', 'blocks'] as const;

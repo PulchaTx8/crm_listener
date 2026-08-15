@@ -52,6 +52,8 @@ export function InventoryGrid({
   nextHref,
   categories,
   powers,
+  canLinkPromotion,
+  timeZone,
   initialRecord,
 }: {
   initialRows: PrizeSummary[];
@@ -61,6 +63,14 @@ export function InventoryGrid({
   nextHref: string | null;
   categories: PrizeCategorySummary[];
   powers: InventoryGridPowers;
+  /**
+   * promotions.prizes (fix round 1), threaded straight through to
+   * PrizeRecordDialog/ReservationsTab — not part of `powers` above, because
+   * it is not one of the five inventory codes that interface names.
+   */
+  canLinkPromotion: boolean;
+  /** The selected Station's own zone — threaded to PrizeRecordDialog, whose movement histories render every date in it rather than the reader's own (spec §7). */
+  timeZone: string;
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
   const t = useTranslations('inventory');
@@ -218,6 +228,8 @@ export function InventoryGrid({
         tab={(tab as PrizeTab) ?? 'data'}
         categories={categories}
         powers={powers}
+        canLinkPromotion={canLinkPromotion}
+        timeZone={timeZone}
         onTab={setTab}
         onClose={close}
         onSaved={(prize) => setGrid((current) => applyRowPatch(current, { kind: 'save', row: prize }))}

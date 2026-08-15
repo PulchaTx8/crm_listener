@@ -816,13 +816,18 @@ export type Database = {
           from_bucket: Database["public"]["Enums"]["inventory_bucket"] | null
           id: string
           idempotency_key: string | null
+          invoice_number: string | null
           movement_type: Database["public"]["Enums"]["inventory_movement_type"]
           note: string | null
           organization_id: string
           prize_id: string
           promotion_prize_id: string | null
           quantity: number
+          reserved_for_show_id: string | null
+          reverses_movement_id: string | null
           to_bucket: Database["public"]["Enums"]["inventory_bucket"] | null
+          total_amount: number | null
+          unit_amount: number | null
         }
         Insert: {
           actor_id?: string | null
@@ -831,13 +836,18 @@ export type Database = {
           from_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
           id?: string
           idempotency_key?: string | null
+          invoice_number?: string | null
           movement_type: Database["public"]["Enums"]["inventory_movement_type"]
           note?: string | null
           organization_id: string
           prize_id: string
           promotion_prize_id?: string | null
           quantity: number
+          reserved_for_show_id?: string | null
+          reverses_movement_id?: string | null
           to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
+          total_amount?: number | null
+          unit_amount?: number | null
         }
         Update: {
           actor_id?: string | null
@@ -846,13 +856,18 @@ export type Database = {
           from_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
           id?: string
           idempotency_key?: string | null
+          invoice_number?: string | null
           movement_type?: Database["public"]["Enums"]["inventory_movement_type"]
           note?: string | null
           organization_id?: string
           prize_id?: string
           promotion_prize_id?: string | null
           quantity?: number
+          reserved_for_show_id?: string | null
+          reverses_movement_id?: string | null
           to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
+          total_amount?: number | null
+          unit_amount?: number | null
         }
         Relationships: [
           {
@@ -882,6 +897,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "promotion_prizes"
             referencedColumns: ["id", "prize_id", "company_id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_reversal_company_fk"
+            columns: ["reverses_movement_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_movements"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_show_company_fk"
+            columns: ["reserved_for_show_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "shows"
+            referencedColumns: ["id", "company_id"]
           },
         ]
       }
@@ -3699,12 +3728,17 @@ export type Database = {
           p_company_id: string
           p_from: Database["public"]["Enums"]["inventory_bucket"]
           p_idempotency_key: string
+          p_invoice_number?: string
           p_note: string
           p_prize_id: string
           p_promotion_prize_id?: string
           p_quantity: number
+          p_reverses?: string
+          p_show_id?: string
           p_to: Database["public"]["Enums"]["inventory_bucket"]
+          p_total_amount?: number
           p_type: Database["public"]["Enums"]["inventory_movement_type"]
+          p_unit_amount?: number
         }
         Returns: string
       }
@@ -4513,6 +4547,7 @@ export type Database = {
           p_promotion_id?: string
           p_to?: string
           p_type?: Database["public"]["Enums"]["inventory_movement_type"]
+          p_types?: Database["public"]["Enums"]["inventory_movement_type"][]
           p_walking_back?: boolean
         }
         Returns: {
@@ -4520,6 +4555,7 @@ export type Database = {
           actor_name: string
           created_at: string
           from_bucket: Database["public"]["Enums"]["inventory_bucket"]
+          invoice_number: string
           movement_id: string
           movement_type: Database["public"]["Enums"]["inventory_movement_type"]
           note: string
@@ -4529,8 +4565,16 @@ export type Database = {
           promotion_id: string
           promotion_name: string
           quantity: number
+          remaining_quantity: number
+          reserved_for_show_id: string
+          reversal_id: string
+          reversed_at: string
+          reverses_movement_id: string
+          show_name: string
           to_bucket: Database["public"]["Enums"]["inventory_bucket"]
+          total_amount: number
           total_count: number
+          unit_amount: number
         }[]
       }
       list_music_requests: {
@@ -4849,10 +4893,13 @@ export type Database = {
         Args: {
           p_company_id: string
           p_idempotency_key?: string
+          p_invoice_number?: string
           p_note?: string
           p_prize_id: string
           p_quantity: number
+          p_total_amount?: number
           p_type: Database["public"]["Enums"]["inventory_movement_type"]
+          p_unit_amount?: number
         }
         Returns: string
       }
@@ -4863,6 +4910,7 @@ export type Database = {
           p_note: string
           p_prize_id: string
           p_quantity: number
+          p_type?: Database["public"]["Enums"]["inventory_movement_type"]
         }
         Returns: string
       }
@@ -4902,6 +4950,7 @@ export type Database = {
           p_note: string
           p_prize_id: string
           p_quantity: number
+          p_reservation_id?: string
         }
         Returns: string
       }
@@ -5048,6 +5097,7 @@ export type Database = {
           p_note: string
           p_prize_id: string
           p_quantity: number
+          p_show_id?: string
         }
         Returns: string
       }
@@ -5132,6 +5182,10 @@ export type Database = {
         Returns: number
       }
       reveal_request_phone: { Args: { p_request_id: string }; Returns: string }
+      reverse_movement: {
+        Args: { p_movement_id: string; p_note: string }
+        Returns: string
+      }
       revoke_api_credential: {
         Args: { p_credential_id: string }
         Returns: undefined
@@ -5551,6 +5605,8 @@ export type Database = {
         | "RETURN_PENDING_CANCEL"
         | "RETURN_TO_STOCK"
         | "WRITE_OFF"
+        | "BARTER_ENTRY"
+        | "TRANSFER_EXIT"
       invitation_status: "pending" | "accepted" | "revoked"
       member_block_kind: "draw_ban" | "suspension"
       member_consent_type:
@@ -5790,6 +5846,8 @@ export const Constants = {
         "RETURN_PENDING_CANCEL",
         "RETURN_TO_STOCK",
         "WRITE_OFF",
+        "BARTER_ENTRY",
+        "TRANSFER_EXIT",
       ],
       invitation_status: ["pending", "accepted", "revoked"],
       member_block_kind: ["draw_ban", "suspension"],

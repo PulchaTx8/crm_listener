@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
+import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
 import { fromZonedDay, toZonedDate } from '../../promotions/zone';
 import { MOVEMENT_TYPE_LABEL_KEYS } from '../format';
@@ -34,11 +36,27 @@ export interface MovementPromotionOption {
  * without one), and it has to: a cursor is a position in one ordering of one
  * result set.
  *
- * No debounce anywhere here, unlike pickups-filters.tsx and participations-
- * filters.tsx: both of those carry one for a free-text search box, and this
- * screen has none — type, prize and promotion are all plain selects and the
- * two date fields are `<input type="date">`, none of which fires on every
- * keystroke the way a search box does.
+ * Prize and Promotion still navigate on every change, no debounce, for the
+ * reason this file's header always gave: both are plain selects, and neither
+ * fires on every keystroke the way a search box does.
+ *
+ * Type, De and Até (Block 23, Task 8, design D10) do NOT navigate on change —
+ * they are typed into a `<form>` of their own and committed only when
+ * Consultar is submitted. This is deliberate, and it is the one filter bar in
+ * this codebase that works this way on purpose: a period is typed in two
+ * halves (De, then Até), and applying the filter after De alone is both a
+ * wasted read and a list that visibly narrows and then narrows again under
+ * the operator's hands before they have finished saying what they meant. The
+ * Movimentação tab (prize-record-dialog.tsx) shares this exact reasoning for
+ * its own copy of these same three controls — see that file's header comment
+ * for why it could not simply reuse this component outright (this one edits
+ * a URL; that one edits local state over an in-memory read).
+ *
+ * `<form className="contents">`: the three fields and the Consultar button
+ * stay direct children of the same flex-wrap row every other control here
+ * sits in — `display: contents` removes the form's own box from layout
+ * without giving up a single native submit boundary (Enter in De or Até
+ * submits it, exactly like clicking Consultar).
  *
  * There is no sort control anywhere on this screen, and that is deliberate
  * rather than missing: listMovements orders by (created_at, movement_id)
@@ -68,27 +86,76 @@ export function MovementsFilters({
     router.replace(movementsHref({ ...state, ...next }) as Route);
   }
 
+  // Draft values for Type/De/Até: typed here and committed to the URL only on
+  // Consultar. Re-synced from `state` whenever it changes for a reason other
+  // than this form's own submit — Clear filters, a Station switch, a
+  // pagination link — so the fields never go on showing a draft the operator
+  // typed a moment ago once the URL (the actual truth this screen reads) has
+  // moved on without it.
+  const [draftType, setDraftType] = useState(state.type ?? '');
+  const [draftFrom, setDraftFrom] = useState(() => toZonedDate(state.from, timeZone));
+  const [draftTo, setDraftTo] = useState(() => toZonedDate(state.to, timeZone));
+
+  useEffect(() => {
+    setDraftType(state.type ?? '');
+    setDraftFrom(toZonedDate(state.from, timeZone));
+    setDraftTo(toZonedDate(state.to, timeZone));
+  }, [state.type, state.from, state.to, timeZone]);
+
+  function handleConsult(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    navigate({
+      type: (draftType || undefined) as MovementListState['type'],
+      from: fromZonedDay(draftFrom, timeZone, false),
+      to: fromZonedDay(draftTo, timeZone, true),
+    });
+  }
+
   return (
     <div className="flex flex-wrap items-end gap-3" data-testid="movements-filters">
-      <label className="flex w-52 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('type')}</span>
-        <Select
-          value={state.type ?? ''}
-          onChange={(event) =>
-            navigate({
-              type: (event.target.value || undefined) as MovementListState['type'],
-            })
-          }
-          data-testid="movement-type-filter"
-        >
-          <option value="">{t('anyType')}</option>
-          {MOVEMENT_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {t(MOVEMENT_TYPE_LABEL_KEYS[type])}
-            </option>
-          ))}
-        </Select>
-      </label>
+      <form onSubmit={handleConsult} className="contents">
+        <label className="flex w-52 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('type')}</span>
+          <Select
+            value={draftType}
+            onChange={(event) => setDraftType(event.target.value)}
+            data-testid="movement-type-filter"
+          >
+            <option value="">{t('everyMovementType')}</option>
+            {MOVEMENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(MOVEMENT_TYPE_LABEL_KEYS[type])}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <label className="flex w-44 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('periodFrom')}</span>
+          <Input
+            type="date"
+            value={draftFrom}
+            onChange={(event) => setDraftFrom(event.target.value)}
+            aria-label={t('showMovementsRecordedOnOrAfter')}
+            data-testid="movement-from-filter"
+          />
+        </label>
+
+        <label className="flex w-44 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('periodTo')}</span>
+          <Input
+            type="date"
+            value={draftTo}
+            onChange={(event) => setDraftTo(event.target.value)}
+            aria-label={t('showMovementsRecordedOnOrBefore')}
+            data-testid="movement-to-filter"
+          />
+        </label>
+
+        <Button type="submit" data-testid="movements-consult">
+          {t('consult')}
+        </Button>
+      </form>
 
       <label className="flex w-56 flex-col gap-1 text-sm">
         <span className="text-muted-foreground">{t('prize')}</span>
@@ -120,28 +187,6 @@ export function MovementsFilters({
             </option>
           ))}
         </Select>
-      </label>
-
-      <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('from')}</span>
-        <Input
-          type="date"
-          value={toZonedDate(state.from, timeZone)}
-          onChange={(event) => navigate({ from: fromZonedDay(event.target.value, timeZone, false) })}
-          aria-label={t('showMovementsRecordedOnOrAfter')}
-          data-testid="movement-from-filter"
-        />
-      </label>
-
-      <label className="flex w-44 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">To</span>
-        <Input
-          type="date"
-          value={toZonedDate(state.to, timeZone)}
-          onChange={(event) => navigate({ to: fromZonedDay(event.target.value, timeZone, true) })}
-          aria-label={t('showMovementsRecordedOnOrBefore')}
-          data-testid="movement-to-filter"
-        />
       </label>
 
       {hasActiveMovementFilters(state) && (

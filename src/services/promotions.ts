@@ -22,6 +22,7 @@ import { readImageDimensions } from '@/lib/security/image-dimensions';
 import { ARTWORK_BUCKET, artworkKey, artworkPublicUrl } from '@/lib/storage/artwork-keys';
 import type { ArtworkSlot } from '@/lib/storage/artwork-keys';
 import type { Database } from '@/lib/supabase/database.types';
+import { situationOf } from '@/lib/promotion-situation';
 import type { PromotionSituation } from '@/lib/promotion-situation';
 // The promotion record carries the fifth tab's two counts, so it reads them
 // through the participations service rather than writing a second count query
@@ -794,6 +795,53 @@ export async function listLinkablePrizes(
     })),
     hasMore: rows.length > LINKABLE_PRIZE_PAGE_SIZE,
   };
+}
+
+export interface LinkablePromotion {
+  id: string;
+  name: string;
+}
+
+/**
+ * Promotions a prize can still be linked to from its OWN record (Block 23's
+ * Reservas tab, "Vincular promoção"): scheduled or live, in `situationOf`'s
+ * own words (@/lib/promotion-situation) — the SAME pure function the
+ * promotions list's badge and its own situation filter are pinned to,
+ * reused here rather than a second, ad hoc copy of the boundary rule its own
+ * header already warns a third copy would be. Neither an ended promotion
+ * (its window is closed) nor a cancelled one belongs in this picker, though
+ * link_prize_to_promotion (0049) re-checks both regardless of what this list
+ * offers.
+ *
+ * A plain select rather than listPromotionsPage's own paginated one: that
+ * function's `situation` param takes exactly one of the four values, and
+ * this picker needs two of them at once — a combination its own switch has
+ * no branch for. No search, no cursor, no cap: a Station's live-and-upcoming
+ * promotions are the same small, self-limiting set listPrizeCategories reads
+ * whole for the identical reason.
+ */
+export async function listLinkablePromotions(companyId: string): Promise<LinkablePromotion[]> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('promotions')
+    .select('id, name, starts_at, ends_at, cancelled_at')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .order('name');
+
+  if (error) throw new InternalError(`Could not read promotions: ${error.message}`);
+
+  const now = new Date();
+  return (data ?? [])
+    .filter((row) => {
+      const situation = situationOf(
+        { startsAt: row.starts_at, endsAt: row.ends_at, cancelledAt: row.cancelled_at },
+        now,
+      );
+      return situation === 'scheduled' || situation === 'live';
+    })
+    .map((row) => ({ id: row.id, name: row.name }));
 }
 
 export async function linkPrizeToPromotion(

@@ -32,7 +32,18 @@ export const MOVEMENT_TYPE_LABEL_KEYS: Record<InventoryMovementType, string> = {
   INITIAL_ENTRY: 'initialEntry',
   PURCHASE_ENTRY: 'purchase',
   MANUAL_ENTRY: 'manualEntry',
+  // BARTER_ENTRY and TRANSFER_EXIT (0192, Block 23, design D4) were missing
+  // the day the enum values landed, the same gap RETURN_PENDING_CANCEL's own
+  // comment below already names -- this Record is checked against the
+  // generated type, and the generated type had not been regenerated since.
+  // `barter` and `sentToAnotherStation` name what the movement WAS (a
+  // history label, past tense), never to be confused with `exitTransfer`
+  // (Task 5/6's own key, "Send to another station" -- a form's Tipo option,
+  // imperative): the two catalogues serve different grammatical moments and
+  // Portuguese/Spanish only happen to spell both the same way.
+  BARTER_ENTRY: 'barter',
   MANUAL_EXIT: 'manualExit',
+  TRANSFER_EXIT: 'sentToAnotherStation',
   ADJUSTMENT_POSITIVE: 'adjustmentIncrease',
   ADJUSTMENT_NEGATIVE: 'adjustmentDecrease',
   RESERVATION: 'reservation',
@@ -53,6 +64,39 @@ export const MOVEMENT_TYPE_LABEL_KEYS: Record<InventoryMovementType, string> = {
   RETURN_TO_STOCK: 'returnedToStock',
   WRITE_OFF: 'writtenOff',
 };
+
+/**
+ * Block 23's four tabs, and which of `InventoryMovementType`'s values belongs
+ * to each (design spec §7). `record.ts` passes these to `getPrizeMovements`'s
+ * own `types` filter, one array per tab; `movement-history.tsx` reads the
+ * first two again to decide whether a row's own Arquivar action is legal —
+ * the same three arrays rather than two copies of the same classification,
+ * which is exactly the kind of pair this codebase's own record-params.ts
+ * comment warns drifts apart when it is kept in two places by hand.
+ *
+ * `RESERVATION_MOVEMENT_TYPES` includes `PROMOTION_LINK`/`PROMOTION_UNLINK`:
+ * "Vincular Promoção" (Task 7, D6) writes a `PROMOTION_LINK` through the
+ * Promotions screen's own door, and its history belongs beside the
+ * reservations it stands beside on the owner's own screen, not folded into
+ * Movimentação alone.
+ *
+ * `movements` (Movimentação) has no array of its own here: `getPrizeMovements`
+ * is called for it with `types` omitted entirely, which is what makes it the
+ * one unified view (D10) rather than "every type not claimed above".
+ */
+export const ENTRY_MOVEMENT_TYPES: InventoryMovementType[] = [
+  'INITIAL_ENTRY',
+  'PURCHASE_ENTRY',
+  'MANUAL_ENTRY',
+  'BARTER_ENTRY',
+];
+export const EXIT_MOVEMENT_TYPES: InventoryMovementType[] = ['MANUAL_EXIT', 'TRANSFER_EXIT'];
+export const RESERVATION_MOVEMENT_TYPES: InventoryMovementType[] = [
+  'RESERVATION',
+  'RESERVATION_RELEASE',
+  'PROMOTION_LINK',
+  'PROMOTION_UNLINK',
+];
 
 /**
  * available + reserved + linked + awaiting_pickup + pending_return — the five

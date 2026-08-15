@@ -3,7 +3,13 @@
 import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { prizeFormSchema, prizeUpdateSchema, movementFormSchema } from '@/schemas/inventory';
+import {
+  prizeFormSchema,
+  prizeUpdateSchema,
+  movementFormSchema,
+  reverseMovementSchema,
+} from '@/schemas/inventory';
+import { promotionPrizeLinkSchema } from '@/schemas/promotions';
 import {
   adjustStock,
   archivePrize,
@@ -11,17 +17,26 @@ import {
   createPrize,
   createPrizeCategory,
   getPrizeById,
+  getPrizeMovements,
   reconcileInventory,
   recordStockEntry,
   recordStockExit,
   releaseReservation,
   reserveStock,
+  reverseMovement,
   updatePrize,
   uploadPrizePhoto,
 } from '@/services/inventory';
-import type { PrizeSummary, ReconciliationRow } from '@/services/inventory';
+import type { InventoryMovementType, PrizeMovementsPage, PrizeSummary, ReconciliationRow } from '@/services/inventory';
+// The promotion-link door itself (design D6): "Vincular promoção" calls the
+// SAME linkPrizeToPromotion the Promotions screen's own prizes-tab.tsx calls
+// (src/app/(app)/promotions/actions.ts's linkPrizeAction) — it takes a
+// promotion id AND a prize id as flat, independent parameters rather than a
+// promotion as its sole subject, so calling it from a PRIZE's own record is
+// exactly as sensible as calling it from a promotion's. Not a second door.
+import { linkPrizeToPromotion } from '@/services/promotions';
 import { logger } from '@/lib/logger';
-import { describeInventoryWriteError } from './errors';
+import { describeInventoryReadError, describeInventoryWriteError } from './errors';
 
 // ---------------------------------------------------------------------------
 // Not one revalidatePath in this file, deliberately (Block 3c) — the same rule
@@ -195,6 +210,18 @@ export interface MovementFormState {
   message?: string;
 }
 
+/**
+ * `unitAmount`/`totalAmount` are optional numeric fields (movementFormSchema's
+ * own `optionalAmount`): an empty string from a number input has to read as
+ * "not given", never as the number 0 — `Number('')` is 0 in JavaScript, which
+ * would silently record a zero-value invoice line for every entry the
+ * operator left blank rather than omitting the figure entirely.
+ */
+function parseOptionalAmount(value: FormDataEntryValue | null): number | null {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed === '' ? null : Number(trimmed);
+}
+
 export async function recordStockEntryAction(
   _prev: MovementFormState,
   formData: FormData,
@@ -206,6 +233,9 @@ export async function recordStockEntryAction(
     entryType: formData.get('entryType'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note') || null,
+    invoiceNumber: formData.get('invoiceNumber') || null,
+    unitAmount: parseOptionalAmount(formData.get('unitAmount')),
+    totalAmount: parseOptionalAmount(formData.get('totalAmount')),
   });
 
   if (!parsed.success) {
@@ -235,6 +265,7 @@ export async function recordStockExitAction(
     prizeId: formData.get('prizeId'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note'),
+    type: formData.get('type') || undefined,
   });
 
   if (!parsed.success) {
@@ -313,6 +344,12 @@ export async function reserveStockAction(
     prizeId: formData.get('prizeId'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note'),
+    // "Vincular programa" (Task 7): reservation-forms.tsx only renders this
+    // field for that Tipo, so a plain "Reservar" submission arrives with the
+    // field absent — `|| null` reads that as the door's own anonymous hold
+    // (movementFormSchema's optionalUuid, which reserve_stock's own p_show_id
+    // already treats as "no owner").
+    showId: formData.get('showId') || null,
   });
 
   if (!parsed.success) {
@@ -342,6 +379,16 @@ export async function releaseReservationAction(
     prizeId: formData.get('prizeId'),
     quantity: Number(formData.get('quantity')),
     note: formData.get('note'),
+    // Task 7 brief, note 1: release_reservation's own remaining-quantity
+    // arithmetic is gated on `p_reservation_id`, and a call omitting it
+    // over-releases freely — that compatibility shape (optionalUuid on the
+    // schema, `default null` on the RPC) exists only for callers that
+    // predate D5. This screen's own ReleaseForm (reservation-forms.tsx)
+    // always carries this as a hidden field naming the reservation it is
+    // releasing, so `|| null` here is read from formData for the same
+    // uniform reason every other field on this call is, never as a
+    // deliberate anonymous-release path this door offers.
+    reservationId: formData.get('reservationId') || null,
   });
 
   if (!parsed.success) {
@@ -360,6 +407,149 @@ export async function releaseReservationAction(
     return {
       status: 'error',
       message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionReleaseAReservation'),
+    };
+  }
+}
+
+/**
+ * "Vincular promoção" (Reservas tab, Task 7, design D6): the SAME door
+ * promotions/actions.ts's linkPrizeAction calls, parsed with the SAME
+ * promotionPrizeLinkSchema that door's own form posts against — not a
+ * movementFormSchema variant, because this is not a movement-ledger form at
+ * all on this side of the call; it is the promotion-prize link, reached from
+ * the prize's own record instead of the promotion's. `note` is deliberately
+ * absent (link_prize_to_promotion's own comment, 0049: "the link itself
+ * names the promotion, which is the explanation an exit or a reservation
+ * lacks"), matching the Promotions screen's own LinkForm, which collects
+ * none either.
+ */
+export async function linkPrizeToPromotionAction(
+  _prev: MovementFormState,
+  formData: FormData,
+): Promise<MovementFormState> {
+  const parsed = promotionPrizeLinkSchema.safeParse({
+    promotionId: formData.get('promotionId'),
+    prizeId: formData.get('prizeId'),
+    quantity: Number(formData.get('quantity')),
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await linkPrizeToPromotion(parsed.data, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error(
+      { err: cause, prizeId: parsed.data.prizeId, promotionId: parsed.data.promotionId },
+      'link prize to promotion failed',
+    );
+    return {
+      status: 'error',
+      message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionLinkAPrizeToAPromotion'),
+    };
+  }
+}
+
+// listReservationTargetsAction (Task 7) lived here — a second Server Action
+// dispatch, called directly from a `useEffect` in reservations-tab.tsx.
+// Removed in a Task 9 follow-up: record.ts's own header states the reasoning
+// at length, but in short, a Server Action dispatched from an effect on a
+// tab that has just been switched to can land inside the window
+// `useRecordDialog.setTab`'s `history.replaceState` opens (`use-record-dialog.ts:89`)
+// and never run. The two reads it made (`listReservableShows`,
+// `listLinkablePromotions`) now travel inside `getPrizeRecordAction`'s own
+// round trip instead, so Reservas dispatches nothing of its own for a tab
+// switch to ever race.
+
+export interface MovementsFilterInput {
+  types?: InventoryMovementType[];
+  from?: string;
+  to?: string;
+}
+
+/**
+ * The Movimentação tab's own Consultar (Block 23, Task 8): a fresh,
+ * narrower `getPrizeMovements` read, called directly with an argument
+ * rather than posted as a form — the same shape `listReservationTargetsAction`
+ * above uses for the same reason, and it runs once per Consultar click
+ * rather than per keystroke, which is the whole point of gating it behind a
+ * button instead of firing on every change (the tab's own header comment on
+ * `MovementsTabPanel` in prize-record-dialog.tsx says why).
+ *
+ * Deliberately its OWN round trip rather than re-running the whole-record
+ * `getPrizeRecordAction`: that call fetches the prize, its balance and all
+ * FOUR movement histories in one `Promise.all` for the dialog's initial
+ * open, and re-running all of that on every Consultar click would refetch
+ * three histories and a balance nothing here changed, just to narrow the
+ * fourth.
+ */
+export async function getPrizeMovementsAction(
+  companyId: string,
+  prizeId: string,
+  filter: MovementsFilterInput,
+): Promise<{ status: 'ok'; page: PrizeMovementsPage } | { status: 'error'; message: string }> {
+  const token = await requireAccessToken();
+
+  try {
+    const page = await getPrizeMovements(companyId, prizeId, token, filter.types, filter.from, filter.to);
+    return { status: 'ok', page };
+  } catch (cause) {
+    logger.error({ err: cause, companyId, prizeId }, 'could not read the filtered movement history');
+    return { status: 'error', message: describeInventoryReadError(cause, await getTranslations('inventory')) };
+  }
+}
+
+export type ReverseMovementState =
+  | { status: 'idle' }
+  | { status: 'saved' }
+  | { status: 'error'; message: string };
+
+/**
+ * The single door behind every Arquivar button (Task 6, design spec §5/D1):
+ * archives an entry or an exit by writing its opposite through
+ * reverse_movement (0195). Gated on the ORIGINAL movement's own permission
+ * (entry or exit), never a separate inventory.reverse code — the same
+ * borrowing reverse_movement's own body does, so this action needs no
+ * permission check of its own beyond what the RPC re-checks.
+ *
+ * The reason is REQUIRED (Task 6 brief, note 1): reverse_movement refuses a
+ * blank p_note with 22023 exactly as record_stock_exit/reserve_stock/
+ * release_reservation already do, and reversalReason/reversalReasonHint's
+ * dialog is what collects it — never invented here.
+ *
+ * A ValidationError's message passes through describeInventoryWriteError
+ * verbatim, which matters more here than on any of its siblings: the refusal
+ * this door hits in practice is "the stock is no longer there to take back"
+ * (spec §5), and that message names the shortfall — the whole point of
+ * showing it at all.
+ */
+export async function reverseMovementAction(
+  _prev: ReverseMovementState,
+  formData: FormData,
+): Promise<ReverseMovementState> {
+  const parsed = reverseMovementSchema.safeParse({
+    movementId: formData.get('movementId'),
+    note: formData.get('note'),
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    await reverseMovement(parsed.data.movementId, parsed.data.note, token);
+    return { status: 'saved' };
+  } catch (cause) {
+    logger.error({ err: cause, movementId: parsed.data.movementId }, 'reverse movement failed');
+    return {
+      status: 'error',
+      message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionArchiveMovement'),
     };
   }
 }

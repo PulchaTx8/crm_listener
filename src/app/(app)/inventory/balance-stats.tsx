@@ -23,12 +23,12 @@ export function BalanceStats({ balance, compact }: { balance: PrizeBalance; comp
             : 'flex flex-wrap gap-x-8 gap-y-3 text-sm'
         }
       >
-        <Stat label={t('available')} value={balance.available} />
-        <Stat label={t('reserved')} value={balance.reserved} />
-        <Stat label={t('linked')} value={balance.linked} />
-        <Stat label={t('awaitingPickup')} value={balance.awaitingPickup} />
-        <Stat label={t('pendingReturn')} value={balance.pendingReturn} />
-        <Stat label={t('physicalTotal')} value={physical} emphasize />
+        <Stat label={t('available')} value={balance.available} testId="balance-available" />
+        <Stat label={t('reserved')} value={balance.reserved} testId="balance-reserved" />
+        <Stat label={t('linked')} value={balance.linked} testId="balance-linked" />
+        <Stat label={t('awaitingPickup')} value={balance.awaitingPickup} testId="balance-awaiting-pickup" />
+        <Stat label={t('pendingReturn')} value={balance.pendingReturn} testId="balance-pending-return" />
+        <Stat label={t('physicalTotal')} value={physical} emphasize testId="balance-physical-total" />
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-1 border-t pt-2 text-xs text-muted-foreground">
         <span>{t('deliveredCumulativeOutsidePhysicalStock')}{' '}{balance.delivered}</span>
@@ -42,15 +42,20 @@ function Stat({
   label,
   value,
   emphasize,
+  testId,
 }: {
   label: string;
   value: number;
   emphasize?: boolean;
+  /** The bucket's own value, with nothing else in it — so a test can read the figure without matching the translated label beside it. */
+  testId: string;
 }) {
   return (
     <span className="flex flex-col">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={emphasize ? 'text-base font-semibold' : ''}>{value}</span>
+      <span className={emphasize ? 'text-base font-semibold' : ''} data-testid={testId}>
+        {value}
+      </span>
     </span>
   );
 }
