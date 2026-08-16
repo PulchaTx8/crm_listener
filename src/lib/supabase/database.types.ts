@@ -2213,6 +2213,7 @@ export type Database = {
           locale: string | null
           must_change_password: boolean
           provisional_expires_at: string | null
+          theme: string | null
           updated_at: string
         }
         Insert: {
@@ -2224,6 +2225,7 @@ export type Database = {
           locale?: string | null
           must_change_password?: boolean
           provisional_expires_at?: string | null
+          theme?: string | null
           updated_at?: string
         }
         Update: {
@@ -2235,6 +2237,7 @@ export type Database = {
           locale?: string | null
           must_change_password?: boolean
           provisional_expires_at?: string | null
+          theme?: string | null
           updated_at?: string
         }
         Relationships: []
