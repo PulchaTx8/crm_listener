@@ -104,14 +104,30 @@ exactly the same values. Drift becomes impossible rather than unlikely. This is
 not a new idea here: `tests/unit/brand-tokens.test.ts` already parses this file
 and converts its HSL to assert a hex.
 
-**D4 — The middleware decides the theme; the layout only stamps it.** The
-middleware computes the resolved theme for a signed-in caller and passes it on a
-request header. `src/app/layout.tsx` reads that header and stamps the class —
-and stamps nothing when the header is absent.
+**D4 — The middleware says whether a route may be themed; the COOKIE says which
+theme.** `src/app/layout.tsx` reads both and stamps the class.
 
-One decision in one place, rather than splitting "what is the theme" and "may
-this route have one" across two files. It also means the widget and the public
-pages need no code: they are the routes the middleware never sets the header for.
+**AMENDED DURING IMPLEMENTATION, and the original is left here because the
+correction is the interesting part.** This decision first read "the middleware
+computes the resolved theme and passes it on a header; the layout only stamps
+it" — one decision in one place, which sounded better than what it did.
+
+The end-to-end suite found the flaw on its first run. A header carrying the VALUE
+is computed while the middleware runs, which is *before* the Server Action that
+changes it. So picking Dark wrote the cookie, revalidated the layout, and
+repainted it with the theme the request had arrived with: the choice landed one
+navigation late, every time. The cookie has no such lag — `cookies()` inside a
+revalidated render sees what the action just wrote, which is exactly why the
+locale has never had this problem.
+
+So the split is by *what each layer can actually answer*. The middleware knows
+the path, and nothing else does: it sets `x-theme-scope: app` for panel routes
+and never for the widget or a public page (D7, D8). The cookie knows the value,
+and is current. The layout reads the scope, then resolves the value.
+
+It also came out cheaper: the scope is computed from the path before anything
+async, so every response the middleware builds already carries it and no extra
+rebuild is needed.
 
 **D5 — The `UPDATE` grant on `profiles` is per COLUMN, and that is the line this
 block fails silently without.** `0006` grants `update (full_name)` and nothing
@@ -246,34 +262,35 @@ variant must be correct for whoever writes the next one.
 `localeCookieUpdate`, in the same block, for the same reason its comment already
 gives: that row was loaded anyway.
 
-The resolved theme goes onto the forwarded request headers as `x-theme`. Absent
-means System. The widget branch returns before any of this and therefore never
-sets it (D7).
+`x-theme-scope` goes onto the forwarded request headers for every panel route,
+computed from the path before anything async — so it needs no response rebuild of
+its own, and the widget and the public pages are simply the paths it is never set
+for (D7, D8).
 
 **THE HEADER IS DELETED BEFORE IT IS SET, ON EVERY REQUEST, AND THAT LINE IS NOT
 DEFENSIVE PADDING.** `forwarded()` builds its headers from
 `new Headers(request.headers)` — the CLIENT's headers, copied. So a request
-arriving with an `x-theme: dark` header of its own would carry it straight
+arriving with an `x-theme-scope` header of its own would carry it straight
 through to the layout on every route the middleware does not overwrite it for:
 the widget, and every public page. D7's whole structural guarantee would be
-undone by a header anybody can send, and `curl -H 'x-theme: dark'` is the entire
-exploit.
+undone by a header anybody can send.
 
 It is a cosmetic hole rather than a dangerous one — the worst outcome is somebody
 rendering their own widget dark — but it is the exact shape of the mistake this
-design was chosen to avoid, so `forwarded()` deletes `x-theme` unconditionally
-and the panel branch sets it afterwards. The e2e sends the header deliberately
+design was chosen to avoid, so `forwarded()` deletes `x-theme-scope`
+unconditionally and sets it again only for a panel path. The e2e sends the header deliberately
 and asserts the widget still carries no class.
 
 This is a general property of the helper rather than a fact about this block: any
 future header the middleware forwards inward as a trusted value has the same
-hole, and `x-theme` is simply the first one. The nonce and the CSP above it are
+hole, and `x-theme-scope` is simply the first one. The nonce and the CSP above it are
 already `set` (which overwrites) rather than merged, so neither is affected.
 
 ### 5.5 `src/app/layout.tsx`
 
-Reads `x-theme` and stamps `className` on `<html>`. Absent or unrecognised stamps
-nothing. Three lines, and the only place in the product that writes the class.
+Reads `x-theme-scope` to learn whether this route may be themed, then resolves
+the value from the `theme` cookie. Absent or unrecognised stamps nothing. The
+only place in the product that writes the class.
 
 ### 5.6 The menu, and the fifty-eight colours
 
@@ -320,8 +337,8 @@ Included in the sweep is the `text-emerald-700` this author added to
 - **e2e** — choosing Dark stamps the class and survives a reload; the same person
   in a FRESH browser context finds their theme, which is the profile half and the
   thing `localStorage` could not do; choosing System removes the class; and
-  **`/w/<key>` carries no class with a dark cookie AND a hand-sent `x-theme:
-  dark` header deliberately present** — the two ways D7 could be undone, asserted
+  **`/w/<key>` carries no class with a dark cookie AND a hand-sent
+  `x-theme-scope: app` header deliberately present** — the two ways D7 could be undone, asserted
   together.
 - **The suites that must not regress** — `language.spec.ts` (the menu it drives
   is renamed under it), `brand-tokens.test.ts` (it parses the file §5.2

@@ -1,7 +1,7 @@
 import { getLocale, getTranslations } from 'next-intl/server';
-import { headers } from 'next/headers';
+import { cookies } from 'next/headers';
 import { AVAILABLE_LOCALES, isLocale, DEFAULT_LOCALE, type Locale } from '@/i18n/locales';
-import { isTheme, THEME_CHOICES, THEME_HEADER, type ThemeChoice } from '@/lib/theme/theme';
+import { resolveTheme, THEME_CHOICES, THEME_COOKIE, type ThemeChoice } from '@/lib/theme/theme';
 import { setLocaleAction } from '@/app/(app)/locale-actions';
 import { setThemeAction } from '@/app/(app)/theme-actions';
 
@@ -51,15 +51,18 @@ export async function SettingsMenu() {
   const [raw, t] = await Promise.all([getLocale(), getTranslations('shell')]);
   const current: Locale = isLocale(raw) ? raw : DEFAULT_LOCALE;
 
-  // The same header the root layout stamps the class from, read again rather
+  // The same cookie the root layout stamps the class from, read again rather
   // than passed down: this component is rendered by the shell, which does not
-  // know it, and a prop threaded through two layers to say what one header
+  // know it, and a prop threaded through two layers to say what one cookie
   // already says is a second copy of the same fact.
+  //
+  // No scope check here, unlike the layout: this menu only exists inside the
+  // signed-in shell, so the route is a panel route by construction.
   //
   // Absent is System — the state a person who has never opened this menu is
   // already in, which is why it is the first row rather than the last.
-  const themeHeader = (await headers()).get(THEME_HEADER);
-  const currentTheme: ThemeChoice = isTheme(themeHeader) ? themeHeader : 'system';
+  const currentTheme: ThemeChoice =
+    resolveTheme({ cookie: (await cookies()).get(THEME_COOKIE)?.value }) ?? 'system';
 
   return (
     <details className="relative" data-testid="locale-menu">

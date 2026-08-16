@@ -11,13 +11,33 @@
 export type Theme = 'light' | 'dark';
 
 /**
- * The browser's memory of the choice, and the header the middleware hands the
- * renderer. Named here so the middleware, the Server Action and the root layout
- * cannot come to spell either of them differently — the failure would be a theme
- * that saves and never appears, with nothing raising.
+ * The browser's memory of the choice. Named here so the middleware, the Server
+ * Action and the root layout cannot come to spell it differently — the failure
+ * would be a theme that saves and never appears, with nothing raising.
  */
 export const THEME_COOKIE = 'theme';
-export const THEME_HEADER = 'x-theme';
+
+/**
+ * What the middleware tells the renderer, and it is NOT the theme.
+ *
+ * IT CARRIES THE SCOPE — "this route may have a theme at all" — and the layout
+ * reads the VALUE from the cookie. That split is a correction rather than a
+ * preference, and the end-to-end suite is what found it: a header carrying the
+ * value is computed while the middleware runs, which is BEFORE the Server Action
+ * that changes it. So picking Dark wrote the cookie, revalidated the layout, and
+ * repainted it with the theme the request had arrived with — the choice landed
+ * one navigation late, every time.
+ *
+ * The cookie has no such lag: `cookies()` inside a revalidated render sees what
+ * the action just wrote, which is exactly why the locale has never had this
+ * problem.
+ *
+ * So the middleware answers the question only it can answer — is this a panel
+ * route, rather than the widget or a public page (D7, D8) — and the cookie
+ * answers the one it cannot.
+ */
+export const THEME_SCOPE_HEADER = 'x-theme-scope';
+export const THEME_SCOPE = 'app';
 
 /** What can be CHOSEN. The extra member is the whole distance between the two guards. */
 export type ThemeChoice = Theme | 'system';

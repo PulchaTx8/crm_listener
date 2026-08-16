@@ -10,8 +10,7 @@ import {
   WIDGET_PRESENTATION_COOKIE,
 } from '@/lib/widget/presentation';
 import { localeCookieUpdate } from '@/i18n/locales';
-import { resolveTheme, themeCookieUpdate, THEME_COOKIE, THEME_HEADER } from '@/lib/theme/theme';
-import type { Theme } from '@/lib/theme/theme';
+import { themeCookieUpdate, THEME_COOKIE, THEME_SCOPE, THEME_SCOPE_HEADER } from '@/lib/theme/theme';
 
 /**
  * Routes reachable without a session. Everything else redirects to /login.
@@ -67,6 +66,22 @@ export async function middleware(request: NextRequest) {
   );
 
   /**
+   * Block 25, D4. Whether this route may carry a theme at all — the one half of
+   * the question only the middleware can answer, and deliberately NOT the theme
+   * itself (THEME_SCOPE_HEADER's own comment has what carrying the value cost).
+   *
+   * Computed FROM THE PATH ALONE, before anything async, which is what lets
+   * every `forwarded()` call below carry the right answer with no extra response
+   * rebuild: the widget returns early with its own policy, the public pages
+   * follow the machine (D8), and everything else is the panel. A non-public path
+   * with no session never renders anyway — it is redirected to /login.
+   */
+  const themeScoped =
+    !WIDGET_PATH.test(request.nextUrl.pathname) &&
+    !PUBLIC_PATHS.includes(request.nextUrl.pathname) &&
+    !request.nextUrl.pathname.startsWith('/invite/');
+
+  /**
    * Snapshotted FRESH on every call, and that is the whole of Block 11b's fix.
    *
    * Supabase's setAll below writes cookies onto `request` and then rebuilds the
@@ -83,16 +98,6 @@ export async function middleware(request: NextRequest) {
    * allowlist -- inert today, since Next takes only the nonce out of it, and a
    * disagreement waiting for the version that takes more.
    */
-  /**
-   * Block 25, D4. The theme this request renders in, or null for System — which
-   * is the absence of a class rather than a value.
-   *
-   * Set only once the caller is known to be a signed-in member standing on a
-   * panel route, which is why it is a mutable binding read by `forwarded` rather
-   * than an argument: every call before that point correctly carries nothing.
-   */
-  let themeHeader: Theme | null = null;
-
   const forwarded = (announced: string = policy) => {
     const headers = new Headers(request.headers);
     headers.set(CSP_NONCE_HEADER, nonce);
@@ -102,11 +107,12 @@ export async function middleware(request: NextRequest) {
      * of D7 rather than defensive padding.
      *
      * The Headers above are built from `new Headers(request.headers)` — the
-     * CLIENT's headers, copied. So a request arriving with an `x-theme: dark`
+     * CLIENT's headers, copied. So a request arriving with an `x-theme-scope`
      * header of its own would carry it straight through to the root layout on
      * every route this middleware does not overwrite it for: the widget, and
-     * every public page. `curl -H 'x-theme: dark'` is the entire exploit, and
-     * what it buys is a widget on somebody's radio station rendered dark.
+     * every public page. `curl -H 'x-theme-scope: app'` is the entire exploit,
+     * and what it buys is a widget on somebody's radio station obeying a theme
+     * cookie it was supposed to ignore.
      *
      * Cosmetic rather than dangerous — but it is exactly the shape of mistake
      * this design was chosen to avoid, and "the client cannot reach this because
@@ -114,8 +120,8 @@ export async function middleware(request: NextRequest) {
      * inward as a TRUSTED value needs the same line; the nonce and the policy
      * above are `set` rather than merged, so neither is exposed.
      */
-    headers.delete(THEME_HEADER);
-    if (themeHeader) headers.set(THEME_HEADER, themeHeader);
+    headers.delete(THEME_SCOPE_HEADER);
+    if (themeScoped) headers.set(THEME_SCOPE_HEADER, THEME_SCOPE);
 
     // THIS header, on the REQUEST, is what makes Next stamp the nonce onto its
     // own inline bootstrap scripts. Setting only the response header renders a
@@ -326,11 +332,9 @@ export async function middleware(request: NextRequest) {
    * and it is stored as NULL. Without that, somebody who switched to System on
    * one machine would find the other one still dark for ever.
    *
-   * And the theme is ALSO carried inward as a header, because the cookie alone
-   * cannot say "this route may have a theme at all" — the widget and the public
-   * pages read the same cookie jar and must follow the machine (D7, D8).
-   * `isPublic` is what draws that line, and it is drawn here rather than in the
-   * layout so that one rule lives in one place.
+   * And this sync is the ONLY thing the theme needs from the profile here. What
+   * the renderer reads is the cookie — see THEME_SCOPE_HEADER's comment for why
+   * the header carries the route's scope rather than the value.
    */
   const themeCookie = themeCookieUpdate({
     profile: profile?.theme,
@@ -345,32 +349,19 @@ export async function middleware(request: NextRequest) {
   else if (themeCookie) request.cookies.set(THEME_COOKIE, themeCookie);
 
   /**
-   * AFTER the cookie above has been amended, and the order is the whole
-   * correctness of this line.
-   *
-   * Read before it, `resolveTheme` would see the cookie this request is in the
-   * middle of CLEARING — so somebody who has just switched to System on another
-   * machine would be told `dark` for one more render, on the very request that
-   * takes their old choice away. The cookie is amended, then consulted, and the
-   * two cannot disagree.
-   */
-  if (!isPublic) {
-    themeHeader = resolveTheme({
-      profile: profile?.theme,
-      cookie: request.cookies.get(THEME_COOKIE)?.value,
-    });
-  }
-
-  /**
-   * ONE REBUILD FOR BOTH, and for the header as well.
+   * ONE REBUILD FOR BOTH.
    *
    * `forwarded()` snapshots the request fresh on every call, so the amended
-   * cookies and `themeHeader` above only reach the renderer through a response
-   * built AFTER them — the response standing here was built at the top of this
-   * function, before any of it was known. Two separate rebuilds, one per
-   * concern, would throw the first one away.
+   * cookies above only reach the renderer through a response built AFTER them —
+   * the response standing here was built at the top of this function, before
+   * either was known. Two separate rebuilds, one per concern, would throw the
+   * first one away.
+   *
+   * The theme's SCOPE header needs no rebuild of its own: it is computed from
+   * the path before anything async, so the response built at the top already
+   * carries it.
    */
-  if (cookieLocale || themeCookie || themeHeader) {
+  if (cookieLocale || themeCookie) {
     // Rebuilding the response is what carries the amended request headers
     // forward, so the cookies already on it have to be carried across the
     // rebuild -- the session refresh lives there.

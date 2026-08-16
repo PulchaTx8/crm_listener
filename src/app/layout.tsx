@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getTranslations } from 'next-intl/server';
-import { isTheme, THEME_HEADER } from '@/lib/theme/theme';
+import { cookies } from 'next/headers';
+import { resolveTheme, THEME_COOKIE, THEME_SCOPE_HEADER } from '@/lib/theme/theme';
 import './globals.css';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -18,25 +19,31 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const locale = await getLocale();
 
   /**
-   * Block 25, D4. The ONLY place in the product that writes this class, and it
-   * decides nothing: the middleware resolved the theme and said so on a header,
-   * having already established that this route may have one at all.
+   * Block 25, D4. The ONLY place in the product that writes this class.
+   *
+   * TWO SOURCES, AND EACH ANSWERS THE HALF IT CAN. The middleware says whether
+   * this route may be themed at all — it is the only layer that knows the path,
+   * and the widget and the public pages must follow the machine (D7, D8). The
+   * COOKIE says which theme, because `cookies()` inside a revalidated render sees
+   * what the Server Action just wrote, and a header does not: the middleware ran
+   * before the action did. Reading the value off the header made choosing a theme
+   * land one navigation late, every time, and the e2e is what found it.
    *
    * ABSENT IS AN ANSWER, NOT A GAP. No class means System, and the
    * `prefers-color-scheme` block in globals.css takes over in the browser — with
-   * no script, no hydration step and therefore no flash. That is also what the
-   * widget and every public page get, because the middleware deliberately never
-   * sets the header for them.
+   * no script, no hydration step and therefore no flash.
    *
-   * `isTheme` rather than trusting the string: the header is deleted and rewritten
-   * on every request precisely so a client cannot supply it, and validating what
-   * arrives is the second half of that — what this returns becomes a class name
-   * on the document element.
+   * `resolveTheme` rather than trusting the cookie's string: it is
+   * client-writable, and what this returns becomes a class name on the document
+   * element.
    */
-  const theme = (await headers()).get(THEME_HEADER);
+  const scoped = (await headers()).get(THEME_SCOPE_HEADER) !== null;
+  const theme = scoped
+    ? resolveTheme({ cookie: (await cookies()).get(THEME_COOKIE)?.value })
+    : null;
 
   return (
-    <html lang={locale} className={isTheme(theme) ? theme : undefined}>
+    <html lang={locale} className={theme ?? undefined}>
       <body>
         <NextIntlClientProvider>{children}</NextIntlClientProvider>
       </body>

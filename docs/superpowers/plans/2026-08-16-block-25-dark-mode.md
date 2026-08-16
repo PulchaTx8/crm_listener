@@ -10,8 +10,9 @@ screens need before it can be legible.
 **Architecture:** No JavaScript anywhere in the mechanism. `<html>` carries
 `light`, `dark`, or no class; no class means System and a
 `prefers-color-scheme` media query resolves it at first paint. The middleware
-decides the theme and passes it inward on a request header; the root layout only
-stamps what it is told. Persistence mirrors `locale` exactly: a nullable column
+says on a request header whether a route may be themed at all -- it is the only
+layer that knows the path -- and the cookie says which theme, because it is the
+only one current inside the render the Server Action revalidates. Persistence mirrors `locale` exactly: a nullable column
 on `profiles`, a cookie the renderer reads, and a sync in the middleware's
 existing profile read.
 
@@ -34,10 +35,9 @@ it before Task 1. Decisions are referenced below as D1…D9.
   suite is a gate on this block, not a formality.
 - **The dark tokens exist twice and a unit test holds them identical** (D3).
   Never edit one block without the other; the test is what says so.
-- **`forwarded()` in the middleware must DELETE `x-theme` before setting it.** It
-  copies the client's headers, so a hand-sent `x-theme` would otherwise reach the
-  layout on every route the middleware does not overwrite — undoing D7 with
-  `curl -H`.
+- **`forwarded()` must DELETE `x-theme-scope` before setting it.** It copies the
+  client's headers, so a hand-sent one would otherwise reach the layout on every
+  route the middleware does not overwrite — undoing D7 with `curl -H`.
 - **Code, comments, commit messages and documentation in English.** UI copy goes
   through `next-intl`; every key exists in `messages/en.json`, `pt.json` and
   `es.json` or `tests/unit/i18n/catalogue.test.ts` fails.
@@ -82,8 +82,8 @@ it before Task 1. Decisions are referenced below as D1…D9.
 |---|---|
 | `src/app/globals.css` | `--success`/`--warning` in both palettes; the dark block repeated under the media query; `color-scheme` |
 | `tailwind.config.ts` | `success`/`warning` colours; `darkMode` becomes a two-trigger variant |
-| `src/middleware.ts` | `theme` in the profile select; the cookie sync; `x-theme` deleted then set |
-| `src/app/layout.tsx` | Stamps the class from `x-theme` |
+| `src/middleware.ts` | `theme` in the profile select; the cookie sync; `x-theme-scope` deleted then set |
+| `src/app/layout.tsx` | Reads the scope header, resolves the value from the cookie, stamps the class |
 | `src/components/layout/app-shell.tsx` | Renders `SettingsMenu` |
 | `src/lib/supabase/database.types.ts` | Regenerated |
 | 26 component files | 58 literal colour classes become the four tokens |
@@ -145,17 +145,17 @@ it before Task 1. Decisions are referenced below as D1…D9.
 
 ### Task 4 — The middleware and the layout (D4, D7)
 
-- [ ] `forwarded()` deletes `x-theme` unconditionally, with the comment saying
-      why: it copies the client's headers, and D7 would otherwise fall to
-      `curl -H 'x-theme: dark'`.
+- [ ] `forwarded()` deletes `x-theme-scope` unconditionally, with the comment
+      saying why: it copies the client's headers, and D7 would otherwise fall to
+      `curl -H`.
 - [ ] `theme` joins the existing profile select beside `locale`.
 - [ ] `themeCookieUpdate` runs in the same block as `localeCookieUpdate`, writing
       onto both the request and the response — and CLEARING the cookie when the
       profile says System, which the locale sync has no case for.
 - [ ] The resolved theme is set on the forwarded request headers. The widget
       branch returns before this and must stay that way.
-- [ ] `src/app/layout.tsx` reads `x-theme` and stamps `className`; absent or
-      unrecognised stamps nothing.
+- [ ] `src/app/layout.tsx` reads the scope header, then resolves the value from
+      the cookie; absent or unrecognised stamps nothing.
 - [ ] Commit.
 
 ### Task 5 — The menu (the owner's own instruction)
@@ -193,7 +193,7 @@ it before Task 1. Decisions are referenced below as D1…D9.
       reload → still dark; the same person in a FRESH context finds it (the
       profile half, which `localStorage` could not do); System removes the class;
       and `/w/<key>` carries no class with **a dark cookie AND a hand-sent
-      `x-theme: dark`** both present.
+      `x-theme-scope: app`** both present.
 - [ ] Every gate in order, foreground, long timeout.
 - [ ] Commit, push, open the PR — saying in its body that `0201` is additive and
       safe in both orders, unlike Block 24's.
@@ -203,7 +203,7 @@ it before Task 1. Decisions are referenced below as D1…D9.
 ## Risks
 
 - **The grant forgotten, or added blanket.** D5. The pgTAP asserts both halves.
-- **`x-theme` trusted from the client.** Closed in Task 4 and asserted in Task 7.
+- **`x-theme-scope` trusted from the client.** Closed in Task 4 and asserted in Task 7.
 - **The two dark blocks drifting.** Closed by Task 3's test, which must be
   written before the second block exists.
 - **A `dark:` utility that no longer resolves.** The `darkMode` variant changes
