@@ -116,7 +116,7 @@ describe('prize categories', () => {
     expect(still.data?.name).toBe(`Canecas B ${label}`);
   });
 
-  it('archiving takes the label off the prizes wearing it, and reports how many', async () => {
+  it('refuses to archive while a live prize wears it, and allows it once moved off', async () => {
     const label = `category-archive-${Date.now()}`;
     const customer = await provisionCustomer(label);
     const delegate = await grantRoleWith(customer, label, [
@@ -144,31 +144,53 @@ describe('prize categories', () => {
       prizeIds.push(prize.data as string);
     }
 
-    // A prize in NO category, to prove the door's WHERE narrows to the label
-    // rather than sweeping the Station.
-    const untouched = await client.rpc('create_prize', {
-      p_company_id: customer.companyId,
-      p_name: `Sem categoria ${label}`,
-    });
-    expect(untouched.error).toBeNull();
+    // REFUSED, with the door's own count and remedy in the sentence — which is
+    // what the screen puts in front of the operator, verbatim.
+    const refused = await client.rpc('archive_prize_category', { p_category_id: categoryId });
+    expect(refused.error).not.toBeNull();
+    expect(refused.error!.message).toMatch(/still has 2 live prize\(s\); move them/);
+
+    // A refusal that half-lands is worse than one that does not land at all:
+    // the category is still readable, and both prizes still wear it.
+    const stillThere = await client
+      .from('prize_categories')
+      .select('id')
+      .eq('id', categoryId);
+    expect(stillThere.data).toHaveLength(1);
+    const stillWorn = await client.from('prizes').select('id').eq('category_id', categoryId);
+    expect(stillWorn.data).toHaveLength(2);
+
+    // Moved off one at a time through update_prize, which is the door the
+    // maintenance screen still to be built will drive. Omitting p_category_id
+    // is what clears it — the wholesale-replace convention 0027 records.
+    for (const [index, prizeId] of prizeIds.entries()) {
+      const moved = await client.rpc('update_prize', {
+        p_prize_id: prizeId,
+        p_name: `Camiseta ${index === 0 ? 'P' : 'M'} ${label}`,
+      });
+      expect(moved.error).toBeNull();
+    }
 
     const archived = await client.rpc('archive_prize_category', { p_category_id: categoryId });
     expect(archived.error).toBeNull();
-    // The count the confirmation dialog quotes back to the operator.
-    expect(archived.data).toBe(2);
 
-    const prizes = await client
-      .from('prizes')
-      .select('id,category_id')
-      .in('id', [...prizeIds, untouched.data as string]);
-    expect(prizes.error).toBeNull();
-    expect(prizes.data).toHaveLength(3);
-    for (const row of prizes.data ?? []) expect(row.category_id).toBeNull();
-
-    // The category itself is gone from every ordinary read, not merely filtered
-    // out client-side: 0029's select policy carries `deleted_at is null`.
+    // The category is gone from every ordinary read, not merely filtered out
+    // client-side: 0029's select policy carries `deleted_at is null`.
     const gone = await client.from('prize_categories').select('id').eq('id', categoryId);
     expect(gone.data).toHaveLength(0);
+
+    // And the reader half still refuses it, which is the non-concurrent face of
+    // the `for key share` in create_prize. The RACE that lock exists for cannot
+    // be driven from here at all: every PostgREST call is its own committed
+    // transaction, so there is no way to hold one open across two clients —
+    // 0103's header carries the two-session measurement for the identical pair.
+    const tooLate = await client.rpc('create_prize', {
+      p_company_id: customer.companyId,
+      p_name: `Tarde demais ${label}`,
+      p_category_id: categoryId,
+    });
+    expect(tooLate.error).not.toBeNull();
+    expect(tooLate.error!.message).toMatch(/category not found in this station/);
   });
 
   it('scopes the name to the Station, and frees it again on archive', async () => {
@@ -205,13 +227,11 @@ describe('prize categories', () => {
     });
     expect(elsewhere.error).toBeNull();
 
+    // Nothing wears it, so the refusal does not apply and it retires cleanly.
     const archived = await client.rpc('archive_prize_category', {
       p_category_id: first.data as string,
     });
     expect(archived.error).toBeNull();
-    // Nothing wore it, so nothing was detached — the operator is told that rather
-    // than shown a number they have to interpret.
-    expect(archived.data).toBe(0);
 
     const again = await client.rpc('save_prize_category', {
       p_company_id: customer.companyId,

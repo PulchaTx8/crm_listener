@@ -224,13 +224,12 @@ const REQUIRED_TEST_FILES = [
   // reason every other entry here gives, and its fixtures give the caller one
   // Station.
   //
-  // And the sharper of the two: `archive_prize_category` DETACHING the prizes
-  // that wore the label, and returning how many. That behaviour is the opposite
-  // of archive_vendor's next door (a movement's supplier is history, a category
-  // is a label), it lives in the door's own body and nowhere else, and the number
-  // it returns is quoted straight back to the operator on the screen. An edit
-  // that dropped the update would leave prizes pointing at a row no read can
-  // reach, with every other suite green.
+  // And the sharper of the two: `archive_prize_category` REFUSING while a live
+  // prize still wears the label, and allowing it once update_prize has moved
+  // them off. That rule lives in the door's own body and nowhere else, its
+  // sentence is what the screen shows verbatim, and an edit that dropped the
+  // count would let a category retire out from under prizes that point at it —
+  // unreadable rows on a screen, with every other suite green.
   //
   // The third is not a boundary at all and belongs here anyway: the Prizes column
   // is read through an EMBEDDED AGGREGATE (`prizes(count)`), the first in this

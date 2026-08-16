@@ -39,14 +39,6 @@ export interface PrizeCategoryFormState {
 export interface PrizeCategoryArchiveState {
   status: 'idle' | 'archived' | 'error';
   message?: string;
-  /**
-   * How many prizes actually lost the label. NOT the same number the
-   * confirmation quoted: that one came off the row, which was read when the page
-   * was, and somebody may have moved a prize into this category since. The door
-   * returns what it did, so the line the grid shows afterwards is the truth
-   * rather than the estimate.
-   */
-  detached?: number;
 }
 
 // The idle constants live in the components, NOT here. A module carrying
@@ -120,10 +112,17 @@ export async function savePrizeCategoryAction(
 }
 
 /**
- * The only way a category leaves circulation. There is no delete action in this
- * file, and its absence is the decision: prizes point at a category, so a delete
- * would be refused with 23503 the moment one prize wore it — the operator would
- * read "could not save" about a row they were removing.
+ * The only way a category leaves circulation, and it is REFUSED while any live
+ * prize still wears the label (0203, the owner's ruling of 2026-08-16).
+ *
+ * There is no delete action in this file either, and its absence is the same
+ * decision one step further: prizes point at a category, so a delete would be
+ * refused with 23503 by the foreign key rather than by a sentence.
+ *
+ * A REFUSAL IS NOT AN ERROR TO SMOOTH OVER. `describe` passes a BusinessRuleError
+ * through verbatim, which is what puts the door's own count and remedy — "this
+ * category still has 3 live prize(s); move them to another category first" — in
+ * front of the operator instead of a generic "could not save".
  */
 export async function archivePrizeCategoryAction(
   _previous: PrizeCategoryArchiveState,
@@ -138,13 +137,13 @@ export async function archivePrizeCategoryAction(
   if (!token) return { status: 'error', message: t('couldNotSaveTheCategory') };
 
   try {
-    const detached = await archivePrizeCategory(categoryId, token);
+    await archivePrizeCategory(categoryId, token);
     // NOTHING IS READ BACK, unlike savePrizeCategoryAction, and it cannot be:
     // 0029's select policy filters `deleted_at`, so the row this action just
     // archived is unreadable through RLS the instant it lands. The grid removes
     // the row on this success rather than patching it — which is also what the
     // list should show, since an archived category is not on it.
-    return { status: 'archived', detached };
+    return { status: 'archived' };
   } catch (cause) {
     logger.error({ err: cause, categoryId }, 'archive prize category failed');
     return { status: 'error', message: describe(cause, t) };

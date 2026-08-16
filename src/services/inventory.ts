@@ -65,10 +65,12 @@ export interface PrizeCategorySummary {
    * from, through the embed PostgREST resolves off `prizes.category_id`, so it
    * cannot disagree with the list behind it.
    *
-   * It is also the number the archive confirmation warns about, and it agrees
-   * with what `archive_prize_category` (0202) actually detaches because both
-   * count the same set: 0029's select policy filters `deleted_at is null`, and
-   * so does the door.
+   * It is also what decides whether the screen offers to archive at all:
+   * `archive_prize_category` (0203) refuses while this is above zero, and the
+   * two agree on which prizes count because 0029's select policy filters
+   * `deleted_at is null` and so does the door. A COURTESY, never the boundary —
+   * the row was read when the page was, so somebody may have moved a prize into
+   * this category since, and the door refuses regardless of what this said.
    */
   prizeCount: number;
   createdAt: string;
@@ -754,21 +756,23 @@ export async function savePrizeCategory(
 }
 
 /**
- * Archives a category and returns how many live prizes it took the label off —
- * the number the confirmation dialog quoted before the operator agreed to it.
+ * Archives a category, or refuses.
+ *
+ * `23503` is the refusal that matters and it is NOT an error to smooth over: the
+ * door (0203) declines while any live prize still wears the label, and its
+ * message names both the count and the remedy. `mapInventoryError` turns that
+ * into a BusinessRuleError, which every caller in this codebase passes through
+ * verbatim — the one class of failure where the database's own sentence is the
+ * one the operator needs to read.
  */
 export async function archivePrizeCategory(
   categoryId: string,
   accessToken: string,
-): Promise<number> {
-  const { data, error } = await asCaller(accessToken).rpc('archive_prize_category', {
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('archive_prize_category', {
     p_category_id: categoryId,
   });
   if (error) throw mapInventoryError(error.code, error.message);
-  // A door that answered with something other than a count has changed under
-  // this caller; reporting zero would quietly under-state what it just did.
-  if (typeof data !== 'number') throw new InternalError('archive_prize_category returned no count');
-  return data;
 }
 
 export async function createPrize(input: PrizeFormInput, accessToken: string): Promise<string> {
