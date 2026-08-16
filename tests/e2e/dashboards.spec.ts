@@ -7,24 +7,6 @@ import { provisionCustomer } from './provision';
 import { openNavSection } from './nav';
 
 /**
- * Past the 30s default, for EVERY journey in this file rather than one at a
- * time — they all pay the same cost, so a budget raised one test at a time
- * would only move the failure to the next one, which is what happened while
- * this was being diagnosed.
- *
- * What they pay for: five Stations provisioned in beforeAll, a sign-in and
- * several cross-screen navigations each, and `/dashboards/audience` — the
- * heaviest route in the product at 2654 modules — compiled ON DEMAND, because
- * the suite runs against `next dev` locally. Measured: 1812ms to compile and
- * 5176ms for the first request.
- *
- * CI does not need this and is unharmed by it: playwright.config.ts builds for
- * production there, where every route is compiled before the first request. The
- * budget is a ceiling, not a wait.
- */
-test.describe.configure({ timeout: 120_000 });
-
-/**
  * Block 8a's round trip (Task 10): the branches that live only in the three
  * dashboard pages, which lint and typecheck cannot reach and which the pgTAP
  * suite (20_dashboards.test.sql) and the isolation suite (tests/isolation/
@@ -370,25 +352,9 @@ test('the round trip: a known figure, the period switch that changes it, a rende
   // disclosure), and the selector below is on the LINK, not the heading, so
   // it is still unambiguous either way; it was the SCREEN that was ever the
   // question.
-  //
-  // A GENEROUS TIMEOUT ON THE NAVIGATION, here and at the two sibling call
-  // sites below. Locally the suite runs against `next dev`, which compiles a
-  // route the first time it is asked for, and a client-side navigation sits on
-  // the OLD URL until that RSC payload lands. Measured on the run that made this
-  // necessary: 1812ms to compile 2654 modules and 5176ms for the request,
-  // against toHaveURL's 5000ms default — so the assertion expired 176ms before a
-  // navigation that had already succeeded, with the server log reading
-  // `GET /dashboards/audience 200`.
-  //
-  // CI never sees it: playwright.config.ts builds for production there, where
-  // every route is compiled before the first request. That is exactly what makes
-  // it worth a comment rather than a silent number — it fails on the machine of
-  // whoever is working, and nowhere else. prize-categories.spec.ts and
-  // music-categories.spec.ts carry the same allowance on their own first
-  // navigation, for the same reason.
   await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
-  await expect(page).toHaveURL(/\/dashboards\/audience$/, { timeout: 60_000 });
+  await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
   // The owner reaches all five Stations this file provisions; pin to RT
   // explicitly rather than trust which one sorts first alphabetically.
@@ -410,13 +376,7 @@ test('the round trip: a known figure, the period switch that changes it, a rende
     .getByTestId('period-control')
     .getByRole('link', { name: 'Previous month' })
     .click();
-  // The cold-compile allowance again, and here it matters most: this is a
-  // SERVER re-render of the heaviest route in the product behind a link click,
-  // so until the RSC payload lands the card still shows the previous window's
-  // figure — which is a real number, not an empty box, so the default 5s
-  // assertion fails against stale truth rather than against nothing. Observed
-  // exactly that: twelve polls, every one reading the current month's 3.
-  await expect(listenersCard.locator('p').nth(1)).toHaveText('0', { timeout: 60_000 });
+  await expect(listenersCard.locator('p').nth(1)).toHaveText('0');
 
   // Nothing above this line would have failed in Block 11a's broken run either
   // -- it failed by TIMING OUT, silently. This is the assertion that names a
@@ -435,8 +395,7 @@ test('a caller missing participations.view sees the permission named beside real
 
   await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
-  // The cold-compile allowance the first call site explains at length.
-  await expect(page).toHaveURL(/\/dashboards\/audience$/, { timeout: 60_000 });
+  await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
   // A real number for a card this role's members.view genuinely supports.
   const listenersCard = page.getByTestId('dashboard-card-listeners');
@@ -511,8 +470,7 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
 
   await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
-  // The cold-compile allowance the first call site explains at length.
-  await expect(page).toHaveURL(/\/dashboards\/audience$/, { timeout: 60_000 });
+  await expect(page).toHaveURL(/\/dashboards\/audience$/);
   await page.getByRole('link', { name: stationTZAName }).click();
 
   const toggle = page.getByTestId('consolidated-toggle');
