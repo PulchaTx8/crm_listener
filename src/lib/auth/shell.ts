@@ -5,6 +5,7 @@ import { ICONS, type ShellUser } from '@/components/layout/app-shell';
 import type { NavSection } from '@/components/layout/sidebar-nav';
 import { getTranslations } from 'next-intl/server';
 import { NAV_COOKIE, parseExpanded } from '@/lib/nav/disclosure';
+import { NAV_COLLAPSED_COOKIE, parseCollapsed } from '@/lib/nav/collapse';
 
 /**
  * Everything the chrome needs, resolved once per request. Both the member area
@@ -23,6 +24,18 @@ export async function getShellContext(): Promise<{
    * navigation, on every screen, since the shell wraps all of them.
    */
   expandedSections: string[];
+  /**
+   * Block 27. Whether the sidebar is folded to a rail of icons — read on the
+   * SERVER for the identical reason expandedSections is: read in the browser
+   * instead, the chrome arrives at full width and snaps narrow after hydration,
+   * a flash on every navigation, on every screen, since the shell wraps all of
+   * them.
+   *
+   * A SEPARATE cookie from the disclosure one, and separate on purpose: folding
+   * must not disturb which sections are open, and expanding must restore exactly
+   * what was open before. See src/lib/nav/collapse.ts.
+   */
+  collapsed: boolean;
 }> {
   // Block 12a. The navigation is the one place a person sees every area of the
   // product at once, so its wording is the first thing that has to speak their
@@ -30,7 +43,9 @@ export async function getShellContext(): Promise<{
   // the single builder of the tree.
   const t = await getTranslations('nav');
 
-  const expandedSections = parseExpanded((await cookies()).get(NAV_COOKIE)?.value);
+  const cookieStore = await cookies();
+  const expandedSections = parseExpanded(cookieStore.get(NAV_COOKIE)?.value);
+  const collapsed = parseCollapsed(cookieStore.get(NAV_COLLAPSED_COOKIE)?.value);
 
   const supabase = await createUserClient();
 
@@ -496,5 +511,6 @@ export async function getShellContext(): Promise<{
       roleLabel: isAdmin ? 'Platform admin' : 'Team member',
     },
     expandedSections,
+    collapsed,
   };
 }

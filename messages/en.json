@@ -20,7 +20,9 @@
     "settings": "Language and appearance",
     "themeSystem": "Follow my system",
     "themeLight": "Light",
-    "themeDark": "Dark"
+    "themeDark": "Dark",
+    "collapseTheSidebar": "Collapse the sidebar",
+    "expandTheSidebar": "Expand the sidebar"
   },
   "nav": {
     "administration": "Administration",
