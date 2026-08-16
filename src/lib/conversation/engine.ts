@@ -61,6 +61,30 @@ export const DEFAULT_NO_BUTTON_LABEL = 'Agora não';
 export const REFUSAL_MESSAGE = 'Tudo bem! Não vamos te inscrever nesta promoção. Obrigado!';
 
 /**
+ * The two halves of a WhatsApp list message, as copy rather than as something an
+ * operator types (Block 24, D3).
+ *
+ * THEY ARE NOT DEFAULTS THE WAY THE TWO ABOVE ARE, and the difference matters.
+ * `label()` below falls back to the yes/no defaults when a column is blank, so
+ * those two are read at SEND time. These two are read at WRITE time, by
+ * `savePromotionQuestionAction`, because `promotion_questions_list_fields`
+ * (`0041`) requires `menu_title` and `button_label` to be present and non-blank
+ * on every QUIZ — a question saved without them is a question the database
+ * refuses, not one this file could paper over later.
+ *
+ * They live here anyway, with the rest of the listener-facing copy, because that
+ * is what they are: the words a listener reads above the options and on the
+ * button that opens them. The Quiz screen stopped asking an operator to invent
+ * them once the widget became the door most Stations use.
+ *
+ * The lengths are WhatsApp's own and are why these two strings are short: a
+ * section title is capped at 24 characters and a button at 20, and Meta
+ * truncates silently past either, which reads as a bug in us.
+ */
+export const DEFAULT_QUESTION_MENU_TITLE = 'Escolha uma opção';
+export const DEFAULT_QUESTION_BUTTON_LABEL = 'Responder';
+
+/**
  * What the bot asks for each field, and the whole message rather than a column
  * heading -- somebody reading "cidade" on WhatsApp has no form around it to
  * explain what is wanted.

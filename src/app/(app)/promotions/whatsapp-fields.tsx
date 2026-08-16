@@ -30,6 +30,9 @@ import { REQUESTED_FIELD_LABEL_KEYS } from './format';
  *   * WHATSAPP ALONE: the hashtag and the two button labels, which are objects
  *     of that conversation and of nothing else — promotions_whatsapp_fields
  *     (0171) says the same in SQL.
+ *
+ * Block 24 emptied the second half down to the hashtag. See the comment above
+ * that field for what happened to the two button labels.
  */
 export function WhatsappFields({
   record,
@@ -156,49 +159,31 @@ export function WhatsappFields({
         </>
       )}
 
-      {enabled && (
-        <>
-          <label className="flex w-72 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">{t('hashtag')}</span>
-            <Input
-              name="hashtag"
-              defaultValue={record?.hashtag ?? ''}
-              placeholder="#EUQUERO"
-              maxLength={40}
-              required
-              disabled={disabled}
-              data-testid="promotion-hashtag"
-            />
-            <span className="text-xs text-muted-foreground">
-              {t('whatAListenerTextsToTake')}
-            </span>
-          </label>
+      {/* THE HASHTAG IS ALL THAT IS LEFT OF WHATSAPP'S OWN HALF. Block 24 took
+          the two button labels off this tab: they titled the Yes and No buttons
+          of the consent message, and engine.ts has always answered a blank one
+          with DEFAULT_YES_BUTTON_LABEL / DEFAULT_NO_BUTTON_LABEL — "the default
+          is copy, not data", as that file puts it. So every promotion now takes
+          the default, and a listener sees exactly what they saw on any promotion
+          whose operator never filled these in, which was most of them.
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">“Yes” button</span>
-              <Input
-                name="yesButtonLabel"
-                defaultValue={record?.yesButtonLabel ?? ''}
-                placeholder={t('quero')}
-                maxLength={20}
-                disabled={disabled}
-                data-testid="promotion-yes-label"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">{t('noButton')}</span>
-              <Input
-                name="noButtonLabel"
-                defaultValue={record?.noButtonLabel ?? ''}
-                placeholder={t('agoraNO')}
-                maxLength={20}
-                disabled={disabled}
-                data-testid="promotion-no-label"
-              />
-            </label>
-          </div>
-        </>
+          The columns are not dropped (design D2). update_promotion replaces
+          every field on every call, so each promotion's pair goes to null the
+          next time it is saved. */}
+      {enabled && (
+        <label className="flex w-72 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('hashtag')}</span>
+          <Input
+            name="hashtag"
+            defaultValue={record?.hashtag ?? ''}
+            placeholder="#EUQUERO"
+            maxLength={40}
+            required
+            disabled={disabled}
+            data-testid="promotion-hashtag"
+          />
+          <span className="text-xs text-muted-foreground">{t('whatAListenerTextsToTake')}</span>
+        </label>
       )}
     </div>
   );

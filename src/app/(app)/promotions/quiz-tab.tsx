@@ -229,31 +229,15 @@ function QuestionForm({
         />
       </label>
 
+      {/* THE MENU TITLE AND THE BUTTON LABEL ARE GONE FROM THIS FORM, and they
+          are still written (Block 24, D3). They are the two halves of the
+          WhatsApp list message; promotion_questions_list_fields (0041) requires
+          both on a QUIZ, and questionOutbound throws without them. So
+          savePromotionQuestion supplies DEFAULT_QUESTION_MENU_TITLE and
+          DEFAULT_QUESTION_BUTTON_LABEL at the door — the operator simply stopped
+          inventing a menu title for every question they write. */}
       {!isEssay && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">{t('menuTitle')}</span>
-              <Input
-                name="menuTitle"
-                defaultValue={question?.menuTitle ?? ''}
-                maxLength={24}
-                required
-                data-testid="quiz-menu-title"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">{t('buttonLabel')}</span>
-              <Input
-                name="buttonLabel"
-                defaultValue={question?.buttonLabel ?? ''}
-                maxLength={20}
-                required
-                data-testid="quiz-button-label"
-              />
-            </label>
-          </div>
-
           <fieldset className="flex flex-col gap-2">
             <legend className="text-sm text-muted-foreground">{t('options')}</legend>
             {options.map((option, index) => (

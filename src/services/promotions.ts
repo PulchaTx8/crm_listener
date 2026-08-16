@@ -10,6 +10,15 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
+// Block 24, D3. The two halves of a WhatsApp list message, now supplied by this
+// module rather than typed by an operator. They live with the rest of the
+// listener-facing copy in the conversation engine, which is what they are — see
+// their own comment there for why the fallback happens at write time here and at
+// send time for the yes/no labels.
+import {
+  DEFAULT_QUESTION_BUTTON_LABEL,
+  DEFAULT_QUESTION_MENU_TITLE,
+} from '@/lib/conversation/engine';
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
 import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
@@ -636,7 +645,14 @@ function promotionRpcArgs(input: PromotionFormInput) {
     p_starts_at: input.startsAt,
     p_ends_at: input.endsAt,
     p_site_integration_code: input.siteIntegrationCode,
-    p_call_to_action: input.callToAction,
+    // Block 24, D2: the screen no longer collects a call to action, so every
+    // save writes null and the WhatsApp consent message carries the promotion's
+    // name alone — which buildConsentInteractive already did whenever this was
+    // blank. Sent explicitly rather than dropped from this builder: the RPC
+    // parameter still exists, and both doors replace every field they take, so
+    // saying null here is saying the same thing as omitting it while staying
+    // legible next to the argument it replaced.
+    p_call_to_action: undefined,
     p_allow_multiple_entries: input.allowMultipleEntries,
     p_min_hours_between_entries: input.minHoursBetweenEntries,
     p_require_correct_answer: input.requireCorrectAnswer,
@@ -660,8 +676,13 @@ function promotionRpcArgs(input: PromotionFormInput) {
     // InternalError and reaches the operator as "Could not save". That is the
     // same trap 0055's header describes from the other direction, and it is why
     // the pgTAP in 30_promotion_images asserts the parameter is absent.
-    p_yes_button_label: input.yesButtonLabel,
-    p_no_button_label: input.noButtonLabel,
+    // Block 24, D2. Undefined, so PostgREST omits them and each RPC's own
+    // `default null` applies — which for update_promotion is the wholesale
+    // replace it documents. engine.ts falls back to DEFAULT_YES_BUTTON_LABEL /
+    // DEFAULT_NO_BUTTON_LABEL for a null one, so the buttons a listener sees on
+    // WhatsApp do not change.
+    p_yes_button_label: undefined,
+    p_no_button_label: undefined,
     p_requested_fields: input.requestedFields,
     // Sent on every write, not merged into one: both RPCs replace every field
     // they are given, so an omitted ceiling is a ceiling written null. That is
@@ -731,8 +752,18 @@ export async function savePromotionQuestion(
     p_question_id: questionId ?? undefined,
     p_kind: input.kind,
     p_prompt: input.prompt,
-    p_menu_title: input.menuTitle,
-    p_button_label: input.buttonLabel,
+    // Block 24, D3. The Quiz screen stopped asking for these two, and the
+    // database still requires them: promotion_questions_list_fields (0041)
+    // refuses a QUIZ or MULTIPLE_CHOICE whose menu title or button label is null
+    // or blank, and questionOutbound (engine.ts) throws if either reaches it
+    // null. So the default is applied HERE, at the one door that writes a
+    // question, rather than in each caller — a second caller supplying its own
+    // wording is how two questions come to open different-looking menus.
+    //
+    // ESSAY takes null and must: the same constraint refuses a written answer
+    // that carries either field, because it shows no menu at all.
+    p_menu_title: input.kind === 'ESSAY' ? undefined : DEFAULT_QUESTION_MENU_TITLE,
+    p_button_label: input.kind === 'ESSAY' ? undefined : DEFAULT_QUESTION_BUTTON_LABEL,
     p_options: input.options.map((o) => ({ label: o.label, is_correct: o.isCorrect })),
   });
   if (error) throw mapPromotionError(error.code, error.message);

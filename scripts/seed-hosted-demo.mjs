@@ -578,7 +578,6 @@ async function main() {
     p_name: 'Promoção encerrada - show de sábado',
     p_starts_at: new Date(now - 33 * DAY).toISOString(),
     p_ends_at: new Date(now - 3 * DAY).toISOString(),
-    p_call_to_action: 'Mande seu nome e concorra',
   });
   await rpc(owner, 'link_prize_to_promotion', {
     p_promotion_id: closed,
@@ -591,7 +590,6 @@ async function main() {
     p_name: 'No ar agora - fim de semana no litoral',
     p_starts_at: new Date(now - 7 * DAY).toISOString(),
     p_ends_at: new Date(now + 21 * DAY).toISOString(),
-    p_call_to_action: 'Participe até o fim do mês',
   });
   await rpc(owner, 'link_prize_to_promotion', {
     p_promotion_id: live,
@@ -604,7 +602,6 @@ async function main() {
     p_name: 'Agendada - bastidores da turnê',
     p_starts_at: new Date(now + 10 * DAY).toISOString(),
     p_ends_at: new Date(now + 40 * DAY).toISOString(),
-    p_call_to_action: 'Em breve',
   });
   await rpc(owner, 'link_prize_to_promotion', {
     p_promotion_id: scheduled,

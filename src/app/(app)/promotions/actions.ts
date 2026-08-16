@@ -79,7 +79,8 @@ function readPromotionForm(formData: FormData) {
     startsAt: formData.get('startsAt'),
     endsAt: formData.get('endsAt'),
     siteIntegrationCode: readOptionalNumber(formData.get('siteIntegrationCode')),
-    callToAction: formData.get('callToAction') || null,
+    // `callToAction` is gone from this read and from the schema (Block 24, D2).
+    // The column stays and goes to null on the next save of each promotion.
     allowMultipleEntries: formData.get('allowMultipleEntries') === 'on',
     minHoursBetweenEntries: readOptionalNumber(formData.get('minHoursBetweenEntries')),
     // Read unconditionally, exactly as the interval above is, and NOT dropped
@@ -108,8 +109,10 @@ function readPromotionForm(formData: FormData) {
     // The two pictures are NOT read here. They are not fields of this schema
     // and neither RPC takes them; settlePromotionImages handles both against
     // the saved record. See its own comment for why that has to come second.
-    yesButtonLabel: whatsappEnabled ? formData.get('yesButtonLabel') || null : null,
-    noButtonLabel: whatsappEnabled ? formData.get('noButtonLabel') || null : null,
+    //
+    // The two button labels are gone from this read too (Block 24, D2). Their
+    // columns stay and take null from now on, which is what engine.ts's
+    // DEFAULT_YES_BUTTON_LABEL / DEFAULT_NO_BUTTON_LABEL have always answered.
     // `conversational`, NOT `whatsappEnabled`, and this line was the defect
     // Block 17c set out to fix. The moment web_enabled existed, saving a
     // web-only promotion here threw away the very fields it asks for -- and no
@@ -340,8 +343,10 @@ export async function savePromotionQuestionAction(
   const parsed = questionFormSchema.safeParse({
     kind,
     prompt: formData.get('prompt'),
-    menuTitle: kind === 'ESSAY' ? null : formData.get('menuTitle') || null,
-    buttonLabel: kind === 'ESSAY' ? null : formData.get('buttonLabel') || null,
+    // `menuTitle` and `buttonLabel` are gone from this read and from the schema
+    // (Block 24, D3). They are still WRITTEN — savePromotionQuestion supplies
+    // the two defaults, because 0041's check requires them on a QUIZ — but the
+    // operator no longer invents them per question.
     options:
       kind === 'ESSAY'
         ? []
