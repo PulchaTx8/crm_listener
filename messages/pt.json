@@ -1090,7 +1090,19 @@
     "thatFileHasAHeaderRowAndNothingUnderIt": "Esse arquivo tem uma linha de cabeçalho e nada abaixo dela.",
     "thisFileHasNoColumnForFull": "Este arquivo não tem coluna para {columns}. A linha de cabeçalho diz: {headers}.",
     "orSeparator": " ou ",
-    "emptyHeaderRow": "(vazia)"
+    "emptyHeaderRow": "(vazia)",
+    "promotionPicture": "Imagem da promoção",
+    "actions": "Ações",
+    "view": "Ver",
+    "viewTheEntryOf": "Ver a participação de {name}",
+    "thisListener": "este ouvinte",
+    "theEntry": "A participação",
+    "loadingTheAnswers": "Carregando as respostas…",
+    "thisPromotionAskedNothing": "Esta promoção não perguntou nada — não há quiz para mostrar.",
+    "rightAnswer": "resposta certa",
+    "wrongAnswer": "resposta errada",
+    "moderationGuidelines": "Diretrizes de moderação",
+    "subjectTheAnswers": "as respostas desta participação"
   },
   "inventory": {
     "theSystemCurrentlyShows": "O sistema mostra hoje",

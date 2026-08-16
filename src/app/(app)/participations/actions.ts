@@ -8,6 +8,7 @@ import { importRowSchema, participationFormSchema } from '@/schemas/participatio
 import type { ImportRowInput } from '@/schemas/participations';
 import {
   collectDrawHat,
+  getParticipationAnswers,
   importParticipations,
   recordParticipation,
   resolveOrCreateMember,
@@ -16,6 +17,7 @@ import {
 import type {
   DrawHat,
   ImportParticipationsResult,
+  ParticipationAnswerDetail,
   ParticipationStatus,
   StationListenerPage,
 } from '@/services/participations';
@@ -50,6 +52,43 @@ async function requireAccessToken(): Promise<string> {
   const token = data.session?.access_token;
   if (!token) redirect('/login');
   return token;
+}
+
+/**
+ * Block 24, item 6. What one person answered, read when the View window opens.
+ *
+ * READ ON OPENING RATHER THAN SHIPPED WITH THE LIST, and that is the point: a
+ * page of twenty-five participations, each carrying its promotion's whole quiz,
+ * is a payload nobody reads paid for on every render of this screen. The window
+ * is opened for one row at a time.
+ *
+ * Everything else the window shows — the name, the masked phone, the status, the
+ * source, the instant, whether they have already won — is derived from the row
+ * already on screen, the way AttendDialog derives its request from the live
+ * `rows`. Only the answers cross the wire again, because only the answers are
+ * absent from `list_participations`.
+ */
+export type ParticipationAnswersResult =
+  | { status: 'ok'; answers: ParticipationAnswerDetail[] }
+  | { status: 'error'; message: string };
+
+export async function readParticipationAnswersAction(
+  participationId: string,
+): Promise<ParticipationAnswersResult> {
+  const token = await requireAccessToken();
+  try {
+    return { status: 'ok', answers: await getParticipationAnswers(participationId, token) };
+  } catch (cause) {
+    logger.error({ err: cause, participationId }, 'could not read this participation’s answers');
+    return {
+      status: 'error',
+      message: describeParticipationsReadError(
+        cause,
+        await getTranslations('participations'),
+        'subjectTheAnswers',
+      ),
+    };
+  }
 }
 
 export type StationListenerSearchResult =

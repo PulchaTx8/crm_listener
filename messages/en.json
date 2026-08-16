@@ -1090,7 +1090,19 @@
     "thatFileHasAHeaderRowAndNothingUnderIt": "That file has a header row and nothing under it.",
     "thisFileHasNoColumnForFull": "This file has no column for {columns}. Its header row reads: {headers}.",
     "orSeparator": " or ",
-    "emptyHeaderRow": "(empty)"
+    "emptyHeaderRow": "(empty)",
+    "promotionPicture": "Promotion picture",
+    "actions": "Actions",
+    "view": "View",
+    "viewTheEntryOf": "View the entry of {name}",
+    "thisListener": "this listener",
+    "theEntry": "The entry",
+    "loadingTheAnswers": "Loading the answers…",
+    "thisPromotionAskedNothing": "This promotion asked nothing — there is no quiz to show.",
+    "rightAnswer": "right answer",
+    "wrongAnswer": "wrong answer",
+    "moderationGuidelines": "Moderation guidelines",
+    "subjectTheAnswers": "the answers to this entry"
   },
   "inventory": {
     "theSystemCurrentlyShows": "The system currently shows",

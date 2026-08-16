@@ -12,7 +12,7 @@ import {
   PARTICIPATION_SEARCH_MAX_LENGTH,
 } from '@/services/participations';
 import type { ParticipationListPage } from '@/services/participations';
-import { getPromotionRecord, listPromotionsPage } from '@/services/promotions';
+import { getPromotionRecord, listPromotionsPage, promotionThumbs } from '@/services/promotions';
 import type { PromotionDetail } from '@/services/promotions';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
@@ -431,6 +431,11 @@ export default async function ParticipationsPage({
         rows={page.rows}
         total={page.total}
         timeZone={selected.timezone}
+        // Block 24, item 6. One query for the distinct promotions of THIS page
+        // — never one per row, and never a wider list_participations. Its own
+        // failure is already swallowed into an empty map (the service says why),
+        // so this cannot be the thing that takes the list down.
+        promotionThumbs={await promotionThumbs(page.rows.map((row) => row.promotionId))}
         previousHref={
           page.previousCursor
             ? participationsHref(state, { side: 'before', value: page.previousCursor })

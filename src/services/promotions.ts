@@ -21,6 +21,10 @@ import {
 } from '@/lib/conversation/engine';
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
+// One warning, from promotionThumbs: a failed picture read is degraded rather
+// than fatal, and a silent fallback nobody logged is a fallback nobody knows is
+// happening.
+import { logger } from '@/lib/logger';
 import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import {
@@ -459,6 +463,42 @@ export async function getPromotionStationId(
 
   if (error) throw new InternalError(`Could not read the promotion: ${error.message}`);
   return data?.company_id ?? null;
+}
+
+/**
+ * The promotion pictures for a page of rows, by promotion id (Block 24, item 6).
+ *
+ * A SECOND, NARROW READ RATHER THAN A WIDER LIST FUNCTION.
+ * `list_participations` (0090) is SECURITY DEFINER with a fixed RETURNS TABLE,
+ * so adding one column to it means DROP + CREATE on a long function — the
+ * operation this repository has already reverted its own fixes with three times.
+ * `coversForSongs` (services/music.ts) made exactly this trade for the requests
+ * grid and the shape is copied from it.
+ *
+ * A FAILED PICTURE READ MUST NOT TAKE THE LIST DOWN. The grid falls back to the
+ * grey placeholder, which is the rendering it already has for every promotion
+ * that carries no picture.
+ */
+export async function promotionThumbs(
+  promotionIds: string[],
+): Promise<Map<string, string | null>> {
+  const unique = [...new Set(promotionIds)];
+  if (unique.length === 0) return new Map();
+
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('promotions')
+    .select('id, thumb_url')
+    .in('id', unique);
+
+  if (error) {
+    logger.warn({ err: error }, 'could not read promotion thumbnails');
+    return new Map();
+  }
+
+  const thumbs = new Map<string, string | null>();
+  for (const row of data ?? []) thumbs.set(row.id, row.thumb_url);
+  return thumbs;
 }
 
 export async function getPromotionRecord(
