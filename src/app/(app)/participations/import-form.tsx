@@ -667,7 +667,7 @@ export function ImportParticipationsForm({
       */}
       {requireCorrectAnswer && (
         <p
-          className="rounded-md bg-amber-100 p-3 text-sm text-amber-900"
+          className="rounded-md bg-warning/10 p-3 text-sm text-warning"
           data-testid="participation-import-answer-warning"
         >
           {/* One whole sentence per branch. The half that used to live here as

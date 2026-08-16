@@ -225,7 +225,7 @@ function SecretLine({ label, set }: { label: string; set: boolean }) {
       <span
         className={
           set
-            ? 'inline-block h-2 w-2 rounded-full bg-emerald-500'
+            ? 'inline-block h-2 w-2 rounded-full bg-success'
             : 'inline-block h-2 w-2 rounded-full bg-destructive'
         }
         aria-hidden

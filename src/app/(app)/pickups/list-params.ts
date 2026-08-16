@@ -67,17 +67,28 @@ export const STATUS_LABEL_KEYS: Record<WinnerStatus, string> = {
 };
 
 /**
- * One warm colour for each of the two statuses still open (the clock has not
- * finished with them), one calm colour for the one that closed well, and one
- * muted family shared by the two that closed without the prize changing
- * hands — the same reasoning participation-status.ts's own STATUS_CLASSES
- * gives for sharing a look across outcomes that are, from the operator's
- * question, the same answer.
+ * One warm colour at two strengths for the two statuses still open (the clock
+ * has not finished with them), one calm colour for the one that closed well, and
+ * one muted family shared by the two that closed without the prize changing
+ * hands — the same reasoning participation-status.ts's own STATUS_CLASSES gives
+ * for sharing a look across outcomes that are, from the operator's question, the
+ * same answer.
+ *
+ * THE TWO OPEN STATUSES USED TO BE TWO HUES, amber and orange, and Block 25
+ * turned them into two strengths of `warning` instead. The distinction is
+ * deliberately kept rather than collapsed — the comment above chose it — but a
+ * second warm hue would have meant a second semantic token existing for one
+ * badge on one screen, and the theme has to answer for every token in both
+ * palettes. The stronger tint is the more unusual state: a prize owed BACK is
+ * rarer than one waiting to be collected.
+ *
+ * Both measured on the light page, which is the tighter of the two: the solid
+ * token reads 5.9:1 on its own /10 and 5.0:1 on its /20.
  */
 export const STATUS_CLASSES: Record<WinnerStatus, string> = {
-  AWAITING_PICKUP: 'bg-amber-100 text-amber-900',
-  RETURN_PENDING: 'bg-orange-100 text-orange-900',
-  DELIVERED: 'bg-emerald-100 text-emerald-900',
+  AWAITING_PICKUP: 'bg-warning/10 text-warning',
+  RETURN_PENDING: 'bg-warning/20 text-warning',
+  DELIVERED: 'bg-success/10 text-success',
   RETURNED: 'bg-muted text-muted-foreground',
   WRITTEN_OFF: 'bg-muted text-muted-foreground',
 };

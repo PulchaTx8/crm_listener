@@ -179,7 +179,7 @@ export function WidgetTab({
       {installation && !installation.hasTemplate && (
         <div
           role="alert"
-          className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning"
           data-testid="widget-missing-template-warning"
         >
           <p>{t('noApprovedVerificationTemplate')}</p>

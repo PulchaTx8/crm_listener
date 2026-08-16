@@ -217,7 +217,7 @@ export function RegisterMemberForm({
             </form>
           </div>
           {linkState.status === 'saved' && (
-            <p className="mt-2 text-sm text-emerald-700">
+            <p className="mt-2 text-sm text-success">
               {t('linkedThisListenerNowAlsoAppears')}</p>
           )}
           {linkState.status === 'error' && (
@@ -253,7 +253,7 @@ export function RegisterMemberForm({
       {checkState.status === 'checked' && checkState.outcome === 'elsewhere' && !manualEditing && (
         <div
           data-testid="member-check-elsewhere"
-          className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning"
         >
           <p>
             {t('aListenerMatchingOneOfThese')}</p>
@@ -341,7 +341,7 @@ export function RegisterMemberForm({
                 {registerPending ? t('registering') : t('registerListener')}
               </Button>
               {registerState.status === 'saved' && (
-                <p className="text-sm text-emerald-700">
+                <p className="text-sm text-success">
                   {t('registered2')}{' '}
                   <button
                     type="button"

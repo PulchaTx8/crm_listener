@@ -359,6 +359,15 @@ const REQUIRED_TEST_FILES = [
   // auth.uid() and never exercises RLS. Also present on disk without an entry
   // here until this fix round.
   { path: 'tests/isolation/profile-locale.test.ts', minTests: 3 },
+  // Block 25, D5. The theme column, and what only a real JWT can show:
+  // 55_profile_theme.test.sql asserts the column-scoped grant EXISTS, and pgTAP
+  // runs as a superuser with a null auth.uid() where profiles' own policy never
+  // applies -- so it cannot show what the grant and the policy add up to, which
+  // for this column is the whole question. The colleague case is the sharp one:
+  // RLS refuses by matching NO ROW and raising nothing, so a theme that is
+  // unwritable and a theme that is silently rewritten look identical to any
+  // caller checking  alone.
+  { path: 'tests/isolation/theme.test.ts', minTests: 4 },
   { path: 'tests/isolation/audit.test.ts', minTests: 7 },
   { path: 'tests/isolation/reports.test.ts', minTests: 8 },
   { path: 'tests/isolation/whatsapp.test.ts', minTests: 10 },

@@ -8,7 +8,6 @@
     "suspendedNoDataAvailable": "Suspensa — nenhum dado fica disponível enquanto a assinatura estiver inativa."
   },
   "shell": {
-    "language": "Idioma",
     "signOut": "Sair",
     "tagline": "CRM",
     "sortedAscending": ", ordenado crescente",
@@ -17,7 +16,11 @@
     "noPictureYet": "Sem imagem",
     "removePicture": "Remover imagem",
     "largePicturesAreReduced": "Imagens grandes são reduzidas automaticamente.",
-    "thatPictureCouldNotBeRead": "Não foi possível ler essa imagem. Salve novamente como JPEG ou PNG."
+    "thatPictureCouldNotBeRead": "Não foi possível ler essa imagem. Salve novamente como JPEG ou PNG.",
+    "settings": "Idioma e aparência",
+    "themeSystem": "Seguir meu sistema",
+    "themeLight": "Claro",
+    "themeDark": "Escuro"
   },
   "nav": {
     "administration": "Administração",

@@ -276,7 +276,7 @@ export function StockEntryForm({
             <Button type="submit" disabled={pending}>
               {pending ? t('saving') : t('addStock')}
             </Button>
-            {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('stockAdded')}</p>}
+            {state.status === 'saved' && <p className="text-sm text-success">{t('stockAdded')}</p>}
           </div>
 
           {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

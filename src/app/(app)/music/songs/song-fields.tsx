@@ -405,7 +405,7 @@ function ReferenceByName({
         maxLength={160}
         disabled={disabled}
       />
-      {notice && <span className="text-xs text-amber-700 dark:text-amber-500">{notice}</span>}
+      {notice && <span className="text-xs text-warning">{notice}</span>}
     </label>
   );
 }

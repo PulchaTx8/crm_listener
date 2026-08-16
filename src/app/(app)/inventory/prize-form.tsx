@@ -76,7 +76,7 @@ export function PrizeForm({
             listener: a dialog that closed itself the moment the write landed
             would take its own "Prize registered." with it. */}
         {state.status === 'saved' && (
-          <p className="text-sm text-emerald-700">
+          <p className="text-sm text-success">
             {t('prizeRegistered')}{' '}
             {state.prizeId && onCreated && (
               <button

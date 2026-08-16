@@ -502,7 +502,7 @@ function SongCreateForm({
           {pending ? t('saving') : t('registerSong')}
         </Button>
         {state.status === 'saved' && (
-          <p className="text-sm text-emerald-700">
+          <p className="text-sm text-success">
             {t('songRegistered')}{' '}
             {state.songId && (
               <button

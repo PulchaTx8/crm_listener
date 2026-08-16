@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-
+// Block 25 moved the colour maths into one place: this file and
+// theme-tokens.test.ts both need it, and two copies of WCAG's luminance formula
+// in one directory is the quiet kind of duplication -- one gets corrected and
+// the other goes on reporting numbers nobody re-derives.
+import { colour, contrast, hex, token } from './colour';
 /**
  * The brand's colour, asserted against the file that actually paints it.
  *
@@ -15,67 +19,6 @@ import { describe, expect, it } from 'vitest';
  * The contrast assertions pin the OTHER half of the decision: why light and
  * dark carry different purples at all.
  */
-const CSS = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8');
-
-function themeBlock(selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const found = new RegExp(`${escaped}\\s*\\{([\\s\\S]*?)\\n\\s*\\}`).exec(CSS);
-  if (!found) throw new Error(`globals.css has no ${selector} block`);
-  return found[1]!;
-}
-
-function token(selector: string, name: string): string {
-  const found = new RegExp(`--${name}:\\s*([^;]+);`).exec(themeBlock(selector));
-  if (!found) throw new Error(`${selector} declares no --${name}`);
-  return found[1]!.trim();
-}
-
-type Rgb = [number, number, number];
-
-/** The same conversion a browser makes for `hsl(H S% L%)`. */
-function hslToRgb(triple: string): Rgb {
-  const parts = /^([\d.]+)\s+([\d.]+)%\s+([\d.]+)%$/.exec(triple);
-  if (!parts) throw new Error(`not an HSL triple: ${triple}`);
-  const h = Number(parts[1]);
-  const s = Number(parts[2]) / 100;
-  const l = Number(parts[3]) / 100;
-
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = h / 60;
-  const x = c * (1 - Math.abs((hp % 2) - 1));
-  const base: Rgb =
-    hp < 1 ? [c, x, 0]
-    : hp < 2 ? [x, c, 0]
-    : hp < 3 ? [0, c, x]
-    : hp < 4 ? [0, x, c]
-    : hp < 5 ? [x, 0, c]
-    : [c, 0, x];
-  const m = l - c / 2;
-  return base.map((v) => Math.round((v + m) * 255)) as Rgb;
-}
-
-function hex(rgb: Rgb): string {
-  return `#${rgb.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-}
-
-/** WCAG 2.1 relative luminance. */
-function luminance([r, g, b]: Rgb): number {
-  const channel = (v: number) => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-function contrast(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-function colour(selector: string, name: string): Rgb {
-  return hslToRgb(token(selector, name));
-}
-
 describe('the brand colour', () => {
   it('is exactly #4811EF in the light theme', () => {
     expect(hex(colour(':root', 'primary'))).toBe('#4811ef');

@@ -147,7 +147,7 @@ export function BlockForm({
         <Button type="submit" variant="destructive" disabled={pending}>
           {pending ? t('saving') : t('blockThisListener')}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('blockRecorded')}</p>}
+        {state.status === 'saved' && <p className="text-sm text-success">{t('blockRecorded')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

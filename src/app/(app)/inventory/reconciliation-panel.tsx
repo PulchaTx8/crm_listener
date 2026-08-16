@@ -36,7 +36,7 @@ export function ReconciliationPanel({ companyId }: { companyId: string }) {
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
 
       {state.status === 'checked' && state.rows.length === 0 && (
-        <p className="text-sm text-emerald-700">
+        <p className="text-sm text-success">
           {t('noDivergenceFoundChecked')}{' '}{formatDateTime(state.checkedAt)}.
         </p>
       )}

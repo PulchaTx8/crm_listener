@@ -223,7 +223,7 @@ function ReserveOrProgrammeForm({
         <Button type="submit" disabled={pending || (withProgramme && shows.length === 0)}>
           {pending ? t('saving') : t('reserveStock')}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('reserved2')}</p>}
+        {state.status === 'saved' && <p className="text-sm text-success">{t('reserved2')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
@@ -274,7 +274,7 @@ function PromotionLinkForm({
         <Button type="submit" disabled={pending || promotions.length === 0}>
           {pending ? t('saving') : t('linkToPromotion')}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('linkedToThePromotion')}</p>}
+        {state.status === 'saved' && <p className="text-sm text-success">{t('linkedToThePromotion')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
@@ -333,7 +333,7 @@ export function ReleaseForm({
         <Button type="submit" disabled={pending}>
           {pending ? t('saving') : t('releaseReservation')}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('released')}</p>}
+        {state.status === 'saved' && <p className="text-sm text-success">{t('released')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

@@ -97,7 +97,7 @@ export function QuizTab({
                       <li key={option.id}>
                         {option.label}
                         {option.isCorrect && (
-                          <span className="ml-1 font-medium text-emerald-700">· right answer</span>
+                          <span className="ml-1 font-medium text-success">· right answer</span>
                         )}
                       </li>
                     ))}
@@ -149,7 +149,7 @@ export function QuizTab({
           rather than an error). Rendered here rather than in the form, because
           the form has closed by the time anybody could read it. */}
       {warning && (
-        <p className="text-sm text-amber-700" data-testid="quiz-warning">
+        <p className="text-sm text-warning" data-testid="quiz-warning">
           {warning}
         </p>
       )}
@@ -493,7 +493,7 @@ function FrozenQuestionForm({
               <li key={option.id}>
                 {option.label}
                 {option.isCorrect && (
-                  <span className="ml-1 text-xs font-medium text-emerald-700">· right answer</span>
+                  <span className="ml-1 text-xs font-medium text-success">· right answer</span>
                 )}
               </li>
             ))}

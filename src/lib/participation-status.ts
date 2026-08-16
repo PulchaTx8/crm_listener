@@ -87,7 +87,7 @@ export const STATUS_MEANING_KEYS: Record<ParticipationStatus, string> = {
  * exist. Same palette SITUATION_CLASSES uses, so the two grids read alike.
  */
 export const STATUS_CLASSES: Record<ParticipationStatus, string> = {
-  VALID: 'bg-emerald-100 text-emerald-900',
+  VALID: 'bg-success/10 text-success',
   DUPLICATE: 'bg-muted text-muted-foreground',
   TOO_SOON: 'bg-muted text-muted-foreground',
   OVER_LIMIT: 'bg-muted text-muted-foreground',

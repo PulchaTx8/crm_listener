@@ -24,8 +24,8 @@ export const SITUATION_ORDER: PromotionSituation[] = ['scheduled', 'live', 'ende
 
 /** Muted for what is over, strong for what is running now. */
 export const SITUATION_CLASSES: Record<PromotionSituation, string> = {
-  scheduled: 'bg-amber-100 text-amber-900',
-  live: 'bg-emerald-100 text-emerald-900',
+  scheduled: 'bg-warning/10 text-warning',
+  live: 'bg-success/10 text-success',
   ended: 'bg-muted text-muted-foreground',
   cancelled: 'bg-destructive/10 text-destructive',
 };

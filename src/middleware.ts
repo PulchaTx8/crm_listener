@@ -10,6 +10,7 @@ import {
   WIDGET_PRESENTATION_COOKIE,
 } from '@/lib/widget/presentation';
 import { localeCookieUpdate } from '@/i18n/locales';
+import { themeCookieUpdate, THEME_COOKIE, THEME_SCOPE, THEME_SCOPE_HEADER } from '@/lib/theme/theme';
 
 /**
  * Routes reachable without a session. Everything else redirects to /login.
@@ -65,6 +66,22 @@ export async function middleware(request: NextRequest) {
   );
 
   /**
+   * Block 25, D4. Whether this route may carry a theme at all — the one half of
+   * the question only the middleware can answer, and deliberately NOT the theme
+   * itself (THEME_SCOPE_HEADER's own comment has what carrying the value cost).
+   *
+   * Computed FROM THE PATH ALONE, before anything async, which is what lets
+   * every `forwarded()` call below carry the right answer with no extra response
+   * rebuild: the widget returns early with its own policy, the public pages
+   * follow the machine (D8), and everything else is the panel. A non-public path
+   * with no session never renders anyway — it is redirected to /login.
+   */
+  const themeScoped =
+    !WIDGET_PATH.test(request.nextUrl.pathname) &&
+    !PUBLIC_PATHS.includes(request.nextUrl.pathname) &&
+    !request.nextUrl.pathname.startsWith('/invite/');
+
+  /**
    * Snapshotted FRESH on every call, and that is the whole of Block 11b's fix.
    *
    * Supabase's setAll below writes cookies onto `request` and then rebuilds the
@@ -84,6 +101,28 @@ export async function middleware(request: NextRequest) {
   const forwarded = (announced: string = policy) => {
     const headers = new Headers(request.headers);
     headers.set(CSP_NONCE_HEADER, nonce);
+
+    /**
+     * DELETED BEFORE IT IS SET, ON EVERY SINGLE CALL, and this line is the whole
+     * of D7 rather than defensive padding.
+     *
+     * The Headers above are built from `new Headers(request.headers)` — the
+     * CLIENT's headers, copied. So a request arriving with an `x-theme-scope`
+     * header of its own would carry it straight through to the root layout on
+     * every route this middleware does not overwrite it for: the widget, and
+     * every public page. `curl -H 'x-theme-scope: app'` is the entire exploit,
+     * and what it buys is a widget on somebody's radio station obeying a theme
+     * cookie it was supposed to ignore.
+     *
+     * Cosmetic rather than dangerous — but it is exactly the shape of mistake
+     * this design was chosen to avoid, and "the client cannot reach this because
+     * nobody would think to try" is not a boundary. Any future header forwarded
+     * inward as a TRUSTED value needs the same line; the nonce and the policy
+     * above are `set` rather than merged, so neither is exposed.
+     */
+    headers.delete(THEME_SCOPE_HEADER);
+    if (themeScoped) headers.set(THEME_SCOPE_HEADER, THEME_SCOPE);
+
     // THIS header, on the REQUEST, is what makes Next stamp the nonce onto its
     // own inline bootstrap scripts. Setting only the response header renders a
     // page whose bootstrap is blocked by the very policy the response
@@ -267,7 +306,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('must_change_password, provisional_expires_at, locale')
+    .select('must_change_password, provisional_expires_at, locale, theme')
     .eq('id', user.id)
     .single();
 
@@ -283,22 +322,72 @@ export async function middleware(request: NextRequest) {
     profile: profile?.locale,
     cookie: request.cookies.get('locale')?.value,
   });
-  if (cookieLocale) {
-    // Onto the REQUEST too, following the setAll pattern above. What
-    // src/i18n/request.ts reads is the REQUEST's cookies; a response-only write
-    // renders THIS page in the old language and only takes effect on the next
-    // one. Rebuilding the response is what carries the amended request headers
+
+  /**
+   * Block 25, D4. The same idea for the theme, and the same row — but with two
+   * differences worth naming rather than leaving to be inferred.
+   *
+   * `themeCookieUpdate` can answer `'clear'`, which the locale has no use for: a
+   * language cannot be un-chosen, and a theme can, because System IS a choice
+   * and it is stored as NULL. Without that, somebody who switched to System on
+   * one machine would find the other one still dark for ever.
+   *
+   * And this sync is the ONLY thing the theme needs from the profile here. What
+   * the renderer reads is the cookie — see THEME_SCOPE_HEADER's comment for why
+   * the header carries the route's scope rather than the value.
+   */
+  const themeCookie = themeCookieUpdate({
+    profile: profile?.theme,
+    cookie: request.cookies.get(THEME_COOKIE)?.value,
+  });
+
+  // Onto the REQUEST first, following the setAll pattern above. What
+  // src/i18n/request.ts reads is the REQUEST's cookies; a response-only write
+  // renders THIS page in the old language and only takes effect on the next one.
+  if (cookieLocale) request.cookies.set('locale', cookieLocale);
+  if (themeCookie === 'clear') request.cookies.delete(THEME_COOKIE);
+  else if (themeCookie) request.cookies.set(THEME_COOKIE, themeCookie);
+
+  /**
+   * ONE REBUILD FOR BOTH.
+   *
+   * `forwarded()` snapshots the request fresh on every call, so the amended
+   * cookies above only reach the renderer through a response built AFTER them —
+   * the response standing here was built at the top of this function, before
+   * either was known. Two separate rebuilds, one per concern, would throw the
+   * first one away.
+   *
+   * The theme's SCOPE header needs no rebuild of its own: it is computed from
+   * the path before anything async, so the response built at the top already
+   * carries it.
+   */
+  if (cookieLocale || themeCookie) {
+    // Rebuilding the response is what carries the amended request headers
     // forward, so the cookies already on it have to be carried across the
     // rebuild -- the session refresh lives there.
-    request.cookies.set('locale', cookieLocale);
     const rebuilt = nextWithCsp();
     for (const cookie of response.cookies.getAll()) rebuilt.cookies.set(cookie);
     response = rebuilt;
-    response.cookies.set('locale', cookieLocale, {
-      path: '/',
-      maxAge: 60 * 60 * 24 * 365,
-      sameSite: 'lax',
-    });
+
+    if (cookieLocale) {
+      response.cookies.set('locale', cookieLocale, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+        sameSite: 'lax',
+      });
+    }
+    if (themeCookie === 'clear') {
+      // `delete` writes an expired Set-Cookie rather than merely omitting one:
+      // the browser is holding a value that has to be taken away, and saying
+      // nothing would leave it there.
+      response.cookies.delete(THEME_COOKIE);
+    } else if (themeCookie) {
+      response.cookies.set(THEME_COOKIE, themeCookie, {
+        path: '/',
+        maxAge: 60 * 60 * 24 * 365,
+        sameSite: 'lax',
+      });
+    }
   }
 
   // A provisional password travels outside the system and is treated as

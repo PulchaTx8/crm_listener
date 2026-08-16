@@ -176,14 +176,14 @@ export function RoleRecordDialog({
                 no sign-out. Saying how many people that is, beside the record
                 itself, is the whole mitigation for how sharp that edge is. */}
             {role && role.holders > 0 && (
-              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+              <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm font-medium text-warning">
                 {role.holders} {t('userSCurrentlyHoldThisRole')}</p>
             )}
           </div>
 
           <div hidden={tab !== 'powers'} className="flex flex-col gap-4">
             {hasOrgScoped && (
-              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
                 {t('rolesAreAssignedPerStationBut')}{' '}
                 <strong>{t('wholeOrganization')}</strong> {t('belowReachEveryStationRegardlessOf')}</p>
             )}
@@ -209,7 +209,7 @@ export function RoleRecordDialog({
                             reaches the whole Organization has to say so where it
                             is chosen. */}
                         {p.scope === 'organization' && (
-                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-900">
+                          <span className="rounded bg-warning/10 px-1.5 py-0.5 text-xs font-medium text-warning">
                             {t('wholeOrganization')}</span>
                         )}
                       </label>

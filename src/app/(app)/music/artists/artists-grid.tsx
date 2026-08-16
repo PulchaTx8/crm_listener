@@ -337,7 +337,7 @@ function ArtistCreateForm({
           {pending ? t('saving') : t('registerArtist')}
         </Button>
         {state.status === 'saved' && (
-          <p className="text-sm text-emerald-700">
+          <p className="text-sm text-success">
             {t('artistRegistered')}{' '}
             {state.artistId && (
               <button

@@ -8,7 +8,6 @@
     "suspendedNoDataAvailable": "Suspendida — no hay datos disponibles mientras la suscripción esté inactiva."
   },
   "shell": {
-    "language": "Idioma",
     "signOut": "Cerrar sesión",
     "tagline": "CRM",
     "sortedAscending": ", ordenado ascendente",
@@ -17,7 +16,11 @@
     "noPictureYet": "Sin imagen",
     "removePicture": "Quitar imagen",
     "largePicturesAreReduced": "Las imágenes grandes se reducen automáticamente.",
-    "thatPictureCouldNotBeRead": "No se pudo leer esa imagen. Guárdela de nuevo como JPEG o PNG."
+    "thatPictureCouldNotBeRead": "No se pudo leer esa imagen. Guárdela de nuevo como JPEG o PNG.",
+    "settings": "Idioma y apariencia",
+    "themeSystem": "Seguir mi sistema",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro"
   },
   "nav": {
     "administration": "Administración",

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { SidebarNav, type NavSection } from './sidebar-nav';
-import { LocaleSelector } from './locale-selector';
+import { SettingsMenu } from './settings-menu';
 import { getTranslations } from 'next-intl/server';
 
 /** Feather-style path data, inlined to keep the shell dependency-free. */
@@ -129,8 +129,9 @@ export async function AppShell({
             <span className="truncate text-sm text-white">{user.fullName ?? user.email}</span>
             <span className="text-xs text-sidebar-muted">{user.roleLabel}</span>
           </span>
-          {/* Block 12b. The gear that changes the interface language. */}
-          <LocaleSelector />
+          {/* Block 12b, and Block 25: the gear that changes the interface
+              language and the theme. */}
+          <SettingsMenu />
           <form action="/auth/signout" method="post" className="ml-auto">
             <button
               type="submit"

@@ -25,7 +25,7 @@ export function CategoryForm({ companyId }: { companyId: string }) {
           {pending ? t('saving') : t('registerCategory')}
         </Button>
         {state.status === 'saved' && (
-          <p className="text-sm text-emerald-700">{t('categoryRegistered')}</p>
+          <p className="text-sm text-success">{t('categoryRegistered')}</p>
         )}
       </div>
 
