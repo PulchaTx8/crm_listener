@@ -665,7 +665,21 @@
     "stationsListed": "Stations listed ({count})",
     "thatPeriodIsNotValid": "That period is not valid.",
     "youDoNotHavePermissionToSeeThisDashboard": "You do not have permission to see this dashboard in every station selected.",
-    "couldNotLoadThisDashboard": "Could not load this dashboard. Refresh the page and try again."
+    "couldNotLoadThisDashboard": "Could not load this dashboard. Refresh the page and try again.",
+    "whereTheListenersAre": "Where the listeners are",
+    "whereTheMusicIsAskedFor": "Where the music is asked for",
+    "placesCoverage": "{withPlace} of {total} on the map — the rest have no address we could place.",
+    "noPlacesAreKnownYet": "No place is known yet. Listeners need a city on their record before they can appear here.",
+    "theMapIsNotConfigured": "The map is not configured. The lists below are unchanged.",
+    "theMapCouldNotBeLoaded": "The map could not be loaded. The lists below are unchanged.",
+    "byCity": "By city",
+    "byNeighbourhood": "By neighbourhood",
+    "city": "City",
+    "neighbourhood": "Neighbourhood",
+    "place": "Place",
+    "song": "Song",
+    "listenersColumn": "Listeners",
+    "mostRequestedByPlace": "Most requested, by place"
   },
   "team": {
     "invitationSentTo": "Invitation sent to",

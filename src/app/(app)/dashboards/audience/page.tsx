@@ -7,6 +7,8 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getAudienceDashboard } from '@/services/dashboards';
+import { getAudienceGeography } from '@/services/geography';
+import type { AudienceGeography } from '@/schemas/geography';
 import type { AudienceDashboard } from '@/schemas/dashboards';
 import { MonthlyBars } from '@/components/charts/monthly-bars';
 import { BreakdownBars } from '@/components/charts/breakdown-bars';
@@ -19,6 +21,7 @@ import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
 import { StationSelection } from '../station-selection';
+import { GeographyPanel } from '../geography-panel';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
@@ -143,6 +146,18 @@ export default async function AudienceDashboardPage({
   } catch (cause) {
     logger.error({ err: cause, companyIds }, 'could not load the audience dashboard');
     return <LoadError message={describeDashboardError(cause, t)} />;
+  }
+
+  // Block 28. ITS OWN try/catch, and a failure costs the MAP rather than the
+  // page: the cards above are what this screen cannot render without, and a
+  // Station whose geocoding is misconfigured should still see its figures. Null
+  // means the panel is simply not rendered — the same courtesy the consolidated
+  // eligibility check above already extends.
+  let geography: AudienceGeography | null = null;
+  try {
+    geography = await getAudienceGeography(companyIds, selection);
+  } catch (cause) {
+    logger.error({ err: cause, companyIds }, 'could not load the audience geography');
   }
 
   // Whether the Station list above is the caller's WHOLE relationship or a
@@ -326,6 +341,15 @@ export default async function AudienceDashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      {geography && (
+        <GeographyPanel
+          title={t('whereTheListenersAre')}
+          places={geography.places}
+          withPlace={geography.with_place}
+          total={geography.total}
+        />
+      )}
     </>
   );
 }

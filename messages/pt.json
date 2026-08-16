@@ -665,7 +665,21 @@
     "stationsListed": "Emissoras listadas ({count})",
     "thatPeriodIsNotValid": "Esse período não é válido.",
     "youDoNotHavePermissionToSeeThisDashboard": "Você não tem permissão para ver este painel em todas as emissoras selecionadas.",
-    "couldNotLoadThisDashboard": "Não foi possível carregar este painel. Atualize a página e tente novamente."
+    "couldNotLoadThisDashboard": "Não foi possível carregar este painel. Atualize a página e tente novamente.",
+    "whereTheListenersAre": "Onde estão os ouvintes",
+    "whereTheMusicIsAskedFor": "De onde pedem as músicas",
+    "placesCoverage": "{withPlace} de {total} no mapa — os demais não têm endereço que possamos localizar.",
+    "noPlacesAreKnownYet": "Nenhum lugar conhecido ainda. Os ouvintes precisam de uma cidade na ficha para aparecer aqui.",
+    "theMapIsNotConfigured": "O mapa não está configurado. As listas abaixo continuam as mesmas.",
+    "theMapCouldNotBeLoaded": "Não foi possível carregar o mapa. As listas abaixo continuam as mesmas.",
+    "byCity": "Por cidade",
+    "byNeighbourhood": "Por bairro",
+    "city": "Cidade",
+    "neighbourhood": "Bairro",
+    "place": "Lugar",
+    "song": "Música",
+    "listenersColumn": "Ouvintes",
+    "mostRequestedByPlace": "Mais pedida, por lugar"
   },
   "team": {
     "invitationSentTo": "Convite enviado para",

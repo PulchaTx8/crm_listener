@@ -51,7 +51,16 @@ export function buildContentSecurityPolicy(
     // from (Block 13a, design D4). The host is named here and in exactly one
     // other place -- src/lib/integrations/deezer/cover.ts, which builds the
     // URL -- because nothing stores a Deezer URL. If one moves, both move.
-    `img-src 'self' data: blob: ${origin} https://cdn-images.dzcdn.net`,
+    // maps.googleapis.com and maps.gstatic.com are Block 28's map tiles and
+    // marker sprites. NOT ADDED TO script-src, and the reason is worth the
+    // three lines because the next person will try: that directive carries
+    // 'strict-dynamic', and a browser that understands that keyword IGNORES
+    // HOST ALLOWLISTS IN script-src ENTIRELY. Naming Google there would be a
+    // line that reads as protection and does exactly nothing. What actually
+    // lets the Maps library load is the nonce — a nonced <script> may load
+    // further scripts under 'strict-dynamic', which is why the keyword is
+    // there at all.
+    `img-src 'self' data: blob: ${origin} https://cdn-images.dzcdn.net https://maps.googleapis.com https://maps.gstatic.com`,
     // NEW IN BLOCK 13a, and the reason it has to exist at all: there was no
     // media-src before, so audio fell back to default-src 'self' and every
     // 30-second preview in the Deezer tab was blocked -- silently, which in a
@@ -68,7 +77,9 @@ export function buildContentSecurityPolicy(
     // MUST carry the Supabase origin: supabase-js talks to the project from the
     // browser, and the realtime socket uses ws(s). Without this every
     // client-side query dies and it looks like a broken product.
-    `connect-src 'self' ${origin} ${socket}`,
+    // The Maps library fetches tiles and style data over XHR as well as via
+    // <img>, so both directives are needed and neither is sufficient alone.
+    `connect-src 'self' ${origin} ${socket} https://maps.googleapis.com https://maps.gstatic.com`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

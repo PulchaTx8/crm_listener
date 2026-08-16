@@ -7,6 +7,8 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getMusicDashboard } from '@/services/dashboards';
+import { getMusicGeography } from '@/services/geography';
+import type { MusicGeography } from '@/schemas/geography';
 import type { MusicDashboard, Slice } from '@/schemas/dashboards';
 import { coversForSongs } from '@/services/music';
 import { coverUrl } from '@/lib/integrations/deezer/cover';
@@ -21,6 +23,7 @@ import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
 import { StationSelection } from '../station-selection';
+import { GeographyPanel } from '../geography-panel';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
@@ -133,6 +136,15 @@ export default async function MusicDashboardPage({
   } catch (cause) {
     logger.error({ err: cause, companyIds }, 'could not load the music dashboard');
     return <LoadError message={describeDashboardError(cause, t)} />;
+  }
+
+  // Block 28. Its own try/catch, for the reason the audience page's own
+  // geography read states: a failure here costs the map, never the cards.
+  let geography: MusicGeography | null = null;
+  try {
+    geography = await getMusicGeography(companyIds, selection);
+  } catch (cause) {
+    logger.error({ err: cause, companyIds }, 'could not load the music geography');
   }
 
   // Whether the Station list above is the caller's WHOLE relationship or a
@@ -327,6 +339,19 @@ export default async function MusicDashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      {geography && (
+        <GeographyPanel
+          title={t('whereTheMusicIsAskedFor')}
+          places={geography.places}
+          withPlace={geography.with_place}
+          total={geography.total}
+          // The music panel's extra table: the most-requested song in each
+          // place, which is the whole reason this map differs from the
+          // audience one.
+          songs={geography.places}
+        />
+      )}
     </>
   );
 }

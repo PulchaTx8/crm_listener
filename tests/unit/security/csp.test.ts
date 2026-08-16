@@ -30,7 +30,8 @@ describe('the content security policy', () => {
     // supabase-js talks to the project from the browser. Without this every
     // client-side query dies and it looks like a broken product, not a policy.
     expect(directive('connect-src')).toBe(
-      "connect-src 'self' https://abcdefghijklm.supabase.co wss://abcdefghijklm.supabase.co",
+      "connect-src 'self' https://abcdefghijklm.supabase.co wss://abcdefghijklm.supabase.co " +
+        'https://maps.googleapis.com https://maps.gstatic.com',
     );
   });
 
@@ -39,8 +40,23 @@ describe('the content security policy', () => {
     // URL is built in src/lib/integrations/deezer/cover.ts, which is the only
     // other place that knows this host. The two must agree.
     expect(directive('img-src')).toBe(
-      "img-src 'self' data: blob: https://abcdefghijklm.supabase.co https://cdn-images.dzcdn.net",
+      "img-src 'self' data: blob: https://abcdefghijklm.supabase.co https://cdn-images.dzcdn.net " +
+        'https://maps.googleapis.com https://maps.gstatic.com',
     );
+  });
+
+  it('admits Google Maps to img-src and connect-src, and NOT to script-src', () => {
+    // Block 28, and the negative half is the point. script-src carries
+    // 'strict-dynamic', and a browser that understands that keyword ignores
+    // host allowlists in that directive ENTIRELY — so adding Google there
+    // would be a line that reads as protection and does nothing at all, while
+    // making the next reader believe the map is allowed BECAUSE of it. What
+    // actually loads the library is the nonce.
+    for (const source of ['https://maps.googleapis.com', 'https://maps.gstatic.com']) {
+      expect(directive('img-src')).toContain(source);
+      expect(directive('connect-src')).toContain(source);
+      expect(directive('script-src')).not.toContain(source);
+    }
   });
 
   it('admits Deezer preview audio through a media-src of its own', () => {
