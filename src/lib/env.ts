@@ -67,6 +67,31 @@ const envSchema = z.object({
   // runs and a developer works with no new service to install. A Station turns
   // it on when volume justifies it.
   REDIS_URL: z.string().url().optional(),
+  // Block 28. Google Maps Platform, as TWO keys and not one, because the two
+  // halves need opposite restrictions and a single key can carry only one set.
+  //
+  // NEXT_PUBLIC_GOOGLE_MAPS_KEY is read by the browser and is therefore public
+  // in the strict sense — it ships in the page. It is restricted BY HTTP
+  // REFERRER to this deployment's own hostnames, which is the only protection a
+  // key visible in the page can have, and scoped to the Maps JavaScript API
+  // alone. `NEXT_PUBLIC_` is correct here and nowhere else in this block: the
+  // client component that loads the library has no other way to reach it.
+  //
+  // GOOGLE_GEOCODING_KEY never leaves the server — only the worker's drain uses
+  // it — so it is restricted BY IP to wherever the worker runs, and scoped to
+  // the Geocoding API alone. Giving the browser key geocoding rights would let
+  // anyone reading the page spend the account's quota.
+  //
+  // BOTH OPTIONAL, and that is design D6 rather than laxity: unset means the
+  // maps are off, the geography panel says so in one muted line, and the ranked
+  // tables underneath are unchanged. The block is finishable, testable and
+  // shippable before a key exists.
+  NEXT_PUBLIC_GOOGLE_MAPS_KEY: z.string().min(1).optional(),
+  GOOGLE_GEOCODING_KEY: z.string().min(1).optional(),
+  // Selects the fixture geocoder (src/lib/integrations/google/fake.ts). OPT-IN
+  // only — an unset value is the real client — for the reason DEEZER_FAKE
+  // carries: no deployment may end up serving fixtures by accident.
+  GOOGLE_FAKE: z.string().optional(),
 });
 
 // Loose schema used ONLY under `SKIP_ENV_VALIDATION=1` (that is, during

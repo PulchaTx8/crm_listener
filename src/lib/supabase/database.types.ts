@@ -684,6 +684,60 @@ export type Database = {
           },
         ]
       }
+      geocoded_places: {
+        Row: {
+          attempts: number
+          city: string | null
+          country: string | null
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          neighbourhood: string | null
+          place_key: string
+          precision: string | null
+          provider: string
+          queued_at: string
+          resolved_at: string | null
+          state: string | null
+        }
+        Insert: {
+          attempts?: number
+          city?: string | null
+          country?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          neighbourhood?: string | null
+          place_key: string
+          precision?: string | null
+          provider?: string
+          queued_at?: string
+          resolved_at?: string | null
+          state?: string | null
+        }
+        Update: {
+          attempts?: number
+          city?: string | null
+          country?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          neighbourhood?: string | null
+          place_key?: string
+          precision?: string | null
+          provider?: string
+          queued_at?: string
+          resolved_at?: string | null
+          state?: string | null
+        }
+        Relationships: []
+      }
       integrations: {
         Row: {
           company_id: string
@@ -4208,6 +4262,32 @@ export type Database = {
           to_phone: string
         }[]
       }
+      claim_places_to_geocode: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          city: string | null
+          country: string | null
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          neighbourhood: string | null
+          place_key: string
+          precision: string | null
+          provider: string
+          queued_at: string
+          resolved_at: string | null
+          state: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "geocoded_places"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_report_run: {
         Args: never
         Returns: {
@@ -4444,8 +4524,19 @@ export type Database = {
         Args: { p_key: string; p_url: string }
         Returns: undefined
       }
+      enqueue_missing_places: { Args: { p_limit?: number }; Returns: number }
       enqueue_pickup_reminder: {
         Args: { p_winner_id: string }
+        Returns: string
+      }
+      enqueue_place: {
+        Args: {
+          p_city: string
+          p_country: string
+          p_neighbourhood: string
+          p_place_key: string
+          p_state: string
+        }
         Returns: string
       }
       enqueue_whatsapp_outbound: {
@@ -4967,6 +5058,15 @@ export type Database = {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
       }
+      member_place_key: {
+        Args: {
+          p_city: string
+          p_country: string
+          p_neighbourhood: string
+          p_state: string
+        }
+        Returns: string
+      }
       member_reachable: {
         Args: {
           p_member_id: string
@@ -5026,6 +5126,7 @@ export type Database = {
         Args: { p_member_id: string; p_promotion_id: string; p_when: string }
         Returns: Database["public"]["Enums"]["participation_status"]
       }
+      place_fold: { Args: { p_value: string }; Returns: string }
       project_promotion_prize_movement: {
         Args: {
           p_promotion_prize_id: string
@@ -5119,6 +5220,16 @@ export type Database = {
           p_source: Database["public"]["Enums"]["participation_source"]
         }
         Returns: Json
+      }
+      record_place_geocode: {
+        Args: {
+          p_failure_reason?: string
+          p_id: string
+          p_latitude?: number
+          p_longitude?: number
+          p_precision?: string
+        }
+        Returns: undefined
       }
       record_stock_entry: {
         Args: {
