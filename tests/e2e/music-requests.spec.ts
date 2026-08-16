@@ -99,6 +99,21 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   page,
   browser,
 }) => {
+  // Past the 30s default, and sized to the work rather than rounded up: this
+  // journey provisions a customer through the console, changes a password,
+  // registers an artist and two songs, records a request, stages and performs a
+  // merge, and then verifies the result across four screens — several of them
+  // compiled on demand, because the suite runs against `next dev` locally.
+  //
+  // It had no raised budget until Block 27 and had been sitting just inside the
+  // default; adding one reference read to the Songs page was enough to push it
+  // over, and the failure then landed on whichever assertion the clock happened
+  // to reach — twice in a row at two different lines, which is what a budget
+  // problem looks like and a broken screen does not. Every comparable journey in
+  // this suite (prize-categories, music-categories, song-integration) carries
+  // the same allowance.
+  test.setTimeout(180_000);
+
   // --- the platform admin provisions the customer with one Station ---------
   await page.goto('/login');
   await page.getByLabel('E-mail', { exact: true }).fill(platformAdminEmail);
