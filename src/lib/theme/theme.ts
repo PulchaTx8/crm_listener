@@ -10,6 +10,15 @@
 /** What can be STORED. 'system' is not among them: NULL already says it (D6). */
 export type Theme = 'light' | 'dark';
 
+/**
+ * The browser's memory of the choice, and the header the middleware hands the
+ * renderer. Named here so the middleware, the Server Action and the root layout
+ * cannot come to spell either of them differently — the failure would be a theme
+ * that saves and never appears, with nothing raising.
+ */
+export const THEME_COOKIE = 'theme';
+export const THEME_HEADER = 'x-theme';
+
 /** What can be CHOSEN. The extra member is the whole distance between the two guards. */
 export type ThemeChoice = Theme | 'system';
 
