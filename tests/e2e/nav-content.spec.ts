@@ -66,6 +66,38 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   const audience = page.locator('[data-nav-section="audience"]');
   await expect(audience.getByRole('link', { name: 'Requests' })).toBeVisible();
 
+  // Block 26. The owner's list of 2026-08-16 moved three things, and each one is
+  // asserted where a regression would put it back.
+  //
+  // Participations LEFT Audience for Promotions. Asserting its absence here as
+  // well as its presence there is the point: a move that only added would leave
+  // the link rendered twice, in two sections, which is precisely the failure
+  // shell.ts warns about for icons and labels.
+  await expect(audience.getByRole('link', { name: 'Participations' })).toHaveCount(0);
+
+  // And Requests now precedes Programmes inside Audience. Read off the rendered
+  // order rather than asserted one link at a time, because "both are visible" is
+  // exactly what was true BEFORE the swap.
+  const audienceLinks = await audience.getByRole('link').allInnerTexts();
+  expect(audienceLinks).toEqual(['Members', 'Requests', 'Programmes']);
+
+  await openNavSection(page, 'Promotions');
+  const promotions = page.locator('[data-nav-section="promotions"]');
+  // Participations sits BETWEEN Promotions and Pickups — the position is the
+  // owner's instruction, not merely the section.
+  const promotionLinks = await promotions.getByRole('link').allInnerTexts();
+  expect(promotionLinks).toEqual(['Promotions', 'Participations', 'Pickups']);
+
+  await openNavSection(page, 'Inventory');
+  const inventory = page.locator('[data-nav-section="inventory"]');
+  // Categories directly below Stock, which is where the owner put it.
+  const inventoryLinks = await inventory.getByRole('link').allInnerTexts();
+  expect(inventoryLinks).toEqual(['Stock', 'Categories', 'Movements', 'Vendors']);
+  await expect(inventory.getByRole('link', { name: 'Categories' })).toHaveAttribute(
+    'href',
+    '/inventory/categories',
+  );
+
   await openNavSection(page, 'Catalog');
   const catalogue = page.locator('[data-nav-section="catalog"]');
   await expect(catalogue.getByRole('link', { name: 'Requests' })).toHaveCount(0);
@@ -83,15 +115,20 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   // D3. The two administrative sections sit AFTER Organization, at the foot of
   // the list -- which is the opposite of what the owner's item 8 literally said
   // and what they actually meant (spec §2 D3).
+  //
+  // Block 26 moved Inventory down to sit between Promotions and Catalog, so the
+  // four operational sections now read in the order the work happens: who is
+  // listening, what is being promised them, what there is to hand over, and what
+  // is on the air.
   const keys = await page
     .locator('[data-nav-section]')
     .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-nav-section')));
   expect(keys).toEqual([
     'overview',
     'dashboards',
-    'inventory',
     'audience',
     'promotions',
+    'inventory',
     'catalog',
     'templates',
     'organization',

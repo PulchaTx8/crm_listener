@@ -187,14 +187,20 @@ test('an operator filters the participants list and draws over what is left', as
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  // (1) From AUDIENCE, beside Members. Located through the section heading
-  // rather than by the link alone, because the link existing somewhere is not
-  // the claim — where it lives is.
-  await openNavSection(page, 'Audience');
-  const audience = page
+  // (1) From PROMOTIONS, between Promotions and Pickups. Located through the
+  // section heading rather than by the link alone, because the link existing
+  // somewhere is not the claim — where it lives is.
+  //
+  // Block 26 moved it here, on the owner's ruling, from Audience — where Block 6c
+  // had put it on the opposite reading. This assertion followed it rather than
+  // being relaxed to "somewhere in the sidebar", which is the whole reason it was
+  // written this way. tests/e2e/nav-content.spec.ts asserts the position within
+  // the section, and that Audience no longer offers it.
+  await openNavSection(page, 'Promotions');
+  const promotions = page
     .locator('nav > div')
-    .filter({ has: page.getByText('Audience', { exact: true }) });
-  await audience.getByRole('link', { name: 'Participations' }).click();
+    .filter({ has: page.getByText('Promotions', { exact: true }) });
+  await promotions.getByRole('link', { name: 'Participations' }).click();
   await expect(page).toHaveURL(/\/participations$/);
 
   const rows = page.getByTestId('participation-row');

@@ -80,7 +80,113 @@ export async function getShellContext(): Promise<{
       ],
     },
     {
+      key: 'audience',
+      // MOVED ABOVE INVENTORY IN BLOCK 26, on the owner's ruling. The four
+      // operational sections now read in the order the work happens: who is
+      // listening, what is being promised them, what there is to hand over, and
+      // what is on the air. Inventory, which used to open this run, is now below
+      // Promotions — the other half of the same move.
+      //
+      // Visible to every member, including those holding members.view
+      // nowhere in the Organization — the same courtesy Inventory below
+      // extends for inventory.view. /members redirects at the top of its own
+      // page for anyone holding members.view nowhere (access.ts's
+      // canViewAudience), and members_select_reachable plus its four sibling
+      // policies (0035_rls_members.sql) filter every read underneath
+      // regardless of that redirect. Hiding a link is a courtesy; the
+      // boundary is in the database.
+      label: t('audience'),
+      items: [
+        { href: '/members', label: t('members'), icon: ICONS.headphones },
+        // Block 26, on the owner's ruling: Requests and Programmes swapped
+        // places. Both are things this section already held; what changed is
+        // which one a reader meets first, and a request is the commoner errand
+        // — it arrives all day, while a programme is edited when the schedule
+        // does.
+        //
+        // Block 20b, D1, on the owner's ruling, is why it is in this section at
+        // all. This is the listing of PEOPLE asking for something, and it
+        // belongs beside the audience rather than beside the recordings it
+        // happens to reference — the same argument Block 6c used to move
+        // Participations here out of Promotions. (Block 26 has now moved
+        // Participations back, which does not disturb that reasoning: it moved
+        // for a different one, recorded on its own row under Promotions.)
+        //
+        // ICONS.music rather than ICONS.ticket, which is what it carried under
+        // the catalogue: `music` is unused in Audience and a song request is
+        // the one thing here that is about a recording; its other uses are in
+        // Dashboards and Catalogue, distant sections. The clash `ticket` would
+        // have caused is gone with Participations, but the glyph stays — it is
+        // the better one for the row regardless.
+        { href: '/music/requests', label: t('requests'), icon: ICONS.music },
+        // Block 18, on the owner's ruling. A programme was a name in a tab of
+        // the music catalogue; it is now a record with a presenter, a schedule
+        // and a run of dates, and it belongs beside the audience it is made
+        // for rather than beside the songs it happens to play.
+        //
+        // THE PERMISSION DID NOT MOVE WITH THE SCREEN, and that is recorded
+        // rather than accidental: `shows` carries one policy, gated on
+        // music.view, so a member who administers the audience and holds
+        // nothing in music sees this link and finds nothing behind it. A
+        // shows.* pair would be a permissions migration plus every role a
+        // customer has already configured, none of which would grant it —
+        // shipping the screen behind a permission nobody holds would hide it
+        // from everyone. The Block 18 spec's §5 carries the full reasoning.
+        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
+      ],
+    },
+    {
+      key: 'promotions',
+      // Visible to every member, on the same courtesy the sections above
+      // extend: /promotions redirects at the top of its own page for anyone
+      // holding promotions.view in no Station, and 0044's three select
+      // policies plus every RPC in 0042/0043 re-check has_permission
+      // regardless of that redirect. Hiding a link is a courtesy; the boundary
+      // is in the database.
+      label: t('promotions'),
+      items: [
+        { href: '/promotions', label: t('promotions'), icon: ICONS.megaphone },
+        // BACK HERE IN BLOCK 26, on the owner's ruling, after Block 6c moved it
+        // to Audience on the opposite one. Both readings are true — a
+        // participation is a person, and it is also an entry in a promotion —
+        // and what settled it is the neighbour: this row now sits directly above
+        // Pickups, and the two are one errand read end to end (somebody entered,
+        // somebody won, somebody collects). Under Audience it sat beside Members,
+        // where the shared word was "people" and nothing followed on from it.
+        //
+        // The courtesy is unchanged by the move: /participations redirects at the
+        // top of its own page for anyone holding participations.view in no
+        // Station, 0053's policies and list_participations' own two-permission
+        // gate (0090) filter every read regardless, and the write RPCs re-check
+        // has_permission in their own bodies (0054).
+        //
+        // ICONS.ticket travels with it and collides with nothing here: this
+        // section holds megaphone above and box below. It was chosen in Audience
+        // against `music`, and the reason it kept that glyph rather than gaining
+        // a promotions-flavoured one is that a participation IS a ticket in a
+        // draw, whichever heading it files under.
+        { href: '/participations', label: t('participations'), icon: ICONS.ticket },
+        // Block 6d, Task 9. /pickups redirects nobody by itself — it opens on
+        // whichever Station listCompanyAccess resolves promotions.view in,
+        // the same courtesy every item in this section already extends — and
+        // list_pickups (0095) re-checks that permission itself regardless.
+        // ICONS.box rather than a new path: it is the box/package shape
+        // ICONS already declares for Inventory, and reusing it here is
+        // unlike the ticket/megaphone case just above — those two sit on
+        // adjacent ROWS OF THIS SAME SECTION, where one icon on both would
+        // read as one link rendered twice, while Inventory is a different
+        // section entirely, so the two never appear side by side.
+        { href: '/pickups', label: t('pickups'), icon: ICONS.box },
+      ],
+    },
+    {
       key: 'inventory',
+      // MOVED HERE IN BLOCK 26, on the owner's ruling — it opened the
+      // operational run until then, above Audience. It now follows Promotions,
+      // which is what asks for the stock: a prize is registered because
+      // something is being given away, so the section that spends comes before
+      // the section that counts.
+      //
       // Visible to every member, including those holding no inventory
       // permission in any Station at all — the same courtesy Team and Roles
       // below already extend. /inventory redirects at the top of its own
@@ -100,30 +206,54 @@ export async function getShellContext(): Promise<{
         // spell the same word read as one link rendered twice; 'Stock' is
         // what this item actually lists.
         { href: '/inventory', label: t('stock'), icon: ICONS.box },
+        // Block 26, on the owner's ruling. DIRECTLY BELOW STOCK, because a
+        // category is the first field on a prize: the screen above is where an
+        // operator lands, and this is what its second column already says.
+        //
+        // The screen replaces a button. A category could be registered from a
+        // dialog on Stock and nothing else — no list, no rename, no way to
+        // retire one — and every category is also a filter option on that same
+        // screen, so a label an operator could only ever add was a filter list
+        // that could only ever grow. Registering one mid-prize survives, inside
+        // the Register Prize dialog, next to the picker that turned out to be
+        // missing it.
+        //
+        // /inventory/categories redirects nobody by itself: it opens on
+        // whichever Station listCompanyAccess resolves inventory.view in, the
+        // same courtesy every item in this section already extends, and 0029's
+        // select policy plus both doors in 0202 re-check the permission
+        // themselves regardless.
+        //
+        // ICONS.tag rather than a new path. Its only other use is Catalogue >
+        // Genres, a distant section, so it never sits adjacent to itself — the
+        // whole of the rule this file records for box, building and shield. A
+        // category IS a tag, which is exactly what the glyph means there too.
+        { href: '/inventory/categories', label: t('categories'), icon: ICONS.tag },
         // Block 6d, Task 10. /inventory/movements redirects nobody by
         // itself — it opens on whichever Station listCompanyAccess resolves
-        // inventory.view in, the same courtesy the item above already
-        // extends — and list_movements (0096) re-checks that permission
+        // inventory.view in, the same courtesy the items above already
+        // extend — and list_movements (0096) re-checks that permission
         // itself regardless. ICONS.inbox rather than ICONS.box: this Record
         // has no dedicated ledger/list glyph, so the choice is among what
-        // already exists, and reusing box here — the ROW DIRECTLY ABOVE, in
-        // this SAME section — is exactly the case the Audience section's own
-        // ticket/megaphone comment warns against (one icon on two adjacent
-        // rows reads as one link rendered twice). inbox's tray-with-a-flow
+        // already exists, and reusing box here would put one icon on two rows
+        // of this SAME section, which reads as one link rendered twice.
+        // (Block 26 put Categories between the two, so they are no longer
+        // adjacent; the rule is about the section, not only about neighbours,
+        // and the glyph earns its place on its own.) inbox's tray-with-a-flow
         // shape is otherwise idle in this section (its only other use is
         // Platform > Contact requests, a different section entirely, the
         // same non-adjacency that already lets box itself serve both
         // Inventory and Pickups) and reads reasonably as things moving in
         // and out, which a stock ledger is.
         { href: '/inventory/movements', label: t('movements'), icon: ICONS.inbox },
-        // Block 24, item 7. Who the prizes come from. Third and last in the
-        // section, because it is the reference list the other two consume rather
-        // than a place stock is counted or moved — Stock is where an operator
-        // starts, Movements is what they read, and this is what an entry names.
+        // Block 24, item 7. Who the prizes come from. Last in the section,
+        // because it is the reference list the others consume rather than a
+        // place stock is counted or moved — Stock is where an operator starts,
+        // Movements is what they read, and this is what an entry names.
         //
         // /inventory/vendors redirects nobody by itself: it opens on whichever
         // Station listCompanyAccess resolves inventory.view in, the same
-        // courtesy the two items above already extend, and 0198's select policy
+        // courtesy the items above already extend, and 0198's select policy
         // plus both doors in 0199 re-check the permission themselves regardless.
         //
         // ICONS.building rather than a new path. Its two other uses — Catalogue
@@ -132,83 +262,6 @@ export async function getShellContext(): Promise<{
         // file records for box and shield. A supplier IS a company, which is
         // exactly what the glyph means in Catalogue > Labels.
         { href: '/inventory/vendors', label: t('vendors'), icon: ICONS.building },
-      ],
-    },
-    {
-      key: 'audience',
-      // Visible to every member, including those holding members.view
-      // nowhere in the Organization — the same courtesy Inventory just above
-      // extends for inventory.view. /members redirects at the top of its own
-      // page for anyone holding members.view nowhere (access.ts's
-      // canViewAudience), and members_select_reachable plus its four sibling
-      // policies (0035_rls_members.sql) filter every read underneath
-      // regardless of that redirect. Hiding a link is a courtesy; the
-      // boundary is in the database.
-      label: t('audience'),
-      items: [
-        { href: '/members', label: t('members'), icon: ICONS.headphones },
-        // Moved here from Promotions in Block 6c, on the owner's ruling: this
-        // is the listing of PEOPLE taking part, and it is where the draw is
-        // run from, so it belongs beside the audience rather than beside the
-        // promotions it happens to reference. The courtesy is unchanged:
-        // /participations redirects at the top of its own page for anyone
-        // holding participations.view in no Station, 0053's policies and
-        // list_participations' own two-permission gate (0090) filter every
-        // read regardless, and the write RPCs re-check has_permission in their
-        // own bodies (0054). Hiding a link is a courtesy; the boundary is in
-        // the database.
-        { href: '/participations', label: t('participations'), icon: ICONS.ticket },
-        // Block 18, on the owner's ruling. A programme was a name in a tab of
-        // the music catalogue; it is now a record with a presenter, a schedule
-        // and a run of dates, and it belongs beside the audience it is made
-        // for rather than beside the songs it happens to play.
-        //
-        // THE PERMISSION DID NOT MOVE WITH THE SCREEN, and that is recorded
-        // rather than accidental: `shows` carries one policy, gated on
-        // music.view, so a member who administers the audience and holds
-        // nothing in music sees this link and finds nothing behind it. A
-        // shows.* pair would be a permissions migration plus every role a
-        // customer has already configured, none of which would grant it —
-        // shipping the screen behind a permission nobody holds would hide it
-        // from everyone. The Block 18 spec's §5 carries the full reasoning.
-        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
-        // Block 20b, D1, on the owner's ruling. This is the listing of PEOPLE
-        // asking for something, and it belongs beside the audience rather than
-        // beside the recordings it happens to reference — the same argument
-        // Block 6c used to move Participations here out of Promotions. The
-        // href does not change.
-        //
-        // ICONS.music rather than ICONS.ticket, which is what it carried under
-        // the catalogue: `ticket` is Participations, two rows up in THIS SAME
-        // section, and one glyph on two adjacent rows reads as one link
-        // rendered twice. `music` is unused in Audience and a song request is
-        // the one thing here that is about a recording; its other uses are in
-        // Dashboards and Catalogue, distant sections.
-        { href: '/music/requests', label: t('requests'), icon: ICONS.music },
-      ],
-    },
-    {
-      key: 'promotions',
-      // Visible to every member, on the same courtesy the two sections above
-      // extend: /promotions redirects at the top of its own page for anyone
-      // holding promotions.view in no Station, and 0044's three select
-      // policies plus every RPC in 0042/0043 re-check has_permission
-      // regardless of that redirect. Hiding a link is a courtesy; the boundary
-      // is in the database.
-      label: t('promotions'),
-      items: [
-        { href: '/promotions', label: t('promotions'), icon: ICONS.megaphone },
-        // Block 6d, Task 9. /pickups redirects nobody by itself — it opens on
-        // whichever Station listCompanyAccess resolves promotions.view in,
-        // the same courtesy every item in this section already extends — and
-        // list_pickups (0095) re-checks that permission itself regardless.
-        // ICONS.box rather than a new path: it is the box/package shape
-        // ICONS already declares for Inventory, and reusing it here is
-        // unlike the ticket/megaphone case just above — those two sit on
-        // adjacent ROWS OF THIS SAME SECTION, where one icon on both would
-        // read as one link rendered twice, while Inventory is a different
-        // section entirely, so the two never appear side by side.
-        { href: '/pickups', label: t('pickups'), icon: ICONS.box },
       ],
     },
     {
