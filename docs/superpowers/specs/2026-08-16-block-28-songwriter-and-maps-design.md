@@ -222,10 +222,19 @@ one file.
 ### 5.4 The CSP has to widen
 
 Block 11b's CSP is nonce-based and its e2e asserts **zero violations**. Google
-Maps needs `maps.googleapis.com` and `maps.gstatic.com` in `script-src`,
-`img-src` and `connect-src`. That test is what proves the widening is right
-rather than merely present, and it is also what will fail loudly if the widening
-is too narrow.
+Maps needs `maps.googleapis.com` and `maps.gstatic.com` reachable.
+
+**Only `img-src` and `connect-src` gain hosts.** `script-src` already carries
+`'strict-dynamic'`, and a browser that understands it **ignores host
+allowlists in that directive entirely** — so adding Google there would be a line
+that looks like it is doing something and is not. What actually loads the Maps
+library is the nonce: a nonced `<script>` may load further scripts under
+`strict-dynamic`, which is the whole reason that keyword is there. `img-src`
+already has a precedent for an external host (`cdn-images.dzcdn.net`, Block
+13a), and this follows it.
+
+The zero-violations spec is what proves the widening is right rather than merely
+present, and what fails loudly if it is too narrow.
 
 ---
 
@@ -337,9 +346,13 @@ constraints and the policy.
 **`0211_songwriter_doors.sql`** — the six functions, each copied forward from its
 live definition, four of them `DROP` + `CREATE` with their grants restated.
 
-**`0212_country.sql`** — `companies.country`, `members.country`, and the two
-member RPCs (`create_member`, `update_member`, `0034`) plus the resolution cores
-(`0061`) that must carry it.
+**`0212_country.sql`** — `companies.country`, `members.country`, and the four
+doors that must carry it, each copied forward from its **live** definition
+rather than from where it was first written: `create_member` (`0074`, not
+`0034`), `update_member` (`0073`, not `0034`), `apply_member_creation` (`0061`,
+the conversation's own path) and `update_company_profile` (`0155`, not `0153`).
+Two of those live definitions are three migrations away from the file that
+introduced them, which is exactly the trap `0206` recorded.
 
 **`0213_geocoded_places.sql`** — the cache table, its unique key, its RLS, and
 the door the worker claims rows through.
