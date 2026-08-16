@@ -4610,6 +4610,15 @@ export type Database = {
         }
         Returns: Json
       }
+      get_audience_geography: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       get_draw: { Args: { p_draw_id: string }; Returns: Json }
       get_integration: {
         Args: { p_company_id: string }
@@ -4628,6 +4637,15 @@ export type Database = {
         }[]
       }
       get_music_dashboard: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_music_geography: {
         Args: {
           p_company_ids: string[]
           p_from?: string
