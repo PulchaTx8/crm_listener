@@ -1848,7 +1848,21 @@
     "showingOfTotal": "Exibindo {shown} de {total}",
     "category": "Categoria",
     "noCategory": "Sem categoria",
-    "allCategories": "Todas as categorias"
+    "allCategories": "Todas as categorias",
+    "categories": "Categorias",
+    "referenceCategoriesDescription": "Como esta emissora classifica seu acervo. Uma música aponta para uma, e a lista de músicas filtra por ela.",
+    "registerCategory": "Cadastrar categoria",
+    "registerACategory": "Cadastrar uma categoria",
+    "archiveCategory": "Arquivar categoria…",
+    "archiveThisCategoryQuestion": "Arquivar esta categoria?",
+    "noCategoriesAreRegisteredInThis": "Nenhuma categoria cadastrada nesta emissora ainda.",
+    "noCategoryMatchesTheseFilters": "Nenhuma categoria corresponde a estes filtros.",
+    "categoriesCountLabel": "{count, plural, one {categoria} other {categorias}}",
+    "categoryName": "Nome da categoria",
+    "searchCategoriesByName": "Buscar categorias por nome",
+    "actionRegisterCategories": "cadastrar categorias",
+    "actionSaveThisCategory": "salvar esta categoria",
+    "actionArchiveThisCategory": "arquivar esta categoria"
   },
   "vocab": {
     "participationCounted": "Contou",

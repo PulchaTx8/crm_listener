@@ -1848,7 +1848,21 @@
     "showingOfTotal": "Showing {shown} of {total}",
     "category": "Category",
     "noCategory": "No category",
-    "allCategories": "All categories"
+    "allCategories": "All categories",
+    "categories": "Categories",
+    "referenceCategoriesDescription": "How this station files its recordings. A song points at one, and the songs list filters by it.",
+    "registerCategory": "Register category",
+    "registerACategory": "Register a category",
+    "archiveCategory": "Archive category…",
+    "archiveThisCategoryQuestion": "Archive this category?",
+    "noCategoriesAreRegisteredInThis": "No categories are registered in this station yet.",
+    "noCategoryMatchesTheseFilters": "No category matches these filters.",
+    "categoriesCountLabel": "{count, plural, one {category} other {categories}}",
+    "categoryName": "Category name",
+    "searchCategoriesByName": "Search categories by name",
+    "actionRegisterCategories": "register categories",
+    "actionSaveThisCategory": "save this category",
+    "actionArchiveThisCategory": "archive this category"
   },
   "vocab": {
     "participationCounted": "Counted",

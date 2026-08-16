@@ -1,5 +1,4 @@
 import { cookies } from 'next/headers';
-import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { ICONS, type ShellUser } from '@/components/layout/app-shell';
@@ -316,14 +315,7 @@ export async function getShellContext(): Promise<{
         // one glyph on two adjacent rows of the same section reads as one link
         // rendered twice. Inventory > Categories keeps `tag` legitimately — a
         // different section, never side by side with this one.
-        //
-        // The cast is TEMPORARY and comes out with the screen: typedRoutes
-        // cannot see a route literal until Next regenerates its route types from
-        // the filesystem, and this row was written one task before
-        // `src/app/(app)/catalog/categories/page.tsx` existed. Once it does, the
-        // cast is dead weight — remove it, and let the compiler prove the href
-        // resolves, which is the whole reason `NavItem.href` is a `Route`.
-        { href: '/catalog/categories' as Route, label: t('categories'), icon: ICONS.folder },
+        { href: '/catalog/categories', label: t('categories'), icon: ICONS.folder },
         { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
         { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
         // MOVED HERE FROM AUDIENCE IN BLOCK 27, on the owner's ruling, reversing

@@ -1848,7 +1848,21 @@
     "showingOfTotal": "Mostrando {shown} de {total}",
     "category": "Categoría",
     "noCategory": "Sin categoría",
-    "allCategories": "Todas las categorías"
+    "allCategories": "Todas las categorías",
+    "categories": "Categorías",
+    "referenceCategoriesDescription": "Cómo esta emisora clasifica su catálogo. Una canción apunta a una, y la lista de canciones filtra por ella.",
+    "registerCategory": "Registrar categoría",
+    "registerACategory": "Registrar una categoría",
+    "archiveCategory": "Archivar categoría…",
+    "archiveThisCategoryQuestion": "¿Archivar esta categoría?",
+    "noCategoriesAreRegisteredInThis": "Todavía no hay categorías registradas en esta emisora.",
+    "noCategoryMatchesTheseFilters": "Ninguna categoría coincide con estos filtros.",
+    "categoriesCountLabel": "{count, plural, one {categoría} other {categorías}}",
+    "categoryName": "Nombre de la categoría",
+    "searchCategoriesByName": "Buscar categorías por nombre",
+    "actionRegisterCategories": "registrar categorías",
+    "actionSaveThisCategory": "guardar esta categoría",
+    "actionArchiveThisCategory": "archivar esta categoría"
   },
   "vocab": {
     "participationCounted": "Contó",

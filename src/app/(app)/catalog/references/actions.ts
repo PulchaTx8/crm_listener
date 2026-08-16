@@ -44,13 +44,13 @@ import type { ReferenceScreenKind } from './list-params';
 // ---------------------------------------------------------------------------
 
 /**
- * The two kinds this screen's forms ever submit. A crafted POST naming ARTIST
+ * The three kinds this screen's forms ever submit. A crafted POST naming ARTIST
  * or SHOW is refused here before it reaches create_music_reference/
  * update_music_reference/archive_music_reference — which would refuse it too,
  * on its own re-checked permission, but a kind this screen's UI has no way to
  * produce should not resolve a path or an ACTION_KEYS entry either.
  */
-const REFERENCE_SCREEN_KINDS = ['LABEL', 'GENRE'] as const;
+const REFERENCE_SCREEN_KINDS = ['LABEL', 'GENRE', 'CATEGORY'] as const;
 
 function isReferenceScreenKind(value: string): value is ReferenceScreenKind {
   return (REFERENCE_SCREEN_KINDS as readonly string[]).includes(value);
@@ -81,6 +81,15 @@ const ACTION_KEYS: Record<ReferenceScreenKind, { register: string; save: string;
     register: 'actionRegisterGenres',
     save: 'actionSaveThisGenre',
     archive: 'actionArchiveThisGenre',
+  },
+  // Block 27, and the reason this map exists rather than a stem plus a noun is
+  // visible in this entry too: *salvar esta categoria* is feminine where
+  // *salvar este gênero* is masculine, so the article agrees with the noun and
+  // no assembly could produce both.
+  CATEGORY: {
+    register: 'actionRegisterCategories',
+    save: 'actionSaveThisCategory',
+    archive: 'actionArchiveThisCategory',
   },
 };
 

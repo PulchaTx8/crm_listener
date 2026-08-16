@@ -13,12 +13,22 @@ import type { SortDirection } from '@/lib/keyset';
  * reason.
  */
 
-/** The two kinds this screen renders. MusicReferenceKind also names ARTIST and SHOW; neither reaches this screen — Artists has its own screen, and Shows is not built here. */
-export type ReferenceScreenKind = Extract<MusicReferenceKind, 'LABEL' | 'GENRE'>;
+/**
+ * The three kinds this screen renders. MusicReferenceKind also names ARTIST and
+ * SHOW; neither reaches this screen — Artists has its own screen (it carries a
+ * songs tab), and a programme is a record with a presenter and a schedule, so
+ * Shows has one too.
+ *
+ * CATEGORY joined in Block 27 and cost this line, one entry below, three in
+ * actions.ts and a page file — which is the return on 0100's one-trio-of-doors
+ * shape and on D2's one-component-two-routes shape meeting each other.
+ */
+export type ReferenceScreenKind = Extract<MusicReferenceKind, 'LABEL' | 'GENRE' | 'CATEGORY'>;
 
 const REFERENCE_SCREEN_PATHS: Record<ReferenceScreenKind, string> = {
   LABEL: '/catalog/labels',
   GENRE: '/catalog/genres',
+  CATEGORY: '/catalog/categories',
 };
 
 /**
