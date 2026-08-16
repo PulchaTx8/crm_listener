@@ -10,6 +10,8 @@ import { listLinkablePromotions } from '@/services/promotions';
 import type { LinkablePromotion } from '@/services/promotions';
 import { listReservableShows } from '@/services/shows';
 import type { ReservableShow } from '@/services/shows';
+import { listVendorOptions } from '@/services/vendors';
+import type { VendorOption } from '@/services/vendors';
 import { ENTRY_MOVEMENT_TYPES, EXIT_MOVEMENT_TYPES, RESERVATION_MOVEMENT_TYPES } from './format';
 import { describeInventoryReadError } from './errors';
 
@@ -73,6 +75,20 @@ export interface PrizeRecord {
    */
   shows: ReservableShow[];
   promotions: LinkablePromotion[];
+  /**
+   * Block 24, item 8. Entradas' own supplier picker, read HERE for exactly the
+   * reason the comment above gives for the two pickers beside it — and not as a
+   * weaker version of it: Entradas is a tab, reached by a tab click, which is
+   * the precise window `useRecordDialog`'s `replaceState` turns into an
+   * `ACTION_RESTORE` that discards a Server Action dispatched inside it. A
+   * picker fetched from an effect in `stock-entry-form.tsx` would be the seventh
+   * call site of a shape that has already hung once here.
+   *
+   * Read unconditionally, like `shows` and `promotions`: this action has never
+   * known about permissions beyond `inventory.view` (the page's own gate), and
+   * `EntriesTab`'s own render is what gates the form behind `canEnter`.
+   */
+  vendors: VendorOption[];
 }
 
 /**
@@ -141,13 +157,14 @@ export async function getPrizeRecordAction(prizeId: string): Promise<PrizeRecord
     const found = await getPrizeById(prizeId);
     if (!found) return { status: 'not-found' };
 
-    const [entries, exits, reservations, movements, shows, promotions] = await Promise.all([
+    const [entries, exits, reservations, movements, shows, promotions, vendors] = await Promise.all([
       getPrizeMovements(found.companyId, prizeId, accessToken, ENTRY_MOVEMENT_TYPES),
       getPrizeMovements(found.companyId, prizeId, accessToken, EXIT_MOVEMENT_TYPES),
       getPrizeMovements(found.companyId, prizeId, accessToken, RESERVATION_MOVEMENT_TYPES),
       getPrizeMovements(found.companyId, prizeId, accessToken),
       listReservableShows(found.companyId),
       listLinkablePromotions(found.companyId),
+      listVendorOptions(found.companyId),
     ]);
 
     return {
@@ -161,6 +178,7 @@ export async function getPrizeRecordAction(prizeId: string): Promise<PrizeRecord
         movements,
         shows,
         promotions,
+        vendors,
       },
     };
   } catch (cause) {

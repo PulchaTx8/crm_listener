@@ -236,6 +236,10 @@ export async function recordStockEntryAction(
     invoiceNumber: formData.get('invoiceNumber') || null,
     unitAmount: parseOptionalAmount(formData.get('unitAmount')),
     totalAmount: parseOptionalAmount(formData.get('totalAmount')),
+    // Block 24, item 8. The picker's "no vendor" option posts an empty string,
+    // which is not a uuid — `|| null` is what turns it into "nothing was
+    // chosen" rather than a validation failure the operator cannot read.
+    vendorId: formData.get('vendorId') || null,
   });
 
   if (!parsed.success) {

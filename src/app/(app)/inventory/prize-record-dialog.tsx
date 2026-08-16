@@ -271,6 +271,10 @@ export function PrizeRecordDialog({
                 timeZone={timeZone}
                 canEnter={powers.entry}
                 canAdjust={powers.adjust}
+                // Block 24, item 8. Down from this one read rather than fetched
+                // by the tab — record.ts's own comment says why a Server Action
+                // dispatched from a just-switched-to tab is the shape that hangs.
+                vendors={record.vendors}
                 onRecorded={refreshAfterMovement}
               />
             )}

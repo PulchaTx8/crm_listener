@@ -539,9 +539,17 @@ function assertClickBeatTheDebounce(page: Page, startedAt: number, what: string)
   ).not.toContain('q=');
 }
 
-/** The Listener cell of a row on /participations: Listener, Promotion, Status, Source, Entered. */
+/**
+ * The Listener cell of a row on /participations.
+ *
+ * THE SECOND CELL, not the first, since Block 24 put the promotion's picture in
+ * front of it: the columns are picture, Listener, Promotion, Status, Source,
+ * Entered, Won here, View. `.first()` silently became the thumbnail cell, which
+ * has no text at all — so every assertion through this helper started failing
+ * against an empty string rather than against a name.
+ */
 function listenerCell(page: Page, index: number) {
-  return page.getByTestId('participation-row').nth(index).locator('td').first();
+  return page.getByTestId('participation-row').nth(index).locator('td').nth(1);
 }
 
 test('an entry recorded from the fifth tab moves the count, leaves the list behind the dialog alone, and lands on /participations', async ({

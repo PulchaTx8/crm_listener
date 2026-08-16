@@ -10,8 +10,21 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
+// Block 24, D3. The two halves of a WhatsApp list message, now supplied by this
+// module rather than typed by an operator. They live with the rest of the
+// listener-facing copy in the conversation engine, which is what they are — see
+// their own comment there for why the fallback happens at write time here and at
+// send time for the yes/no labels.
+import {
+  DEFAULT_QUESTION_BUTTON_LABEL,
+  DEFAULT_QUESTION_MENU_TITLE,
+} from '@/lib/conversation/engine';
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
+// One warning, from promotionThumbs: a failed picture read is degraded rather
+// than fatal, and a silent fallback nobody logged is a fallback nobody knows is
+// happening.
+import { logger } from '@/lib/logger';
 import { LINKABLE_PRIZE_PAGE_SIZE } from '@/lib/linkable-prizes';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import {
@@ -311,8 +324,21 @@ export interface PromotionQuestion {
   position: number;
   kind: PromotionQuestionKind;
   prompt: string;
+  /**
+   * The two halves of the WhatsApp list message. Still read, and no longer
+   * typed: Block 24 (D3) took both off the Quiz screen and
+   * `savePromotionQuestion` supplies the defaults. They stay on this type
+   * because they are facts about the stored question — the participation record
+   * and any future diagnosis of "what did WhatsApp actually send" read them.
+   */
   menuTitle: string | null;
   buttonLabel: string | null;
+  /**
+   * Block 24, item 5. What a Poll question tells whoever reads its answers.
+   * INTERNAL — see 0197's own comment. Null on every kind but ESSAY, which
+   * `promotion_questions_guidelines_shape` enforces rather than assumes.
+   */
+  moderationGuidelines: string | null;
   options: PromotionQuestionOption[];
 }
 
@@ -342,6 +368,25 @@ export interface PromotionDetail {
    * beside the read itself.
    */
   participationCounts: PromotionParticipationCounts;
+  /**
+   * Whether `save_promotion_question` will refuse to REPLACE a question here
+   * (`0055`): once anybody has entered, rewording an option would leave every
+   * `participation_answers` row pointing at text the person never read, and the
+   * draw derives correctness by reading exactly that option back.
+   *
+   * Derived from the two counts above rather than from a third query, and the
+   * imprecision that buys is safe in the one direction it can go. Those counts
+   * are PostgREST's `estimated`, which falls through to an exact `COUNT(*)`
+   * whenever the planner's estimate is under `max_rows` — so the 0-versus-1
+   * boundary, the only one this flag turns on, is exact. A promotion whose
+   * counts are large enough to be estimated is frozen under any estimate.
+   *
+   * A COURTESY, never the boundary: the screen stops offering what the database
+   * will refuse, and the database refuses it regardless. Block 24 added the flag
+   * so the Quiz tab can offer the one field the freeze does NOT cover — the
+   * moderation guidelines, which have their own door (`0197`).
+   */
+  frozen: boolean;
   name: string;
   siteIntegrationCode: number | null;
   startsAt: string;
@@ -420,6 +465,42 @@ export async function getPromotionStationId(
   return data?.company_id ?? null;
 }
 
+/**
+ * The promotion pictures for a page of rows, by promotion id (Block 24, item 6).
+ *
+ * A SECOND, NARROW READ RATHER THAN A WIDER LIST FUNCTION.
+ * `list_participations` (0090) is SECURITY DEFINER with a fixed RETURNS TABLE,
+ * so adding one column to it means DROP + CREATE on a long function — the
+ * operation this repository has already reverted its own fixes with three times.
+ * `coversForSongs` (services/music.ts) made exactly this trade for the requests
+ * grid and the shape is copied from it.
+ *
+ * A FAILED PICTURE READ MUST NOT TAKE THE LIST DOWN. The grid falls back to the
+ * grey placeholder, which is the rendering it already has for every promotion
+ * that carries no picture.
+ */
+export async function promotionThumbs(
+  promotionIds: string[],
+): Promise<Map<string, string | null>> {
+  const unique = [...new Set(promotionIds)];
+  if (unique.length === 0) return new Map();
+
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('promotions')
+    .select('id, thumb_url')
+    .in('id', unique);
+
+  if (error) {
+    logger.warn({ err: error }, 'could not read promotion thumbnails');
+    return new Map();
+  }
+
+  const thumbs = new Map<string, string | null>();
+  for (const row of data ?? []) thumbs.set(row.id, row.thumb_url);
+  return thumbs;
+}
+
 export async function getPromotionRecord(
   promotionId: string,
   accessToken: string,
@@ -437,7 +518,7 @@ export async function getPromotionRecord(
 
   const { data: questions, error: questionError } = await supabase
     .from('promotion_questions')
-    .select('id,position,kind,prompt,menu_title,button_label')
+    .select('id,position,kind,prompt,menu_title,button_label,moderation_guidelines')
     .eq('promotion_id', promotionId)
     .order('position', { ascending: true });
 
@@ -520,6 +601,7 @@ export async function getPromotionRecord(
     id: promotion.id,
     companyId: promotion.company_id,
     participationCounts,
+    frozen: participationCounts.valid + participationCounts.refused > 0,
     name: promotion.name,
     siteIntegrationCode: promotion.site_integration_code,
     startsAt: promotion.starts_at,
@@ -553,6 +635,7 @@ export async function getPromotionRecord(
       prompt: q.prompt,
       menuTitle: q.menu_title,
       buttonLabel: q.button_label,
+      moderationGuidelines: q.moderation_guidelines,
       options: byQuestion.get(q.id) ?? [],
     })),
     prizes: (prizes ?? []).map((row) => ({
@@ -636,7 +719,14 @@ function promotionRpcArgs(input: PromotionFormInput) {
     p_starts_at: input.startsAt,
     p_ends_at: input.endsAt,
     p_site_integration_code: input.siteIntegrationCode,
-    p_call_to_action: input.callToAction,
+    // Block 24, D2: the screen no longer collects a call to action, so every
+    // save writes null and the WhatsApp consent message carries the promotion's
+    // name alone — which buildConsentInteractive already did whenever this was
+    // blank. Sent explicitly rather than dropped from this builder: the RPC
+    // parameter still exists, and both doors replace every field they take, so
+    // saying null here is saying the same thing as omitting it while staying
+    // legible next to the argument it replaced.
+    p_call_to_action: undefined,
     p_allow_multiple_entries: input.allowMultipleEntries,
     p_min_hours_between_entries: input.minHoursBetweenEntries,
     p_require_correct_answer: input.requireCorrectAnswer,
@@ -660,8 +750,13 @@ function promotionRpcArgs(input: PromotionFormInput) {
     // InternalError and reaches the operator as "Could not save". That is the
     // same trap 0055's header describes from the other direction, and it is why
     // the pgTAP in 30_promotion_images asserts the parameter is absent.
-    p_yes_button_label: input.yesButtonLabel,
-    p_no_button_label: input.noButtonLabel,
+    // Block 24, D2. Undefined, so PostgREST omits them and each RPC's own
+    // `default null` applies — which for update_promotion is the wholesale
+    // replace it documents. engine.ts falls back to DEFAULT_YES_BUTTON_LABEL /
+    // DEFAULT_NO_BUTTON_LABEL for a null one, so the buttons a listener sees on
+    // WhatsApp do not change.
+    p_yes_button_label: undefined,
+    p_no_button_label: undefined,
     p_requested_fields: input.requestedFields,
     // Sent on every write, not merged into one: both RPCs replace every field
     // they are given, so an omitted ceiling is a ceiling written null. That is
@@ -731,12 +826,50 @@ export async function savePromotionQuestion(
     p_question_id: questionId ?? undefined,
     p_kind: input.kind,
     p_prompt: input.prompt,
-    p_menu_title: input.menuTitle,
-    p_button_label: input.buttonLabel,
+    // Block 24, D3. The Quiz screen stopped asking for these two, and the
+    // database still requires them: promotion_questions_list_fields (0041)
+    // refuses a QUIZ or MULTIPLE_CHOICE whose menu title or button label is null
+    // or blank, and questionOutbound (engine.ts) throws if either reaches it
+    // null. So the default is applied HERE, at the one door that writes a
+    // question, rather than in each caller — a second caller supplying its own
+    // wording is how two questions come to open different-looking menus.
+    //
+    // ESSAY takes null and must: the same constraint refuses a written answer
+    // that carries either field, because it shows no menu at all.
+    p_menu_title: input.kind === 'ESSAY' ? undefined : DEFAULT_QUESTION_MENU_TITLE,
+    p_button_label: input.kind === 'ESSAY' ? undefined : DEFAULT_QUESTION_BUTTON_LABEL,
     p_options: input.options.map((o) => ({ label: o.label, is_correct: o.isCorrect })),
   });
   if (error) throw mapPromotionError(error.code, error.message);
   return data as string;
+}
+
+/**
+ * Block 24, item 5. The Poll question's internal moderation guidelines, and
+ * nothing else.
+ *
+ * ITS OWN CALL RATHER THAN A FIELD OF THE ONE ABOVE, and 0197's header carries
+ * the full argument. The short of it: `save_promotion_question` is frozen once
+ * a participation exists, this field is not (nothing points at it and no
+ * listener ever read it), and the only moment anybody needs it is after the
+ * first participation.
+ */
+export async function setQuestionModerationGuidelines(
+  questionId: string,
+  guidelines: string | null,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_question_moderation_guidelines', {
+    p_question_id: questionId,
+    // `undefined`, not `null`, for a cleared box — the shape the generated
+    // argument type takes and the one every other optional argument in this file
+    // uses. PostgREST omits an undefined argument, the function's own `default
+    // null` applies, and `nullif(btrim(...))` inside it writes null. So clearing
+    // still clears; it simply travels as an absence rather than as an explicit
+    // null, which is the same round trip the promotion builder above documents.
+    p_guidelines: guidelines ?? undefined,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
 }
 
 export async function removePromotionQuestion(

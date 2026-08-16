@@ -193,6 +193,25 @@ const REQUIRED_TEST_FILES = [
   // client succeeding on an exit and failing on an entry, so a door that
   // refused everybody scores identically on one half and red on the other.
   { path: 'tests/isolation/inventory-reversal.test.ts', minTests: 3 },
+  // Block 24, items 7 and 8. Six cases, and the floor is the full count because
+  // two of them are the only proof of their property anywhere in this
+  // repository.
+  //
+  // The tenant boundary on `vendors`: a supplier registered at one Station is
+  // invisible from another INSIDE THE SAME ORGANIZATION, to a caller who holds
+  // inventory.view and inventory.catalogue in both. 54_vendors.test.sql asserts
+  // the policy's shape and both doors' named refusals, and cannot assert this —
+  // it runs as superuser with a null auth.uid() where RLS never applies, the
+  // reason every other entry here gives.
+  //
+  // And the sharper of the two: `record_stock_entry` refusing an ARCHIVED
+  // vendor. The composite foreign key cannot catch that one at all — it
+  // references vendors_id_company_unique, a NON-PARTIAL constraint, because a
+  // foreign key cannot reference a partial index, so it cannot see deleted_at.
+  // The refusal lives in the door's own body and nowhere else, which means a
+  // future edit that drops those four lines would leave an archived supplier
+  // silently choosable again with every other suite green.
+  { path: 'tests/isolation/vendors.test.ts', minTests: 6 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
   { path: 'tests/isolation/members.test.ts', minTests: 21 },

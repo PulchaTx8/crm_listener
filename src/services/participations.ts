@@ -20,6 +20,11 @@ import type { ParticipationStatus } from '@/lib/participation-status';
 import { STATION_LISTENER_PAGE_SIZE } from '@/lib/station-listeners';
 import type { Database } from '@/lib/supabase/database.types';
 import { cpfLastDigits, hashCpf } from '@/services/members';
+// The question's kind, for the participation window's answers. A type import
+// only — this module still never calls into promotions, so there is no cycle to
+// reason about beyond the one the record read already documents in the other
+// direction.
+import type { PromotionQuestionKind } from '@/services/promotions';
 import type { ImportRowInput, ParticipationAnswerInput } from '@/schemas/participations';
 
 /** MANUAL or IMPORT. Block 5 adds WHATSAPP to the enum, and nothing here has to change. */
@@ -194,6 +199,98 @@ export async function listParticipationsPage(
     // empty page is a total of zero.
     total: Number(fetched[0]?.total_count ?? 0),
   };
+}
+
+/**
+ * One answer, as the participation window reads it (Block 24, item 6).
+ *
+ * NO `isCorrect` FLAG ON THE ANSWER ITSELF, because there is none to read: 0052
+ * stores what the person chose and never whether it was right, and the draw
+ * derives correctness at draw time by joining `promotion_question_options`. This
+ * type carries the chosen option's own `isCorrect`, which is that same join —
+ * one hop, not a second truth.
+ */
+export interface ParticipationAnswerDetail {
+  id: string;
+  questionId: string;
+  position: number;
+  kind: PromotionQuestionKind;
+  prompt: string;
+  /**
+   * The internal guidance a Poll question carries for whoever reads its answers
+   * (Block 24, item 5). Null on every other kind, and never shown to a listener.
+   */
+  moderationGuidelines: string | null;
+  /** What they chose, on a Quiz or a deprecated poll. Null on a written answer. */
+  optionLabel: string | null;
+  /** Whether the option they chose is the right one. Null when there is no option, and false on a MULTIPLE_CHOICE, which has no right answer. */
+  optionIsCorrect: boolean | null;
+  /** What they wrote, on a Poll. Null on anything that picked from options. */
+  answerText: string | null;
+}
+
+/**
+ * What one person answered, for the participation window.
+ *
+ * READ THROUGH RLS, no RPC. `participation_answers_select_participations_view`
+ * (0053) already gates this on `participations.view` and carries the
+ * archived-promotion rule through its own sub-select; `promotion_questions` and
+ * `promotion_question_options` (0044) gate the prompt and the option label on
+ * `promotions.view`. `list_participations` requires BOTH of those permissions
+ * before it will list a single row, so anybody who reached this screen holds
+ * them — and a caller who somehow does not gets an empty list rather than
+ * somebody else's answers.
+ *
+ * Ordered by the QUESTION's position rather than by anything on the answer: the
+ * window shows the quiz as it was asked, and an answer table has no order of its
+ * own.
+ */
+export async function getParticipationAnswers(
+  participationId: string,
+  accessToken: string,
+): Promise<ParticipationAnswerDetail[]> {
+  const { data, error } = await asCaller(accessToken)
+    .from('participation_answers')
+    .select(
+      'id,question_id,kind,answer_text,' +
+        'promotion_questions(position,prompt,moderation_guidelines),' +
+        'promotion_question_options(label,is_correct)',
+    )
+    .eq('participation_id', participationId);
+
+  if (error) throw mapParticipationError(error.code, error.message);
+
+  type AnswerRow = {
+    id: string;
+    question_id: string;
+    kind: PromotionQuestionKind;
+    answer_text: string | null;
+    promotion_questions: {
+      position: number;
+      prompt: string;
+      moderation_guidelines: string | null;
+    } | null;
+    promotion_question_options: { label: string; is_correct: boolean } | null;
+  };
+
+  return ((data ?? []) as unknown as AnswerRow[])
+    .map((row) => ({
+      id: row.id,
+      questionId: row.question_id,
+      // Zero when the embed came back null, which RLS can do: a caller holding
+      // participations.view and not promotions.view reads the answer row and not
+      // the question behind it. Sorting them to the front rather than dropping
+      // them is deliberate — the window says an answer is there and that its
+      // question could not be read, which is the honest report.
+      position: row.promotion_questions?.position ?? 0,
+      kind: row.kind,
+      prompt: row.promotion_questions?.prompt ?? '',
+      moderationGuidelines: row.promotion_questions?.moderation_guidelines ?? null,
+      optionLabel: row.promotion_question_options?.label ?? null,
+      optionIsCorrect: row.promotion_question_options?.is_correct ?? null,
+      answerText: row.answer_text,
+    }))
+    .sort((a, b) => a.position - b.position);
 }
 
 /**

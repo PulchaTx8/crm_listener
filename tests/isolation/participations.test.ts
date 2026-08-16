@@ -4,6 +4,7 @@ import { decodeCursor } from '@/lib/keyset';
 import {
   PARTICIPATION_PAGE_SIZE,
   countPromotionParticipations,
+  getParticipationAnswers,
   listParticipationsPage,
   searchStationListeners,
 } from '@/services/participations';
@@ -2060,5 +2061,134 @@ describe('the fifth tab’s counts and the manual form’s picker', () => {
     // they belong to — so the empty answer above is a scope, not a denial.
     const neighbours = await searchStationListeners(stationB, 'Silveira', token);
     expect(neighbours.listeners.map((l) => l.fullName)).toEqual(['Silveira Vizinha']);
+  });
+
+  /**
+   * Block 24, item 6. The View window's own read.
+   *
+   * `getParticipationAnswers` is SECURITY INVOKER — a plain PostgREST select with
+   * two embeds — so what it returns is decided entirely by 0053's and 0044's
+   * policies. That is exactly why it needs a real JWT to prove: pgTAP runs as a
+   * superuser with no session user, and RLS never applies to it at all.
+   */
+  it('reads one participation’s answers, question text and verdict included', async () => {
+    const label = `part-answers-read-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte das Respostas',
+      phone: '11988887799',
+    });
+    const promotionId = await promotionAsOwner(customer);
+
+    const owner = await clientFor(customer);
+    const { data: quizId } = await owner.rpc('save_promotion_question', {
+      p_promotion_id: promotionId,
+      p_kind: 'QUIZ',
+      p_prompt: 'Quem ganha a Copa?',
+      p_menu_title: 'Escolha',
+      p_button_label: 'Opções',
+      p_options: [
+        { label: 'Brasil', is_correct: true },
+        { label: 'Argentina', is_correct: false },
+      ],
+    });
+    const { data: essayId } = await owner.rpc('save_promotion_question', {
+      p_promotion_id: promotionId,
+      p_kind: 'ESSAY',
+      p_prompt: 'Por que essa música?',
+      p_options: [],
+    });
+    // The internal guidance the window shows above the written answer.
+    const guidelines = await owner.rpc('set_question_moderation_guidelines', {
+      p_question_id: essayId as string,
+      p_guidelines: 'Prefira uma memória a uma resenha.',
+    });
+    expect(guidelines.error).toBeNull();
+
+    const delegate = await grantRoleWith(customer, label, [
+      'promotions.view',
+      'participations.view',
+      'participations.create',
+    ]);
+    const client = await clientFor(delegate);
+
+    const { data: options } = await client
+      .from('promotion_question_options')
+      .select('id, label')
+      .eq('question_id', quizId as string);
+    const argentina = options!.find((o) => o.label === 'Argentina')!.id;
+
+    const recorded = await client.rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_source: 'MANUAL' as const,
+      p_participated_at: new Date().toISOString(),
+      p_answers: [
+        { question_id: quizId, option_id: argentina },
+        { question_id: essayId, answer_text: 'Tocou no dia em que conheci minha esposa.' },
+      ],
+    });
+    expect(recorded.error).toBeNull();
+    const participationId = (recorded.data as { participation_id: string }).participation_id;
+
+    const answers = await getParticipationAnswers(participationId, await tokenFor(delegate));
+
+    // Ordered by the QUESTION's position, which is how the quiz was asked — the
+    // answers table has no order of its own.
+    expect(answers).toHaveLength(2);
+    expect(answers[0]?.prompt).toBe('Quem ganha a Copa?');
+    expect(answers[0]?.optionLabel).toBe('Argentina');
+    // The verdict is DERIVED from the chosen option, never stored on the answer
+    // (0052's own comment). A wrong pick reports false rather than null.
+    expect(answers[0]?.optionIsCorrect).toBe(false);
+    expect(answers[0]?.moderationGuidelines).toBeNull();
+
+    expect(answers[1]?.prompt).toBe('Por que essa música?');
+    expect(answers[1]?.answerText).toBe('Tocou no dia em que conheci minha esposa.');
+    expect(answers[1]?.optionLabel).toBeNull();
+    expect(answers[1]?.moderationGuidelines).toBe('Prefira uma memória a uma resenha.');
+  });
+
+  it('returns nothing to a caller who cannot reach the Station', async () => {
+    const label = `part-answers-denied-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte Reservado',
+      phone: '11988887798',
+    });
+    const promotionId = await promotionAsOwner(customer);
+
+    const insider = await grantRoleWith(customer, `${label}-in`, [
+      'promotions.view',
+      'participations.view',
+      'participations.create',
+    ]);
+    const recorded = await (
+      await clientFor(insider)
+    ).rpc('record_participation', {
+      p_promotion_id: promotionId,
+      p_member_id: memberId,
+      p_source: 'MANUAL' as const,
+      p_participated_at: new Date().toISOString(),
+      p_answers: [],
+    });
+    expect(recorded.error).toBeNull();
+    const participationId = (recorded.data as { participation_id: string }).participation_id;
+
+    // A delegate of ANOTHER Station in the same Organization, holding every
+    // permission this read needs — there, and only there.
+    const stationB = await addCompany(customer, `Station B ${label}`);
+    const outsider = await grantRoleWith(
+      customer,
+      `${label}-out`,
+      ['promotions.view', 'participations.view'],
+      [stationB],
+    );
+
+    // EMPTY, not an error: this is a select under RLS, and a row a policy hides
+    // is a row that does not exist. The window renders "this promotion asked
+    // nothing", which is the honest report of what this caller can see.
+    const answers = await getParticipationAnswers(participationId, await tokenFor(outsider));
+    expect(answers).toHaveLength(0);
   });
 });

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/input';
 import type { MovementEntry, PrizeBalance, PrizeMovementsPage } from '@/services/inventory';
+import type { VendorOption } from '@/services/vendors';
 import { reverseMovementAction, type ReverseMovementState } from './actions';
 import { AdjustmentForm } from './adjustment-form';
 import { MovementHistory } from './movement-history';
@@ -28,6 +29,7 @@ export function EntriesTab({
   timeZone,
   canEnter,
   canAdjust,
+  vendors,
   onRecorded,
 }: {
   companyId: string;
@@ -38,6 +40,8 @@ export function EntriesTab({
   timeZone: string;
   canEnter: boolean;
   canAdjust: boolean;
+  /** Block 24, item 8. The Station's live suppliers, arriving with the record — see record.ts for why they are not fetched here. */
+  vendors: VendorOption[];
   /** Asks the record to re-read, so the ledger, the balance and this tab's own history show what was just written or reversed. */
   onRecorded: () => void;
 }) {
@@ -52,6 +56,7 @@ export function EntriesTab({
           prizeId={prizeId}
           balance={balance}
           canAdjust={canAdjust}
+          vendors={vendors}
           onRecorded={onRecorded}
         />
       ) : canAdjust ? (

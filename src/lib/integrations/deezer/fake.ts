@@ -1,3 +1,4 @@
+import { isExcludedTitle } from './transport';
 import type {
   DeezerAlbumDetail,
   DeezerFailureReason,
@@ -44,7 +45,16 @@ export class FakeDeezerTransport implements DeezerTransport {
 
   async search(filters: DeezerSearchFilters): Promise<DeezerResult<DeezerTrack[]>> {
     this.searches.push(filters);
-    return this.takeFailure() ?? { ok: true, value: this.tracks };
+    return (
+      this.takeFailure() ?? {
+        ok: true,
+        // Block 24, D1: filtered exactly as the real client filters, so the
+        // end-to-end suite proves the rule and not a screen with no rule behind
+        // it. `track` below is deliberately NOT filtered, for the same reason
+        // the real client does not filter it.
+        value: this.tracks.filter((track) => !isExcludedTitle(track.title)),
+      }
+    );
   }
 
   async album(albumId: number): Promise<DeezerResult<DeezerAlbumDetail>> {

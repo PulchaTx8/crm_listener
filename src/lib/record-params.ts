@@ -167,6 +167,25 @@ export type ShowTab = (typeof SHOW_TABS)[number];
 export const ALBUM_TABS = ['data'] as const;
 export type AlbumTab = (typeof ALBUM_TABS)[number];
 
+/**
+ * One, the same reasoning SHOW_TABS and ALBUM_TABS give for theirs: a supplier's
+ * record is who they are, how to reach them and where they are — three groups of
+ * one form, not three sections behind tabs. Splitting them would hide two thirds
+ * of what an operator is about to save.
+ *
+ * "What we bought from them" is a real second thing a vendor's record could
+ * eventually show, and it is deliberately not here: it is a filter over
+ * `/inventory/movements`, which `list_movements` can express as of Block 24 now
+ * that `vendor_name` is on the row. A tab would be a second, narrower copy of
+ * that screen.
+ *
+ * Declared as a tuple rather than the screen passing `['data']` inline, because
+ * `useRecordDialog` keeps this array in a dependency list: a literal rebuilt on
+ * every render re-subscribes its popstate listener on every render.
+ */
+export const VENDOR_TABS = ['data'] as const;
+export type VendorTab = (typeof VENDOR_TABS)[number];
+
 export interface RecordParam {
   recordId: string | null;
   /** Null only when no record is open — an open record always resolves to a tab. */

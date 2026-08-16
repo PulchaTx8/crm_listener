@@ -1,5 +1,6 @@
 import {
   buildSearchQuery,
+  isExcludedTitle,
   type DeezerAlbumDetail,
   type DeezerResult,
   type DeezerSearchFilters,
@@ -89,7 +90,15 @@ export function createDeezerClient(options: { fetchImpl?: typeof fetch } = {}): 
         ok: true,
         value: result.value.data
           .map(toTrack)
-          .filter((track): track is DeezerTrack => track !== null),
+          .filter((track): track is DeezerTrack => track !== null)
+          // Block 24, D1. Karaoke backing tracks and covers, dropped by title.
+          //
+          // THE LIMIT IS SPENT BEFORE THIS RUNS, and that is accepted rather
+          // than unnoticed: SEARCH_LIMIT asks Deezer for twenty and this cuts
+          // from those twenty, so a search whose first twenty hits are all
+          // karaoke versions shows nothing. Asking for more to compensate
+          // would spend a bigger response on every search to serve a rare one.
+          .filter((track) => !isExcludedTitle(track.title)),
       };
     },
 

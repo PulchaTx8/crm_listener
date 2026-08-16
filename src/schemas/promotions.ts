@@ -60,13 +60,17 @@ export const promotionFormSchema = z
       .optional()
       .transform((v) => (v === null ? undefined : v)),
 
-    callToAction: z
-      .string()
-      .trim()
-      .max(2000)
-      .nullable()
-      .optional()
-      .transform((v) => (v === null || v === '' ? undefined : v)),
+    // BLOCK 24 REMOVED `callToAction`, AND THE COLUMN STAYS (D2). It was the
+    // sentence under the promotion's name in the WhatsApp consent message, and
+    // the owner took it off the screen once the widget became the door most
+    // Stations use. `buildConsentInteractive` already renders the name alone
+    // when it is null, so nothing downstream needed changing — and
+    // `update_promotion` replaces every field on every call, so each promotion's
+    // column goes to null the next time it is saved.
+    //
+    // Absent from this schema rather than optional-and-ignored: a field
+    // validated here is a field this form believes it is saving, which is the
+    // argument the two pictures' own comment makes below.
 
     allowMultipleEntries: z.boolean(),
     minHoursBetweenEntries: z
@@ -132,20 +136,16 @@ export const promotionFormSchema = z
     // from the presence of the address, which is what promotions_art_shape has
     // always required.
 
-    yesButtonLabel: z
-      .string()
-      .trim()
-      .max(20, 'Keep the button label to 20 characters or fewer.')
-      .nullable()
-      .optional()
-      .transform((v) => (v === null || v === '' ? undefined : v)),
-    noButtonLabel: z
-      .string()
-      .trim()
-      .max(20, 'Keep the button label to 20 characters or fewer.')
-      .nullable()
-      .optional()
-      .transform((v) => (v === null || v === '' ? undefined : v)),
+    // BLOCK 24 REMOVED `yesButtonLabel` and `noButtonLabel`, AND THE COLUMNS
+    // STAY (D2). They titled the two buttons of the WhatsApp consent message,
+    // and `engine.ts` has always fallen back to DEFAULT_YES_BUTTON_LABEL /
+    // DEFAULT_NO_BUTTON_LABEL for a blank one — "the default is copy, not data",
+    // as that file puts it. So every promotion now takes the fallback, and what
+    // a listener sees on WhatsApp is unchanged for any promotion that never set
+    // them, which was most of them.
+    //
+    // `promotions_whatsapp_shape` (`0040`) is satisfied either way: it requires
+    // the two to be NULL when WhatsApp is off, and they are now always null.
 
     requestedFields: z.array(requestedField),
   })
@@ -199,27 +199,22 @@ export const promotionFormSchema = z
         message: 'A WhatsApp promotion needs the hashtag the bot listens for.',
       });
     }
-    if (!v.whatsappEnabled) {
-      // The banner is deliberately not in this list any more. It is not a field
-      // of this form, and the rule that a promotion with WhatsApp off may not
-      // carry one is enforced where it can actually be enforced: set_promotion_art
-      // refuses it with a sentence, and update_promotion clears the column and
-      // queues the object when WhatsApp is switched off (0144).
-      const stray = (
-        [
-          ['hashtag', v.hashtag],
-          ['yesButtonLabel', v.yesButtonLabel],
-          ['noButtonLabel', v.noButtonLabel],
-        ] as const
-      ).filter(([, value]) => value !== undefined);
-
-      for (const [path] of stray) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: [path],
-          message: 'Turn WhatsApp on for this promotion, or leave this empty.',
-        });
-      }
+    // The banner is deliberately not checked here. It is not a field of this
+    // form, and the rule that a promotion with WhatsApp off may not carry one is
+    // enforced where it can actually be enforced: set_promotion_art refuses it
+    // with a sentence, and update_promotion clears the column and queues the
+    // object when WhatsApp is switched off (0144).
+    //
+    // Block 24 left the hashtag alone in what used to be a list of three. The
+    // two button labels are no longer fields of this form either (see above), so
+    // there is nothing to catch them arriving — and nothing that could send
+    // them.
+    if (!v.whatsappEnabled && v.hashtag !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['hashtag'],
+        message: 'Turn WhatsApp on for this promotion, or leave this empty.',
+      });
     }
 
     // BLOCK 17c MOVED THIS OUT OF THE `!whatsappEnabled` BRANCH ABOVE, and the
@@ -284,23 +279,16 @@ export const questionFormSchema = z
     kind: z.enum(['QUIZ', 'MULTIPLE_CHOICE', 'ESSAY']),
     prompt: z.string().trim().min(1, 'Write the question.').max(300),
 
-    // The two fields of the WhatsApp list message — what the owner's screen
-    // calls Título do Menu and Título do Botão. WhatsApp caps the button at 20
-    // characters and silently truncates past it, which reads as a bug in us.
-    menuTitle: z
-      .string()
-      .trim()
-      .max(24)
-      .nullable()
-      .optional()
-      .transform((v) => (v === null || v === '' ? undefined : v)),
-    buttonLabel: z
-      .string()
-      .trim()
-      .max(20, 'Keep the button label to 20 characters or fewer.')
-      .nullable()
-      .optional()
-      .transform((v) => (v === null || v === '' ? undefined : v)),
+    // BLOCK 24 REMOVED `menuTitle` and `buttonLabel` (D3). They were the two
+    // halves of the WhatsApp list message and the operator had to invent them
+    // for every question.
+    //
+    // UNLIKE THE THREE PROMOTION FIELDS, THESE STILL HAVE TO BE WRITTEN.
+    // `promotion_questions_list_fields` (`0041`) requires both to be present and
+    // non-blank on every QUIZ and MULTIPLE_CHOICE, and `engine.ts` throws if
+    // they reach it null. So `savePromotionQuestion` supplies
+    // DEFAULT_QUESTION_MENU_TITLE and DEFAULT_QUESTION_BUTTON_LABEL at the door
+    // — one place, rather than a constant in every caller.
 
     options: z.array(questionOption),
   })
@@ -315,13 +303,6 @@ export const questionFormSchema = z
           message: 'A written answer has no options to choose from.',
         });
       }
-      if (v.menuTitle !== undefined || v.buttonLabel !== undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['menuTitle'],
-          message: 'A written answer shows no menu, so it needs no menu or button title.',
-        });
-      }
       return;
     }
 
@@ -330,21 +311,6 @@ export const questionFormSchema = z
         code: z.ZodIssueCode.custom,
         path: ['options'],
         message: 'A question with options needs at least two of them.',
-      });
-    }
-
-    if (v.menuTitle === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['menuTitle'],
-        message: 'Title the menu the listener will see.',
-      });
-    }
-    if (v.buttonLabel === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['buttonLabel'],
-        message: 'Label the button that opens the menu.',
       });
     }
 

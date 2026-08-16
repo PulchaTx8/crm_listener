@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { ImageUploadField } from '@/components/media/image-upload-field';
 import type { PromotionDetail } from '@/services/promotions';
 import { fromZonedWallClock, toZonedDateTime } from './zone';
@@ -210,17 +210,15 @@ export function PromotionFields({
         </span>
       </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('callToAction')}</span>
-        <Textarea
-          name="callToAction"
-          rows={3}
-          maxLength={2000}
-          defaultValue={record?.callToAction ?? ''}
-          disabled={disabled}
-          data-testid="promotion-call-to-action"
-        />
-      </label>
+      {/* THE CALL TO ACTION IS GONE (Block 24, D2). It was the sentence printed
+          under the promotion's name in the WhatsApp consent message, and the
+          owner took it off this form once the widget became the door most
+          Stations use. buildConsentInteractive already renders the name alone
+          when the column is null, so nothing about that message needed changing.
+
+          The column is not dropped. update_promotion replaces every field on
+          every call, so each promotion's value goes to null the next time it is
+          saved. */}
     </div>
   );
 }

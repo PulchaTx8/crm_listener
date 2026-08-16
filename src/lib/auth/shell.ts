@@ -116,6 +116,22 @@ export async function getShellContext(): Promise<{
         // Inventory and Pickups) and reads reasonably as things moving in
         // and out, which a stock ledger is.
         { href: '/inventory/movements', label: t('movements'), icon: ICONS.inbox },
+        // Block 24, item 7. Who the prizes come from. Third and last in the
+        // section, because it is the reference list the other two consume rather
+        // than a place stock is counted or moved — Stock is where an operator
+        // starts, Movements is what they read, and this is what an entry names.
+        //
+        // /inventory/vendors redirects nobody by itself: it opens on whichever
+        // Station listCompanyAccess resolves inventory.view in, the same
+        // courtesy the two items above already extend, and 0198's select policy
+        // plus both doors in 0199 re-check the permission themselves regardless.
+        //
+        // ICONS.building rather than a new path. Its two other uses — Catalogue
+        // > Labels and Platform > Organizations — are in distant sections, so it
+        // never sits adjacent to itself, which is the whole of the rule this
+        // file records for box and shield. A supplier IS a company, which is
+        // exactly what the glyph means in Catalogue > Labels.
+        { href: '/inventory/vendors', label: t('vendors'), icon: ICONS.building },
       ],
     },
     {

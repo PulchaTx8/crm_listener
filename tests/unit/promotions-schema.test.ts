@@ -233,8 +233,6 @@ describe('questionFormSchema', () => {
   const choice = {
     kind: 'MULTIPLE_CHOICE' as const,
     prompt: 'Favourite genre?',
-    menuTitle: 'Choose',
-    buttonLabel: 'Options',
     options: [
       { label: 'Rock', isCorrect: false },
       { label: 'Samba', isCorrect: false },
@@ -258,9 +256,32 @@ describe('questionFormSchema', () => {
     expect(r.success).toBe(false);
   });
 
-  it('refuses a choice question without a menu title', () => {
-    const r = questionFormSchema.safeParse({ ...choice, menuTitle: undefined });
-    expect(r.success).toBe(false);
+  /**
+   * BLOCK 24 (D3) TOOK THE MENU TITLE AND THE BUTTON LABEL OFF THIS SCHEMA, and
+   * the two tests that used to stand here — "refuses a choice question without a
+   * menu title" and "refuses a menu title on an essay question" — went with
+   * them. Neither could be rewritten: a schema with no such field has nothing to
+   * require and nothing to refuse.
+   *
+   * What replaced them is NOT nothing. The values are still written, because
+   * promotion_questions_list_fields (0041) still requires them on a QUIZ, and
+   * the door that supplies them is asserted below and in 03_promotions.test.sql.
+   * A reviewer reading only this file would otherwise conclude the rule was
+   * dropped.
+   */
+  it('ignores a menu title posted by a stale form rather than refusing the save', () => {
+    // A browser holding the previous version of the Quiz tab still posts the two
+    // fields. Zod strips unknown keys by default, so the question saves and the
+    // door's own defaults are what land — which is better than a refusal the
+    // operator cannot act on, since the fields they would have to clear are no
+    // longer on their screen.
+    const r = questionFormSchema.safeParse({
+      ...choice,
+      menuTitle: 'Choose',
+      buttonLabel: 'Options',
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && 'menuTitle' in r.data).toBe(false);
   });
 
   // No index can require a FIRST right answer — a partial unique index only
@@ -304,16 +325,6 @@ describe('questionFormSchema', () => {
       kind: 'ESSAY',
       prompt: 'Why?',
       options: [{ label: 'x', isCorrect: false }],
-    });
-    expect(r.success).toBe(false);
-  });
-
-  it('refuses a menu title on an essay question', () => {
-    const r = questionFormSchema.safeParse({
-      kind: 'ESSAY',
-      prompt: 'Why?',
-      menuTitle: 'Choose',
-      options: [],
     });
     expect(r.success).toBe(false);
   });

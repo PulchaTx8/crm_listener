@@ -1,6 +1,8 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   PageControls,
   Table,
@@ -20,9 +22,13 @@ import type { ParticipationSummary } from '@/services/participations';
 // its hydrated DOM agreeing about the day.
 import { formatInstant } from '../promotions/format';
 import { SOURCE_LABEL_KEYS } from './list-params';
+import { ParticipationDialog } from './participation-dialog';
 
-/** How many columns the empty-state row has to span. */
-const COLUMN_COUNT = 6;
+/**
+ * How many columns the empty-state row has to span. Eight since Block 24: the
+ * six that existed, the promotion's picture at the front and View at the back.
+ */
+const COLUMN_COUNT = 8;
 
 /**
  * The list itself. It holds no state today, and it is still a client component
@@ -44,18 +50,47 @@ export function ParticipationsGrid({
   rows,
   total,
   timeZone,
+  promotionThumbs,
   previousHref,
   nextHref,
 }: {
   rows: ParticipationSummary[];
   total: number;
   timeZone: string;
+  /**
+   * The promotion's picture by promotion id (Block 24, item 6). A map rather
+   * than a field on the row, because these rows come from `list_participations`
+   * (0090), whose returned columns carry no thumbnail — widening that function
+   * would have meant DROP + CREATE on a long RPC to add one field. `page.tsx`
+   * fetches them for the page in one query instead, exactly as
+   * `requests-grid.tsx`'s `covers` map does for song artwork.
+   */
+  promotionThumbs: Map<string, string | null>;
   previousHref: string | null;
   nextHref: string | null;
 }) {
   const t = useTranslations('participations');
   // The shared enum vocabulary, which several screens render.
   const tv = useTranslations('vocab');
+
+  // Derived from the live `rows` prop by id, every render, rather than a
+  // snapshot taken when the button was pressed — the shape AttendDialog uses,
+  // and what lets a re-read of this page reach an open window.
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = rows.find((row) => row.id === viewingId) ?? null;
+
+  // The id outlives the row unless something clears it: `viewing` going null
+  // unmounts the dialog WITHOUT its onClose ever firing, so viewingId still
+  // names an entry that is no longer on this page. Clearing a filter then brings
+  // the row back, `viewing` matches again on its own, and the window the operator
+  // already finished with reopens unprompted. requests-grid.tsx shipped exactly
+  // that defect and fixed it with this effect; copied rather than rediscovered.
+  useEffect(() => {
+    if (viewingId !== null && !rows.some((row) => row.id === viewingId)) {
+      setViewingId(null);
+    }
+  }, [rows, viewingId]);
+
   return (
     <div className="mt-4 rounded-lg border">
       <Table>
@@ -68,6 +103,13 @@ export function ParticipationsGrid({
                 it orders by. `aria-sort` on the Entered column states that
                 ordering to assistive technology even though no control changes
                 it — the table IS sorted, it simply cannot be re-sorted. */}
+            {/* Block 24, item 6. No visible label: the pictures are a column
+                beside the promotion names they belong to, and a heading over
+                them would be read aloud on every row for nothing — the same
+                treatment shows-grid.tsx gives its own picture column. */}
+            <TableHead className="w-12">
+              <span className="sr-only">{t('promotionPicture')}</span>
+            </TableHead>
             <TableHead>{t('listener')}</TableHead>
             <TableHead>{t('promotion')}</TableHead>
             <TableHead>{t('status')}</TableHead>
@@ -78,6 +120,9 @@ export function ParticipationsGrid({
                 column is what turns that into something an operator can see
                 coming rather than something they notice afterwards. */}
             <TableHead>{t('wonHere')}</TableHead>
+            <TableHead className="sticky right-0 bg-background text-right">
+              {t('actions')}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -93,6 +138,21 @@ export function ParticipationsGrid({
           ) : (
             rows.map((entry) => (
               <TableRow key={entry.id} data-testid="participation-row">
+                <TableCell>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {promotionThumbs.get(entry.promotionId) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={promotionThumbs.get(entry.promotionId) ?? undefined}
+                      alt=""
+                      width={32}
+                      height={32}
+                      className="rounded"
+                    />
+                  ) : (
+                    <span className="block size-8 rounded bg-muted" aria-hidden="true" />
+                  )}
+                </TableCell>
                 <TableCell>
                   {/*
                     A missing name is rendered the same way whatever the reason,
@@ -131,6 +191,25 @@ export function ParticipationsGrid({
                 <TableCell className="text-sm" data-testid="participation-already-won">
                   {entry.alreadyWon ? t('yes') : '—'}
                 </TableCell>
+                {/* Block 24, item 6. Offered to every caller who can read this
+                    list, on AttendDialog's own reasoning (Block 22, D10): the
+                    window's first purpose is a calmer, fuller view of one entry,
+                    and there is nothing in it to gate — every field it shows came
+                    off a row this caller already has, and the answers are read
+                    through the same permission that produced the row. */}
+                <TableCell className="sticky right-0 bg-background text-right">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setViewingId(entry.id)}
+                    aria-label={t('viewTheEntryOf', {
+                      name: entry.listenerName ?? t('thisListener'),
+                    })}
+                    data-testid="participation-view"
+                  >
+                    {t('view')}
+                  </Button>
+                </TableCell>
               </TableRow>
             ))
           )}
@@ -150,6 +229,15 @@ export function ParticipationsGrid({
         previousHref={previousHref}
         nextHref={nextHref}
       />
+
+      {viewing && (
+        <ParticipationDialog
+          entry={viewing}
+          promotionThumbUrl={promotionThumbs.get(viewing.promotionId) ?? null}
+          timeZone={timeZone}
+          onClose={() => setViewingId(null)}
+        />
+      )}
     </div>
   );
 }

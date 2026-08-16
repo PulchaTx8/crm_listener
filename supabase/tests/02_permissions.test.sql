@@ -417,20 +417,20 @@ select is(
 -- have left this suite green while an unchecked write path opened.
 select is(
   (select prosecdef from pg_proc
-     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)'::regprocedure),
+     where oid = 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid, uuid)'::regprocedure),
   false,
   'apply_inventory_movement is SECURITY INVOKER, not DEFINER'
 );
 select ok(
-  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid, uuid)', 'EXECUTE'),
   'anon may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)', 'EXECUTE'),
+  not has_function_privilege('authenticated', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid, uuid)', 'EXECUTE'),
   'authenticated may not call apply_inventory_movement'
 );
 select ok(
-  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid)', 'EXECUTE'),
+  not has_function_privilege('service_role', 'public.apply_inventory_movement(uuid, uuid, public.inventory_movement_type, integer, public.inventory_bucket, public.inventory_bucket, text, text, uuid, text, numeric, numeric, uuid, uuid, uuid)', 'EXECUTE'),
   'service_role may not call apply_inventory_movement'
 );
 

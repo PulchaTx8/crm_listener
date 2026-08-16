@@ -144,7 +144,9 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   await ownerPage.getByRole('tab', { name: 'Powers' }).click();
   const catalogueLabels = [
     'See prizes and stock', // inventory.view
-    'Register, edit and archive prizes and categories', // inventory.catalogue
+    // Widened by 0199: the same permission now covers vendors, and the roles
+    // screen reads this column directly, so it says so.
+    'Register, edit and archive prizes, categories and vendors', // inventory.catalogue
     'Add stock', // inventory.entry
     'Record a manual exit', // inventory.exit
     'Adjust stock to match a count', // inventory.adjust
@@ -155,7 +157,7 @@ test('a delegate holding a scoped Stock Keeper role runs the whole prize and sto
   }
 
   await ownerPage.getByLabel('See prizes and stock').check();
-  await ownerPage.getByLabel('Register, edit and archive prizes and categories').check();
+  await ownerPage.getByLabel('Register, edit and archive prizes, categories and vendors').check();
   await ownerPage.getByLabel('Add stock').check();
   await ownerPage.getByLabel('Reserve stock and release a reservation').check();
   // Deliberately left unchecked: "Record a manual exit" (inventory.exit) and

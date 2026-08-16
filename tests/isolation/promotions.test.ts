@@ -6,8 +6,16 @@ import {
   getPromotionRecord,
   removePromotionQuestion,
   savePromotionQuestion,
+  setQuestionModerationGuidelines,
   updatePromotion,
 } from '@/services/promotions';
+// Block 24, D3: the two the Quiz screen stopped collecting and the door now
+// supplies. Imported rather than repeated as literals, so a change to the copy
+// cannot leave this test asserting wording nothing writes.
+import {
+  DEFAULT_QUESTION_BUTTON_LABEL,
+  DEFAULT_QUESTION_MENU_TITLE,
+} from '@/lib/conversation/engine';
 import type { PromotionFormInput } from '@/schemas/promotions';
 import { addCompany, cleanupUsers, grantRoleWith, provisionCustomer, signInAs } from './harness';
 import type { ProvisionedCustomer } from './harness';
@@ -106,8 +114,6 @@ describe('the promotion record', () => {
         {
           kind: 'QUIZ',
           prompt: 'Which country wins the 2026 World Cup?',
-          menuTitle: 'Choose',
-          buttonLabel: 'Options',
           options: [
             { label: 'Brazil', isCorrect: true },
             { label: 'Argentina', isCorrect: false },
@@ -176,8 +182,10 @@ describe('the promotion record', () => {
           // No banner here as of Block 14: it is not a field of this form and
           // create_promotion does not take one. A promotion is born without
           // pictures because neither storage key exists until the row does.
-          yesButtonLabel: 'Quero!',
-          noButtonLabel: 'Agora não',
+          //
+          // No button labels either, as of Block 24: they are not fields of this
+          // form any more, and the service sends null for both. What a listener
+          // reads on the two consent buttons is engine.ts's own copy.
           requestedFields: ['full_name', 'address', 'city'],
           allowMultipleEntries: true,
           minHoursBetweenEntries: 24,
@@ -311,7 +319,12 @@ describe('the promotion record', () => {
       const label = `promo-edit-ok-${Date.now()}`;
       const customer = await provisionCustomer(label);
       const promotionId = await createAsOwner(customer, {
-        callToAction: 'Participe e concorra',
+        // Block 24 took `callToAction` off this form, so the field that proves
+        // the wholesale replace is now the site integration code: optional,
+        // still on the form, and cleared by an update that omits it. What is
+        // being tested is unchanged — that update_promotion replaces every
+        // field rather than merging — only which field carries the proof.
+        siteIntegrationCode: 4242,
         whatsappEnabled: true,
         hashtag: '#ANTES',
       });
@@ -337,7 +350,7 @@ describe('the promotion record', () => {
       expect(record?.hashtag).toBe('#DEPOIS');
       // The wholesale replace is the point: a field left out of the submission
       // is cleared, not kept.
-      expect(record?.callToAction).toBeNull();
+      expect(record?.siteIntegrationCode).toBeNull();
     });
 
     it('is refused without promotions.edit, and leaves the row alone', async () => {
@@ -517,6 +530,135 @@ describe('the promotion record', () => {
   });
 
   describe('the quiz', () => {
+    /**
+     * Block 24, D3. The Quiz tab stopped asking for a menu title and a button
+     * label; `promotion_questions_list_fields` (0041) still requires both on a
+     * QUIZ, and `questionOutbound` still throws without them.
+     *
+     * So this is the proof that removing the two inputs did not remove the two
+     * values — the one thing a reviewer reading the screen diff would assume was
+     * broken. It saves a question the way the screen now saves one, with neither
+     * field in hand, and reads back what the door wrote.
+     */
+    it('writes the default menu title and button label the screen no longer collects', async () => {
+      const label = `promo-quiz-defaults-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const promotionId = await createAsOwner(customer);
+
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      await savePromotionQuestion(
+        promotionId,
+        null,
+        {
+          kind: 'QUIZ',
+          prompt: 'Which country wins?',
+          options: [
+            { label: 'Brazil', isCorrect: true },
+            { label: 'Argentina', isCorrect: false },
+          ],
+        },
+        token,
+      );
+
+      const record = await getPromotionRecord(promotionId, token);
+      expect(record?.questions[0]?.menuTitle).toBe(DEFAULT_QUESTION_MENU_TITLE);
+      expect(record?.questions[0]?.buttonLabel).toBe(DEFAULT_QUESTION_BUTTON_LABEL);
+    });
+
+    // An ESSAY takes null for both, and must: the same constraint refuses a
+    // written answer carrying either, because it shows no menu at all.
+    it('leaves both null on a written answer', async () => {
+      const label = `promo-quiz-essay-null-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const promotionId = await createAsOwner(customer);
+
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      await savePromotionQuestion(
+        promotionId,
+        null,
+        { kind: 'ESSAY', prompt: 'Why this song?', options: [] },
+        token,
+      );
+
+      const record = await getPromotionRecord(promotionId, token);
+      expect(record?.questions[0]?.menuTitle).toBeNull();
+      expect(record?.questions[0]?.buttonLabel).toBeNull();
+    });
+
+    /**
+     * Block 24, item 5, through the service wrapper rather than the RPC. pgTAP
+     * proves the door itself, including the assertion this field exists for —
+     * that it writes while the promotion is frozen. What this adds is that the
+     * argument actually reaches it: an RPC parameter renamed or dropped from
+     * `setQuestionModerationGuidelines` type-checks perfectly and fails at
+     * runtime as PGRST202, which is the trap promotionRpcArgs' own comment
+     * describes.
+     */
+    it('writes and clears a Poll question’s moderation guidelines', async () => {
+      const label = `promo-guidelines-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const promotionId = await createAsOwner(customer);
+
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      const questionId = await savePromotionQuestion(
+        promotionId,
+        null,
+        { kind: 'ESSAY', prompt: 'Why this song?', options: [] },
+        token,
+      );
+
+      await setQuestionModerationGuidelines(
+        questionId,
+        'Favour a memory over a review.',
+        token,
+      );
+
+      const written = await getPromotionRecord(promotionId, token);
+      expect(written?.questions[0]?.moderationGuidelines).toBe('Favour a memory over a review.');
+
+      // A cleared box travels as an absence and still clears — see the service's
+      // own comment for why it is `undefined` on the wire rather than null.
+      await setQuestionModerationGuidelines(questionId, null, token);
+      const cleared = await getPromotionRecord(promotionId, token);
+      expect(cleared?.questions[0]?.moderationGuidelines).toBeNull();
+    });
+
+    it('refuses moderation guidelines without promotions.edit', async () => {
+      const label = `promo-guidelines-denied-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const promotionId = await createAsOwner(customer);
+
+      const editor = await grantRoleWith(customer, `${label}-editor`, ['promotions.edit']);
+      const questionId = await savePromotionQuestion(
+        promotionId,
+        null,
+        { kind: 'ESSAY', prompt: 'Why this song?', options: [] },
+        await tokenFor(editor.email, editor.password),
+      );
+
+      const reader = await grantRoleWith(customer, label, ['promotions.view']);
+      const token = await tokenFor(reader.email, reader.password);
+
+      await expect(
+        setQuestionModerationGuidelines(questionId, 'anything', token),
+      ).rejects.toThrow(/permission/i);
+    });
+
     it('replaces a question’s options wholesale', async () => {
       const label = `promo-quiz-replace-${Date.now()}`;
       const customer = await provisionCustomer(label);
@@ -534,8 +676,6 @@ describe('the promotion record', () => {
         {
           kind: 'MULTIPLE_CHOICE',
           prompt: 'Favourite genre?',
-          menuTitle: 'Choose',
-          buttonLabel: 'Options',
           options: [
             { label: 'Rock', isCorrect: false },
             { label: 'Samba', isCorrect: false },
@@ -550,8 +690,6 @@ describe('the promotion record', () => {
         {
           kind: 'MULTIPLE_CHOICE',
           prompt: 'Favourite genre?',
-          menuTitle: 'Choose',
-          buttonLabel: 'Options',
           options: [
             { label: 'Forró', isCorrect: false },
             { label: 'MPB', isCorrect: false },
@@ -588,8 +726,6 @@ describe('the promotion record', () => {
           {
             kind: 'QUIZ',
             prompt: 'Who wins?',
-            menuTitle: 'Choose',
-            buttonLabel: 'Options',
             options: [
               { label: 'Brazil', isCorrect: false },
               { label: 'Argentina', isCorrect: false },

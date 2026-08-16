@@ -190,8 +190,11 @@ test('the promotion record opens over a list that is never re-queried', async ({
   await ownerPage.getByTestId('quiz-add').click();
   await ownerPage.getByTestId('quiz-kind').selectOption('QUIZ');
   await ownerPage.getByTestId('quiz-prompt').fill('Which country wins in 2026?');
-  await ownerPage.getByTestId('quiz-menu-title').fill('Choose');
-  await ownerPage.getByTestId('quiz-button-label').fill('Options');
+  // No menu title and no button label: Block 24 (D3) took both off this form.
+  // They are still written — savePromotionQuestion supplies the defaults,
+  // because 0041's check requires them on a QUIZ — and this journey saving at
+  // all is part of what proves it, since a question missing either is refused
+  // by the database rather than accepted with a hole.
   const optionLabels = ownerPage.getByTestId('quiz-option-label');
   await optionLabels.nth(0).fill('Brazil');
   await optionLabels.nth(1).fill('Argentina');
