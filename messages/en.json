@@ -1302,7 +1302,12 @@
     "reversalReasonHint": "Why is this being archived?",
     "showingOfTotalMovements": "Showing {shown} of {total}",
     "movementActorDeadline": "(deadline)",
-    "unnamedOperator": "Unnamed operator"
+    "unnamedOperator": "Unnamed operator",
+    "vendor": "Vendor",
+    "noVendor": "No vendor",
+    "narrowTheList": "Type to narrow the list",
+    "narrowTheVendorList": "Narrow the vendor list",
+    "noVendorMatchesThatText": "No vendor matches that text."
   },
   "promotions": {
     "promotions": "Promotions",

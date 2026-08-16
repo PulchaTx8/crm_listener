@@ -176,6 +176,21 @@ export function MovementHistory({
               <span>
                 {t('performedBy')}: <span data-testid="movement-actor">{describeActor(movement, t)}</span>
               </span>
+              {/* Block 24, item 8. Before the invoice number rather than after
+                  it, because that is the order somebody reading a purchase asks
+                  the two questions in: who it came from, then which note it came
+                  on. Present on an entry that named a supplier and absent
+                  everywhere else, which is the same rule the three fields below
+                  already follow.
+
+                  It goes on showing an ARCHIVED supplier's name: list_movements'
+                  vendor join is deliberately unfiltered by deleted_at (0200),
+                  because a purchase outlives the relationship. */}
+              {movement.vendorName !== null && (
+                <span>
+                  {t('vendor')}: <span data-testid="movement-vendor">{movement.vendorName}</span>
+                </span>
+              )}
               {movement.invoiceNumber !== null && (
                 <span>
                   {t('invoiceNumber')}: <span data-testid="movement-invoice">{movement.invoiceNumber}</span>

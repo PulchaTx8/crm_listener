@@ -112,6 +112,18 @@ export interface MovementEntry {
   reservedForShowId: string | null;
   /** reservedForShowId's own name, resolved by list_movements (0196) -- never stored. */
   showName: string | null;
+  /**
+   * Block 24, item 8. Who this stock came in from. Null on anything but an
+   * entry, and null on an entry that named nobody — a barter from a listener, or
+   * any entry recorded before that block.
+   */
+  vendorId: string | null;
+  /**
+   * vendorId's own name, resolved by list_movements (0200) -- never stored. It
+   * survives the supplier being archived, because that join is deliberately
+   * unfiltered by deleted_at: a purchase outlives the relationship.
+   */
+  vendorName: string | null;
   /** The movement this one undoes (0193). Null except on a reversal or a reservation release. */
   reversesMovementId: string | null;
   /**
@@ -506,6 +518,8 @@ export async function getPrizeMovements(
       totalAmount: row.total_amount,
       reservedForShowId: row.reserved_for_show_id,
       showName: row.show_name,
+      vendorId: row.vendor_id,
+      vendorName: row.vendor_name,
       reversesMovementId: row.reverses_movement_id,
       reversedAt: row.reversed_at,
       reversalId: row.reversal_id,
@@ -578,6 +592,10 @@ export async function recordStockEntry(
     p_invoice_number: input.invoiceNumber,
     p_unit_amount: input.unitAmount,
     p_total_amount: input.totalAmount,
+    // Block 24, item 8. Beside the invoice, which is where the paperwork puts
+    // it. Undefined when nothing was chosen, which PostgREST omits and the
+    // function's own `default null` answers.
+    p_vendor_id: input.vendorId,
   });
   if (error) throw mapInventoryError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('record_stock_entry returned no id');

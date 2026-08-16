@@ -26,6 +26,8 @@ function baseMovement(overrides: Partial<MovementEntry> = {}): MovementEntry {
     totalAmount: null,
     reservedForShowId: null,
     showName: null,
+    vendorId: null,
+    vendorName: null,
     reversesMovementId: null,
     reversedAt: null,
     reversalId: null,

@@ -1,11 +1,12 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useActionState, useEffect, useRef, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { recordStockEntryAction, type MovementFormState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import type { PrizeBalance } from '@/services/inventory';
+import type { VendorOption } from '@/services/vendors';
 import { AdjustmentForm } from './adjustment-form';
 
 const INITIAL: MovementFormState = { status: 'idle' };
@@ -34,6 +35,7 @@ export function StockEntryForm({
   prizeId,
   balance,
   canAdjust,
+  vendors,
   onRecorded,
 }: {
   companyId: string;
@@ -41,6 +43,14 @@ export function StockEntryForm({
   balance: PrizeBalance;
   /** Whether Ajuste de estoque belongs in the Tipo list — inventory.adjust (spec §5/§8), not inventory.entry. */
   canAdjust: boolean;
+  /**
+   * Block 24, item 8. The Station's live suppliers, handed down with the rest of
+   * the record rather than fetched here. `record.ts`'s own comment carries the
+   * reason at length: a Server Action dispatched from an effect on a tab that
+   * has just been switched to lands in a queue node Next's router has already
+   * discarded, and Entradas is reached by exactly that tab click.
+   */
+  vendors: VendorOption[];
   /** Asks the record to re-read, so the ledger and the balance show this movement. */
   onRecorded?: () => void;
 }) {
@@ -71,6 +81,20 @@ export function StockEntryForm({
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [note, setNote] = useState('');
 
+  // Block 24, item 8. Two pieces of state for one field, and they are not the
+  // same thing: `vendorFilter` is what the operator typed to narrow the list,
+  // `vendorId` is what the form posts. Binding the select's value to the filter
+  // would clear the choice the moment they typed one more letter.
+  //
+  // Held here with the rest of the branch's fields for the reason stated above
+  // them: this whole block unmounts when Tipo goes to Ajuste, and an
+  // uncontrolled input has no memory of what was typed before it existed.
+  const [vendorFilter, setVendorFilter] = useState('');
+  const [vendorId, setVendorId] = useState('');
+  // The filter box is a sibling of the select rather than a label around it, so
+  // the select needs an id of its own for the label to point at.
+  const vendorSelectId = useId();
+
   useEffect(() => {
     if (touched.current) return;
     const q = Number(quantity);
@@ -93,9 +117,36 @@ export function StockEntryForm({
     setTotalAmount('');
     setInvoiceNumber('');
     setNote('');
+    setVendorFilter('');
+    setVendorId('');
     touched.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+
+  /**
+   * Filtered in the browser rather than by a debounced round trip per keystroke
+   * — the shape `prizes-tab.tsx` uses for linking prizes, and the wrong one
+   * here. That picker searches a Station's whole prize catalogue; this one
+   * searches its supplier list, which is tens of rows and already in hand. A
+   * server search would be a round trip per keystroke to filter an array that
+   * arrived with the record. Design D9 records the trade and what would change
+   * it: if a customer's list grows past what one payload should carry, this
+   * becomes the debounced search and nothing else moves.
+   *
+   * A CHOSEN VENDOR IS ALWAYS IN THE LIST, whatever the filter says. Without
+   * that, typing on after choosing would drop the selected option out of the
+   * `<select>`, and a select whose value names no option renders as blank —
+   * the choice would look lost while still being posted.
+   */
+  const visibleVendors = (() => {
+    const term = vendorFilter.trim().toLowerCase();
+    const matching = term
+      ? vendors.filter((vendor) => vendor.name.toLowerCase().includes(term))
+      : vendors;
+    if (!vendorId || matching.some((vendor) => vendor.id === vendorId)) return matching;
+    const chosen = vendors.find((vendor) => vendor.id === vendorId);
+    return chosen ? [chosen, ...matching] : matching;
+  })();
 
   return (
     <div className="flex flex-col gap-3">
@@ -139,6 +190,49 @@ export function StockEntryForm({
               onChange={(event) => setInvoiceNumber(event.target.value)}
             />
           </label>
+
+          {/* Block 24, item 8. Between the invoice and the price, which is where
+              the paperwork puts it. Optional: a barter from a listener has no
+              supplier, and record_stock_entry (0200) takes null.
+
+              Offered only when the Station has one. A picker with nothing in it
+              is a control that asks a question the operator cannot answer, and
+              the answer is a screen away — the register button lives on
+              /inventory/vendors, not here. */}
+          {vendors.length > 0 && (
+            <div className="flex flex-col gap-1 text-sm">
+              <label className="flex flex-col gap-1" htmlFor={vendorSelectId}>
+                {t('vendor')}
+              </label>
+              <Input
+                type="search"
+                value={vendorFilter}
+                onChange={(event) => setVendorFilter(event.target.value)}
+                placeholder={t('narrowTheList')}
+                aria-label={t('narrowTheVendorList')}
+                data-testid="stock-entry-vendor-filter"
+              />
+              <Select
+                id={vendorSelectId}
+                name="vendorId"
+                value={vendorId}
+                onChange={(event) => setVendorId(event.target.value)}
+                data-testid="stock-entry-vendor"
+              >
+                <option value="">{t('noVendor')}</option>
+                {visibleVendors.map((vendor) => (
+                  <option key={vendor.id} value={vendor.id}>
+                    {vendor.name}
+                  </option>
+                ))}
+              </Select>
+              {vendorFilter.trim() !== '' && visibleVendors.length === 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {t('noVendorMatchesThatText')}
+                </span>
+              )}
+            </div>
+          )}
 
           <label className="flex flex-col gap-1 text-sm">
             {t('unitAmount')}

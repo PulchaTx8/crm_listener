@@ -204,6 +204,12 @@ export const movementFormSchema = z.discriminatedUnion('kind', [
     invoiceNumber: optionalInvoiceNumber,
     unitAmount: optionalAmount,
     totalAmount: optionalAmount,
+    // Block 24, item 8. Optional, and it must be: a barter from a listener has
+    // no supplier, and neither has any entry recorded before that block. Only
+    // the shape is checked here — that the vendor is live and belongs to THIS
+    // Station is record_stock_entry's own refusal (0200), because only the
+    // database can answer it.
+    vendorId: optionalUuid,
   }),
   z.object({
     ...movementBase,

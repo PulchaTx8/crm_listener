@@ -1302,7 +1302,12 @@
     "reversalReasonHint": "¿Por qué se archiva esto?",
     "showingOfTotalMovements": "Mostrando {shown} de {total}",
     "movementActorDeadline": "(plazo)",
-    "unnamedOperator": "Operador sin nombre"
+    "unnamedOperator": "Operador sin nombre",
+    "vendor": "Proveedor",
+    "noVendor": "Sin proveedor",
+    "narrowTheList": "Escribe para filtrar la lista",
+    "narrowTheVendorList": "Filtrar la lista de proveedores",
+    "noVendorMatchesThatText": "Ningún proveedor coincide con ese texto."
   },
   "promotions": {
     "promotions": "Promociones",
