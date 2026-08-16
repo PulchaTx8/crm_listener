@@ -2405,6 +2405,7 @@ export type Database = {
           id: string
           kind: Database["public"]["Enums"]["promotion_question_kind"]
           menu_title: string | null
+          moderation_guidelines: string | null
           organization_id: string
           position: number
           promotion_id: string
@@ -2418,6 +2419,7 @@ export type Database = {
           id?: string
           kind: Database["public"]["Enums"]["promotion_question_kind"]
           menu_title?: string | null
+          moderation_guidelines?: string | null
           organization_id: string
           position: number
           promotion_id: string
@@ -2431,6 +2433,7 @@ export type Database = {
           id?: string
           kind?: Database["public"]["Enums"]["promotion_question_kind"]
           menu_title?: string | null
+          moderation_guidelines?: string | null
           organization_id?: string
           position?: number
           promotion_id?: string
@@ -5248,6 +5251,10 @@ export type Database = {
       }
       set_promotion_thumb: {
         Args: { p_promotion_id: string; p_url?: string }
+        Returns: undefined
+      }
+      set_question_moderation_guidelines: {
+        Args: { p_guidelines?: string; p_question_id: string }
         Returns: undefined
       }
       set_service_hashtags: {
