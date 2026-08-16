@@ -162,6 +162,20 @@ RLS follows `0099` exactly: `enable row level security`, `revoke all from anon,
 authenticated`, `grant select to authenticated`, and one policy —
 `deleted_at is null and public.has_permission('music.view', company_id)`.
 
+**Amendment, found while writing the plan.** `assert_song_references_live`
+(`0103`) must gain a fifth parameter, `p_category_id uuid default null`. It is
+what stops a song naming an **archived** artist, label or genre — the composite
+foreign keys reference non-partial unique constraints, so they cannot see
+`deleted_at` — and its `FOR KEY SHARE` on each row is the half of the lock pair
+that makes `archive_music_reference`'s `FOR UPDATE` actually exclude a
+concurrent `create_song`. Without an entry there, the category would be the one
+reference of the five a song could name after it was archived, and the one that
+could be archived out from under a song mid-insert. The parameter goes last and
+defaults, so `0152`'s intake door keeps its four-argument call. This is not a
+change of direction — it is what "a category behaves like its four siblings"
+costs in this schema — but it was not visible until the live body of `0103` was
+read, so it is recorded here rather than left in the plan alone.
+
 ### 4.2 The screen
 
 `ReferenceScreenKind` widens from `'LABEL' | 'GENRE'` to include `'CATEGORY'`;
