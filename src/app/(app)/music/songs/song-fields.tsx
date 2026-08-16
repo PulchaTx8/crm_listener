@@ -57,6 +57,7 @@ export function SongFields({
   labels,
   genres,
   albums,
+  categories,
   prefill,
   disabled,
 }: {
@@ -66,6 +67,8 @@ export function SongFields({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
+  /** Block 27. This Station's own filing words. A select on BOTH paths — see the field's own comment for why the Deezer branch does not turn it into a text input like the four above it. */
+  categories: ReferenceSummary[];
   /**
    * Set when the operator clicked Register on the Deezer tab.
    *
@@ -209,6 +212,30 @@ export function SongFields({
         </label>
       )}
 
+      {/*
+        Block 27. A SELECT ON BOTH PATHS, unlike the four fields above it, and
+        the difference is not an oversight. Those become text inputs under a
+        Deezer prefill because Deezer NAMES them and the named thing very often
+        does not exist in this Station yet, so create_song_from_deezer (0206)
+        resolves or creates by name — a select there would offer no option to
+        pick and would silently discard a correction.
+
+        Deezer carries no category at all. There is no name to resolve and
+        nothing to create, so the operator picks from this Station's own list
+        either way, and 0206 takes it as an id on both doors.
+      */}
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted-foreground">{t('category')}</span>
+        <Select name="categoryId" defaultValue={song?.categoryId ?? ''} disabled={disabled}>
+          <option value="">{t('noCategory')}</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </Select>
+      </label>
+
       {prefill ? (
         <ReferenceByName
           field="albumTitle"
@@ -298,15 +325,25 @@ export function SongFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('internalCode')}</span>
-        <Input
-          name="internalCode"
-          defaultValue={song?.internalCode ?? ''}
-          maxLength={40}
-          disabled={disabled}
-        />
-      </label>
+      {/*
+        Block 27. ON THE CREATE FORM ONLY, and renamed: "Internal code" is now
+        "Integration code", because that is what it is — the identifier of this
+        recording in the customer's own scheduling software.
+
+        For a song that EXISTS, this field is the first row of the Integration
+        tab, where the three fields describing the card it points at sit with
+        it. The create dialog has no tabs — song-record-dialog.tsx renders the
+        strip only once a record exists — so dropping the field here would
+        remove a capability the screen has today, and putting the other three
+        here would be worse: a card is a separate row with its own door, and a
+        song being registered has no record to open yet.
+      */}
+      {!song && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('integrationCode')}</span>
+          <Input name="internalCode" maxLength={40} disabled={disabled} />
+        </label>
+      )}
 
       {/*
         The Deezer code, read-only for the reason design D6 gives and 0102

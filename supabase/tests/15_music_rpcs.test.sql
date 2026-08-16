@@ -1,5 +1,5 @@
 begin;
-select plan(31);
+select plan(32);
 
 -- Block 7a, Tasks 3 and 4: the doors.
 --
@@ -49,13 +49,20 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
   ('00000000-0000-0000-0000-00000000e1a2', '00000000-0000-0000-0000-00000000e1c1',
    '00000000-0000-0000-0000-00000000e1f1', '00000000-0000-0000-0000-00000000e1a1');
 
--- 1: the four kinds, and no fifth. Pinned because 7b's merge kinds are a
--- DIFFERENT set (songs in, shows out) and reusing this enum there would be a
--- silent mistake.
+-- 1: the kinds, exactly, and in declaration order. Pinned because 7b's merge
+-- kinds are a DIFFERENT set (songs in, categories out) and reusing this enum
+-- there would be a silent mistake.
+--
+-- Block 27 appended CATEGORY, and this assertion is the reason that append was
+-- noticed rather than assumed: it failed the moment 0204 landed, which is what
+-- a pinned set is for. APPENDED, not inserted — `alter type ... add value`
+-- without BEFORE/AFTER puts it last, and enum_range answers in declaration
+-- order, so inserting instead would have moved every other value's position for
+-- no reason.
 select is(
   enum_range(null::public.music_reference_kind)::text[],
-  array['GENRE', 'LABEL', 'ARTIST', 'SHOW'],
-  'music_reference_kind is the four short lists — songs is not one of them');
+  array['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'CATEGORY'],
+  'music_reference_kind is the five short lists — songs is not one of them');
 
 -- 2-5: one door writes four tables. Called as the actor fixture above, under
 -- its own grant of music.manage. The RPC's internal writes still run as the
@@ -307,8 +314,9 @@ reset role;
 
 -- 24: update replaces the whole record, and resolves the Station from the
 -- song rather than a parameter. No trailing legacy_id argument any more
--- (0102) — update_song's signature no longer has a p_legacy_id parameter to
--- pass one to.
+-- (0102), and no internal_code argument either (0208) — update_song's
+-- signature has neither parameter to pass one to. The eight arguments below are
+-- everything it still takes positionally before its defaults.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e1a2", "role": "authenticated"}';
 
@@ -316,8 +324,8 @@ select lives_ok($$
   select public.update_song(
     (select id from public.songs where legacy_id = 'LEG-SONG-1'),
     'Aguas de Marco', '00000000-0000-0000-0000-00000000e1b1',
-    null, null, 'DOMESTIC', 'DUO', 214, 'INT-1')
-$$, 'update_song replaces the record wholesale, with no legacy_id argument to give it');
+    null, null, 'DOMESTIC', 'DUO', 214)
+$$, 'update_song replaces the record wholesale, with neither a legacy_id nor an internal_code argument to give it');
 
 reset role;
 
@@ -341,6 +349,19 @@ select is(
   (select legacy_id from public.songs where internal_code = 'INT-1'),
   'LEG-SONG-1',
   'update_song leaves legacy_id untouched — the parameter that could overwrite it is gone (0102)');
+
+-- 26b: 0208's own version of exactly that, and the lookup above already leans on
+-- it — if the code had been cleared, test 26 would have found no row and failed
+-- for the wrong reason. Made explicit here because the defect is worth naming:
+-- Block 27 moved this field to the Integration tab, so the Song data form
+-- stopped carrying it, and an update_song that still TOOK it would have read
+-- "not carried" and "cleared" as one payload and erased the code on every
+-- ordinary save. The value below was written by create_song in test 18 and
+-- survived the wholesale update in test 24.
+select is(
+  (select internal_code from public.songs where legacy_id = 'LEG-SONG-1'),
+  'INT-1',
+  'update_song leaves internal_code untouched — the parameter that could overwrite it is gone (0208)');
 
 -- 27: an unknown song answers 42501, never P0002 — 0093's rule again. Run
 -- under the actor: as the superuser pgTAP connects as, has_permission would

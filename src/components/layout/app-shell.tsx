@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 import { SidebarNav, type NavSection } from './sidebar-nav';
 import { SettingsMenu } from './settings-menu';
+import { SidebarToggle } from './sidebar-toggle';
 import { getTranslations } from 'next-intl/server';
 
 /** Feather-style path data, inlined to keep the shell dependency-free. */
@@ -51,6 +53,16 @@ export const ICONS = {
   // physical object in a way a note is not: `box` was the near miss and reads
   // as a package, which is Inventory's meaning of it.
   disc: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  // A folder, for Block 27's Catalogue > Categories. Its own path rather than
+  // reusing `tag`, which is Genres — the ADJACENT ROW OF THIS SAME SECTION,
+  // which is the one case the house rule forbids: one icon on two neighbouring
+  // rows reads as one link rendered twice. (Inventory > Categories keeps `tag`,
+  // and keeps it legitimately: that is a different section, so the two never
+  // appear side by side — the same non-adjacency that already lets `box` serve
+  // both Inventory and Pickups.) Nothing else declared here means *the thing you
+  // file others under*: `box` is a package, `inbox` is a tray things flow
+  // through, and `tag` is spoken for.
+  folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
   // A bin, for the deletion requests in the Platform section. Its own path
   // rather than reusing anything above, and the two near misses are both worse
   // than a new glyph: `inbox` is the ADJACENT row of that same section (Contact
@@ -85,11 +97,18 @@ export async function AppShell({
   sections,
   user,
   expandedSections,
+  collapsed,
   children,
 }: {
   sections: NavSection[];
   user: ShellUser;
   expandedSections: string[];
+  /**
+   * Block 27. Folded to a rail of icons. Resolved on the server
+   * (lib/auth/shell.ts) so the chrome arrives at the right width rather than
+   * snapping to it after hydration.
+   */
+  collapsed: boolean;
   children: React.ReactNode;
 }) {
   // Block 12a. The shell is rendered by both layouts, so its wording is the
@@ -98,8 +117,27 @@ export async function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
-        <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-4">
+      {/*
+        Block 27. Two widths, one aside. THE TOGGLE LIVES AT THE TOP and the
+        reason is mechanical rather than aesthetic: the footer already carries an
+        avatar, a name, a role, a settings gear and a sign-out form inside 260
+        pixels, and when the rail narrows that footer must itself become a stack
+        of icons. A control whose home disappears in the state it produces is in
+        the wrong place.
+      */}
+      <aside
+        className={cn(
+          'sticky top-0 hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex',
+          collapsed ? 'w-[72px]' : 'w-[260px]',
+        )}
+        data-collapsed={collapsed ? 'true' : 'false'}
+      >
+        <div
+          className={cn(
+            'border-b border-sidebar-border py-4',
+            collapsed ? 'flex flex-col items-center gap-2 px-2' : 'flex items-center gap-3 px-5',
+          )}
+        >
           {/* The mark itself, on the reasoning src/components/auth/brand-mark.tsx
               sets out: the tile carries its own background, so the tinted square
               that used to sit behind the drawn glyph goes with it. */}
@@ -111,28 +149,52 @@ export async function AppShell({
             height={36}
             className="h-9 w-9 rounded-lg"
           />
-          <span className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-white">PulchatX</span>
-            <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
-              {t('tagline')}
+          {/* The wordmark goes when folded; the mark stays, because 72 pixels of
+              unbranded dark column is not a product. */}
+          {!collapsed && (
+            <span className="flex flex-col leading-tight">
+              <span className="text-sm font-semibold text-white">PulchatX</span>
+              <span className="text-[10px] uppercase tracking-widest text-sidebar-muted">
+                {t('tagline')}
+              </span>
             </span>
-          </span>
+          )}
+          <div className={collapsed ? undefined : 'ml-auto'}>
+            <SidebarToggle collapsed={collapsed} />
+          </div>
         </div>
 
-        <SidebarNav sections={sections} expandedSections={expandedSections} />
+        <SidebarNav
+          sections={sections}
+          expandedSections={expandedSections}
+          collapsed={collapsed}
+        />
 
-        <div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-4">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground">
+        {/* Folded, the footer stacks: avatar, gear, sign out. The name and the
+            role go with the width — they are the two things here that cannot be
+            an icon. */}
+        <div
+          className={cn(
+            'border-t border-sidebar-border py-4',
+            collapsed ? 'flex flex-col items-center gap-2 px-2' : 'flex items-center gap-3 px-4',
+          )}
+        >
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-xs font-semibold text-sidebar-accent-foreground"
+            title={collapsed ? (user.fullName ?? user.email) : undefined}
+          >
             {initials(user)}
           </span>
-          <span className="flex min-w-0 flex-col leading-tight">
-            <span className="truncate text-sm text-white">{user.fullName ?? user.email}</span>
-            <span className="text-xs text-sidebar-muted">{user.roleLabel}</span>
-          </span>
+          {!collapsed && (
+            <span className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate text-sm text-white">{user.fullName ?? user.email}</span>
+              <span className="text-xs text-sidebar-muted">{user.roleLabel}</span>
+            </span>
+          )}
           {/* Block 12b, and Block 25: the gear that changes the interface
               language and the theme. */}
           <SettingsMenu />
-          <form action="/auth/signout" method="post" className="ml-auto">
+          <form action="/auth/signout" method="post" className={collapsed ? undefined : 'ml-auto'}>
             <button
               type="submit"
               aria-label={t('signOut')}

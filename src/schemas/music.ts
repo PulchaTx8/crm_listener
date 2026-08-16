@@ -7,12 +7,19 @@ import { z } from 'zod';
  */
 
 /**
- * The four short lists 0100's music_reference_kind carries. Not the merge's
- * kinds (MUSIC_MERGE_KINDS below): that set adds SONG and keeps SHOW, after
- * the owner ruled for merge_shows on 2026-08-04. This line used to say the
- * merge would drop SHOW, which 0105 corrects at the database as well.
+ * The five short lists 0100's music_reference_kind carries since 0204. Not the
+ * merge's kinds (MUSIC_MERGE_KINDS below): that set adds SONG and keeps SHOW,
+ * after the owner ruled for merge_shows on 2026-08-04, and does NOT include
+ * CATEGORY — whether duplicate categories need collapsing is not yet known, and
+ * a merge is the one operation in this domain that destroys. This line used to
+ * say the merge would drop SHOW, which 0105 corrects at the database as well.
+ *
+ * CATEGORY is last because the enum appends (0204): `alter type ... add value`
+ * without BEFORE/AFTER puts it at the end, and 15_music_rpcs.test.sql pins the
+ * order. Keeping this array in the same order means the two never have to be
+ * read against each other.
  */
-export const MUSIC_REFERENCE_KINDS = ['GENRE', 'LABEL', 'ARTIST', 'SHOW'] as const;
+export const MUSIC_REFERENCE_KINDS = ['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'CATEGORY'] as const;
 export type MusicReferenceKind = (typeof MUSIC_REFERENCE_KINDS)[number];
 
 export const MUSIC_NATIONALITIES = ['DOMESTIC', 'INTERNATIONAL'] as const;
@@ -101,6 +108,13 @@ export const songFormSchema = z.object({
   artistId: z.string().uuid('Choose an artist — a song without one is a draft.'),
   labelId: optionalUuid,
   genreId: optionalUuid,
+  // Block 27. Optional, like the label and the genre beside it, and for the
+  // reason 0205 gives songs.category_id: the whole catalogue predates the
+  // column, so requiring one would make every existing song unsavable.
+  // optionalUuid rather than optionalText because an untouched <select> posts
+  // '' and a uuid check refuses it before any transform could normalise it
+  // away — the same trap the comment above optionalUuid sets out.
+  categoryId: optionalUuid,
   // Block 13a. Both hand-editable (design D7), and both reach create_song
   // (0140) and update_song (0138). There is deliberately no deezerTrackId
   // beside them: that column has one write path, 0139's two doors, and a
@@ -143,11 +157,65 @@ export type SongFormInput = z.infer<typeof songFormSchema>;
  * on songFormSchema above: that is the create path, and create_song still
  * takes it.
  */
+/**
+ * ... and `internalCode` is dropped for the third time on the same reasoning,
+ * in Block 27. The field left the Song data tab for the Integration tab, so
+ * this form stopped carrying it — and 0208 removed update_song's
+ * p_internal_code parameter for exactly the reason 0102 removed p_legacy_id: an
+ * update form that never carries a value forward is indistinguishable, to the
+ * RPC, from somebody who cleared it, and every ordinary save would have erased
+ * the code. set_song_integration_code is the write path now, and
+ * songIntegrationFormSchema below is what feeds it.
+ */
 export const songUpdateSchema = songFormSchema
-  .omit({ companyId: true, legacyId: true })
+  .omit({ companyId: true, legacyId: true, internalCode: true })
   .extend({ songId: z.string().uuid() });
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
+
+/**
+ * Block 27. The card describing one song in the customer's own system (0207).
+ *
+ * The bounds are save_song_integration's own, restated here for the reason this
+ * file's header gives — a refusal the database would make anyway arrives as a
+ * field message rather than a round trip — and for a second reason the rest of
+ * this file has never needed: TWO CALLERS PARSE THIS SCHEMA. The Integration
+ * tab's form does, and so does the JSON import
+ * (src/lib/song-integration-file.ts), on a file the operator supplies. One
+ * definition rather than two is what stops a file being accepted with a value
+ * the form would have refused.
+ *
+ * `code` is required and `title`/`artistName`/`categoryName` are not: a card
+ * whose code is known and whose words are not yet filled in is a legitimate
+ * thing to save, and the door clears what it is not sent.
+ */
+export const songIntegrationSchema = z.object({
+  code: z.string().trim().min(1, 'Give the card an integration code.').max(40),
+  title: optionalText(200),
+  artistName: optionalText(160),
+  categoryName: optionalText(160),
+});
+
+export type SongIntegrationInput = z.infer<typeof songIntegrationSchema>;
+
+/**
+ * What the Integration tab posts.
+ *
+ * `companyId` is a real parameter, unlike songUpdateSchema's absent one, because
+ * save_song_integration takes it: a card is keyed by (company_id, code) and
+ * there is no row to resolve the Station from before the first save.
+ *
+ * `songId` is here because the tab performs TWO writes — the code belongs to the
+ * song and the three words belong to the card — and set_song_integration_code
+ * (0208) resolves its own Station from that row rather than trusting the
+ * companyId beside it.
+ */
+export const songIntegrationFormSchema = songIntegrationSchema.extend({
+  companyId: z.string().uuid(),
+  songId: z.string().uuid(),
+});
+
+export type SongIntegrationFormInput = z.infer<typeof songIntegrationFormSchema>;
 
 /**
  * What the Deezer register form posts (Block 13a).

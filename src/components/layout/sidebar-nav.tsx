@@ -51,9 +51,20 @@ export interface NavSection {
 export function SidebarNav({
   sections,
   expandedSections,
+  collapsed,
 }: {
   sections: NavSection[];
   expandedSections: string[];
+  /**
+   * Block 27. Folded to a rail of icons.
+   *
+   * THE DISCLOSURE DISAPPEARS RATHER THAN RENDERING CLOSED: a heading that says
+   * "Catalog" in 72 pixels says nothing, and a rail whose sections are all shut
+   * is a rail with nothing on it. Every item shows instead, which is the point
+   * of a rail — one click to anywhere. The `expanded` state underneath is not
+   * touched, so unfolding restores exactly what was open before.
+   */
+  collapsed: boolean;
 }) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<string[]>(expandedSections);
@@ -124,38 +135,58 @@ export function SidebarNav({
   }
 
   return (
-    <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
+    <nav
+      className={cn(
+        'flex flex-1 flex-col overflow-y-auto py-4',
+        collapsed ? 'gap-2 px-2' : 'gap-6 px-3',
+      )}
+    >
       {sections.map((section) => {
         // Whole-branch review, I1. `collapsedKey` now travels INTO
         // `isSectionOpen` rather than being combined with its answer here --
         // the hardest-won rule (this section's own history above) lives in
         // `disclosure.ts`, where a unit test can reach it, for every section
         // including the active one.
-        const open = isSectionOpen(section.key, activeKey, expanded, collapsedKey);
+        // Folded, every section is open and there is no heading to disclose it
+        // with — see the `collapsed` prop's own comment. `open` is forced rather
+        // than the disclosure state being written to, so unfolding restores
+        // exactly what the caller had.
+        const open = collapsed || isSectionOpen(section.key, activeKey, expanded, collapsedKey);
         const panelId = `nav-section-${section.key}`;
         return (
-          <div key={section.key} data-nav-section={section.key} className="flex flex-col gap-1">
-            <button
-              type="button"
-              onClick={() => toggle(section.key)}
-              aria-expanded={open}
-              aria-controls={panelId}
-              className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-left text-[11px] font-medium uppercase tracking-wider text-sidebar-muted transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
-            >
-              {section.label}
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-90')}
+          <div
+            key={section.key}
+            data-nav-section={section.key}
+            className={cn(
+              'flex flex-col gap-1',
+              // A hairline between one section's icons and the next, so the rail
+              // keeps the grouping the headings carried.
+              collapsed && 'border-t border-sidebar-border pt-2 first:border-t-0 first:pt-0',
+            )}
+          >
+            {!collapsed && (
+              <button
+                type="button"
+                onClick={() => toggle(section.key)}
+                aria-expanded={open}
+                aria-controls={panelId}
+                className="flex items-center justify-between gap-2 rounded-md px-3 py-1 text-left text-[11px] font-medium uppercase tracking-wider text-sidebar-muted transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-accent-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
               >
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </button>
+                {section.label}
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-90')}
+                >
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            )}
             {/* Stays in the DOM, hidden rather than unmounted -- aria-controls
                 above must point at an element that exists.
                 `flex` is conditional rather than a permanent class: the
@@ -187,8 +218,16 @@ export function SidebarNav({
                     key={item.href}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
+                    // Folded, the label is the ACCESSIBLE NAME rather than the
+                    // visible text, so every destination keeps the name the rest
+                    // of the suite and every screen reader already know it by.
+                    // `title` too, for the pointer — a rail of unlabelled glyphs
+                    // is unusable without one.
+                    aria-label={collapsed ? item.label : undefined}
+                    title={collapsed ? item.label : undefined}
                     className={cn(
-                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                      'flex items-center rounded-md py-2 text-sm transition-colors',
+                      collapsed ? 'justify-center px-2' : 'gap-3 px-3',
                       active
                         ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
                         : 'text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-white',
@@ -206,7 +245,7 @@ export function SidebarNav({
                     >
                       <path d={item.icon} />
                     </svg>
-                    {item.label}
+                    {!collapsed && item.label}
                   </Link>
                 );
               })}

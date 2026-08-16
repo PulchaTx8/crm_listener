@@ -29,6 +29,7 @@ import type {
   ReferenceUpdateInput,
   RequestSortKey,
   SongFormInput,
+  SongIntegrationFormInput,
   SongUpdateInput,
 } from '@/schemas/music';
 
@@ -65,12 +66,13 @@ export interface ReferenceSummary {
 /** The one place a kind becomes a table name in this module — mirrors 0100's own music_reference_table, so a caller's kind can never reach a query as a raw string. */
 const REFERENCE_TABLES: Record<
   MusicReferenceKind,
-  'music_genres' | 'record_labels' | 'artists' | 'shows'
+  'music_genres' | 'record_labels' | 'artists' | 'shows' | 'music_categories'
 > = {
   GENRE: 'music_genres',
   LABEL: 'record_labels',
   ARTIST: 'artists',
   SHOW: 'shows',
+  CATEGORY: 'music_categories',
 };
 
 /**
@@ -408,7 +410,7 @@ export const SONG_PAGE_SIZE = 50;
  * below.
  */
 const SONG_COLUMNS =
-  'id, title, artist_id, label_id, genre_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, album_id, deezer_track_id, isrc, artists(name), record_labels(name), music_genres(name), albums(title, cover_md5)';
+  'id, title, artist_id, label_id, genre_id, category_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, album_id, deezer_track_id, isrc, artists(name), record_labels(name), music_genres(name), music_categories(name), albums(title, cover_md5)';
 
 type SongRow = Pick<
   Database['public']['Tables']['songs']['Row'],
@@ -417,6 +419,7 @@ type SongRow = Pick<
   | 'artist_id'
   | 'label_id'
   | 'genre_id'
+  | 'category_id'
   | 'nationality'
   | 'vocal'
   | 'duration_seconds'
@@ -431,6 +434,8 @@ type SongRow = Pick<
   artists: { name: string } | null;
   record_labels: { name: string } | null;
   music_genres: { name: string } | null;
+  /** Null for the two reasons `albums` below is, not the one the three above have: the song may carry no category (0205 makes the column nullable), or the category may be archived and so unreadable through its policy while category_id still names it. Typed by hand for the reason SONG_COLUMNS' comment sets out. */
+  music_categories: { name: string } | null;
   /**
    * Null for TWO different reasons, unlike the three above: the song may have
    * no album at all (album_id is nullable — a song typed by hand has none), or
@@ -461,6 +466,9 @@ export interface SongSummary {
   labelName: string | null;
   genreId: string | null;
   genreName: string | null;
+  categoryId: string | null;
+  /** Null means "no category" or "a category this caller cannot read". The screens render both as an em dash, which is the honest rendering of both — unlike artistName above, where the two facts differ and the grid says so. */
+  categoryName: string | null;
   nationality: Database['public']['Enums']['music_nationality'] | null;
   vocal: Database['public']['Enums']['music_vocal'] | null;
   durationSeconds: number | null;
@@ -501,6 +509,11 @@ export function toSongSummary(row: SongRow): SongSummary {
     labelName: row.record_labels?.name ?? null,
     genreId: row.genre_id,
     genreName: row.music_genres?.name ?? null,
+    categoryId: row.category_id,
+    // `?.` for the same reason as the three above it, plus the one `albums`
+    // below has: the category is optional on a song, so this embed is
+    // legitimately null on every record registered before Block 27.
+    categoryName: row.music_categories?.name ?? null,
     nationality: row.nationality,
     vocal: row.vocal,
     durationSeconds: row.duration_seconds,
@@ -525,6 +538,7 @@ export interface SongListParams {
   search?: string;
   artistId?: string;
   genreId?: string;
+  categoryId?: string;
   sort: SongSortKey;
   direction: SortDirection;
   cursor: Cursor | null;
@@ -574,6 +588,7 @@ export async function listSongsPage(params: SongListParams): Promise<SongListPag
 
     if (params.artistId) q = q.eq('artist_id', params.artistId);
     if (params.genreId) q = q.eq('genre_id', params.genreId);
+    if (params.categoryId) q = q.eq('category_id', params.categoryId);
 
     const term = params.search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH);
     if (term) {
@@ -663,6 +678,10 @@ export async function createSong(input: SongFormInput, accessToken: string): Pro
     p_duration_seconds: input.durationSeconds ?? undefined,
     p_internal_code: input.internalCode,
     p_legacy_id: input.legacyId,
+    // Block 27 (0206), and for the identical reason the two below it carry:
+    // SongFields renders a Category select on the create dialog too, so without
+    // this the control would accept a choice and discard it.
+    p_category_id: input.categoryId,
     // Block 13a (0140). SongFields is one component shared by this form and
     // the edit form, so without these two the create dialog would render an
     // album select and an ISRC input that quietly discarded what was typed.
@@ -675,6 +694,13 @@ export async function createSong(input: SongFormInput, accessToken: string): Pro
 }
 
 /**
+ * internal_code is absent from this call as of Block 27, on the identical
+ * reasoning the paragraph below gives for legacy_id: the field moved to the
+ * Integration tab, so this form stopped carrying it, and 0208 removed
+ * update_song's p_internal_code parameter rather than leaving a payload in
+ * which "not carried" and "cleared" are the same thing.
+ * setSongIntegrationCode below is the write path.
+ *
  * legacy_id is deliberately absent from this call: update_song (0102) no
  * longer takes a p_legacy_id parameter at all, and SongUpdateInput
  * (schemas/music.ts) carries no `legacyId` field to read one from. Before
@@ -696,7 +722,16 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_nationality: input.nationality,
     p_vocal: input.vocal,
     p_duration_seconds: input.durationSeconds ?? undefined,
-    p_internal_code: input.internalCode,
+    // `?? undefined`, and it really does clear the category — which is worth
+    // stating because it does not look like it. 0206 replaces every field it
+    // takes on every call, and its default for this parameter is null, so
+    // OMITTING the key is how "No category" reaches the column. The generated
+    // Args type leaves no choice in the matter either: Postgres's function
+    // metadata carries no nullability signal beyond "has a default", so this
+    // parameter types as `string | undefined` with no `| null` in the union —
+    // the same thing createSong's own header comment sets out about
+    // p_duration_seconds.
+    p_category_id: input.categoryId ?? undefined,
     // Both hand-editable (design D7), and both sent on EVERY call: 0138 keeps
     // the convention that every field is set on every call, so an omitted
     // album here blanks the one already stored.
@@ -708,6 +743,121 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_isrc: input.isrc ?? undefined,
   });
   if (error) throw mapMusicError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// The integration card (0207) — one song as the customer's own scheduling
+// software describes it, resolved by the code songs.internal_code carries.
+// ---------------------------------------------------------------------------
+
+export interface SongIntegration {
+  id: string;
+  code: string;
+  title: string | null;
+  artistName: string | null;
+  categoryName: string | null;
+}
+
+/**
+ * The card for one code, or null when this Station has never described it.
+ *
+ * A LOOKUP AND NOT A JOIN, because 0207 links by code with no foreign key
+ * (its own header says why) — PostgREST has nothing to embed. That is also why
+ * SONG_COLUMNS deliberately does not carry it: a per-row lookup over a page of
+ * fifty songs would be fifty round trips for a column nobody asked to see, and
+ * the card is only ever read on one open record.
+ *
+ * A null answer is an ordinary state, not an error: every code in the catalogue
+ * predates this table.
+ */
+export async function getSongIntegration(
+  companyId: string,
+  code: string,
+): Promise<SongIntegration | null> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('song_integrations')
+    .select('id, code, title, artist_name, category_name')
+    .eq('company_id', companyId)
+    .eq('code', code)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the integration card: ${error.message}`);
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    code: data.code,
+    title: data.title,
+    artistName: data.artist_name,
+    categoryName: data.category_name,
+  };
+}
+
+/**
+ * How many LIVE songs in this Station carry this code — the number the
+ * Integration tab warns with before an edit, because correcting a card corrects
+ * it for every song that resolves it.
+ *
+ * `head: true` with an exact count: the rows themselves are never wanted, and
+ * 0099's policy has already cut the table to the Stations this caller can read,
+ * so the count is exactly what the operator would see on the list.
+ */
+export async function countSongsSharingCode(companyId: string, code: string): Promise<number> {
+  const supabase = await createUserClient();
+  const { count, error } = await supabase
+    .from('songs')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .eq('internal_code', code)
+    .is('deleted_at', null);
+
+  if (error) throw new InternalError(`Could not count songs sharing this code: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
+ * Points a song at a code in the customer's own system, or clears it when the
+ * code is blank. The only update path to songs.internal_code since 0208 — see
+ * that migration's header, and updateSong's own note above, for why the
+ * parameter left update_song rather than staying unused.
+ */
+export async function setSongIntegrationCode(
+  songId: string,
+  code: string | null,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_song_integration_code', {
+    p_song_id: songId,
+    // `?? undefined` for the reason updateSong's p_category_id carries: the
+    // generated Args type has no `| null` in the union, because Postgres reports
+    // "has a default" and no nullability — and omitting the key applies that
+    // default, which is null, which is the clear.
+    p_code: code ?? undefined,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+}
+
+/**
+ * Registers or corrects a card. Every field on every call: save_song_integration
+ * (0207) sets each column it takes, so a partial input blanks what it omits —
+ * the same warning updateSong above carries, and the same convention.
+ */
+export async function saveSongIntegration(
+  input: SongIntegrationFormInput,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('save_song_integration', {
+    p_company_id: input.companyId,
+    p_code: input.code,
+    p_title: input.title,
+    p_artist: input.artistName,
+    p_category: input.categoryName,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('save_song_integration returned no id');
+  return data;
 }
 
 // ---------------------------------------------------------------------------

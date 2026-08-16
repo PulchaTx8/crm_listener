@@ -1456,6 +1456,57 @@ export type Database = {
           },
         ]
       }
+      music_categories: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "music_categories_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "music_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       music_genres: {
         Row: {
           company_id: string
@@ -2993,10 +3044,68 @@ export type Database = {
           },
         ]
       }
+      song_integrations: {
+        Row: {
+          artist_name: string | null
+          category_name: string | null
+          code: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          organization_id: string
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          artist_name?: string | null
+          category_name?: string | null
+          code: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          organization_id: string
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          artist_name?: string | null
+          category_name?: string | null
+          code?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          organization_id?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "song_integrations_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "song_integrations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       songs: {
         Row: {
           album_id: string | null
           artist_id: string
+          category_id: string | null
           company_id: string
           created_at: string
           created_by: string | null
@@ -3019,6 +3128,7 @@ export type Database = {
         Insert: {
           album_id?: string | null
           artist_id: string
+          category_id?: string | null
           company_id: string
           created_at?: string
           created_by?: string | null
@@ -3041,6 +3151,7 @@ export type Database = {
         Update: {
           album_id?: string | null
           artist_id?: string
+          category_id?: string | null
           company_id?: string
           created_at?: string
           created_by?: string | null
@@ -3073,6 +3184,13 @@ export type Database = {
             columns: ["artist_id", "company_id"]
             isOneToOne: false
             referencedRelation: "artists"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "songs_category_company_fk"
+            columns: ["category_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "music_categories"
             referencedColumns: ["id", "company_id"]
           },
           {
@@ -3988,6 +4106,7 @@ export type Database = {
       assert_song_references_live: {
         Args: {
           p_artist_id: string
+          p_category_id?: string
           p_company_id: string
           p_genre_id: string
           p_label_id: string
@@ -4247,6 +4366,7 @@ export type Database = {
         Args: {
           p_album_id?: string
           p_artist_id: string
+          p_category_id?: string
           p_company_id: string
           p_duration_seconds?: number
           p_genre_id?: string
@@ -4264,6 +4384,7 @@ export type Database = {
         Args: {
           p_album_title?: string
           p_artist_name: string
+          p_category_id?: string
           p_company_id: string
           p_cover_md5?: string
           p_deezer_album_id?: number
@@ -5335,6 +5456,16 @@ export type Database = {
         }
         Returns: string
       }
+      save_song_integration: {
+        Args: {
+          p_artist?: string
+          p_category?: string
+          p_code: string
+          p_company_id: string
+          p_title?: string
+        }
+        Returns: string
+      }
       save_vendor: {
         Args: {
           p_address_line?: string
@@ -5381,6 +5512,10 @@ export type Database = {
       }
       set_service_hashtags: {
         Args: { p_company_id: string; p_music: string; p_service: string }
+        Returns: undefined
+      }
+      set_song_integration_code: {
+        Args: { p_code?: string; p_song_id: string }
         Returns: undefined
       }
       set_station_message_template: {
@@ -5566,9 +5701,9 @@ export type Database = {
         Args: {
           p_album_id?: string
           p_artist_id: string
+          p_category_id?: string
           p_duration_seconds?: number
           p_genre_id?: string
-          p_internal_code?: string
           p_isrc?: string
           p_label_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
@@ -5749,7 +5884,7 @@ export type Database = {
         | "internal_policy"
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
-      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
+      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW" | "CATEGORY"
       music_request_channel: "MANUAL" | "IMPORT" | "API" | "WEB"
       music_request_play_status: "NOT_PLAYED" | "PLAYED" | "CANCELLED"
       music_request_read_status: "UNREAD" | "READ" | "CANCELLED"
@@ -5993,7 +6128,7 @@ export const Constants = {
       ],
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
-      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
+      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW", "CATEGORY"],
       music_request_channel: ["MANUAL", "IMPORT", "API", "WEB"],
       music_request_play_status: ["NOT_PLAYED", "PLAYED", "CANCELLED"],
       music_request_read_status: ["UNREAD", "READ", "CANCELLED"],

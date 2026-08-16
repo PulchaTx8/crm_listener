@@ -249,6 +249,55 @@ const REQUIRED_TEST_FILES = [
   // as superuser and answers true from has_permission unconditionally, so
   // none of this is visible to it.
   { path: 'tests/isolation/music.test.ts', minTests: 8 },
+  // Block 27. Five cases, and the floor is the full count because three of them
+  // are the only proof of their property anywhere in this repository.
+  //
+  // The tenant boundary on `music_categories`: a category registered at one
+  // Station is invisible from another INSIDE THE SAME ORGANIZATION, to a caller
+  // who holds music.view and music.manage in both. 57_music_categories.test.sql
+  // asserts the policy's shape and cannot assert this — it runs as superuser
+  // with a null auth.uid() where RLS never applies, the reason every other entry
+  // here gives.
+  //
+  // And the two sharper ones, both about a category a FOREIGN KEY CANNOT JUDGE:
+  // a song naming an ARCHIVED category, and a song naming a category from
+  // ANOTHER Station. songs_category_company_fk references
+  // music_categories_id_company_unique, a NON-PARTIAL constraint — a foreign key
+  // cannot reference a partial index — so it proves the Station and is blind to
+  // deleted_at. The archived refusal lives in assert_song_references_live's
+  // fifth block (0205) and NOWHERE ELSE, which means an edit dropping those four
+  // lines would leave an archived category silently choosable again with every
+  // other suite green. That same block also takes the FOR KEY SHARE that pairs
+  // with archive_music_reference's FOR UPDATE, so deleting it reopens 0103's
+  // race for this kind too.
+  { path: 'tests/isolation/music-categories.test.ts', minTests: 5 },
+  // Block 27. Six cases, and the floor is the full count because three of them
+  // are the only proof of their property in this repository.
+  //
+  // THE UPSERT TARGETS THE PARTIAL INDEX. save_song_integration's
+  // `on conflict (company_id, code) where deleted_at is null` is easy to write
+  // as a plain `on conflict (company_id, code)`, which will not compile against
+  // a partial index — and easy to "fix" by widening the index instead, which
+  // compiles, still satisfies 58_song_integrations.test.sql's has_index (same
+  // name), and quietly stops a retired card's code from ever being registered
+  // again. Only a second write against the same code says which one is there.
+  //
+  // And TWO SONGS RESOLVING ONE CARD, which is the owner's stated requirement
+  // and the whole reason the three descriptive fields are a table rather than
+  // columns on `songs`. Nothing else in the repository asserts it, and the day
+  // somebody "simplifies" the card back onto the song this is the test that
+  // fails.
+  //
+  // And the third, added when building the tab turned it up: AN ORDINARY SAVE OF
+  // A SONG MUST NOT ERASE ITS INTEGRATION CODE. Block 27 moved that field off the
+  // Song data tab, so the form stopped carrying it, and an update_song that
+  // still took p_internal_code would read "not carried" and "cleared" as one
+  // payload — 0102's defect, one column over, with nothing on screen reporting
+  // it. 0208 removed the parameter; 58_song_integrations.test.sql asserts the
+  // signature and 15_music_rpcs.test.sql asserts the value survives one update,
+  // and this case is the one that drives it as a real caller through the real
+  // door. Restoring the parameter "for convenience" fails all three.
+  { path: 'tests/isolation/song-integrations.test.ts', minTests: 6 },
   // Block 7b, Task 5: the merge's boundary and D6's identity rules. The three
   // that only a second identity can prove: music.manage does NOT confer
   // music.merge; a loser in another Station answers the SAME P0002 as a uuid
