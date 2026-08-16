@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import type { Route } from 'next';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { ICONS, type ShellUser } from '@/components/layout/app-shell';
@@ -119,20 +120,13 @@ export async function getShellContext(): Promise<{
         // have caused is gone with Participations, but the glyph stays — it is
         // the better one for the row regardless.
         { href: '/music/requests', label: t('requests'), icon: ICONS.music },
-        // Block 18, on the owner's ruling. A programme was a name in a tab of
-        // the music catalogue; it is now a record with a presenter, a schedule
-        // and a run of dates, and it belongs beside the audience it is made
-        // for rather than beside the songs it happens to play.
-        //
-        // THE PERMISSION DID NOT MOVE WITH THE SCREEN, and that is recorded
-        // rather than accidental: `shows` carries one policy, gated on
-        // music.view, so a member who administers the audience and holds
-        // nothing in music sees this link and finds nothing behind it. A
-        // shows.* pair would be a permissions migration plus every role a
-        // customer has already configured, none of which would grant it —
-        // shipping the screen behind a permission nobody holds would hide it
-        // from everyone. The Block 18 spec's §5 carries the full reasoning.
-        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
+        // PROGRAMMES LEFT THIS SECTION IN BLOCK 27, for Catalog, on the owner's
+        // ruling — reversing where Block 18 filed it. Its full reasoning, and
+        // what the move did to the permission mismatch Block 18 recorded as a
+        // cost, is on its new row under `catalog` below. Noted here rather than
+        // silently absent: this section held three items for eight blocks, and a
+        // reader comparing against an older screenshot should find out why it
+        // holds two, in the file that decides it.
       ],
     },
     {
@@ -229,27 +223,15 @@ export async function getShellContext(): Promise<{
         // whole of the rule this file records for box, building and shield. A
         // category IS a tag, which is exactly what the glyph means there too.
         { href: '/inventory/categories', label: t('categories'), icon: ICONS.tag },
-        // Block 6d, Task 10. /inventory/movements redirects nobody by
-        // itself — it opens on whichever Station listCompanyAccess resolves
-        // inventory.view in, the same courtesy the items above already
-        // extend — and list_movements (0096) re-checks that permission
-        // itself regardless. ICONS.inbox rather than ICONS.box: this Record
-        // has no dedicated ledger/list glyph, so the choice is among what
-        // already exists, and reusing box here would put one icon on two rows
-        // of this SAME section, which reads as one link rendered twice.
-        // (Block 26 put Categories between the two, so they are no longer
-        // adjacent; the rule is about the section, not only about neighbours,
-        // and the glyph earns its place on its own.) inbox's tray-with-a-flow
-        // shape is otherwise idle in this section (its only other use is
-        // Platform > Contact requests, a different section entirely, the
-        // same non-adjacency that already lets box itself serve both
-        // Inventory and Pickups) and reads reasonably as things moving in
-        // and out, which a stock ledger is.
-        { href: '/inventory/movements', label: t('movements'), icon: ICONS.inbox },
-        // Block 24, item 7. Who the prizes come from. Last in the section,
-        // because it is the reference list the others consume rather than a
-        // place stock is counted or moved — Stock is where an operator starts,
-        // Movements is what they read, and this is what an entry names.
+        // Block 24, item 7. Who the prizes come from.
+        //
+        // MOVED ABOVE MOVEMENTS IN BLOCK 27, on the owner's ruling. Block 24 put
+        // it last and argued the position: "the reference list the others consume
+        // rather than a place stock is counted or moved". The owner's order reads
+        // the section the other way round and it is the better reading — Stock,
+        // Categories and Vendors are the three lists an operator maintains, and
+        // Movements is the ledger those three produce. A ledger interrupted by a
+        // reference list was the odd one out.
         //
         // /inventory/vendors redirects nobody by itself: it opens on whichever
         // Station listCompanyAccess resolves inventory.view in, the same
@@ -262,6 +244,27 @@ export async function getShellContext(): Promise<{
         // file records for box and shield. A supplier IS a company, which is
         // exactly what the glyph means in Catalogue > Labels.
         { href: '/inventory/vendors', label: t('vendors'), icon: ICONS.building },
+        // Block 6d, Task 10. /inventory/movements redirects nobody by
+        // itself — it opens on whichever Station listCompanyAccess resolves
+        // inventory.view in, the same courtesy the items above already
+        // extend — and list_movements (0096) re-checks that permission
+        // itself regardless. ICONS.inbox rather than ICONS.box: this Record
+        // has no dedicated ledger/list glyph, so the choice is among what
+        // already exists, and reusing box here would put one icon on two rows
+        // of this SAME section, which reads as one link rendered twice.
+        // (Block 26 put Categories between the two, and Block 27 then put
+        // Vendors there as well, so they are two rows apart; the rule is about
+        // the section, not only about neighbours, and the glyph earns its place
+        // on its own.) inbox's tray-with-a-flow shape is otherwise idle in this
+        // section (its only other use is Platform > Contact requests, a
+        // different section entirely, the same non-adjacency that already lets
+        // box itself serve both Inventory and Pickups) and reads reasonably as
+        // things moving in and out, which a stock ledger is.
+        //
+        // LAST IN THE SECTION SINCE BLOCK 27, which is what it should have been
+        // all along: it is the only row here that is read rather than
+        // maintained.
+        { href: '/inventory/movements', label: t('movements'), icon: ICONS.inbox },
       ],
     },
     {
@@ -292,9 +295,57 @@ export async function getShellContext(): Promise<{
         // for a label because a label is a company and `building`'s only other
         // use is Platform > Organizations, a distant section; `tag` and `disc`
         // are new (app-shell.tsx says why).
-        { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
-        { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
+        //
+        // BLOCK 27 SPREAD THEM OUT, on the owner's order for the whole section:
+        // Albums moves up beside Artists, and Record labels down past the two
+        // classification lists. Nothing about the three screens changed.
         { href: '/catalog/albums', label: t('albums'), icon: ICONS.disc },
+        // Block 27, on the owner's ruling. A category is the Station's own filing
+        // word for a recording, beside the genre rather than instead of it: a
+        // genre says what the music IS, a category says where this Station files
+        // it. Directly above Genres, because the two answer neighbouring
+        // questions and an operator setting one usually sets the other.
+        //
+        // /catalog/categories redirects nobody by itself: it opens on whichever
+        // Station listCompanyAccess resolves music.view in, the same courtesy
+        // every item in this section already extends, and 0205's select policy
+        // plus 0100's three doors re-check the permission themselves regardless.
+        //
+        // ICONS.folder is NEW rather than a reuse of `tag`, and this is the one
+        // case where that matters most: `tag` is Genres, the very next row, and
+        // one glyph on two adjacent rows of the same section reads as one link
+        // rendered twice. Inventory > Categories keeps `tag` legitimately — a
+        // different section, never side by side with this one.
+        //
+        // The cast is TEMPORARY and comes out with the screen: typedRoutes
+        // cannot see a route literal until Next regenerates its route types from
+        // the filesystem, and this row was written one task before
+        // `src/app/(app)/catalog/categories/page.tsx` existed. Once it does, the
+        // cast is dead weight — remove it, and let the compiler prove the href
+        // resolves, which is the whole reason `NavItem.href` is a `Route`.
+        { href: '/catalog/categories' as Route, label: t('categories'), icon: ICONS.folder },
+        { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
+        { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
+        // MOVED HERE FROM AUDIENCE IN BLOCK 27, on the owner's ruling, reversing
+        // where Block 18 filed it. Both readings are true — a programme is made
+        // for listeners, and it is also the slot the catalogue is played in — and
+        // what settles it is the neighbour: a programme is edited when the
+        // schedule is, which is the same errand as curating the songs above it.
+        // Under Audience it sat beside Members, where the shared word was
+        // "people" and nothing followed on from it.
+        //
+        // THE PERMISSION STILL DOES NOT MOVE WITH THE SCREEN, and now it agrees
+        // with where the screen sits. `shows` carries one policy, gated on
+        // music.view — which is THIS section's permission. Block 18's §5 recorded
+        // the mismatch as a cost of filing it under Audience (a member who
+        // administers the audience and holds nothing in music saw the link and
+        // found nothing behind it); the move removes it rather than working
+        // around it, and no permissions migration was needed to do so.
+        //
+        // ICONS.radio travels with it and collides with nothing here: this
+        // section holds music, users, disc, folder, tag, building and shield. Its
+        // only other use is Overview > My stations, a distant section.
+        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
         // Last in the section on purpose: it is the destructive one, and a
         // sidebar is read top to bottom. Every other Catalog item above is a
         // place to build (register a song, an artist, a label, a genre, an

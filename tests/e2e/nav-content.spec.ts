@@ -75,11 +75,13 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   // shell.ts warns about for icons and labels.
   await expect(audience.getByRole('link', { name: 'Participations' })).toHaveCount(0);
 
-  // And Requests now precedes Programmes inside Audience. Read off the rendered
-  // order rather than asserted one link at a time, because "both are visible" is
-  // exactly what was true BEFORE the swap.
+  // Block 27. Programmes LEFT Audience for Catalog on the owner's ruling,
+  // reversing where Block 18 filed it -- so this section is down to the two
+  // screens that are about people. Read off the rendered order rather than
+  // asserted one absence at a time, for the reason the Block 26 comment above
+  // gives: a move that only adds leaves the link rendered twice.
   const audienceLinks = await audience.getByRole('link').allInnerTexts();
-  expect(audienceLinks).toEqual(['Members', 'Requests', 'Programmes']);
+  expect(audienceLinks).toEqual(['Members', 'Requests']);
 
   await openNavSection(page, 'Promotions');
   const promotions = page.locator('[data-nav-section="promotions"]');
@@ -90,9 +92,11 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
 
   await openNavSection(page, 'Inventory');
   const inventory = page.locator('[data-nav-section="inventory"]');
-  // Categories directly below Stock, which is where the owner put it.
+  // Categories directly below Stock, which is where the owner put it. Block 27
+  // then swapped Vendors and Movements, so the section reads as three reference
+  // lists and then the ledger that consumes them.
   const inventoryLinks = await inventory.getByRole('link').allInnerTexts();
-  expect(inventoryLinks).toEqual(['Stock', 'Categories', 'Movements', 'Vendors']);
+  expect(inventoryLinks).toEqual(['Stock', 'Categories', 'Vendors', 'Movements']);
   await expect(inventory.getByRole('link', { name: 'Categories' })).toHaveAttribute(
     'href',
     '/inventory/categories',
@@ -101,9 +105,24 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
   await openNavSection(page, 'Catalog');
   const catalogue = page.locator('[data-nav-section="catalog"]');
   await expect(catalogue.getByRole('link', { name: 'Requests' })).toHaveCount(0);
-  await expect(catalogue.getByRole('link', { name: 'Record labels' })).toBeVisible();
-  await expect(catalogue.getByRole('link', { name: 'Genres' })).toBeVisible();
-  await expect(catalogue.getByRole('link', { name: 'Albums' })).toBeVisible();
+  // Block 27. The owner's order for the whole section, asserted as a list for the
+  // same reason Audience's is: every one of these was already visible before the
+  // reorder, so "it is here" proves nothing about where it is.
+  const catalogueLinks = await catalogue.getByRole('link').allInnerTexts();
+  expect(catalogueLinks).toEqual([
+    'Songs',
+    'Artists',
+    'Albums',
+    'Categories',
+    'Genres',
+    'Record labels',
+    'Programmes',
+    'Maintenance',
+  ]);
+  await expect(catalogue.getByRole('link', { name: 'Categories' })).toHaveAttribute(
+    'href',
+    '/catalog/categories',
+  );
   // The item this replaces is gone: a section named Catalog holding an item
   // named Catalog is the "one link rendered twice" shell.ts warns about in
   // three separate comments. 'Catalog', not 'Catalogue' -- en.json's nav.catalog

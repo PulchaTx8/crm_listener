@@ -90,8 +90,12 @@ test('an operator registers a programme with an overnight band and reads it back
   await ownerPage.getByRole('button', { name: 'Save' }).click();
   await expect(ownerPage).toHaveURL(/\/app$/);
 
-  // --- Programmes, reached from the sidebar under Audiência ----------------
-  await openNavSection(ownerPage, 'Audience');
+  // --- Programmes, reached from the sidebar under Catalog ------------------
+  // Block 27 moved it out of Audience, on the owner's ruling. The section this
+  // opens is the assertion that matters here: the journey below would pass from
+  // either section, and what would NOT pass is the click, because a collapsed
+  // section renders its links `hidden`.
+  await openNavSection(ownerPage, 'Catalog');
   await ownerPage.getByRole('link', { name: 'Programmes' }).click();
   await expect(ownerPage).toHaveURL(/\/shows/);
   await expect(ownerPage.getByTestId('shows-empty')).toBeVisible();
