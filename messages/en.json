@@ -1872,7 +1872,12 @@
     "theirWordNotYours": "Free text — their word for it, not one of your categories.",
     "noCardIsRegisteredForThisCode": "No card is registered for this code yet. Fill the fields and save to register one.",
     "thisCodeIsAlsoUsedByOtherSongs": "{count, plural, one {# other song carries this code — saving changes what it shows too.} other {# other songs carry this code — saving changes what they show too.}}",
-    "actionSaveThisIntegrationCard": "save this integration card"
+    "actionSaveThisIntegrationCard": "save this integration card",
+    "importFromAFile": "Import from a file",
+    "thatFileIsTooLargeForOneCard": "That file is too large for one card. A single record is a few hundred bytes.",
+    "thatFileCouldNotBeRead": "That file could not be read as one integration card.",
+    "thatFileCarriesCards": "{count, plural, other {That file carries # cards. Export one song at a time.}}",
+    "filledFromTheFileReviewBeforeSaving": "Filled from the file. Review it before saving."
   },
   "vocab": {
     "participationCounted": "Counted",

@@ -1872,7 +1872,12 @@
     "theirWordNotYours": "Texto livre — a palavra do sistema deles, não uma das suas categorias.",
     "noCardIsRegisteredForThisCode": "Nenhuma ficha cadastrada para este código ainda. Preencha os campos e salve para cadastrar uma.",
     "thisCodeIsAlsoUsedByOtherSongs": "{count, plural, one {Outra # música usa este código — salvar muda o que ela mostra também.} other {Outras # músicas usam este código — salvar muda o que elas mostram também.}}",
-    "actionSaveThisIntegrationCard": "salvar esta ficha de integração"
+    "actionSaveThisIntegrationCard": "salvar esta ficha de integração",
+    "importFromAFile": "Importar de um arquivo",
+    "thatFileIsTooLargeForOneCard": "Esse arquivo é grande demais para uma ficha. Um único registro tem algumas centenas de bytes.",
+    "thatFileCouldNotBeRead": "Não foi possível ler esse arquivo como uma ficha de integração.",
+    "thatFileCarriesCards": "{count, plural, other {Esse arquivo traz # fichas. Exporte uma música por vez.}}",
+    "filledFromTheFileReviewBeforeSaving": "Preenchido a partir do arquivo. Revise antes de salvar."
   },
   "vocab": {
     "participationCounted": "Contou",

@@ -1,9 +1,10 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MAX_INTEGRATION_FILE_BYTES, parseIntegrationFile } from '@/lib/song-integration-file';
 import type { SongIntegration } from '@/services/music';
 import type { SongRecord } from './record';
 import { saveSongIntegrationAction, type SongIntegrationState } from './integration-actions';
@@ -87,6 +88,51 @@ export function IntegrationTab({
   const savedCode = record.song.internalCode ?? '';
   const codeIsUnchanged = draft.code.trim() === savedCode;
   const others = Math.max(record.sharedCodeCount - 1, 0);
+
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+
+  async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset first, so choosing the SAME file twice fires `change` again — a
+    // browser does not report a re-selection of an unchanged value.
+    event.target.value = '';
+    if (!file) return;
+
+    // Checked against File.size BEFORE reading, so a two-gigabyte file never
+    // becomes a string in memory. The `accept` attribute below is a hint to the
+    // picker and nothing more; the content decides.
+    if (file.size > MAX_INTEGRATION_FILE_BYTES) {
+      setImportMessage(t('thatFileIsTooLargeForOneCard'));
+      return;
+    }
+
+    const result = parseIntegrationFile(await file.text());
+    if (!result.ok) {
+      setImportMessage(
+        result.reason === 'many'
+          ? t('thatFileCarriesCards', { count: result.count ?? 0 })
+          : t('thatFileCouldNotBeRead'),
+      );
+      return;
+    }
+
+    // IT FILLS THE FORM AND WRITES NOTHING (design D9) — the Deezer prefill's
+    // own contract, adopted for the same reason: an import that writes on open
+    // is an import the operator cannot decline. The Save button below is the
+    // write, and it is the same one a hand-typed edit uses.
+    //
+    // A whole replacement rather than a merge: the file describes ONE card, and
+    // leaving a previous artist in place beside an imported title would produce
+    // a card that came from nowhere in particular.
+    setDraft({
+      code: result.card.code,
+      title: result.card.title ?? '',
+      artistName: result.card.artistName ?? '',
+      categoryName: result.card.categoryName ?? '',
+    });
+    setImportMessage(t('filledFromTheFileReviewBeforeSaving'));
+  }
 
   const fields = (
     <>
@@ -184,6 +230,37 @@ export function IntegrationTab({
       <input type="hidden" name="songId" value={record.song.id} />
 
       {notices}
+
+      {/* A visible Button driving a hidden file input, rather than the input
+          itself: a bare file control cannot be styled to match the rest of this
+          product, and a <label> wrapping one is not reachable as a button by
+          keyboard. `type="button"` because it sits inside the form that saves —
+          without it, an unqualified <button> submits (a defect this codebase has
+          already shipped once). */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => fileInput.current?.click()}
+          data-testid="integration-import"
+        >
+          {t('importFromAFile')}
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".json,application/json"
+          onChange={onFile}
+          className="hidden"
+          data-testid="integration-file"
+        />
+        {importMessage && (
+          <span className="text-sm text-muted-foreground" data-testid="integration-import-message">
+            {importMessage}
+          </span>
+        )}
+      </div>
+
       {fields}
 
       <div className="flex items-center gap-3">
