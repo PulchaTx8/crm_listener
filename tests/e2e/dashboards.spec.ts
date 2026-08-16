@@ -133,8 +133,20 @@ const stationWHName = `Dash WH Station ${stamp}`;
 const stationSWName = `Dash Search Station ${stamp}`;
 const stationTZAName = `Dash TZA Station ${stamp}`;
 const stationTZBName = `Dash TZB Station ${stamp}`;
+// Block 28. A THIRD Station the consolidated delegate reaches, and it exists for
+// exactly one reason: with two, "a set of Stations" and "all Stations" are the
+// same URL, so the control could have shipped unchanged and passed. Same
+// timezone as TZA, deliberately — the selection below pairs those two, and a
+// mixed-timezone note firing in the middle of it would be a second subject.
+const stationTZCName = `Dash TZC Station ${stamp}`;
 
 const listenerNames = [`RT Listener One ${stamp}`, `RT Listener Two ${stamp}`, `RT Listener Three ${stamp}`];
+
+// Block 28. See the loop that uses these for why they must differ from one
+// another: every subset of {2, 3, 4} sums to a number no other subset reaches.
+const TZA_LISTENERS = 2;
+const TZB_LISTENERS = 3;
+const TZC_LISTENERS = 4;
 
 const delegateWithheldEmail = `e2e-dash-withheld-${stamp}@example.test`;
 const delegateWithheldPassword = `Withheld-${stamp}-pw`;
@@ -151,6 +163,7 @@ const noMatchTerm = `zz-no-such-station-${stamp}`;
 
 let stationTZA = '';
 let stationTZB = '';
+let stationTZC = '';
 
 test.beforeAll(async () => {
   // --- the platform admin, and the owner's Organization + first Station ----
@@ -183,6 +196,7 @@ test.beforeAll(async () => {
   const stationSW = await addCompany(stationSWName, 'America/Sao_Paulo');
   stationTZA = await addCompany(stationTZAName, 'America/Sao_Paulo');
   stationTZB = await addCompany(stationTZBName, 'America/New_York');
+  stationTZC = await addCompany(stationTZCName, 'America/Sao_Paulo');
 
   // provision_customer signs the owner in with a KNOWN password (chosen by
   // this file, unlike the UI's own "Provision" action, which generates and
@@ -238,7 +252,7 @@ test.beforeAll(async () => {
     delegateConsolidatedEmail,
     delegateConsolidatedPassword,
     roleFull,
-    [stationTZA, stationTZB],
+    [stationTZA, stationTZB, stationTZC],
   );
   const weakUserId = await inviteAndAccept(
     ownerClient,
@@ -270,6 +284,16 @@ test.beforeAll(async () => {
   }
 
   for (const name of listenerNames) await createMember(stationRT, name);
+
+  // Block 28. Listeners at the three consolidated Stations, in three DIFFERENT
+  // counts, and the counts are the fixture: 2, 3 and 4 make every subset sum
+  // distinct (2, 3, 4, 5, 6, 7, 9), so the figure the panel renders identifies
+  // which Stations were actually summed. Equal counts would let a control that
+  // silently consolidated everything, or nothing, produce a number the
+  // assertion still accepted.
+  for (let i = 1; i <= TZA_LISTENERS; i += 1) await createMember(stationTZA, `TZA Listener ${i} ${stamp}`);
+  for (let i = 1; i <= TZB_LISTENERS; i += 1) await createMember(stationTZB, `TZB Listener ${i} ${stamp}`);
+  for (let i = 1; i <= TZC_LISTENERS; i += 1) await createMember(stationTZC, `TZC Listener ${i} ${stamp}`);
 
   // --- the withheld fixture, at Station WH: a real listener AND a real ------
   // participation, so a regression that quietly zeroed took_part instead of
@@ -356,9 +380,15 @@ test('the round trip: a known figure, the period switch that changes it, a rende
   await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
 
-  // The owner reaches all five Stations this file provisions; pin to RT
+  // The owner reaches all six Stations this file provisions; pin to RT
   // explicitly rather than trust which one sorts first alphabetically.
-  await page.getByRole('link', { name: stationRTName }).click();
+  //
+  // Scoped to `station-switcher` since Block 28: the owner clears every
+  // permission check, so the StationSelection control renders for them too and
+  // every Station name is now the accessible name of TWO links on this page.
+  // Playwright's strict mode fails on that, and the failure would read as a
+  // missing pill rather than as a second one.
+  await page.getByTestId('station-switcher').getByRole('link', { name: stationRTName }).click();
 
   // dashboard-card-<key>'s DOM order is fixed by DashboardCards/WithheldFigure:
   // CardDescription's label paragraph first, then the value paragraph — so
@@ -457,7 +487,7 @@ test('a Station search matching nothing is not the same screen as holding the pe
   await outsiderContext.close();
 });
 
-test('the consolidated toggle: gated per Station, absent when ineligible, never satisfied by a hand-crafted URL — and the custom range that survives a sibling control', async ({
+test('station selection: any set, gated per Station, absent when ineligible, never satisfied by a hand-crafted URL — and the custom range that survives a sibling control', async ({
   page,
   browser,
 }) => {
@@ -471,13 +501,44 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
-  await page.getByRole('link', { name: stationTZAName }).click();
+  await page.getByTestId('station-switcher').getByRole('link', { name: stationTZAName }).click();
 
-  const toggle = page.getByTestId('consolidated-toggle');
-  await expect(toggle).toBeVisible();
+  const selection = page.getByTestId('station-selection');
+  await expect(selection).toBeVisible();
   await expect(page.getByTestId('mixed-timezone-note')).toHaveCount(0);
 
-  await toggle.getByRole('link', { name: /All stations/ }).click();
+  // --- Block 28: a set that is NEITHER one Station NOR all of them ----------
+  //
+  // This is the whole of what the control gained, and it is why a third
+  // Station is provisioned: with two, "some" and "all" are the same URL and a
+  // control that could still only do one-or-all would pass every assertion
+  // below. TZA + TZC, leaving TZB out.
+  const listeners = page.getByTestId('dashboard-card-listeners').locator('p').nth(1);
+  await expect(listeners).toHaveText(String(TZA_LISTENERS));
+
+  await selection.getByRole('link', { name: stationTZCName }).click();
+
+  // BOTH ids in the URL, and TZB's absent. `periodHref` appends one companyId
+  // key per id, so this is the shape the RPC receives.
+  await expect(page).toHaveURL(new RegExp(`companyId=${stationTZA}`));
+  await expect(page).toHaveURL(new RegExp(`companyId=${stationTZC}`));
+  expect(page.url()).not.toContain(stationTZB);
+
+  // AND THE FIGURE MOVED. Without this the test proves a label changed and a
+  // URL changed; the sum is the only thing that proves the panel consolidated
+  // rather than re-rendering one Station under a wider heading. 2 + 4 = 6 is
+  // reachable by no other subset of {2, 3, 4}, so it also proves TZB stayed
+  // out — a control that quietly selected everything would render 9.
+  await expect(listeners).toHaveText(String(TZA_LISTENERS + TZC_LISTENERS));
+  await expect(page.getByTestId('stations-selected')).toHaveText('2 stations');
+
+  // Unselecting one of the two goes back to one Station, not to an empty
+  // selection — 0118 raises 22023 for an empty set.
+  await selection.getByRole('link', { name: stationTZCName }).click();
+  await expect(listeners).toHaveText(String(TZA_LISTENERS));
+
+  await selection.getByRole('link', { name: /All stations/ }).click();
+  await expect(listeners).toHaveText(String(TZA_LISTENERS + TZB_LISTENERS + TZC_LISTENERS));
   // Accept EITHER note, not just mixed-timezone-note. TZA (America/Sao_Paulo)
   // and TZB (America/New_York) are one to two hours apart, and in the band
   // after Sao Paulo crosses into a new month and before New York does,
@@ -492,7 +553,10 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
     page.getByTestId('mixed-timezone-note').or(page.getByTestId('mixed-period-note')),
   ).toBeVisible();
 
-  await toggle.getByRole('link', { name: 'This station' }).click();
+  // Back to one Station through the switcher row above, which is what
+  // replaced the old toggle's "This station" position: the selection control
+  // adds and removes, the switcher replaces.
+  await page.getByTestId('station-switcher').getByRole('link', { name: stationTZAName }).click();
   await expect(page.getByTestId('mixed-timezone-note')).toHaveCount(0);
 
   // --- the custom range survives a sibling control's navigation -------------
@@ -521,7 +585,7 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   // A DIFFERENT control (the Station pill, not period-control's own inputs)
   // navigates while custom is active — see this file's header for what this
   // can and cannot prove given 0117's own semantics.
-  await page.getByRole('link', { name: stationTZBName }).click();
+  await page.getByTestId('station-switcher').getByRole('link', { name: stationTZBName }).click();
   await expect(page).toHaveURL(/from=2020-01-01/);
   await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(fromInput).toHaveValue('2020-01-01');
@@ -531,8 +595,8 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
     'page',
   );
 
-  // A SECOND different control — the consolidated toggle itself.
-  await page.getByTestId('consolidated-toggle').getByRole('link', { name: /All stations/ }).click();
+  // A SECOND different control — the station selection itself.
+  await page.getByTestId('station-selection').getByRole('link', { name: /All stations/ }).click();
   await expect(page).toHaveURL(/from=2020-01-01/);
   await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(fromInput).toHaveValue('2020-01-01');
@@ -551,10 +615,11 @@ test('the consolidated toggle: gated per Station, absent when ineligible, never 
   await weakPage.goto('/dashboards/audience');
   // Both Stations are reachable (members.view holds in both) — the switcher
   // itself renders — but reports.consolidated holds only in TZA, so the
-  // toggle specifically must not.
-  await expect(weakPage.getByRole('link', { name: stationTZAName })).toBeVisible();
-  await expect(weakPage.getByRole('link', { name: stationTZBName })).toBeVisible();
-  await expect(weakPage.getByTestId('consolidated-toggle')).toHaveCount(0);
+  // selection control specifically must not: one Station is not a selection.
+  const weakSwitcher = weakPage.getByTestId('station-switcher');
+  await expect(weakSwitcher.getByRole('link', { name: stationTZAName })).toBeVisible();
+  await expect(weakSwitcher.getByRole('link', { name: stationTZBName })).toBeVisible();
+  await expect(weakPage.getByTestId('station-selection')).toHaveCount(0);
 
   // The hand-crafted URL the toggle never offered: both Stations are valid
   // (members.view holds in each), so this reaches the RPC, which refuses with

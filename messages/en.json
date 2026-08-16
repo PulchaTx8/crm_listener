@@ -656,6 +656,8 @@
     "customRange": "Custom range",
     "to": "To",
     "allStations": "All stations ({count})",
+    "selectStations": "Stations shown",
+    "stationsSelected": "{count, plural, one {# station} other {# stations}}",
     "stationsListed": "Stations listed ({count})",
     "thatPeriodIsNotValid": "That period is not valid.",
     "youDoNotHavePermissionToSeeThisDashboard": "You do not have permission to see this dashboard in every station selected.",

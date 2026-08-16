@@ -656,6 +656,8 @@
     "customRange": "Intervalo personalizado",
     "to": "Hasta",
     "allStations": "Todas las emisoras ({count})",
+    "selectStations": "Emisoras mostradas",
+    "stationsSelected": "{count, plural, one {# emisora} other {# emisoras}}",
     "stationsListed": "Emisoras listadas ({count})",
     "thatPeriodIsNotValid": "Ese período no es válido.",
     "youDoNotHavePermissionToSeeThisDashboard": "Usted no tiene permiso para ver este panel en todas las emisoras seleccionadas.",
