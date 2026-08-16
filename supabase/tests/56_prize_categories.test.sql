@@ -1,9 +1,10 @@
 begin;
-select plan(27);
+select plan(29);
 
 -- Block 26. Prize categories get a screen, and with it the two doors every other
 -- record on this product has. 0025 built the table and 0029 secured it; what is
--- new here is 0202's save/archive pair and the insert-only door it replaces.
+-- new here is 0202's save/archive pair, the insert-only door it replaces, and
+-- 0203's refusal, which took the place of 0202's detaching archive.
 
 -- Structure -------------------------------------------------------------------
 
@@ -188,17 +189,32 @@ select throws_ok(
 
 -- Archiving --------------------------------------------------------------------
 
--- THE PRIZES ARE DETACHED, unlike archive_vendor's entries: a movement's
--- supplier is history, a category is a label the screens resolve from the live
--- list. The return value is the number the confirmation dialog warned about.
-select is(
-  public.archive_prize_category('00000000-0000-0000-0000-0000000026b1'),
-  2, 'archiving reports how many live prizes it took the label off');
+-- REFUSED WHILE A LIVE PRIZE STILL WEARS IT, on the owner's ruling of
+-- 2026-08-16. The same rule archive_music_reference holds for an artist with
+-- songs, and the same errcode; what differs is that this door's sentence names
+-- the remedy, because it serves one kind of record and can.
+select throws_ok(
+  $$select public.archive_prize_category('00000000-0000-0000-0000-0000000026b1')$$,
+  '23503', null, 'a category two live prizes wear cannot be archived');
 
+-- A refusal that half-lands is worse than one that does not land at all.
 select is(
-  (select count(*)::int from public.prizes
-    where category_id = '00000000-0000-0000-0000-0000000026b1'),
-  0, 'and the live prizes are uncategorised afterwards');
+  (select count(*)::int from public.prize_categories
+    where id = '00000000-0000-0000-0000-0000000026b1' and deleted_at is null),
+  1, 'and the refusal left the category exactly where it was');
+
+-- Moved off through the door that will do it for real: update_prize with no
+-- category is what the maintenance screen still to be built will drive, one
+-- prize at a time.
+select public.update_prize('00000000-0000-0000-0000-0000000026da', 'Camiseta P');
+select public.update_prize('00000000-0000-0000-0000-0000000026db', 'Camiseta M');
+
+-- The archived prize (26dc) STILL points at this category and does not block:
+-- the guard counts live prizes, and 0029's policy makes an archived one
+-- unreadable for every caller, so nothing can render the dangling label.
+select lives_ok(
+  $$select public.archive_prize_category('00000000-0000-0000-0000-0000000026b1')$$,
+  'once the live prizes are moved off, it archives — an archived one does not block');
 
 select throws_ok(
   $$select public.archive_prize_category('00000000-0000-0000-0000-0000000026b1')$$,
@@ -209,6 +225,15 @@ select throws_ok(
       p_category_id => '00000000-0000-0000-0000-0000000026b1')$$,
   'P0002', null, 'an archived category cannot be renamed');
 
+-- The reader half, in the only form one session can show it: create_prize still
+-- refuses a category that is archived. What ONE session cannot show is the race
+-- the `for key share` in that door exists for — two sessions are needed, and
+-- 0103's header records the measurement for the identical pair.
+select throws_ok(
+  $$select public.create_prize('00000000-0000-0000-0000-0000000026ca', 'Tarde demais',
+      '00000000-0000-0000-0000-0000000026b1')$$,
+  'P0002', null, 'a prize cannot be registered into an archived category');
+
 -- And the name is free again, which is what the partial index buys.
 select lives_ok(
   $$select public.save_prize_category('00000000-0000-0000-0000-0000000026ca', 'Camisetas')$$,
@@ -218,9 +243,8 @@ reset role;
 
 -- Asserted as the owner because the caller above cannot see it: 0029's policy
 -- filters `deleted_at`, so an archived prize is unreadable through RLS for
--- everyone. Its label is deliberately left alone — rewriting a row nobody can
--- observe buys nothing, and the count the operator was warned about counts what
--- the list shows.
+-- everyone. Its label is left alone, and that is the one dangling pointer this
+-- design accepts — nothing can read the prize, so nothing can render the label.
 select is(
   (select category_id from public.prizes
     where id = '00000000-0000-0000-0000-0000000026dc'),

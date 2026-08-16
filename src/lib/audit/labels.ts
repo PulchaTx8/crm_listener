@@ -23,10 +23,11 @@ const ACTION_LABELS: Record<string, string> = {
   archive_message_template: 'Message template archived',
   archive_music_request: 'Music request archived',
   archive_prize: 'Prize archived',
-  // Block 26. Its `detail` carries `detached_prizes`, which is the number of
-  // prizes that lost the label — the one fact about this event that is not
-  // recoverable from the row it names, since the category is soft-deleted and
-  // the prizes no longer point at it.
+  // Block 26. Its `detail` is empty, and can be: the door refuses while any live
+  // prize still wears the label, so an entry here means the category was already
+  // unused and there is no count to record. The prizes that were moved off it
+  // beforehand have update_prize entries of their own, each carrying its own
+  // before/after.
   archive_prize_category: 'Prize category archived',
   archive_promotion: 'Promotion archived',
   archive_song: 'Song archived',

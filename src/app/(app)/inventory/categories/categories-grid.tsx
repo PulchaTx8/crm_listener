@@ -83,14 +83,6 @@ export function CategoriesGrid({
   const { recordId, open, close } = useRecordDialog(PRIZE_CATEGORY_TABS, initialRecord);
   const [creating, setCreating] = useState(false);
   const [archiving, setArchiving] = useState<PrizeCategorySummary | null>(null);
-  /**
-   * What the last archive actually did, kept so the operator reads the DOOR's own
-   * number rather than the one the confirmation estimated off a row read when the
-   * page was. Cleared by the next navigation, along with the rest of the grid.
-   */
-  const [archived, setArchived] = useState<{ name: string; detached: number } | null>(null);
-
-  useEffect(() => setArchived(null), [initialRows, initialTotal]);
 
   const nameSorted = state.sort === 'name';
   const addedSorted = state.sort === 'created';
@@ -105,12 +97,6 @@ export function CategoriesGrid({
             {t('registerCategory')}
           </Button>
         </div>
-      )}
-
-      {archived && (
-        <p className="mt-4 text-sm text-muted-foreground" data-testid="category-archived-notice">
-          {t('archivedAndUncategorised', { name: archived.name, count: archived.detached })}
-        </p>
       )}
 
       <div className="mt-4 rounded-lg border">
@@ -236,10 +222,6 @@ export function CategoriesGrid({
           else close();
         }}
         onSaved={(saved, created) => {
-          // The archive line belongs to the archive that produced it. Left
-          // standing over a fresh registration it reads as a report on THIS
-          // write, which it is not.
-          setArchived(null);
           setGrid((current) =>
             applyRowPatch(current, created ? { kind: 'create', row: saved } : { kind: 'save', row: saved }),
           );
@@ -252,9 +234,9 @@ export function CategoriesGrid({
       {archiving && (
         <ArchiveCategoryDialog
           category={archiving}
+          state={state}
           onCancel={() => setArchiving(null)}
-          onArchived={(detached) => {
-            setArchived({ name: archiving.name, detached });
+          onArchived={() => {
             setArchiving(null);
             // REMOVED rather than patched, the same as vendors: 0029's select
             // policy filters `deleted_at`, so the row is unreadable the instant it
@@ -273,31 +255,44 @@ function formatAddedDate(iso: string): string {
 }
 
 /**
- * Archiving is not deleting, and this dialog exists to say what it IS before it
- * happens — which for a category is more than "the picker stops offering it".
+ * Archiving is REFUSED while a live prize still wears the label — the owner's
+ * ruling of 2026-08-16 — so this dialog has two faces rather than one.
  *
- * The prizes wearing the label lose it. `archive_prize_category` (0202) sets their
- * `category_id` to null deliberately, unlike `archive_vendor`, which leaves every
- * entry naming a supplier alone: a movement's supplier is history, a category is a
- * label the screens resolve from the LIVE list, so a prize left pointing at an
- * archived row would read as uncategorised anyway. The count comes off the row, so
- * the operator agrees to a number rather than to a word.
+ * With prizes on it, there is nothing to confirm: it says how many, points at
+ * them, and offers no destructive button at all. Rendering a button that the
+ * database will decline is a worse screen than not rendering it, and the
+ * remedy — move them to another category — is somebody's decision per prize,
+ * which is the maintenance screen still to be built.
+ *
+ * With none, it is an ordinary confirmation. Archiving is not deleting: the row
+ * stays and nothing that ever named it is rewritten. What changes is that the
+ * picker and the filter stop offering it.
+ *
+ * THE COUNT ON THE ROW IS A COURTESY, NOT THE GATE. It was read when the page
+ * was, so somebody may have moved a prize into this category since — which is
+ * why the refusal branch below still renders `state.message`: on that race the
+ * door declines a submission this dialog thought was safe, and its sentence
+ * carries the real count.
  */
 function ArchiveCategoryDialog({
   category,
+  state: listState,
   onCancel,
   onArchived,
 }: {
   category: PrizeCategorySummary;
+  /** For the link to the prizes that are blocking this, which live on Stock. */
+  state: PrizeCategoryListState;
   onCancel: () => void;
-  onArchived: (detached: number) => void;
+  onArchived: () => void;
 }) {
   const t = useTranslations('prizeCategories');
   const titleId = useId();
   const [state, action, pending] = useActionState(archivePrizeCategoryAction, INITIAL_ARCHIVE);
+  const blocked = category.prizeCount > 0;
 
   useEffect(() => {
-    if (state.status === 'archived') onArchived(state.detached ?? 0);
+    if (state.status === 'archived') onArchived();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
@@ -311,10 +306,19 @@ function ArchiveCategoryDialog({
         <DialogBody>
           <p className="text-sm">{category.name}</p>
           <p className="mt-2 text-sm text-muted-foreground" data-testid="category-archive-warning">
-            {category.prizeCount > 0
-              ? t('thePrizesWearingItBecomeUncategorised', { count: category.prizeCount })
-              : t('noPrizeWearsThisLabel')}
+            {blocked
+              ? t('moveThePrizesOffItFirst', { count: category.prizeCount })
+              : t('archivingKeepsEveryPastRecord')}
           </p>
+          {blocked && (
+            <Link
+              href={prizesInCategoryHref(listState, category.id) as Route}
+              className="mt-2 inline-block text-sm text-primary underline underline-offset-2"
+              data-testid="category-archive-prizes-link"
+            >
+              {t('showThePrizesIn', { name: category.name })}
+            </Link>
+          )}
           {state.status === 'error' && (
             <p className="mt-3 text-sm text-destructive" data-testid="category-archive-error">
               {state.message}
@@ -323,16 +327,21 @@ function ArchiveCategoryDialog({
         </DialogBody>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
-            {t('cancel')}
+            {blocked ? t('close') : t('cancel')}
           </Button>
-          <Button
-            type="submit"
-            variant="destructive"
-            disabled={pending}
-            data-testid="category-archive-confirm"
-          >
-            {pending ? t('saving') : t('archiveThisCategory')}
-          </Button>
+          {/* Absent, not disabled, when prizes block it: a greyed-out button
+              invites a hover looking for a reason, and the reason is already the
+              sentence above it. */}
+          {!blocked && (
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={pending}
+              data-testid="category-archive-confirm"
+            >
+              {pending ? t('saving') : t('archiveThisCategory')}
+            </Button>
+          )}
         </DialogFooter>
       </form>
     </Dialog>

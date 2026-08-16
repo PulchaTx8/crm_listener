@@ -2128,10 +2128,7 @@
     "actionsForCategory": "Ações para {name}",
     "showThePrizesIn": "Ver os prêmios de {name}",
     "archiveThisCategory": "Arquivar esta categoria",
-    "thePrizesWearingItBecomeUncategorised": "{count, plural, one {Um prêmio usa este rótulo e ficará sem categoria.} other {# prêmios usam este rótulo e ficarão sem categoria.}} Arquivar não é excluir: os prêmios ficam, o rótulo sai.",
-    "noPrizeWearsThisLabel": "Nenhum prêmio usa este rótulo, então nada mais muda.",
     "prizesWearingThisLabel": "{count, plural, =0 {Nenhum prêmio usa este rótulo.} one {Um prêmio usa este rótulo.} other {# prêmios usam este rótulo.}} Renomear mantém todos eles — passam simplesmente a exibir a palavra nova.",
-    "archivedAndUncategorised": "“{name}” foi arquivada. {count, plural, =0 {Nenhum prêmio perdeu o rótulo.} one {Um prêmio ficou sem categoria.} other {# prêmios ficaram sem categoria.}}",
     "categoriesLabel": "{count, plural, one {categoria} other {categorias}}",
     "noCategoriesYet": "Nenhuma categoria foi cadastrada nesta Station ainda.",
     "noCategoryMatchesThisSearch": "Nenhuma categoria corresponde a esta busca.",
@@ -2156,6 +2153,8 @@
     "noStationMatches": "Nenhuma Station ao seu alcance corresponde a “{search}”.",
     "clearTheStationSearch": "Limpar a busca de Station",
     "suspendedNoDataIsAvailable": "Suspensa — nenhum dado está disponível.",
-    "showingOfTheStationsYouCanReach": "Mostrando {count} das Stations ao seu alcance. Busque pelo nome para chegar a uma que não esteja listada."
+    "showingOfTheStationsYouCanReach": "Mostrando {count} das Stations ao seu alcance. Busque pelo nome para chegar a uma que não esteja listada.",
+    "moveThePrizesOffItFirst": "{count, plural, one {Um prêmio ainda usa este rótulo} other {# prêmios ainda usam este rótulo}}, e esta categoria não pode ser arquivada até que sejam movidos para outra.",
+    "archivingKeepsEveryPastRecord": "Nenhum prêmio usa este rótulo, então arquivar não custa mais nada: a categoria continua registrada e apenas deixa de ser oferecida no seletor e no filtro."
   }
 }

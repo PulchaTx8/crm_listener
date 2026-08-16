@@ -3976,7 +3976,7 @@ export type Database = {
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
       archive_prize_category: {
         Args: { p_category_id: string }
-        Returns: number
+        Returns: undefined
       }
       archive_promotion: {
         Args: { p_promotion_id: string }

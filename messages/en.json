@@ -2128,10 +2128,7 @@
     "actionsForCategory": "Actions for {name}",
     "showThePrizesIn": "Show the prizes in {name}",
     "archiveThisCategory": "Archive this category",
-    "thePrizesWearingItBecomeUncategorised": "{count, plural, one {One prize wears this label and becomes uncategorised.} other {# prizes wear this label and become uncategorised.}} Archiving is not deleting: the prizes stay, the label goes.",
-    "noPrizeWearsThisLabel": "No prize wears this label, so nothing else changes.",
     "prizesWearingThisLabel": "{count, plural, =0 {No prize wears this label.} one {One prize wears this label.} other {# prizes wear this label.}} Renaming keeps every one of them — they simply start reading the new word.",
-    "archivedAndUncategorised": "“{name}” was archived. {count, plural, =0 {No prize lost a label.} one {One prize is now uncategorised.} other {# prizes are now uncategorised.}}",
     "categoriesLabel": "{count, plural, one {category} other {categories}}",
     "noCategoriesYet": "No category has been registered at this Station yet.",
     "noCategoryMatchesThisSearch": "No category matches this search.",
@@ -2156,6 +2153,8 @@
     "noStationMatches": "No Station you can reach matches “{search}”.",
     "clearTheStationSearch": "Clear the Station search",
     "suspendedNoDataIsAvailable": "Suspended — no data is available.",
-    "showingOfTheStationsYouCanReach": "Showing {count} of the Stations you can reach. Search by name to reach one that is not listed."
+    "showingOfTheStationsYouCanReach": "Showing {count} of the Stations you can reach. Search by name to reach one that is not listed.",
+    "moveThePrizesOffItFirst": "{count, plural, one {One prize still wears this label} other {# prizes still wear this label}}, and this category cannot be archived until they are moved to another one.",
+    "archivingKeepsEveryPastRecord": "No prize wears this label, so archiving costs nothing else: the category stays on record, and only stops being offered by the picker and the filter."
   }
 }

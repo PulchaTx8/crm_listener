@@ -214,28 +214,64 @@ test('an operator manages categories, and registers one without leaving the priz
     .filter({ hasText: inlineCategory });
   await expect(inlineRow.getByTestId('category-prizes-link')).toHaveText('1');
 
+  // --- ARCHIVING IS REFUSED WHILE A PRIZE WEARS IT -------------------------
+  // The owner's ruling of 2026-08-16. There is nothing to confirm, so there is
+  // no confirm button to render — asserting its ABSENCE is the point, because a
+  // disabled one would look like the same screen to anybody skimming.
   await inlineRow.getByRole('button', { name: /Actions for/ }).click();
   await ownerPage.getByTestId('category-archive').click();
-  // The operator agrees to a NUMBER rather than to a word: archive_prize_category
-  // detaches the prizes, and the dialog says how many before it happens.
   await expect(ownerPage.getByTestId('category-archive-warning')).toContainText(
-    'One prize wears this label',
+    'One prize still wears this label',
   );
-  await ownerPage.getByTestId('category-archive-confirm').click();
+  await expect(ownerPage.getByTestId('category-archive-confirm')).toHaveCount(0);
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(ownerPage.getByTestId('category-row')).toHaveCount(3);
 
-  await expect(ownerPage.getByTestId('category-row')).toHaveCount(2, { timeout: 30_000 });
-  // And afterwards it reports what the DOOR did, not what the row estimated.
-  await expect(ownerPage.getByTestId('category-archived-notice')).toContainText(
-    'One prize is now uncategorised',
-  );
+  // And the database agrees the refusal changed nothing.
+  const { count: stillLive } = await admin
+    .from('prize_categories')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', station?.id ?? '')
+    .is('deleted_at', null);
+  expect(stillLive).toBe(3);
 
-  // --- The prize survived; only the label went -----------------------------
+  // --- Move the prize off, through the door the maintenance screen will use -
   await ownerPage.getByRole('link', { name: 'Stock', exact: true }).click();
   await expect(ownerPage).toHaveURL(/\/inventory(\?|$)/, { timeout: 60_000 });
   const prizeRow = ownerPage.getByTestId('prize-row').filter({ hasText: prizeName });
   await expect(prizeRow).toHaveCount(1, { timeout: 30_000 });
+  await expect(prizeRow).toContainText(inlineCategory);
+
+  // The pencil, not the name: an accessible name matches by substring, so the
+  // prize's own name also matches "Edit …" and "Actions for …" on the same row.
+  // The pencil opens the record on the Data tab explicitly, which is the one
+  // this needs.
+  await prizeRow.getByRole('button', { name: `Edit ${prizeName}`, exact: true }).click();
+  const dataForm = ownerPage.locator('[data-testid="prize-data-form"]');
+  await expect(dataForm).toBeVisible({ timeout: 30_000 });
+  // By attribute rather than by label: this is a <select> inside its own
+  // <label>, so the label's text content is "Category" followed by every option
+  // in it — the same reason the register form's own picker carries a testid.
+  await dataForm.locator('select[name="categoryId"]').selectOption('');
+  await dataForm.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dataForm.getByText('Saved.')).toBeVisible({ timeout: 30_000 });
+  await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(prizeRow).toContainText('Uncategorised');
-  // The archived category is no longer offered as a filter either — 0029's select
-  // policy filters `deleted_at`, so no read can reach it.
+
+  // --- Now it archives -----------------------------------------------------
+  await ownerPage.getByRole('link', { name: 'Categories' }).click();
+  await expect(ownerPage).toHaveURL(/\/inventory\/categories/, { timeout: 60_000 });
+  const freedRow = ownerPage.getByTestId('category-row').filter({ hasText: inlineCategory });
+  await expect(freedRow.getByTestId('category-prizes-link')).toHaveCount(0);
+
+  await freedRow.getByRole('button', { name: /Actions for/ }).click();
+  await ownerPage.getByTestId('category-archive').click();
+  await ownerPage.getByTestId('category-archive-confirm').click();
+  await expect(ownerPage.getByTestId('category-row')).toHaveCount(2, { timeout: 30_000 });
+
+  // The archived category is no longer offered as a filter on Stock either —
+  // 0029's select policy filters `deleted_at`, so no read can reach it.
+  await ownerPage.getByRole('link', { name: 'Stock', exact: true }).click();
+  await expect(ownerPage).toHaveURL(/\/inventory(\?|$)/, { timeout: 60_000 });
   await expect(categoryFilter.locator('option', { hasText: inlineCategory })).toHaveCount(0);
 });

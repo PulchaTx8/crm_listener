@@ -2128,10 +2128,7 @@
     "actionsForCategory": "Acciones para {name}",
     "showThePrizesIn": "Ver los premios de {name}",
     "archiveThisCategory": "Archivar esta categoría",
-    "thePrizesWearingItBecomeUncategorised": "{count, plural, one {Un premio usa esta etiqueta y quedará sin categoría.} other {# premios usan esta etiqueta y quedarán sin categoría.}} Archivar no es eliminar: los premios quedan, la etiqueta se va.",
-    "noPrizeWearsThisLabel": "Ningún premio usa esta etiqueta, así que nada más cambia.",
     "prizesWearingThisLabel": "{count, plural, =0 {Ningún premio usa esta etiqueta.} one {Un premio usa esta etiqueta.} other {# premios usan esta etiqueta.}} Renombrar los mantiene a todos — simplemente empiezan a mostrar la palabra nueva.",
-    "archivedAndUncategorised": "“{name}” fue archivada. {count, plural, =0 {Ningún premio perdió la etiqueta.} one {Un premio quedó sin categoría.} other {# premios quedaron sin categoría.}}",
     "categoriesLabel": "{count, plural, one {categoría} other {categorías}}",
     "noCategoriesYet": "Todavía no se registró ninguna categoría en esta Station.",
     "noCategoryMatchesThisSearch": "Ninguna categoría coincide con esta búsqueda.",
@@ -2156,6 +2153,8 @@
     "noStationMatches": "Ninguna Station a tu alcance coincide con “{search}”.",
     "clearTheStationSearch": "Limpiar la búsqueda de Station",
     "suspendedNoDataIsAvailable": "Suspendida — no hay datos disponibles.",
-    "showingOfTheStationsYouCanReach": "Mostrando {count} de las Stations a tu alcance. Busca por nombre para llegar a una que no esté en la lista."
+    "showingOfTheStationsYouCanReach": "Mostrando {count} de las Stations a tu alcance. Busca por nombre para llegar a una que no esté en la lista.",
+    "moveThePrizesOffItFirst": "{count, plural, one {Un premio todavía usa esta etiqueta} other {# premios todavía usan esta etiqueta}}, y esta categoría no puede archivarse hasta que se muevan a otra.",
+    "archivingKeepsEveryPastRecord": "Ningún premio usa esta etiqueta, así que archivar no cuesta nada más: la categoría queda registrada y solo deja de ofrecerse en el selector y en el filtro."
   }
 }
