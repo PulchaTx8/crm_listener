@@ -48,7 +48,7 @@ export interface SystemMessageRow {
 }
 
 /**
- * All thirteen, whether overridden or not.
+ * All fourteen, whether overridden or not.
  *
  * EVERY ROW ALWAYS, built from `SYSTEM_MESSAGE_DEFAULTS` and filled in from
  * whatever the Station has overridden — never the query's rows alone. A screen

@@ -51,6 +51,8 @@ export interface CompanyProfileRecord {
   city: string | null;
   state: string | null;
   postalCode: string | null;
+  /** ISO 3166-1 alpha-2 (0213). It qualifies every geocode for this Station's listeners and decides where its map opens. */
+  country: string | null;
   broadcastBand: BroadcastBand | null;
   frequencyKhz: number | null;
   latitude: number | null;
@@ -96,7 +98,7 @@ export async function readCompanyProfile(
   const { data, error } = await asCaller(accessToken)
     .from('companies')
     // prettier-ignore
-    .select('address_line, address_number, address_complement, neighbourhood, city, state, postal_code, broadcast_band, frequency_khz, latitude, longitude, thumb_url, contact_email, contact_phone, website_url, instagram_url, facebook_url, youtube_url, tagline, description, legal_name, tax_id, municipal_registration, fiscal_email')
+    .select('address_line, address_number, address_complement, neighbourhood, city, state, postal_code, country, broadcast_band, frequency_khz, latitude, longitude, thumb_url, contact_email, contact_phone, website_url, instagram_url, facebook_url, youtube_url, tagline, description, legal_name, tax_id, municipal_registration, fiscal_email')
     .eq('id', companyId)
     .single();
 
@@ -110,6 +112,7 @@ export async function readCompanyProfile(
     city: data.city,
     state: data.state,
     postalCode: data.postal_code,
+    country: data.country,
     broadcastBand: data.broadcast_band,
     frequencyKhz: data.frequency_khz,
     latitude: data.latitude,
@@ -139,6 +142,8 @@ export interface CompanyProfileInput {
   city: string | null;
   state: string | null;
   postalCode: string | null;
+  /** ISO 3166-1 alpha-2. update_company_profile RAISES 22023 for a value country_alpha2 cannot resolve, so this must be a code the select offered — see src/lib/countries.ts. */
+  country: string | null;
   broadcastBand: 'FM' | 'AM' | 'WEB' | null;
   frequencyKhz: number | null;
   latitude: number | null;
@@ -190,6 +195,7 @@ export async function updateCompanyProfile(
     p_city: input.city ?? undefined,
     p_state: input.state ?? undefined,
     p_postal_code: input.postalCode ?? undefined,
+    p_country: input.country ?? undefined,
     p_broadcast_band: input.broadcastBand ?? undefined,
     p_frequency_khz: input.frequencyKhz ?? undefined,
     p_latitude: input.latitude ?? undefined,

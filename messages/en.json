@@ -328,7 +328,9 @@
     "days": "Days",
     "hours": "Hours",
     "minutes": "Minutes",
-    "zeroMeansNoLimit": "All three at zero means no limit: a listener may ask as often as they like."
+    "zeroMeansNoLimit": "All three at zero means no limit: a listener may ask as often as they like.",
+    "country": "Country",
+    "noCountry": "No country"
   },
   "draws": {
     "drawOf": "Draw of",
@@ -596,7 +598,9 @@
     "serviceHashtagHelp": "Sent by a listener to receive a link into the widget's own menu, where they choose between a song and a promotion.",
     "hashtagsSaved": "Saved",
     "notSet": "Not set",
-    "actionChangeTheServiceHashtags": "change the service hashtags"
+    "actionChangeTheServiceHashtags": "change the service hashtags",
+    "messageCountryTitle": "Asking for the country",
+    "fieldCountry": "the country"
   },
   "dashboards": {
     "audience": "Audience",
@@ -950,7 +954,10 @@
     "blockFrom": " · from ",
     "blockUntil": " until {when}",
     "blockNoEndDate": ", no end date",
-    "notByYouNotBySupport": "— not by you, not by support. Only direct database access can restore it."
+    "notByYouNotBySupport": "— not by you, not by support. Only direct database access can restore it.",
+    "fieldCountry": "Country",
+    "country": "Country",
+    "noCountry": "No country"
   },
   "participations": {
     "draw": "Draw",
@@ -1521,7 +1528,8 @@
     "internalOnlyNeverSentToThe": "Internal only — never sent to the listener. It guides whoever reads the answers.",
     "someoneHasAlreadyEnteredThisPromotion": "Someone has already entered this promotion, so the question itself can no longer be changed — that would leave answers pointing at wording nobody read.",
     "saveGuidelines": "Save guidelines",
-    "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again."
+    "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again.",
+    "requestedFieldCountry": "Country"
   },
   "music": {
     "closeRecord": "Close record",

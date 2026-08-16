@@ -16,7 +16,8 @@ import { z } from 'zod';
  * declaration order.
  *
  * WRITTEN OUT HERE is the fourth place this list exists — after the enum,
- * `member_field_value` (0065) and `apply_member_field_values` (0171). It earns
+ * `member_field_value` (0065, extended by 0213) and `apply_member_field_values`
+ * (0171, extended by 0213). It earns
  * its place: without it a payload naming a field no promotion can request would
  * reach a door that silently ignores it, and "the entry went through but the
  * answer vanished" is the least debuggable outcome available.
@@ -26,6 +27,7 @@ export const REQUESTED_FIELDS = [
   'address',
   'city',
   'neighbourhood',
+  'country',
   'age',
   'cpf',
   'passport',

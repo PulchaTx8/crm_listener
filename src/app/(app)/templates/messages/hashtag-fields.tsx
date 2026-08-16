@@ -38,7 +38,7 @@ export function nextShowSavedConfirmation(previous: boolean, event: HashtagField
 
 /**
  * The two hashtags a Station answers with a link straight on WhatsApp,
- * before any conversation opens (Block 19a, D6). A card above the thirteen
+ * before any conversation opens (Block 19a, D6). A card above the fourteen
  * system texts rather than a fourteenth row: `set_service_hashtags` (0177)
  * writes onto `widget_installations`, which is the Station's service
  * configuration, not a message — the same division the spec's section 5

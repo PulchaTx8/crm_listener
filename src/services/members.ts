@@ -646,6 +646,7 @@ export interface MemberDetail {
   city: string | null;
   state: string | null;
   postalCode: string | null;
+  country: string | null;
   discoverySource: string | null;
   firstContactAt: string | null;
   firstContactOrigin: string | null;
@@ -675,7 +676,7 @@ export async function getMember(memberId: string, accessToken: string): Promise<
   const { data, error } = await asCaller(accessToken)
     .from('members')
     .select(
-      'id, full_name, phone, email, cpf_last_digits, passport, birth_date, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, discovery_source, first_contact_at, first_contact_origin, anonymized_at, created_at',
+      'id, full_name, phone, email, cpf_last_digits, passport, birth_date, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, country, discovery_source, first_contact_at, first_contact_origin, anonymized_at, created_at',
     )
     .eq('id', memberId)
     .is('deleted_at', null)
@@ -700,6 +701,7 @@ export async function getMember(memberId: string, accessToken: string): Promise<
     city: data.city,
     state: data.state,
     postalCode: data.postal_code,
+    country: data.country,
     discoverySource: data.discovery_source,
     firstContactAt: data.first_contact_at,
     firstContactOrigin: data.first_contact_origin,
@@ -908,6 +910,7 @@ export async function createMember(input: CreateMemberInput, accessToken: string
     p_city: input.city,
     p_state: input.state,
     p_postal_code: input.postalCode,
+    p_country: input.country,
     p_discovery_source: input.discoverySource,
     p_first_contact_at: input.firstContactAt ? input.firstContactAt.toISOString() : undefined,
     p_first_contact_origin: input.firstContactOrigin,
@@ -934,6 +937,7 @@ export async function updateMember(input: UpdateMemberInput, accessToken: string
     p_city: input.city,
     p_state: input.state,
     p_postal_code: input.postalCode,
+    p_country: input.country,
     p_discovery_source: input.discoverySource,
   });
   if (error) throw mapMemberError(error.code, error.message);

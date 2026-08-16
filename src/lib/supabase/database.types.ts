@@ -307,6 +307,7 @@ export type Database = {
           city: string | null
           contact_email: string | null
           contact_phone: string | null
+          country: string | null
           created_at: string
           deleted_at: string | null
           description: string | null
@@ -345,6 +346,7 @@ export type Database = {
           city?: string | null
           contact_email?: string | null
           contact_phone?: string | null
+          country?: string | null
           created_at?: string
           deleted_at?: string | null
           description?: string | null
@@ -383,6 +385,7 @@ export type Database = {
           city?: string | null
           contact_email?: string | null
           contact_phone?: string | null
+          country?: string | null
           created_at?: string
           deleted_at?: string | null
           description?: string | null
@@ -1306,6 +1309,7 @@ export type Database = {
           anonymized_at: string | null
           birth_date: string | null
           city: string | null
+          country: string | null
           cpf_hash: string | null
           cpf_last_digits: string | null
           created_at: string
@@ -1334,6 +1338,7 @@ export type Database = {
           anonymized_at?: string | null
           birth_date?: string | null
           city?: string | null
+          country?: string | null
           cpf_hash?: string | null
           cpf_last_digits?: string | null
           created_at?: string
@@ -1362,6 +1367,7 @@ export type Database = {
           anonymized_at?: string | null
           birth_date?: string | null
           city?: string | null
+          country?: string | null
           cpf_hash?: string | null
           cpf_last_digits?: string | null
           created_at?: string
@@ -3977,6 +3983,7 @@ export type Database = {
           p_birth_date: string
           p_city: string
           p_company_id: string
+          p_country?: string
           p_cpf_hash: string
           p_cpf_last_digits: string
           p_discovery_source: string
@@ -4254,6 +4261,7 @@ export type Database = {
         Returns: Json
       }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }
+      country_alpha2: { Args: { p_input: string }; Returns: string }
       create_album: {
         Args: {
           p_company_id: string
@@ -4286,6 +4294,7 @@ export type Database = {
           p_birth_date?: string
           p_city?: string
           p_company_id: string
+          p_country?: string
           p_cpf_hash?: string
           p_cpf_last_digits?: string
           p_discovery_source?: string
@@ -5588,6 +5597,7 @@ export type Database = {
           p_company_id: string
           p_contact_email?: string
           p_contact_phone?: string
+          p_country?: string
           p_description?: string
           p_facebook_url?: string
           p_fiscal_email?: string
@@ -5614,6 +5624,7 @@ export type Database = {
           p_address_number?: string
           p_birth_date?: string
           p_city?: string
+          p_country?: string
           p_cpf_hash?: string
           p_cpf_last_digits?: string
           p_discovery_source?: string
@@ -5904,6 +5915,7 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+        | "country"
       report_format: "CSV" | "XLSX" | "PDF"
       report_status: "QUEUED" | "RUNNING" | "READY" | "FAILED"
       report_type:
@@ -5931,6 +5943,7 @@ export type Database = {
         | "LINK_MUSIC"
         | "LINK_MENU"
         | "LINK_PROMOTION"
+        | "COUNTRY"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       widget_link_purpose: "MUSIC" | "MENU" | "PROMOTION"
@@ -6148,6 +6161,7 @@ export const Constants = {
         "cpf",
         "passport",
         "discovery_source",
+        "country",
       ],
       report_format: ["CSV", "XLSX", "PDF"],
       report_status: ["QUEUED", "RUNNING", "READY", "FAILED"],
@@ -6177,6 +6191,7 @@ export const Constants = {
         "LINK_MUSIC",
         "LINK_MENU",
         "LINK_PROMOTION",
+        "COUNTRY",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],

@@ -156,6 +156,7 @@ export async function saveStationProfileAction(
         city: text('city'),
         state: text('state'),
         postalCode: text('postalCode'),
+        country: text('country'),
         broadcastBand: parsedBand,
         frequencyKhz: khzFromInput(parsedBand, String(formData.get('frequency') ?? '')),
         latitude: coordinate('latitude'),
