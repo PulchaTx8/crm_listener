@@ -131,11 +131,16 @@ describe('music categories', () => {
     });
     expect(refused.error?.code).toBe('23503');
 
+    // `undefined`, not null, and that IS the detach: update_song replaces every
+    // field it takes on every call, and 0206 defaults this parameter to null, so
+    // omitting it clears the column. The generated Args type admits nothing else
+    // — Postgres reports "has a default" and no nullability, so the parameter
+    // types as `string | undefined`.
     const detached = await client.rpc('update_song', {
       p_song_id: song.data as string,
       p_title: `Song ${label}`,
       p_artist_id: artist.data as string,
-      p_category_id: null,
+      p_category_id: undefined,
     });
     expect(detached.error).toBeNull();
 

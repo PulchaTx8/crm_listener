@@ -271,6 +271,23 @@ const REQUIRED_TEST_FILES = [
   // with archive_music_reference's FOR UPDATE, so deleting it reopens 0103's
   // race for this kind too.
   { path: 'tests/isolation/music-categories.test.ts', minTests: 5 },
+  // Block 27. Four cases, and the floor is the full count because two of them
+  // are the only proof of their property in this repository.
+  //
+  // THE UPSERT TARGETS THE PARTIAL INDEX. save_song_integration's
+  // `on conflict (company_id, code) where deleted_at is null` is easy to write
+  // as a plain `on conflict (company_id, code)`, which will not compile against
+  // a partial index — and easy to "fix" by widening the index instead, which
+  // compiles, still satisfies 58_song_integrations.test.sql's has_index (same
+  // name), and quietly stops a retired card's code from ever being registered
+  // again. Only a second write against the same code says which one is there.
+  //
+  // And TWO SONGS RESOLVING ONE CARD, which is the owner's stated requirement
+  // and the whole reason the three descriptive fields are a table rather than
+  // columns on `songs`. Nothing else in the repository asserts it, and the day
+  // somebody "simplifies" the card back onto the song this is the test that
+  // fails.
+  { path: 'tests/isolation/song-integrations.test.ts', minTests: 4 },
   // Block 7b, Task 5: the merge's boundary and D6's identity rules. The three
   // that only a second identity can prove: music.manage does NOT confer
   // music.merge; a loser in another Station answers the SAME P0002 as a uuid

@@ -29,6 +29,7 @@ import type {
   ReferenceUpdateInput,
   RequestSortKey,
   SongFormInput,
+  SongIntegrationFormInput,
   SongUpdateInput,
 } from '@/schemas/music';
 
@@ -715,15 +716,16 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_vocal: input.vocal,
     p_duration_seconds: input.durationSeconds ?? undefined,
     p_internal_code: input.internalCode,
-    // `?? null`, NOT `?? undefined` like the two below. Omitting a key lets the
-    // RPC's own default apply, and for the album and the ISRC that default is
-    // null, so the two spellings are observably identical (the comment on this
-    // function's header explains why the coercion is not a cast). Here it would
-    // be identical too — 0206 defaults p_category_id to null — but the field is
-    // spelled explicitly because clearing the category is a thing an operator
-    // DOES on this form, by choosing "No category", and a reader should not have
-    // to know the RPC's default to see that the clear reaches the database.
-    p_category_id: input.categoryId ?? null,
+    // `?? undefined`, and it really does clear the category — which is worth
+    // stating because it does not look like it. 0206 replaces every field it
+    // takes on every call, and its default for this parameter is null, so
+    // OMITTING the key is how "No category" reaches the column. The generated
+    // Args type leaves no choice in the matter either: Postgres's function
+    // metadata carries no nullability signal beyond "has a default", so this
+    // parameter types as `string | undefined` with no `| null` in the union —
+    // the same thing createSong's own header comment sets out about
+    // p_duration_seconds.
+    p_category_id: input.categoryId ?? undefined,
     // Both hand-editable (design D7), and both sent on EVERY call: 0138 keeps
     // the convention that every field is set on every call, so an omitted
     // album here blanks the one already stored.
@@ -735,6 +737,99 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_isrc: input.isrc ?? undefined,
   });
   if (error) throw mapMusicError(error.code, error.message);
+}
+
+// ---------------------------------------------------------------------------
+// The integration card (0207) — one song as the customer's own scheduling
+// software describes it, resolved by the code songs.internal_code carries.
+// ---------------------------------------------------------------------------
+
+export interface SongIntegration {
+  id: string;
+  code: string;
+  title: string | null;
+  artistName: string | null;
+  categoryName: string | null;
+}
+
+/**
+ * The card for one code, or null when this Station has never described it.
+ *
+ * A LOOKUP AND NOT A JOIN, because 0207 links by code with no foreign key
+ * (its own header says why) — PostgREST has nothing to embed. That is also why
+ * SONG_COLUMNS deliberately does not carry it: a per-row lookup over a page of
+ * fifty songs would be fifty round trips for a column nobody asked to see, and
+ * the card is only ever read on one open record.
+ *
+ * A null answer is an ordinary state, not an error: every code in the catalogue
+ * predates this table.
+ */
+export async function getSongIntegration(
+  companyId: string,
+  code: string,
+): Promise<SongIntegration | null> {
+  const supabase = await createUserClient();
+  const { data, error } = await supabase
+    .from('song_integrations')
+    .select('id, code, title, artist_name, category_name')
+    .eq('company_id', companyId)
+    .eq('code', code)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the integration card: ${error.message}`);
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    code: data.code,
+    title: data.title,
+    artistName: data.artist_name,
+    categoryName: data.category_name,
+  };
+}
+
+/**
+ * How many LIVE songs in this Station carry this code — the number the
+ * Integration tab warns with before an edit, because correcting a card corrects
+ * it for every song that resolves it.
+ *
+ * `head: true` with an exact count: the rows themselves are never wanted, and
+ * 0099's policy has already cut the table to the Stations this caller can read,
+ * so the count is exactly what the operator would see on the list.
+ */
+export async function countSongsSharingCode(companyId: string, code: string): Promise<number> {
+  const supabase = await createUserClient();
+  const { count, error } = await supabase
+    .from('songs')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .eq('internal_code', code)
+    .is('deleted_at', null);
+
+  if (error) throw new InternalError(`Could not count songs sharing this code: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
+ * Registers or corrects a card. Every field on every call: save_song_integration
+ * (0207) sets each column it takes, so a partial input blanks what it omits —
+ * the same warning updateSong above carries, and the same convention.
+ */
+export async function saveSongIntegration(
+  input: SongIntegrationFormInput,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('save_song_integration', {
+    p_company_id: input.companyId,
+    p_code: input.code,
+    p_title: input.title,
+    p_artist: input.artistName,
+    p_category: input.categoryName,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('save_song_integration returned no id');
+  return data;
 }
 
 // ---------------------------------------------------------------------------

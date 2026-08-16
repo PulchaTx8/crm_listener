@@ -3044,6 +3044,63 @@ export type Database = {
           },
         ]
       }
+      song_integrations: {
+        Row: {
+          artist_name: string | null
+          category_name: string | null
+          code: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          organization_id: string
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          artist_name?: string | null
+          category_name?: string | null
+          code: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          organization_id: string
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          artist_name?: string | null
+          category_name?: string | null
+          code?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          organization_id?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "song_integrations_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "song_integrations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       songs: {
         Row: {
           album_id: string | null
@@ -4309,6 +4366,7 @@ export type Database = {
         Args: {
           p_album_id?: string
           p_artist_id: string
+          p_category_id?: string
           p_company_id: string
           p_duration_seconds?: number
           p_genre_id?: string
@@ -4326,6 +4384,7 @@ export type Database = {
         Args: {
           p_album_title?: string
           p_artist_name: string
+          p_category_id?: string
           p_company_id: string
           p_cover_md5?: string
           p_deezer_album_id?: number
@@ -5397,6 +5456,16 @@ export type Database = {
         }
         Returns: string
       }
+      save_song_integration: {
+        Args: {
+          p_artist?: string
+          p_category?: string
+          p_code: string
+          p_company_id: string
+          p_title?: string
+        }
+        Returns: string
+      }
       save_vendor: {
         Args: {
           p_address_line?: string
@@ -5628,6 +5697,7 @@ export type Database = {
         Args: {
           p_album_id?: string
           p_artist_id: string
+          p_category_id?: string
           p_duration_seconds?: number
           p_genre_id?: string
           p_internal_code?: string

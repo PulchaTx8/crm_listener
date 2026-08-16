@@ -164,6 +164,38 @@ export const songUpdateSchema = songFormSchema
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
 
 /**
+ * Block 27. The card describing one song in the customer's own system (0207).
+ *
+ * The bounds are save_song_integration's own, restated here for the reason this
+ * file's header gives — a refusal the database would make anyway arrives as a
+ * field message rather than a round trip — and for a second reason the rest of
+ * this file has never needed: TWO CALLERS PARSE THIS SCHEMA. The Integration
+ * tab's form does, and so does the JSON import
+ * (src/lib/song-integration-file.ts), on a file the operator supplies. One
+ * definition rather than two is what stops a file being accepted with a value
+ * the form would have refused.
+ *
+ * `code` is required and `title`/`artistName`/`categoryName` are not: a card
+ * whose code is known and whose words are not yet filled in is a legitimate
+ * thing to save, and the door clears what it is not sent.
+ */
+export const songIntegrationSchema = z.object({
+  code: z.string().trim().min(1, 'Give the card an integration code.').max(40),
+  title: optionalText(200),
+  artistName: optionalText(160),
+  categoryName: optionalText(160),
+});
+
+export type SongIntegrationInput = z.infer<typeof songIntegrationSchema>;
+
+/** What the Integration tab posts: the card, plus the Station it belongs to. The Station is a real parameter here, unlike songUpdateSchema's absent one, because save_song_integration takes it — a card is keyed by (company_id, code) and there is no row to resolve it from before the first save. */
+export const songIntegrationFormSchema = songIntegrationSchema.extend({
+  companyId: z.string().uuid(),
+});
+
+export type SongIntegrationFormInput = z.infer<typeof songIntegrationFormSchema>;
+
+/**
  * What the Deezer register form posts (Block 13a).
  *
  * Names, not ids — create_song_from_deezer (0139) resolves or creates all four
