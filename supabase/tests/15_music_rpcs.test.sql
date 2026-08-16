@@ -49,13 +49,20 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
   ('00000000-0000-0000-0000-00000000e1a2', '00000000-0000-0000-0000-00000000e1c1',
    '00000000-0000-0000-0000-00000000e1f1', '00000000-0000-0000-0000-00000000e1a1');
 
--- 1: the four kinds, and no fifth. Pinned because 7b's merge kinds are a
--- DIFFERENT set (songs in, shows out) and reusing this enum there would be a
--- silent mistake.
+-- 1: the kinds, exactly, and in declaration order. Pinned because 7b's merge
+-- kinds are a DIFFERENT set (songs in, categories out) and reusing this enum
+-- there would be a silent mistake.
+--
+-- Block 27 appended CATEGORY, and this assertion is the reason that append was
+-- noticed rather than assumed: it failed the moment 0204 landed, which is what
+-- a pinned set is for. APPENDED, not inserted — `alter type ... add value`
+-- without BEFORE/AFTER puts it last, and enum_range answers in declaration
+-- order, so inserting instead would have moved every other value's position for
+-- no reason.
 select is(
   enum_range(null::public.music_reference_kind)::text[],
-  array['GENRE', 'LABEL', 'ARTIST', 'SHOW'],
-  'music_reference_kind is the four short lists — songs is not one of them');
+  array['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'CATEGORY'],
+  'music_reference_kind is the five short lists — songs is not one of them');
 
 -- 2-5: one door writes four tables. Called as the actor fixture above, under
 -- its own grant of music.manage. The RPC's internal writes still run as the

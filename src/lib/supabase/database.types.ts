@@ -1456,6 +1456,57 @@ export type Database = {
           },
         ]
       }
+      music_categories: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "music_categories_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "music_categories_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       music_genres: {
         Row: {
           company_id: string
@@ -2997,6 +3048,7 @@ export type Database = {
         Row: {
           album_id: string | null
           artist_id: string
+          category_id: string | null
           company_id: string
           created_at: string
           created_by: string | null
@@ -3019,6 +3071,7 @@ export type Database = {
         Insert: {
           album_id?: string | null
           artist_id: string
+          category_id?: string | null
           company_id: string
           created_at?: string
           created_by?: string | null
@@ -3041,6 +3094,7 @@ export type Database = {
         Update: {
           album_id?: string | null
           artist_id?: string
+          category_id?: string | null
           company_id?: string
           created_at?: string
           created_by?: string | null
@@ -3073,6 +3127,13 @@ export type Database = {
             columns: ["artist_id", "company_id"]
             isOneToOne: false
             referencedRelation: "artists"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "songs_category_company_fk"
+            columns: ["category_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "music_categories"
             referencedColumns: ["id", "company_id"]
           },
           {
@@ -3988,6 +4049,7 @@ export type Database = {
       assert_song_references_live: {
         Args: {
           p_artist_id: string
+          p_category_id?: string
           p_company_id: string
           p_genre_id: string
           p_label_id: string
@@ -5749,7 +5811,7 @@ export type Database = {
         | "internal_policy"
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
-      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW"
+      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW" | "CATEGORY"
       music_request_channel: "MANUAL" | "IMPORT" | "API" | "WEB"
       music_request_play_status: "NOT_PLAYED" | "PLAYED" | "CANCELLED"
       music_request_read_status: "UNREAD" | "READ" | "CANCELLED"
@@ -5993,7 +6055,7 @@ export const Constants = {
       ],
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
-      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW"],
+      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW", "CATEGORY"],
       music_request_channel: ["MANUAL", "IMPORT", "API", "WEB"],
       music_request_play_status: ["NOT_PLAYED", "PLAYED", "CANCELLED"],
       music_request_read_status: ["UNREAD", "READ", "CANCELLED"],
