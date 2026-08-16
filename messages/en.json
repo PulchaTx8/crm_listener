@@ -1845,7 +1845,10 @@
     "actionAttendThisRequest": "attend this request",
     "editRecord": "Edit {name}",
     "actionsForRecord": "Actions for {name}",
-    "showingOfTotal": "Showing {shown} of {total}"
+    "showingOfTotal": "Showing {shown} of {total}",
+    "category": "Category",
+    "noCategory": "No category",
+    "allCategories": "All categories"
   },
   "vocab": {
     "participationCounted": "Counted",

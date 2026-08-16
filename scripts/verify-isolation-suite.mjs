@@ -249,6 +249,28 @@ const REQUIRED_TEST_FILES = [
   // as superuser and answers true from has_permission unconditionally, so
   // none of this is visible to it.
   { path: 'tests/isolation/music.test.ts', minTests: 8 },
+  // Block 27. Five cases, and the floor is the full count because three of them
+  // are the only proof of their property anywhere in this repository.
+  //
+  // The tenant boundary on `music_categories`: a category registered at one
+  // Station is invisible from another INSIDE THE SAME ORGANIZATION, to a caller
+  // who holds music.view and music.manage in both. 57_music_categories.test.sql
+  // asserts the policy's shape and cannot assert this — it runs as superuser
+  // with a null auth.uid() where RLS never applies, the reason every other entry
+  // here gives.
+  //
+  // And the two sharper ones, both about a category a FOREIGN KEY CANNOT JUDGE:
+  // a song naming an ARCHIVED category, and a song naming a category from
+  // ANOTHER Station. songs_category_company_fk references
+  // music_categories_id_company_unique, a NON-PARTIAL constraint — a foreign key
+  // cannot reference a partial index — so it proves the Station and is blind to
+  // deleted_at. The archived refusal lives in assert_song_references_live's
+  // fifth block (0205) and NOWHERE ELSE, which means an edit dropping those four
+  // lines would leave an archived category silently choosable again with every
+  // other suite green. That same block also takes the FOR KEY SHARE that pairs
+  // with archive_music_reference's FOR UPDATE, so deleting it reopens 0103's
+  // race for this kind too.
+  { path: 'tests/isolation/music-categories.test.ts', minTests: 5 },
   // Block 7b, Task 5: the merge's boundary and D6's identity rules. The three
   // that only a second identity can prove: music.manage does NOT confer
   // music.merge; a loser in another Station answers the SAME P0002 as a uuid

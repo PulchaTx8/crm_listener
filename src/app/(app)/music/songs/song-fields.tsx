@@ -57,6 +57,7 @@ export function SongFields({
   labels,
   genres,
   albums,
+  categories,
   prefill,
   disabled,
 }: {
@@ -66,6 +67,8 @@ export function SongFields({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
+  /** Block 27. This Station's own filing words. A select on BOTH paths — see the field's own comment for why the Deezer branch does not turn it into a text input like the four above it. */
+  categories: ReferenceSummary[];
   /**
    * Set when the operator clicked Register on the Deezer tab.
    *
@@ -208,6 +211,30 @@ export function SongFields({
           </Select>
         </label>
       )}
+
+      {/*
+        Block 27. A SELECT ON BOTH PATHS, unlike the four fields above it, and
+        the difference is not an oversight. Those become text inputs under a
+        Deezer prefill because Deezer NAMES them and the named thing very often
+        does not exist in this Station yet, so create_song_from_deezer (0206)
+        resolves or creates by name — a select there would offer no option to
+        pick and would silently discard a correction.
+
+        Deezer carries no category at all. There is no name to resolve and
+        nothing to create, so the operator picks from this Station's own list
+        either way, and 0206 takes it as an id on both doors.
+      */}
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted-foreground">{t('category')}</span>
+        <Select name="categoryId" defaultValue={song?.categoryId ?? ''} disabled={disabled}>
+          <option value="">{t('noCategory')}</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </Select>
+      </label>
 
       {prefill ? (
         <ReferenceByName

@@ -85,13 +85,19 @@ export default async function SongsPage({
   let labels: ReferenceSummary[];
   let genres: ReferenceSummary[];
   let albums: ReferenceSummary[];
+  let categories: ReferenceSummary[];
   let page: SongListPage;
   let permissions: MusicPermissions;
   try {
-    [artists, labels, genres, albums, page, permissions] = await Promise.all([
+    [artists, labels, genres, categories, albums, page, permissions] = await Promise.all([
       listMusicReferences(selected.id, 'ARTIST'),
       listMusicReferences(selected.id, 'LABEL'),
       listMusicReferences(selected.id, 'GENRE'),
+      // Block 27. A fourth call to the same function rather than a bespoke one,
+      // which is the whole point of making a category the fifth
+      // music_reference_kind: it is a name and a legacy id, exactly like the
+      // three above it.
+      listMusicReferences(selected.id, 'CATEGORY'),
       // Its own function rather than a fourth listMusicReferences: albums are
       // not one of 0100's four "a name and nothing else" lists — they carry a
       // UPC, a Deezer id and a cover hash (0136).
@@ -103,6 +109,7 @@ export default async function SongsPage({
         search: state.search?.slice(0, SONG_SEARCH_MAX_LENGTH),
         artistId: state.artistId,
         genreId: state.genreId,
+        categoryId: state.categoryId,
         sort: state.sort,
         direction: state.direction,
         cursor,
@@ -171,7 +178,7 @@ export default async function SongsPage({
         </div>
       )}
 
-      <SongsFilters state={state} artists={artists} genres={genres} />
+      <SongsFilters state={state} artists={artists} genres={genres} categories={categories} />
 
       <SongsGrid
         initialRows={page.rows}
@@ -185,6 +192,7 @@ export default async function SongsPage({
         labels={labels}
         genres={genres}
         albums={albums}
+        categories={categories}
         manage={permissions.manage}
         initialRecord={parseRecordParam(params as Record<string, string | undefined>, SONG_TABS)}
       />

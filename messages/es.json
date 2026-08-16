@@ -1845,7 +1845,10 @@
     "actionAttendThisRequest": "atender este pedido",
     "editRecord": "Editar {name}",
     "actionsForRecord": "Acciones para {name}",
-    "showingOfTotal": "Mostrando {shown} de {total}"
+    "showingOfTotal": "Mostrando {shown} de {total}",
+    "category": "Categoría",
+    "noCategory": "Sin categoría",
+    "allCategories": "Todas las categorías"
   },
   "vocab": {
     "participationCounted": "Contó",

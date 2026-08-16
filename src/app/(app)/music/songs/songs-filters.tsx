@@ -13,22 +13,25 @@ import type { SongListState } from './list-params';
 const DEBOUNCE_MS = 350;
 const ALL_ARTISTS = '';
 const ALL_GENRES = '';
+const ALL_CATEGORIES = '';
 
 /**
  * The selects are fed from listMusicReferences (music/songs/page.tsx), so an
- * operator filters by the artists and genres their own Station registered —
- * never a platform-wide list. Same shape as InventoryFilters: these controls
- * filter nothing themselves, they edit the URL, and the Server Component
- * asks Postgres a narrower question.
+ * operator filters by the artists, genres and categories their own Station
+ * registered — never a platform-wide list. Same shape as InventoryFilters:
+ * these controls filter nothing themselves, they edit the URL, and the Server
+ * Component asks Postgres a narrower question.
  */
 export function SongsFilters({
   state,
   artists,
   genres,
+  categories,
 }: {
   state: SongListState;
   artists: ReferenceSummary[];
   genres: ReferenceSummary[];
+  categories: ReferenceSummary[];
 }) {
   const t = useTranslations('music');
   const router = useRouter();
@@ -99,6 +102,28 @@ export function SongsFilters({
         </Select>
       </label>
 
+      {/* Block 27. Without this control the Categories screen would be a list
+          that changes nothing an operator can see — the same argument Block 26
+          made for why /inventory/categories had to exist rather than staying a
+          button. */}
+      <label className="flex w-56 flex-col gap-1 text-sm">
+        <span className="text-muted-foreground">{t('category')}</span>
+        <Select
+          value={state.categoryId ?? ALL_CATEGORIES}
+          onChange={(e) => navigate({ categoryId: e.target.value || undefined })}
+          data-testid="song-category-filter"
+        >
+          <option value={ALL_CATEGORIES}>{t('allCategories')}</option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </Select>
+      </label>
+
+      {/* The clear link builds a href from four NAMED fields and omits every
+          filter, which is how it clears this one too without being touched. */}
       {hasActiveSongFilters(state) && (
         <Link
           href={
