@@ -23,6 +23,11 @@ const ACTION_LABELS: Record<string, string> = {
   archive_message_template: 'Message template archived',
   archive_music_request: 'Music request archived',
   archive_prize: 'Prize archived',
+  // Block 26. Its `detail` carries `detached_prizes`, which is the number of
+  // prizes that lost the label — the one fact about this event that is not
+  // recoverable from the row it names, since the category is soft-deleted and
+  // the prizes no longer point at it.
+  archive_prize_category: 'Prize category archived',
   archive_promotion: 'Promotion archived',
   archive_song: 'Song archived',
   assign_company_role: 'Role assigned at a Station',
@@ -49,6 +54,9 @@ const ACTION_LABELS: Record<string, string> = {
   request_report: 'Report exported',
   reset_provisional_password: 'Provisional password reset',
   revoke_invitation: 'Invitation revoked',
+  // Block 26. One code for both registering and renaming, because 0202 is one
+  // door: its `detail` carries `created`, which says which of the two happened.
+  save_prize_category: 'Prize category saved',
   suspend_company: 'Station suspended',
   update_member: 'Listener updated',
   update_prize: 'Prize updated',

@@ -189,7 +189,9 @@ const MOVEMENT_PERMISSION_CODES = [
  * parameter rather than a hard-coded one): has_permission asked once per
  * code, never the boundary itself. Every RPC these forms call
  * (record_stock_entry, record_stock_exit, adjust_stock, reserve_stock,
- * release_reservation, create_prize_category, create_prize) re-checks its own
+ * release_reservation, create_prize, and since Block 26 save_prize_category and
+ * archive_prize_category in 0202, which replaced 0027's insert-only
+ * create_prize_category) re-checks its own
  * permission with the same function before writing anything (0027), so a
  * stale render — a permission revoked after this page loaded but before a
  * form still sitting in an open tab is submitted — is still refused where it
