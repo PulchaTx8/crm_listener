@@ -212,6 +212,33 @@ const REQUIRED_TEST_FILES = [
   // future edit that drops those four lines would leave an archived supplier
   // silently choosable again with every other suite green.
   { path: 'tests/isolation/vendors.test.ts', minTests: 6 },
+  // Block 26. Six cases, and the floor is the full count because two of them are
+  // the only proof of their property anywhere in this repository.
+  //
+  // The tenant boundary on `prize_categories`: a category registered at one
+  // Station is invisible from another INSIDE THE SAME ORGANIZATION, and cannot be
+  // renamed from it either, by a caller who holds inventory.view and
+  // inventory.catalogue in both. 56_prize_categories.test.sql asserts the
+  // policy's shape and both doors' named refusals, and cannot assert either —
+  // it runs as superuser with a null auth.uid() where RLS never applies, the
+  // reason every other entry here gives, and its fixtures give the caller one
+  // Station.
+  //
+  // And the sharper of the two: `archive_prize_category` DETACHING the prizes
+  // that wore the label, and returning how many. That behaviour is the opposite
+  // of archive_vendor's next door (a movement's supplier is history, a category
+  // is a label), it lives in the door's own body and nowhere else, and the number
+  // it returns is quoted straight back to the operator on the screen. An edit
+  // that dropped the update would leave prizes pointing at a row no read can
+  // reach, with every other suite green.
+  //
+  // The third is not a boundary at all and belongs here anyway: the Prizes column
+  // is read through an EMBEDDED AGGREGATE (`prizes(count)`), the first in this
+  // codebase — every other list counts with a `count: 'exact'` header instead.
+  // A PostgREST served with aggregate functions disabled answers that with a 400
+  // on the whole screen, and only a real PostgREST can say. `supabase test db`
+  // never speaks HTTP.
+  { path: 'tests/isolation/prize-categories.test.ts', minTests: 7 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
   { path: 'tests/isolation/members.test.ts', minTests: 21 },
