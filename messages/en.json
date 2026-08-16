@@ -8,7 +8,6 @@
     "suspendedNoDataAvailable": "Suspended — no data is available while the subscription is inactive."
   },
   "shell": {
-    "language": "Language",
     "signOut": "Sign out",
     "tagline": "CRM",
     "sortedAscending": ", sorted ascending",
@@ -17,7 +16,11 @@
     "noPictureYet": "No picture",
     "removePicture": "Remove picture",
     "largePicturesAreReduced": "Large pictures are reduced automatically.",
-    "thatPictureCouldNotBeRead": "That picture could not be read. Save it again as a JPEG or a PNG."
+    "thatPictureCouldNotBeRead": "That picture could not be read. Save it again as a JPEG or a PNG.",
+    "settings": "Language and appearance",
+    "themeSystem": "Follow my system",
+    "themeLight": "Light",
+    "themeDark": "Dark"
   },
   "nav": {
     "administration": "Administration",
