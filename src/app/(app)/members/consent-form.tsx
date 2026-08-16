@@ -89,7 +89,7 @@ export function ConsentForm({
         <Button type="submit" disabled={pending}>
           {pending ? t('saving') : t('recordConsent')}
         </Button>
-        {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('consentRecorded')}</p>}
+        {state.status === 'saved' && <p className="text-sm text-success">{t('consentRecorded')}</p>}
       </div>
 
       {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

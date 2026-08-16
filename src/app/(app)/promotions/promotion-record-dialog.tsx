@@ -489,7 +489,7 @@ export function PromotionRecordDialog({
               </p>
             )}
             {saveState.status === 'saved' && !dirty && (
-              <p className="mt-4 text-sm text-emerald-700" data-testid="promotion-saved">
+              <p className="mt-4 text-sm text-success" data-testid="promotion-saved">
                 {t('saved')}</p>
             )}
 

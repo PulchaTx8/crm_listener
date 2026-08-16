@@ -199,7 +199,7 @@ export function ParticipationDialog({
                         <span
                           className={
                             answer.optionIsCorrect
-                              ? 'ml-2 text-xs font-medium text-emerald-700'
+                              ? 'ml-2 text-xs font-medium text-success'
                               : 'ml-2 text-xs font-medium text-muted-foreground'
                           }
                           data-testid="participation-answer-verdict"

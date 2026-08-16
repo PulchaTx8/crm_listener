@@ -105,7 +105,7 @@ export function StockExitForm({
             <Button type="submit" disabled={pending}>
               {pending ? t('saving') : t('recordExit')}
             </Button>
-            {state.status === 'saved' && <p className="text-sm text-emerald-700">{t('exitRecorded')}</p>}
+            {state.status === 'saved' && <p className="text-sm text-success">{t('exitRecorded')}</p>}
           </div>
 
           {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}

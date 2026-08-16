@@ -364,7 +364,7 @@ function ShowForm({
           control, and the answer to pressing it belongs where the eye already
           is. Save itself is rendered by the dialog. */}
       {state.status === 'saved' && (
-        <p className="text-sm text-emerald-700" data-testid="show-saved">
+        <p className="text-sm text-success" data-testid="show-saved">
           {t('programmeSaved')}
         </p>
       )}

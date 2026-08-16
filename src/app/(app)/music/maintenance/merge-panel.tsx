@@ -536,7 +536,7 @@ function ConfirmMergeDialog({
       </DialogHeader>
       <DialogBody>
         {state.ok === true ? (
-          <p className="text-sm text-emerald-700" data-testid="maintenance-merge-result">
+          <p className="text-sm text-success" data-testid="maintenance-merge-result">
             {state.message}
           </p>
         ) : (

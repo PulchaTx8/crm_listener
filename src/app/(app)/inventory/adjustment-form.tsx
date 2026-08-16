@@ -80,7 +80,7 @@ export function AdjustmentForm({
           {pending ? t('saving') : t('adjustStock')}
         </Button>
         {state.status === 'saved' && (
-          <p className="text-sm text-emerald-700">{t('adjustmentRecorded')}</p>
+          <p className="text-sm text-success">{t('adjustmentRecorded')}</p>
         )}
         {state.status === 'no_change' && (
           <p className="text-sm text-muted-foreground">{state.message}</p>

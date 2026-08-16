@@ -37,7 +37,7 @@ export function LiftBlockButton({
   }, [state]);
 
   if (state.status === 'saved') {
-    return <p className="text-xs text-emerald-700">{t('lifted')}</p>;
+    return <p className="text-xs text-success">{t('lifted')}</p>;
   }
 
   if (!open) {
