@@ -195,8 +195,9 @@ select ok(not has_table_privilege('service_role', 'public.inventory_balances', '
 -- were actually asserted — prizes and prize_categories had zero coverage, so
 -- a future migration granting so much as INSERT on prizes to authenticated
 -- would have passed this suite). Every write to either table goes through
--- create_prize/update_prize/archive_prize/create_prize_category (0027), all
--- SECURITY DEFINER.
+-- create_prize/update_prize/archive_prize (0027) and, since Block 26,
+-- save_prize_category/archive_prize_category (0202, which dropped 0027's
+-- insert-only create_prize_category), all SECURITY DEFINER.
 select ok(not has_table_privilege('authenticated', 'public.prizes', 'INSERT'),
           'authenticated may not insert prizes directly');
 select ok(not has_table_privilege('authenticated', 'public.prizes', 'UPDATE'),

@@ -3974,6 +3974,10 @@ export type Database = {
         Returns: undefined
       }
       archive_prize: { Args: { p_prize_id: string }; Returns: undefined }
+      archive_prize_category: {
+        Args: { p_category_id: string }
+        Returns: number
+      }
       archive_promotion: {
         Args: { p_promotion_id: string }
         Returns: undefined
@@ -4206,10 +4210,6 @@ export type Database = {
           p_internal_code?: string
           p_name: string
         }
-        Returns: string
-      }
-      create_prize_category: {
-        Args: { p_company_id: string; p_name: string }
         Returns: string
       }
       create_promotion: {
@@ -5302,6 +5302,10 @@ export type Database = {
           p_promotion_id: string
           p_units?: Json
         }
+        Returns: string
+      }
+      save_prize_category: {
+        Args: { p_category_id?: string; p_company_id: string; p_name: string }
         Returns: string
       }
       save_promotion_question: {

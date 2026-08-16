@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
 import { UNCATEGORISED_FILTER } from '@/schemas/inventory';
-import type { PrizeCategorySummary } from '@/services/inventory';
+import { useCategoryList } from './category-list';
 import { hasActiveInventoryFilters, inventoryHref } from './list-params';
 import type { InventoryListState } from './list-params';
 
@@ -21,14 +21,11 @@ const ALL_CATEGORIES = '';
  * they edit the URL, and the Server Component asks Postgres a narrower
  * question.
  */
-export function InventoryFilters({
-  state,
-  categories,
-}: {
-  state: InventoryListState;
-  categories: PrizeCategorySummary[];
-}) {
+export function InventoryFilters({ state }: { state: InventoryListState }) {
   const t = useTranslations('inventory');
+  // Block 26. From the shared list rather than a prop, so a category registered
+  // inside the Register Prize dialog is offered here the moment it exists.
+  const { categories } = useCategoryList();
   const router = useRouter();
   const [search, setSearch] = useState(state.search ?? '');
   // Re-synced from the URL so browser back/forward leaves this input agreeing

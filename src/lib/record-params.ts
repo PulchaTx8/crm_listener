@@ -186,6 +186,23 @@ export type AlbumTab = (typeof ALBUM_TABS)[number];
 export const VENDOR_TABS = ['data'] as const;
 export type VendorTab = (typeof VENDOR_TABS)[number];
 
+/**
+ * One, and the least arguable of the three single-tab tuples here: a prize
+ * category is a name. Not even a second field to hide behind a tab.
+ *
+ * "The prizes wearing this label" is the one thing a second tab could show, and
+ * it is deliberately not here: the Stock screen's own category filter already IS
+ * that list, with the columns and the paging a prize list needs, and a tab would
+ * be a second, narrower copy of it. The row's Prizes column links there instead.
+ *
+ * Declared as a tuple rather than the screen passing `['data']` inline, for the
+ * same reason SHOW_TABS, ALBUM_TABS and VENDOR_TABS are: `useRecordDialog` keeps
+ * this array in a dependency list, and a literal rebuilt on every render would
+ * re-subscribe its popstate listener on every render.
+ */
+export const PRIZE_CATEGORY_TABS = ['data'] as const;
+export type PrizeCategoryTab = (typeof PRIZE_CATEGORY_TABS)[number];
+
 export interface RecordParam {
   recordId: string | null;
   /** Null only when no record is open — an open record always resolves to a tab. */

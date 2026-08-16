@@ -37,9 +37,41 @@ function asCaller(accessToken: string) {
   });
 }
 
-export interface PrizeCategorySummary {
+/**
+ * A category as a PICKER offers it: the two fields a select needs, and nothing
+ * a form has to carry around. Named `PrizeCategorySummary` until Block 26 gave
+ * categories a screen of their own, at which point one name was doing two jobs
+ * — the same split `VendorOption`/`VendorSummary` already draws next door.
+ */
+export interface PrizeCategoryOption {
   id: string;
   name: string;
+}
+
+/** A category as its own LIST shows it (Block 26). */
+export interface PrizeCategorySummary {
+  id: string;
+  /**
+   * The Station the category belongs to, carried on the row rather than taken
+   * from whichever Station the list happens to be showing: a record opened from
+   * a pasted `?record=` link may not be one of them, and `save_prize_category`
+   * scopes its update by company — a mismatch would come back as "not found".
+   * The same reasoning VendorSummary's own companyId carries.
+   */
+  companyId: string;
+  name: string;
+  /**
+   * How many LIVE prizes wear this label. Counted by the same read the row came
+   * from, through the embed PostgREST resolves off `prizes.category_id`, so it
+   * cannot disagree with the list behind it.
+   *
+   * It is also the number the archive confirmation warns about, and it agrees
+   * with what `archive_prize_category` (0202) actually detaches because both
+   * count the same set: 0029's select policy filters `deleted_at is null`, and
+   * so does the door.
+   */
+  prizeCount: number;
+  createdAt: string;
 }
 
 export interface PrizeBalance {
@@ -157,7 +189,7 @@ export interface ReconciliationRow {
 }
 
 /** Reference data for the registration form. RLS gates it on inventory.view. */
-export async function listPrizeCategories(companyId: string): Promise<PrizeCategorySummary[]> {
+export async function listPrizeCategories(companyId: string): Promise<PrizeCategoryOption[]> {
   const supabase = await createUserClient();
   const { data, error } = await supabase
     .from('prize_categories')
@@ -168,6 +200,172 @@ export async function listPrizeCategories(companyId: string): Promise<PrizeCateg
 
   if (error) throw new InternalError(`Could not read prize categories: ${error.message}`);
   return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Categories as a screen (Block 26). The reads below serve /inventory/categories;
+// listPrizeCategories above goes on serving the two pickers, and stays a
+// separate, lighter read for the reason listVendorOptions does: a picker needs a
+// name to choose from, not a count or a page of them.
+// ---------------------------------------------------------------------------
+
+export const PRIZE_CATEGORY_PAGE_SIZE = 25;
+export const PRIZE_CATEGORY_SEARCH_MAX_LENGTH = 100;
+
+export type PrizeCategorySortKey = 'name' | 'created';
+
+export interface PrizeCategoryListParams {
+  companyId: string;
+  /** Over the name — the only field a category has. */
+  search?: string;
+  sort: PrizeCategorySortKey;
+  direction: SortDirection;
+  cursor: Cursor | null;
+  cursorSide: 'after' | 'before';
+}
+
+export interface PrizeCategoryListPage {
+  rows: PrizeCategorySummary[];
+  nextCursor: string | null;
+  previousCursor: string | null;
+  total: number;
+}
+
+/**
+ * The row's own columns. The prize count is NOT here, because the count query
+ * below reuses this string with `head: true` — asking PostgREST to embed a
+ * related resource on a read that returns no body is work for an answer nobody
+ * reads.
+ */
+const PRIZE_CATEGORY_COLUMNS = 'id, company_id, name, created_at';
+
+/**
+ * The same columns plus the embed. `prizes(count)` resolves off
+ * `prizes.category_id`, and the `prizes.deleted_at` filter beside it narrows the
+ * EMBEDDED rows only — a category with no live prizes still comes back, with a
+ * count of zero, which is what a list of labels has to show. Redundant against
+ * 0029's own select policy, and kept for the reason every other read here keeps
+ * its `deleted_at` filter: a policy is the boundary, and a query that also states
+ * its intent survives a policy being rewritten.
+ *
+ * THIS IS THE FIRST EMBEDDED AGGREGATE IN THIS CODEBASE, and that is worth
+ * knowing before copying it. Every other list here counts with `count: 'exact',
+ * head: true`, which is a REQUEST HEADER; this is a SELECT, so it depends on
+ * PostgREST being served with aggregate functions enabled. Served without them,
+ * the answer is a 400 and the whole screen fails to load rather than one column
+ * going missing — which no pgTAP file could ever see, because `supabase test db`
+ * speaks SQL and never HTTP. tests/isolation/prize-categories.test.ts asserts
+ * this exact select against a real PostgREST for that reason.
+ */
+const PRIZE_CATEGORY_ROW_COLUMNS = `${PRIZE_CATEGORY_COLUMNS}, prizes(count)`;
+
+type PrizeCategoryRow = {
+  id: string;
+  company_id: string;
+  name: string;
+  created_at: string;
+  /** PostgREST returns an embedded aggregate as a one-element array. Absent for a category nothing points at. */
+  prizes?: { count: number }[] | null;
+};
+
+function toCategorySummary(row: PrizeCategoryRow): PrizeCategorySummary {
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    name: row.name,
+    prizeCount: row.prizes?.[0]?.count ?? 0,
+    createdAt: row.created_at,
+  };
+}
+
+export async function listPrizeCategoriesPage(
+  params: PrizeCategoryListParams,
+): Promise<PrizeCategoryListPage> {
+  const supabase = await createUserClient();
+
+  const column = params.sort === 'name' ? 'name' : 'created_at';
+  const walkingBack = params.cursorSide === 'before' && params.cursor !== null;
+  const ascending = walkingBack ? params.direction === 'desc' : params.direction === 'asc';
+  const readDirection: SortDirection = ascending ? 'asc' : 'desc';
+
+  const build = (columns: string, options?: { count: 'exact'; head: true }) => {
+    let q = supabase
+      .from('prize_categories')
+      .select(columns, options)
+      .eq('company_id', params.companyId)
+      .is('deleted_at', null);
+
+    if (params.search) {
+      // `.ilike()` rather than `.or()` with one arm, and therefore NO
+      // `quoteForOrFilter`: that helper suspends PostgREST's filter-LIST
+      // grammar, which a dedicated filter method never parses — quoting here
+      // would put two literal `"` into the pattern and make every search miss.
+      // `escapeLikePattern` still applies, before the wildcard markers, so a
+      // typed `%` matches a `%` instead of everything.
+      const term = escapeLikePattern(params.search.slice(0, PRIZE_CATEGORY_SEARCH_MAX_LENGTH));
+      q = q.ilike('name', `%${term}%`);
+    }
+
+    return q;
+  };
+
+  let query = build(PRIZE_CATEGORY_ROW_COLUMNS)
+    // On the row read only. The count read below asks for no embed, and
+    // filtering a resource it never selected is a 400.
+    .is('prizes.deleted_at', null)
+    .order(column, { ascending });
+  if (params.cursor) {
+    // Neither sort column is nullable, so there is no null region for a cursor
+    // to cross into — the same reasoning listVendorsPage records.
+    query = query.or(keysetFilter(column, readDirection, params.cursor, false));
+  }
+  query = query.order('id', { ascending });
+
+  const { data, error } = await query.limit(PRIZE_CATEGORY_PAGE_SIZE + 1);
+  if (error) throw new InternalError(`Could not read prize categories: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as PrizeCategoryRow[];
+
+  const { rows: page, nextCursor, previousCursor } = keysetPage(rows, {
+    pageSize: PRIZE_CATEGORY_PAGE_SIZE,
+    walkingBack,
+    hadCursor: params.cursor !== null,
+    cursorFor: (row) => ({
+      value: params.sort === 'name' ? row.name : row.created_at,
+      id: row.id,
+    }),
+  });
+
+  const { count, error: countError } = await build(PRIZE_CATEGORY_COLUMNS, {
+    count: 'exact',
+    head: true,
+  });
+  if (countError) throw new InternalError(`Could not count prize categories: ${countError.message}`);
+
+  return {
+    rows: page.map(toCategorySummary),
+    nextCursor,
+    previousCursor,
+    total: count ?? 0,
+  };
+}
+
+/** One category by id. RLS already scopes this, so an unreachable one comes back null. */
+export async function getPrizeCategoryById(
+  categoryId: string,
+): Promise<PrizeCategorySummary | null> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('prize_categories')
+    .select(PRIZE_CATEGORY_ROW_COLUMNS)
+    .eq('id', categoryId)
+    .is('deleted_at', null)
+    .is('prizes.deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new InternalError(`Could not read the prize category: ${error.message}`);
+  return data ? toCategorySummary(data as unknown as PrizeCategoryRow) : null;
 }
 
 /** One page of prizes. The audience list's PAGE_SIZE, for the same reason: it is what a person can scan. */
@@ -532,17 +730,44 @@ export async function getPrizeMovements(
   };
 }
 
-export async function createPrizeCategory(
+/**
+ * Registers a category, or renames one when `categoryId` is given — the single
+ * door 0202 replaced `create_prize_category` with. The name is the only field,
+ * so unlike saveVendor there is no wholesale-replace warning to give.
+ */
+export async function savePrizeCategory(
   companyId: string,
   name: string,
   accessToken: string,
+  categoryId?: string,
 ): Promise<string> {
-  const { data, error } = await asCaller(accessToken).rpc('create_prize_category', {
+  const { data, error } = await asCaller(accessToken).rpc('save_prize_category', {
     p_company_id: companyId,
     p_name: name,
+    // Absent rather than null when registering: the RPC's `default null` on
+    // p_category_id is what tells it to insert instead of rename.
+    p_category_id: categoryId ?? undefined,
   });
   if (error) throw mapInventoryError(error.code, error.message);
-  if (typeof data !== 'string') throw new InternalError('create_prize_category returned no id');
+  if (typeof data !== 'string') throw new InternalError('save_prize_category returned no id');
+  return data;
+}
+
+/**
+ * Archives a category and returns how many live prizes it took the label off —
+ * the number the confirmation dialog quoted before the operator agreed to it.
+ */
+export async function archivePrizeCategory(
+  categoryId: string,
+  accessToken: string,
+): Promise<number> {
+  const { data, error } = await asCaller(accessToken).rpc('archive_prize_category', {
+    p_category_id: categoryId,
+  });
+  if (error) throw mapInventoryError(error.code, error.message);
+  // A door that answered with something other than a count has changed under
+  // this caller; reporting zero would quietly under-state what it just did.
+  if (typeof data !== 'number') throw new InternalError('archive_prize_category returned no count');
   return data;
 }
 

@@ -12,6 +12,35 @@ import { z } from 'zod';
  */
 export const UNCATEGORISED_FILTER = 'uncategorised';
 
+/**
+ * What the category form posts (Block 26). Mirrors 0202's save_prize_category,
+ * which decides register-or-rename from exactly one thing: whether an id came
+ * with it.
+ *
+ * ONE REAL FIELD, and the 120 is the door's own bound rather than the column's —
+ * `prize_categories.name` is unbounded `text`, so the limit exists in exactly two
+ * places on purpose: here, so the operator is told on the screen, and in the RPC,
+ * so a caller posting straight at PostgREST is told too.
+ *
+ * `.strict()`, which is `vendorFormSchema`'s rule rather than this file's: the
+ * schemas above it are plain objects, so Zod STRIPS an unknown key instead of
+ * refusing it. That silence is what `movementFormSchema`'s own note below records
+ * paying for — five fields a form posted, a schema quietly removed, and an RPC
+ * called with `undefined` for every one of them, with no compile error, no
+ * runtime error and no failing test. Strict is what makes the next box somebody
+ * adds to this form loud if they forget to add it here too.
+ */
+export const prizeCategoryFormSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    /** Absent when registering; present when renaming. */
+    categoryId: z.string().uuid().optional(),
+    name: z.string().trim().min(1, 'Name the category.').max(120),
+  })
+  .strict();
+
+export type PrizeCategoryFormInput = z.infer<typeof prizeCategoryFormSchema>;
+
 // Mirrors 0027_inventory_rpcs.sql's create_prize/update_prize: both take the
 // same catalogue fields. update_prize resolves the Organization AND the
 // Company from the prize row itself (never a parameter), so companyId here
