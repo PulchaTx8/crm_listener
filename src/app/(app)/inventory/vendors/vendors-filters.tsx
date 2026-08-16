@@ -52,9 +52,25 @@ export function VendorsFilters({
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  function navigate(next: Partial<VendorListState>) {
+  /**
+   * THE TERM IS AN ARGUMENT, NOT A CLOSURE READ, and that is a correction to the
+   * shape every other filter bar in this codebase uses rather than a preference.
+   *
+   * Those all schedule `setTimeout(() => navigate({}), DEBOUNCE_MS)` from inside
+   * `onChange`, and the arrow captures the `navigate` of the render it was
+   * created in — whose `search` still holds the value from BEFORE the keystroke
+   * that scheduled it. So the address is always one keystroke behind: type
+   * "Norte" and the list narrows to "Nort". Measured here, not reasoned about —
+   * `tests/e2e/vendors.spec.ts` fills the box in one event, which makes the stale
+   * value the empty string, and the list did not narrow at all.
+   *
+   * Passing the value in closes it for this screen. The other nine filter bars
+   * still have it; none of their e2e specs drives a debounced search, which is
+   * why it has never shown up.
+   */
+  function navigate(next: Partial<VendorListState>, term: string = search) {
     clearTimeout(timer.current);
-    const typed: VendorListState = { ...state, search: search.trim() || undefined };
+    const typed: VendorListState = { ...state, search: term.trim() || undefined };
     // typedRoutes cannot express a query string assembled at runtime as a route
     // literal — the same cast the rest of this codebase uses.
     router.replace(vendorHref({ ...typed, ...next }) as Route);
@@ -68,9 +84,12 @@ export function VendorsFilters({
           type="search"
           value={search}
           onChange={(e) => {
-            setSearch(e.target.value);
+            const typed = e.target.value;
+            setSearch(typed);
             clearTimeout(timer.current);
-            timer.current = setTimeout(() => navigate({}), DEBOUNCE_MS);
+            // `typed`, not the state that is about to hold it: see navigate's
+            // own comment for what reading the closure costs.
+            timer.current = setTimeout(() => navigate({}, typed), DEBOUNCE_MS);
           }}
           placeholder={t('nameDocumentOrContact')}
           aria-label={t('searchVendors')}
