@@ -80,6 +80,37 @@ export interface DeezerTransport {
 }
 
 /**
+ * Titles a Station's search must not offer (Block 24, D1).
+ *
+ * FOUR OF THE FIVE CARRY A BRACKET, and that is the whole of the rule rather
+ * than a detail of it. A cover announces itself in a title by being set apart —
+ * "Yesterday (Cover)", "Evidências [Cover Version]" — while the bare letters
+ * `cover` sit inside "Undercover", "Discovery", "Coverage" and a real recording
+ * called "Cover Me". Matching the word alone would take all of those with it,
+ * which is why the owner's list gave the bracketed forms and not the word.
+ *
+ * `karaoke` needs no bracket: nothing else spells it. `Karaoké` is deliberately
+ * not matched — accented, it is a different string, and widening this to strip
+ * accents would start matching titles nobody listed.
+ */
+const EXCLUDED_TITLE_TERMS = ['karaoke', 'cover)', '(cover', 'cover]', '[cover'] as const;
+
+/**
+ * Whether a recording is a karaoke backing track or a cover, judged by its
+ * title alone.
+ *
+ * Applied to SEARCH RESULTS ONLY. A recording already registered in a Station's
+ * catalogue is fetched by id — the widget's song request does exactly that —
+ * and filtering there would make an existing row unresolvable. The search is a
+ * list to choose from; the lookup is an answer about one thing that already
+ * exists and was already chosen.
+ */
+export function isExcludedTitle(title: string): boolean {
+  const lowered = title.toLowerCase();
+  return EXCLUDED_TITLE_TERMS.some((term) => lowered.includes(term));
+}
+
+/**
  * Deezer's advanced search syntax: `track:"…" artist:"…" album:"…"`.
  *
  * Each term is quoted, so a space inside one does not become a second filter.
