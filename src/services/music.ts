@@ -694,6 +694,13 @@ export async function createSong(input: SongFormInput, accessToken: string): Pro
 }
 
 /**
+ * internal_code is absent from this call as of Block 27, on the identical
+ * reasoning the paragraph below gives for legacy_id: the field moved to the
+ * Integration tab, so this form stopped carrying it, and 0208 removed
+ * update_song's p_internal_code parameter rather than leaving a payload in
+ * which "not carried" and "cleared" are the same thing.
+ * setSongIntegrationCode below is the write path.
+ *
  * legacy_id is deliberately absent from this call: update_song (0102) no
  * longer takes a p_legacy_id parameter at all, and SongUpdateInput
  * (schemas/music.ts) carries no `legacyId` field to read one from. Before
@@ -715,7 +722,6 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_nationality: input.nationality,
     p_vocal: input.vocal,
     p_duration_seconds: input.durationSeconds ?? undefined,
-    p_internal_code: input.internalCode,
     // `?? undefined`, and it really does clear the category — which is worth
     // stating because it does not look like it. 0206 replaces every field it
     // takes on every call, and its default for this parameter is null, so
@@ -809,6 +815,28 @@ export async function countSongsSharingCode(companyId: string, code: string): Pr
 
   if (error) throw new InternalError(`Could not count songs sharing this code: ${error.message}`);
   return count ?? 0;
+}
+
+/**
+ * Points a song at a code in the customer's own system, or clears it when the
+ * code is blank. The only update path to songs.internal_code since 0208 — see
+ * that migration's header, and updateSong's own note above, for why the
+ * parameter left update_song rather than staying unused.
+ */
+export async function setSongIntegrationCode(
+  songId: string,
+  code: string | null,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_song_integration_code', {
+    p_song_id: songId,
+    // `?? undefined` for the reason updateSong's p_category_id carries: the
+    // generated Args type has no `| null` in the union, because Postgres reports
+    // "has a default" and no nullability — and omitting the key applies that
+    // default, which is null, which is the clear.
+    p_code: code ?? undefined,
+  });
+  if (error) throw mapMusicError(error.code, error.message);
 }
 
 /**

@@ -157,8 +157,18 @@ export type SongFormInput = z.infer<typeof songFormSchema>;
  * on songFormSchema above: that is the create path, and create_song still
  * takes it.
  */
+/**
+ * ... and `internalCode` is dropped for the third time on the same reasoning,
+ * in Block 27. The field left the Song data tab for the Integration tab, so
+ * this form stopped carrying it — and 0208 removed update_song's
+ * p_internal_code parameter for exactly the reason 0102 removed p_legacy_id: an
+ * update form that never carries a value forward is indistinguishable, to the
+ * RPC, from somebody who cleared it, and every ordinary save would have erased
+ * the code. set_song_integration_code is the write path now, and
+ * songIntegrationFormSchema below is what feeds it.
+ */
 export const songUpdateSchema = songFormSchema
-  .omit({ companyId: true, legacyId: true })
+  .omit({ companyId: true, legacyId: true, internalCode: true })
   .extend({ songId: z.string().uuid() });
 
 export type SongUpdateInput = z.infer<typeof songUpdateSchema>;
@@ -188,9 +198,21 @@ export const songIntegrationSchema = z.object({
 
 export type SongIntegrationInput = z.infer<typeof songIntegrationSchema>;
 
-/** What the Integration tab posts: the card, plus the Station it belongs to. The Station is a real parameter here, unlike songUpdateSchema's absent one, because save_song_integration takes it — a card is keyed by (company_id, code) and there is no row to resolve it from before the first save. */
+/**
+ * What the Integration tab posts.
+ *
+ * `companyId` is a real parameter, unlike songUpdateSchema's absent one, because
+ * save_song_integration takes it: a card is keyed by (company_id, code) and
+ * there is no row to resolve the Station from before the first save.
+ *
+ * `songId` is here because the tab performs TWO writes — the code belongs to the
+ * song and the three words belong to the card — and set_song_integration_code
+ * (0208) resolves its own Station from that row rather than trusting the
+ * companyId beside it.
+ */
 export const songIntegrationFormSchema = songIntegrationSchema.extend({
   companyId: z.string().uuid(),
+  songId: z.string().uuid(),
 });
 
 export type SongIntegrationFormInput = z.infer<typeof songIntegrationFormSchema>;

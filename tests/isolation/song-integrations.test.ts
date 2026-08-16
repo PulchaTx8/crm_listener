@@ -203,4 +203,118 @@ describe('song integrations', () => {
     expect(cards.data).toHaveLength(1);
     expect(cards.data?.[0]?.title).toBe('One song in their system');
   });
+
+  it('an ordinary save of a song does not erase its integration code', async () => {
+    const label = `integration-survives-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const delegate = await grantRoleWith(
+      customer,
+      label,
+      ['music.view', 'music.manage'],
+      [customer.companyId],
+    );
+    const client = await signInAs(delegate.email, delegate.password);
+    const code = `EXT-${label}`;
+
+    const artist = await client.rpc('create_music_reference', {
+      p_company_id: customer.companyId,
+      p_kind: 'ARTIST',
+      p_name: `Artist ${label}`,
+    });
+    const song = await client.rpc('create_song', {
+      p_company_id: customer.companyId,
+      p_title: `Song ${label}`,
+      p_artist_id: artist.data as string,
+      p_internal_code: code,
+    });
+    expect(song.error).toBeNull();
+
+    // THE DEFECT THIS CASE EXISTS FOR. Block 27 moved the code field off the
+    // Song data tab, so that form stopped carrying it — and an update_song that
+    // still took p_internal_code would read "not carried" and "cleared" as the
+    // same payload, erasing the code on every ordinary save with nothing on
+    // screen reporting it. 0208 removed the parameter (0102's own fix, one
+    // column over), and this call is the ordinary save that would have done the
+    // erasing.
+    const saved = await client.rpc('update_song', {
+      p_song_id: song.data as string,
+      p_title: `Song ${label} renamed`,
+      p_artist_id: artist.data as string,
+    });
+    expect(saved.error).toBeNull();
+
+    const after = await client
+      .from('songs')
+      .select('title,internal_code')
+      .eq('id', song.data as string)
+      .single();
+    expect(after.error).toBeNull();
+    expect(after.data?.title).toBe(`Song ${label} renamed`);
+    expect(after.data?.internal_code).toBe(code);
+  });
+
+  it('the code is repointed and cleared through its own door, and nothing else', async () => {
+    const label = `integration-code-door-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const viewer = await grantRoleWith(customer, label, ['music.view'], [customer.companyId]);
+    const delegate = await grantRoleWith(
+      customer,
+      `${label}-manager`,
+      ['music.view', 'music.manage'],
+      [customer.companyId],
+    );
+    const client = await signInAs(delegate.email, delegate.password);
+
+    const artist = await client.rpc('create_music_reference', {
+      p_company_id: customer.companyId,
+      p_kind: 'ARTIST',
+      p_name: `Artist ${label}`,
+    });
+    const song = await client.rpc('create_song', {
+      p_company_id: customer.companyId,
+      p_title: `Song ${label}`,
+      p_artist_id: artist.data as string,
+      p_internal_code: `OLD-${label}`,
+    });
+    expect(song.error).toBeNull();
+
+    const repointed = await client.rpc('set_song_integration_code', {
+      p_song_id: song.data as string,
+      p_code: `NEW-${label}`,
+    });
+    expect(repointed.error).toBeNull();
+
+    const moved = await client
+      .from('songs')
+      .select('internal_code')
+      .eq('id', song.data as string)
+      .single();
+    expect(moved.data?.internal_code).toBe(`NEW-${label}`);
+
+    // Blank clears it: this song is no longer linked to anything over there.
+    // Omitting the argument means the same thing, and is what the service layer
+    // sends — the generated Args type has no null in its union.
+    const cleared = await client.rpc('set_song_integration_code', {
+      p_song_id: song.data as string,
+      p_code: '   ',
+    });
+    expect(cleared.error).toBeNull();
+
+    const empty = await client
+      .from('songs')
+      .select('internal_code')
+      .eq('id', song.data as string)
+      .single();
+    expect(empty.data?.internal_code).toBeNull();
+
+    // And a caller holding music.view alone cannot reach it — the door resolves
+    // the Station from the song row and re-checks music.manage there, so the
+    // read permission this delegate does hold buys nothing.
+    const viewerClient = await signInAs(viewer.email, viewer.password);
+    const refused = await viewerClient.rpc('set_song_integration_code', {
+      p_song_id: song.data as string,
+      p_code: `FORGED-${label}`,
+    });
+    expect(refused.error?.code).toBe('42501');
+  });
 });

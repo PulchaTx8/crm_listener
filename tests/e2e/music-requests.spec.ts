@@ -173,7 +173,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   const firstSongForm = ownerPage.locator('[data-testid="song-create-form"]');
   await firstSongForm.getByLabel('Title').fill(songTitle);
   await firstSongForm.getByLabel('Artist').selectOption({ label: artistName });
-  await firstSongForm.getByLabel('Internal code').fill(songCodeFirst);
+  await firstSongForm.getByLabel('Integration code').fill(songCodeFirst);
   await firstSongForm.getByRole('button', { name: 'Register song' }).click();
   await expect(firstSongForm.getByText('Song registered.')).toBeVisible();
   await firstSongForm.getByRole('button', { name: 'View song' }).click();
@@ -188,7 +188,7 @@ test('a request survives a merge of the song it named, reached from the sidebar'
   const secondSongForm = ownerPage.locator('[data-testid="song-create-form"]');
   await secondSongForm.getByLabel('Title').fill(songTitle);
   await secondSongForm.getByLabel('Artist').selectOption({ label: artistName });
-  await secondSongForm.getByLabel('Internal code').fill(songCodeSecond);
+  await secondSongForm.getByLabel('Integration code').fill(songCodeSecond);
   await secondSongForm.getByRole('button', { name: 'Register song' }).click();
   await expect(secondSongForm.getByText('Song registered.')).toBeVisible();
   await secondSongForm.getByRole('button', { name: 'View song' }).click();
@@ -423,7 +423,7 @@ test('the studio marks a request read, then played, and the phone stays masked t
   const songCreateForm = ownerPage.locator('[data-testid="song-create-form"]');
   await songCreateForm.getByLabel('Title').fill(journeySongTitle);
   await songCreateForm.getByLabel('Artist').selectOption({ label: journeyArtistName });
-  await songCreateForm.getByLabel('Internal code').fill(journeySongCode);
+  await songCreateForm.getByLabel('Integration code').fill(journeySongCode);
   await songCreateForm.getByRole('button', { name: 'Register song' }).click();
   await expect(songCreateForm.getByText('Song registered.')).toBeVisible();
   await songCreateForm.getByRole('button', { name: 'View song' }).click();

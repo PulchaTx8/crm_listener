@@ -15,11 +15,16 @@ import { updateSongAction, type SongSaveState } from './actions';
 import { linkToDeezerAction, unlinkFromDeezerAction, type DeezerLinkState } from './deezer-actions';
 import { DeezerTab } from './deezer-tab';
 import type { DeezerSearchRow } from './deezer-marking';
+import { IntegrationTab } from './integration-tab';
 import { getSongRecordAction, type SongRecord } from './record';
 import { SongFields } from './song-fields';
 
 // Catalogue keys, not words: a module body has no request behind it.
-const TAB_LABEL_KEYS: Record<SongTab, string> = { data: 'songData', deezer: 'deezerSearch' };
+const TAB_LABEL_KEYS: Record<SongTab, string> = {
+  data: 'songData',
+  deezer: 'deezerSearch',
+  integration: 'integrationTab',
+};
 
 const INITIAL_SAVE: SongSaveState = { status: 'idle' };
 const INITIAL_LINK: DeezerLinkState = { status: 'idle' };
@@ -219,6 +224,27 @@ export function SongRecordDialog({
               <p className="text-sm text-muted-foreground">{t('youDoNotHoldMusicManage2')}</p>
             )}
           </>
+        )}
+
+        {/* Block 27. The tab handles `manage` itself rather than being wrapped
+            in a ternary like the two above: read-only here still renders all
+            four fields, disabled, because "what does this code point at" is
+            exactly the question somebody without music.manage opens this tab
+            to answer. */}
+        {record && tab === 'integration' && (
+          <IntegrationTab
+            record={record}
+            manage={manage}
+            onSaved={({ integration, code, sharedCodeCount }) => {
+              // The CODE is a column on the Songs grid, so this write has to
+              // reach the list the same way a Song data save does — through
+              // onSaved's row patch. The card and the count are the record's
+              // own and go no further.
+              const song = { ...record.song, internalCode: code || null };
+              setRecord({ ...record, song, integration, sharedCodeCount });
+              onSaved(song);
+            }}
+          />
         )}
       </DialogBody>
 

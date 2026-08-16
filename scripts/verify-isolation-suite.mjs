@@ -271,7 +271,7 @@ const REQUIRED_TEST_FILES = [
   // with archive_music_reference's FOR UPDATE, so deleting it reopens 0103's
   // race for this kind too.
   { path: 'tests/isolation/music-categories.test.ts', minTests: 5 },
-  // Block 27. Four cases, and the floor is the full count because two of them
+  // Block 27. Six cases, and the floor is the full count because three of them
   // are the only proof of their property in this repository.
   //
   // THE UPSERT TARGETS THE PARTIAL INDEX. save_song_integration's
@@ -287,7 +287,17 @@ const REQUIRED_TEST_FILES = [
   // columns on `songs`. Nothing else in the repository asserts it, and the day
   // somebody "simplifies" the card back onto the song this is the test that
   // fails.
-  { path: 'tests/isolation/song-integrations.test.ts', minTests: 4 },
+  //
+  // And the third, added when building the tab turned it up: AN ORDINARY SAVE OF
+  // A SONG MUST NOT ERASE ITS INTEGRATION CODE. Block 27 moved that field off the
+  // Song data tab, so the form stopped carrying it, and an update_song that
+  // still took p_internal_code would read "not carried" and "cleared" as one
+  // payload — 0102's defect, one column over, with nothing on screen reporting
+  // it. 0208 removed the parameter; 58_song_integrations.test.sql asserts the
+  // signature and 15_music_rpcs.test.sql asserts the value survives one update,
+  // and this case is the one that drives it as a real caller through the real
+  // door. Restoring the parameter "for convenience" fails all three.
+  { path: 'tests/isolation/song-integrations.test.ts', minTests: 6 },
   // Block 7b, Task 5: the merge's boundary and D6's identity rules. The three
   // that only a second identity can prove: music.manage does NOT confer
   // music.merge; a loser in another Station answers the SAME P0002 as a uuid

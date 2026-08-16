@@ -1862,7 +1862,17 @@
     "searchCategoriesByName": "Buscar categorias por nome",
     "actionRegisterCategories": "cadastrar categorias",
     "actionSaveThisCategory": "salvar esta categoria",
-    "actionArchiveThisCategory": "arquivar esta categoria"
+    "actionArchiveThisCategory": "arquivar esta categoria",
+    "integrationTab": "Integração",
+    "integrationCode": "Código de integração",
+    "integrationTitle": "Título",
+    "integrationArtist": "Artista",
+    "integrationCategory": "Categoria",
+    "savingHereWritesTheCardNotTheSong": "Salvar grava as duas coisas: a música passa a apontar para este código, e a ficha abaixo é cadastrada para ele.",
+    "theirWordNotYours": "Texto livre — a palavra do sistema deles, não uma das suas categorias.",
+    "noCardIsRegisteredForThisCode": "Nenhuma ficha cadastrada para este código ainda. Preencha os campos e salve para cadastrar uma.",
+    "thisCodeIsAlsoUsedByOtherSongs": "{count, plural, one {Outra # música usa este código — salvar muda o que ela mostra também.} other {Outras # músicas usam este código — salvar muda o que elas mostram também.}}",
+    "actionSaveThisIntegrationCard": "salvar esta ficha de integração"
   },
   "vocab": {
     "participationCounted": "Contou",

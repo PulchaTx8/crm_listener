@@ -41,8 +41,25 @@ const COLUMN_COUNT = 10;
 const INITIAL_ARCHIVE: ArchiveSongState = { status: 'idle' };
 const INITIAL_CREATE: SongFormState = { status: 'idle' };
 
+/**
+ * The tabs the CREATE dialog offers, and the first time it has differed from
+ * the record dialog's SONG_TABS.
+ *
+ * Integration (Block 27) is deliberately absent: that tab describes the CARD a
+ * code points at, a separate row with its own door, and a song being registered
+ * has no record to open a card from yet. The code field itself is on the create
+ * form, at the foot — song-fields.tsx renders it under a `{!song && ...}` guard
+ * and says so there.
+ *
+ * `satisfies` rather than a bare literal, so this stays a subset of the record
+ * dialog's vocabulary: a tab renamed in SONG_TABS breaks here rather than
+ * silently rendering a button that selects nothing.
+ */
+type CreateSongTab = Exclude<SongTab, 'integration'>;
+const CREATE_TABS = ['data', 'deezer'] as const satisfies readonly CreateSongTab[];
+
 /** The create dialog's own tab labels. Catalogue keys, not words: a module body has no request behind it. */
-const CREATE_TAB_LABEL_KEYS: Record<SongTab, string> = {
+const CREATE_TAB_LABEL_KEYS: Record<CreateSongTab, string> = {
   data: 'songData',
   deezer: 'deezerSearch',
 };
@@ -382,7 +399,7 @@ function CreateSongDialog({
 }) {
   const t = useTranslations('music');
   const titleId = useId();
-  const [tab, setTab] = useState<SongTab>('data');
+  const [tab, setTab] = useState<CreateSongTab>('data');
   const [prefill, setPrefill] = useState<DeezerPrefill | null>(null);
 
   // Every opening starts clean. Without this, a dialog closed with a Deezer
@@ -403,7 +420,7 @@ function CreateSongDialog({
       </DialogHeader>
 
       <div role="tablist" aria-label={t('recordSections')} className="flex gap-1 border-b px-5">
-        {SONG_TABS.map((name) => (
+        {CREATE_TABS.map((name) => (
           <button
             key={name}
             type="button"

@@ -325,15 +325,25 @@ export function SongFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">{t('internalCode')}</span>
-        <Input
-          name="internalCode"
-          defaultValue={song?.internalCode ?? ''}
-          maxLength={40}
-          disabled={disabled}
-        />
-      </label>
+      {/*
+        Block 27. ON THE CREATE FORM ONLY, and renamed: "Internal code" is now
+        "Integration code", because that is what it is — the identifier of this
+        recording in the customer's own scheduling software.
+
+        For a song that EXISTS, this field is the first row of the Integration
+        tab, where the three fields describing the card it points at sit with
+        it. The create dialog has no tabs — song-record-dialog.tsx renders the
+        strip only once a record exists — so dropping the field here would
+        remove a capability the screen has today, and putting the other three
+        here would be worse: a card is a separate row with its own door, and a
+        song being registered has no record to open yet.
+      */}
+      {!song && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('integrationCode')}</span>
+          <Input name="internalCode" maxLength={40} disabled={disabled} />
+        </label>
+      )}
 
       {/*
         The Deezer code, read-only for the reason design D6 gives and 0102

@@ -121,12 +121,16 @@ export const STATION_TABS = ['data', 'whatsapp', 'keys', 'widget'] as const;
 export type StationTab = (typeof STATION_TABS)[number];
 
 /**
- * Two since Block 13a, where Block 7 had one. song-record-dialog.tsx's tab
- * strip already mapped over this tuple rather than hard-coding 'data' — its
- * own comment predicted exactly this change, and it cost an entry and a label
- * rather than a rewrite.
+ * Three since Block 27, two since Block 13a, one in Block 7.
+ * song-record-dialog.tsx's tab strip maps over this tuple rather than
+ * hard-coding names — its own comment predicted the second addition, and the
+ * third has now cost an entry and a label as well.
+ *
+ * APPENDED, never inserted: `data` must stay the tab a record opens on and the
+ * one an unknown `?tab=` falls back to. PROMOTION_TABS' comment above records
+ * what inserting instead once cost.
  */
-export const SONG_TABS = ['data', 'deezer'] as const;
+export const SONG_TABS = ['data', 'deezer', 'integration'] as const;
 export type SongTab = (typeof SONG_TABS)[number];
 
 /**

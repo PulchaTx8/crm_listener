@@ -1862,7 +1862,17 @@
     "searchCategoriesByName": "Search categories by name",
     "actionRegisterCategories": "register categories",
     "actionSaveThisCategory": "save this category",
-    "actionArchiveThisCategory": "archive this category"
+    "actionArchiveThisCategory": "archive this category",
+    "integrationTab": "Integration",
+    "integrationCode": "Integration code",
+    "integrationTitle": "Title",
+    "integrationArtist": "Artist",
+    "integrationCategory": "Category",
+    "savingHereWritesTheCardNotTheSong": "Saving writes both: the song points at this code, and the card below is registered for it.",
+    "theirWordNotYours": "Free text — their word for it, not one of your categories.",
+    "noCardIsRegisteredForThisCode": "No card is registered for this code yet. Fill the fields and save to register one.",
+    "thisCodeIsAlsoUsedByOtherSongs": "{count, plural, one {# other song carries this code — saving changes what it shows too.} other {# other songs carry this code — saving changes what they show too.}}",
+    "actionSaveThisIntegrationCard": "save this integration card"
   },
   "vocab": {
     "participationCounted": "Counted",

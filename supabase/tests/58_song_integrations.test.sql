@@ -1,5 +1,5 @@
 begin;
-select plan(11);
+select plan(15);
 
 -- Block 27. The structure of the card and its one door.
 --
@@ -50,6 +50,32 @@ select ok(
 select ok(
   not has_table_privilege('authenticated', 'public.song_integrations', 'insert'),
   'and the door is the only way in');
+
+-- 0208 — the column the card is matched against ------------------------------
+--
+-- The field moved to the Integration tab, so the Song data form stopped
+-- carrying it — and an update RPC that still TOOK it would read "not carried"
+-- and "cleared" as the same payload, erasing a song's integration code on every
+-- ordinary save. That is 0102's defect one column over, and it gets 0102's fix:
+-- the parameter is gone, and a door that writes one column takes its place.
+--
+-- These four assertions are the whole of that fix, and the first two are the
+-- ones that would catch somebody "restoring" the parameter for convenience.
+
+select has_function('public', 'set_song_integration_code', array['uuid', 'text'],
+                    'the one door onto songs.internal_code exists');
+select hasnt_function('public', 'update_song',
+                      array['uuid', 'text', 'uuid', 'uuid', 'uuid',
+                            'music_nationality', 'music_vocal', 'integer',
+                            'text', 'uuid', 'text', 'uuid'],
+                      'and update_song no longer takes an internal code');
+
+select ok(
+  has_function_privilege('authenticated', 'public.set_song_integration_code(uuid,text)', 'execute'),
+  'a member may point a song at a code');
+select ok(
+  not has_function_privilege('anon', 'public.set_song_integration_code(uuid,text)', 'execute'),
+  'anon may not');
 
 select * from finish();
 rollback;

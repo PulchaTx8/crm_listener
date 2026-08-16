@@ -5514,6 +5514,10 @@ export type Database = {
         Args: { p_company_id: string; p_music: string; p_service: string }
         Returns: undefined
       }
+      set_song_integration_code: {
+        Args: { p_code?: string; p_song_id: string }
+        Returns: undefined
+      }
       set_station_message_template: {
         Args: {
           p_body: string
@@ -5700,7 +5704,6 @@ export type Database = {
           p_category_id?: string
           p_duration_seconds?: number
           p_genre_id?: string
-          p_internal_code?: string
           p_isrc?: string
           p_label_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
