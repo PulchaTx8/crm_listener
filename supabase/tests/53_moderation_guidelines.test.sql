@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(19);
 
 -- Block 24, item 5. The column, its shape, and the one thing about its door
 -- that a reviewer would assume was a mistake: it writes while the promotion is
@@ -55,15 +55,24 @@ values
   ('00000000-0000-0000-0000-0000000024a2', 'QUIZ', '00000000-0000-0000-0000-0000000024f1',
    '00000000-0000-0000-0000-0000000024c1', 2, 'Argentina', false);
 
--- The shape constraint ---------------------------------------------------------
+-- The shape, and what keeps it true --------------------------------------------
 
--- 4: a Quiz has right answers rather than judgement calls, so it has nothing to
--- guide a reader with. Refused by the constraint, not only by the door.
-select throws_ok(
-  $$update public.promotion_questions
-       set moderation_guidelines = 'be generous'
-     where id = '00000000-0000-0000-0000-0000000024a2'$$,
-  '23514', null, 'guidelines on a Quiz question are refused by the constraint');
+select has_trigger('public', 'promotion_questions', 'promotion_questions_retire_guidelines',
+                   'the retirement trigger is on the table');
+
+-- 5: a Quiz has right answers rather than judgement calls, so it has nothing to
+-- guide a reader with. The column is emptied rather than the write refused —
+-- promotion_questions_retire_guidelines, whose own comment argues why. The
+-- constraint behind it is still there and would refuse this if the trigger ever
+-- went, which is why both exist.
+update public.promotion_questions
+   set moderation_guidelines = 'be generous'
+ where id = '00000000-0000-0000-0000-0000000024a2';
+select is(
+  (select moderation_guidelines from public.promotion_questions
+    where id = '00000000-0000-0000-0000-0000000024a2'),
+  null,
+  'guidelines written onto a Quiz question are retired rather than stored');
 
 prepare essay_guidelines as
   update public.promotion_questions
@@ -124,6 +133,22 @@ values
   ('00000000-0000-0000-0000-0000000024e1', '00000000-0000-0000-0000-0000000024d1',
    '00000000-0000-0000-0000-0000000024f1', '00000000-0000-0000-0000-0000000024c1', false,
    'VALID', 'MANUAL', '2026-08-05Z');
+
+-- A SECOND PROMOTION, WITH NOBODY IN IT. The pair at the foot of this file needs
+-- one: turning a Poll into a Quiz goes through save_promotion_question, which
+-- 0055 refuses outright on the promotion above the moment it has a
+-- participation. The freeze is per promotion, so this one stays editable.
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000000024e2', '00000000-0000-0000-0000-0000000024f1',
+   '00000000-0000-0000-0000-0000000024c1', 'Promo 24 unfrozen', '2026-09-01Z', '2026-09-30Z');
+insert into public.promotion_questions
+  (id, promotion_id, organization_id, company_id, position, kind, prompt,
+   moderation_guidelines)
+values
+  ('00000000-0000-0000-0000-0000000024a3', '00000000-0000-0000-0000-0000000024e2',
+   '00000000-0000-0000-0000-0000000024f1', '00000000-0000-0000-0000-0000000024c1',
+   1, 'ESSAY', 'What did the song remind you of?', 'Favour a memory over a review.');
 
 -- The door --------------------------------------------------------------------
 
@@ -203,6 +228,29 @@ select throws_ok(
   $$select public.set_question_moderation_guidelines(
       '00000000-0000-0000-0000-00000000dead', 'anything')$$,
   'P0002', null, 'an unknown question is P0002');
+
+-- TURNING A POLL WITH GUIDELINES INTO A QUIZ.
+--
+-- The edit save_promotion_question's UPDATE would otherwise fail on. That
+-- statement sets a fixed column list written before this column existed, so the
+-- new kind would land beside guidance that promotion_questions_guidelines_shape
+-- forbids — a 23514 reaching the operator as "Could not save", on an edit they
+-- have every right to make. The trigger retires the guidance instead, and this
+-- pair is what proves it end to end rather than through a direct UPDATE.
+select lives_ok(
+  $$select public.save_promotion_question(
+      '00000000-0000-0000-0000-0000000024e2', 'QUIZ', 'Which country wins?',
+      'Escolha uma opção', 'Responder',
+      '[{"label": "Brazil", "is_correct": true},
+        {"label": "Argentina", "is_correct": false}]'::jsonb,
+      '00000000-0000-0000-0000-0000000024a3')$$,
+  'a Poll carrying guidelines can be turned into a Quiz');
+
+select is(
+  (select moderation_guidelines from public.promotion_questions
+    where id = '00000000-0000-0000-0000-0000000024a3'),
+  null,
+  'and its guidance is retired with the kind it belonged to');
 
 reset role;
 

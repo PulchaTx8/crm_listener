@@ -6,6 +6,7 @@ import {
   getPromotionRecord,
   removePromotionQuestion,
   savePromotionQuestion,
+  setQuestionModerationGuidelines,
   updatePromotion,
 } from '@/services/promotions';
 // Block 24, D3: the two the Quiz screen stopped collecting and the door now
@@ -592,6 +593,70 @@ describe('the promotion record', () => {
       const record = await getPromotionRecord(promotionId, token);
       expect(record?.questions[0]?.menuTitle).toBeNull();
       expect(record?.questions[0]?.buttonLabel).toBeNull();
+    });
+
+    /**
+     * Block 24, item 5, through the service wrapper rather than the RPC. pgTAP
+     * proves the door itself, including the assertion this field exists for —
+     * that it writes while the promotion is frozen. What this adds is that the
+     * argument actually reaches it: an RPC parameter renamed or dropped from
+     * `setQuestionModerationGuidelines` type-checks perfectly and fails at
+     * runtime as PGRST202, which is the trap promotionRpcArgs' own comment
+     * describes.
+     */
+    it('writes and clears a Poll question’s moderation guidelines', async () => {
+      const label = `promo-guidelines-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const promotionId = await createAsOwner(customer);
+
+      const delegate = await grantRoleWith(customer, label, [
+        'promotions.edit',
+        'promotions.view',
+      ]);
+      const token = await tokenFor(delegate.email, delegate.password);
+
+      const questionId = await savePromotionQuestion(
+        promotionId,
+        null,
+        { kind: 'ESSAY', prompt: 'Why this song?', options: [] },
+        token,
+      );
+
+      await setQuestionModerationGuidelines(
+        questionId,
+        'Favour a memory over a review.',
+        token,
+      );
+
+      const written = await getPromotionRecord(promotionId, token);
+      expect(written?.questions[0]?.moderationGuidelines).toBe('Favour a memory over a review.');
+
+      // A cleared box travels as an absence and still clears — see the service's
+      // own comment for why it is `undefined` on the wire rather than null.
+      await setQuestionModerationGuidelines(questionId, null, token);
+      const cleared = await getPromotionRecord(promotionId, token);
+      expect(cleared?.questions[0]?.moderationGuidelines).toBeNull();
+    });
+
+    it('refuses moderation guidelines without promotions.edit', async () => {
+      const label = `promo-guidelines-denied-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const promotionId = await createAsOwner(customer);
+
+      const editor = await grantRoleWith(customer, `${label}-editor`, ['promotions.edit']);
+      const questionId = await savePromotionQuestion(
+        promotionId,
+        null,
+        { kind: 'ESSAY', prompt: 'Why this song?', options: [] },
+        await tokenFor(editor.email, editor.password),
+      );
+
+      const reader = await grantRoleWith(customer, label, ['promotions.view']);
+      const token = await tokenFor(reader.email, reader.password);
+
+      await expect(
+        setQuestionModerationGuidelines(questionId, 'anything', token),
+      ).rejects.toThrow(/permission/i);
     });
 
     it('replaces a question’s options wholesale', async () => {

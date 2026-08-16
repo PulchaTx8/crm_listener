@@ -1488,7 +1488,12 @@
     "takePartByWeb": "Participar pelo site",
     "rules": "Regulamento",
     "whatAListenerAgreesToBeforeEntering": "Com o que o ouvinte concorda antes de participar. Aparece no widget acima da caixa de aceite.",
-    "withoutRulesThisDoesNotAppearOnTheSite": "Sem regulamento escrito aqui, esta promoção não aparece no site."
+    "withoutRulesThisDoesNotAppearOnTheSite": "Sem regulamento escrito aqui, esta promoção não aparece no site.",
+    "moderationGuidelines": "Diretrizes de moderação",
+    "internalOnlyNeverSentToThe": "Somente interno — nunca enviado ao ouvinte. Orienta quem for ler as respostas.",
+    "someoneHasAlreadyEnteredThisPromotion": "Alguém já participou desta promoção, então a pergunta em si não pode mais ser alterada — isso deixaria respostas apontando para um texto que ninguém leu.",
+    "saveGuidelines": "Salvar diretrizes",
+    "theQuestionWasSavedButItsModerationGuidelines": "A pergunta foi salva, mas as diretrizes de moderação não. Edite a pergunta para escrevê-las de novo."
   },
   "music": {
     "closeRecord": "Fechar ficha",

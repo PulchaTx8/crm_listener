@@ -20,6 +20,7 @@ import {
   listLinkablePrizes,
   removePromotionQuestion,
   savePromotionQuestion,
+  setQuestionModerationGuidelines,
   unlinkPrizeFromPromotion,
   updatePromotion,
   uploadPromotionImage,
@@ -323,6 +324,28 @@ export interface QuestionFormState {
   message?: string;
 }
 
+/**
+ * Block 24, item 5. The question and, for a Poll, its moderation guidelines.
+ *
+ * TWO DOORS IN ONE SUBMISSION, and the split is not tidiness. `0055` freezes
+ * `save_promotion_question`'s REPLACE branch once anybody has entered;
+ * `set_question_moderation_guidelines` (`0197`) is deliberately outside that
+ * freeze, because the guidance is internal text no listener ever read and the
+ * only moment anybody needs it is while answers are arriving. So the screen has
+ * two shapes and this action serves both:
+ *
+ *   * `guidelinesOnly` — a frozen promotion's existing question. Only the second
+ *     door is called, which is the only one that would succeed.
+ *   * everything else — the question is written, and then, for an ESSAY, its
+ *     guidelines against the id the first door returns.
+ *
+ * THE SECOND CALL FAILING DOES NOT UNDO THE FIRST, and the state says so rather
+ * than reporting a failure that would tempt a second Save. A second Save of a
+ * NEW question would create a second question — the id it was given back is not
+ * in the form — so the answer is `saved` carrying a warning, which the tab shows
+ * beside the list the operator lands back on. The guidance is then one Edit
+ * away, and nothing was duplicated.
+ */
 export async function savePromotionQuestionAction(
   _prev: QuestionFormState,
   formData: FormData,
@@ -331,6 +354,28 @@ export async function savePromotionQuestionAction(
   const promotionId = String(formData.get('promotionId') ?? '');
   const questionId = String(formData.get('questionId') ?? '') || null;
   if (!promotionId) return { status: 'error', message: t('whichPromotionReopenTheRecord') };
+
+  // Blank is null, matching what the RPC does with whitespace: a cleared box
+  // means "there is no guidance", not "guidance that says nothing".
+  const guidelines = String(formData.get('moderationGuidelines') ?? '').trim() || null;
+
+  // The frozen shape. Trusted only in the direction that narrows what is
+  // written: a stale form posting this when the promotion is NOT frozen simply
+  // saves less, and the door still re-checks the permission itself.
+  if (formData.get('guidelinesOnly') === 'on') {
+    if (!questionId) return { status: 'error', message: t('whichQuestionReopenTheRecord') };
+    const onlyToken = await requireAccessToken();
+    try {
+      await setQuestionModerationGuidelines(questionId, guidelines, onlyToken);
+      return { status: 'saved' };
+    } catch (cause) {
+      logger.error({ err: cause, questionId }, 'save moderation guidelines failed');
+      return {
+        status: 'error',
+        message: describePromotionsWriteError(cause, t, 'actionEditThisQuiz'),
+      };
+    }
+  }
 
   const kind = String(formData.get('kind') ?? '') as PromotionQuestionKind;
   // Labels and their ticks arrive as two parallel lists. The tick list carries
@@ -360,13 +405,31 @@ export async function savePromotionQuestionAction(
   }
 
   const token = await requireAccessToken();
+  let savedId: string;
   try {
-    await savePromotionQuestion(promotionId, questionId, parsed.data, token);
-    return { status: 'saved' };
+    savedId = await savePromotionQuestion(promotionId, questionId, parsed.data, token);
   } catch (cause) {
     logger.error({ err: cause, promotionId, questionId }, 'save promotion question failed');
-    return { status: 'error', message: describePromotionsWriteError(cause, await getTranslations('promotions'), 'actionEditThisQuiz') };
+    return { status: 'error', message: describePromotionsWriteError(cause, t, 'actionEditThisQuiz') };
   }
+
+  // Only for a written answer, and only through the second door. A QUIZ carries
+  // no guidelines — 0197's shape constraint says so, and its trigger has just
+  // retired any the question had while it was still a Poll — so calling the door
+  // for one would be asking for a refusal we already know the answer to.
+  if (parsed.data.kind === 'ESSAY') {
+    try {
+      await setQuestionModerationGuidelines(savedId, guidelines, token);
+    } catch (cause) {
+      logger.error({ err: cause, promotionId, questionId: savedId }, 'save moderation guidelines failed');
+      // `saved`, deliberately. See this function's header: the question exists,
+      // and reporting a failure here would invite a second Save that creates a
+      // second question.
+      return { status: 'saved', message: t('theQuestionWasSavedButItsModerationGuidelines') };
+    }
+  }
+
+  return { status: 'saved' };
 }
 
 export async function removePromotionQuestionAction(

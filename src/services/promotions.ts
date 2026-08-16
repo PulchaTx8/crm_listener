@@ -320,8 +320,21 @@ export interface PromotionQuestion {
   position: number;
   kind: PromotionQuestionKind;
   prompt: string;
+  /**
+   * The two halves of the WhatsApp list message. Still read, and no longer
+   * typed: Block 24 (D3) took both off the Quiz screen and
+   * `savePromotionQuestion` supplies the defaults. They stay on this type
+   * because they are facts about the stored question — the participation record
+   * and any future diagnosis of "what did WhatsApp actually send" read them.
+   */
   menuTitle: string | null;
   buttonLabel: string | null;
+  /**
+   * Block 24, item 5. What a Poll question tells whoever reads its answers.
+   * INTERNAL — see 0197's own comment. Null on every kind but ESSAY, which
+   * `promotion_questions_guidelines_shape` enforces rather than assumes.
+   */
+  moderationGuidelines: string | null;
   options: PromotionQuestionOption[];
 }
 
@@ -351,6 +364,25 @@ export interface PromotionDetail {
    * beside the read itself.
    */
   participationCounts: PromotionParticipationCounts;
+  /**
+   * Whether `save_promotion_question` will refuse to REPLACE a question here
+   * (`0055`): once anybody has entered, rewording an option would leave every
+   * `participation_answers` row pointing at text the person never read, and the
+   * draw derives correctness by reading exactly that option back.
+   *
+   * Derived from the two counts above rather than from a third query, and the
+   * imprecision that buys is safe in the one direction it can go. Those counts
+   * are PostgREST's `estimated`, which falls through to an exact `COUNT(*)`
+   * whenever the planner's estimate is under `max_rows` — so the 0-versus-1
+   * boundary, the only one this flag turns on, is exact. A promotion whose
+   * counts are large enough to be estimated is frozen under any estimate.
+   *
+   * A COURTESY, never the boundary: the screen stops offering what the database
+   * will refuse, and the database refuses it regardless. Block 24 added the flag
+   * so the Quiz tab can offer the one field the freeze does NOT cover — the
+   * moderation guidelines, which have their own door (`0197`).
+   */
+  frozen: boolean;
   name: string;
   siteIntegrationCode: number | null;
   startsAt: string;
@@ -446,7 +478,7 @@ export async function getPromotionRecord(
 
   const { data: questions, error: questionError } = await supabase
     .from('promotion_questions')
-    .select('id,position,kind,prompt,menu_title,button_label')
+    .select('id,position,kind,prompt,menu_title,button_label,moderation_guidelines')
     .eq('promotion_id', promotionId)
     .order('position', { ascending: true });
 
@@ -529,6 +561,7 @@ export async function getPromotionRecord(
     id: promotion.id,
     companyId: promotion.company_id,
     participationCounts,
+    frozen: participationCounts.valid + participationCounts.refused > 0,
     name: promotion.name,
     siteIntegrationCode: promotion.site_integration_code,
     startsAt: promotion.starts_at,
@@ -562,6 +595,7 @@ export async function getPromotionRecord(
       prompt: q.prompt,
       menuTitle: q.menu_title,
       buttonLabel: q.button_label,
+      moderationGuidelines: q.moderation_guidelines,
       options: byQuestion.get(q.id) ?? [],
     })),
     prizes: (prizes ?? []).map((row) => ({
@@ -768,6 +802,34 @@ export async function savePromotionQuestion(
   });
   if (error) throw mapPromotionError(error.code, error.message);
   return data as string;
+}
+
+/**
+ * Block 24, item 5. The Poll question's internal moderation guidelines, and
+ * nothing else.
+ *
+ * ITS OWN CALL RATHER THAN A FIELD OF THE ONE ABOVE, and 0197's header carries
+ * the full argument. The short of it: `save_promotion_question` is frozen once
+ * a participation exists, this field is not (nothing points at it and no
+ * listener ever read it), and the only moment anybody needs it is after the
+ * first participation.
+ */
+export async function setQuestionModerationGuidelines(
+  questionId: string,
+  guidelines: string | null,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('set_question_moderation_guidelines', {
+    p_question_id: questionId,
+    // `undefined`, not `null`, for a cleared box — the shape the generated
+    // argument type takes and the one every other optional argument in this file
+    // uses. PostgREST omits an undefined argument, the function's own `default
+    // null` applies, and `nullif(btrim(...))` inside it writes null. So clearing
+    // still clears; it simply travels as an absence rather than as an explicit
+    // null, which is the same round trip the promotion builder above documents.
+    p_guidelines: guidelines ?? undefined,
+  });
+  if (error) throw mapPromotionError(error.code, error.message);
 }
 
 export async function removePromotionQuestion(

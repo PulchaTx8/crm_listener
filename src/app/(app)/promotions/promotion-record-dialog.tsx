@@ -441,6 +441,11 @@ export function PromotionRecordDialog({
                 promotionId={record.id}
                 questions={record.questions}
                 canEdit={powers.edit}
+                // Block 24. Whether save_promotion_question will refuse to
+                // replace a question here (0055, once anybody has entered), so
+                // the tab can stop offering what the database will refuse and
+                // still offer the one field the freeze does not cover.
+                frozen={record.frozen}
                 onSaved={refresh}
               />
             )}

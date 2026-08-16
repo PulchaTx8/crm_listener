@@ -32,7 +32,52 @@ alter table public.promotion_questions
   );
 
 comment on column public.promotion_questions.moderation_guidelines is
-  'What a Poll question tells whoever reads its answers. INTERNAL: never sent to a listener, never part of a prompt context, never returned by a widget or API read. ESSAY only, by promotion_questions_guidelines_shape.';
+  'What a Poll question tells whoever reads its answers. INTERNAL: never sent to a listener, never part of a prompt context, never returned by a widget or API read. ESSAY only, by promotion_questions_guidelines_shape, which promotion_questions_retire_guidelines keeps true across a change of kind.';
+
+-- WHAT THE CONSTRAINT ABOVE WOULD OTHERWISE BREAK.
+--
+-- save_promotion_question's REPLACE branch (0055) is an UPDATE that sets kind,
+-- prompt, menu_title, button_label and updated_at — and nothing else, because
+-- nothing else existed when it was written. So an operator turning a Poll that
+-- carries guidelines into a Quiz would have the row fail
+-- promotion_questions_guidelines_shape: kind becomes QUIZ, the guidelines stay,
+-- and the check refuses an edit the operator has every right to make. It would
+-- arrive as a 23514, which maps to InternalError and reaches them as "Could not
+-- save" with nothing to act on.
+--
+-- A trigger rather than the two alternatives:
+--
+--   * Widening save_promotion_question means recreating a long function that
+--     0055 already rewrote once — the defect this repository has shipped three
+--     times, where a recreation from the original migration silently reverts
+--     every fix made since.
+--   * Clearing the guidelines from the caller first means the screen ordering
+--     two writes to keep one invariant, and a second caller one day not knowing
+--     to.
+--
+-- NULLING RATHER THAN REFUSING IS THE HONEST SEMANTICS, not a convenience:
+-- guidance for reading written answers is meaningless on a question that has
+-- stopped collecting writing. Turning a Poll into a Quiz retires the guidance
+-- with it, exactly as it already retires the written answers' whole shape.
+create function public.promotion_questions_retire_guidelines()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if new.kind <> 'ESSAY' then
+    new.moderation_guidelines := null;
+  end if;
+  return new;
+end;
+$$;
+
+comment on function public.promotion_questions_retire_guidelines() is
+  'Keeps promotion_questions_guidelines_shape true across a change of kind. Guidance for reading written answers is meaningless on a question that no longer collects writing, so turning a Poll into a Quiz retires it rather than refusing the edit. Exists because save_promotion_question (0055) updates a fixed column list that predates this column.';
+
+create trigger promotion_questions_retire_guidelines
+  before insert or update on public.promotion_questions
+  for each row execute function public.promotion_questions_retire_guidelines();
 
 -- THE DOOR, AND WHY IT IS ITS OWN DOOR RATHER THAN A PARAMETER ON
 -- save_promotion_question.
