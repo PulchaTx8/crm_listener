@@ -5,7 +5,27 @@ import type { Config } from 'tailwindcss';
 import tailwindcssAnimate from 'tailwindcss-animate';
 
 export default {
-  darkMode: ['class'],
+  // Block 25, D1. TWO TRIGGERS, because the theme has three states and only two
+  // of them are a class.
+  //
+  // `['class']` would leave every `dark:` utility responding to an explicit
+  // choice alone — so somebody on System with a dark machine would get the dark
+  // TOKENS (globals.css handles them through its own media query) and the light
+  // `dark:` utilities, on the same page. A theme half-applied is worse than one
+  // not applied at all, because only half of it is legible.
+  //
+  // `:not(.light *)` on the second is what lets an explicit Light choice win
+  // over a dark machine, matching the guard on the media-query block in
+  // globals.css. The two have to say the same thing, and they do.
+  //
+  // Almost nothing consumes this today — the sweep in this block converts the
+  // three hand-written `dark:` utilities to tokens — so it may well end with no
+  // consumers at all. Kept correct anyway: the next person to write one will not
+  // read this file first.
+  darkMode: [
+    'variant',
+    ['&:is(.dark *)', '@media (prefers-color-scheme: dark) { &:not(.light *) }'],
+  ],
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     container: { center: true, padding: '2rem', screens: { '2xl': '1400px' } },
@@ -45,6 +65,24 @@ export default {
         card: {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
+        },
+        // Block 25, D9. The third and fourth semantic colours, beside
+        // `destructive` and used exactly as it is: solid for text and icons,
+        // `/10` for the tinted badge behind them.
+        //
+        // The `hsl(var(--x))` form is not stylistic — it is what keeps the
+        // opacity modifier working. Tailwind rewrites this to
+        // `hsl(var(--success) / 0.1)` for `bg-success/10`; a token holding a
+        // finished colour instead of a triple would make `/10` silently do
+        // nothing, and `bg-destructive/10` in SITUATION_CLASSES is the proof
+        // that the modifier is load-bearing here.
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
         },
         // The sidebar is a separate surface with its own scale — see the
         // comment beside these tokens in globals.css.

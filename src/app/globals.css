@@ -8,6 +8,12 @@
    renders unstyled. */
 @layer base {
   :root {
+    /* Block 25. What the browser paints that no token of ours reaches: form
+       controls, scrollbars, autofill, the spinner on a number input. Without
+       this line a dark page renders white select boxes and a white scrollbar
+       down its own edge, and no amount of token work would fix either. */
+    color-scheme: light;
+
     /* Page chrome is a faint cool grey and cards are pure white, so a card
        reads as a surface lifted off the page rather than a bordered box. */
     --background: 210 20% 98%; /* #F8FAFC */
@@ -37,6 +43,27 @@
     --accent-foreground: 222 47% 11%;
     --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
+
+    /* Block 25, D9. The two colours fifty-eight class literals were saying by
+       hand — emerald for "this counted / right answer", amber for "read this
+       before you continue". They join `destructive` as the third and fourth
+       semantic colours rather than a palette: one value each, and the `/N`
+       modifier for the tinted surface, which is the shape SITUATION_CLASSES
+       already writes a cancelled promotion in.
+
+       MEASURED AGAINST THE `/10` SURFACE, NOT ONLY THE PAGE, and that is the
+       measurement that changed these numbers. A badge is `bg-success/10
+       text-success`: the token painted at a tenth over the page carrying the
+       solid token as its text. The first amber tried here was #B45309, which
+       reads 4.83 on the page and 4.22 on its own tint — and 4.22 is a fail.
+       These clear 4.5 on every surface they are used on, which is the floor
+       `--destructive` above already clears (4.74) rather than a new one.
+       tests/unit/theme-tokens.test.ts is where those numbers are re-derived. */
+    --success: 163 94% 22%; /* #036D4F — 6.1:1 on the page, 5.3:1 on its own /10 */
+    --success-foreground: 0 0% 100%; /* 6.4:1 on a solid success fill */
+    --warning: 23 83% 31%; /* #91400D — 6.8:1 on the page, 5.9:1 on its own /10 */
+    --warning-foreground: 0 0% 100%; /* 7.1:1 on a solid warning fill */
+
     --border: 214 32% 91%; /* #E2E8F0 */
     --input: 214 32% 91%;
     --ring: 254.9 87.4% 50.2%;
@@ -70,7 +97,12 @@
     --chart-8: 0 74% 59%; /* red */
   }
 
+  /* THE THEME A PERSON CHOSE (Block 25, D1). `<html>` carries this class only
+     when the middleware resolved an explicit choice from their profile or their
+     cookie; the block after this one covers everybody else. */
   .dark {
+    color-scheme: dark;
+
     --background: 238 60% 6%;
     --foreground: 213 27% 92%;
     --card: 238 45% 10%;
@@ -94,6 +126,16 @@
     --accent-foreground: 213 27% 92%;
     --destructive: 0 62% 45%;
     --destructive-foreground: 0 0% 100%;
+
+    /* THE SAME GREEN THE SIDEBAR'S ACTIVE ROW ALREADY USES, deliberately: there
+       is one green in this product, and two differing by a shade would read as a
+       mistake nobody could name. theme-tokens.test.ts asserts the two triples
+       are identical rather than leaving it to whoever edits one of them. */
+    --success: 158 64% 52%; /* #34D399 — 10.4:1 on the page, 9.1:1 on its own /10 */
+    --success-foreground: 238 82% 9%; /* 10.3:1 on a solid success fill */
+    --warning: 43 96% 56%; /* #FBBF24 — 11.8:1 on the page, 10.2:1 on its own /10 */
+    --warning-foreground: 238 82% 9%; /* 11.7:1 on a solid warning fill */
+
     --border: 238 40% 18%;
     --input: 238 40% 18%;
     --ring: 255 87% 68%;
@@ -117,6 +159,78 @@
     --chart-6: 120 100% 26%; /* green */
     --chart-7: 247 69% 72%; /* violet */
     --chart-8: 0 72% 65%; /* red */
+  }
+
+  /* ------------------------------------------------------------------------
+     THE SAME PALETTE AGAIN, FOR EVERYBODY WHO CHOSE NOTHING (Block 25, D1).
+     Copied from the block above, value for value.
+
+     The duplication is real and it is not an oversight. These tokens have to
+     apply in two situations that CSS cannot express as one rule: a person who
+     CHOSE dark (the class above) and a person on System whose machine is dark
+     (this media query). A media query cannot join a selector list, so there is
+     no way to write the block once.
+
+     The alternative was declaring every value once as `--d-*` on `:root` and
+     re-pointing from two thin blocks. It was rejected because it trades one
+     duplication for an indirection that doubles the custom properties on
+     `:root` — and still duplicates the mapping, just further from the values.
+
+     WHAT MAKES IT SAFE IS A TEST, NOT CARE. tests/unit/theme-tokens.test.ts
+     parses this file and fails if the two blocks name different tokens or give
+     any of them different values. Edit one, and the suite tells you about the
+     other; there is no version of "I forgot" that reaches main.
+
+     `:not(.light)` is what lets an explicit LIGHT choice win over a dark
+     machine. Without it, somebody who deliberately picked Light on a dark
+     desktop would be overruled by their own operating system.
+     ------------------------------------------------------------------------ */
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      color-scheme: dark;
+
+      --background: 238 60% 6%;
+      --foreground: 213 27% 92%;
+      --card: 238 45% 10%;
+      --card-foreground: 213 27% 92%;
+      --popover: 238 45% 10%;
+      --popover-foreground: 213 27% 92%;
+      --primary: 255 87% 68%; /* #8A66F4 */
+      --primary-foreground: 238 82% 9%;
+      --secondary: 238 40% 16%;
+      --secondary-foreground: 213 27% 92%;
+      --muted: 238 40% 16%;
+      --muted-foreground: 215 20% 65%;
+      --accent: 238 40% 16%;
+      --accent-foreground: 213 27% 92%;
+      --destructive: 0 62% 45%;
+      --destructive-foreground: 0 0% 100%;
+
+      --success: 158 64% 52%; /* #34D399 — 10.4:1 on the page, 9.1:1 on its own /10 */
+      --success-foreground: 238 82% 9%; /* 10.3:1 on a solid success fill */
+      --warning: 43 96% 56%; /* #FBBF24 — 11.8:1 on the page, 10.2:1 on its own /10 */
+      --warning-foreground: 238 82% 9%; /* 11.7:1 on a solid warning fill */
+
+      --border: 238 40% 18%;
+      --input: 238 40% 18%;
+      --ring: 255 87% 68%;
+
+      --sidebar: 238 82% 9%;
+      --sidebar-foreground: 213 27% 84%;
+      --sidebar-muted: 215 20% 55%;
+      --sidebar-accent: 238 45% 15%;
+      --sidebar-accent-foreground: 158 64% 52%;
+      --sidebar-border: 238 40% 14%;
+
+      --chart-1: 213 77% 56%; /* blue */
+      --chart-2: 17 70% 50%; /* orange */
+      --chart-3: 159 73% 36%; /* aqua */
+      --chart-4: 40 100% 39%; /* yellow */
+      --chart-5: 338 61% 58%; /* magenta */
+      --chart-6: 120 100% 26%; /* green */
+      --chart-7: 247 69% 72%; /* violet */
+      --chart-8: 0 72% 65%; /* red */
+    }
   }
 }
 
