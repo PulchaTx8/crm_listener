@@ -50,7 +50,7 @@ import type { ReferenceScreenKind } from './list-params';
  * on its own re-checked permission, but a kind this screen's UI has no way to
  * produce should not resolve a path or an ACTION_KEYS entry either.
  */
-const REFERENCE_SCREEN_KINDS = ['LABEL', 'GENRE', 'CATEGORY'] as const;
+const REFERENCE_SCREEN_KINDS = ['LABEL', 'GENRE', 'SONGWRITER'] as const;
 
 function isReferenceScreenKind(value: string): value is ReferenceScreenKind {
   return (REFERENCE_SCREEN_KINDS as readonly string[]).includes(value);
@@ -82,14 +82,14 @@ const ACTION_KEYS: Record<ReferenceScreenKind, { register: string; save: string;
     save: 'actionSaveThisGenre',
     archive: 'actionArchiveThisGenre',
   },
-  // Block 27, and the reason this map exists rather than a stem plus a noun is
-  // visible in this entry too: *salvar esta categoria* is feminine where
-  // *salvar este gênero* is masculine, so the article agrees with the noun and
-  // no assembly could produce both.
-  CATEGORY: {
-    register: 'actionRegisterCategories',
-    save: 'actionSaveThisCategory',
-    archive: 'actionArchiveThisCategory',
+  // Block 27, renamed in Block 28. This entry was *salvar esta categoria*
+  // and is now *salvar este compositor* — the gender flipped with the noun,
+  // which is the map's own argument made twice over: neither a stem plus a
+  // noun nor a translated stem could have followed that.
+  SONGWRITER: {
+    register: 'actionRegisterSongwriters',
+    save: 'actionSaveThisSongwriter',
+    archive: 'actionArchiveThisSongwriter',
   },
 };
 

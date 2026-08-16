@@ -32,7 +32,7 @@ import { SongRecordDialog } from './song-record-dialog';
 
 /**
  * How many columns the empty-state row has to span, actions included. Ten
- * since Block 27 added the category, nine since Block 13a added the cover — a
+ * since Block 27 added the songwriter, nine since Block 13a added the cover — a
  * number that has to be raised by hand with every column, or the "no songs" row
  * stops spanning the table.
  */
@@ -74,7 +74,7 @@ export function SongsGrid({
   labels,
   genres,
   albums,
-  categories,
+  songwriters,
   manage,
   initialRecord,
 }: {
@@ -87,7 +87,7 @@ export function SongsGrid({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
-  categories: ReferenceSummary[];
+  songwriters: ReferenceSummary[];
   /** Whether the caller holds music.manage at this Station — a courtesy gate; create_song/update_song/archive_song each re-check it themselves. */
   manage: boolean;
   initialRecord: { recordId: string | null; tab: string | null };
@@ -148,7 +148,7 @@ export function SongsGrid({
               {/* Block 27, beside Genre because the two answer neighbouring
                   questions: what the music IS, and where this Station files
                   it. */}
-              <TableHead>{t('category')}</TableHead>
+              <TableHead>{t('songwriter')}</TableHead>
               <TableHead>{t('duration')}</TableHead>
               <TableHead>{t('code')}</TableHead>
               <TableHead aria-sort={ariaSort(addedSorted)}>
@@ -204,10 +204,10 @@ export function SongsGrid({
                   </TableCell>
                   <TableCell>{song.labelName ?? '—'}</TableCell>
                   <TableCell>{song.genreName ?? '—'}</TableCell>
-                  {/* An em dash for both of the reasons categoryName can be
-                      null — no category, or one this caller cannot read — which
+                  {/* An em dash for both of the reasons songwriterName can be
+                      null — no songwriter, or one this caller cannot read — which
                       is the honest rendering of both. */}
-                  <TableCell>{song.categoryName ?? '—'}</TableCell>
+                  <TableCell>{song.songwriterName ?? '—'}</TableCell>
                   <TableCell>{formatDuration(song.durationSeconds)}</TableCell>
                   <TableCell>{song.internalCode ?? '—'}</TableCell>
                   <TableCell>{formatAddedDate(song.createdAt)}</TableCell>
@@ -253,7 +253,7 @@ export function SongsGrid({
         labels={labels}
         genres={genres}
         albums={albums}
-        categories={categories}
+        songwriters={songwriters}
         companyId={state.companyId}
         manage={manage}
         onTab={setTab}
@@ -289,7 +289,7 @@ export function SongsGrid({
           labels={labels}
           genres={genres}
           albums={albums}
-          categories={categories}
+          songwriters={songwriters}
           onClose={() => setCreating(false)}
           onCreated={(songId) => {
             setCreating(false);
@@ -381,7 +381,7 @@ function CreateSongDialog({
   labels,
   genres,
   albums,
-  categories,
+  songwriters,
   onClose,
   onCreated,
   onOpenExisting,
@@ -392,7 +392,7 @@ function CreateSongDialog({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
-  categories: ReferenceSummary[];
+  songwriters: ReferenceSummary[];
   onClose: () => void;
   onCreated: (songId: string) => void;
   onOpenExisting: (songId: string) => void;
@@ -451,7 +451,7 @@ function CreateSongDialog({
             labels={labels}
             genres={genres}
             albums={albums}
-            categories={categories}
+            songwriters={songwriters}
             prefill={prefill}
             onCreated={onCreated}
           />
@@ -493,7 +493,7 @@ function SongCreateForm({
   labels,
   genres,
   albums,
-  categories,
+  songwriters,
   prefill,
   onCreated,
 }: {
@@ -502,7 +502,7 @@ function SongCreateForm({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
-  categories: ReferenceSummary[];
+  songwriters: ReferenceSummary[];
   prefill?: DeezerPrefill | null;
   onCreated: (songId: string) => void;
 }) {
@@ -530,7 +530,7 @@ function SongCreateForm({
         labels={labels}
         genres={genres}
         albums={albums}
-        categories={categories}
+        songwriters={songwriters}
         prefill={prefill}
       />
       <div className="flex flex-wrap items-center gap-3">

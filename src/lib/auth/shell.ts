@@ -314,23 +314,24 @@ export async function getShellContext(): Promise<{
         // Albums moves up beside Artists, and Record labels down past the two
         // classification lists. Nothing about the three screens changed.
         { href: '/catalog/albums', label: t('albums'), icon: ICONS.disc },
-        // Block 27, on the owner's ruling. A category is the Station's own filing
-        // word for a recording, beside the genre rather than instead of it: a
-        // genre says what the music IS, a category says where this Station files
-        // it. Directly above Genres, because the two answer neighbouring
-        // questions and an operator setting one usually sets the other.
+        // Block 27, renamed in Block 28 on the owner's correction. A songwriter
+        // is who WROTE the song, beside the artist rather than instead of it:
+        // the artist PERFORMS the recording, and the two are routinely
+        // different people. Directly above Genres, because this row and that
+        // one answer neighbouring questions and an operator setting one usually
+        // sets the other.
         //
-        // /catalog/categories redirects nobody by itself: it opens on whichever
+        // /catalog/songwriters redirects nobody by itself: it opens on whichever
         // Station listCompanyAccess resolves music.view in, the same courtesy
         // every item in this section already extends, and 0205's select policy
         // plus 0100's three doors re-check the permission themselves regardless.
         //
-        // ICONS.folder is NEW rather than a reuse of `tag`, and this is the one
-        // case where that matters most: `tag` is Genres, the very next row, and
-        // one glyph on two adjacent rows of the same section reads as one link
-        // rendered twice. Inventory > Categories keeps `tag` legitimately — a
-        // different section, never side by side with this one.
-        { href: '/catalog/categories', label: t('categories'), icon: ICONS.folder },
+        // ICONS.pen is NEW rather than a reuse, and TWO neighbours make that
+        // matter: `tag` is Genres, the very next row, and `users` is Artists,
+        // two rows up — and the artist/songwriter distinction is the whole
+        // reason this row was renamed, so sharing a glyph with it would undo in
+        // the sidebar what the rename did everywhere else.
+        { href: '/catalog/songwriters', label: t('songwriters'), icon: ICONS.pen },
         { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
         { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
         // MOVED HERE FROM AUDIENCE IN BLOCK 27, on the owner's ruling, reversing

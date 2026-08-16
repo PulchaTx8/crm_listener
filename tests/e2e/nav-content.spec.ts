@@ -113,16 +113,21 @@ test('the sidebar lists what the product does, in the order somebody chose', asy
     'Songs',
     'Artists',
     'Albums',
-    'Categories',
+    'Songwriters',
     'Genres',
     'Record labels',
     'Programmes',
     'Maintenance',
   ]);
-  await expect(catalogue.getByRole('link', { name: 'Categories' })).toHaveAttribute(
+  await expect(catalogue.getByRole('link', { name: 'Songwriters' })).toHaveAttribute(
     'href',
-    '/catalog/categories',
+    '/catalog/songwriters',
   );
+  // Block 28. The Inventory assertion above still reads 'Categories' and still
+  // points at /inventory/categories, and the pair of assertions is the cheapest
+  // guard this suite has against a find-and-replace that went one directory too
+  // far: the two words used to name one thing in the sidebar and now name two.
+  await expect(catalogue.getByRole('link', { name: 'Categories' })).toHaveCount(0);
   // The item this replaces is gone: a section named Catalog holding an item
   // named Catalog is the "one link rendered twice" shell.ts warns about in
   // three separate comments. 'Catalog', not 'Catalogue' -- en.json's nav.catalog

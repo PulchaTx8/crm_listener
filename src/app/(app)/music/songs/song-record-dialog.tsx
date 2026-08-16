@@ -48,7 +48,7 @@ export function SongRecordDialog({
   labels,
   genres,
   albums,
-  categories,
+  songwriters,
   companyId,
   manage,
   onTab,
@@ -63,7 +63,7 @@ export function SongRecordDialog({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
-  categories: ReferenceSummary[];
+  songwriters: ReferenceSummary[];
   /** The Station this record belongs to — the Deezer tab searches on its behalf and marks what it already holds. */
   companyId: string;
   /** Whether the caller holds music.manage at this Station — a courtesy gate, never the boundary; update_song re-checks it itself. */
@@ -177,7 +177,7 @@ export function SongRecordDialog({
                 labels={labels}
                 genres={genres}
                 albums={albums}
-                categories={categories}
+                songwriters={songwriters}
                 onDirty={setDirty}
                 onSaved={(saved) => {
                   setDirty(false);
@@ -195,7 +195,7 @@ export function SongRecordDialog({
                   labels={labels}
                   genres={genres}
                   albums={albums}
-                  categories={categories}
+                  songwriters={songwriters}
                   disabled
                 />
               </div>
@@ -267,7 +267,7 @@ function SongDataForm({
   labels,
   genres,
   albums,
-  categories,
+  songwriters,
   onDirty,
   onSaved,
 }: {
@@ -276,7 +276,7 @@ function SongDataForm({
   labels: ReferenceSummary[];
   genres: ReferenceSummary[];
   albums: ReferenceSummary[];
-  categories: ReferenceSummary[];
+  songwriters: ReferenceSummary[];
   onDirty: (dirty: boolean) => void;
   onSaved: (song: SongSummary) => void;
 }) {
@@ -303,7 +303,7 @@ function SongDataForm({
         labels={labels}
         genres={genres}
         albums={albums}
-        categories={categories}
+        songwriters={songwriters}
       />
 
       <div className="flex items-center gap-3">

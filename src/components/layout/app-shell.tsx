@@ -53,16 +53,17 @@ export const ICONS = {
   // physical object in a way a note is not: `box` was the near miss and reads
   // as a package, which is Inventory's meaning of it.
   disc: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
-  // A folder, for Block 27's Catalogue > Categories. Its own path rather than
-  // reusing `tag`, which is Genres — the ADJACENT ROW OF THIS SAME SECTION,
-  // which is the one case the house rule forbids: one icon on two neighbouring
-  // rows reads as one link rendered twice. (Inventory > Categories keeps `tag`,
-  // and keeps it legitimately: that is a different section, so the two never
-  // appear side by side — the same non-adjacency that already lets `box` serve
-  // both Inventory and Pickups.) Nothing else declared here means *the thing you
-  // file others under*: `box` is a package, `inbox` is a tray things flow
-  // through, and `tag` is spoken for.
-  folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
+  // A pen, for Block 28's Catalogue > Songwriters. It replaces the `folder`
+  // Block 27 gave the same row, and the swap is the point rather than a
+  // tidy-up: a folder means *the thing you file others under*, which is what a
+  // category was and what a songwriter is not.
+  //
+  // Two near misses, and the second is the dangerous one. `tag` is Genres, the
+  // adjacent row of this same section — the one case the house rule forbids.
+  // And `users` is Artists, two rows up in this same section: an artist is the
+  // PERFORMER, which is the very distinction this rename exists to make, so
+  // those two must not share a glyph even at two rows' distance.
+  pen: 'M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.586 7.586M11 11a2 2 0 1 0 4 0 2 2 0 0 0-4 0z',
   // A bin, for the deletion requests in the Platform section. Its own path
   // rather than reusing anything above, and the two near misses are both worse
   // than a new glyph: `inbox` is the ADJACENT row of that same section (Contact

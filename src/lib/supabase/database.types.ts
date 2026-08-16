@@ -5904,7 +5904,6 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
-        | "country"
       report_format: "CSV" | "XLSX" | "PDF"
       report_status: "QUEUED" | "RUNNING" | "READY" | "FAILED"
       report_type:
@@ -5932,7 +5931,6 @@ export type Database = {
         | "LINK_MUSIC"
         | "LINK_MENU"
         | "LINK_PROMOTION"
-        | "COUNTRY"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       widget_link_purpose: "MUSIC" | "MENU" | "PROMOTION"
@@ -6150,7 +6148,6 @@ export const Constants = {
         "cpf",
         "passport",
         "discovery_source",
-        "country",
       ],
       report_format: ["CSV", "XLSX", "PDF"],
       report_status: ["QUEUED", "RUNNING", "READY", "FAILED"],
@@ -6180,7 +6177,6 @@ export const Constants = {
         "LINK_MUSIC",
         "LINK_MENU",
         "LINK_PROMOTION",
-        "COUNTRY",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],

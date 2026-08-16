@@ -10,16 +10,17 @@ import { z } from 'zod';
  * The five short lists 0100's music_reference_kind carries since 0204. Not the
  * merge's kinds (MUSIC_MERGE_KINDS below): that set adds SONG and keeps SHOW,
  * after the owner ruled for merge_shows on 2026-08-04, and does NOT include
- * CATEGORY — whether duplicate categories need collapsing is not yet known, and
- * a merge is the one operation in this domain that destroys. This line used to
- * say the merge would drop SHOW, which 0105 corrects at the database as well.
+ * SONGWRITER — whether duplicate songwriters need collapsing is not yet known,
+ * and a merge is the one operation in this domain that destroys. This line used
+ * to say the merge would drop SHOW, which 0105 corrects at the database as well.
  *
- * CATEGORY is last because the enum appends (0204): `alter type ... add value`
- * without BEFORE/AFTER puts it at the end, and 15_music_rpcs.test.sql pins the
- * order. Keeping this array in the same order means the two never have to be
- * read against each other.
+ * SONGWRITER is last because the enum appends (0204 added it as CATEGORY, 0209
+ * renamed the value in place): `alter type ... add value` without BEFORE/AFTER
+ * puts it at the end, `rename value` does not move it, and
+ * 15_music_rpcs.test.sql pins the order. Keeping this array in the same order
+ * means the two never have to be read against each other.
  */
-export const MUSIC_REFERENCE_KINDS = ['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'CATEGORY'] as const;
+export const MUSIC_REFERENCE_KINDS = ['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'SONGWRITER'] as const;
 export type MusicReferenceKind = (typeof MUSIC_REFERENCE_KINDS)[number];
 
 export const MUSIC_NATIONALITIES = ['DOMESTIC', 'INTERNATIONAL'] as const;
@@ -108,13 +109,13 @@ export const songFormSchema = z.object({
   artistId: z.string().uuid('Choose an artist — a song without one is a draft.'),
   labelId: optionalUuid,
   genreId: optionalUuid,
-  // Block 27. Optional, like the label and the genre beside it, and for the
-  // reason 0205 gives songs.category_id: the whole catalogue predates the
-  // column, so requiring one would make every existing song unsavable.
-  // optionalUuid rather than optionalText because an untouched <select> posts
-  // '' and a uuid check refuses it before any transform could normalise it
-  // away — the same trap the comment above optionalUuid sets out.
-  categoryId: optionalUuid,
+  // Block 27, under Block 28's word. Optional, like the label and the genre
+  // beside it, and for the reason 0205 gives songs.songwriter_id: the whole
+  // catalogue predates the column, so requiring one would make every existing
+  // song unsavable. optionalUuid rather than optionalText because an untouched
+  // <select> posts '' and a uuid check refuses it before any transform could
+  // normalise it away — the same trap the comment above optionalUuid sets out.
+  songwriterId: optionalUuid,
   // Block 13a. Both hand-editable (design D7), and both reach create_song
   // (0140) and update_song (0138). There is deliberately no deezerTrackId
   // beside them: that column has one write path, 0139's two doors, and a
