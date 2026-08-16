@@ -20,9 +20,9 @@ import { ImageThumb } from '@/components/media/image-thumb';
 import { useRecordDialog } from '@/hooks/use-record-dialog';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { PRIZE_TABS, type PrizeTab } from '@/lib/record-params';
-import type { PrizeCategorySummary, PrizeSummary } from '@/services/inventory';
+import type { PrizeSummary } from '@/services/inventory';
 import { archivePrizeAction, type ArchivePrizeState } from './actions';
-import { CategoryForm } from './category-form';
+import { useCategoryList } from './category-list';
 import { formatDate, physicalTotal } from './format';
 import { hasActiveInventoryFilters, inventorySortHref } from './list-params';
 import type { InventoryListState } from './list-params';
@@ -50,7 +50,6 @@ export function InventoryGrid({
   state,
   previousHref,
   nextHref,
-  categories,
   powers,
   canLinkPromotion,
   timeZone,
@@ -61,7 +60,6 @@ export function InventoryGrid({
   state: InventoryListState;
   previousHref: string | null;
   nextHref: string | null;
-  categories: PrizeCategorySummary[];
   powers: InventoryGridPowers;
   /**
    * promotions.prizes (fix round 1), threaded straight through to
@@ -74,6 +72,10 @@ export function InventoryGrid({
   initialRecord: { recordId: string | null; tab: string | null };
 }) {
   const t = useTranslations('inventory');
+  // Block 26. The shared list, so the Register Prize dialog's own inline
+  // registration reaches the record dialog's picker and the filter bar above at
+  // once (category-list.tsx says why it is not a prop and not a refresh).
+  const { categories } = useCategoryList();
   const [grid, setGrid] = useState<RowState<PrizeSummary>>({
     rows: initialRows,
     total: initialTotal,
@@ -87,7 +89,7 @@ export function InventoryGrid({
 
   const { recordId, tab, open, setTab, close } = useRecordDialog(PRIZE_TABS, initialRecord);
   const [archiving, setArchiving] = useState<PrizeSummary | null>(null);
-  const [creating, setCreating] = useState<'prize' | 'category' | null>(null);
+  const [creating, setCreating] = useState(false);
   /** The prize whose record was opened because it had just been registered. */
   const pendingCreate = useRef<string | null>(null);
 
@@ -101,11 +103,15 @@ export function InventoryGrid({
     <>
       {powers.catalogue && (
         <div className="mt-4 flex flex-wrap justify-end gap-2">
-          {/* Two buttons rather than a menu hiding one of them: a Station has
-              two creatable things and neither is the other's afterthought. */}
-          <Button type="button" variant="outline" onClick={() => setCreating('category')}>
-            {t('registerCategory')}</Button>
-          <Button type="button" onClick={() => setCreating('prize')} data-testid="prize-create">
+          {/* ONE BUTTON since Block 26. "Register category" stood beside this one
+              until categories got a screen of their own (/inventory/categories);
+              it could create a category and nothing else — no list, no rename, no
+              way to retire one — and a label an operator can only ever add is a
+              label that accumulates into this screen's own filter. Registering one
+              mid-prize is still possible, and lives where the need appears: inside
+              the dialog below, next to the picker that turned out to be missing
+              it. */}
+          <Button type="button" onClick={() => setCreating(true)} data-testid="prize-create">
             {t('registerPrize')}</Button>
         </div>
       )}
@@ -176,7 +182,15 @@ export function InventoryGrid({
                     </button>
                   </TableCell>
                   <TableCell>{prize.internalCode ?? '—'}</TableCell>
-                  <TableCell>{categoryNameById.get(prize.categoryId ?? '') ?? 'Uncategorised'}</TableCell>
+                  {/* Translated since Block 26, where it stopped being a rare
+                      state: archiving a category takes the label off every prize
+                      wearing it, so this cell is now somewhere an operator is
+                      deliberately sent — and it was the last English literal on
+                      this row. `uncategorised` is the key the picker and the
+                      filter beside it already use for the same word. */}
+                  <TableCell>
+                    {categoryNameById.get(prize.categoryId ?? '') ?? t('uncategorised')}
+                  </TableCell>
                   <TableCell>{formatDate(prize.createdAt)}</TableCell>
                   <TableCell className="text-right font-semibold">{physicalTotal(prize.balance)}</TableCell>
                   <TableCell className="text-right">{prize.balance.available}</TableCell>
@@ -255,13 +269,12 @@ export function InventoryGrid({
         />
       )}
 
-      <CreateDialog
-        creating={creating}
+      <CreatePrizeDialog
+        open={creating}
         companyId={state.companyId}
-        categories={categories}
-        onClose={() => setCreating(null)}
+        onClose={() => setCreating(false)}
         onPrizeCreated={(prizeId) => {
-          setCreating(null);
+          setCreating(false);
           pendingCreate.current = prizeId;
           open(prizeId);
         }}
@@ -323,34 +336,33 @@ function ArchivePrizeDialog({
   );
 }
 
-function CreateDialog({
-  creating,
+/**
+ * One thing to register here since Block 26, so the dialog says which one in its
+ * title rather than branching on what it was opened for. The category branch it
+ * used to carry became `/inventory/categories`; what stayed is the ability to
+ * register a category WITHOUT leaving this form, which PrizeForm offers beside
+ * the picker itself.
+ */
+function CreatePrizeDialog({
+  open,
   companyId,
-  categories,
   onClose,
   onPrizeCreated,
 }: {
-  creating: 'prize' | 'category' | null;
+  open: boolean;
   companyId: string;
-  categories: PrizeCategorySummary[];
   onClose: () => void;
   onPrizeCreated: (prizeId: string) => void;
 }) {
   const t = useTranslations('inventory');
   const titleId = useId();
   return (
-    <Dialog open={creating !== null} onClose={onClose} labelledBy={titleId}>
+    <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <DialogHeader>
-        <DialogTitle id={titleId}>
-          {creating === 'category' ? t('registerACategory') : t('registerAPrize')}
-        </DialogTitle>
+        <DialogTitle id={titleId}>{t('registerAPrize')}</DialogTitle>
       </DialogHeader>
       <DialogBody>
-        {creating === 'category' ? (
-          <CategoryForm companyId={companyId} />
-        ) : (
-          <PrizeForm companyId={companyId} categories={categories} onCreated={onPrizeCreated} />
-        )}
+        <PrizeForm companyId={companyId} onCreated={onPrizeCreated} />
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>

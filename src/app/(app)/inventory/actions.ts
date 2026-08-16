@@ -4,6 +4,7 @@ import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
 import {
+  prizeCategoryFormSchema,
   prizeFormSchema,
   prizeUpdateSchema,
   movementFormSchema,
@@ -15,7 +16,6 @@ import {
   archivePrize,
   clearPrizePhoto,
   createPrize,
-  createPrizeCategory,
   getPrizeById,
   getPrizeMovements,
   reconcileInventory,
@@ -24,10 +24,17 @@ import {
   releaseReservation,
   reserveStock,
   reverseMovement,
+  savePrizeCategory,
   updatePrize,
   uploadPrizePhoto,
 } from '@/services/inventory';
-import type { InventoryMovementType, PrizeMovementsPage, PrizeSummary, ReconciliationRow } from '@/services/inventory';
+import type {
+  InventoryMovementType,
+  PrizeCategoryOption,
+  PrizeMovementsPage,
+  PrizeSummary,
+  ReconciliationRow,
+} from '@/services/inventory';
 // The promotion-link door itself (design D6): "Vincular promoção" calls the
 // SAME linkPrizeToPromotion the Promotions screen's own prizes-tab.tsx calls
 // (src/app/(app)/promotions/actions.ts's linkPrizeAction) — it takes a
@@ -61,36 +68,51 @@ async function requireAccessToken(): Promise<string> {
 // Catalogue — inventory.catalogue
 // ---------------------------------------------------------------------------
 
-export interface CategoryFormState {
-  status: 'idle' | 'saved' | 'error';
-  message?: string;
-}
+/**
+ * Registers a category from inside the Register Prize dialog (Block 26), and
+ * hands back what it stored so the form can select it and the screen can offer it
+ * as a filter without a reload.
+ *
+ * A PLAIN ASYNC FUNCTION rather than a `useActionState` pair, and that is what
+ * the placement demands: this is invoked from a button inside another form, so
+ * there is no second `<form>` to submit — nesting one would be invalid HTML, and
+ * the browser would post the prize instead. See prize-form.tsx.
+ *
+ * The full CRUD lives at /inventory/categories, which is where a category is
+ * renamed or retired; this exists because the moment somebody discovers a
+ * category is missing is the moment they are registering the prize that needed
+ * it, and sending them to another screen loses the half-filled form.
+ */
+export type InlineCategoryResult =
+  | { status: 'ok'; category: PrizeCategoryOption }
+  | { status: 'error'; message: string };
 
-export async function createCategoryAction(
-  _prev: CategoryFormState,
-  formData: FormData,
-): Promise<CategoryFormState> {
-  const companyId = String(formData.get('companyId') ?? '');
-  const name = String(formData.get('name') ?? '').trim();
-
-  if (!companyId) return { status: 'error', message: 'Choose a Station first.' };
-  if (!name) return { status: 'error', message: 'Name the category.' };
-  // create_prize_category stores this as unbounded `text`, same as
-  // prizes.name — bounded here to the same 120 characters prizeFormSchema
-  // gives prizes.name, so a caller bypassing the form (which already carries
-  // maxLength={120}) cannot store an arbitrarily long category name.
-  if (name.length > 120) {
-    return { status: 'error', message: 'Keep the category name to 120 characters or fewer.' };
+export async function createCategoryInlineAction(
+  companyId: string,
+  rawName: string,
+): Promise<InlineCategoryResult> {
+  const t = await getTranslations('inventory');
+  const parsed = prizeCategoryFormSchema.safeParse({ companyId, name: rawName });
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? t('checkTheForm') };
   }
 
   const token = await requireAccessToken();
 
   try {
-    await createPrizeCategory(companyId, name, token);
-    return { status: 'saved' };
+    const id = await savePrizeCategory(parsed.data.companyId, parsed.data.name, token);
+    // The PARSED name rather than what was typed: zod trims here and `btrim`
+    // trims in 0202, so the two agree on the string that was stored, and the
+    // picker cannot end up offering a differently-spelled twin of the row. Not
+    // read back — one round trip for a record whose only field this call
+    // already holds.
+    return { status: 'ok', category: { id, name: parsed.data.name } };
   } catch (cause) {
-    logger.error({ err: cause, companyId }, 'create prize category failed');
-    return { status: 'error', message: describeInventoryWriteError(cause, await getTranslations('inventory'), 'actionRegisterCategories') };
+    logger.error({ err: cause, companyId }, 'inline prize category registration failed');
+    return {
+      status: 'error',
+      message: describeInventoryWriteError(cause, t, 'actionRegisterCategories'),
+    };
   }
 }
 

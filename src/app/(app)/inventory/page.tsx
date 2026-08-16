@@ -10,10 +10,11 @@ import { decodeCursor } from '@/lib/keyset';
 import { listPrizeCategories, listPrizesPage, PRIZE_SEARCH_MAX_LENGTH } from '@/services/inventory';
 import { STATION_SEARCH_MAX_LENGTH } from './station-access';
 import { StationSearchForm } from './station-search-form';
-import type { PrizeCategorySummary, PrizeListPage } from '@/services/inventory';
+import type { PrizeCategoryOption, PrizeListPage } from '@/services/inventory';
 import { canLinkPromotion, getInventoryPermissions, listCompanyAccess } from './station-access';
 import type { InventoryPermissions, SuspendedCompany, ViewableCompany } from './station-access';
 import { describeInventoryReadError } from './errors';
+import { CategoryListProvider } from './category-list';
 import { InventoryFilters } from './inventory-filters';
 import { InventoryGrid } from './inventory-grid';
 import { parseRecordParam, PRIZE_TABS } from '@/lib/record-params';
@@ -86,7 +87,7 @@ export default async function InventoryPage({
   // An unreadable cursor means "start from the beginning", never an error page.
   const cursor = decodeCursor(cursorParam?.value);
 
-  let categories: PrizeCategorySummary[];
+  let categories: PrizeCategoryOption[];
   let page: PrizeListPage;
   let permissions: InventoryPermissions;
   // promotions.prizes, resolved alongside the five inventory codes above for
@@ -182,26 +183,32 @@ export default async function InventoryPage({
         </CardContent>
       </Card>
 
-      <InventoryFilters state={state} categories={categories} />
+      {/* Block 26. The filter bar and the grid share ONE list of categories, held
+          in the browser, so a category registered inside the Register Prize
+          dialog is offered by the filter beside it without a reload — which this
+          screen cannot get from router.refresh() without rebuilding the prize
+          list from page one. category-list.tsx carries the full reasoning. */}
+      <CategoryListProvider initial={categories}>
+        <InventoryFilters state={state} />
 
-      <InventoryGrid
-        initialRows={page.rows}
-        initialTotal={page.total}
-        state={state}
-        previousHref={
-          page.previousCursor
-            ? inventoryHref(state, { side: 'before', value: page.previousCursor })
-            : null
-        }
-        nextHref={
-          page.nextCursor ? inventoryHref(state, { side: 'after', value: page.nextCursor }) : null
-        }
-        categories={categories}
-        powers={permissions}
-        canLinkPromotion={linkPromotion}
-        timeZone={selected.timezone}
-        initialRecord={parseRecordParam(params as Record<string, string | undefined>, PRIZE_TABS)}
-      />
+        <InventoryGrid
+          initialRows={page.rows}
+          initialTotal={page.total}
+          state={state}
+          previousHref={
+            page.previousCursor
+              ? inventoryHref(state, { side: 'before', value: page.previousCursor })
+              : null
+          }
+          nextHref={
+            page.nextCursor ? inventoryHref(state, { side: 'after', value: page.nextCursor }) : null
+          }
+          powers={permissions}
+          canLinkPromotion={linkPromotion}
+          timeZone={selected.timezone}
+          initialRecord={parseRecordParam(params as Record<string, string | undefined>, PRIZE_TABS)}
+        />
+      </CategoryListProvider>
     </>
   );
 }

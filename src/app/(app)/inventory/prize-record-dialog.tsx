@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { ImageUploadField } from '@/components/media/image-upload-field';
-import type { InventoryMovementType, PrizeCategorySummary, PrizeMovementsPage, PrizeSummary } from '@/services/inventory';
+import type { InventoryMovementType, PrizeCategoryOption, PrizeMovementsPage, PrizeSummary } from '@/services/inventory';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
 // a value out of a client module. See src/lib/record-params.ts.
@@ -91,7 +91,7 @@ export function PrizeRecordDialog({
 }: {
   recordId: string | null;
   tab: PrizeTab;
-  categories: PrizeCategorySummary[];
+  categories: PrizeCategoryOption[];
   powers: PrizeRecordPowers;
   /**
    * promotions.prizes (fix round 1) — not one of `powers`' five inventory
@@ -552,7 +552,7 @@ function PrizeDataForm({
   onSaved,
 }: {
   prize: PrizeSummary;
-  categories: PrizeCategorySummary[];
+  categories: PrizeCategoryOption[];
   onDirty: (dirty: boolean) => void;
   onSaved: (prize: PrizeSummary) => void;
 }) {
