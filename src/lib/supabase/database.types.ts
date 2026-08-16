@@ -828,6 +828,7 @@ export type Database = {
           to_bucket: Database["public"]["Enums"]["inventory_bucket"] | null
           total_amount: number | null
           unit_amount: number | null
+          vendor_id: string | null
         }
         Insert: {
           actor_id?: string | null
@@ -848,6 +849,7 @@ export type Database = {
           to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
           total_amount?: number | null
           unit_amount?: number | null
+          vendor_id?: string | null
         }
         Update: {
           actor_id?: string | null
@@ -868,6 +870,7 @@ export type Database = {
           to_bucket?: Database["public"]["Enums"]["inventory_bucket"] | null
           total_amount?: number | null
           unit_amount?: number | null
+          vendor_id?: string | null
         }
         Relationships: [
           {
@@ -910,6 +913,13 @@ export type Database = {
             columns: ["reserved_for_show_id", "company_id"]
             isOneToOne: false
             referencedRelation: "shows"
+            referencedColumns: ["id", "company_id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_vendor_company_fk"
+            columns: ["vendor_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
             referencedColumns: ["id", "company_id"]
           },
         ]
@@ -3173,6 +3183,87 @@ export type Database = {
         }
         Relationships: []
       }
+      vendors: {
+        Row: {
+          address_line: string | null
+          city: string | null
+          company_id: string
+          contact_name: string | null
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          document: string | null
+          email: string | null
+          id: string
+          legal_name: string | null
+          name: string
+          notes: string | null
+          organization_id: string
+          phone: string | null
+          postal_code: string | null
+          state: string | null
+          updated_at: string
+          website: string | null
+        }
+        Insert: {
+          address_line?: string | null
+          city?: string | null
+          company_id: string
+          contact_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          document?: string | null
+          email?: string | null
+          id?: string
+          legal_name?: string | null
+          name: string
+          notes?: string | null
+          organization_id: string
+          phone?: string | null
+          postal_code?: string | null
+          state?: string | null
+          updated_at?: string
+          website?: string | null
+        }
+        Update: {
+          address_line?: string | null
+          city?: string | null
+          company_id?: string
+          contact_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          document?: string | null
+          email?: string | null
+          id?: string
+          legal_name?: string | null
+          name?: string
+          notes?: string | null
+          organization_id?: string
+          phone?: string | null
+          postal_code?: string | null
+          state?: string | null
+          updated_at?: string
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendors_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "vendors_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       webhook_events: {
         Row: {
           attempts: number
@@ -3742,6 +3833,7 @@ export type Database = {
           p_total_amount?: number
           p_type: Database["public"]["Enums"]["inventory_movement_type"]
           p_unit_amount?: number
+          p_vendor_id?: string
         }
         Returns: string
       }
@@ -3884,6 +3976,7 @@ export type Database = {
         Returns: undefined
       }
       archive_song: { Args: { p_song_id: string }; Returns: undefined }
+      archive_vendor: { Args: { p_vendor_id: string }; Returns: undefined }
       are_origins: { Args: { p_values: string[] }; Returns: boolean }
       assert_song_references_live: {
         Args: {
@@ -4578,6 +4671,8 @@ export type Database = {
           total_amount: number
           total_count: number
           unit_amount: number
+          vendor_id: string
+          vendor_name: string
         }[]
       }
       list_music_requests: {
@@ -4903,6 +4998,7 @@ export type Database = {
           p_total_amount?: number
           p_type: Database["public"]["Enums"]["inventory_movement_type"]
           p_unit_amount?: number
+          p_vendor_id?: string
         }
         Returns: string
       }
@@ -5229,6 +5325,25 @@ export type Database = {
           p_producer_name?: string
           p_show_id?: string
           p_starts_on: string
+        }
+        Returns: string
+      }
+      save_vendor: {
+        Args: {
+          p_address_line?: string
+          p_city?: string
+          p_company_id: string
+          p_contact_name?: string
+          p_document?: string
+          p_email?: string
+          p_legal_name?: string
+          p_name: string
+          p_notes?: string
+          p_phone?: string
+          p_postal_code?: string
+          p_state?: string
+          p_vendor_id?: string
+          p_website?: string
         }
         Returns: string
       }
