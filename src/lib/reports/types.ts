@@ -79,6 +79,12 @@ export const REPORT_COLUMNS: Record<ListingType, readonly ReportColumn[]> = {
     // query log".
     { key: 'cpf_last_digits', header: 'CPF (last 3)' },
     { key: 'birth_date', header: 'Birth date' },
+    // The gender block. The CODE, not a translated word: `situation` beside it
+    // ships its own code and `consent` ships a boolean, because a spreadsheet is
+    // read by a person and by whatever they paste it into, and the translated
+    // half is the one that breaks when the reader changes language. Empty means
+    // nobody asked, which is a different thing from the 'N' a listener chose.
+    { key: 'gender', header: 'Sex' },
     { key: 'city', header: 'City' },
     { key: 'state', header: 'State' },
     { key: 'discovery_source', header: 'Discovery source' },

@@ -46,6 +46,102 @@ export type SystemMessageKey = Enums<'system_message_key'>;
 export type LinkPurpose = Enums<'widget_link_purpose'>;
 
 /**
+ * How a field is ANSWERED, as opposed to what it is called.
+ *
+ * Every requested field until the gender block was free text, and the two
+ * places that ask for one said so structurally: `promptFor`'s `case 'field'`
+ * returned `{ kind: 'text' }` unconditionally, and the widget rendered an
+ * `<input type="text">` per step. A tenth field that is a closed set of three
+ * needs both of them to do something else.
+ *
+ * A SHAPE, NOT `if (field === 'gender')`. The special case would have been two
+ * lines shorter and would have to be written a second time for the next closed
+ * set — and this product has obvious candidates for one (a favourite show, a
+ * preferred contact channel). Total over `RequestedField`, like `FIELD_PROMPTS`
+ * and `FIELD_MESSAGE_KEYS` in engine.ts, so an eleventh field does not compile
+ * until somebody says which shape it is rather than defaulting to text and
+ * being discovered by a listener.
+ *
+ * IT LIVES HERE RATHER THAN IN engine.ts because it has two consumers and they
+ * may not import each other: `engine.ts` is worker code with a deliberate
+ * import rule (its own header), and the widget is a browser bundle. This module
+ * is the vocabulary both already share, and it is types plus two frozen
+ * constants — nothing here reaches a database, a network or a clock.
+ */
+export type FieldShape = 'text' | 'choice';
+
+export const FIELD_SHAPE: Record<RequestedField, FieldShape> = {
+  full_name: 'text',
+  address: 'text',
+  city: 'text',
+  neighbourhood: 'text',
+  age: 'text',
+  gender: 'choice',
+  cpf: 'text',
+  passport: 'text',
+  discovery_source: 'text',
+  // Free text on purpose, and the near miss is worth naming: a country IS a
+  // closed set, and Block 28 still asked for it as prose resolved by
+  // `country_alpha2` (0213). The reason holds here too — a list of every
+  // country is not a WhatsApp message anybody reads — and it is exactly why
+  // this is a per-field shape rather than "closed sets are choices".
+  country: 'text',
+};
+
+/**
+ * What `members.gender` may hold (0220's CHECK), and what a choice-shaped
+ * `gender` step accepts back.
+ *
+ * FOUR STATES, THREE OF THEM STORABLE. `N` is "asked, and declined"; the fourth
+ * is the column being null, which is "nobody asked". A campaign filter that
+ * folded those two together would report a refusal as an unfilled form, and
+ * telling them apart is free — one is a value and the other is its absence.
+ */
+export const GENDER_VALUES = ['M', 'F', 'N'] as const;
+export type GenderValue = (typeof GENDER_VALUES)[number];
+
+/**
+ * The id each of the three reply buttons carries, and by which the answer is
+ * recognised when it comes back — the same mechanism `CONSENT_YES_ID` uses at
+ * the consent step (engine.ts), for the same reason: an id this list does not
+ * hold is not an answer to this question, and gets a re-prompt rather than a
+ * guess.
+ *
+ * PREFIXED, so the three cannot collide with a promotion question's option ids
+ * (uuids) or with the two consent ids. The value is recovered by
+ * `genderFromButtonId` below rather than by slicing the string at a call site.
+ */
+export const GENDER_BUTTON_IDS: Record<GenderValue, string> = {
+  M: 'gender_M',
+  F: 'gender_F',
+  N: 'gender_N',
+};
+
+/** The value a gender button id stands for, or null if it stands for none. */
+export function genderFromButtonId(buttonId: string): GenderValue | null {
+  const match = GENDER_VALUES.find((value) => GENDER_BUTTON_IDS[value] === buttonId);
+  return match ?? null;
+}
+
+/**
+ * `FIELD_SHAPE` for a caller that holds a plain string rather than a
+ * `RequestedField`, which is the widget's situation: `readSteps`
+ * (lib/widget/promotion-mapping.ts) parses steps out of a jsonb column and keeps
+ * `field` as `string` on purpose, so a promotion configured with a value this
+ * build has never heard of renders as an unknown field instead of crashing the
+ * form.
+ *
+ * An unknown field is TEXT, and that is the safe direction rather than an
+ * arbitrary one: a text input accepts whatever a choice would have offered,
+ * where a choice with no options is a field nobody can fill in. The value still
+ * has to survive `apply_member_field_values` at the far end, which resolves what
+ * it knows and leaves the rest alone.
+ */
+export function fieldShapeOf(field: string): FieldShape {
+  return FIELD_SHAPE[field as RequestedField] ?? 'text';
+}
+
+/**
  * One Station's own wording. PARTIAL on purpose (D2): a row exists per
  * OVERRIDDEN text, never one per Station, so a missing key is the ordinary
  * case and `resolveSystemMessage` answers it with the code's own default.

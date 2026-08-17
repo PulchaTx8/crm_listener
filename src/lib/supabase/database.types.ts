@@ -1375,6 +1375,7 @@ export type Database = {
           first_contact_at: string | null
           first_contact_origin: string | null
           full_name: string | null
+          gender: string | null
           id: string
           neighbourhood: string | null
           organization_id: string
@@ -1404,6 +1405,7 @@ export type Database = {
           first_contact_at?: string | null
           first_contact_origin?: string | null
           full_name?: string | null
+          gender?: string | null
           id?: string
           neighbourhood?: string | null
           organization_id: string
@@ -1433,6 +1435,7 @@ export type Database = {
           first_contact_at?: string | null
           first_contact_origin?: string | null
           full_name?: string | null
+          gender?: string | null
           id?: string
           neighbourhood?: string | null
           organization_id?: string
@@ -4382,6 +4385,7 @@ export type Database = {
           p_first_contact_at?: string
           p_first_contact_origin?: string
           p_full_name: string
+          p_gender?: string
           p_neighbourhood?: string
           p_passport?: string
           p_phone?: string
@@ -4601,6 +4605,7 @@ export type Database = {
         Args: { p_event_id: string; p_outcome: string }
         Returns: Json
       }
+      gender_normalize: { Args: { p_input: string }; Returns: string }
       get_audience_dashboard: {
         Args: {
           p_company_ids: string[]
@@ -5768,6 +5773,7 @@ export type Database = {
           p_discovery_source?: string
           p_email?: string
           p_full_name: string
+          p_gender?: string
           p_member_id: string
           p_neighbourhood?: string
           p_passport?: string
@@ -6050,6 +6056,7 @@ export type Database = {
         | "city"
         | "neighbourhood"
         | "age"
+        | "gender"
         | "cpf"
         | "passport"
         | "discovery_source"
@@ -6075,6 +6082,7 @@ export type Database = {
         | "CITY"
         | "NEIGHBOURHOOD"
         | "AGE"
+        | "GENDER"
         | "CPF"
         | "PASSPORT"
         | "DISCOVERY_SOURCE"
@@ -6296,6 +6304,7 @@ export const Constants = {
         "city",
         "neighbourhood",
         "age",
+        "gender",
         "cpf",
         "passport",
         "discovery_source",
@@ -6323,6 +6332,7 @@ export const Constants = {
         "CITY",
         "NEIGHBOURHOOD",
         "AGE",
+        "GENDER",
         "CPF",
         "PASSPORT",
         "DISCOVERY_SOURCE",

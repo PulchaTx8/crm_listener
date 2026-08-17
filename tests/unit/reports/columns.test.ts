@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LISTING_TYPES, REPORT_COLUMNS, type ListingType } from '@/lib/reports/types';
@@ -24,14 +24,6 @@ import { reportRequestSchema } from '@/schemas/reports';
 
 const MIGRATIONS = join(process.cwd(), 'supabase', 'migrations');
 
-const SOURCE_FILES: Record<ListingType, string> = {
-  LISTENERS: '0124_report_pages_a.sql',
-  PARTICIPATIONS: '0124_report_pages_a.sql',
-  WINNERS: '0125_report_pages_b.sql',
-  MUSIC_REQUESTS: '0125_report_pages_b.sql',
-  MOVEMENTS: '0125_report_pages_b.sql',
-};
-
 const FUNCTION_NAMES: Record<ListingType, string> = {
   LISTENERS: 'report_page_listeners',
   PARTICIPATIONS: 'report_page_participations',
@@ -40,15 +32,62 @@ const FUNCTION_NAMES: Record<ListingType, string> = {
   MOVEMENTS: 'report_page_movements',
 };
 
+/**
+ * The LAST migration that defines this function, which is the only one whose
+ * body is live.
+ *
+ * THIS REPLACES A HARD-CODED FILE PER REPORT (0124 for two of them, 0125 for
+ * three), and the gender block is what exposed the difference. 0221 recreates
+ * `report_page_listeners` to add a column; against the old map this test went on
+ * reading 0124 — a body that has not been the live definition since — and
+ * reported the new column as one the SQL does not build.
+ *
+ * The failure was in the safe direction that time. The other direction is the
+ * one worth guarding: a later migration that DROPS a key would leave this test
+ * reading a source that still has it, reporting agreement between a spreadsheet
+ * column and SQL that stopped producing it — which is precisely the column of
+ * blanks this file exists to make impossible.
+ *
+ * Sorted by file name, which is this project's migration order by construction:
+ * every file is `NNNN_name.sql` and the number is zero-padded to four, so a
+ * lexical sort and the apply order are the same sequence.
+ */
+function liveSourceFor(name: string): { file: string; sql: string } {
+  const files = readdirSync(MIGRATIONS)
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
+
+  for (const file of [...files].reverse()) {
+    const sql = readFileSync(join(MIGRATIONS, file), 'utf8');
+    // Both spellings, because a first definition is `create function` and every
+    // recreation since has been `create or replace function`.
+    if (
+      sql.includes(`create function public.${name}(`) ||
+      sql.includes(`create or replace function public.${name}(`)
+    ) {
+      return { file, sql };
+    }
+  }
+
+  throw new Error(`no migration defines public.${name}`);
+}
+
 /** Every `'key',` appearing inside the function's jsonb_build_object calls. */
 function keysProducedBy(type: ListingType): Set<string> {
-  const sql = readFileSync(join(MIGRATIONS, SOURCE_FILES[type]), 'utf8');
+  const name = FUNCTION_NAMES[type];
+  const { file, sql } = liveSourceFor(name);
 
-  const start = sql.indexOf(`create function public.${FUNCTION_NAMES[type]}(`);
-  expect(start, `${FUNCTION_NAMES[type]} is defined in ${SOURCE_FILES[type]}`).toBeGreaterThan(-1);
+  const start = Math.max(
+    sql.indexOf(`create function public.${name}(`),
+    sql.indexOf(`create or replace function public.${name}(`),
+  );
+  expect(start, `${name} is defined in ${file}`).toBeGreaterThan(-1);
 
-  // Up to the comment that closes every one of these functions.
-  const end = sql.indexOf(`comment on function public.${FUNCTION_NAMES[type]}`, start);
+  // Up to the comment that closes these functions — or, when the recreation
+  // carries no comment of its own, to the end of the file. A body that runs to
+  // the end of the file can only over-collect keys, never miss one, and every
+  // migration that recreates one of these defines nothing else after it.
+  const end = sql.indexOf(`comment on function public.${name}`, start);
   const body = sql.slice(start, end === -1 ? undefined : end);
 
   const keys = new Set<string>();
@@ -101,7 +140,7 @@ describe('report columns and the SQL that fills them', () => {
     // The direction that matters. A declared key the SQL never builds is a
     // column of blanks in a real export.
     const missing = declared.filter((key) => !produced.has(key));
-    expect(missing, `${type} declares keys 0124/0125 do not build`).toEqual([]);
+    expect(missing, `${type} declares keys its live page function does not build`).toEqual([]);
   });
 
   it.each(LISTING_TYPES)('%s: no column is declared twice', (type) => {

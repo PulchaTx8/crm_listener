@@ -224,8 +224,30 @@ describe('promotionFormSchema', () => {
   });
 
   it('refuses a field the enum does not have', () => {
-    const r = promotionFormSchema.safeParse({ ...whatsapp, requestedFields: ['gender'] });
+    // THE EXAMPLE USED TO BE 'gender', AND THE GENDER BLOCK MADE IT PASS —
+    // which is the test doing its job, not failing at it: the value became
+    // real, so the schema stopped refusing it.
+    //
+    // 'favourite_station' replaces it, and is the better example for as long as
+    // this assertion lives. Block 4a's spec D5 excluded three fields the owner's
+    // old system offered — gender, favourite station, favourite show — and the
+    // gender block reopened exactly ONE of the three, on a reason that does not
+    // extend to the other two (there is no messaging feature a favourite show
+    // would serve). So this names a value the schema is meant to go on refusing
+    // rather than one that was merely absent on the day the test was written.
+    const r = promotionFormSchema.safeParse({
+      ...whatsapp,
+      requestedFields: ['favourite_station'],
+    });
     expect(r.success).toBe(false);
+  });
+
+  it('accepts the field the gender block added', () => {
+    // The other half, and it is not symmetry for its own sake: the assertion
+    // above passes for a schema that refuses EVERYTHING, including the ten
+    // fields it is supposed to take. Nothing else in this file would notice.
+    const r = promotionFormSchema.safeParse({ ...whatsapp, requestedFields: ['gender'] });
+    expect(r.success).toBe(true);
   });
 });
 

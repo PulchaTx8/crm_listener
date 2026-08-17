@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Select } from '@/components/ui/input';
 import { countryOptions } from '@/lib/countries';
+import { GenderSelect } from '@/components/members/gender-select';
 import type { MemberDetail } from '@/services/members';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
@@ -406,6 +407,11 @@ function DataTab({
           } defaultValue="" />
         <Field name="passport" label={t('fieldPassport')} defaultValue={detail.passport ?? ''} />
         <Field name="birthDate" label={t('fieldDateOfBirth')} type="date" defaultValue={detail.birthDate ?? ''} />
+        {/* The gender block. Beside the birth date rather than at the end of
+            the form, matching where promotion_requested_field places the
+            question (0219) and where the conversation asks it: the two are
+            the same kind of fact about the same person. */}
+        <GenderSelect defaultValue={detail.gender ?? ''} />
         <Field name="addressLine" label={t('fieldAddress')} defaultValue={detail.addressLine ?? ''} />
         <Field name="addressNumber" label={t('fieldNumber')} defaultValue={detail.addressNumber ?? ''} />
         <Field name="addressComplement" label={t('fieldComplement')} defaultValue={detail.addressComplement ?? ''} />

@@ -291,6 +291,12 @@ export interface MemberListParams {
   blockedOnly?: boolean;
   /** Filters on the LATEST rules consent, which costs the total — see the note in the body. */
   hasRulesConsent?: boolean;
+  /**
+   * The gender block. One of the three stored codes, or 'none' for listeners
+   * with no answer recorded — a distinct population from 'N', which is
+   * somebody who was asked and declined.
+   */
+  gender?: string;
   /** Instants, not calendar days: members-filters.tsx converts the operator's chosen dates in the browser. */
   registeredFrom?: string;
   registeredTo?: string;
@@ -520,6 +526,20 @@ export async function listOrganizationMembers(
     if (params.ageMax !== undefined) q = q.gt('birth_date', isoDateYearsAgo(params.ageMax + 1));
     if (params.ageMin !== undefined) q = q.lte('birth_date', isoDateYearsAgo(params.ageMin));
 
+    // The gender block. A plain equality on an indexed-by-nothing column, and
+    // deliberately not given an index of its own: three values over a whole
+    // Organization is not selective enough for one to be read, and the query
+    // is already bounded by organization_id. The day this filter is combined
+    // with a campaign over hundreds of thousands of listeners is the day to
+    // measure it, not before.
+    //
+    // `is('gender', null)` FOR 'none', NOT `eq`: SQL equality against null is
+    // null, so an `eq` here would return nothing at all and read on screen as
+    // "no listener has been left unasked" — the most misleading possible
+    // answer to the one filter that exists to find them.
+    if (params.gender === 'none') q = q.is('gender', null);
+    else if (params.gender) q = q.eq('gender', params.gender);
+
     if (params.registeredFrom) q = q.gte('created_at', params.registeredFrom);
     if (params.registeredTo) q = q.lte('created_at', params.registeredTo);
 
@@ -647,6 +667,8 @@ export interface MemberDetail {
   state: string | null;
   postalCode: string | null;
   country: string | null;
+  /** 'M', 'F' or 'N' (0220). Null is a FOURTH state: nobody has asked. */
+  gender: string | null;
   discoverySource: string | null;
   firstContactAt: string | null;
   firstContactOrigin: string | null;
@@ -676,7 +698,7 @@ export async function getMember(memberId: string, accessToken: string): Promise<
   const { data, error } = await asCaller(accessToken)
     .from('members')
     .select(
-      'id, full_name, phone, email, cpf_last_digits, passport, birth_date, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, country, discovery_source, first_contact_at, first_contact_origin, anonymized_at, created_at',
+      'id, full_name, phone, email, cpf_last_digits, passport, birth_date, gender, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, country, discovery_source, first_contact_at, first_contact_origin, anonymized_at, created_at',
     )
     .eq('id', memberId)
     .is('deleted_at', null)
@@ -702,6 +724,7 @@ export async function getMember(memberId: string, accessToken: string): Promise<
     state: data.state,
     postalCode: data.postal_code,
     country: data.country,
+    gender: data.gender,
     discoverySource: data.discovery_source,
     firstContactAt: data.first_contact_at,
     firstContactOrigin: data.first_contact_origin,
@@ -911,6 +934,7 @@ export async function createMember(input: CreateMemberInput, accessToken: string
     p_state: input.state,
     p_postal_code: input.postalCode,
     p_country: input.country,
+    p_gender: input.gender,
     p_discovery_source: input.discoverySource,
     p_first_contact_at: input.firstContactAt ? input.firstContactAt.toISOString() : undefined,
     p_first_contact_origin: input.firstContactOrigin,
@@ -938,6 +962,7 @@ export async function updateMember(input: UpdateMemberInput, accessToken: string
     p_state: input.state,
     p_postal_code: input.postalCode,
     p_country: input.country,
+    p_gender: input.gender,
     p_discovery_source: input.discoverySource,
   });
   if (error) throw mapMemberError(error.code, error.message);

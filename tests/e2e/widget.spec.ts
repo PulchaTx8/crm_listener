@@ -509,11 +509,18 @@ test.beforeAll(async ({}, testInfo) => {
     p_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(),
     p_web_enabled: true,
     p_rules: PROMOTION_RULES,
-    // One field, so the walk has two screens: consent, then the fields. Allowed
-    // on the strength of p_web_enabled alone -- which is exactly what 0171's
+    // Two fields, on ONE screen: `screensFor` groups every field step together,
+    // so the walk still has two screens -- consent, then the fields. Allowed on
+    // the strength of p_web_enabled alone, which is exactly what 0171's
     // promotions_conversational_shape replaced promotions_whatsapp_shape to
     // permit, and what this journey proves end to end.
-    p_requested_fields: ['city'],
+    //
+    // THE SECOND ONE IS THE GENDER BLOCK'S, and it is here rather than in a
+    // spec of its own because it is the only CHOICE-shaped field: the widget
+    // draws it as a <select> instead of a text box, and the value it posts has
+    // to survive gender_normalize (0220) on the way into a column with a CHECK
+    // constraint. Nothing short of this journey exercises that chain.
+    p_requested_fields: ['city', 'gender'],
   });
   if (promotionError) throw new Error(`could not seed the promotion: ${promotionError.message}`);
 
@@ -799,6 +806,11 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   await widget.getByTestId('widget-promotion-next').click();
 
   await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
+  // A SELECT, NOT A TEXT BOX, and selecting by VALUE rather than by label: the
+  // three codes are what the column stores, the labels are translated, and a
+  // test that drove this by visible text would break in a language nobody
+  // changed the feature in.
+  await widget.getByTestId('widget-promotion-field-gender').selectOption('F');
   await widget.getByTestId('widget-promotion-next').click();
 
   // THE ALTERNATIVES, WHICH IS THE REPAIR. Before it, this screen was a text
@@ -842,11 +854,15 @@ test('a visitor identifies themselves from another origin, and asks for a song',
   // writer 0171 extracted rather than a third copy of the eight-way mapping.
   const { data: listener } = await admin
     .from('members')
-    .select('city')
+    .select('city, gender')
     .eq('id', entry!.member_id)
     .limit(1);
 
   expect(listener?.[0]?.city).toBe(LISTENER_CITY);
+  // The gender block, end to end: a <select> in a browser, through the widget's
+  // door, through apply_member_field_values, through gender_normalize, into a
+  // column that would have refused anything else with a 23514.
+  expect(listener?.[0]?.gender).toBe('F');
 });
 
 /**
@@ -1209,6 +1225,12 @@ test('an entry is recorded only when "Enter now" is pressed, never by "Next"', a
   await widget.getByTestId('widget-promotion-next').click();
 
   await widget.getByTestId('widget-promotion-field-city').fill(LISTENER_CITY);
+  // The gender block's field is on this same screen -- `screensFor` groups every
+  // field step together -- so this walk has to answer it before "Next" leads
+  // anywhere. Left unanswered, the door refuses with `missing_answers` and the
+  // panel sends the listener straight back here, which is the behaviour the
+  // assertions below would then be measuring instead of the one they name.
+  await widget.getByTestId('widget-promotion-field-gender').selectOption('M');
   await widget.getByTestId('widget-promotion-next').click();
 
   // THE BASELINE, NOT THE PROOF: the field is filled, so this first arrival
@@ -1222,6 +1244,10 @@ test('an entry is recorded only when "Enter now" is pressed, never by "Next"', a
 
   await widget.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(widget.getByTestId('widget-promotion-field-city')).toBeVisible({ timeout: 30_000 });
+  // Both fields keep what was entered -- the walk is browser state until the
+  // end (this file's own header) -- so going back and forward answers nothing
+  // again and changes nothing about what the send will carry.
+  await expect(widget.getByTestId('widget-promotion-field-gender')).toHaveValue('M');
   await widget.getByTestId('widget-promotion-next').click();
 
   // THE ASSERTION THAT MATTERS. A plain wait, not a poll for a state that

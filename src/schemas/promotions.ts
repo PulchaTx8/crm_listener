@@ -1,38 +1,80 @@
 import { z } from 'zod';
+import type { Enums } from '@/lib/supabase/database.types';
 
 /**
- * The eight fields the bot may ask a listener for, in the order the WhatsApp
- * tab lists them and the order the bot asks them. Every marked field is asked
- * the same way: the owner was asked directly whether one would ever need
- * settings of its own — required versus optional, or its own place in the
- * queue — and said no (design spec D6). That answer is why this is a list on
- * the promotion rather than a table with a row per field.
+ * The fields the bot may ask a listener for. Every marked field is asked the
+ * same way: the owner was asked directly whether one would ever need settings
+ * of its own — required versus optional, or its own place in the queue — and
+ * said no (design spec D6). That answer is why this is a list on the promotion
+ * rather than a table with a row per field.
  *
  * Each value names the `members` column it fills, not the label on screen. The
  * label is interface and will be reworded; the column is the contract.
  *
- * Three fields the owner's old system offered — gender, favourite station,
- * favourite show — are deliberately missing. They map to no column, and his
- * decision was that the new system will not have them (D5).
+ * A TOTAL RECORD OVER THE GENERATED ENUM, and the gender block is what paid for
+ * it. Until now this was a hand-written array, and a hand-written array is a
+ * SECOND declaration of `promotion_requested_field` with nothing holding the two
+ * together: 0213 could have added `country` to the database and left this file
+ * compiling in silence, exactly as 0160 once added `WEB_VERIFICATION` to
+ * `template_purpose` beside an array that did not have it — `schemas/templates.ts`
+ * carries that story in full, and the cost was a screen with no card for a value
+ * the database already had, and a console telling operators to register it there.
+ *
+ * So the array is DERIVED from a record the compiler forces to be total. An
+ * eleventh enum value stops this file building until somebody places it, which
+ * is the point: placing it is the work, and forgetting to is the defect.
+ *
+ * `true` carries nothing — the record exists to be total, not to hold a value.
+ * The trick, and the reason for it, are `TEMPLATE_PURPOSE_SET`'s.
  */
-export const REQUESTED_FIELD_ORDER = [
-  'full_name',
-  'address',
-  'city',
-  'neighbourhood',
+const REQUESTED_FIELD_SET: Record<Enums<'promotion_requested_field'>, true> = {
+  full_name: true,
+  address: true,
+  city: true,
+  neighbourhood: true,
   // Block 28, D10. Beside the other three geography fields rather than at the
   // end, because this list is the ORDER the checkboxes render in and an
-  // operator ticking a place ticks the whole place. The enum keeps it last
-  // (`alter type ... add value` appends), and nothing reads the two against
-  // each other — this array is a screen's order, not a mirror of a declaration.
-  'country',
-  'age',
-  'cpf',
-  'passport',
-  'discovery_source',
-] as const;
+  // operator ticking a place ticks the whole place. The database enum places it
+  // elsewhere, and nothing reads the two against each other — this is a
+  // screen's order, not a mirror of a declaration.
+  country: true,
+  age: true,
+  // The gender block, and it REVERSES this file's own previous paragraph, which
+  // read: "Three fields the owner's old system offered — gender, favourite
+  // station, favourite show — are deliberately missing. They map to no column,
+  // and his decision was that the new system will not have them (D5)."
+  //
+  // D5 stood for three years' worth of blocks and is reversed for one of the
+  // three only. The reason changed rather than turning out to be wrong: when it
+  // was written there was no segmented outbound messaging, so a gender column
+  // answered a question nobody could ask. Block 29 creates that question — a
+  // campaign addressed to the women of a Station — and the field is reopened for
+  // TARGETING and not for eligibility (0220's header states the difference and
+  // what it would cost to cross it).
+  //
+  // `favourite station` and `favourite show` are NOT reopened. D5 stands for
+  // both, and this comment is where a future reader finds that out.
+  //
+  // Beside `age` for the same reason `country` sits beside the geography: they
+  // are the same kind of question about the same person, and an operator ticking
+  // one usually ticks the other.
+  gender: true,
+  cpf: true,
+  passport: true,
+  discovery_source: true,
+};
 
-export type RequestedField = (typeof REQUESTED_FIELD_ORDER)[number];
+/**
+ * The fields, in the order the WhatsApp tab lists them — which is the order
+ * `Object.keys` returns a string-keyed object literal in, i.e. the order
+ * written above.
+ */
+export const REQUESTED_FIELD_ORDER = Object.keys(REQUESTED_FIELD_SET) as [
+  Enums<'promotion_requested_field'>,
+  ...Enums<'promotion_requested_field'>[],
+];
+
+export type RequestedField = Enums<'promotion_requested_field'>;
 
 const requestedField = z.enum(REQUESTED_FIELD_ORDER);
 

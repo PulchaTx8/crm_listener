@@ -1,5 +1,6 @@
 import type { MemberSortKey } from '@/services/members';
 import type { SortDirection } from '@/lib/keyset';
+import { GENDER_VALUES, type GenderValue } from '@/lib/conversation/steps';
 
 /**
  * The audience screen's URL contract, in one place because three callers have
@@ -25,6 +26,7 @@ export interface MemberListSearchParams {
   ageMax?: string;
   blocked?: string;
   consent?: string;
+  gender?: string;
   from?: string;
   to?: string;
 }
@@ -47,6 +49,16 @@ export interface MemberListState {
   blockedOnly: boolean;
   /** 'yes' — the latest rules consent is a grant; 'no' — it is not, or there is none. */
   consent?: 'yes' | 'no';
+  /**
+   * The gender block. One of the three stored codes, or 'none' for the
+   * FOURTH population: listeners with no answer recorded at all.
+   *
+   * 'none' IS NOT 'N'. 'N' is somebody who was asked and declined; 'none' is
+   * somebody nobody asked. A campaign addressed to one is not addressed to
+   * the other, and a filter that could not separate them would make the
+   * column's fourth state unreachable from the screen that exists to use it.
+   */
+  gender?: GenderValue | 'none';
   /** Instants, converted from the operator's calendar days in the browser (see members-filters.tsx). */
   registeredFrom?: string;
   registeredTo?: string;
@@ -73,6 +85,24 @@ function parseAge(raw: string | undefined): number | undefined {
   const value = Number.parseInt(raw, 10);
   if (!Number.isFinite(value) || value < 0 || value > MAX_AGE) return undefined;
   return value;
+}
+
+/**
+ * A gender the URL names, or nothing. Read against GENDER_VALUES rather than
+ * a hand-written union, so a fourth code added to the column reaches this
+ * filter without anybody editing this function -- and, more to the point, so
+ * a code REMOVED from the column stops being accepted here.
+ *
+ * Anything else is dropped rather than passed on, the same rule parseInstant
+ * states below: an unrecognised value would reach PostgREST as an `eq` on a
+ * column with a CHECK constraint and come back as an error page, where
+ * dropping it shows the unfiltered audience -- which is what the URL asked
+ * for, minus the part nobody could read.
+ */
+function parseGender(raw: string | undefined): GenderValue | 'none' | undefined {
+  if (!raw) return undefined;
+  if (raw === 'none') return 'none';
+  return (GENDER_VALUES as readonly string[]).includes(raw) ? (raw as GenderValue) : undefined;
 }
 
 /** An unparseable instant is dropped rather than passed on: a filter nobody can read is not a filter. */
@@ -102,6 +132,7 @@ export function parseMemberListState(raw: MemberListSearchParams): MemberListSta
     ageMax: parseAge(raw.ageMax),
     blockedOnly: raw.blocked === '1',
     consent: raw.consent === 'yes' ? 'yes' : raw.consent === 'no' ? 'no' : undefined,
+    gender: parseGender(raw.gender),
     registeredFrom: parseInstant(raw.from),
     registeredTo: parseInstant(raw.to),
   };
@@ -121,6 +152,7 @@ export function hasActiveFilters(state: MemberListState): boolean {
       state.ageMax !== undefined ||
       state.blockedOnly ||
       state.consent ||
+      state.gender ||
       state.registeredFrom ||
       state.registeredTo,
   );
@@ -148,6 +180,7 @@ export function membersHref(state: MemberListState, cursor?: MemberListCursor | 
   if (state.ageMax !== undefined) query.set('ageMax', String(state.ageMax));
   if (state.blockedOnly) query.set('blocked', '1');
   if (state.consent) query.set('consent', state.consent);
+  if (state.gender) query.set('gender', state.gender);
   if (state.registeredFrom) query.set('from', state.registeredFrom);
   if (state.registeredTo) query.set('to', state.registeredTo);
   if (cursor) query.set(cursor.side, cursor.value);

@@ -58,6 +58,13 @@ function messageLabels(
       when: fieldWhen('fieldNeighbourhood', t),
     },
     AGE: { title: t('messageAgeTitle'), when: fieldWhen('fieldDateOfBirth', t) },
+    // The gender block, and the only card here whose text is not the whole of
+    // what a listener sees: this one field goes out with three reply buttons
+    // (FIELD_SHAPE, lib/conversation/steps.ts), and a Station may reword the
+    // question but not the three answers. `messageGenderWhen` says so on the
+    // card rather than leaving an operator to discover it by editing the body
+    // and finding the buttons unchanged.
+    GENDER: { title: t('messageGenderTitle'), when: t('messageGenderWhen') },
     CPF: { title: t('messageCpfTitle'), when: fieldWhen('fieldCpf', t) },
     PASSPORT: { title: t('messagePassportTitle'), when: fieldWhen('fieldPassportNumber', t) },
     DISCOVERY_SOURCE: {

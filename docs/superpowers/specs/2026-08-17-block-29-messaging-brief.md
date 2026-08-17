@@ -865,3 +865,97 @@ two runs in five — this branch met it at a worse rate and nothing more.
 `is_owner_of_company` to `has_company_access`, applied to the live local database,
 turns `station-settings.test.ts`'s delegate case red — and only that case, which is
 exactly the one the manifest entry claims has no other proof.
+
+---
+
+## 18. The gender block as built (2026-08-17)
+
+Delivered as §5b specified, with three additions the work itself produced.
+
+### The five decisions, as they landed
+
+| | |
+|---|---|
+| **D8** | Targeting only. Nothing in participation or the draw changed. |
+| **D9** | `M` / `F` / `N`, with `NULL` a fourth population — "nobody asked", which the campaign filter can select on its own. |
+| **D10** | Three reply buttons on WhatsApp, a `<select>` in the widget and on both operator forms — all four from one `FIELD_SHAPE`, total over `RequestedField`. |
+| **D5 reversal** | Recorded in 0219, in `schemas/promotions.ts` and in the pgTAP file. `favourite station` and `favourite show` are **not** reopened. |
+| **Option labels** | System constants. A Station rewords the question, not the three answers — declared debt, named on the Promo Messages card itself so an operator does not discover it by trying. |
+
+### Migrations
+
+- **0219** — the two `ADD VALUE`s, alone in their file. `gender` is placed **after `age`**, not appended: `whatsapp_conversation_steps` orders the walk by this enum's declaration order, so the line decides where the question falls. `GENDER` is placed after `AGE` in `system_message_key` for the same symmetry.
+- **0220** — the column and its CHECK, `gender_normalize`, and the live-definition-forward recreation of `member_field_value`, `apply_member_field_values`, `anonymize_member`, `create_member` and `update_member`.
+- **0221** — `report_page_listeners`, so the Listeners export carries what the members list now filters on.
+
+`member_field_values` and `whatsapp_conversation_steps` needed **nothing**: both walk `enum_range`, so a tenth value reaches them on its own. That genericity is why this is five functions and not a dozen.
+
+### Three things the work found, fixed inside it
+
+**1. A third hand-written field list, invisible to the compiler.** `schemas/widget-promotions.ts` validated the widget's posted fields with `z.enum` over a **hand-written** array of nine. A tenth field in the database, on every screen and in every other list — and this one silently absent, because a `z.enum` over a literal array is valid TypeScript. The symptom was not a compile error or a validation message: the schema refused the whole payload, the action answered `invalid`, and the widget told a listener **"Something went wrong. Try again."** on a field it had just drawn for them.
+
+Only the extended e2e journey could find it. Both that list and `REQUESTED_FIELD_ORDER` in `schemas/promotions.ts` are now derived from a `Record<Enums<'promotion_requested_field'>, true>` the compiler refuses to leave incomplete.
+
+**2. `widget.field_country` never existed.** Block 28 added `country` as a requested field and gave the widget no label for it, so a promotion asking for it rendered the raw key. Added in all three catalogues.
+
+**3. `anonymize_member` never cleared `country`.** Block 28 added the column and left it out of the erasure list — beside a nulled city, state, postal code and neighbourhood. Fixed in the same statement that adds `gender`, because the line being edited is the same line.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `next lint` | clean |
+| `vitest run` | 127 files, 1516 tests (13 new engine cases) |
+| `supabase test db` | 65 files, 2073 assertions (adds `63_gender.test.sql`, 27 of them) |
+| `playwright` widget journey | 7 passed — and it is what caught finding 1 |
+| `npm run test:isolation` | every case passes; the wrapper's completeness check is red on this machine — see below |
+
+**Mutation-checked, four ways, rather than merely green:**
+
+| Mutation | What went red |
+|---|---|
+| `fieldTurn` refuses typed answers on a choice field | the two cases that say a typed answer must be accepted |
+| every field accepts a button, not just choice-shaped ones | the case that says a text field still refuses one |
+| `update_member` writes `p_gender` raw, bypassing the resolver | the isolation case for prose — with a `23514` refusing the operator's **whole** save, which is the failure the resolver exists to prevent |
+| 0218's guard weakened to `has_company_access` (29a) | the delegate case, and only that one |
+
+### Deliberately not done
+
+**Eligibility.** No attribute-based rule exists anywhere in this schema, and `draw_eligible_participations` (0076) refuses a second definition of who is in the hat. Making gender one would be the first of its kind, would have to decide *when* it refuses, and is the block that must engage with LGPD Art. 6º IX directly. 0220's header carries the full cost.
+
+**Station-rewordable option labels.** `station_message_templates` holds one body per key; option labels are a different shape. Named on the card and in 0219.
+
+**Tags/groups.** Untouched, as §5b settled: nobody asks a listener for a tag, so it touches no engine and Block 29 does not need it.
+
+### The isolation suite, stated precisely
+
+**Every case passes. The wrapper still refuses, and it is right to.**
+
+Run under a JSON reporter this branch reports **45 of 45 files, 385 of 385
+cases, 0 failures** — `gender.test.ts` at its full 6 and `station-settings.test.ts`
+at its full 5. What `verify-isolation-suite.mjs` reads and refuses on is
+**vitest's own summary line**, which the same run printed as `42 passed (45)`
+and `368 passed (385)`.
+
+That disagreement is not a contradiction — it is the crash the script's header
+describes in exactly those words: *"the only thing that saw a worker die after
+its file's tests had all passed, a state in which the JSON report is entirely
+clean."* The work was done and counted; the process that was to report it died
+afterwards.
+
+It is **not this branch**. Block 29a ran a control with its new isolation file
+removed from disk and from the manifest, and the suite crashed identically at
+42 of 43. Across both blocks it fired on roughly four runs in five here,
+against the two in five the script's header records — a worse rate on this
+machine, and the same unexplained fault.
+
+One run also lost `draw.test.ts` to a 30-second timeout under full-suite load;
+the same file passes alone in 3.2 seconds and this branch touches nothing in
+the draw path.
+
+**What this costs, said plainly rather than waved away:** the isolation gate has
+not produced a complete green run on this branch, so its guarantee rests on the
+JSON report and on the scoped runs rather than on the wrapper. Both new files
+were additionally mutation-checked, which is a stronger statement than the
+wrapper makes about any file it does pass.

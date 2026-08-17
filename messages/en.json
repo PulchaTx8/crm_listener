@@ -608,7 +608,9 @@
     "notSet": "Not set",
     "actionChangeTheServiceHashtags": "change the service hashtags",
     "messageCountryTitle": "Asking for the country",
-    "fieldCountry": "the country"
+    "fieldCountry": "the country",
+    "messageGenderTitle": "Asking for the listener’s sex",
+    "messageGenderWhen": "Asked only by a promotion that requests it, and the one question the bot sends with buttons rather than as plain text. You can reword the question here; the three answers on the buttons are the system’s and cannot be changed yet."
   },
   "connectWhatsApp": {
     "title": "Connect WhatsApp Business",
@@ -989,7 +991,13 @@
     "notByYouNotBySupport": "— not by you, not by support. Only direct database access can restore it.",
     "fieldCountry": "Country",
     "country": "Country",
-    "noCountry": "No country"
+    "noCountry": "No country",
+    "fieldGender": "Sex",
+    "gender": "Sex",
+    "genderNotRecorded": "Not recorded",
+    "gender_M": "Male",
+    "gender_F": "Female",
+    "gender_N": "Preferred not to say"
   },
   "participations": {
     "draw": "Draw",
@@ -1561,7 +1569,8 @@
     "someoneHasAlreadyEnteredThisPromotion": "Someone has already entered this promotion, so the question itself can no longer be changed — that would leave answers pointing at wording nobody read.",
     "saveGuidelines": "Save guidelines",
     "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again.",
-    "requestedFieldCountry": "Country"
+    "requestedFieldCountry": "Country",
+    "requestedFieldGender": "Sex"
   },
   "music": {
     "closeRecord": "Close record",
@@ -2037,7 +2046,13 @@
     "exit": "Exit",
     "goodbye": "Thank you! See you next time.",
     "backToWhatsApp": "Back to WhatsApp",
-    "identifyAgainAction": "Identify me again"
+    "identifyAgainAction": "Identify me again",
+    "field_gender": "Sex",
+    "field_gender_M": "Male",
+    "field_gender_F": "Female",
+    "field_gender_N": "Prefer not to say",
+    "field_country": "Country",
+    "choosePlaceholder": "Choose…"
   },
   "shows": {
     "programmes": "Programmes",

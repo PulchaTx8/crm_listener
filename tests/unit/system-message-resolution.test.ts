@@ -40,7 +40,7 @@ const ALL_KEYS: SystemMessageKey[] = [
 ];
 
 describe('SYSTEM_MESSAGE_DEFAULTS', () => {
-  it('is the fourteen texts engine.ts already held, unchanged', () => {
+  it('is the fifteen texts engine.ts already held, unchanged', () => {
     // The constants stay where they are and BECOME the defaults. If this ever
     // drifts, a Station that overrides nothing starts speaking differently
     // than it did before the block, which is a change nobody asked for.
@@ -52,6 +52,7 @@ describe('SYSTEM_MESSAGE_DEFAULTS', () => {
       CITY: FIELD_PROMPTS.city,
       NEIGHBOURHOOD: FIELD_PROMPTS.neighbourhood,
       AGE: FIELD_PROMPTS.age,
+      GENDER: FIELD_PROMPTS.gender,
       CPF: FIELD_PROMPTS.cpf,
       PASSPORT: FIELD_PROMPTS.passport,
       DISCOVERY_SOURCE: FIELD_PROMPTS.discovery_source,
@@ -68,19 +69,24 @@ describe('SYSTEM_MESSAGE_DEFAULTS', () => {
     }
   });
 
-  it('maps each of the nine requested fields to its own distinct key', () => {
+  it('maps each of the ten requested fields to its own distinct key', () => {
     const keys = Object.values(FIELD_MESSAGE_KEYS);
-    expect(keys).toHaveLength(9);
-    expect(new Set(keys).size).toBe(9);
+    expect(keys).toHaveLength(10);
+    expect(new Set(keys).size).toBe(10);
     // Two fields sharing a key would let one override silently rewrite the
     // other's prompt -- and the pgTAP enum assertion could not see it, because
-    // the enum would still have its fourteen values.
+    // the enum would still have its fifteen values.
     expect(FIELD_MESSAGE_KEYS.full_name).toBe('FULL_NAME');
     expect(FIELD_MESSAGE_KEYS.discovery_source).toBe('DISCOVERY_SOURCE');
     // Block 28's ninth. Named explicitly beside the two above rather than left
     // to the count, because the count alone would accept a country that had
     // been pointed at some other field's key.
     expect(FIELD_MESSAGE_KEYS.country).toBe('COUNTRY');
+    // The gender block's tenth, named for the same reason -- and with one more
+    // of its own: it is the only field whose prompt is sent with buttons, so a
+    // key pointed at the wrong text would produce a question and three answers
+    // that do not belong to each other.
+    expect(FIELD_MESSAGE_KEYS.gender).toBe('GENDER');
   });
 });
 
