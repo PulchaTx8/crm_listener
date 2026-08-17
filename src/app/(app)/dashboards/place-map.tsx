@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { GeographyPlace } from '@/schemas/geography';
-import { circleRadius, mapScriptUrl } from './place-map-geometry';
+import { circleRadius, mapScriptUrl, MAPS_READY_CALLBACK } from './place-map-geometry';
 
 /**
  * Block 28. The Google map, and the only client component in this block.
@@ -31,16 +31,35 @@ interface MapsGlobal {
   };
 }
 
-function loadMaps(apiKey: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if ((window as unknown as { google?: MapsGlobal }).google?.maps) return resolve();
+/**
+ * ONE LOAD PER PAGE, remembered here.
+ *
+ * This module-level promise replaced a lookup for an existing <script id>, which
+ * was wrong in a way that produced NO message at all: if the tag was already in
+ * the DOM and had already finished, attaching a fresh `load` listener waited for
+ * an event that had come and gone, the promise never settled, and the panel
+ * rendered an empty box forever. That is the ordinary path when an operator
+ * moves between the Audience and Music dashboards, because a client-side
+ * navigation leaves the tag in `document.head`.
+ *
+ * A promise is the right memory precisely because it holds the RESULT of an
+ * event rather than the chance to hear it: a second caller arriving after the
+ * library is ready resolves immediately.
+ */
+let loading: Promise<void> | null = null;
 
-    const existing = document.getElementById(SCRIPT_ID);
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('maps script failed')));
-      return;
-    }
+function loadMaps(apiKey: string): Promise<void> {
+  const google = (window as unknown as { google?: MapsGlobal }).google;
+  if (google?.maps?.Map) return Promise.resolve();
+  if (loading) return loading;
+
+  loading = new Promise<void>((resolve, reject) => {
+    // GOOGLE CALLS THIS, and waiting on the script's own `load` event instead is
+    // what broke the map in production. Under `loading=async` the bootstrap
+    // finishes downloading — firing `load` — BEFORE `google.maps` is populated,
+    // so a caller that trusted `load` found no library and reported it could not
+    // be loaded. `callback` is the event that actually means "ready".
+    (window as unknown as Record<string, unknown>)[MAPS_READY_CALLBACK] = () => resolve();
 
     // createElement, not innerHTML: see this file's header. The one is allowed
     // by 'strict-dynamic' and the other is not.
@@ -48,10 +67,18 @@ function loadMaps(apiKey: string): Promise<void> {
     script.id = SCRIPT_ID;
     script.async = true;
     script.src = mapScriptUrl(apiKey);
-    script.addEventListener('load', () => resolve());
-    script.addEventListener('error', () => reject(new Error('maps script failed')));
+    script.addEventListener('error', () => {
+      // Cleared so a later mount can try again. A network blip must not leave
+      // every subsequent render resolving a promise that is permanently
+      // rejected.
+      loading = null;
+      script.remove();
+      reject(new Error('maps script failed'));
+    });
     document.head.appendChild(script);
   });
+
+  return loading;
 }
 
 export function PlaceMap({
@@ -91,8 +118,12 @@ export function PlaceMap({
     loadMaps(apiKey)
       .then(() => {
         if (cancelled || !container.current) return;
+        // `.Map` and not merely `.maps`: the namespace can exist while the
+        // constructor this component needs does not, and `new undefined()` is a
+        // TypeError the user would meet as a blank panel rather than as our
+        // sentence.
         const google = (window as unknown as { google?: MapsGlobal }).google;
-        if (!google?.maps) return setFailed(true);
+        if (!google?.maps?.Map) return setFailed(true);
 
         const bounds = new google.maps.LatLngBounds();
         for (const place of places) bounds.extend({ lat: place.latitude, lng: place.longitude });
@@ -133,6 +164,12 @@ export function PlaceMap({
     return () => {
       cancelled = true;
       delete (window as unknown as { gm_authFailure?: () => void }).gm_authFailure;
+      // MAPS_READY_CALLBACK is deliberately NOT deleted. Google calls it once,
+      // by name, whenever the library finishes — and a component that unmounted
+      // while the script was still in flight would otherwise remove the function
+      // Google is about to call, leaving `loading` pending forever and every
+      // later mount waiting on it. The resolve it triggers is harmless after
+      // unmount; the promise is what the next mount reuses.
     };
   }, [apiKey, places]);
 

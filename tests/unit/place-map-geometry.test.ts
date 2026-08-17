@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { circleRadius, mapScriptUrl } from '@/app/(app)/dashboards/place-map-geometry';
+import {
+  circleRadius,
+  mapScriptUrl,
+  MAPS_READY_CALLBACK,
+} from '@/app/(app)/dashboards/place-map-geometry';
 
 describe('circleRadius', () => {
   it('scales by AREA, not by radius, so a busy place is not drawn as bigger than it is', () => {
@@ -49,8 +53,27 @@ describe('mapScriptUrl', () => {
     expect(url).toContain('key=AIzaSyExample');
   });
 
-  it('carries loading=async, because its warning would sit above the error we send people to read', () => {
-    expect(mapScriptUrl('k')).toContain('loading=async');
+  it('carries loading=async AND the callback, because they are one contract', () => {
+    // THE REGRESSION THIS FILE NOW HOLDS. `loading=async` was added on its own
+    // to silence a console warning and it changed the initialisation contract:
+    // without it the bootstrap populates `google.maps` before the script's own
+    // `load` event fires; with it, `load` fires FIRST and the library is not
+    // there yet. The loader still trusted `load`, found no library and told the
+    // operator the map could not be loaded — on a correctly configured key.
+    //
+    // `callback` is the event that actually means ready. Whoever removes one of
+    // these two must remove the other, and this assertion is what stops one
+    // going without the other.
+    const url = mapScriptUrl('k');
+    expect(url).toContain('loading=async');
+    expect(url).toContain(`callback=${MAPS_READY_CALLBACK}`);
+  });
+
+  it('names a callback that cannot collide with anything else on the page', () => {
+    // Google's `callback` takes the NAME of a function on `window` — there is no
+    // form of it that takes a closure — so the name is a global and has to look
+    // like one.
+    expect(MAPS_READY_CALLBACK).toMatch(/^__pulchatx/);
   });
 
   it('encodes a key that arrived with a stray newline instead of letting it end the URL', () => {

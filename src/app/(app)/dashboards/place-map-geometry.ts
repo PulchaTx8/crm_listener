@@ -35,11 +35,28 @@ export function circleRadius(count: number, largest: number): number {
 }
 
 /**
+ * The global the Maps library calls once it is ready to be used.
+ *
+ * A GLOBAL BECAUSE GOOGLE'S CONTRACT SAYS SO — `callback` names a function on
+ * `window`, and there is no version of this that takes a closure. Namespaced so
+ * it cannot collide with anything else on the page.
+ */
+export const MAPS_READY_CALLBACK = '__pulchatxMapsReady';
+
+/**
  * The script URL that loads the Maps library.
  *
- * `loading=async` is Google's own current recommendation; without it the library
- * logs a performance warning, and that warning sits directly above the real
- * error in the console an operator is sent to read when a key is refused.
+ * `loading=async` AND `callback` TRAVEL TOGETHER, and separating them is what
+ * broke the map in production on 2026-08-17. `loading=async` was added on its
+ * own to silence a console warning, and it does more than that: it changes the
+ * initialisation contract. Without it the bootstrap populates `google.maps`
+ * before the script's own `load` event fires, so code that waits on `load` finds
+ * the library there. WITH it, `load` fires first and `google.maps` is not
+ * populated yet — so that same code concludes the library failed and says so.
+ *
+ * `callback` is the contract Google documents for the asynchronous form: it is
+ * called when the library is genuinely usable. Whoever removes one of these two
+ * must remove the other.
  *
  * The key is encoded rather than interpolated raw: a key carrying a stray
  * newline — which a pasted environment value does more often than anyone
@@ -47,5 +64,5 @@ export function circleRadius(count: number, largest: number): number {
  * entirely, with Google's own grey error card as the only clue.
  */
 export function mapScriptUrl(apiKey: string): string {
-  return `${MAPS_JS}?loading=async&key=${encodeURIComponent(apiKey)}`;
+  return `${MAPS_JS}?loading=async&callback=${MAPS_READY_CALLBACK}&key=${encodeURIComponent(apiKey)}`;
 }
