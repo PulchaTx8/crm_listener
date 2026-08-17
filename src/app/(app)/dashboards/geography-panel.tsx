@@ -51,7 +51,13 @@ export async function GeographyPanel({
   songs?: MusicGeographyPlace[];
 }) {
   const t = await getTranslations('dashboards');
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  // TRIMMED, and a key that is only whitespace counts as unset. EasyPanel's
+  // Environment tab keeps a trailing newline on a pasted value more often than
+  // anyone expects, and an untrimmed one reaches Google as `AIza...%0A` — a key
+  // it REFUSES, so the panel would render Google's own grey error card instead
+  // of the honest "not configured" line one character would have earned. This is
+  // the same family of trap `withoutBlanks` (src/lib/env.ts) exists for.
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY?.trim() || undefined;
 
   const byCity = rank(places, (place) => place.city);
   const byNeighbourhood = rank(places, (place) => place.neighbourhood);
@@ -82,6 +88,7 @@ export async function GeographyPanel({
                 places={places}
                 label={title}
                 unavailableLabel={t('theMapCouldNotBeLoaded')}
+                refusedLabel={t('theMapKeyWasRefused')}
               />
             ) : (
               // One muted line, and the tables below it unchanged. Design D6.

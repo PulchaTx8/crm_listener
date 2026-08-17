@@ -679,7 +679,8 @@
     "place": "Place",
     "song": "Song",
     "listenersColumn": "Listeners",
-    "mostRequestedByPlace": "Most requested, by place"
+    "mostRequestedByPlace": "Most requested, by place",
+    "theMapKeyWasRefused": "Google refused the map key for this site. The lists below are unchanged. Check the key’s website restriction, its API restriction, and that billing is on for the project."
   },
   "team": {
     "invitationSentTo": "Invitation sent to",

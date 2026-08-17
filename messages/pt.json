@@ -679,7 +679,8 @@
     "place": "Lugar",
     "song": "Música",
     "listenersColumn": "Ouvintes",
-    "mostRequestedByPlace": "Mais pedida, por lugar"
+    "mostRequestedByPlace": "Mais pedida, por lugar",
+    "theMapKeyWasRefused": "O Google recusou a chave do mapa para este site. As listas abaixo continuam as mesmas. Confira a restrição de site da chave, a restrição de API e se o faturamento do projeto está ativo."
   },
   "team": {
     "invitationSentTo": "Convite enviado para",

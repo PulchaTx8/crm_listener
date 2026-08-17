@@ -679,7 +679,8 @@
     "place": "Lugar",
     "song": "Canción",
     "listenersColumn": "Oyentes",
-    "mostRequestedByPlace": "Más pedida, por lugar"
+    "mostRequestedByPlace": "Más pedida, por lugar",
+    "theMapKeyWasRefused": "Google rechazó la clave del mapa para este sitio. Las listas de abajo no cambian. Revisa la restricción de sitio de la clave, la restricción de API y que la facturación del proyecto esté activa."
   },
   "team": {
     "invitationSentTo": "Invitación enviada a",
