@@ -184,13 +184,35 @@ create unique index message_templates_purpose_unique
 -- template_variable[]; the parameter is cast inside. Widening the parameter to
 -- the array type would be a new signature, and the ACL would go with it.
 --
--- WHAT ACTUALLY CHANGED, all four: the ON CONFLICT predicate now names the
--- narrowed index; the cast turns p_variables from prose into
--- template_variable[]; the insert fills the two columns this door now owns
--- itself (channel and internal_name); and the non-blank-string guard 0165 ran
--- ahead of the old jsonb_typeof check moved here, ahead of the cast, because a
--- JSON null still passes the cast silently (fix round 2, F3) -- confirmed
--- directly against the live function before this guard existed.
+-- WHAT ACTUALLY CHANGED, checked clause by clause against 0165 (fix round 3:
+-- the previous version of this comment undercounted the columns below by
+-- one, so this list is written to be checked against the body rather than
+-- trusted):
+--
+--   1. The ON CONFLICT predicate now names the index narrowed in step 7
+--      (gained `and purpose is not null`).
+--   2. p_variables is cast to public.template_variable[] before use: a new
+--      begin/exception block turns the jsonb array into v_fields, refusing
+--      22023 for any element the cast cannot resolve, and the placeholder-
+--      count check that follows now compares against v_fields (cardinality)
+--      rather than the raw jsonb array (jsonb_array_length).
+--   3. 0165's own non-blank-string guard, which used to run against v_vars
+--      directly, now runs ahead of that cast and is narrower than it was:
+--      only the non-string half (`jsonb_typeof(e) <> 'string'`) remains,
+--      because the blank-string half is now caught redundantly by the cast
+--      itself (`btrim('')` matches no enum label). Removed when this
+--      function was first rewritten for this migration, then restored in
+--      this exact narrower shape once fix round 2 (F3) found the cast alone
+--      lets a JSON null through silently -- confirmed directly against the
+--      live function.
+--   4. The insert fills THREE columns this door now owns itself: `channel`
+--      (fixed at 'WHATSAPP', since a system purpose is never email),
+--      `internal_name` (reused from v_name -- a system card has no second
+--      label to give it), and `updated_by` (stamped from v_actor). The ON
+--      CONFLICT DO UPDATE carries `internal_name` and `updated_by` forward
+--      on every re-registration too; `channel` is set once at insert and
+--      never revised there, because re-registering never changes which
+--      door a system purpose sends through.
 -- ---------------------------------------------------------------------------
 create or replace function public.register_message_template(
   p_company_id uuid,
