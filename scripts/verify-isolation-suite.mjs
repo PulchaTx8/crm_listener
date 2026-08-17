@@ -295,6 +295,30 @@ const REQUIRED_TEST_FILES = [
   // the one the caller does hold; and the two maps gating independently, so
   // members.view says nothing about music.view.
   { path: 'tests/isolation/geography.test.ts', minTests: 6 },
+  // Block 28. Five cases over the worker's fourth drain, and the floor is the
+  // full count because three of them exist nowhere else.
+  //
+  // THE SHARPEST IS THE QUOTA RULE: a refusal from the provider STOPS the batch
+  // rather than recording a verdict nobody gave. Get it wrong and one exhausted
+  // key marks every remaining place "unknown" — and none of them is retried,
+  // because claim_places_to_geocode holds a failed row back for seven days. The
+  // rows are the assertion, not a call log: `failed_at` null on the three that
+  // were never asked about.
+  //
+  // The second is that a drain with NO transport claims nothing at all —
+  // asserted on `attempts`, which is the only witness. Claiming first read well
+  // in the counters and rewrote every queued row on every tick of every
+  // deployment without a key, which is the state a deployment is in until
+  // somebody buys one.
+  //
+  // The third is that a place the provider does not know is recorded once and
+  // not asked again, which is the difference between a verdict and an error.
+  //
+  // It is in this directory rather than tests/unit because the QUEUE is the
+  // subject: every one of those claims is about what reached a column. A mocked
+  // client would let each be asserted against a call log instead — the shape of
+  // test that passes while the column stays null.
+  { path: 'tests/isolation/geocode-drain.test.ts', minTests: 5 },
   // Block 27. Six cases, and the floor is the full count because three of them
   // are the only proof of their property in this repository.
   //

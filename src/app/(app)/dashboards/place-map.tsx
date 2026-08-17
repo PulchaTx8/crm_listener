@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { GeographyPlace } from '@/schemas/geography';
+import { circleRadius, mapScriptUrl } from './place-map-geometry';
 
 /**
  * Block 28. The Google map, and the only client component in this block.
@@ -46,13 +47,7 @@ function loadMaps(apiKey: string): Promise<void> {
     const script = document.createElement('script');
     script.id = SCRIPT_ID;
     script.async = true;
-    // `loading=async` is Google's own current recommendation. Without it the
-    // library logs a performance warning to the console — which matters here
-    // beyond tidiness, because the console is exactly where an operator is sent
-    // to read WHY a key was refused, and a warning above the real error is a
-    // warning people stop at.
-    script.src =
-      `https://maps.googleapis.com/maps/api/js?loading=async&key=${encodeURIComponent(apiKey)}`;
+    script.src = mapScriptUrl(apiKey);
     script.addEventListener('load', () => resolve());
     script.addEventListener('error', () => reject(new Error('maps script failed')));
     document.head.appendChild(script);
@@ -116,18 +111,13 @@ export function PlaceMap({
         // marker says "something is here"; a radio wants to see WHERE ITS
         // AUDIENCE IS CONCENTRATED, and a pin gives every neighbourhood the
         // same visual weight whether it holds three listeners or three hundred.
-        //
-        // The radius is the SQUARE ROOT of the count, because a circle's area
-        // grows with the square of its radius — scaling the radius linearly
-        // would make a place with ten times the listeners look a hundred times
-        // bigger. That is the single most common way a proportional-symbol map
-        // lies.
+        // `circleRadius` (./place-map-geometry) is why the sizing does not lie.
         const largest = Math.max(...places.map((place) => place.count), 1);
         for (const place of places) {
           new google.maps.Circle({
             map,
             center: { lat: place.latitude, lng: place.longitude },
-            radius: 400 + 2600 * Math.sqrt(place.count / largest),
+            radius: circleRadius(place.count, largest),
             strokeColor: '#2563eb',
             strokeOpacity: 0.8,
             strokeWeight: 1,
