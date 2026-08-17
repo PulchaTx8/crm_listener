@@ -46,7 +46,18 @@ export function buildContentSecurityPolicy(
     // React emits for every style={{...}} prop -- the Block 8a charts are made
     // of them. Inline style is a far smaller class of risk than inline script,
     // and pretending otherwise would cost a rewrite of working screens.
-    "style-src 'self' 'unsafe-inline'",
+    // fonts.googleapis.com is Block 28's map and NOTHING else in this product.
+    // The Maps library injects three <link rel=stylesheet> at runtime — Roboto,
+    // Google Sans and Material Symbols Outlined, that last one being the ICON
+    // FONT ITS OWN ZOOM CONTROLS ARE DRAWN IN, so blocking it renders the map
+    // with empty boxes where the buttons should be.
+    //
+    // THIS WAS MISSED BY LOOKING, AND THE LOOKING WAS THE PROBLEM. Before
+    // shipping the map, `maps/api/js` and `maps-api-v3/.../main.js` were both
+    // downloaded and searched for this host; neither names it, and that was
+    // taken as proof there was no gap. The <link> is written by util.js, which
+    // the library fetches later. Two files out of many is not the library.
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     // cdn-images.dzcdn.net is where every album cover in this product comes
     // from (Block 13a, design D4). The host is named here and in exactly one
     // other place -- src/lib/integrations/deezer/cover.ts, which builds the
@@ -73,7 +84,11 @@ export function buildContentSecurityPolicy(
     // anything. The subdomain wildcard costs the ability to load media from
     // any dzcdn.net host, which is Deezer's own CDN and nothing else.
     "media-src 'self' https://*.dzcdn.net",
-    "font-src 'self' data:",
+    // The other half of the pair above: fonts.googleapis.com serves the CSS and
+    // the @font-face rules inside it point at fonts.gstatic.com for the binaries.
+    // Allowing only the stylesheet loads a rule whose font is then blocked,
+    // which renders as the same missing glyphs by a longer route.
+    "font-src 'self' data: https://fonts.gstatic.com",
     // MUST carry the Supabase origin: supabase-js talks to the project from the
     // browser, and the realtime socket uses ws(s). Without this every
     // client-side query dies and it looks like a broken product.

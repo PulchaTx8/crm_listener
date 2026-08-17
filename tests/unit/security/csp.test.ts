@@ -45,6 +45,20 @@ describe('the content security policy', () => {
     );
   });
 
+  it('admits the fonts the map draws its own controls in', () => {
+    // Block 28, found in production AFTER the map was working: the Maps library
+    // injects three stylesheets at runtime, one of them Material Symbols
+    // Outlined — the icon font ITS ZOOM BUTTONS ARE DRAWN IN. Blocked, the map
+    // renders with empty boxes where the controls should be.
+    //
+    // Both directives or neither: fonts.googleapis.com serves the CSS, and the
+    // @font-face rules inside it fetch the binaries from fonts.gstatic.com.
+    // Allowing only the first loads a rule whose font is then blocked, which
+    // looks identical to blocking both.
+    expect(directive('style-src')).toContain('https://fonts.googleapis.com');
+    expect(directive('font-src')).toContain('https://fonts.gstatic.com');
+  });
+
   it('admits Google Maps to img-src and connect-src, and NOT to script-src', () => {
     // Block 28, and the negative half is the point. script-src carries
     // 'strict-dynamic', and a browser that understands that keyword ignores
@@ -74,7 +88,9 @@ describe('the content security policy', () => {
   it('allows inline style deliberately', () => {
     // In CSP this keyword also covers the style ATTRIBUTE, which React emits for
     // every style={{...}} prop -- the Block 8a charts are made of them.
-    expect(directive('style-src')).toBe("style-src 'self' 'unsafe-inline'");
+    expect(directive('style-src')).toBe(
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    );
   });
 
   it('shuts the doors that need no nonce', () => {
