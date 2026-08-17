@@ -476,16 +476,22 @@ const REQUIRED_TEST_FILES = [
   // which is what stops the screen rendering the same blank whether the call
   // succeeded or failed.
   { path: 'tests/isolation/station-settings.test.ts', minTests: 6 },
-  // Block 29b-1. Five cases over the marketing door, and the floor is the full
-  // count because three have no other proof anywhere.
-  //
-  // 64_template_channel.test.sql holds the shape and the grants as superuser
-  // with a null auth.uid(), where has_permission answers true unconditionally.
-  // It cannot see: that templates.view alone is REFUSED; that a SECOND marketing
-  // template may exist beside the first (the case the narrowed index exists for,
-  // and which raises 23505 against the old one); and that an update by id lands
-  // on the same row rather than inserting a second.
-  { path: 'tests/isolation/marketing-templates.test.ts', minTests: 5 },
+  // Block 29b-1. Nine cases over the marketing door, and the floor is the full
+  // count because pgTAP cannot prove any of them -- 64_template_channel.test.sql
+  // holds the shape and the grants as superuser with a null auth.uid(), where
+  // has_permission answers true unconditionally, and every one of these nine is
+  // about what the door does with a REAL session: that templates.view alone is
+  // REFUSED; that a Station may hold more than one marketing template, because
+  // this door inserts by id rather than upserting on purpose the way
+  // register_message_template does; that a mixed-case placeholder like
+  // {{Listener_First_Name}} is recognized rather than silently waved through
+  // unchecked (fix round 1, F7); that an update lands on the same row rather
+  // than inserting a second; and the UPDATE branch's own tenancy terms, proved
+  // by driving all three ways an id can fail them (fix round 1, F10) -- another
+  // Station's row, a SYSTEM registration's row, and an id naming nothing at
+  // all, each refused with P0002, and for the first two the other row asserted
+  // unchanged rather than only the error code.
+  { path: 'tests/isolation/marketing-templates.test.ts', minTests: 9 },
   // The gender block. Six cases over the tenth requested field, and the floor
   // is the full count because four of them have no other proof anywhere.
   //

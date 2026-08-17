@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  addCompany,
   admin,
   cleanupUsers,
   grantRoleWith,
@@ -72,8 +73,12 @@ describe('Block 29b-1 — the marketing template door', () => {
   }, 60_000);
 
   it('lets a second marketing template exist beside the first', async () => {
-    // THE CASE THE NARROWED INDEX EXISTS FOR. Against the old index both rows
-    // collide on "purpose is null" and the second save raises 23505.
+    // Not a collision case: a plain unique index never treats NULL as equal to
+    // NULL, so two rows with a null purpose were never going to raise 23505
+    // against (company_id, purpose), narrowed or not. What this proves is
+    // simpler and still real: a Station may hold more than one marketing
+    // template, because this door inserts by id rather than upserting on
+    // purpose the way register_message_template does.
     const result = await save(manager, {
       p_channel: 'EMAIL',
       p_internal_name: `aniversario_${STAMP}`,
@@ -91,6 +96,21 @@ describe('Block 29b-1 — the marketing template door', () => {
       p_body: 'Oi {{listener_shoe_size}}!',
     });
     expect(result.code).toBe('22023');
+  }, 60_000);
+
+  it('recognizes a placeholder case-insensitively, mixed case and all', async () => {
+    // {{Listener_First_Name}} is the shape that slipped through unchecked
+    // before the capture was widened past [a-z_]+: not the enum's own
+    // lower-case spelling, but a real substitution point, and it must be
+    // recognized as one rather than silently waved through as unchecked prose.
+    const result = await save(manager, {
+      p_channel: 'EMAIL',
+      p_internal_name: `misto_${STAMP}`,
+      p_subject: 'Oi',
+      p_body: 'Oi {{Listener_First_Name}}!',
+    });
+    expect(result.code, result.message).toBeUndefined();
+    expect(result.id).toBeTruthy();
   }, 60_000);
 
   it('refuses a caller who may see templates but not manage them', async () => {
@@ -127,5 +147,89 @@ describe('Block 29b-1 — the marketing template door', () => {
       .eq('id', created.id!)
       .single();
     expect(data?.subject).toBe('Depois');
+  }, 60_000);
+
+  // The UPDATE branch re-states company_id and `purpose is null` in its own
+  // WHERE clause rather than trusting p_id alone -- these three cases are what
+  // that re-statement is FOR. Nothing else in this file drives the UPDATE
+  // branch with an id that fails one of those terms.
+
+  it('refuses an update whose id belongs to a different Station', async () => {
+    const stationB = await addCompany(customer, `Station B ${STAMP}`);
+    const ownerClient = await signInAs(customer.email, customer.password);
+    const { data: otherId, error: seedError } = await ownerClient.rpc('save_marketing_template', {
+      p_company_id: stationB,
+      p_channel: 'EMAIL',
+      p_internal_name: `outra_estacao_${STAMP}`,
+      p_subject: 'Original',
+      p_body: 'Oi!',
+    });
+    if (seedError) throw new Error(`fixture seed at Station B failed: ${seedError.message}`);
+
+    // p_company_id here is Station A -- `save` always sends the manager's own
+    // -- while p_id names a row that belongs to Station B. The id alone must
+    // not be enough to reach it.
+    const result = await save(manager, {
+      p_id: otherId,
+      p_channel: 'EMAIL',
+      p_internal_name: `outra_estacao_${STAMP}`,
+      p_subject: 'Sequestrado',
+      p_body: 'Oi!',
+    });
+    expect(result.code).toBe('P0002');
+
+    const { data } = await admin
+      .from('message_templates')
+      .select('subject')
+      .eq('id', otherId!)
+      .single();
+    expect(data?.subject).toBe('Original');
+  }, 60_000);
+
+  it('refuses an update whose id names a SYSTEM registration', async () => {
+    const ownerClient = await signInAs(customer.email, customer.password);
+    const { data: systemId, error: seedError } = await ownerClient.rpc(
+      'register_message_template',
+      {
+        p_company_id: customer.companyId,
+        p_purpose: 'WEB_VERIFICATION',
+        p_name: `sistema_${STAMP}`,
+        p_language: 'pt_BR',
+        p_body: 'Codigo: {{1}}',
+        p_variables: ['VERIFICATION_CODE'],
+      },
+    );
+    if (seedError) throw new Error(`fixture SYSTEM registration failed: ${seedError.message}`);
+
+    // Same Station, a real id -- but this row's purpose is NOT null, and this
+    // door's own WHERE clause requires `purpose is null`. That row belongs to
+    // register_message_template and its own validations, not this one.
+    const result = await save(manager, {
+      p_id: systemId,
+      p_channel: 'EMAIL',
+      p_internal_name: `sequestro_${STAMP}`,
+      p_subject: 'Sequestrado',
+      p_body: 'Oi!',
+    });
+    expect(result.code).toBe('P0002');
+
+    const { data } = await admin
+      .from('message_templates')
+      .select('name, body')
+      .eq('id', systemId!)
+      .single();
+    expect(data?.name).toBe(`sistema_${STAMP}`);
+    expect(data?.body).toBe('Codigo: {{1}}');
+  }, 60_000);
+
+  it('refuses an update whose id names nothing at all', async () => {
+    const result = await save(manager, {
+      p_id: crypto.randomUUID(),
+      p_channel: 'EMAIL',
+      p_internal_name: `fantasma_${STAMP}`,
+      p_subject: 'Oi',
+      p_body: 'Oi!',
+    });
+    expect(result.code).toBe('P0002');
   }, 60_000);
 });

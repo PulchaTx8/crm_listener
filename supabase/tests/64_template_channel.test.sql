@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(22);
 
 -- Block 29b-1, Task 1. The two vocabularies this block adds.
 --
@@ -130,15 +130,20 @@ select ok(
     'execute'),
   'authenticated holds execute on the marketing door');
 
--- `anon` and PUBLIC both refused. `anon` is the widget's role and every
--- unauthenticated caller's; a door granted to it would let the internet write
--- a Station's templates, which nothing else in this plan would catch. PUBLIC
--- is the default ACL PostgreSQL hands out unless a migration revokes it.
+-- `anon` and PUBLIC both refused, as two SEPARATE assertions rather than one
+-- combined: a single ok() over both cannot say which half broke. `anon` is the
+-- widget's role and every unauthenticated caller's; a door granted to it would
+-- let the internet write a Station's templates, which nothing else in this
+-- plan would catch. PUBLIC is the default ACL PostgreSQL hands out unless a
+-- migration revokes it.
 select ok(
   not has_function_privilege('anon',
     'public.save_marketing_template(uuid,public.message_channel,text,text,uuid,text,text,text,text,jsonb,text,text,text)',
-    'execute')
-  and not exists (
+    'execute'),
+  'anon holds no execute on the marketing door');
+
+select ok(
+  not exists (
     select 1
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace,
@@ -146,7 +151,7 @@ select ok(
      where n.nspname = 'public'
        and p.proname = 'save_marketing_template'
        and acl::text like '=X/%'),
-  'anon holds no execute and PUBLIC holds none either');
+  'PUBLIC holds no EXECUTE -- the default ACL was revoked, not left');
 
 select * from finish();
 rollback;

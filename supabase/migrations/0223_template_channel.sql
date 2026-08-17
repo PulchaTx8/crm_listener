@@ -50,7 +50,7 @@ alter table public.message_templates
   alter column purpose drop not null;
 
 comment on column public.message_templates.purpose is
-  'What a SYSTEM template is for, and NULL for every marketing template. The null is not an absence to tidy away: it is the discriminator between the two families, and message_templates_purpose_unique is partial on it so that marketing rows -- all of which have a null purpose -- do not collide with one another.';
+  'What a SYSTEM template is for, and NULL for every marketing template. The null is not an absence to tidy away: it is the discriminator between the two families, and message_templates_purpose_unique is partial on it so the index keeps meaning one registration per system purpose and stays a valid ON CONFLICT target for register_message_template -- not to stop marketing rows from colliding with one another, since a plain unique index never treats NULL as equal to NULL and they never would have.';
 
 -- ---------------------------------------------------------------------------
 -- 3. name and language become conditional, so the existing not-blank checks
@@ -156,9 +156,14 @@ alter table public.message_templates
 -- ---------------------------------------------------------------------------
 -- 7. The index, narrowed.
 --
--- Without `and purpose is not null`, every marketing template in a Station
--- collides with every other on "purpose is null" -- one marketing template per
--- Station, for ever, discovered by the second one.
+-- Without `and purpose is not null`, ON CONFLICT (company_id, purpose) --
+-- register_message_template's own conflict target -- no longer matches this
+-- index's predicate, and every system registration fails. NOT because a
+-- marketing row would collide with another marketing row: a plain unique
+-- index never treats NULL as equal to NULL, so two null-purpose rows were
+-- never going to raise 23505 against it. The predicate exists so the index
+-- keeps meaning ONE registration per system purpose, with marketing rows --
+-- which have none -- excluded from it entirely.
 -- ---------------------------------------------------------------------------
 drop index public.message_templates_purpose_unique;
 

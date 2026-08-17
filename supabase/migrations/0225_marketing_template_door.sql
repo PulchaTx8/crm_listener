@@ -4,10 +4,16 @@
 -- than chosen (design D5).
 --
 -- register_message_template upserts on (company_id, purpose) -- which is how the
--- screen's "Replace what is recorded" works, and which requires a conflict
--- target. A marketing template has no purpose, so there is no natural target:
--- two marketing templates collide on nothing, which is the whole point of the
--- narrowed index in 0223. Writing by id is the only shape available.
+-- screen's "Replace what is recorded" works, and an ON CONFLICT clause needs a
+-- real index whose predicate matches exactly. A marketing template has no
+-- purpose, so there is no conflict target to name for it at all. That is NOT
+-- because two marketing rows would collide on "purpose is null": a plain
+-- unique index never treats NULL as equal to NULL, so they never would have.
+-- It is because 0223 narrows message_templates_purpose_unique to `where
+-- purpose is not null`, so the index still names a valid ON CONFLICT target
+-- for the system half and keeps meaning one registration per system purpose --
+-- with marketing rows excluded from it entirely rather than sitting inside it
+-- unable to conflict with anything. Writing by id is the only shape available.
 --
 -- Folding both into one function would mean a function branching on "is purpose
 -- null" and using two different write strategies -- two functions wearing one
@@ -77,16 +83,19 @@ begin
 
     -- AN EMAIL BODY NAMES ITS OWN PLACEHOLDERS, so they are validated rather
     -- than declared: every {{...}} must be a value this system substitutes.
-    -- Lower case, because the named notation is the enum lower-cased and
-    -- nothing else -- one vocabulary, one derivation.
+    -- The capture is WIDE -- anything between the braces, including nothing at
+    -- all -- and the judgement happens after, case-insensitively against the
+    -- lower-cased enum. A narrower capture (letters and underscore only) would
+    -- silently let {{Listener_First_Name}}, {{123}} or {{}} through uncaught,
+    -- rendered to a listener as literal, un-substituted text.
     select array_agg(lower(v::text)) into v_known
       from unnest(enum_range(null::public.template_variable)) as v;
 
     for v_used in
       select (regexp_matches[1])
-      from regexp_matches(v_body, '\{\{([a-z_]+)\}\}', 'g')
+      from regexp_matches(v_body, '\{\{([^{}]*)\}\}', 'g')
     loop
-      if not (v_used = any(v_known)) then
+      if not (lower(v_used) = any(v_known)) then
         raise exception 'this body names %, which is not a value this system substitutes', v_used
           using errcode = '22023';
       end if;
@@ -196,4 +205,4 @@ grant execute on function public.save_marketing_template(
   text, text, text) to authenticated;
 
 comment on function public.save_marketing_template(uuid, public.message_channel, text, text, uuid, text, text, text, text, jsonb, text, text, text) is
-  'Creates or updates a MARKETING template -- one with no purpose. Separate from register_message_template because that door upserts on (company_id, purpose) and a marketing template has no purpose to conflict on: two of them collide on nothing, which is what the partial index in 0223 exists to allow. Writes by id, re-stating company_id and `purpose is null` in the UPDATE''s own WHERE clause so an id from another Station, or a SYSTEM registration, is unreachable by naming it. An EMAIL body''s {{placeholders}} are validated against template_variable rather than declared in an array, because the body names its own and a second declaration would drift.';
+  'Creates or updates a MARKETING template -- one with no purpose. Separate from register_message_template because that door upserts on (company_id, purpose), and a marketing template has no purpose to give that ON CONFLICT clause as a target -- not because two marketing rows would collide (a plain unique index never treats NULL as equal to NULL), but because there is no conflict target to name for a null one at all. Writes by id, re-stating company_id and `purpose is null` in the UPDATE''s own WHERE clause so an id from another Station, or a SYSTEM registration, is unreachable by naming it. An EMAIL body''s {{placeholders}} are validated against template_variable rather than declared in an array, because the body names its own and a second declaration would drift.';
