@@ -46,15 +46,24 @@ interface GeographyPayload {
  * the worker is. Nothing under test here; it is the fixture that makes a place
  * resolvable, and without it every map is legitimately empty.
  */
+/**
+ * THE SERVICE ROLE, not the platform admin's client. 0214 grants the three place
+ * doors to service_role alone, because the worker is their only caller and there
+ * is no user to check — a platform admin is still an `authenticated` session and
+ * is refused, which is the correct answer and was this file's first failure.
+ *
+ * ONE CLIENT FOR THE FILE, not one per call. Each `createClient` opens its own
+ * fetch and auth machinery, and this suite's `Worker exited unexpectedly` crash
+ * lands in per-file teardown — so a helper that minted a fresh client on every
+ * invocation was adding three more things for that teardown to close, in the
+ * newest file in the suite, for no benefit.
+ */
+const service = createClient<Database>(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
 async function resolveAllPlaces(_customer: ProvisionedCustomer): Promise<void> {
-  // THE SERVICE ROLE, not the platform admin's client. 0214 grants the three
-  // place doors to service_role alone, because the worker is their only caller
-  // and there is no user to check — a platform admin is still an `authenticated`
-  // session and is refused, which is the correct answer and was this file's
-  // first failure.
-  const admin = createClient<Database>(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const admin = service;
   const { error: sweepError } = await admin.rpc('enqueue_missing_places', { p_limit: 1000 });
   if (sweepError) throw new Error(`enqueue_missing_places failed: ${sweepError.message}`);
 

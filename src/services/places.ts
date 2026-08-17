@@ -63,6 +63,25 @@ export async function drainGeocodeQueue(
     logger.error({ err: enqueueError }, 'could not enqueue missing places');
   }
 
+  // CHECKED BEFORE THE CLAIM, and this was the other way round until it was
+  // measured. Claiming first let the counters report the backlog through
+  // `skipped` — which reads well — but `claim_places_to_geocode` is an UPDATE
+  // that increments `attempts`, so on a deployment with no key (which is every
+  // deployment until somebody buys one) it rewrote the same rows every ten
+  // seconds, forever, and drove `attempts` up without bound on places nothing
+  // had ever tried to geocode. The backlog is still reported, by a count that
+  // takes no locks and writes nothing.
+  if (!transport) {
+    const { count, error: countError } = await supabase
+      .from('geocoded_places')
+      .select('id', { count: 'exact', head: true })
+      .is('resolved_at', null);
+    if (countError) {
+      logger.error({ err: countError }, 'could not count the geocoding backlog');
+    }
+    return { resolved: 0, failed: 0, skipped: count ?? 0 };
+  }
+
   const { data: claimed, error: claimError } = await supabase.rpc('claim_places_to_geocode', {
     p_limit: BATCH,
   });
@@ -70,13 +89,6 @@ export async function drainGeocodeQueue(
 
   const places = claimed ?? [];
   if (places.length === 0) return { resolved: 0, failed: 0, skipped: 0 };
-
-  // Checked AFTER the claim rather than before it, deliberately: with no key
-  // configured this still reports how many places are waiting, through
-  // `skipped`, so the counters say "N places are queued and nothing is geocoding
-  // them" instead of a silent zero that looks like an empty queue. The rows are
-  // not written, so the next tick reclaims them unchanged.
-  if (!transport) return { resolved: 0, failed: 0, skipped: places.length };
 
   let resolved = 0;
   let failed = 0;
