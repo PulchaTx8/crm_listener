@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConnectWhatsAppBusiness } from '@/components/whatsapp/connect-whatsapp';
 import {
   disableIntegrationAction,
   saveIntegrationAction,
@@ -42,6 +43,7 @@ export function IntegrationTab({
   companyId,
   initialRow,
   secrets,
+  signupUrl,
   onSaved,
 }: {
   companyId: string;
@@ -49,6 +51,13 @@ export function IntegrationTab({
   initialRow: IntegrationRow | null;
   /** Installation-wide, computed on the server. Never the values themselves. */
   secrets: CredentialStatus;
+  /**
+   * Block 29a. Meta's Embedded Signup address, or null when this installation
+   * has none configured. Resolved on the server and drilled down beside
+   * `siteUrl`, because `WHATSAPP_EMBEDDED_SIGNUP_URL` is deliberately not a
+   * `NEXT_PUBLIC_` variable and a client component cannot read it.
+   */
+  signupUrl: string | null;
   /**
    * Hands the saved row to the screen that owns the snapshot this tab was
    * rendered from. The local state below is enough only while this tab stays
@@ -102,6 +111,19 @@ export function IntegrationTab({
             : t('thisStationIsConnectedButDisabled')
           : t('thisStationIsNotConnected')}
       </p>
+
+      {/*
+        Block 29a. The same card the Station's owner reaches from /app, rendered
+        from the same module — support must be able to start a pairing on a
+        customer's behalf, and `is_owner_of_company` (0044) already treats the
+        platform admin as an owner everywhere else.
+
+        ABOVE THE FORM, because that is the real order of the work: Meta's flow
+        produces the phone_number_id and the WABA id that the fields below want,
+        and Embedded Signup writes nothing back to this database — an operator
+        filling the form first has nothing to fill it with.
+      */}
+      <ConnectWhatsAppBusiness url={signupUrl} />
 
       <form
         // Keyed on what the form is showing, so a save or a disable refills the

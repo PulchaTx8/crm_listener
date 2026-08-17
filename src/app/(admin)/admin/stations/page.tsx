@@ -1,6 +1,8 @@
 import { getTranslations } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { createUserClient } from '@/lib/supabase/user-client';
+import { env } from '@/lib/env';
+import { embeddedSignupUrl } from '@/lib/integrations/whatsapp/embedded-signup';
 import { logger } from '@/lib/logger';
 import { parseRecordParam, STATION_TABS } from '@/lib/record-params';
 import { PageHeader } from '@/components/layout/app-shell';
@@ -193,6 +195,15 @@ export default async function StationsPage({
   // reads the same variable the same way, for its own links.
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
+  // Block 29a. The same pairing address the Station's owner sees on /app,
+  // resolved the same way and travelling the same route as siteUrl above.
+  // Support has to be able to start a pairing on a customer's behalf --
+  // Embedded Signup writes nothing back to this database, so the ids below
+  // are still typed in by hand afterwards, and doing half the job from the
+  // console and half from somebody else's screen is how the two halves stop
+  // being done at all.
+  const signupUrl = embeddedSignupUrl(env.WHATSAPP_EMBEDDED_SIGNUP_URL);
+
   return (
     <>
       <PageHeader title={t('stations')} description={t('stationsDescription')} />
@@ -207,6 +218,7 @@ export default async function StationsPage({
         initialInstallations={installations}
         secrets={configuredSecrets()}
         siteUrl={siteUrl}
+        signupUrl={signupUrl}
       />
     </>
   );

@@ -369,6 +369,13 @@ export async function getShellContext(): Promise<{
       ],
     },
     {
+      // THE KEY STAYS 'templates' THOUGH THE SECTION IS NOW CALLED MESSAGES,
+      // and that is not an oversight to tidy up later. `NavSection.key`'s own
+      // comment (components/layout/sidebar-nav.tsx) states the rule this is the
+      // first real test of: the disclosure cookie is keyed on it, so renaming
+      // the key would forget which sections every operator had open, on their
+      // next page load, for a copy change they did not ask about. The label is
+      // what a member reads; the key is what the browser remembers.
       key: 'templates',
       // Visible to every member, including those holding templates.view in no
       // Station at all — the same courtesy every section above extends. Both
@@ -377,12 +384,21 @@ export async function getShellContext(): Promise<{
       // Stations that do hold it, and all four doors in 0113 re-check
       // templates.manage in their own bodies. Hiding a link is a courtesy; the
       // boundary is in the database.
-      label: t('templates'),
+      label: t('messages'),
       items: [
-        // ICONS.message is new, and is the block's own: this is the one
-        // section about WORDS rather than records, and nothing already
-        // declared meant that (see the path's own comment in app-shell.tsx).
-        { href: '/templates/messages', label: t('messages'), icon: ICONS.message },
+        // TWO ITEMS, WHERE BLOCK 29's design names five. Campaigns, Schedules
+        // and Message History arrive WITH THE SCREENS THEY POINT AT, one per
+        // later pass, rather than now: Block 20b shipped navigation ahead of
+        // its destinations and its own report calls that the error of the
+        // block — three sidebar rows that answer a click with a 404 are worse
+        // than three rows nobody has yet.
+        //
+        // ICONS.message is the Templates block's own: this is the one section
+        // about WORDS rather than records, and nothing already declared meant
+        // that (see the path's own comment in app-shell.tsx). It stays with
+        // this row through the rename, because the row's SUBJECT did not
+        // change — only its name did.
+        { href: '/messages/promo', label: t('promoMessages'), icon: ICONS.message },
         // ICONS.megaphone rather than message again: these two sit on ADJACENT
         // ROWS OF THIS SAME SECTION, which is exactly the case the Audience
         // section's ticket/megaphone comment warns against — one icon on both
@@ -391,7 +407,7 @@ export async function getShellContext(): Promise<{
         // non-adjacency that already lets box serve both Inventory and
         // Pickups. Its shape reads reasonably here: a registered template is
         // the only thing that lets a Station SPEAK FIRST rather than answer.
-        { href: '/templates/whatsapp', label: t('whatsapp'), icon: ICONS.megaphone },
+        { href: '/messages/templates', label: t('templates'), icon: ICONS.megaphone },
       ],
     },
     {

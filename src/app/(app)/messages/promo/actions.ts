@@ -71,7 +71,7 @@ export async function saveSystemMessageAction(
 
   try {
     await setSystemMessage(parsed.data, token);
-    revalidatePath('/templates/messages');
+    revalidatePath('/messages/promo');
     return { status: 'saved' };
   } catch (cause) {
     // The body is what a listener reads and can carry anything an operator
@@ -113,7 +113,7 @@ export async function clearSystemMessageAction(
 
   try {
     await clearSystemMessage(parsed.data, token);
-    revalidatePath('/templates/messages');
+    revalidatePath('/messages/promo');
     return { status: 'cleared' };
   } catch (cause) {
     logger.error(
@@ -157,7 +157,7 @@ export async function saveServiceHashtagsAction(
 
   try {
     await setServiceHashtags(parsed.data, token);
-    revalidatePath('/templates/messages');
+    revalidatePath('/messages/promo');
     return { status: 'saved' };
   } catch (cause) {
     logger.error(

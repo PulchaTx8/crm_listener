@@ -5,7 +5,19 @@
     "yourStations": "Suas emissoras",
     "yourStationsDescription": "Os recursos de audiência, prêmios e promoções chegam na próxima versão.",
     "noStationLinkedYet": "Nenhuma emissora está vinculada à sua conta ainda. Fale com a gente.",
-    "suspendedNoDataAvailable": "Suspensa — nenhum dado fica disponível enquanto a assinatura estiver inativa."
+    "suspendedNoDataAvailable": "Suspensa — nenhum dado fica disponível enquanto a assinatura estiver inativa.",
+    "stationSettings": "Configurações",
+    "close": "Fechar",
+    "tabWhatsapp": "WhatsApp",
+    "whatsappConnection": "Conexão",
+    "whatsappConnected": "Conectado",
+    "whatsappNotConnected": "Não conectado — esta Emissora não envia nem recebe nada pelo WhatsApp",
+    "whatsappNumber": "Número",
+    "whatsappNumberUnknown": "A Meta ainda não informou o número",
+    "whatsappSending": "Envio",
+    "whatsappSendingOn": "Ligado",
+    "whatsappSendingOff": "Desligado — pareado, mas nada sai desta Emissora",
+    "whatsappStatusUnavailable": "Não foi possível ler o estado da conexão. Atualize a página e tente de novo."
   },
   "shell": {
     "signOut": "Sair",
@@ -52,6 +64,7 @@
     "pickups": "Retiradas",
     "platform": "Plataforma",
     "promotions": "Promoções",
+    "promoMessages": "Mensagens de promoção",
     "promotionsOverview": "Visão geral das promoções",
     "reports": "Relatórios",
     "requests": "Pedidos",
@@ -61,7 +74,6 @@
     "stock": "Estoque",
     "team": "Equipe",
     "templates": "Modelos",
-    "whatsapp": "WhatsApp",
     "programmes": "Programas",
     "vendors": "Fornecedores",
     "categories": "Categorias",
@@ -486,7 +498,7 @@
     "reopeningNeedsTheFormBelow": "Reabrir um prazo exige o formulário abaixo, não este botão."
   },
   "templates": {
-    "messages": "Mensagens",
+    "messages": "Mensagens de promoção",
     "showing": "Mostrando",
     "ofTheStationsYouCanReach": "das Emissoras que você alcança. Busque pelo nome para chegar a uma que não está listada.",
     "suspendedNoDataIsAvailableWhile": "Suspensa — nenhum dado fica disponível enquanto a assinatura estiver inativa.",
@@ -496,7 +508,7 @@
     "systemDefault": "Padrão do sistema",
     "changed": "Alterado",
     "thisStationSOwnWording": "O texto próprio desta Emissora",
-    "whatsappTemplates": "Modelos do WhatsApp",
+    "whatsappTemplates": "Modelos",
     "templatesAreCreatedAndApprovedIn": "Modelos são criados e aprovados no",
     "metaSOwnConsole": "console da própria Meta",
     "aRevokedOrEditedApprovalIs": "Uma aprovação revogada ou editada não é visível daqui: o que está registrado abaixo é o que alguém informou na época. O primeiro envio recusado é o que descobre uma mudança.",
@@ -583,10 +595,6 @@
     "purposeWebVerificationTitle": "Código de verificação do widget web",
     "purposeWebVerificationWhen": "Enviado no momento em que um visitante no site da própria Emissora digita o telefone no widget e pede para ser identificado. Precisa ser um modelo aprovado da categoria AUTHENTICATION da Meta: o visitante nunca mandou mensagem para esta Emissora, então não existe janela de 24 horas para enviar dentro dela. Enquanto não estiver registrado aqui, o widget aceita o número e não envia nada.",
     "purposeWebVerificationSendsCode": "O código de seis dígitos, e nada mais — ele expira em dez minutos e é queimado após cinco tentativas erradas",
-    "connectWhatsAppTitle": "Conectar WhatsApp Business",
-    "connectWhatsAppDescription": "Pareia a conta WhatsApp Business desta Emissora com o PulchatX para que as duas dividam um mesmo número de telefone: a Emissora continua atendendo pelo aplicativo WhatsApp Business enquanto este sistema envia e recebe pelo mesmo número. O pareamento é conduzido pela própria Meta, em uma janela separada, e pede um código de confirmação entregue no telefone — tenha o aparelho com você antes de começar.",
-    "connectWhatsAppButton": "Iniciar o pareamento na Meta",
-    "connectWhatsAppNotConfigured": "O endereço de pareamento da Meta não foi configurado nesta instalação, então o pareamento não pode ser iniciado daqui. É uma configuração do servidor, não algo que esta tela resolva — fale com o suporte.",
     "thatTextCouldNotBeIdentified": "Não foi possível identificar esse texto. Atualize a página e tente novamente.",
     "thatRegistrationCouldNotBeIdentified": "Não foi possível identificar esse cadastro. Atualize a página e tente novamente.",
     "serviceHashtagsTitle": "Hashtags de atendimento",
@@ -601,6 +609,12 @@
     "actionChangeTheServiceHashtags": "alterar as hashtags de atendimento",
     "messageCountryTitle": "Perguntando o país",
     "fieldCountry": "o país"
+  },
+  "connectWhatsApp": {
+    "title": "Conectar WhatsApp Business",
+    "description": "Pareia a conta WhatsApp Business desta Emissora com o PulchatX para que as duas dividam um mesmo número de telefone: a Emissora continua atendendo pelo aplicativo WhatsApp Business enquanto este sistema envia e recebe pelo mesmo número. O pareamento é conduzido pela própria Meta, em uma janela separada, e pede um código de confirmação entregue no telefone — tenha o aparelho com você antes de começar.",
+    "button": "Iniciar o pareamento na Meta",
+    "notConfigured": "O endereço de pareamento da Meta não foi configurado nesta instalação, então o pareamento não pode ser iniciado daqui. É uma configuração do servidor, não algo que esta tela resolva — fale com o suporte."
   },
   "dashboards": {
     "audience": "Audiência",

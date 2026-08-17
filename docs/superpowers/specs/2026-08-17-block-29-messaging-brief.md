@@ -748,7 +748,7 @@ Every screen follows the house pattern, which is concrete here rather than gener
 
 | | Delivers | Depends on |
 |---|---|---|
-| **29a** | Section renamed to `Messages`, five items, routes moved to `/messages/*` with redirects, three new icons, i18n ×3; `Settings` button on `/app` cards opening a tabbed Station record whose first tab is WhatsApp; `<ConnectWhatsAppBusiness>` shared with the console | — |
+| **29a** | **DONE** — see §17 | — |
 | **29b** | Templates: `channel`, System/Marketing split, `purpose` nullable with narrowed unique index, email fields, variable mapping, status + Meta sync **subject to D3** | 29a |
 | **29c** | `whatsapp_marketing` / `email_marketing` consent types, opt-out, unsubscribe token route, per-channel recipient validation | — |
 | **29d** | Campaigns, audience resolution in SQL, recipient snapshot table that is also the queue, providers, fifth drain on the tick, Send Now | 29b, 29c, **gender block** |
@@ -764,3 +764,99 @@ parallel with all three; only 29d waits on it.
 listener for a tag, so it touches no engine and nothing in Block 29 needs it.
 
 One design spec and one PR per pass, as every block since Block 1.
+
+---
+
+## 17. 29a as built (2026-08-17)
+
+### The menu
+
+Section `key` **unchanged** (`'templates'`), label now `t('messages')`. Two items,
+not five — **and that is a correction to D7 rather than a shortfall.** D7 settled
+the end state: five items, five real routes. Shipping all five now would put three
+sidebar rows in front of screens that do not exist, which is precisely what Block
+20b did and its own report calls the error of that block. Campaigns, Schedules and
+Message History arrive with the passes that build them.
+
+| Label | Route | Icon |
+|---|---|---|
+| `Promo Messages` | `/messages/promo` | `ICONS.message` (travels with the row — its subject did not change, only its name) |
+| `Templates` | `/messages/templates` | `ICONS.megaphone` |
+
+No new icons were needed, because only two rows exist. The three-distinct-glyph
+requirement lands with the three later items.
+
+### The routes
+
+`/templates/messages` and `/templates/whatsapp` are answered by
+`MOVED_FROM_TEMPLATES` in `src/middleware.ts`, **not** by `next.config.mjs`'s
+`redirects()`. That file's own header records why, measured rather than assumed: a
+config redirect is answered before the middleware runs and carries **none** of the
+six headers, against six of six for a middleware redirect. Placed above the
+Supabase client for the `/` branch's other reason — a moved path has the same
+answer with a session and without, so resolving the caller would be a round trip
+whose result is discarded.
+
+A **lookup, not a prefix rewrite**: the two paths did not move in step
+(`messages`→`promo`, `whatsapp`→`templates`), so `/templates/x` → `/messages/x`
+would have sent the second one to a 404 and would go on inventing destinations for
+any third path somebody types.
+
+`tests/unit/moved-routes.test.ts` holds three things a literal-comparison test
+could not: every destination names a `page.tsx` that exists, every source names one
+that no longer does (a restored page would otherwise be shadowed by its own
+redirect, silently), and the middleware `matcher` admits every old address — the
+class of defect where a redirect is written, reviewed, merged and never runs.
+
+### The pairing card
+
+`src/components/whatsapp/connect-whatsapp.tsx`, now a **client** component with its
+own `connectWhatsApp` i18n namespace, rendered by **two** hosts:
+
+- **`/app` → `Settings` on a Station card → a tabbed dialog, WhatsApp tab.** Gated
+  on `is_owner`, so the Organization owner keeps the act. Block 15's D9 (this card
+  displays, it does not edit) is **not** reversed: the dialog edits no column on
+  `companies`, it carries a row in `integrations` that no member-area screen could
+  reach at all.
+- **the console's `IntegrationTab`**, above the credential form, because Embedded
+  Signup produces the ids that form wants and writes nothing back to this database.
+
+### 0218 — the migration the move needed
+
+An owner who finishes at Meta and returns had no way to learn whether it worked:
+`integrations` (0057) has RLS with **no policies**, and all three of 0130's doors
+open on `is_platform_admin()`. `station_whatsapp_status(uuid)` is the first
+function in this codebase to read that table for anybody else — gated on
+`is_owner_of_company` (0044), returning `connected`, the display number and
+`enabled`, and deliberately **not** `phone_number_id` or `waba_id`, which answer
+the platform operator's question rather than the owner's.
+
+Always **one row**, never zero: an empty result is indistinguishable from a failed
+call at the caller, and both would render as the same blank the block exists to
+replace.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `next lint` | clean |
+| `vitest run` | 127 files, 1503 tests |
+| `supabase test db` | 64 files, 2046 assertions (adds `62_station_whatsapp_status.test.sql`) |
+| `playwright` (templates, nav-content, provisioning, record-dialog, acceptance) | pass |
+| `db:types` | regenerated; the hand-written entry matched the generator byte for byte |
+
+**The isolation suite's 44 files and 379 cases all pass; the wrapper's completeness
+check is intermittently red for a reason that is not this branch.** The
+`Worker exited unexpectedly` crash `verify-isolation-suite.mjs` was written for
+fired on three of four runs here. **A control run with `station-settings.test.ts`
+removed from disk and from the manifest crashed identically** (42 of 43), which is
+the evidence that the branch is not the cause; a run under a JSON reporter alone
+accounted for all 44 files and 379 passing cases. The script's own header already
+records this crash as unexplained, on six different files, at about two runs in
+five.
+
+**Mutation-checked rather than merely green:** weakening 0218's guard from
+`is_owner_of_company` to `has_company_access`, applied to the live local database,
+turns `station-settings.test.ts`'s delegate case red — and only that case, which is
+exactly the one the manifest entry claims has no other proof.

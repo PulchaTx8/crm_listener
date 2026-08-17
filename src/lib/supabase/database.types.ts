@@ -5679,6 +5679,15 @@ export type Database = {
         }
         Returns: Json
       }
+      station_whatsapp_status: {
+        Args: { p_company_id: string }
+        Returns: {
+          connected: boolean
+          display_phone_number: string
+          enabled: boolean
+          updated_at: string
+        }[]
+      }
       suspend_company: {
         Args: { p_company_id: string; p_reason: string }
         Returns: undefined

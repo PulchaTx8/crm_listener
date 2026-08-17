@@ -52,6 +52,7 @@ export function StationsGrid({
   initialInstallations,
   secrets,
   siteUrl,
+  signupUrl,
 }: {
   organizations: OrganizationOption[];
   selectedOrganizationId: string | null;
@@ -67,6 +68,8 @@ export function StationsGrid({
   initialInstallations: Record<string, WidgetInstallationRow | null>;
   secrets: CredentialStatus;
   siteUrl: string;
+  /** Block 29a. Null when this installation configured no pairing address. */
+  signupUrl: string | null;
 }) {
   const t = useTranslations('admin');
   const router = useRouter();
@@ -246,6 +249,7 @@ export function StationsGrid({
         secrets={secrets}
         installation={openRow ? (installations[openRow.id] ?? null) : null}
         siteUrl={siteUrl}
+        signupUrl={signupUrl}
         tab={(tab as StationTab) ?? 'data'}
         onTab={setTab}
         onClose={close}

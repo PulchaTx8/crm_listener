@@ -452,6 +452,30 @@ const REQUIRED_TEST_FILES = [
   // after the same mutation showed it was only being caught there
   // incidentally, inside another test's fixture read.
   { path: 'tests/isolation/templates.test.ts', minTests: 13 },
+  // Block 29a. Five cases over `station_whatsapp_status` (0218), and the floor
+  // is the full count because three of them have no other proof anywhere.
+  //
+  // This is the FIRST function in the codebase to read `integrations` (0057) for
+  // a caller who is not the platform admin -- that table holds a Station's
+  // telephone number and Meta's identifiers for it, it has RLS with no policies,
+  // and all three of 0130's doors open on is_platform_admin(). pgTAP
+  // (62_station_whatsapp_status.test.sql) can hold the grants and prove the
+  // guard is named in the source; it runs as superuser with a null auth.uid(),
+  // so is_owner_of_company answers on its platform-admin arm and every gate
+  // reads open. It has nobody to refuse.
+  //
+  // The three without another proof: a DELEGATE OF THE SAME STATION holding
+  // both template permissions is still refused (pairing is not a permission an
+  // owner hands out, so no grant may substitute for ownership); an owner of a
+  // DIFFERENT Organization is refused for this Station (the predicate is
+  // evaluated against the Station asked about, not the caller's own -- the term
+  // a careless rewrite drops first); and anon is refused outright.
+  //
+  // The two positive cases are here for what a caller EXPERIENCES: that an
+  // unpaired Station answers with a row saying so rather than with no rows,
+  // which is what stops the screen rendering the same blank whether the call
+  // succeeded or failed.
+  { path: 'tests/isolation/station-settings.test.ts', minTests: 5 },
   // Block 8b. Three of these eight have no other proof anywhere in the
   // repository, which is why the floor is the full count rather than a round
   // number below it: the two-claimant race (pgTAP is single-session and cannot

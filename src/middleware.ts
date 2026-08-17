@@ -52,6 +52,21 @@ const PUBLIC_PATHS = [
  */
 const WIDGET_PATH = /^\/w\//i;
 
+/**
+ * Block 29a. Where the two Templates screens went, keyed by where they were.
+ *
+ * A LOOKUP RATHER THAN A PREFIX REWRITE (`/templates/x` -> `/messages/x`),
+ * because the two paths did not move in step: `messages` became `promo` and
+ * `whatsapp` became `templates` — the second one landing on the very word the
+ * old section was called. A prefix rule would have sent `/templates/whatsapp`
+ * to `/messages/whatsapp`, which is a 404, and it would go on quietly inventing
+ * destinations for any third path somebody types.
+ */
+export const MOVED_FROM_TEMPLATES: Record<string, string> = {
+  '/templates/messages': '/messages/promo',
+  '/templates/whatsapp': '/messages/templates',
+};
+
 const CHANGE_PASSWORD_PATH = '/change-password';
 const SIGN_OUT_PATH = '/auth/signout';
 const MEMBER_HOME = '/app';
@@ -177,6 +192,35 @@ export async function middleware(request: NextRequest) {
    */
   if (request.nextUrl.pathname === '/') {
     return redirectWithCsp(new URL('/login', request.url));
+  }
+
+  /**
+   * Block 29a. The two screens that moved out of `/templates/` when the section
+   * became Messages.
+   *
+   * HERE RATHER THAN IN `redirects()`, for the reason the `/` branch above
+   * measured: a config redirect is answered before this file runs and carries
+   * none of the six headers. And ABOVE THE SUPABASE CLIENT for that branch's
+   * other reason — a moved path has the same answer for a caller with a session
+   * and one without, so asking Supabase Auth who they are would be a round trip
+   * whose result is discarded. Somebody signed out lands on the new path and is
+   * sent to /login from there, exactly as they would have been from the old one.
+   *
+   * THE SEARCH STRING SURVIVES, and it is not decoration: every one of these
+   * screens carries `?companyId=` and `?station=`, so a bookmark that named a
+   * Station must still name it on the other side. Constructing the URL from
+   * `request.url` and moving only the pathname is what keeps it.
+   *
+   * Not permanent in the HTTP sense (`NextResponse.redirect` defaults to 307),
+   * and deliberately so while the two addresses are one block old: a 308 is
+   * cached by the browser indefinitely and would be the wrong thing to be wrong
+   * about. The pair is cheap to keep.
+   */
+  const moved = MOVED_FROM_TEMPLATES[request.nextUrl.pathname];
+  if (moved) {
+    const url = new URL(request.url);
+    url.pathname = moved;
+    return redirectWithCsp(url);
   }
 
   /**
