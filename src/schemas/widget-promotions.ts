@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Enums } from '@/lib/supabase/database.types';
 
 /**
  * Block 17c. What the widget's promotion panel posts.
@@ -12,27 +13,49 @@ import { z } from 'zod';
  */
 
 /**
- * The eight values of `promotion_requested_field` (0040), in the enum's own
- * declaration order.
+ * Every value of `promotion_requested_field` (0040), as the boundary's allowed
+ * key set.
  *
- * WRITTEN OUT HERE is the fourth place this list exists — after the enum,
- * `member_field_value` (0065, extended by 0213) and `apply_member_field_values`
- * (0171, extended by 0213). It earns
- * its place: without it a payload naming a field no promotion can request would
- * reach a door that silently ignores it, and "the entry went through but the
- * answer vanished" is the least debuggable outcome available.
+ * IT EARNS ITS PLACE: without it a payload naming a field no promotion can
+ * request would reach a door that silently ignores it, and "the entry went
+ * through but the answer vanished" is the least debuggable outcome available.
+ *
+ * WHAT IT MAY NOT BE IS HAND-WRITTEN, AND IT WAS, UNTIL THE GENDER BLOCK MADE
+ * THE COST REAL. This list had nine values spelled out; 0219 added a tenth to
+ * the database, every screen and every other list learned about it — and this
+ * one did not, because a `z.enum` over a hand-written array is perfectly valid
+ * TypeScript. The result was not a compile error and not a validation message:
+ * `enterPromotionSchema` refused the whole payload, `enterPromotionAction`
+ * answered `invalid`, and the widget said "Something went wrong. Try again."
+ * to a listener who had done nothing wrong, on a field the widget itself had
+ * just drawn.
+ *
+ * DERIVED FROM THE GENERATED ENUM, therefore, exactly as `REQUESTED_FIELD_ORDER`
+ * in `schemas/promotions.ts` now is — and for the sharper reason: that one at
+ * least renders a checkbox somebody would notice was missing. This one is
+ * invisible until a listener meets it.
+ *
+ * `Object.keys` over a total record rather than `enum_range` in TypeScript: the
+ * generated types give the union, and a record over it is the only construct
+ * the compiler refuses to leave incomplete.
  */
-export const REQUESTED_FIELDS = [
-  'full_name',
-  'address',
-  'city',
-  'neighbourhood',
-  'country',
-  'age',
-  'cpf',
-  'passport',
-  'discovery_source',
-] as const;
+const REQUESTED_FIELD_SET: Record<Enums<'promotion_requested_field'>, true> = {
+  full_name: true,
+  address: true,
+  city: true,
+  neighbourhood: true,
+  country: true,
+  age: true,
+  gender: true,
+  cpf: true,
+  passport: true,
+  discovery_source: true,
+};
+
+export const REQUESTED_FIELDS = Object.keys(REQUESTED_FIELD_SET) as [
+  Enums<'promotion_requested_field'>,
+  ...Enums<'promotion_requested_field'>[],
+];
 
 /**
  * Parses a JSON string that arrived in a form field, failing the schema rather

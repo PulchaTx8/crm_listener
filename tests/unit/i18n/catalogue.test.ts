@@ -2,6 +2,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AVAILABLE_LOCALES, DEFAULT_LOCALE } from '@/i18n/locales';
+import { GENDER_VALUES } from '@/lib/conversation/steps';
+import { REQUESTED_FIELD_ORDER } from '@/schemas/promotions';
 
 /**
  * Block 12a, D8. What stops a translation from being quietly incomplete.
@@ -58,5 +60,40 @@ describe('the message catalogues', () => {
       const flat = JSON.stringify(load(locale));
       expect(flat, `${locale}.json holds an empty value`).not.toMatch(/:\s*""/);
     }
+  });
+});
+
+/**
+ * The keys nothing else in this repository can see.
+ *
+ * `tests/unit/i18n/usage.test.ts` proves that every `t('literal')` in the source
+ * names a key that exists. It reads the source with a regular expression, so it
+ * can only see keys spelled out at the call site — and the widget's field label
+ * is `t(`field_${step.field}`)`, the gender options are `t(`gender_${value}`)`,
+ * and every one of those is invisible to it.
+ *
+ * THIS IS NOT HYPOTHETICAL. Block 28 added `country` to
+ * `promotion_requested_field`, and the widget's label for it was never written:
+ * a promotion asking for a country rendered the literal string `field_country`
+ * to a visitor, and every gate in this repository stayed green for five weeks.
+ * The gender block found it by adding the tenth field beside it.
+ *
+ * Only the DEFAULT locale is checked here. "holds exactly the same keys in every
+ * language" above already carries the other two, and asserting all three would
+ * report the same missing key three times.
+ */
+describe('the keys built at the call site', () => {
+  const catalogue = load(DEFAULT_LOCALE) as Record<string, Record<string, unknown>>;
+
+  it.each(REQUESTED_FIELD_ORDER)('the widget can label the %s field', (field) => {
+    expect(catalogue.widget?.[`field_${field}`], `widget.field_${field} is missing`).toBeTruthy();
+  });
+
+  it.each(GENDER_VALUES)('both forms and the widget can name the %s option', (value) => {
+    expect(catalogue.members?.[`gender_${value}`], `members.gender_${value} is missing`).toBeTruthy();
+    expect(
+      catalogue.widget?.[`field_gender_${value}`],
+      `widget.field_gender_${value} is missing`,
+    ).toBeTruthy();
   });
 });

@@ -125,6 +125,56 @@ test('a Station takes its own voice and records the template that lets it speak 
   await expect(ownerPage.getByRole('link', { name: 'Organizations' })).toHaveCount(0);
 
   // ===========================================================================
+  // 0. Block 29a. The pairing card, in its new home, reached by the OWNER.
+  //
+  //    THIS IS THE ASSERTION THE BLOCK EXISTS TO EARN, and nothing covered it
+  //    before: the card had no e2e coverage at all while it lived on the
+  //    template screen. The move's whole risk is that pairing ends up somewhere
+  //    the Organization owner cannot reach — the platform console was the
+  //    obvious destination and is behind `is_platform_admin()`, which would have
+  //    handed the act to support alone. So the test is not "the card renders",
+  //    it is "this owner, who is not a platform admin, can open it" — and the
+  //    assertion two lines above (no Organizations link) is what proves this
+  //    identity is not one.
+  //
+  //    The card is asserted by its container rather than by its button: the
+  //    button is there only when WHATSAPP_EMBEDDED_SIGNUP_URL is configured, and
+  //    the card deliberately renders either way (an owner who finds an empty
+  //    screen cannot tell a missing feature from a missing variable). Which
+  //    branch shows is an installation's business; that the owner reaches the
+  //    card is this block's.
+  // ===========================================================================
+  const stationCard = ownerPage.getByTestId('station-card').filter({ hasText: stationName });
+  await stationCard.getByTestId('station-settings-open').click();
+
+  await expect(ownerPage.getByRole('heading', { name: stationName })).toBeVisible();
+  // Nothing has been paired, and the status says so in words rather than by
+  // being absent — 0218 answers connected = false for a Station with no
+  // integration precisely so this line can exist.
+  await expect(ownerPage.getByTestId('station-whatsapp-status')).toContainText('Not connected');
+  await expect(ownerPage.getByTestId('connect-whatsapp')).toBeVisible();
+
+  await ownerPage.getByRole('button', { name: 'Close' }).click();
+  await expect(ownerPage.getByTestId('connect-whatsapp')).toHaveCount(0);
+
+  // ===========================================================================
+  // 0b. The two addresses that moved, and the query string that had to survive.
+  //
+  //     A bookmark is the only reason these redirects exist, and a bookmark on
+  //     either of these screens carries `?companyId=` — the Station picker puts
+  //     it there on every switch. A redirect that dropped it would land the
+  //     operator on the same screen looking at a different Station, which is
+  //     worse than a 404 because nothing about it looks wrong.
+  // ===========================================================================
+  await ownerPage.goto('/templates/messages');
+  await expect(ownerPage).toHaveURL(/\/messages\/promo$/);
+
+  await ownerPage.goto('/templates/whatsapp?station=keep-me');
+  await expect(ownerPage).toHaveURL(/\/messages\/templates\?station=keep-me$/);
+
+  await ownerPage.goto('/app');
+
+  // ===========================================================================
   // 1. The thirteen texts are all there before anything has been overridden.
   //
   //    This is the assertion the screen exists to earn: a brand-new Station has
@@ -142,15 +192,25 @@ test('a Station takes its own voice and records the template that lets it speak 
   //    no change to this screen's own code at all, and this count is the
   //    only thing in this file that needed to know the number moved.
   // ===========================================================================
-  await openNavSection(ownerPage, 'Templates');
-  await ownerPage.getByRole('link', { name: 'Messages' }).click();
-  await expect(ownerPage).toHaveURL(/\/templates\/messages$/);
-  // Fourteen since Block 28's COUNTRY. Pinned rather than counted from the
-  // enum, deliberately: this is the SCREEN's own list, and the whole point is
-  // that a key added to system_message_key must reach it — a test deriving the
-  // number from the same enum the page derives it from would pass while the
-  // page rendered nothing.
-  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(14);
+  // Block 29a renamed both the section and this item, and moved the route.
+  // The section's KEY is still 'templates' (shell.ts says why at length); what
+  // changed here is what a member reads and clicks.
+  await openNavSection(ownerPage, 'Messages');
+  await ownerPage.getByRole('link', { name: 'Promo Messages' }).click();
+  await expect(ownerPage).toHaveURL(/\/messages\/promo$/);
+  // FIFTEEN since the gender block's GENDER, fourteen since Block 28's COUNTRY.
+  // Pinned rather than counted from the enum, deliberately: this is the SCREEN's
+  // own list, and the whole point is that a key added to system_message_key must
+  // REACH it — a test deriving the number from the same enum the page derives it
+  // from would pass while the page rendered nothing.
+  //
+  // The gender block is what proved that the pin earns its keep, by paying for
+  // it: every count in the unit suite was updated in the same commit and this
+  // one was not, because the block ran `widget.spec.ts` and not this file. CI
+  // caught it, which is the whole arrangement working — but the cheaper lesson
+  // is that a block adding a `system_message_key` value has THIS line to change
+  // and no compiler that will say so.
+  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(15);
 
   const refusalRow = ownerPage.getByTestId('system-message-REFUSAL');
   const refusalBody = ownerPage.getByTestId('system-message-body-REFUSAL');
@@ -198,9 +258,13 @@ test('a Station takes its own voice and records the template that lets it speak 
   // ===========================================================================
   // 4. The approved template, on the other screen in the same section.
   // ===========================================================================
-  await openNavSection(ownerPage, 'Templates');
-  await ownerPage.getByRole('link', { name: 'WhatsApp' }).click();
-  await expect(ownerPage).toHaveURL(/\/templates\/whatsapp$/);
+  await openNavSection(ownerPage, 'Messages');
+  // `exact` because without it Playwright matches accessible names by
+  // case-insensitive SUBSTRING, and this section now holds an item called
+  // 'Promo Messages' whose name contains... nothing of 'Templates', but the
+  // sibling case is one rename away and nav.ts's own helper already learned it.
+  await ownerPage.getByRole('link', { name: 'Templates', exact: true }).click();
+  await expect(ownerPage).toHaveURL(/\/messages\/templates$/);
 
   const pickupCard = ownerPage.getByTestId('purpose-PICKUP_REMINDER');
   await expect(pickupCard.getByText('Not registered — nothing sends')).toBeVisible();

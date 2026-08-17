@@ -12,6 +12,12 @@ import {
   type WidgetPromotion,
   type WidgetStep,
 } from '@/lib/widget/promotion-mapping';
+// The gender block. The SHAPE of a field and the values its one closed set may
+// hold, shared with the WhatsApp engine rather than restated here — see
+// FIELD_SHAPE's own comment for why they live in the conversation vocabulary
+// even though this is a browser bundle. Both are plain data; nothing in that
+// module reaches a database, a network or a clock.
+import { fieldShapeOf, GENDER_VALUES } from '@/lib/conversation/steps';
 import { signOutAction } from './actions';
 import {
   enterPromotionAction,
@@ -262,16 +268,51 @@ export function EnterPromotionPanel({
                 step.kind === 'field' ? (
                   <label key={step.field} className="flex flex-col gap-1 text-sm">
                     {t(`field_${step.field}`)}
-                    <input
-                      type="text"
-                      value={fields[step.field] ?? ''}
-                      onChange={(e) =>
-                        setFields((f) => ({ ...f, [step.field]: e.target.value }))
-                      }
-                      maxLength={500}
-                      className="rounded-md border bg-background p-2 text-sm"
-                      data-testid={`widget-promotion-field-${step.field}`}
-                    />
+                    {/*
+                      The gender block. A CHOICE-SHAPED field is a `<select>`
+                      here and three reply buttons on WhatsApp — two renderings
+                      of one decision, taken from `FIELD_SHAPE`
+                      (lib/conversation/steps.ts) rather than from a check on
+                      the field's name in each place.
+
+                      In a browser this costs nothing and gains everything the
+                      normaliser exists to recover on the other door: a visitor
+                      typing "masc" into a text box is a value `gender_normalize`
+                      has to guess at, and a `<select>` cannot produce one. The
+                      normaliser still runs on the way in — it is the column's
+                      one gate, whichever form posted.
+                    */}
+                    {fieldShapeOf(step.field) === 'choice' ? (
+                      <select
+                        value={fields[step.field] ?? ''}
+                        onChange={(e) =>
+                          setFields((f) => ({ ...f, [step.field]: e.target.value }))
+                        }
+                        className="rounded-md border bg-background p-2 text-sm"
+                        data-testid={`widget-promotion-field-${step.field}`}
+                      >
+                        {/* Blank first and selected by default, so the form
+                            never answers on somebody's behalf. `firstUnansweredScreen`
+                            already treats an empty string as unanswered. */}
+                        <option value="">{t('choosePlaceholder')}</option>
+                        {GENDER_VALUES.map((value) => (
+                          <option key={value} value={value}>
+                            {t(`field_gender_${value}`)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={fields[step.field] ?? ''}
+                        onChange={(e) =>
+                          setFields((f) => ({ ...f, [step.field]: e.target.value }))
+                        }
+                        maxLength={500}
+                        className="rounded-md border bg-background p-2 text-sm"
+                        data-testid={`widget-promotion-field-${step.field}`}
+                      />
+                    )}
                   </label>
                 ) : null,
               )}

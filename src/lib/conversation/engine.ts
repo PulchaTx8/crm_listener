@@ -19,9 +19,21 @@
  * reads.
  */
 import { buildConsentInteractive } from '@/lib/integrations/whatsapp/interactive';
+// The gender block. VALUES, not types, and the only ones this module imports
+// from `./steps` — which the file header allows and the header's reasoning
+// still holds: `./steps` is the shared vocabulary, it reaches no database, no
+// network and no clock, and putting the field's SHAPE here instead would put it
+// out of the widget's reach (see FIELD_SHAPE's own comment).
+import {
+  FIELD_SHAPE,
+  GENDER_BUTTON_IDS,
+  GENDER_VALUES,
+  genderFromButtonId,
+} from './steps';
 import type {
   Conversation,
   ConversationAnswers,
+  GenderValue,
   InboundAnswer,
   LinkPurpose,
   Outbound,
@@ -104,6 +116,14 @@ export const FIELD_PROMPTS: Record<RequestedField, string> = {
   city: 'Em qual cidade você mora?',
   neighbourhood: 'Em qual bairro você mora?',
   age: 'Qual é a sua data de nascimento? (dia/mês/ano)',
+  // The gender block. Sent with three reply buttons rather than as a bare
+  // question (FIELD_SHAPE, ./steps), so it does NOT end in the instruction its
+  // neighbours carry -- "(dia/mês/ano)" tells somebody how to type an answer,
+  // and this one is answered by pressing.
+  //
+  // It still has to read as a question to somebody who types anyway, because
+  // the WhatsApp keyboard stays open beneath the buttons and some people will.
+  gender: 'Qual é o seu sexo?',
   cpf: 'Qual é o seu CPF? (só os números)',
   passport: 'Qual é o número do seu passaporte?',
   discovery_source: 'Como você conheceu a nossa rádio?',
@@ -116,6 +136,35 @@ export const FIELD_PROMPTS: Record<RequestedField, string> = {
 };
 export const ABANDON_MESSAGE =
   'Não consegui entender a resposta. Vamos parar por aqui — é só mandar a hashtag de novo quando quiser tentar outra vez.';
+
+/**
+ * The three reply buttons the one choice-shaped field goes out with.
+ *
+ * WHY BUTTONS AT ALL, when `country` — also a closed set — is asked as prose:
+ * three options fit, and a country's two hundred do not. The Cloud API caps a
+ * reply-button message at three (`MAX_BUTTONS`, interactive.ts), which is
+ * exactly the number this field has, and a fourth option would push it to the
+ * LIST shape a promotion question already uses.
+ *
+ * THE LABELS ARE NOT OVERRIDABLE BY A STATION, and that is declared debt rather
+ * than an oversight. `station_message_templates` (0109) holds ONE BODY PER KEY,
+ * so a Station can already reword the QUESTION (`SYSTEM_MESSAGE_DEFAULTS.GENDER`)
+ * and cannot reword its three ANSWERS. The asymmetry is real and is named in
+ * §5b of the Block 29 brief with what closing it costs.
+ *
+ * Every label is inside the Cloud API's 20-character button cap, checked by
+ * `validateButtons` at build time — but a label that FITS is not the same as one
+ * that fits comfortably, and "Prefiro não dizer" was chosen over the more usual
+ * "Prefiro não informar" (exactly 20) so that a future edit has somewhere to go
+ * before it starts throwing.
+ *
+ * PORTUGUESE, like every constant in this file that a listener reads.
+ */
+export const GENDER_BUTTON_LABELS: Record<GenderValue, string> = {
+  M: 'Masculino',
+  F: 'Feminino',
+  N: 'Prefiro não dizer',
+};
 
 /**
  * Block 19a. The three texts a matched hashtag now sends, one per purpose, in
@@ -152,6 +201,7 @@ export const FIELD_MESSAGE_KEYS: Record<RequestedField, SystemMessageKey> = {
   city: 'CITY',
   neighbourhood: 'NEIGHBOURHOOD',
   age: 'AGE',
+  gender: 'GENDER',
   cpf: 'CPF',
   passport: 'PASSPORT',
   discovery_source: 'DISCOVERY_SOURCE',
@@ -187,6 +237,7 @@ export const SYSTEM_MESSAGE_DEFAULTS: Record<SystemMessageKey, string> = {
   CITY: FIELD_PROMPTS.city,
   NEIGHBOURHOOD: FIELD_PROMPTS.neighbourhood,
   AGE: FIELD_PROMPTS.age,
+  GENDER: FIELD_PROMPTS.gender,
   CPF: FIELD_PROMPTS.cpf,
   PASSPORT: FIELD_PROMPTS.passport,
   DISCOVERY_SOURCE: FIELD_PROMPTS.discovery_source,
@@ -330,12 +381,48 @@ function consentTurn(
   return answered(conversation, conversation.answers, context);
 }
 
+/**
+ * WHY A BUTTON ANSWER DOES NOT REPLACE THE TEXT ONE, but sits beside it.
+ *
+ * The three buttons go out and the WhatsApp keyboard stays open underneath
+ * them. Somebody types "masculino". If this function accepted only the button,
+ * that reply would be a `failure()`, and three of them abandon the conversation
+ * — on a field the promotion marked optional, taking every answer already given
+ * with it. So a choice-shaped field accepts BOTH, and the two converge:
+ *
+ *   button -> `genderFromButtonId` -> 'M' | 'F' | 'N'
+ *   text   -> stored raw -> `gender_normalize` in SQL (0220) -> the same three
+ *             or null, and null leaves the column alone
+ *
+ * The text half is NOT normalised here, deliberately. `country` (Block 28) does
+ * exactly the same: the engine stores what the listener wrote and
+ * `apply_member_field_values` resolves it on the way into the column. Keeping
+ * one resolver in one language is what stops "masculino" and "Masculino"
+ * becoming two audiences, and this module may not reach the database to call it.
+ */
 function fieldTurn(
   conversation: Conversation,
   field: RequestedField,
   message: InboundAnswer,
   context: PromptContext,
 ): Turn {
+  if (message.kind === 'button') {
+    // A button reply to a TEXT-shaped field is not an answer to this question —
+    // an old message re-pressed, most likely — and gets a re-prompt rather than
+    // a guess, the same rule `consentTurn` states for an unknown id.
+    if (FIELD_SHAPE[field] !== 'choice') return failure(conversation, context);
+    const chosen = genderFromButtonId(message.buttonId);
+    if (chosen === null) return failure(conversation, context);
+    return answered(
+      conversation,
+      {
+        fields: { ...conversation.answers.fields, [field]: chosen },
+        questions: [...conversation.answers.questions],
+      },
+      context,
+    );
+  }
+
   if (message.kind !== 'text') return failure(conversation, context);
 
   const value = validateField(field, message.text, message.receivedAt);
@@ -466,13 +553,49 @@ function promptFor(step: Step, context: PromptContext): Outbound {
         }),
       };
     case 'field':
-      return {
-        kind: 'text',
-        body: resolveSystemMessage(context.systemMessages, FIELD_MESSAGE_KEYS[step.field]),
-      };
+      return fieldOutbound(step.field, context);
     case 'question':
       return questionOutbound(step, context);
   }
+}
+
+/**
+ * One field's prompt, in the shape that field is answered in.
+ *
+ * THE SWITCH IS ON THE SHAPE, NOT ON THE FIELD (`FIELD_SHAPE`, ./steps). Nine of
+ * the ten fields are text and one is a choice; writing that as
+ * `if (field === 'gender')` would be shorter today and would have to be written
+ * again for the next closed set, in both of the two places that ask a field —
+ * here and the widget's own form.
+ *
+ * The body is the SAME resolved system message either way, so a Station that
+ * rewords the question rewords it for both shapes. Only the three buttons are
+ * added, and only for a choice.
+ */
+function fieldOutbound(field: RequestedField, context: PromptContext): Outbound {
+  const body = resolveSystemMessage(context.systemMessages, FIELD_MESSAGE_KEYS[field]);
+  if (FIELD_SHAPE[field] === 'text') return { kind: 'text', body };
+
+  // The one choice-shaped field today. Composed here rather than in
+  // interactive.ts — unlike the consent message, which has a picture, a header
+  // and a caption and earns a composer of its own — because this is the plain
+  // three-button shape with nothing above it but the question.
+  return {
+    kind: 'interactive',
+    interactive: {
+      kind: 'buttons',
+      body,
+      // No header. `imageUrl: null` is the shape's own way of saying so, and
+      // omitting the key is not an option — the field is required. The
+      // consent message is the only one that carries art, because a promotion
+      // has art and a question about the listener does not.
+      imageUrl: null,
+      buttons: GENDER_VALUES.map((value) => ({
+        id: GENDER_BUTTON_IDS[value],
+        title: GENDER_BUTTON_LABELS[value],
+      })),
+    },
+  };
 }
 
 function questionOutbound(

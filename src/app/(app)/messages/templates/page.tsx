@@ -6,29 +6,26 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { getServiceHashtags, listSystemMessages } from '@/services/templates';
-import type { ServiceHashtags, SystemMessageRow } from '@/services/templates';
+import { listRegisteredTemplates } from '@/services/templates';
+import type { RegisteredTemplate } from '@/services/templates';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
 import { canManageTemplates } from '../permissions';
 import { describeTemplateReadError } from '../errors';
-import { HashtagFields } from './hashtag-fields';
-import { SystemMessageList } from './system-message-list';
+import { TemplateRegistry } from './template-registry';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
 export const dynamic = 'force-dynamic';
 
-export default async function SystemMessagesPage({
+export default async function WhatsAppTemplatesPage({
   searchParams,
 }: {
   searchParams: Promise<{ companyId?: string; station?: string }>;
 }) {
   const t = await getTranslations('templates');
   const params = await searchParams;
-  // The same bound listCompanyAccess enforces on its own argument, imported
-  // rather than copied.
   const stationSearch = params.station?.trim().slice(0, STATION_SEARCH_MAX_LENGTH) || undefined;
 
   const supabase = await createUserClient();
@@ -53,39 +50,30 @@ export default async function SystemMessagesPage({
 
   const first = viewable[0];
 
-  // A Station search that matches nothing leaves this caller with no Station to
-  // show, which is not the same as holding templates.view nowhere: the redirect
-  // below would throw them off the screen with no way to clear the search.
-  // Handled before it, so the search can always be undone.
   if (!first && stationSearch) return <NoStationMatch search={stationSearch} />;
-  // A courtesy, not the boundary: 0109's select policy filters every read and
-  // the four doors in 0113 re-check their own permission before writing.
+  // A courtesy, not the boundary: 0110's select policy filters every read and
+  // both registry doors in 0113 re-check templates.manage before writing.
   if (!first) redirect('/app');
 
-  // A stale or tampered companyId that is not in `viewable` — access revoked
-  // since the link was generated, or a hand-edited URL — falls back to the
-  // first Station this caller can actually view rather than erroring.
   const selected = viewable.find((c) => c.id === params.companyId) ?? first;
 
-  let rows: SystemMessageRow[];
+  let templates: RegisteredTemplate[];
   let manage: boolean;
-  let hashtags: ServiceHashtags;
   try {
-    [rows, manage, hashtags] = await Promise.all([
-      listSystemMessages(selected.id),
+    [templates, manage] = await Promise.all([
+      listRegisteredTemplates(selected.id),
       canManageTemplates(supabase, selected.id),
-      getServiceHashtags(selected.id),
     ]);
   } catch (cause) {
-    logger.error({ err: cause, companyId: selected.id }, 'could not load the system messages');
+    logger.error({ err: cause, companyId: selected.id }, 'could not load the template registry');
     return <LoadError message={describeTemplateReadError(cause, await getTranslations('templates'))} />;
   }
 
   return (
     <>
       <PageHeader
-        title={t('messages')}
-        description={t('messagesDescription')}
+        title={t('whatsappTemplates')}
+        description={t('whatsappDescription')}
       />
 
       {(capped || stationSearch) && (
@@ -95,7 +83,7 @@ export default async function SystemMessagesPage({
               {t('showing')}{' '}{viewable.length + suspended.length} {t('ofTheStationsYouCanReach')}</p>
           )}
           <StationSearchForm
-            action="/templates/messages"
+            action="/messages/templates"
             value={stationSearch ?? ''}
             preserve={{}}
             label={t('findAStation')}
@@ -108,7 +96,7 @@ export default async function SystemMessagesPage({
           {viewable.map((company) => (
             <Link
               key={company.id}
-              href={stationSwitchHref('/templates/messages', company.id, stationSearch)}
+              href={stationSwitchHref('/messages/templates', company.id, stationSearch)}
               aria-current={company.id === selected.id ? 'page' : undefined}
               className={
                 company.id === selected.id
@@ -131,19 +119,35 @@ export default async function SystemMessagesPage({
         </div>
       )}
 
-      <HashtagFields companyId={selected.id} hashtags={hashtags} manage={manage} />
+      {/*
+        The one thing an operator arriving here has to already know, said before
+        they can type anything: this screen RECORDS an approval, it does not ask
+        for one (D4). Somebody who fills the form expecting it to submit will
+        wait for an approval that was never requested, and read the silence as a
+        bug in this product.
+      */}
+      <div className="mb-4 flex flex-col gap-2 rounded-md border border-dashed p-3">
+        <p className="text-sm">
+          {t('templatesAreCreatedAndApprovedIn')}{' '}<strong>{t('metaSOwnConsole')}</strong>, not here.
+          Approval takes days and is outside this system. Once it comes through, transcribe the
+          approved name, language and body below — exactly as approved — so this Station can send
+          it.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t('aRevokedOrEditedApprovalIs')}</p>
+      </div>
 
       {/*
-        Said on the screen rather than only in the runbook: these ten bodies are
-        the one place in this product where Portuguese is correct, and an
-        operator who does not know that will "fix" them into English and take
-        the bot's voice away from every listener at this Station.
+        THE PAIRING CARD USED TO BE HERE, owner-gated, and Block 29a moved it to
+        the Station's own record on /app (station-settings.tsx). Its reasoning
+        travelled with it and is written in the component's own header; what
+        matters at this end is that nothing was made harder to reach. The gate
+        was `isStationOwner`, and it is the same predicate on the same
+        `is_owner_of_company` at the new site — the owner who paired from this
+        screen pairs from that one.
       */}
-      <p className="mb-4 text-sm text-muted-foreground">
-        {t('theseAreReadByListenersOn')}</p>
-
-      <SystemMessageList
-        rows={rows}
+      <TemplateRegistry
+        templates={templates}
         companyId={selected.id}
         timeZone={selected.timezone}
         manage={manage}
@@ -156,14 +160,14 @@ async function NoStationMatch({ search }: { search: string }) {
   const t = await getTranslations('templates');
   return (
     <>
-      <PageHeader title={t('messages')} />
+      <PageHeader title={t('whatsappTemplates')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
             {t('noStationYouCanReachMatches', { search })}
           </p>
           <Link
-            href="/templates/messages"
+            href="/messages/templates"
             className="text-sm text-primary underline underline-offset-2"
           >
             {t('clearTheStationSearch')}</Link>
@@ -177,7 +181,7 @@ async function LoadError({ message }: { message: string }) {
   const t = await getTranslations('templates');
   return (
     <>
-      <PageHeader title={t('messages')} />
+      <PageHeader title={t('whatsappTemplates')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

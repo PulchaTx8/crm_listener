@@ -10,10 +10,14 @@ import { signupPopupFeatures } from '@/lib/integrations/whatsapp/embedded-signup
 const WINDOW_NAME = 'pulchatx-whatsapp-embedded-signup';
 
 /**
- * The one client component on this screen, and it is client for exactly one
- * reason: `window.open`. Everything around it stays on the server, which is
- * why the label arrives as a prop — `getTranslations` resolves it in the
- * parent rather than shipping a translator into the bundle for one string.
+ * Client for exactly one reason: `window.open`.
+ *
+ * The label still arrives as a prop, and after Block 29a that is a smaller
+ * saving than it was: the card above it is a client component now too, so the
+ * translator is already in the bundle. It stays a prop anyway, because this
+ * component makes no claim about which namespace the sentence came from — it
+ * renders a link and opens a window, and a caller that wants a different label
+ * should not have to add a key to somebody else's namespace to get one.
  *
  * STILL AN ANCHOR WITH A REAL href, not a button with a handler, and that is
  * the whole robustness of it. The popup is an enhancement layered on top of a

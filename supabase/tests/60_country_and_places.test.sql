@@ -72,14 +72,21 @@ select ok(
 -- the wrong position — or lost one of its existing ones in the drop+create —
 -- fails here rather than at the first call site that passes arguments
 -- positionally.
+--
+-- ONE `text` LONGER SINCE THE GENDER BLOCK (0220), which appended p_gender
+-- after p_country on both doors. These two assertions are what CAUGHT that
+-- change rather than merely tolerating it, which is the whole point of
+-- pinning a full signature: the block had to come back here and say so.
+-- 63_gender.test.sql holds the other half — that the drop and recreate did
+-- not leave two overloads behind, and did not lose the grant.
 
 select has_function('public', 'create_member',
   array['uuid','text','text','text','text','text','text','date','text','text',
-        'text','text','text','text','text','text','timestamptz','text','text'],
-  'create_member takes a country, last');
+        'text','text','text','text','text','text','timestamptz','text','text','text'],
+  'create_member takes a country, then a gender');
 select has_function('public', 'update_member',
   array['uuid','text','text','text','text','text','text','date','text','text',
-        'text','text','text','text','text','text','text'],
+        'text','text','text','text','text','text','text','text'],
   'so does update_member');
 select has_function('public', 'apply_member_creation',
   array['uuid','text','text','text','text','text','text','date','text','text',

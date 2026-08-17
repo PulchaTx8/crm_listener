@@ -54,6 +54,7 @@ export const REQUESTED_FIELD_LABEL_KEYS: Record<RequestedField, string> = {
   neighbourhood: 'requestedFieldNeighbourhood',
   country: 'requestedFieldCountry',
   age: 'requestedFieldAge',
+  gender: 'requestedFieldGender',
   cpf: 'requestedFieldCpf',
   passport: 'requestedFieldPassport',
   discovery_source: 'requestedFieldDiscoverySource',

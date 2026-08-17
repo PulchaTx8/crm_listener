@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextShowSavedConfirmation } from '@/app/(app)/templates/messages/hashtag-fields';
+import { nextShowSavedConfirmation } from '@/app/(app)/messages/promo/hashtag-fields';
 
 /**
  * Fix Round 1's finding: the "Saved" confirmation was dead code on the

@@ -64,7 +64,7 @@ export async function registerTemplateAction(
 
   try {
     await registerTemplate(parsed.data, token);
-    revalidatePath('/templates/whatsapp');
+    revalidatePath('/messages/templates');
     return { status: 'saved' };
   } catch (cause) {
     logger.error(
@@ -104,7 +104,7 @@ export async function archiveTemplateAction(
 
   try {
     await archiveTemplate(parsed.data, token);
-    revalidatePath('/templates/whatsapp');
+    revalidatePath('/messages/templates');
     return { status: 'archived' };
   } catch (cause) {
     logger.error(

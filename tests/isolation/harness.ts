@@ -456,6 +456,44 @@ async function superuserQuery<T extends Record<string, unknown>>(
  * top of: a promotion's hashtag alone does not say which number receives it,
  * the integration row is what maps one to the other.
  */
+/**
+ * Stops a group's subscription, the way the platform console's Block does.
+ *
+ * THROUGH THE SUPERUSER CONNECTION, for seedIntegration's reason and one of its
+ * own: the doors that set this are gated on `is_platform_admin()`, and this
+ * harness holds no platform admin session -- giving it one to set a single
+ * column would be a wider change than the fixture is worth.
+ *
+ * WHY A TEST WANTS IT: `is_owner_for` (0005, as Block 16's D5 left it) requires
+ * `organizations.suspended_at is null` on top of the owner membership, so a
+ * suspended group has an owner who is not an owner to any door. That asymmetry
+ * is invisible from the memberships table and is exactly what a screen reading
+ * memberships instead of asking the door gets wrong.
+ */
+export async function suspendOrganization(organizationId: string): Promise<void> {
+  // BOTH COLUMNS, because `organizations_block_shape` (0154) requires
+  // `(suspended_at is null) = (suspended_by is null)` -- a suspension always
+  // names who ordered it. `suspended_by` is set to the group's own owner here
+  // only because the fixture has no platform admin to name; what the column
+  // holds is irrelevant to every assertion, and leaving it null is a 23514.
+  const changed = await superuserStatement(
+    'suspendOrganization',
+    `update public.organizations o
+        set suspended_at = now(),
+            suspended_by = (select m.user_id
+                              from public.organization_memberships m
+                             where m.organization_id = o.id
+                               and m.role = 'owner'
+                               and m.deleted_at is null
+                             limit 1)
+      where o.id = $1`,
+    [organizationId],
+  );
+  if (changed !== 1) {
+    throw new Error(`suspendOrganization: expected to update exactly one row, got ${changed}`);
+  }
+}
+
 export async function seedIntegration(
   customer: ProvisionedCustomer,
   phoneNumberId: string,

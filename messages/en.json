@@ -5,7 +5,19 @@
     "yourStations": "Your stations",
     "yourStationsDescription": "Audience, prize and promotion features arrive in the next release.",
     "noStationLinkedYet": "No station is linked to your account yet. Please contact us.",
-    "suspendedNoDataAvailable": "Suspended — no data is available while the subscription is inactive."
+    "suspendedNoDataAvailable": "Suspended — no data is available while the subscription is inactive.",
+    "stationSettings": "Settings",
+    "close": "Close",
+    "tabWhatsapp": "WhatsApp",
+    "whatsappConnection": "Connection",
+    "whatsappConnected": "Connected",
+    "whatsappNotConnected": "Not connected — this Station sends and receives nothing on WhatsApp",
+    "whatsappNumber": "Number",
+    "whatsappNumberUnknown": "Meta has not reported the number yet",
+    "whatsappSending": "Sending",
+    "whatsappSendingOn": "On",
+    "whatsappSendingOff": "Off — paired, but nothing leaves this Station",
+    "whatsappStatusUnavailable": "The connection status could not be read. Refresh the page and try again."
   },
   "shell": {
     "signOut": "Sign out",
@@ -52,6 +64,7 @@
     "pickups": "Pickups",
     "platform": "Platform",
     "promotions": "Promotions",
+    "promoMessages": "Promo Messages",
     "promotionsOverview": "Promotions overview",
     "reports": "Reports",
     "requests": "Requests",
@@ -61,7 +74,6 @@
     "stock": "Stock",
     "team": "Team",
     "templates": "Templates",
-    "whatsapp": "WhatsApp",
     "programmes": "Programmes",
     "vendors": "Vendors",
     "categories": "Categories",
@@ -486,7 +498,7 @@
     "reopeningNeedsTheFormBelow": "Reopening a deadline needs the form below, not this button."
   },
   "templates": {
-    "messages": "Messages",
+    "messages": "Promo Messages",
     "showing": "Showing",
     "ofTheStationsYouCanReach": "of the Stations you can reach. Search by name to reach one that is not listed.",
     "suspendedNoDataIsAvailableWhile": "Suspended — no data is available while the subscription is inactive.",
@@ -496,7 +508,7 @@
     "systemDefault": "System default",
     "changed": "Changed",
     "thisStationSOwnWording": "This Station’s own wording",
-    "whatsappTemplates": "WhatsApp templates",
+    "whatsappTemplates": "Templates",
     "templatesAreCreatedAndApprovedIn": "Templates are created and approved in",
     "metaSOwnConsole": "Meta’s own console",
     "aRevokedOrEditedApprovalIs": "A revoked or edited approval is not visible from here: what is recorded below is what somebody was told at the time. The first refused send is what discovers a change.",
@@ -583,10 +595,6 @@
     "purposeWebVerificationTitle": "Web widget verification code",
     "purposeWebVerificationWhen": "Sent the moment a visitor on this Station’s own website types their telephone number into the widget and asks to be identified. It has to be an approved template of Meta’s AUTHENTICATION category: the visitor has never messaged this Station, so there is no 24-hour window to send inside. Until it is registered here the widget accepts a number and then sends nothing at all.",
     "purposeWebVerificationSendsCode": "The six-digit code, and nothing else — it expires in ten minutes and is burned after five wrong attempts",
-    "connectWhatsAppTitle": "Connect WhatsApp Business",
-    "connectWhatsAppDescription": "Pairs this Station's own WhatsApp Business account with PulchatX so that both share one telephone number: the Station keeps answering from the WhatsApp Business app while this system sends and receives on the same number. Meta runs the pairing itself, in a separate window, and asks for a confirmation code delivered to the telephone — have the handset with you before you start.",
-    "connectWhatsAppButton": "Start the pairing at Meta",
-    "connectWhatsAppNotConfigured": "Meta's pairing address has not been configured on this installation, so the pairing cannot be started from here. It is a setting on the server rather than something this screen can fix — ask support.",
     "thatTextCouldNotBeIdentified": "That text could not be identified. Refresh the page and try again.",
     "thatRegistrationCouldNotBeIdentified": "That registration could not be identified. Refresh the page and try again.",
     "serviceHashtagsTitle": "Service hashtags",
@@ -600,7 +608,15 @@
     "notSet": "Not set",
     "actionChangeTheServiceHashtags": "change the service hashtags",
     "messageCountryTitle": "Asking for the country",
-    "fieldCountry": "the country"
+    "fieldCountry": "the country",
+    "messageGenderTitle": "Asking for the listener’s sex",
+    "messageGenderWhen": "Asked only by a promotion that requests it, and the one question the bot sends with buttons rather than as plain text. You can reword the question here; the three answers on the buttons are the system’s and cannot be changed yet."
+  },
+  "connectWhatsApp": {
+    "title": "Connect WhatsApp Business",
+    "description": "Pairs this Station's own WhatsApp Business account with PulchatX so that both share one telephone number: the Station keeps answering from the WhatsApp Business app while this system sends and receives on the same number. Meta runs the pairing itself, in a separate window, and asks for a confirmation code delivered to the telephone — have the handset with you before you start.",
+    "button": "Start the pairing at Meta",
+    "notConfigured": "Meta's pairing address has not been configured on this installation, so the pairing cannot be started from here. It is a setting on the server rather than something this screen can fix — ask support."
   },
   "dashboards": {
     "audience": "Audience",
@@ -975,7 +991,13 @@
     "notByYouNotBySupport": "— not by you, not by support. Only direct database access can restore it.",
     "fieldCountry": "Country",
     "country": "Country",
-    "noCountry": "No country"
+    "noCountry": "No country",
+    "fieldGender": "Sex",
+    "gender": "Sex",
+    "genderNotRecorded": "Not recorded",
+    "gender_M": "Male",
+    "gender_F": "Female",
+    "gender_N": "Preferred not to say"
   },
   "participations": {
     "draw": "Draw",
@@ -1547,7 +1569,8 @@
     "someoneHasAlreadyEnteredThisPromotion": "Someone has already entered this promotion, so the question itself can no longer be changed — that would leave answers pointing at wording nobody read.",
     "saveGuidelines": "Save guidelines",
     "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again.",
-    "requestedFieldCountry": "Country"
+    "requestedFieldCountry": "Country",
+    "requestedFieldGender": "Sex"
   },
   "music": {
     "closeRecord": "Close record",
@@ -2023,7 +2046,13 @@
     "exit": "Exit",
     "goodbye": "Thank you! See you next time.",
     "backToWhatsApp": "Back to WhatsApp",
-    "identifyAgainAction": "Identify me again"
+    "identifyAgainAction": "Identify me again",
+    "field_gender": "Sex",
+    "field_gender_M": "Male",
+    "field_gender_F": "Female",
+    "field_gender_N": "Prefer not to say",
+    "field_country": "Country",
+    "choosePlaceholder": "Choose…"
   },
   "shows": {
     "programmes": "Programmes",

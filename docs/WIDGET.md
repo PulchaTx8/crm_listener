@@ -127,8 +127,10 @@ operator fixing one line will hit the next bad line on the next save anyway.
 Every new radio needs an approved Meta `AUTHENTICATION`-category template
 before its widget can send a single verification code. The template's
 `template_purpose` is `WEB_VERIFICATION`, and it is registered per Station on
-the **Templates** screen that already exists (`/templates/whatsapp`), which
-carries one card per purpose — there is no second screen for it.
+the **Messages → Templates** screen that already exists
+(`/messages/templates`, and `/templates/whatsapp` until Block 29a renamed the
+section and moved the route), which carries one card per purpose — there is no
+second screen for it.
 
 *(Worth knowing if you are reading old task reports: that card did not exist
 until the block's fix wave. `TEMPLATE_PURPOSES` was a hand-written array
@@ -499,8 +501,9 @@ a listener receives is built directly from this value.
 
 ### Three hashtags, one order
 
-A Station configures two of them itself, on **Templates → Messages**
-(`/templates/messages`): the **music hashtag** and the **service hashtag**,
+A Station configures two of them itself, on **Messages → Promo Messages**
+(`/messages/promo`, and `/templates/messages` until Block 29a): the **music
+hashtag** and the **service hashtag**,
 written together through `set_service_hashtags` and gated on
 `templates.manage` — the same permission that screen's other card already
 requires, on purpose, rather than a third permission for two text fields.

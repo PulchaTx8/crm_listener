@@ -40,6 +40,7 @@ export function StationRecordDialog({
   secrets,
   installation,
   siteUrl,
+  signupUrl,
   tab,
   onTab,
   onClose,
@@ -59,6 +60,8 @@ export function StationRecordDialog({
   /** Null when nobody has configured this Station's widget yet. */
   installation: WidgetInstallationRow | null;
   siteUrl: string;
+  /** Block 29a. Null when this installation configured no pairing address. */
+  signupUrl: string | null;
   tab: StationTab;
   onTab: (tab: StationTab) => void;
   onClose: () => void;
@@ -164,6 +167,7 @@ export function StationRecordDialog({
             companyId={row.id}
             initialRow={integration}
             secrets={secrets}
+            signupUrl={signupUrl}
             onSaved={(saved) => onIntegrationSaved(row.id, saved)}
           />
         )}

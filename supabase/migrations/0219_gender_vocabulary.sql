@@ -1,0 +1,52 @@
+-- supabase/migrations/0219_gender_vocabulary.sql
+
+-- The gender block, Task 1. TWO ADD VALUEs AND NOTHING ELSE IN THIS FILE.
+--
+-- The Postgres rule 0082, 0091, 0151, 0160 and 0180 have each paid for:
+-- ALTER TYPE ... ADD VALUE cannot share a transaction with a statement that
+-- USES the value. Separate files are separate transactions. The two below may
+-- share this one because neither uses the other's value; 0220 uses both.
+
+-- ---------------------------------------------------------------------------
+-- 1. A tenth requested field.
+--
+-- THIS REVERSES A RECORDED DECISION, and says so rather than arriving quietly.
+-- 0040's own comment on this enum reads:
+--
+--   "Three fields the owner's old system offered — gender, favourite station,
+--    favourite show — are deliberately absent (spec D5); they have no column
+--    and will not get one."
+--
+-- Block 4a's D5 excluded it on purpose, and the reason has since changed rather
+-- than been discovered wrong: when D5 was written this product had no segmented
+-- outbound messaging, so a gender column answered a question nobody could ask.
+-- Block 29 creates that question — a campaign whose audience is "the women of
+-- this Station" is the whole point of the filter — and the owner reopened the
+-- field for it on 2026-08-17, for TARGETING and not for eligibility (§5b, D8).
+--
+-- `favourite station` and `favourite show` are NOT reopened. D5 stands for both.
+--
+-- AFTER 'age', not appended. `whatsapp_conversation_steps` (0066) orders the
+-- stale fields by this enum's DECLARATION order and nothing else, so this line
+-- decides where in the conversation the question falls. Beside the birth date
+-- is where it belongs: the two are the same kind of question about the same
+-- person, and asking one's sex after their passport number reads like an
+-- afterthought bolted to a form.
+alter type public.promotion_requested_field add value if not exists 'gender' after 'age';
+
+-- ---------------------------------------------------------------------------
+-- 2. The text that asks for it, so a Station can word the question itself.
+--
+-- Every requested field has a key here (0109's enum is TOTAL over the eight it
+-- shipped with, and 0180/0213 added to it in step), and the pairing is enforced
+-- by the compiler at the other end: FIELD_MESSAGE_KEYS and SYSTEM_MESSAGE_DEFAULTS
+-- (src/lib/conversation/engine.ts) are both total records, so a tenth field with
+-- no key of its own does not build.
+--
+-- WHAT A STATION MAY REWORD IS THE QUESTION, NOT THE THREE ANSWERS, and that
+-- asymmetry is declared debt rather than an oversight: station_message_templates
+-- (0109) holds ONE BODY PER KEY, and the three button labels are a different
+-- shape of thing. They ship as system constants in this block. Widening that
+-- table to carry option labels is a later block, named in §5b of the Block 29
+-- brief with its cost.
+alter type public.system_message_key add value if not exists 'GENDER' after 'AGE';

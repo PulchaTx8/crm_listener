@@ -132,6 +132,15 @@ const addressFields = {
   // place that decides what a country string means — a second, weaker copy of
   // that rule in a Zod schema is how the two drift apart.
   country: optionalText(2),
+  // The gender block. One character and no more, because the column holds
+  // 'M', 'F' or 'N' by CHECK (0220). NOT validated against those three here,
+  // and for country's reason directly above: the form posts a code from a
+  // <select>, and gender_normalize (0220) is the one place that decides what
+  // a gender string means. A second, weaker copy of that rule in a Zod schema
+  // is how the two drift apart -- and this one would drift in the dangerous
+  // direction, since the resolver deliberately accepts prose an operator
+  // could paste in from somewhere else.
+  gender: optionalText(1),
 };
 
 // Shared by createMemberSchema and updateMemberSchema: every field

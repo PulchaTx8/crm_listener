@@ -120,6 +120,7 @@ export default async function MembersPage({
         ageMax: state.ageMax,
         blockedOnly: state.blockedOnly || undefined,
         hasRulesConsent: state.consent === undefined ? undefined : state.consent === 'yes',
+        gender: state.gender,
         registeredFrom: state.registeredFrom,
         registeredTo: state.registeredTo,
       },

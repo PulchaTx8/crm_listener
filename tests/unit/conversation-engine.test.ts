@@ -6,7 +6,9 @@ import {
   CONSENT_YES_ID,
   DEFAULT_NO_BUTTON_LABEL,
   DEFAULT_YES_BUTTON_LABEL,
+  FIELD_PROMPTS,
   firstPrompt,
+  GENDER_BUTTON_LABELS,
   PromptContextError,
   REFUSAL_MESSAGE,
 } from '@/lib/conversation/engine';
@@ -18,6 +20,7 @@ import type {
   Step,
   Turn,
 } from '@/lib/conversation/steps';
+import { buildInteractivePayload } from '@/lib/integrations/whatsapp/interactive';
 import type { Interactive } from '@/lib/integrations/whatsapp/interactive';
 
 // ---------------------------------------------------------------------------
@@ -610,5 +613,125 @@ describe('purity', () => {
     expect(advance(conv, text('Curitiba'), context())).toStrictEqual(
       advance(conv, text('Curitiba'), context()),
     );
+  });
+});
+
+/**
+ * The gender block. The one CHOICE-shaped field, and the two ways it is
+ * answered.
+ *
+ * WHY THESE CASES EXIST AT ALL, stated once so nobody trims them as
+ * duplication: until this block every field went out as text and came back as
+ * text, and `fieldTurn` opened with `if (message.kind !== 'text') return
+ * failure(...)`. Both halves of that changed, and the half that is easy to get
+ * wrong is the SECOND one — a version that accepts only the button reply passes
+ * every obvious test and abandons the conversation of anybody who types instead
+ * of pressing, which on WhatsApp is a real fraction of people because the
+ * keyboard stays open beneath the buttons.
+ */
+const GENDER: Step = { kind: 'field', field: 'gender' };
+
+describe('a choice-shaped field', () => {
+  const conv = () => conversation([GENDER], { cursor: 0 });
+
+  it('goes out as three reply buttons rather than as a bare question', () => {
+    const turn = expectPrompt(advance(conversation([CONSENT, GENDER]), button(CONSENT_YES_ID), context()));
+    const buttons = expectButtons(turn.outbound);
+
+    expect(buttons.buttons.map((b) => b.id)).toEqual(['gender_M', 'gender_F', 'gender_N']);
+    expect(buttons.buttons.map((b) => b.title)).toEqual([
+      GENDER_BUTTON_LABELS.M,
+      GENDER_BUTTON_LABELS.F,
+      GENDER_BUTTON_LABELS.N,
+    ]);
+    // No header. The consent message is the only one that carries art.
+    expect(buttons.imageUrl).toBeNull();
+  });
+
+  it("carries the Station's own wording in the buttons message, not only in a text one", () => {
+    // The half a "buttons work" test would miss: the body still goes through
+    // `resolveSystemMessage`, so a Station that rewords the question rewords it
+    // for the shape that has buttons too.
+    const turn = expectPrompt(
+      advance(
+        conversation([CONSENT, GENDER]),
+        button(CONSENT_YES_ID),
+        context({ systemMessages: { GENDER: 'Você é homem ou mulher?' } }),
+      ),
+    );
+    expect(expectButtons(turn.outbound).body).toBe('Você é homem ou mulher?');
+  });
+
+  it('falls back to the code default when the Station has overridden nothing', () => {
+    const turn = expectPrompt(advance(conversation([CONSENT, GENDER]), button(CONSENT_YES_ID), context()));
+    expect(expectButtons(turn.outbound).body).toBe(FIELD_PROMPTS.gender);
+  });
+
+  it('is a message the Cloud API would actually accept', () => {
+    // The three labels are inside Meta's 20-character button cap and there are
+    // three of them, which is the maximum. Asserted by BUILDING the payload
+    // rather than by measuring the strings here: `validateButtons` is the rule,
+    // and a second copy of it in a test would be the copy that goes stale.
+    const turn = expectPrompt(advance(conversation([CONSENT, GENDER]), button(CONSENT_YES_ID), context()));
+    expect(() => buildInteractivePayload(expectInteractive(turn.outbound))).not.toThrow();
+  });
+
+  it('stores the code when the listener presses a button', () => {
+    const turn = expectComplete(advance(conv(), button('gender_F'), context()));
+    expect(turn.conversation.answers.fields.gender).toBe('F');
+  });
+
+  it('stores what the listener TYPED, raw, when they type instead of pressing', () => {
+    // Raw and un-normalised on purpose: `gender_normalize` (0220) is the one
+    // authority on what a gender string means, it lives in SQL, and this module
+    // may not reach a database. `country` (Block 28) does exactly the same.
+    const turn = expectComplete(advance(conv(), text('masculino'), context()));
+    expect(turn.conversation.answers.fields.gender).toBe('masculino');
+  });
+
+  it('accepts a typed answer the resolver will not understand, rather than abandoning', () => {
+    // THE CASE THIS WHOLE DESIGN TURNS ON. The engine cannot tell a resolvable
+    // answer from an unresolvable one — the resolver is in SQL — so it accepts
+    // both, and an unrecognised one costs the FIELD at write time (coalesce
+    // leaves the column alone) rather than costing the participation here.
+    // Refusing it would burn a re-prompt, and three burn the entry.
+    const turn = expectComplete(advance(conv(), text('sei lá'), context()));
+    expect(turn.conversation.answers.fields.gender).toBe('sei lá');
+  });
+
+  it('re-prompts a button id that belongs to no answer', () => {
+    // An old message re-pressed, or a consent button arriving one step late.
+    const turn = expectPrompt(advance(conv(), button('gender_X'), context()));
+    expect(turn.conversation.reprompts).toBe(1);
+    expect(turn.conversation.answers.fields.gender).toBeUndefined();
+  });
+
+  it('re-prompts a consent button pressed at this step', () => {
+    const turn = expectPrompt(advance(conv(), button(CONSENT_YES_ID), context()));
+    expect(turn.conversation.reprompts).toBe(1);
+    expect(turn.conversation.answers.fields.gender).toBeUndefined();
+  });
+
+  it('re-prompts a list reply, which no field takes', () => {
+    const turn = expectPrompt(advance(conv(), listReply('o-1'), context()));
+    expect(turn.conversation.reprompts).toBe(1);
+  });
+});
+
+describe('a text-shaped field', () => {
+  it('still refuses a button reply, which is not an answer to it', () => {
+    // The other side of the shape. Without this, a version of `fieldTurn` that
+    // accepted a button for EVERY field would pass every case above — and would
+    // store `null` into `city` for anybody who pressed a stale button.
+    const turn = expectPrompt(
+      advance(conversation([CITY]), button('gender_M'), context()),
+    );
+    expect(turn.conversation.reprompts).toBe(1);
+    expect(turn.conversation.answers.fields.city).toBeUndefined();
+  });
+
+  it('goes out as plain text, with no buttons attached', () => {
+    const turn = expectPrompt(advance(conversation([CONSENT, CITY]), button(CONSENT_YES_ID), context()));
+    expect(turn.outbound.kind).toBe('text');
   });
 });

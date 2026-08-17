@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
 import { countryOptions } from '@/lib/countries';
+import { GenderSelect } from '@/components/members/gender-select';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 const CHECK_INITIAL: CheckIdentifierState = { status: 'idle' };
@@ -288,6 +289,13 @@ export function RegisterMemberForm({
             <label className="flex flex-col gap-1 text-sm">
               {t('birthDate')}<Input name="birthDate" type="date" />
             </label>
+
+            {/* The gender block. Beside the birth date rather than at the end,
+                matching where promotion_requested_field places the question
+                (0219) and where the conversation asks it. Blank by default, and
+                blank means "not recorded" — never "declined", which has a code
+                of its own (the component says why at length). */}
+            <GenderSelect defaultValue="" />
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">

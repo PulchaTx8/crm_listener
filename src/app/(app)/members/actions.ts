@@ -160,6 +160,7 @@ export async function registerMemberAction(
     state: formData.get('state'),
     postalCode: formData.get('postalCode'),
     country: formData.get('country'),
+    gender: formData.get('gender'),
     discoverySource: formData.get('discoverySource'),
     firstContactAt: formData.get('firstContactAt') || null,
     firstContactOrigin: formData.get('firstContactOrigin'),
@@ -404,6 +405,7 @@ export async function updateMemberAction(
     state: formData.get('state') || undefined,
     postalCode: formData.get('postalCode') || undefined,
     country: formData.get('country') || undefined,
+    gender: formData.get('gender') || undefined,
     discoverySource: formData.get('discoverySource') || undefined,
   });
   if (!parsed.success) {

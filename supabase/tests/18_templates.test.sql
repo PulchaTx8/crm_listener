@@ -7,19 +7,26 @@ insert into public.companies (id, organization_id, name, timezone) values
   ('00000000-0000-0000-0000-00000000e4c1', '00000000-0000-0000-0000-00000000e4f1',
    'Station templates', 'America/Sao_Paulo');
 
--- 1: fourteen keys, and the order is pinned. Nine are the requested fields
+-- 1: fifteen keys, and the order is pinned. Ten are the requested fields
 -- FIELD_PROMPTS covers; two are the standalone messages; three (added by
 -- Block 19a, 0180) are the words in front of the link a matched hashtag
--- sends -- appended at the end, since `alter type ... add value` always
--- appends. COUNTRY (Block 28, 0212) is appended after those three for the same
--- reason, which is why it sits past the LINK_* group rather than beside the
--- eight fields it belongs with.
+-- sends -- appended at the end, since `alter type ... add value` appends
+-- unless told otherwise. COUNTRY (Block 28, 0212) is appended after those
+-- three for that reason, which is why it sits past the LINK_* group rather
+-- than beside the fields it belongs with.
+--
+-- GENDER IS THE EXCEPTION, AND DELIBERATELY SO. The gender block (0219)
+-- placed it with `add value ... after 'AGE'` rather than letting it append,
+-- because 0109's enum has no bearing on conversation order and this one's
+-- sibling does: `promotion_requested_field` decides where the question falls
+-- in the walk, so the two enums were kept in step rather than drifting for no
+-- reason. This assertion is what holds that placement.
 select is(
   enum_range(null::public.system_message_key)::text[],
   array['REFUSAL', 'ABANDON', 'FULL_NAME', 'ADDRESS', 'CITY', 'NEIGHBOURHOOD',
-        'AGE', 'CPF', 'PASSPORT', 'DISCOVERY_SOURCE',
+        'AGE', 'GENDER', 'CPF', 'PASSPORT', 'DISCOVERY_SOURCE',
         'LINK_MUSIC', 'LINK_MENU', 'LINK_PROMOTION', 'COUNTRY'],
-  'system_message_key is the fourteen texts engine.ts hard-codes');
+  'system_message_key is the fifteen texts engine.ts hard-codes');
 
 -- 2: a blank override is not an override. '   ' would satisfy NOT NULL and
 -- send a listener an empty message, which is worse than the default.

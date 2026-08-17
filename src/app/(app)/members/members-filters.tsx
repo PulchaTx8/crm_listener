@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { GENDER_VALUES, type GenderValue } from '@/lib/conversation/steps';
 import { hasActiveFilters, membersHref } from './list-params';
 import type { MemberListState } from './list-params';
 
@@ -148,6 +149,50 @@ export function MembersFilters({ state }: { state: MemberListState }) {
             <option value="">{t('any')}</option>
             <option value="yes">{t('consentedToTheRules')}</option>
             <option value="no">{t('hasNotConsented')}</option>
+          </Select>
+        </label>
+
+        {/*
+          The gender block, and the reason this screen gains a filter for a
+          column no operator asked to see: it is what Block 29's campaigns
+          address an audience by, and a criterion that cannot be tried against
+          the real list before a send is a criterion nobody can trust.
+
+          FOUR CHOICES OVER THREE STORED VALUES. "Not recorded" is the fourth,
+          and it is the column being null — which is a different population from
+          "Prefiro não dizer", not a politer spelling of it. Both are offered
+          because both are real answers to "who has not told us".
+
+          A controlled `value` bound to server state, which is the shape that
+          bit this project once already on a CHECKBOX: a box whose `checked`
+          comes from the server unticks itself on click, because the click's own
+          render restores the old value before the navigation lands. A <select>
+          is safe from it — the navigation carries the new value and the render
+          that follows agrees with it — and this comment is here so the next
+          filter added beside it is not a checkbox written from memory.
+        */}
+        <label className="flex w-56 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('gender')}</span>
+          <Select
+            value={state.gender ?? ''}
+            onChange={(e) => {
+              const value = e.target.value;
+              navigate({
+                gender:
+                  value === 'none' || (GENDER_VALUES as readonly string[]).includes(value)
+                    ? (value as GenderValue | 'none')
+                    : undefined,
+              });
+            }}
+            data-testid="member-gender-filter"
+          >
+            <option value="">{t('any')}</option>
+            {GENDER_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {t(`gender_${value}`)}
+              </option>
+            ))}
+            <option value="none">{t('genderNotRecorded')}</option>
           </Select>
         </label>
       </div>
