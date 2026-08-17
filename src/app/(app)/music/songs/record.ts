@@ -44,7 +44,7 @@ export type SongRecordResult =
  * only when the song carries an integration code.
  *
  * The reference lists a song's fields are chosen from (artists, labels, genres,
- * categories) are still not re-read here: they are already on the page from the
+ * songwriters) are still not re-read here: they are already on the page from the
  * list's own Promise.all and are passed down as props, so opening a record
  * cannot re-run those reads either.
  *

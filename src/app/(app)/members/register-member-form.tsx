@@ -1,6 +1,6 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { useActionState } from 'react';
 import {
@@ -13,6 +13,7 @@ import {
 } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input, Select, Textarea } from '@/components/ui/input';
+import { countryOptions } from '@/lib/countries';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 const CHECK_INITIAL: CheckIdentifierState = { status: 'idle' };
@@ -69,6 +70,9 @@ export function RegisterMemberForm({
   suspended?: SuspendedCompany[];
 }) {
   const t = useTranslations('members');
+  // For the country select's option names, which come from Intl rather than
+  // from messages/*.json (src/lib/countries.ts says why).
+  const locale = useLocale();
   const [companyId, setCompanyId] = useState(stations[0]?.id ?? '');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -303,6 +307,20 @@ export function RegisterMemberForm({
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 {t('state')}<Input name="state" maxLength={100} />
+              </label>
+              {/* Block 28, D10. A select, not an input: members_country_shape
+                  (0213) accepts only ISO alpha-2, so a typed "Brasil" would be
+                  refused by a CHECK at save time. */}
+              <label className="flex flex-col gap-1 text-sm">
+                {t('country')}
+                <Select name="country" defaultValue="" data-testid="member-country">
+                  <option value="">{t('noCountry')}</option>
+                  {countryOptions(locale).map((country) => (
+                    <option key={country.code} value={country.code}>
+                      {country.name}
+                    </option>
+                  ))}
+                </Select>
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 {t('postalCode')}<Input name="postalCode" maxLength={20} />

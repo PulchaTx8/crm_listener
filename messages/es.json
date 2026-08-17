@@ -64,7 +64,8 @@
     "whatsapp": "WhatsApp",
     "programmes": "Programas",
     "vendors": "Proveedores",
-    "categories": "Categorías"
+    "categories": "Categorías",
+    "songwriters": "Compositores"
   },
   "auth": {
     "chooseANewPassword": "Elija una nueva contraseña",
@@ -327,7 +328,9 @@
     "days": "Días",
     "hours": "Horas",
     "minutes": "Minutos",
-    "zeroMeansNoLimit": "Los tres en cero significan sin límite: el oyente puede pedir cuantas quiera."
+    "zeroMeansNoLimit": "Los tres en cero significan sin límite: el oyente puede pedir cuantas quiera.",
+    "country": "País",
+    "noCountry": "Sin país"
   },
   "draws": {
     "drawOf": "Sorteo del",
@@ -595,7 +598,9 @@
     "serviceHashtagHelp": "Enviado por un oyente para recibir un enlace al menú del propio widget, donde elige entre una canción y una promoción.",
     "hashtagsSaved": "Guardado",
     "notSet": "Sin definir",
-    "actionChangeTheServiceHashtags": "cambiar los hashtags de atención"
+    "actionChangeTheServiceHashtags": "cambiar los hashtags de atención",
+    "messageCountryTitle": "Preguntando el país",
+    "fieldCountry": "el país"
   },
   "dashboards": {
     "audience": "Audiencia",
@@ -655,10 +660,26 @@
     "customRange": "Intervalo personalizado",
     "to": "Hasta",
     "allStations": "Todas las emisoras ({count})",
+    "selectStations": "Emisoras mostradas",
+    "stationsSelected": "{count, plural, one {# emisora} other {# emisoras}}",
     "stationsListed": "Emisoras listadas ({count})",
     "thatPeriodIsNotValid": "Ese período no es válido.",
     "youDoNotHavePermissionToSeeThisDashboard": "Usted no tiene permiso para ver este panel en todas las emisoras seleccionadas.",
-    "couldNotLoadThisDashboard": "No se pudo cargar este panel. Actualice la página e inténtelo de nuevo."
+    "couldNotLoadThisDashboard": "No se pudo cargar este panel. Actualice la página e inténtelo de nuevo.",
+    "whereTheListenersAre": "Dónde están los oyentes",
+    "whereTheMusicIsAskedFor": "Desde dónde piden las canciones",
+    "placesCoverage": "{withPlace} de {total} en el mapa — los demás no tienen dirección que podamos ubicar.",
+    "noPlacesAreKnownYet": "Todavía no se conoce ningún lugar. Los oyentes necesitan una ciudad en su ficha para aparecer aquí.",
+    "theMapIsNotConfigured": "El mapa no está configurado. Las listas de abajo no cambian.",
+    "theMapCouldNotBeLoaded": "No se pudo cargar el mapa. Las listas de abajo no cambian.",
+    "byCity": "Por ciudad",
+    "byNeighbourhood": "Por barrio",
+    "city": "Ciudad",
+    "neighbourhood": "Barrio",
+    "place": "Lugar",
+    "song": "Canción",
+    "listenersColumn": "Oyentes",
+    "mostRequestedByPlace": "Más pedida, por lugar"
   },
   "team": {
     "invitationSentTo": "Invitación enviada a",
@@ -947,7 +968,10 @@
     "blockFrom": " · desde ",
     "blockUntil": " hasta {when}",
     "blockNoEndDate": ", sin fecha de término",
-    "notByYouNotBySupport": "— ni por usted, ni por el soporte. Solo el acceso directo a la base de datos puede restaurarlo."
+    "notByYouNotBySupport": "— ni por usted, ni por el soporte. Solo el acceso directo a la base de datos puede restaurarlo.",
+    "fieldCountry": "País",
+    "country": "País",
+    "noCountry": "Sin país"
   },
   "participations": {
     "draw": "Sorteo",
@@ -1518,7 +1542,8 @@
     "internalOnlyNeverSentToThe": "Solo interno — nunca se envía al oyente. Orienta a quien lea las respuestas.",
     "someoneHasAlreadyEnteredThisPromotion": "Alguien ya participó en esta promoción, así que la pregunta en sí ya no puede cambiarse — eso dejaría respuestas apuntando a un texto que nadie leyó.",
     "saveGuidelines": "Guardar pautas",
-    "theQuestionWasSavedButItsModerationGuidelines": "La pregunta se guardó, pero sus pautas de moderación no. Edita la pregunta para escribirlas de nuevo."
+    "theQuestionWasSavedButItsModerationGuidelines": "La pregunta se guardó, pero sus pautas de moderación no. Edita la pregunta para escribirlas de nuevo.",
+    "requestedFieldCountry": "País"
   },
   "music": {
     "closeRecord": "Cerrar ficha",
@@ -1848,23 +1873,23 @@
     "editRecord": "Editar {name}",
     "actionsForRecord": "Acciones para {name}",
     "showingOfTotal": "Mostrando {shown} de {total}",
-    "category": "Categoría",
-    "noCategory": "Sin categoría",
-    "allCategories": "Todas las categorías",
-    "categories": "Categorías",
-    "referenceCategoriesDescription": "Cómo esta emisora clasifica su catálogo. Una canción apunta a una, y la lista de canciones filtra por ella.",
-    "registerCategory": "Registrar categoría",
-    "registerACategory": "Registrar una categoría",
-    "archiveCategory": "Archivar categoría…",
-    "archiveThisCategoryQuestion": "¿Archivar esta categoría?",
-    "noCategoriesAreRegisteredInThis": "Todavía no hay categorías registradas en esta emisora.",
-    "noCategoryMatchesTheseFilters": "Ninguna categoría coincide con estos filtros.",
-    "categoriesCountLabel": "{count, plural, one {categoría} other {categorías}}",
-    "categoryName": "Nombre de la categoría",
-    "searchCategoriesByName": "Buscar categorías por nombre",
-    "actionRegisterCategories": "registrar categorías",
-    "actionSaveThisCategory": "guardar esta categoría",
-    "actionArchiveThisCategory": "archivar esta categoría",
+    "songwriter": "Compositor",
+    "noSongwriter": "Sin compositor",
+    "allSongwriters": "Todos los compositores",
+    "songwriters": "Compositores",
+    "referenceSongwritersDescription": "Quién escribió las canciones del catálogo de esta emisora. Una canción apunta a uno, y la lista de canciones filtra por él.",
+    "registerSongwriter": "Registrar compositor",
+    "registerASongwriter": "Registrar un compositor",
+    "archiveSongwriter": "Archivar compositor…",
+    "archiveThisSongwriterQuestion": "¿Archivar este compositor?",
+    "noSongwritersAreRegisteredInThis": "Todavía no hay compositores registrados en esta emisora.",
+    "noSongwriterMatchesTheseFilters": "Ningún compositor coincide con estos filtros.",
+    "songwritersCountLabel": "{count, plural, one {compositor} other {compositores}}",
+    "songwriterName": "Nombre del compositor",
+    "searchSongwritersByName": "Buscar compositores por nombre",
+    "actionRegisterSongwriters": "registrar compositores",
+    "actionSaveThisSongwriter": "guardar este compositor",
+    "actionArchiveThisSongwriter": "archivar este compositor",
     "integrationTab": "Integración",
     "integrationCode": "Código de integración",
     "integrationTitle": "Título",

@@ -1,11 +1,12 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
+import { countryOptions } from '@/lib/countries';
 import type { MemberDetail } from '@/services/members';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
@@ -411,6 +412,13 @@ function DataTab({
         <Field name="neighbourhood" label={t('fieldNeighbourhood')} defaultValue={detail.neighbourhood ?? ''} />
         <Field name="city" label={t('fieldCity')} defaultValue={detail.city ?? ''} />
         <Field name="state" label={t('fieldState')} defaultValue={detail.state ?? ''} />
+        {/* Block 28, D10. Beside State because that is where a reader looks for
+            it, and a SELECT rather than a text input because members_country_shape
+            (0213) accepts only ISO alpha-2 — a free-text box would let an
+            operator type "Brasil" and meet a CHECK constraint on save. Optional,
+            like every other field in this block: a listener with none inherits
+            their Station's. */}
+        <CountryField defaultValue={detail.country ?? ''} label={t('fieldCountry')} noneLabel={t('noCountry')} />
         <Field name="postalCode" label={t('fieldPostcode')} defaultValue={detail.postalCode ?? ''} />
         <Field name="discoverySource" label={t('fieldHowTheyFoundUs')} defaultValue={detail.discoverySource ?? ''} />
 
@@ -451,6 +459,31 @@ function ReadOnlyIdentity({ detail }: { detail: MemberDetail }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+function CountryField({
+  defaultValue,
+  label,
+  noneLabel,
+}: {
+  defaultValue: string;
+  label: string;
+  noneLabel: string;
+}) {
+  const locale = useLocale();
+  return (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <Select name="country" defaultValue={defaultValue} data-testid="member-country">
+        <option value="">{noneLabel}</option>
+        {countryOptions(locale).map((country) => (
+          <option key={country.code} value={country.code}>
+            {country.name}
+          </option>
+        ))}
+      </Select>
+    </label>
   );
 }
 

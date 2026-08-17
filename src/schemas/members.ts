@@ -126,6 +126,12 @@ const addressFields = {
   city: optionalText(120),
   state: optionalText(100),
   postalCode: optionalText(20),
+  // Block 28. Two characters and no more, because the column is ISO 3166-1
+  // alpha-2 by CHECK (0213). NOT validated for shape here beyond the length: the
+  // form posts a code from a <select>, and 0213's country_alpha2 is the one
+  // place that decides what a country string means — a second, weaker copy of
+  // that rule in a Zod schema is how the two drift apart.
+  country: optionalText(2),
 };
 
 // Shared by createMemberSchema and updateMemberSchema: every field

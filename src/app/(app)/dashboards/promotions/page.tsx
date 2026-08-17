@@ -19,7 +19,7 @@ import { STATUS_LABEL_KEYS as WINNER_STATUS_KEYS } from '../../pickups/list-para
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
-import { ConsolidatedToggle } from '../consolidated-toggle';
+import { StationSelection } from '../station-selection';
 import { DashboardCards, WithheldFigure } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
@@ -214,7 +214,14 @@ export default async function PromotionsDashboardPage({
 
       {(viewable.length + suspended.length > 1 || consolidatedEligible.length >= 2) && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+          {/* Block 28 gave this row a testid it did not need before. The
+              StationSelection control below renders a SECOND pill per Station,
+              carrying the same name, so a page-wide `getByRole('link', { name:
+              stationName })` now matches two links and fails on strict mode.
+              The two rows do different things — this one REPLACES the selection
+              with one Station, that one adds or removes one — so telling them
+              apart is a real distinction, not a test convenience. */}
+          <div className="flex flex-wrap gap-2" data-testid="station-switcher">
             {viewable.map((company) => (
               <Link
                 key={company.id}
@@ -244,14 +251,20 @@ export default async function PromotionsDashboardPage({
             ))}
           </div>
 
-          <ConsolidatedToggle
+          <StationSelection
             eligible={consolidatedEligible.length >= 2}
             base={BASE}
             period={selection}
             stationSearch={stationSearch}
-            active={companyIds.length > 1}
             singleCompanyId={first.id}
+            viewable={viewable}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
+            // `companyIds`, not `params.companyId`: this is the selection the
+            // page actually resolved and read the panel with, after a stale or
+            // tampered id was dropped above. A control drawn from the raw URL
+            // would show a pill lit for a Station whose figures are not on the
+            // screen.
+            selectedIds={companyIds}
             complete={stationListIsComplete}
           />
         </div>

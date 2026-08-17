@@ -22,19 +22,20 @@ const registration = {
 };
 
 describe('SYSTEM_MESSAGE_KEYS', () => {
-  it('is the thirteen keys, derived from the defaults rather than listed again', () => {
-    // Derived, so a fourteenth key added to the enum arrives here with no
+  it('is the fourteen keys, derived from the defaults rather than listed again', () => {
+    // Derived, so a fifteenth key added to the enum arrives here with no
     // edit -- exactly what happened when Block 19a's three LINK_* keys grew
-    // this from ten to thirteen with no change to this file's own logic.
+    // this from ten to thirteen, and again when Block 28's COUNTRY made it
+    // fourteen, neither time with a change to this file's own logic.
     // A hand-written list would be a second place to forget.
-    expect(SYSTEM_MESSAGE_KEYS).toHaveLength(13);
+    expect(SYSTEM_MESSAGE_KEYS).toHaveLength(14);
     expect(SYSTEM_MESSAGE_KEYS).toEqual(Object.keys(SYSTEM_MESSAGE_DEFAULTS));
     expect(SYSTEM_MESSAGE_KEYS[0]).toBe('REFUSAL');
   });
 });
 
 describe('systemMessageFormSchema', () => {
-  it('accepts a Station rewriting one of the thirteen', () => {
+  it('accepts a Station rewriting one of the fourteen', () => {
     const parsed = systemMessageFormSchema.parse({
       companyId: COMPANY,
       key: 'REFUSAL',
@@ -54,7 +55,7 @@ describe('systemMessageFormSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('refuses a key that is not one of the thirteen', () => {
+  it('refuses a key that is not one of the fourteen', () => {
     const result = systemMessageFormSchema.safeParse({
       companyId: COMPANY,
       key: 'INACTIVITY',

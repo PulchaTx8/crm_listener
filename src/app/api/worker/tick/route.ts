@@ -11,6 +11,8 @@ import { drainStorageErasures } from '@/lib/storage/erasure';
 import type { ErasureDrainResult } from '@/lib/storage/erasure';
 import { drainReportRuns } from '@/lib/reports/drain';
 import type { ReportDrainResult } from '@/lib/reports/drain';
+import { drainGeocodeQueue } from '@/services/places';
+import type { GeocodeDrainResult } from '@/services/places';
 import type { Json } from '@/lib/supabase/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -92,6 +94,20 @@ export async function POST(request: Request): Promise<Response> {
     reports = { error: cause instanceof Error ? cause.message : 'unknown' };
   }
 
+  // Block 28, the fourth drain. Wrapped exactly like the two above it and for
+  // the reason this one sharpens further: it is the only drain that calls a
+  // THIRD PARTY over the network, so it is the likeliest of the four to hang or
+  // refuse — and a listener waiting on a WhatsApp reply must not wait because
+  // Google is slow. Its own quota handling is inside drainGeocodeQueue: a
+  // refusal stops that batch and leaves the rows for the next tick rather than
+  // marking real places unknown.
+  let places: GeocodeDrainResult | { error: string };
+  try {
+    places = await drainGeocodeQueue(supabase);
+  } catch (cause) {
+    places = { error: cause instanceof Error ? cause.message : 'unknown' };
+  }
+
   // Block 11b, D5. The tick's own heartbeat, written here because pg_cron
   // cannot: its statement only ENQUEUES an HTTP request, so pg_cron reports
   // success the moment pg_net accepts it -- with this application in the
@@ -108,7 +124,7 @@ export async function POST(request: Request): Promise<Response> {
       // index signature, which is what `Json` asks for -- not because anything
       // here is unknown. The same object is already serialised into the
       // response below.
-      p_counters: { ...result, erasures, reports } as unknown as Json,
+      p_counters: { ...result, erasures, reports, places } as unknown as Json,
     });
     // An error RESULT is not a throw. Without this line a missing grant leaves
     // the heartbeat silently unwritten, and silence reads as health.
@@ -123,7 +139,7 @@ export async function POST(request: Request): Promise<Response> {
 
   // pg_net stores the response in net._http_response, so these counters are
   // the only account of a tick anybody can read afterwards.
-  return Response.json({ ...result, erasures, reports });
+  return Response.json({ ...result, erasures, reports, places });
 }
 
 /**

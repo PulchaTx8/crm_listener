@@ -7,6 +7,8 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getMusicDashboard } from '@/services/dashboards';
+import { getMusicGeography } from '@/services/geography';
+import type { MusicGeography } from '@/schemas/geography';
 import type { MusicDashboard, Slice } from '@/schemas/dashboards';
 import { coversForSongs } from '@/services/music';
 import { coverUrl } from '@/lib/integrations/deezer/cover';
@@ -20,7 +22,8 @@ import { NATIONALITY_LABEL_KEYS, VOCAL_LABEL_KEYS } from '../../music/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
-import { ConsolidatedToggle } from '../consolidated-toggle';
+import { StationSelection } from '../station-selection';
+import { GeographyPanel } from '../geography-panel';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
@@ -135,6 +138,15 @@ export default async function MusicDashboardPage({
     return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
+  // Block 28. Its own try/catch, for the reason the audience page's own
+  // geography read states: a failure here costs the map, never the cards.
+  let geography: MusicGeography | null = null;
+  try {
+    geography = await getMusicGeography(companyIds, selection);
+  } catch (cause) {
+    logger.error({ err: cause, companyIds }, 'could not load the music geography');
+  }
+
   // Whether the Station list above is the caller's WHOLE relationship or a
   // narrowed view of it (whole-branch review, Important B7). Both
   // listCompanyAccess calls are capped at fifty and both are filtered by the
@@ -192,7 +204,14 @@ export default async function MusicDashboardPage({
 
       {(viewable.length + suspended.length > 1 || consolidatedEligible.length >= 2) && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+          {/* Block 28 gave this row a testid it did not need before. The
+              StationSelection control below renders a SECOND pill per Station,
+              carrying the same name, so a page-wide `getByRole('link', { name:
+              stationName })` now matches two links and fails on strict mode.
+              The two rows do different things — this one REPLACES the selection
+              with one Station, that one adds or removes one — so telling them
+              apart is a real distinction, not a test convenience. */}
+          <div className="flex flex-wrap gap-2" data-testid="station-switcher">
             {viewable.map((company) => (
               <Link
                 key={company.id}
@@ -222,14 +241,20 @@ export default async function MusicDashboardPage({
             ))}
           </div>
 
-          <ConsolidatedToggle
+          <StationSelection
             eligible={consolidatedEligible.length >= 2}
             base={BASE}
             period={selection}
             stationSearch={stationSearch}
-            active={companyIds.length > 1}
             singleCompanyId={first.id}
+            viewable={viewable}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
+            // `companyIds`, not `params.companyId`: this is the selection the
+            // page actually resolved and read the panel with, after a stale or
+            // tampered id was dropped above. A control drawn from the raw URL
+            // would show a pill lit for a Station whose figures are not on the
+            // screen.
+            selectedIds={companyIds}
             complete={stationListIsComplete}
           />
         </div>
@@ -314,6 +339,19 @@ export default async function MusicDashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      {geography && (
+        <GeographyPanel
+          title={t('whereTheMusicIsAskedFor')}
+          places={geography.places}
+          withPlace={geography.with_place}
+          total={geography.total}
+          // The music panel's extra table: the most-requested song in each
+          // place, which is the whole reason this map differs from the
+          // audience one.
+          songs={geography.places}
+        />
+      )}
     </>
   );
 }

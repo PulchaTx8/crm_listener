@@ -92,8 +92,11 @@ export const DEFAULT_QUESTION_BUTTON_LABEL = 'Responder';
  * Copy, so it lives here with the rest of it and not in a column: a promotion
  * has no per-field wording to override, and D6 of the 4a spec settled that a
  * requested field would never carry settings of its own. A TOTAL record, so the
- * compiler refuses a ninth field that nobody wrote a question for -- the failure
+ * compiler refuses a tenth field that nobody wrote a question for -- the failure
  * mode a lookup table would turn into a listener receiving an empty message.
+ * Block 28's `country` is what that promise was written for: adding the enum
+ * value named this file, FIELD_MESSAGE_KEYS, SYSTEM_MESSAGE_DEFAULTS and two
+ * screens, and named them all at once.
  */
 export const FIELD_PROMPTS: Record<RequestedField, string> = {
   full_name: 'Qual é o seu nome completo?',
@@ -104,6 +107,12 @@ export const FIELD_PROMPTS: Record<RequestedField, string> = {
   cpf: 'Qual é o seu CPF? (só os números)',
   passport: 'Qual é o número do seu passaporte?',
   discovery_source: 'Como você conheceu a nossa rádio?',
+  // Block 28, D10. Asked only by a promotion that requests it — the diaspora
+  // case is real (a Brazilian in Portugal listening to a Maranhão station) and
+  // rare, and a question nobody needs is a listener who stops answering. The
+  // answer is free text and reaches members.country through country_alpha2
+  // (0213), never raw: that column is a key the maps group by.
+  country: 'Em qual país você mora?',
 };
 export const ABANDON_MESSAGE =
   'Não consegui entender a resposta. Vamos parar por aqui — é só mandar a hashtag de novo quando quiser tentar outra vez.';
@@ -133,7 +142,7 @@ export type { SystemMessageKey, SystemMessageOverrides } from './steps';
  * Which key carries each requested field's prompt.
  *
  * TOTAL, and that is the whole point of it existing rather than a
- * `field.toUpperCase()`: a ninth `RequestedField` fails to compile HERE as well
+ * `field.toUpperCase()`: a tenth `RequestedField` fails to compile HERE as well
  * as in `FIELD_PROMPTS`, so the pair cannot drift into a field whose prompt
  * nobody can override and, worse, a key that resolves to nothing.
  */
@@ -146,6 +155,7 @@ export const FIELD_MESSAGE_KEYS: Record<RequestedField, SystemMessageKey> = {
   cpf: 'CPF',
   passport: 'PASSPORT',
   discovery_source: 'DISCOVERY_SOURCE',
+  country: 'COUNTRY',
 };
 
 /**
@@ -180,6 +190,7 @@ export const SYSTEM_MESSAGE_DEFAULTS: Record<SystemMessageKey, string> = {
   CPF: FIELD_PROMPTS.cpf,
   PASSPORT: FIELD_PROMPTS.passport,
   DISCOVERY_SOURCE: FIELD_PROMPTS.discovery_source,
+  COUNTRY: FIELD_PROMPTS.country,
   LINK_MUSIC: DEFAULT_MUSIC_LINK_TEXT,
   LINK_MENU: DEFAULT_MENU_LINK_TEXT,
   LINK_PROMOTION: DEFAULT_PROMOTION_LINK_TEXT,

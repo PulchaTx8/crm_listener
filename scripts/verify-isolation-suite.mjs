@@ -252,25 +252,49 @@ const REQUIRED_TEST_FILES = [
   // Block 27. Five cases, and the floor is the full count because three of them
   // are the only proof of their property anywhere in this repository.
   //
-  // The tenant boundary on `music_categories`: a category registered at one
+  // The tenant boundary on `songwriters`: a songwriter registered at one
   // Station is invisible from another INSIDE THE SAME ORGANIZATION, to a caller
-  // who holds music.view and music.manage in both. 57_music_categories.test.sql
+  // who holds music.view and music.manage in both. 57_songwriters.test.sql
   // asserts the policy's shape and cannot assert this — it runs as superuser
   // with a null auth.uid() where RLS never applies, the reason every other entry
   // here gives.
   //
-  // And the two sharper ones, both about a category a FOREIGN KEY CANNOT JUDGE:
-  // a song naming an ARCHIVED category, and a song naming a category from
-  // ANOTHER Station. songs_category_company_fk references
-  // music_categories_id_company_unique, a NON-PARTIAL constraint — a foreign key
+  // And the two sharper ones, both about a songwriter a FOREIGN KEY CANNOT
+  // JUDGE: a song naming an ARCHIVED songwriter, and a song naming a songwriter
+  // from ANOTHER Station. songs_songwriter_company_fk references
+  // songwriters_id_company_unique, a NON-PARTIAL constraint — a foreign key
   // cannot reference a partial index — so it proves the Station and is blind to
   // deleted_at. The archived refusal lives in assert_song_references_live's
-  // fifth block (0205) and NOWHERE ELSE, which means an edit dropping those four
-  // lines would leave an archived category silently choosable again with every
-  // other suite green. That same block also takes the FOR KEY SHARE that pairs
-  // with archive_music_reference's FOR UPDATE, so deleting it reopens 0103's
-  // race for this kind too.
-  { path: 'tests/isolation/music-categories.test.ts', minTests: 5 },
+  // fifth block (0205, renamed 0211) and NOWHERE ELSE, which means an edit
+  // dropping those four lines would leave an archived songwriter silently
+  // choosable again with every other suite green. That same block also takes
+  // the FOR KEY SHARE that pairs with archive_music_reference's FOR UPDATE, so
+  // deleting it reopens 0103's race for this kind too.
+  { path: 'tests/isolation/songwriters.test.ts', minTests: 5 },
+  // Block 28. Six cases, and the floor is the full count because four of them
+  // are the only proof of their property anywhere in this repository.
+  //
+  // Both geography aggregates are SECURITY INVOKER (0215) — the same choice
+  // 0118 made and for the same reason — so RLS applies INSIDE them and only a
+  // real JWT can prove it engages. 61_places.test.sql runs as superuser with a
+  // null auth.uid(), where RLS never applies, so it can prove the key's
+  // arithmetic and nothing about the boundary.
+  //
+  // THE SHARPEST CASE IS D11: the audience map's `total` must equal
+  // get_audience_dashboard's `listeners` figure for the same window. The two are
+  // only equal because 0215's `link` CTE is COPIED from 0118 rather than
+  // rewritten, and nothing but this assertion would notice somebody
+  // "improving" either count — the map would simply start counting a different
+  // population from the card beside it, which is the exact failure Block 8a's
+  // D12b exists to prevent.
+  //
+  // The other three that live only here: a place belonging to one Station's
+  // listeners not appearing for another (geocoded_places is deliberately
+  // readable by everyone, so ONLY the join through members stops the leak); a
+  // second Station refused without reports.consolidated and never narrowed to
+  // the one the caller does hold; and the two maps gating independently, so
+  // members.view says nothing about music.view.
+  { path: 'tests/isolation/geography.test.ts', minTests: 6 },
   // Block 27. Six cases, and the floor is the full count because three of them
   // are the only proof of their property in this repository.
   //

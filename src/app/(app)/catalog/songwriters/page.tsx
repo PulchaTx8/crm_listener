@@ -19,18 +19,20 @@ import { parseReferenceCursor, parseReferenceListState, referenceHref } from '..
 import type { ReferenceScreenCopy, ReferenceSearchParams } from '../references/list-params';
 
 /** This route's own kind. `genres/page.tsx` and `labels/page.tsx` are this file with KIND and copy swapped — D2's "thin page" half. */
-const KIND = 'CATEGORY' as const;
+const KIND = 'SONGWRITER' as const;
 
 /**
- * Block 27. Categories — a Station's own filing word for a recording, beside
- * the genre rather than instead of it: a genre says what the music IS, a
- * category says where this Station files it.
+ * Block 28. Songwriters — the people who WROTE this Station's songs, beside the
+ * artist rather than instead of it: the artist is who PERFORMS the recording,
+ * the songwriter is who wrote it, and the two are routinely different people.
+ * Block 27 shipped this screen as Categories, on a reading of the owner's item
+ * that the owner corrected.
  *
  * THE SCREEN IS `/catalog/genres` WITH DIFFERENT COPY, and that is the whole of
  * design D2 and D4. The Station switcher, the URL-driven filter bar, the keyset
  * paging, the record-as-a-modal, the pencil column and the actions dropdown all
  * come from ReferenceScreen; an operator who has registered a genre already
- * knows how to register a category, and a second layout for the same job would
+ * knows how to register a songwriter, and a second layout for the same job would
  * only be a second thing to maintain. The owner's item 1 asked for "the pattern
  * of the other screens", and this is literally that component.
  *
@@ -44,7 +46,7 @@ const KIND = 'CATEGORY' as const;
  */
 export const dynamic = 'force-dynamic';
 
-export default async function CategoriesPage({
+export default async function SongwritersPage({
   searchParams,
 }: {
   searchParams: Promise<ReferenceSearchParams>;
@@ -74,7 +76,7 @@ export default async function CategoriesPage({
   const first = viewable[0];
 
   // A courtesy, not the boundary: create_music_reference, update_music_reference,
-  // archive_music_reference and music_categories' own select policy (0205) each
+  // archive_music_reference and songwriters' own select policy (0205) each
   // re-check has_permission themselves before writing or reading anything.
   // This redirect only saves someone holding music.view nowhere a trip to a
   // screen that would otherwise have nothing to show.
@@ -112,23 +114,23 @@ export default async function CategoriesPage({
       getMusicPermissions(supabase, selected.id),
     ]);
   } catch (cause) {
-    logger.error({ err: cause, companyId: selected.id }, 'could not load the categories list');
+    logger.error({ err: cause, companyId: selected.id }, 'could not load the songwriters list');
     return <LoadError message={describeMusicReadError(cause, t)} />;
   }
 
   const copy: ReferenceScreenCopy = {
-    title: t('categories'),
-    description: t('referenceCategoriesDescription'),
-    createButton: t('registerCategory'),
-    createDialogTitle: t('registerACategory'),
-    archiveButton: t('archiveCategory'),
-    archiveConfirmTitle: t('archiveThisCategoryQuestion'),
+    title: t('songwriters'),
+    description: t('referenceSongwritersDescription'),
+    createButton: t('registerSongwriter'),
+    createDialogTitle: t('registerASongwriter'),
+    archiveButton: t('archiveSongwriter'),
+    archiveConfirmTitle: t('archiveThisSongwriterQuestion'),
     readOnlyNotice: t('youDoNotHoldMusicManageForThisRecord'),
-    emptyMessage: t('noCategoriesAreRegisteredInThis'),
-    noMatchMessage: t('noCategoryMatchesTheseFilters'),
-    countLabel: t('categoriesCountLabel', { count: page.total }),
-    searchPlaceholder: t('categoryName'),
-    searchAriaLabel: t('searchCategoriesByName'),
+    emptyMessage: t('noSongwritersAreRegisteredInThis'),
+    noMatchMessage: t('noSongwriterMatchesTheseFilters'),
+    countLabel: t('songwritersCountLabel', { count: page.total }),
+    searchPlaceholder: t('songwriterName'),
+    searchAriaLabel: t('searchSongwritersByName'),
   };
 
   return (
@@ -153,7 +155,7 @@ async function NoStationMatch({ search }: { search: string }) {
   const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title={t('categories')} />
+      <PageHeader title={t('songwriters')} />
       <Card>
         <CardContent className="flex flex-col gap-3 pt-6">
           <p className="text-sm text-muted-foreground">
@@ -164,7 +166,7 @@ async function NoStationMatch({ search }: { search: string }) {
               same cast genres/page.tsx carries beside it, applied here for a
               route that is simply too new. */}
           <Link
-            href={'/catalog/categories' as Route}
+            href={'/catalog/songwriters' as Route}
             className="text-sm text-primary underline underline-offset-2"
           >
             {t('clearTheStationSearch')}
@@ -179,7 +181,7 @@ async function LoadError({ message }: { message: string }) {
   const t = await getTranslations('music');
   return (
     <>
-      <PageHeader title={t('categories')} />
+      <PageHeader title={t('songwriters')} />
       <Card>
         <CardContent className="pt-6">
           <p className="text-sm text-destructive">{message}</p>

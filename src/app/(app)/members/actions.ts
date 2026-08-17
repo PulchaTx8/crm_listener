@@ -159,6 +159,7 @@ export async function registerMemberAction(
     city: formData.get('city'),
     state: formData.get('state'),
     postalCode: formData.get('postalCode'),
+    country: formData.get('country'),
     discoverySource: formData.get('discoverySource'),
     firstContactAt: formData.get('firstContactAt') || null,
     firstContactOrigin: formData.get('firstContactOrigin'),
@@ -402,6 +403,7 @@ export async function updateMemberAction(
     city: formData.get('city') || undefined,
     state: formData.get('state') || undefined,
     postalCode: formData.get('postalCode') || undefined,
+    country: formData.get('country') || undefined,
     discoverySource: formData.get('discoverySource') || undefined,
   });
   if (!parsed.success) {

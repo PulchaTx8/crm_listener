@@ -18,6 +18,12 @@ vi.mock('@/lib/storage/erasure', () => ({ drainStorageErasures }));
 const { drainReportRuns } = vi.hoisted(() => ({ drainReportRuns: vi.fn() }));
 vi.mock('@/lib/reports/drain', () => ({ drainReportRuns }));
 
+// Block 28's geocode drain is the fourth, and the only one that calls a third
+// party over the network — so it is the likeliest of the four to hang. Mocked
+// like its three siblings: this file is about the gate in front of them all.
+const { drainGeocodeQueue } = vi.hoisted(() => ({ drainGeocodeQueue: vi.fn() }));
+vi.mock('@/services/places', () => ({ drainGeocodeQueue }));
+
 // The real client would need a service-role key and a URL. Neither is what is
 // under test here.
 // Block 11b: the client now carries one call worth watching -- the tick's own
@@ -51,6 +57,7 @@ const post = (headers: Record<string, string>) =>
 
 const NO_ERASURES = { deleted: 0, failed: 0 };
 const NO_REPORTS = { requeued: 0, claimed: 0, ready: 0, failed: 0 };
+const NO_PLACES = { resolved: 0, failed: 0, skipped: 0 };
 
 beforeEach(() => {
   runTick.mockReset();
@@ -59,6 +66,8 @@ beforeEach(() => {
   drainStorageErasures.mockResolvedValue(NO_ERASURES);
   drainReportRuns.mockReset();
   drainReportRuns.mockResolvedValue(NO_REPORTS);
+  drainGeocodeQueue.mockReset();
+  drainGeocodeQueue.mockResolvedValue(NO_PLACES);
   rpc.mockReset();
   rpc.mockResolvedValue({ error: null });
 });
@@ -74,6 +83,7 @@ describe('POST /api/worker/tick', () => {
       ...EMPTY_TICK,
       erasures: NO_ERASURES,
       reports: NO_REPORTS,
+      places: NO_PLACES,
     });
     expect(runTick).toHaveBeenCalledTimes(1);
   });
@@ -92,6 +102,7 @@ describe('POST /api/worker/tick', () => {
       ...EMPTY_TICK,
       erasures: { error: 'storage is unreachable' },
       reports: NO_REPORTS,
+      places: NO_PLACES,
     });
   });
 
@@ -110,6 +121,7 @@ describe('POST /api/worker/tick', () => {
       ...EMPTY_TICK,
       erasures: NO_ERASURES,
       reports: { error: 'the bucket refused the upload' },
+      places: NO_PLACES,
     });
     // The point of the whole assertion: the outbox still ran and still reported.
     expect(runTick).toHaveBeenCalledTimes(1);

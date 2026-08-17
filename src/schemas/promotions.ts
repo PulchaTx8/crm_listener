@@ -20,6 +20,12 @@ export const REQUESTED_FIELD_ORDER = [
   'address',
   'city',
   'neighbourhood',
+  // Block 28, D10. Beside the other three geography fields rather than at the
+  // end, because this list is the ORDER the checkboxes render in and an
+  // operator ticking a place ticks the whole place. The enum keeps it last
+  // (`alter type ... add value` appends), and nothing reads the two against
+  // each other — this array is a screen's order, not a mirror of a declaration.
+  'country',
   'age',
   'cpf',
   'passport',

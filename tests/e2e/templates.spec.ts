@@ -145,7 +145,12 @@ test('a Station takes its own voice and records the template that lets it speak 
   await openNavSection(ownerPage, 'Templates');
   await ownerPage.getByRole('link', { name: 'Messages' }).click();
   await expect(ownerPage).toHaveURL(/\/templates\/messages$/);
-  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(13);
+  // Fourteen since Block 28's COUNTRY. Pinned rather than counted from the
+  // enum, deliberately: this is the SCREEN's own list, and the whole point is
+  // that a key added to system_message_key must reach it — a test deriving the
+  // number from the same enum the page derives it from would pass while the
+  // page rendered nothing.
+  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(14);
 
   const refusalRow = ownerPage.getByTestId('system-message-REFUSAL');
   const refusalBody = ownerPage.getByTestId('system-message-body-REFUSAL');

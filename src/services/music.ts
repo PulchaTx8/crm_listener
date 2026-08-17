@@ -66,13 +66,13 @@ export interface ReferenceSummary {
 /** The one place a kind becomes a table name in this module — mirrors 0100's own music_reference_table, so a caller's kind can never reach a query as a raw string. */
 const REFERENCE_TABLES: Record<
   MusicReferenceKind,
-  'music_genres' | 'record_labels' | 'artists' | 'shows' | 'music_categories'
+  'music_genres' | 'record_labels' | 'artists' | 'shows' | 'songwriters'
 > = {
   GENRE: 'music_genres',
   LABEL: 'record_labels',
   ARTIST: 'artists',
   SHOW: 'shows',
-  CATEGORY: 'music_categories',
+  SONGWRITER: 'songwriters',
 };
 
 /**
@@ -410,7 +410,7 @@ export const SONG_PAGE_SIZE = 50;
  * below.
  */
 const SONG_COLUMNS =
-  'id, title, artist_id, label_id, genre_id, category_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, album_id, deezer_track_id, isrc, artists(name), record_labels(name), music_genres(name), music_categories(name), albums(title, cover_md5)';
+  'id, title, artist_id, label_id, genre_id, songwriter_id, nationality, vocal, duration_seconds, internal_code, legacy_id, created_at, album_id, deezer_track_id, isrc, artists(name), record_labels(name), music_genres(name), songwriters(name), albums(title, cover_md5)';
 
 type SongRow = Pick<
   Database['public']['Tables']['songs']['Row'],
@@ -419,7 +419,7 @@ type SongRow = Pick<
   | 'artist_id'
   | 'label_id'
   | 'genre_id'
-  | 'category_id'
+  | 'songwriter_id'
   | 'nationality'
   | 'vocal'
   | 'duration_seconds'
@@ -434,8 +434,8 @@ type SongRow = Pick<
   artists: { name: string } | null;
   record_labels: { name: string } | null;
   music_genres: { name: string } | null;
-  /** Null for the two reasons `albums` below is, not the one the three above have: the song may carry no category (0205 makes the column nullable), or the category may be archived and so unreadable through its policy while category_id still names it. Typed by hand for the reason SONG_COLUMNS' comment sets out. */
-  music_categories: { name: string } | null;
+  /** Null for the two reasons `albums` below is, not the one the three above have: the song may carry no songwriter (0205 makes the column nullable), or the songwriter may be archived and so unreadable through its policy while songwriter_id still names it. Typed by hand for the reason SONG_COLUMNS' comment sets out. */
+  songwriters: { name: string } | null;
   /**
    * Null for TWO different reasons, unlike the three above: the song may have
    * no album at all (album_id is nullable — a song typed by hand has none), or
@@ -466,9 +466,9 @@ export interface SongSummary {
   labelName: string | null;
   genreId: string | null;
   genreName: string | null;
-  categoryId: string | null;
-  /** Null means "no category" or "a category this caller cannot read". The screens render both as an em dash, which is the honest rendering of both — unlike artistName above, where the two facts differ and the grid says so. */
-  categoryName: string | null;
+  songwriterId: string | null;
+  /** Null means "no songwriter" or "a songwriter this caller cannot read". The screens render both as an em dash, which is the honest rendering of both — unlike artistName above, where the two facts differ and the grid says so. */
+  songwriterName: string | null;
   nationality: Database['public']['Enums']['music_nationality'] | null;
   vocal: Database['public']['Enums']['music_vocal'] | null;
   durationSeconds: number | null;
@@ -509,11 +509,11 @@ export function toSongSummary(row: SongRow): SongSummary {
     labelName: row.record_labels?.name ?? null,
     genreId: row.genre_id,
     genreName: row.music_genres?.name ?? null,
-    categoryId: row.category_id,
+    songwriterId: row.songwriter_id,
     // `?.` for the same reason as the three above it, plus the one `albums`
-    // below has: the category is optional on a song, so this embed is
+    // below has: the songwriter is optional on a song, so this embed is
     // legitimately null on every record registered before Block 27.
-    categoryName: row.music_categories?.name ?? null,
+    songwriterName: row.songwriters?.name ?? null,
     nationality: row.nationality,
     vocal: row.vocal,
     durationSeconds: row.duration_seconds,
@@ -538,7 +538,7 @@ export interface SongListParams {
   search?: string;
   artistId?: string;
   genreId?: string;
-  categoryId?: string;
+  songwriterId?: string;
   sort: SongSortKey;
   direction: SortDirection;
   cursor: Cursor | null;
@@ -588,7 +588,7 @@ export async function listSongsPage(params: SongListParams): Promise<SongListPag
 
     if (params.artistId) q = q.eq('artist_id', params.artistId);
     if (params.genreId) q = q.eq('genre_id', params.genreId);
-    if (params.categoryId) q = q.eq('category_id', params.categoryId);
+    if (params.songwriterId) q = q.eq('songwriter_id', params.songwriterId);
 
     const term = params.search?.trim().slice(0, SONG_SEARCH_MAX_LENGTH);
     if (term) {
@@ -678,10 +678,11 @@ export async function createSong(input: SongFormInput, accessToken: string): Pro
     p_duration_seconds: input.durationSeconds ?? undefined,
     p_internal_code: input.internalCode,
     p_legacy_id: input.legacyId,
-    // Block 27 (0206), and for the identical reason the two below it carry:
-    // SongFields renders a Category select on the create dialog too, so without
-    // this the control would accept a choice and discard it.
-    p_category_id: input.categoryId,
+    // Block 27 (0206, renamed by 0211), and for the identical reason the two
+    // below it carry: SongFields renders a Songwriter select on the create
+    // dialog too, so without this the control would accept a choice and
+    // discard it.
+    p_songwriter_id: input.songwriterId,
     // Block 13a (0140). SongFields is one component shared by this form and
     // the edit form, so without these two the create dialog would render an
     // album select and an ISRC input that quietly discarded what was typed.
@@ -722,16 +723,16 @@ export async function updateSong(input: SongUpdateInput, accessToken: string): P
     p_nationality: input.nationality,
     p_vocal: input.vocal,
     p_duration_seconds: input.durationSeconds ?? undefined,
-    // `?? undefined`, and it really does clear the category — which is worth
+    // `?? undefined`, and it really does clear the songwriter — which is worth
     // stating because it does not look like it. 0206 replaces every field it
     // takes on every call, and its default for this parameter is null, so
-    // OMITTING the key is how "No category" reaches the column. The generated
+    // OMITTING the key is how "No songwriter" reaches the column. The generated
     // Args type leaves no choice in the matter either: Postgres's function
     // metadata carries no nullability signal beyond "has a default", so this
     // parameter types as `string | undefined` with no `| null` in the union —
     // the same thing createSong's own header comment sets out about
     // p_duration_seconds.
-    p_category_id: input.categoryId ?? undefined,
+    p_songwriter_id: input.songwriterId ?? undefined,
     // Both hand-editable (design D7), and both sent on EVERY call: 0138 keeps
     // the convention that every field is set on every call, so an omitted
     // album here blanks the one already stored.
@@ -830,7 +831,7 @@ export async function setSongIntegrationCode(
 ): Promise<void> {
   const { error } = await asCaller(accessToken).rpc('set_song_integration_code', {
     p_song_id: songId,
-    // `?? undefined` for the reason updateSong's p_category_id carries: the
+    // `?? undefined` for the reason updateSong's p_songwriter_id carries: the
     // generated Args type has no `| null` in the union, because Postgres reports
     // "has a default" and no nullability — and omitting the key applies that
     // default, which is null, which is the clear.

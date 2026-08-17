@@ -18,8 +18,8 @@ const INITIAL: SystemMessageState = { status: 'idle' };
 /**
  * The eight field prompts differ only in the field they ask for, and they are
  * asked under exactly one condition: the promotion requested that field. Said
- * once here rather than eight times below, so the eight cannot drift into
- * eight subtly different explanations of the same rule.
+ * once here rather than nine times below, so the nine cannot drift into
+ * nine subtly different explanations of the same rule.
  */
 // The field is a catalogue key rather than the noun itself: Portuguese and
 // Spanish carry the article with it (*o CPF*, *a cidade*), which no English
@@ -29,15 +29,16 @@ function fieldWhen(fieldKey: string, t: (key: string, values?: Record<string, st
 }
 
 /**
- * What each of the thirteen texts is, in the operator's language. Ten field
- * and conversation prompts from 0109, plus the three Block 19a added
- * (LINK_MUSIC, LINK_MENU, LINK_PROMOTION) — the words in front of the link a
- * matched hashtag now sends.
+ * What each of the fourteen texts is, in the operator's language. Ten field
+ * and conversation prompts from 0109, the three Block 19a added (LINK_MUSIC,
+ * LINK_MENU, LINK_PROMOTION) — the words in front of the link a matched
+ * hashtag now sends — and Block 28's COUNTRY.
  *
  * TOTAL over `SystemMessageKey`, which is the generated `system_message_key`
- * enum — so a fourteenth key fails to compile HERE rather than rendering on
+ * enum — so a fifteenth key fails to compile HERE rather than rendering on
  * screen as a bare key nobody can interpret. The same reason FIELD_PROMPTS
- * and FIELD_MESSAGE_KEYS are total in engine.ts.
+ * and FIELD_MESSAGE_KEYS are total in engine.ts, and COUNTRY is the value that
+ * collected on all three promises at once.
  *
  * English, like every operator-facing string in this codebase. The BODIES are
  * Portuguese and stay Portuguese: they are what a listener reads, which is the
@@ -63,6 +64,7 @@ function messageLabels(
       title: t('messageDiscoverySourceTitle'),
       when: fieldWhen('fieldDiscoverySource', t),
     },
+    COUNTRY: { title: t('messageCountryTitle'), when: fieldWhen('fieldCountry', t) },
     LINK_MUSIC: { title: t('messageLinkMusicTitle'), when: t('messageLinkMusicWhen') },
     LINK_MENU: { title: t('messageLinkMenuTitle'), when: t('messageLinkMenuWhen') },
     LINK_PROMOTION: { title: t('messageLinkPromotionTitle'), when: t('messageLinkPromotionWhen') },
@@ -70,9 +72,9 @@ function messageLabels(
 }
 
 /**
- * The thirteen texts, whether this Station has overridden them or not.
+ * The fourteen texts, whether this Station has overridden them or not.
  *
- * ALL THIRTEEN ROWS ALWAYS — `listSystemMessages` builds them from the
+ * ALL FOURTEEN ROWS ALWAYS — `listSystemMessages` builds them from the
  * defaults and fills in what was overridden, so a brand-new Station sees
  * every text editable rather than an empty page. Rendering the query's rows
  * alone would be the

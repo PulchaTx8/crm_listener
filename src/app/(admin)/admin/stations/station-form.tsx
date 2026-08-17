@@ -1,9 +1,10 @@
 'use client';
 
 import { useActionState, useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
+import { countryOptions } from '@/lib/countries';
 import { ImageUploadField } from '@/components/media/image-upload-field';
 import { inputFromKhz, type BroadcastBand } from '@/lib/frequency';
 import { formatTaxId } from '@/lib/tax-id';
@@ -53,6 +54,9 @@ export function StationForm({
   onSaved: (profile: StationProfile) => void;
 }) {
   const t = useTranslations('admin');
+  // For the country select's option names, which come from Intl rather than
+  // from messages/*.json (src/lib/countries.ts says why).
+  const locale = useLocale();
   const [state, action, pending] = useActionState(saveStationProfileAction, IDLE);
 
   // `profile` on a state means the read-back succeeded; its absence means the
@@ -140,6 +144,28 @@ export function StationForm({
         <TextField name="city" label={t('city')} value={profile.city} pending={pending} onDirty={markDirty} />
         <TextField name="state" label={t('state')} value={profile.state} pending={pending} onDirty={markDirty} />
         <TextField name="postalCode" label={t('postalCode')} value={profile.postalCode} pending={pending} onDirty={markDirty} />
+        {/* Block 28. A SELECT, not a TextField, and update_company_profile
+            (0213) RAISES 22023 for a country its resolver does not know rather
+            than storing null — so this control and country_alpha2's own name
+            list must offer the same set. tests/unit/countries.test.ts is what
+            holds them together, because one of the two is SQL. */}
+        <label className="flex flex-col gap-1 text-sm">
+          {t('country')}
+          <Select
+            name="country"
+            defaultValue={profile.country ?? ''}
+            disabled={pending}
+            onChange={markDirty}
+            data-testid="station-country"
+          >
+            <option value="">{t('noCountry')}</option>
+            {countryOptions(locale).map((country) => (
+              <option key={country.code} value={country.code}>
+                {country.name}
+              </option>
+            ))}
+          </Select>
+        </label>
       </fieldset>
 
       <div className="grid gap-3 sm:grid-cols-2">

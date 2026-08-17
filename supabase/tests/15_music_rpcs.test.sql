@@ -59,9 +59,15 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
 -- without BEFORE/AFTER puts it last, and enum_range answers in declaration
 -- order, so inserting instead would have moved every other value's position for
 -- no reason.
+--
+-- Block 28 renamed that value to SONGWRITER, and the POSITION IS UNCHANGED:
+-- `alter type ... rename value` (0209) relabels in place and does not move
+-- anything, so this array's first four entries needed no edit. That is the
+-- second thing this pinned set is for — a rename that had quietly reordered the
+-- enum would fail here rather than somewhere that reads it by index.
 select is(
   enum_range(null::public.music_reference_kind)::text[],
-  array['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'CATEGORY'],
+  array['GENRE', 'LABEL', 'ARTIST', 'SHOW', 'SONGWRITER'],
   'music_reference_kind is the five short lists — songs is not one of them');
 
 -- 2-5: one door writes four tables. Called as the actor fixture above, under

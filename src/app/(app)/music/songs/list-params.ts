@@ -15,7 +15,7 @@ export interface MusicSearchParams {
   q?: string;
   artist?: string;
   genre?: string;
-  category?: string;
+  songwriter?: string;
   sort?: string;
   dir?: string;
   after?: string;
@@ -39,8 +39,8 @@ export interface SongListState {
   artistId?: string;
   /** A genre id; undefined means every genre. */
   genreId?: string;
-  /** A category id; undefined means every category. */
-  categoryId?: string;
+  /** A songwriter id; undefined means every songwriter. */
+  songwriterId?: string;
   sort: SongSortKey;
   direction: SortDirection;
 }
@@ -73,7 +73,7 @@ export function parseSongListState(raw: MusicSearchParams, companyId: string): S
     search: raw.q?.trim() || undefined,
     artistId: raw.artist?.trim() || undefined,
     genreId: raw.genre?.trim() || undefined,
-    categoryId: raw.category?.trim() || undefined,
+    songwriterId: raw.songwriter?.trim() || undefined,
     sort,
     direction,
   };
@@ -86,7 +86,7 @@ export function parseSongCursor(raw: MusicSearchParams): SongCursor | null {
 }
 
 export function hasActiveSongFilters(state: SongListState): boolean {
-  return Boolean(state.search || state.artistId || state.genreId || state.categoryId);
+  return Boolean(state.search || state.artistId || state.genreId || state.songwriterId);
 }
 
 /**
@@ -100,7 +100,7 @@ export function songHref(state: SongListState, cursor?: SongCursor | null): stri
   if (state.search) query.set('q', state.search);
   if (state.artistId) query.set('artist', state.artistId);
   if (state.genreId) query.set('genre', state.genreId);
-  if (state.categoryId) query.set('category', state.categoryId);
+  if (state.songwriterId) query.set('songwriter', state.songwriterId);
   if (state.sort !== DEFAULT_SONG_SORT) query.set('sort', state.sort);
   if (state.direction !== defaultDirectionFor(state.sort)) query.set('dir', state.direction);
   if (cursor) query.set(cursor.side, cursor.value);

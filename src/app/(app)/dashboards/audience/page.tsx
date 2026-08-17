@@ -7,6 +7,8 @@ import { logger } from '@/lib/logger';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getAudienceDashboard } from '@/services/dashboards';
+import { getAudienceGeography } from '@/services/geography';
+import type { AudienceGeography } from '@/schemas/geography';
 import type { AudienceDashboard } from '@/schemas/dashboards';
 import { MonthlyBars } from '@/components/charts/monthly-bars';
 import { BreakdownBars } from '@/components/charts/breakdown-bars';
@@ -18,7 +20,8 @@ import { BLOCK_KIND_LABEL_KEYS } from '../../members/format';
 import { parsePeriod, periodHref, withStationSearch } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
-import { ConsolidatedToggle } from '../consolidated-toggle';
+import { StationSelection } from '../station-selection';
+import { GeographyPanel } from '../geography-panel';
 import { DashboardCards } from '../dashboard-cards';
 import type { CardSpec } from '../dashboard-cards';
 import { StationPeriodNote } from '../station-period-note';
@@ -145,6 +148,18 @@ export default async function AudienceDashboardPage({
     return <LoadError message={describeDashboardError(cause, t)} />;
   }
 
+  // Block 28. ITS OWN try/catch, and a failure costs the MAP rather than the
+  // page: the cards above are what this screen cannot render without, and a
+  // Station whose geocoding is misconfigured should still see its figures. Null
+  // means the panel is simply not rendered — the same courtesy the consolidated
+  // eligibility check above already extends.
+  let geography: AudienceGeography | null = null;
+  try {
+    geography = await getAudienceGeography(companyIds, selection);
+  } catch (cause) {
+    logger.error({ err: cause, companyIds }, 'could not load the audience geography');
+  }
+
   // Whether the Station list above is the caller's WHOLE relationship or a
   // narrowed view of it (whole-branch review, Important B7). Both
   // listCompanyAccess calls are capped at fifty and both are filtered by the
@@ -202,7 +217,14 @@ export default async function AudienceDashboardPage({
 
       {(viewable.length + suspended.length > 1 || consolidatedEligible.length >= 2) && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+          {/* Block 28 gave this row a testid it did not need before. The
+              StationSelection control below renders a SECOND pill per Station,
+              carrying the same name, so a page-wide `getByRole('link', { name:
+              stationName })` now matches two links and fails on strict mode.
+              The two rows do different things — this one REPLACES the selection
+              with one Station, that one adds or removes one — so telling them
+              apart is a real distinction, not a test convenience. */}
+          <div className="flex flex-wrap gap-2" data-testid="station-switcher">
             {viewable.map((company) => (
               <Link
                 key={company.id}
@@ -232,14 +254,20 @@ export default async function AudienceDashboardPage({
             ))}
           </div>
 
-          <ConsolidatedToggle
+          <StationSelection
             eligible={consolidatedEligible.length >= 2}
             base={BASE}
             period={selection}
             stationSearch={stationSearch}
-            active={companyIds.length > 1}
             singleCompanyId={first.id}
+            viewable={viewable}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
+            // `companyIds`, not `params.companyId`: this is the selection the
+            // page actually resolved and read the panel with, after a stale or
+            // tampered id was dropped above. A control drawn from the raw URL
+            // would show a pill lit for a Station whose figures are not on the
+            // screen.
+            selectedIds={companyIds}
             complete={stationListIsComplete}
           />
         </div>
@@ -313,6 +341,15 @@ export default async function AudienceDashboardPage({
           </CardContent>
         </Card>
       </div>
+
+      {geography && (
+        <GeographyPanel
+          title={t('whereTheListenersAre')}
+          places={geography.places}
+          withPlace={geography.with_place}
+          total={geography.total}
+        />
+      )}
     </>
   );
 }

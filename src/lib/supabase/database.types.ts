@@ -307,6 +307,7 @@ export type Database = {
           city: string | null
           contact_email: string | null
           contact_phone: string | null
+          country: string | null
           created_at: string
           deleted_at: string | null
           description: string | null
@@ -345,6 +346,7 @@ export type Database = {
           city?: string | null
           contact_email?: string | null
           contact_phone?: string | null
+          country?: string | null
           created_at?: string
           deleted_at?: string | null
           description?: string | null
@@ -383,6 +385,7 @@ export type Database = {
           city?: string | null
           contact_email?: string | null
           contact_phone?: string | null
+          country?: string | null
           created_at?: string
           deleted_at?: string | null
           description?: string | null
@@ -680,6 +683,60 @@ export type Database = {
             referencedColumns: ["id", "company_id"]
           },
         ]
+      }
+      geocoded_places: {
+        Row: {
+          attempts: number
+          city: string | null
+          country: string | null
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          neighbourhood: string | null
+          place_key: string
+          precision: string | null
+          provider: string
+          queued_at: string
+          resolved_at: string | null
+          state: string | null
+        }
+        Insert: {
+          attempts?: number
+          city?: string | null
+          country?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          neighbourhood?: string | null
+          place_key: string
+          precision?: string | null
+          provider?: string
+          queued_at?: string
+          resolved_at?: string | null
+          state?: string | null
+        }
+        Update: {
+          attempts?: number
+          city?: string | null
+          country?: string | null
+          failed_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          neighbourhood?: string | null
+          place_key?: string
+          precision?: string | null
+          provider?: string
+          queued_at?: string
+          resolved_at?: string | null
+          state?: string | null
+        }
+        Relationships: []
       }
       integrations: {
         Row: {
@@ -1306,6 +1363,7 @@ export type Database = {
           anonymized_at: string | null
           birth_date: string | null
           city: string | null
+          country: string | null
           cpf_hash: string | null
           cpf_last_digits: string | null
           created_at: string
@@ -1334,6 +1392,7 @@ export type Database = {
           anonymized_at?: string | null
           birth_date?: string | null
           city?: string | null
+          country?: string | null
           cpf_hash?: string | null
           cpf_last_digits?: string | null
           created_at?: string
@@ -1362,6 +1421,7 @@ export type Database = {
           anonymized_at?: string | null
           birth_date?: string | null
           city?: string | null
+          country?: string | null
           cpf_hash?: string | null
           cpf_last_digits?: string | null
           created_at?: string
@@ -1449,57 +1509,6 @@ export type Database = {
           },
           {
             foreignKeyName: "message_templates_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      music_categories: {
-        Row: {
-          company_id: string
-          created_at: string
-          created_by: string | null
-          deleted_at: string | null
-          id: string
-          legacy_id: string | null
-          name: string
-          organization_id: string
-          updated_at: string
-        }
-        Insert: {
-          company_id: string
-          created_at?: string
-          created_by?: string | null
-          deleted_at?: string | null
-          id?: string
-          legacy_id?: string | null
-          name: string
-          organization_id: string
-          updated_at?: string
-        }
-        Update: {
-          company_id?: string
-          created_at?: string
-          created_by?: string | null
-          deleted_at?: string | null
-          id?: string
-          legacy_id?: string | null
-          name?: string
-          organization_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "music_categories_company_org_fk"
-            columns: ["company_id", "organization_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id", "organization_id"]
-          },
-          {
-            foreignKeyName: "music_categories_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -3105,7 +3114,6 @@ export type Database = {
         Row: {
           album_id: string | null
           artist_id: string
-          category_id: string | null
           company_id: string
           created_at: string
           created_by: string | null
@@ -3121,6 +3129,7 @@ export type Database = {
           legacy_id: string | null
           nationality: Database["public"]["Enums"]["music_nationality"] | null
           organization_id: string
+          songwriter_id: string | null
           title: string
           updated_at: string
           vocal: Database["public"]["Enums"]["music_vocal"] | null
@@ -3128,7 +3137,6 @@ export type Database = {
         Insert: {
           album_id?: string | null
           artist_id: string
-          category_id?: string | null
           company_id: string
           created_at?: string
           created_by?: string | null
@@ -3144,6 +3152,7 @@ export type Database = {
           legacy_id?: string | null
           nationality?: Database["public"]["Enums"]["music_nationality"] | null
           organization_id: string
+          songwriter_id?: string | null
           title: string
           updated_at?: string
           vocal?: Database["public"]["Enums"]["music_vocal"] | null
@@ -3151,7 +3160,6 @@ export type Database = {
         Update: {
           album_id?: string | null
           artist_id?: string
-          category_id?: string | null
           company_id?: string
           created_at?: string
           created_by?: string | null
@@ -3167,6 +3175,7 @@ export type Database = {
           legacy_id?: string | null
           nationality?: Database["public"]["Enums"]["music_nationality"] | null
           organization_id?: string
+          songwriter_id?: string | null
           title?: string
           updated_at?: string
           vocal?: Database["public"]["Enums"]["music_vocal"] | null
@@ -3184,13 +3193,6 @@ export type Database = {
             columns: ["artist_id", "company_id"]
             isOneToOne: false
             referencedRelation: "artists"
-            referencedColumns: ["id", "company_id"]
-          },
-          {
-            foreignKeyName: "songs_category_company_fk"
-            columns: ["category_id", "company_id"]
-            isOneToOne: false
-            referencedRelation: "music_categories"
             referencedColumns: ["id", "company_id"]
           },
           {
@@ -3216,6 +3218,64 @@ export type Database = {
           },
           {
             foreignKeyName: "songs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "songs_songwriter_company_fk"
+            columns: ["songwriter_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "songwriters"
+            referencedColumns: ["id", "company_id"]
+          },
+        ]
+      }
+      songwriters: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          legacy_id: string | null
+          name: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          legacy_id?: string | null
+          name?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "songwriters_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "songwriters_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -3977,6 +4037,7 @@ export type Database = {
           p_birth_date: string
           p_city: string
           p_company_id: string
+          p_country?: string
           p_cpf_hash: string
           p_cpf_last_digits: string
           p_discovery_source: string
@@ -4106,10 +4167,10 @@ export type Database = {
       assert_song_references_live: {
         Args: {
           p_artist_id: string
-          p_category_id?: string
           p_company_id: string
           p_genre_id: string
           p_label_id: string
+          p_songwriter_id?: string
         }
         Returns: undefined
       }
@@ -4201,6 +4262,32 @@ export type Database = {
           to_phone: string
         }[]
       }
+      claim_places_to_geocode: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          city: string | null
+          country: string | null
+          failed_at: string | null
+          failure_reason: string | null
+          id: string
+          latitude: number | null
+          longitude: number | null
+          neighbourhood: string | null
+          place_key: string
+          precision: string | null
+          provider: string
+          queued_at: string
+          resolved_at: string | null
+          state: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "geocoded_places"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_report_run: {
         Args: never
         Returns: {
@@ -4254,6 +4341,7 @@ export type Database = {
         Returns: Json
       }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }
+      country_alpha2: { Args: { p_input: string }; Returns: string }
       create_album: {
         Args: {
           p_company_id: string
@@ -4286,6 +4374,7 @@ export type Database = {
           p_birth_date?: string
           p_city?: string
           p_company_id: string
+          p_country?: string
           p_cpf_hash?: string
           p_cpf_last_digits?: string
           p_discovery_source?: string
@@ -4366,7 +4455,6 @@ export type Database = {
         Args: {
           p_album_id?: string
           p_artist_id: string
-          p_category_id?: string
           p_company_id: string
           p_duration_seconds?: number
           p_genre_id?: string
@@ -4375,6 +4463,7 @@ export type Database = {
           p_label_id?: string
           p_legacy_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
+          p_songwriter_id?: string
           p_title: string
           p_vocal?: Database["public"]["Enums"]["music_vocal"]
         }
@@ -4384,7 +4473,6 @@ export type Database = {
         Args: {
           p_album_title?: string
           p_artist_name: string
-          p_category_id?: string
           p_company_id: string
           p_cover_md5?: string
           p_deezer_album_id?: number
@@ -4394,6 +4482,7 @@ export type Database = {
           p_isrc?: string
           p_label_name?: string
           p_release_date?: string
+          p_songwriter_id?: string
           p_title: string
           p_upc?: string
         }
@@ -4435,8 +4524,19 @@ export type Database = {
         Args: { p_key: string; p_url: string }
         Returns: undefined
       }
+      enqueue_missing_places: { Args: { p_limit?: number }; Returns: number }
       enqueue_pickup_reminder: {
         Args: { p_winner_id: string }
+        Returns: string
+      }
+      enqueue_place: {
+        Args: {
+          p_city: string
+          p_country: string
+          p_neighbourhood: string
+          p_place_key: string
+          p_state: string
+        }
         Returns: string
       }
       enqueue_whatsapp_outbound: {
@@ -4510,6 +4610,15 @@ export type Database = {
         }
         Returns: Json
       }
+      get_audience_geography: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
       get_draw: { Args: { p_draw_id: string }; Returns: Json }
       get_integration: {
         Args: { p_company_id: string }
@@ -4528,6 +4637,15 @@ export type Database = {
         }[]
       }
       get_music_dashboard: {
+        Args: {
+          p_company_ids: string[]
+          p_from?: string
+          p_preset?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      get_music_geography: {
         Args: {
           p_company_ids: string[]
           p_from?: string
@@ -4958,6 +5076,15 @@ export type Database = {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
       }
+      member_place_key: {
+        Args: {
+          p_city: string
+          p_country: string
+          p_neighbourhood: string
+          p_state: string
+        }
+        Returns: string
+      }
       member_reachable: {
         Args: {
           p_member_id: string
@@ -5017,6 +5144,7 @@ export type Database = {
         Args: { p_member_id: string; p_promotion_id: string; p_when: string }
         Returns: Database["public"]["Enums"]["participation_status"]
       }
+      place_fold: { Args: { p_value: string }; Returns: string }
       project_promotion_prize_movement: {
         Args: {
           p_promotion_prize_id: string
@@ -5110,6 +5238,16 @@ export type Database = {
           p_source: Database["public"]["Enums"]["participation_source"]
         }
         Returns: Json
+      }
+      record_place_geocode: {
+        Args: {
+          p_failure_reason?: string
+          p_id: string
+          p_latitude?: number
+          p_longitude?: number
+          p_precision?: string
+        }
+        Returns: undefined
       }
       record_stock_entry: {
         Args: {
@@ -5588,6 +5726,7 @@ export type Database = {
           p_company_id: string
           p_contact_email?: string
           p_contact_phone?: string
+          p_country?: string
           p_description?: string
           p_facebook_url?: string
           p_fiscal_email?: string
@@ -5614,6 +5753,7 @@ export type Database = {
           p_address_number?: string
           p_birth_date?: string
           p_city?: string
+          p_country?: string
           p_cpf_hash?: string
           p_cpf_last_digits?: string
           p_discovery_source?: string
@@ -5701,13 +5841,13 @@ export type Database = {
         Args: {
           p_album_id?: string
           p_artist_id: string
-          p_category_id?: string
           p_duration_seconds?: number
           p_genre_id?: string
           p_isrc?: string
           p_label_id?: string
           p_nationality?: Database["public"]["Enums"]["music_nationality"]
           p_song_id: string
+          p_songwriter_id?: string
           p_title: string
           p_vocal?: Database["public"]["Enums"]["music_vocal"]
         }
@@ -5884,7 +6024,7 @@ export type Database = {
         | "internal_policy"
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
-      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW" | "CATEGORY"
+      music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW" | "SONGWRITER"
       music_request_channel: "MANUAL" | "IMPORT" | "API" | "WEB"
       music_request_play_status: "NOT_PLAYED" | "PLAYED" | "CANCELLED"
       music_request_read_status: "UNREAD" | "READ" | "CANCELLED"
@@ -5904,6 +6044,7 @@ export type Database = {
         | "cpf"
         | "passport"
         | "discovery_source"
+        | "country"
       report_format: "CSV" | "XLSX" | "PDF"
       report_status: "QUEUED" | "RUNNING" | "READY" | "FAILED"
       report_type:
@@ -5931,6 +6072,7 @@ export type Database = {
         | "LINK_MUSIC"
         | "LINK_MENU"
         | "LINK_PROMOTION"
+        | "COUNTRY"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       widget_link_purpose: "MUSIC" | "MENU" | "PROMOTION"
@@ -6128,7 +6270,7 @@ export const Constants = {
       ],
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
-      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW", "CATEGORY"],
+      music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW", "SONGWRITER"],
       music_request_channel: ["MANUAL", "IMPORT", "API", "WEB"],
       music_request_play_status: ["NOT_PLAYED", "PLAYED", "CANCELLED"],
       music_request_read_status: ["UNREAD", "READ", "CANCELLED"],
@@ -6148,6 +6290,7 @@ export const Constants = {
         "cpf",
         "passport",
         "discovery_source",
+        "country",
       ],
       report_format: ["CSV", "XLSX", "PDF"],
       report_status: ["QUEUED", "RUNNING", "READY", "FAILED"],
@@ -6177,6 +6320,7 @@ export const Constants = {
         "LINK_MUSIC",
         "LINK_MENU",
         "LINK_PROMOTION",
+        "COUNTRY",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],

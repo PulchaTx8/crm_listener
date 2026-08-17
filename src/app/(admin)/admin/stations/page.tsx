@@ -91,7 +91,7 @@ export default async function StationsPage({
       // ONE literal string. A concatenation collapses PostgREST's row type to
       // GenericStringError, which typechecks and returns nothing usable.
       // prettier-ignore
-      .select('id, name, status, suspension_reason, created_at, organization_id, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, broadcast_band, frequency_khz, latitude, longitude, thumb_url, contact_email, contact_phone, website_url, instagram_url, facebook_url, youtube_url, tagline, description, legal_name, tax_id, municipal_registration, fiscal_email')
+      .select('id, name, status, suspension_reason, created_at, organization_id, address_line, address_number, address_complement, neighbourhood, city, state, postal_code, country, broadcast_band, frequency_khz, latitude, longitude, thumb_url, contact_email, contact_phone, website_url, instagram_url, facebook_url, youtube_url, tagline, description, legal_name, tax_id, municipal_registration, fiscal_email')
       .eq('organization_id', selectedOrganizationId)
       // Archived Stations are not listed beside live ones: an archived Station
       // cannot be suspended or reactivated, so the controls beside it would do
@@ -118,6 +118,7 @@ export default async function StationsPage({
         city: station.city,
         state: station.state,
         postalCode: station.postal_code,
+        country: station.country,
         broadcastBand: station.broadcast_band,
         frequencyKhz: station.frequency_khz,
         latitude: station.latitude,

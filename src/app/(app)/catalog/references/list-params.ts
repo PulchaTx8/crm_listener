@@ -19,16 +19,17 @@ import type { SortDirection } from '@/lib/keyset';
  * songs tab), and a programme is a record with a presenter and a schedule, so
  * Shows has one too.
  *
- * CATEGORY joined in Block 27 and cost this line, one entry below, three in
- * actions.ts and a page file — which is the return on 0100's one-trio-of-doors
- * shape and on D2's one-component-two-routes shape meeting each other.
+ * SONGWRITER joined in Block 27 (as CATEGORY, renamed in Block 28) and cost
+ * this line, one entry below, three in actions.ts and a page file — which is
+ * the return on 0100's one-trio-of-doors shape and on D2's
+ * one-component-two-routes shape meeting each other.
  */
-export type ReferenceScreenKind = Extract<MusicReferenceKind, 'LABEL' | 'GENRE' | 'CATEGORY'>;
+export type ReferenceScreenKind = Extract<MusicReferenceKind, 'LABEL' | 'GENRE' | 'SONGWRITER'>;
 
 const REFERENCE_SCREEN_PATHS: Record<ReferenceScreenKind, string> = {
   LABEL: '/catalog/labels',
   GENRE: '/catalog/genres',
-  CATEGORY: '/catalog/categories',
+  SONGWRITER: '/catalog/songwriters',
 };
 
 /**

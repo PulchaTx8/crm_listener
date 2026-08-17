@@ -64,7 +64,8 @@
     "whatsapp": "WhatsApp",
     "programmes": "Programmes",
     "vendors": "Vendors",
-    "categories": "Categories"
+    "categories": "Categories",
+    "songwriters": "Songwriters"
   },
   "auth": {
     "chooseANewPassword": "Choose a new password",
@@ -327,7 +328,9 @@
     "days": "Days",
     "hours": "Hours",
     "minutes": "Minutes",
-    "zeroMeansNoLimit": "All three at zero means no limit: a listener may ask as often as they like."
+    "zeroMeansNoLimit": "All three at zero means no limit: a listener may ask as often as they like.",
+    "country": "Country",
+    "noCountry": "No country"
   },
   "draws": {
     "drawOf": "Draw of",
@@ -595,7 +598,9 @@
     "serviceHashtagHelp": "Sent by a listener to receive a link into the widget's own menu, where they choose between a song and a promotion.",
     "hashtagsSaved": "Saved",
     "notSet": "Not set",
-    "actionChangeTheServiceHashtags": "change the service hashtags"
+    "actionChangeTheServiceHashtags": "change the service hashtags",
+    "messageCountryTitle": "Asking for the country",
+    "fieldCountry": "the country"
   },
   "dashboards": {
     "audience": "Audience",
@@ -655,10 +660,26 @@
     "customRange": "Custom range",
     "to": "To",
     "allStations": "All stations ({count})",
+    "selectStations": "Stations shown",
+    "stationsSelected": "{count, plural, one {# station} other {# stations}}",
     "stationsListed": "Stations listed ({count})",
     "thatPeriodIsNotValid": "That period is not valid.",
     "youDoNotHavePermissionToSeeThisDashboard": "You do not have permission to see this dashboard in every station selected.",
-    "couldNotLoadThisDashboard": "Could not load this dashboard. Refresh the page and try again."
+    "couldNotLoadThisDashboard": "Could not load this dashboard. Refresh the page and try again.",
+    "whereTheListenersAre": "Where the listeners are",
+    "whereTheMusicIsAskedFor": "Where the music is asked for",
+    "placesCoverage": "{withPlace} of {total} on the map — the rest have no address we could place.",
+    "noPlacesAreKnownYet": "No place is known yet. Listeners need a city on their record before they can appear here.",
+    "theMapIsNotConfigured": "The map is not configured. The lists below are unchanged.",
+    "theMapCouldNotBeLoaded": "The map could not be loaded. The lists below are unchanged.",
+    "byCity": "By city",
+    "byNeighbourhood": "By neighbourhood",
+    "city": "City",
+    "neighbourhood": "Neighbourhood",
+    "place": "Place",
+    "song": "Song",
+    "listenersColumn": "Listeners",
+    "mostRequestedByPlace": "Most requested, by place"
   },
   "team": {
     "invitationSentTo": "Invitation sent to",
@@ -947,7 +968,10 @@
     "blockFrom": " · from ",
     "blockUntil": " until {when}",
     "blockNoEndDate": ", no end date",
-    "notByYouNotBySupport": "— not by you, not by support. Only direct database access can restore it."
+    "notByYouNotBySupport": "— not by you, not by support. Only direct database access can restore it.",
+    "fieldCountry": "Country",
+    "country": "Country",
+    "noCountry": "No country"
   },
   "participations": {
     "draw": "Draw",
@@ -1518,7 +1542,8 @@
     "internalOnlyNeverSentToThe": "Internal only — never sent to the listener. It guides whoever reads the answers.",
     "someoneHasAlreadyEnteredThisPromotion": "Someone has already entered this promotion, so the question itself can no longer be changed — that would leave answers pointing at wording nobody read.",
     "saveGuidelines": "Save guidelines",
-    "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again."
+    "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again.",
+    "requestedFieldCountry": "Country"
   },
   "music": {
     "closeRecord": "Close record",
@@ -1848,23 +1873,23 @@
     "editRecord": "Edit {name}",
     "actionsForRecord": "Actions for {name}",
     "showingOfTotal": "Showing {shown} of {total}",
-    "category": "Category",
-    "noCategory": "No category",
-    "allCategories": "All categories",
-    "categories": "Categories",
-    "referenceCategoriesDescription": "How this station files its recordings. A song points at one, and the songs list filters by it.",
-    "registerCategory": "Register category",
-    "registerACategory": "Register a category",
-    "archiveCategory": "Archive category…",
-    "archiveThisCategoryQuestion": "Archive this category?",
-    "noCategoriesAreRegisteredInThis": "No categories are registered in this station yet.",
-    "noCategoryMatchesTheseFilters": "No category matches these filters.",
-    "categoriesCountLabel": "{count, plural, one {category} other {categories}}",
-    "categoryName": "Category name",
-    "searchCategoriesByName": "Search categories by name",
-    "actionRegisterCategories": "register categories",
-    "actionSaveThisCategory": "save this category",
-    "actionArchiveThisCategory": "archive this category",
+    "songwriter": "Songwriter",
+    "noSongwriter": "No songwriter",
+    "allSongwriters": "All songwriters",
+    "songwriters": "Songwriters",
+    "referenceSongwritersDescription": "Who wrote the songs in this station's catalogue. A song points at one, and the songs list filters by it.",
+    "registerSongwriter": "Register songwriter",
+    "registerASongwriter": "Register a songwriter",
+    "archiveSongwriter": "Archive songwriter…",
+    "archiveThisSongwriterQuestion": "Archive this songwriter?",
+    "noSongwritersAreRegisteredInThis": "No songwriters are registered in this station yet.",
+    "noSongwriterMatchesTheseFilters": "No songwriter matches these filters.",
+    "songwritersCountLabel": "{count, plural, one {songwriter} other {songwriters}}",
+    "songwriterName": "Songwriter name",
+    "searchSongwritersByName": "Search songwriters by name",
+    "actionRegisterSongwriters": "register songwriters",
+    "actionSaveThisSongwriter": "save this songwriter",
+    "actionArchiveThisSongwriter": "archive this songwriter",
     "integrationTab": "Integration",
     "integrationCode": "Integration code",
     "integrationTitle": "Title",

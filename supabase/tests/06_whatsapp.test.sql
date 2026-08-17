@@ -492,15 +492,15 @@ select ok(not has_function_privilege('service_role',
             'public.apply_member_lookup(uuid,text,text,text,text)', 'EXECUTE'),
           'service_role may not call apply_member_lookup either');
 select ok(not has_function_privilege('anon',
-            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
+            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid,text)',
             'EXECUTE'),
           'anon may not call apply_member_creation');
 select ok(not has_function_privilege('authenticated',
-            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
+            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid,text)',
             'EXECUTE'),
           'authenticated may not call apply_member_creation');
 select ok(not has_function_privilege('service_role',
-            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid)',
+            'public.apply_member_creation(uuid,text,text,text,text,text,text,date,text,text,text,text,text,text,text,text,timestamptz,text,uuid,text)',
             'EXECUTE'),
           'service_role may not call apply_member_creation either');
 select ok(not has_function_privilege('anon',
