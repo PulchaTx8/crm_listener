@@ -46,7 +46,13 @@ function loadMaps(apiKey: string): Promise<void> {
     const script = document.createElement('script');
     script.id = SCRIPT_ID;
     script.async = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}`;
+    // `loading=async` is Google's own current recommendation. Without it the
+    // library logs a performance warning to the console — which matters here
+    // beyond tidiness, because the console is exactly where an operator is sent
+    // to read WHY a key was refused, and a warning above the real error is a
+    // warning people stop at.
+    script.src =
+      `https://maps.googleapis.com/maps/api/js?loading=async&key=${encodeURIComponent(apiKey)}`;
     script.addEventListener('load', () => resolve());
     script.addEventListener('error', () => reject(new Error('maps script failed')));
     document.head.appendChild(script);
@@ -58,18 +64,34 @@ export function PlaceMap({
   places,
   label,
   unavailableLabel,
+  refusedLabel,
 }: {
   apiKey: string;
   places: GeographyPlace[];
   label: string;
-  /** Shown when the library will not load — a blocked key, an offline browser, an ad blocker. */
+  /** Shown when the library will not load at all — a blocked request, an offline browser, an ad blocker. */
   unavailableLabel: string;
+  /** Shown when the library loaded and Google REFUSED the key — a different fix, in a different console. */
+  refusedLabel: string;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  const [refused, setRefused] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+
+    // THE ONLY HOOK GOOGLE GIVES FOR A REJECTED KEY, and without it this
+    // component cannot tell a refusal from a success. The script loads, the
+    // `load` event fires, `google.maps` exists, `new Map()` returns — and then
+    // the library paints its own grey "Oops! Something went wrong" card INSIDE
+    // our container. So every promise here resolves and the panel renders a
+    // Google-branded English error where our own message belongs, with nothing
+    // to tell the operator whether the fault is the data, the code, or their
+    // key. It is a global by Google's design, not by ours.
+    (window as unknown as { gm_authFailure?: () => void }).gm_authFailure = () => {
+      if (!cancelled) setRefused(true);
+    };
 
     loadMaps(apiKey)
       .then(() => {
@@ -120,8 +142,22 @@ export function PlaceMap({
 
     return () => {
       cancelled = true;
+      delete (window as unknown as { gm_authFailure?: () => void }).gm_authFailure;
     };
   }, [apiKey, places]);
+
+  // A REFUSED KEY IS ITS OWN MESSAGE, separate from "could not load". They are
+  // different jobs for whoever reads them: one is fixed in the Google Cloud
+  // console, the other is a blocked request or an offline browser. Telling an
+  // operator "the map could not be loaded" when the real answer is "your key is
+  // restricted to the wrong host" sends them to look at us instead of at it.
+  if (refused) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="place-map-refused">
+        {refusedLabel}
+      </p>
+    );
+  }
 
   if (failed) {
     return (
