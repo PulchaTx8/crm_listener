@@ -467,7 +467,10 @@ test.beforeAll(async ({}, testInfo) => {
     p_name: TEMPLATE_NAME,
     p_language: 'pt_BR',
     p_body: 'Seu código é {{1}}.',
-    p_variables: ['o código de seis dígitos'],
+    // Block 29b-1: p_variables is now a closed vocabulary (0223) rather than
+    // prose an operator typed -- VERIFICATION_CODE matches the single {{1}}
+    // above.
+    p_variables: ['VERIFICATION_CODE'],
   });
   if (templateError) throw new Error(`could not register the template: ${templateError.message}`);
 

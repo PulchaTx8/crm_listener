@@ -167,8 +167,7 @@ create unique index message_templates_purpose_unique
   where deleted_at is null and purpose is not null;
 
 -- ---------------------------------------------------------------------------
--- 8. register_message_template, recreated FROM ITS LIVE DEFINITION with two
--- changes and no others.
+-- 8. register_message_template, recreated FROM ITS LIVE DEFINITION.
 --
 -- WHY IT IS HERE AND NOT IN ITS OWN FILE: the ON CONFLICT clause below names
 -- the index recreated in step 7. Ship them apart and every system registration
@@ -185,8 +184,13 @@ create unique index message_templates_purpose_unique
 -- template_variable[]; the parameter is cast inside. Widening the parameter to
 -- the array type would be a new signature, and the ACL would go with it.
 --
--- The two changes: the ON CONFLICT predicate, and the cast plus the two columns
--- this door now fills itself (channel and internal_name).
+-- WHAT ACTUALLY CHANGED, all four: the ON CONFLICT predicate now names the
+-- narrowed index; the cast turns p_variables from prose into
+-- template_variable[]; the insert fills the two columns this door now owns
+-- itself (channel and internal_name); and the non-blank-string guard 0165 ran
+-- ahead of the old jsonb_typeof check moved here, ahead of the cast, because a
+-- JSON null still passes the cast silently (fix round 2, F3) -- confirmed
+-- directly against the live function before this guard existed.
 -- ---------------------------------------------------------------------------
 create or replace function public.register_message_template(
   p_company_id uuid,
@@ -245,6 +249,25 @@ begin
 
   if jsonb_typeof(v_vars) <> 'array' then
     raise exception 'the variables must be a JSON array' using errcode = '22023';
+  end if;
+
+  -- Carried forward from 0113/0165's own guard: every element a non-blank
+  -- STRING, checked before the cast rather than left to it. The blank-string
+  -- half is also caught by the cast below (btrim('') fails the enum lookup),
+  -- but the null half is not -- `jsonb_array_elements('[null]') #>> '{}'`
+  -- yields SQL NULL, and casting NULL to any type never raises. Without this
+  -- check a JSON null in p_variables would silently become a NULL element
+  -- inside variable_fields (confirmed directly against the live cast: it
+  -- returns {NULL}, not an error), stored in an array whose own column is
+  -- NOT NULL but whose ELEMENTS nothing here was otherwise refusing one at a
+  -- time -- and src/services/templates.ts filters non-strings when it reads
+  -- the array back, so the screen would silently show fewer labels than the
+  -- body has positions rather than the operator ever seeing a refusal.
+  if exists (
+    select 1 from jsonb_array_elements(v_vars) as e
+     where jsonb_typeof(e) <> 'string'
+  ) then
+    raise exception 'every variable must be named as a string' using errcode = '22023';
   end if;
 
   -- Block 29b-1. The array is now a VOCABULARY rather than prose, so an element

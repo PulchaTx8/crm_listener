@@ -653,22 +653,24 @@ select throws_ok($$
 $$, '22023', null,
   'a registration whose variable descriptions disagree with the body''s {{n}} count is refused');
 
--- 59: and an element outside the vocabulary is refused too (Block 29b-1: this
--- used to test a JSON null, refused by 0113's "must be a non-empty string"
--- check; 0223 replaced that check with a cast to public.template_variable[],
--- and casting a JSON null element never raises -- confirmed directly against
--- the live function: it silently produces a NULL array element instead, so a
--- null literal here would no longer throw at all. What the new door DOES
--- refuse by name is a string that names nothing in the vocabulary, which is
--- the same protection this assertion originally wanted -- a value the
--- WhatsApp screen's closed list could never have produced -- so the input
--- changed instead of the assertion.
+-- 59: and a non-string element is refused too. jsonb_typeof on the array as a
+-- whole (0110's check constraint) cannot see inside it, so a null or a number
+-- here would reach the screen as a blank label beside a field the operator is
+-- being asked to fill in correctly.
+--
+-- Fix round 2 (F3): briefly untested between the first version of 0223 and
+-- this one. The cast to public.template_variable[] alone does not refuse a
+-- JSON null -- casting NULL never raises, confirmed directly against the live
+-- function -- so 0223 now re-runs 0165's own guard, unchanged in shape, ahead
+-- of that cast. Restored to a JSON null rather than left as the invalid-token
+-- input fix round 1 substituted, because a null is the specific case the
+-- guard exists to catch and the cast alone still cannot.
 select throws_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
-    'lembrete_invalido', 'pt_BR', 'Oi {{1}}!', '["not_a_real_variable"]'::jsonb)
+    'lembrete_nulo', 'pt_BR', 'Oi {{1}}!', '[null]'::jsonb)
 $$, '22023', null,
-  'a variable outside the closed vocabulary is refused');
+  'a variable description that is not a string is refused');
 
 -- 60: a blank name is refused by the door, for the same reason as 47.
 select throws_ok($$
