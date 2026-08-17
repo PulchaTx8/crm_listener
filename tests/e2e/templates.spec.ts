@@ -198,12 +198,19 @@ test('a Station takes its own voice and records the template that lets it speak 
   await openNavSection(ownerPage, 'Messages');
   await ownerPage.getByRole('link', { name: 'Promo Messages' }).click();
   await expect(ownerPage).toHaveURL(/\/messages\/promo$/);
-  // Fourteen since Block 28's COUNTRY. Pinned rather than counted from the
-  // enum, deliberately: this is the SCREEN's own list, and the whole point is
-  // that a key added to system_message_key must reach it — a test deriving the
-  // number from the same enum the page derives it from would pass while the
-  // page rendered nothing.
-  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(14);
+  // FIFTEEN since the gender block's GENDER, fourteen since Block 28's COUNTRY.
+  // Pinned rather than counted from the enum, deliberately: this is the SCREEN's
+  // own list, and the whole point is that a key added to system_message_key must
+  // REACH it — a test deriving the number from the same enum the page derives it
+  // from would pass while the page rendered nothing.
+  //
+  // The gender block is what proved that the pin earns its keep, by paying for
+  // it: every count in the unit suite was updated in the same commit and this
+  // one was not, because the block ran `widget.spec.ts` and not this file. CI
+  // caught it, which is the whole arrangement working — but the cheaper lesson
+  // is that a block adding a `system_message_key` value has THIS line to change
+  // and no compiler that will say so.
+  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(15);
 
   const refusalRow = ownerPage.getByTestId('system-message-REFUSAL');
   const refusalBody = ownerPage.getByTestId('system-message-body-REFUSAL');

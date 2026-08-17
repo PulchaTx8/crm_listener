@@ -39,15 +39,13 @@ export const dynamic = 'force-dynamic';
  * at length). The day somebody adds a "Station data" tab to that dialog, D9 is
  * what they are reversing; a WhatsApp tab is not.
  *
- * THE BUTTON IS GATED ON `is_owner`, NOT ON `is_owner_of_company`, and the
- * difference is deliberate. The second is also true for the platform admin
- * (0044) — the house convention, and the right one for the RPC behind the
- * dialog, where support acting on a customer's behalf is intended. But it would
- * put a Settings button on every card a platform admin can see on THIS screen,
- * which is the member area; the console is where support does that work. Gated
- * on ownership of the Organization, the button appears on the Stations the
- * caller actually owns, and the number of RPCs below is bounded by that same
- * small set rather than by the platform.
+ * THE BUTTON IS GATED ON OWNERSHIP OF THE ORGANIZATION, NOT ON
+ * `is_owner_of_company`, and the difference is deliberate. The second is also
+ * true for the platform admin (0044) — the house convention, and the right one
+ * for the RPC behind the dialog, where support acting on a customer's behalf is
+ * intended. But it would put a Settings button on every card a platform admin
+ * can see on THIS screen, which is the member area; the console is where support
+ * does that work.
  *
  * Coordinates are deliberately absent (D12). They are recorded so the platform
  * has them; a pair of numbers on this card would tell a member nothing.
@@ -184,26 +182,39 @@ export default async function MemberHomePage() {
  * built from two checks that disagree — the shape of accident this codebase
  * names in `templates/permissions.ts` for its own pair of predicates.
  *
- * OWNERSHIP IS ASKED PER ORGANIZATION, NOT PER STATION, and that is the whole
- * reason this helper exists rather than a call inside the loop. A group with
- * twelve radios is one `is_owner` call, not twelve; the RPC takes an
- * Organization and every Station of that group answers the same way.
- * `is_owner_of_company` (0044) would have to be asked per Station AND would
- * answer true for the platform admin — see the page's own header for why that
- * is the wrong gate on this screen.
+ * OWNERSHIP IS READ ONCE, FROM THE CALLER'S OWN MEMBERSHIPS, and the first
+ * version of this helper got that wrong in a way worth recording because it
+ * survived every gate and was caught by a log line.
  *
- * A FAILED OWNERSHIP CHECK IS NOT "NOT THE OWNER". It throws nothing and hides
- * the button, which is the safe direction, but it is logged: an owner who
- * silently loses the pairing control because an RPC blipped would have no way
- * to tell that from the feature being gone. The status read is treated
- * differently — see below.
+ * THE DEFECT: it collected the distinct `organization_id` of every company on
+ * screen and called `is_owner` for each, filtering afterwards. That reads as
+ * "one call per group" and is not: the list this screen renders is whatever RLS
+ * shows the caller, which for a platform admin is EVERY Station on the platform
+ * — so the number of round trips was bounded by the size of the installation,
+ * not by anything the caller owns. On a database with a few dozen Organizations
+ * it produced `TypeError: fetch failed / SocketError: other side closed` on some
+ * of them, and each failure silently hid a Settings button.
  *
- * THE STATUS READS ARE PARALLEL AND INDIVIDUALLY FALLIBLE. Each is one RPC, and
- * a failure yields `null` for that Station rather than taking the page with it:
- * the dialog then says the status could not be read, and the pairing button is
- * still there. The alternative — one rejected promise failing the whole grid —
- * would mean a Station with a broken integration row hides every other
- * Station's card.
+ * ONE SELECT INSTEAD. `organization_memberships_select` (0024) opens on
+ * `user_id = auth.uid()` before any of its other arms, so a caller can always
+ * read their OWN memberships — one query, constant, whatever the platform's
+ * size. The `user_id` filter is load-bearing rather than defensive: without it
+ * the same policy's later arms would hand a platform admin every owner
+ * membership in the installation, and the map below would put a Settings button
+ * on every card.
+ *
+ * THE STATUS READS STAY ONE RPC PER OWNED STATION, and that bound is now real —
+ * "Stations this caller owns" rather than "Stations this caller can see". Said
+ * plainly rather than left implied: a group of fifty radios is fifty parallel
+ * calls on this page, which is affordable and is not free. `station_whatsapp_status`
+ * (0218) takes one company id; the day that group exists, widening it to take an
+ * array is the fix, and this paragraph is the note that says so.
+ *
+ * THEY ARE ALSO INDIVIDUALLY FALLIBLE. A failure yields `null` for that Station
+ * rather than taking the page with it: the dialog says the status could not be
+ * read and the pairing button is still there. The alternative — one rejected
+ * promise failing the whole grid — would mean a Station with a broken
+ * integration row hides every other Station's card.
  */
 async function stationSettings(
   supabase: UserClient,
@@ -212,21 +223,27 @@ async function stationSettings(
   const settings = new Map<string, WhatsAppStatus | null>();
   if (companies.length === 0) return settings;
 
-  const organizationIds = [...new Set(companies.map((c) => c.organization_id))];
-  const owned = new Set<string>();
-  await Promise.all(
-    organizationIds.map(async (organizationId) => {
-      const { data, error } = await supabase.rpc('is_owner', {
-        p_organization_id: organizationId,
-      });
-      if (error) {
-        logger.error({ err: error, organizationId }, 'could not check organization ownership');
-        return;
-      }
-      if (data === true) owned.add(organizationId);
-    }),
-  );
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return settings;
 
+  const { data: memberships, error: membershipError } = await supabase
+    .from('organization_memberships')
+    .select('organization_id')
+    .eq('user_id', user.id)
+    .eq('role', 'owner')
+    .is('deleted_at', null);
+
+  if (membershipError) {
+    // Hides the button, which is the safe direction — but logged, because an
+    // owner who silently loses the pairing control has no way to tell that from
+    // the feature having been removed.
+    logger.error({ err: membershipError }, 'could not read organization ownership');
+    return settings;
+  }
+
+  const owned = new Set((memberships ?? []).map((m) => m.organization_id));
   const ownedCompanies = companies.filter((c) => owned.has(c.organization_id));
   await Promise.all(
     ownedCompanies.map(async (company) => {

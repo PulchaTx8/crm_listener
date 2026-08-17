@@ -839,7 +839,13 @@ class of defect where a redirect is written, reviewed, merged and never runs.
 own `connectWhatsApp` i18n namespace, rendered by **two** hosts:
 
 - **`/app` → `Settings` on a Station card → a tabbed dialog, WhatsApp tab.** Gated
-  on `is_owner`, so the Organization owner keeps the act. Block 15's D9 (this card
+  on the caller's own owner memberships, so the Organization owner keeps the act
+  and a platform admin does not get a button on every card the platform has.
+  (The first version asked `is_owner` per distinct Organization on screen —
+  which for a platform admin is one round trip per Organization in the
+  installation, and produced socket failures that each silently hid a button.
+  One select against `organization_memberships` replaces it; the page's own
+  comment carries the account.) Block 15's D9 (this card
   displays, it does not edit) is **not** reversed: the dialog edits no column on
   `companies`, it carries a row in `integrations` that no member-area screen could
   reach at all.
