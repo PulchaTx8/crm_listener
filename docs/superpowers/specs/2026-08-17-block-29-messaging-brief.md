@@ -844,17 +844,22 @@ replace.
 | `vitest run` | 127 files, 1503 tests |
 | `supabase test db` | 64 files, 2046 assertions (adds `62_station_whatsapp_status.test.sql`) |
 | `playwright` (templates, nav-content, provisioning, record-dialog, acceptance) | pass |
+| `npm run test:isolation` | 44 files, 379 cases, complete |
 | `db:types` | regenerated; the hand-written entry matched the generator byte for byte |
 
-**The isolation suite's 44 files and 379 cases all pass; the wrapper's completeness
-check is intermittently red for a reason that is not this branch.** The
-`Worker exited unexpectedly` crash `verify-isolation-suite.mjs` was written for
-fired on three of four runs here. **A control run with `station-settings.test.ts`
+**The isolation suite finished complete and green: 44 files, 379 cases, 367
+counted against their floors, "every one accounted for, nothing skipped".**
+
+It took five attempts, and the four that failed are worth recording because the
+next person will meet them. `verify-isolation-suite.mjs` reported INCOMPLETE on
+three of four earlier runs — the `Worker exited unexpectedly` crash the script was
+written to catch, where a worker dies after its file's cases have all passed and
+the JSON report is entirely clean. **A control run with `station-settings.test.ts`
 removed from disk and from the manifest crashed identically** (42 of 43), which is
-the evidence that the branch is not the cause; a run under a JSON reporter alone
-accounted for all 44 files and 379 passing cases. The script's own header already
-records this crash as unexplained, on six different files, at about two runs in
-five.
+what rules this branch out as the cause; a run under a JSON reporter alone
+accounted for all 44 files and 379 passing cases on the first try. The script's own
+header already records the crash as unexplained, on six different files, at about
+two runs in five — this branch met it at a worse rate and nothing more.
 
 **Mutation-checked rather than merely green:** weakening 0218's guard from
 `is_owner_of_company` to `has_company_access`, applied to the live local database,
