@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { GeographyPlace, MusicGeographyPlace } from '@/schemas/geography';
 import { PlaceMap } from './place-map';
+import { placeName } from './place-map-geometry';
 
 /**
  * Block 28. The geography panel, shared by the Audience and Music dashboards.
@@ -62,6 +63,37 @@ export async function GeographyPanel({
   const byCity = rank(places, (place) => place.city);
   const byNeighbourhood = rank(places, (place) => place.neighbourhood);
 
+  // THE HOVER BUBBLES, WORDED HERE. A circle sized by count cannot be read as a
+  // number — an eye compares two areas, it does not measure one — and below the
+  // top ten the tables do not name a place at all, so this is the only place a
+  // Station can find out that the dot over Guarulhos is 43 listeners and not 4.
+  //
+  // Built on the server for the same reason every other string PlaceMap renders
+  // is: see MapPlace. `songs` is the same array `places` is when the Music panel
+  // passes it — only its TYPE is wider, and the extra line is the whole reason
+  // the two maps differ.
+  // Widened once, here, rather than narrowed at each of the two reads below:
+  // `songs` and `places` are the SAME array when the Music panel passes both, so
+  // the union of their two types is a distinction with no value at runtime.
+  const mapSource: (GeographyPlace & {
+    top_song?: string | null;
+    top_song_count?: number | null;
+  })[] = songs ?? places;
+
+  const mapPlaces = mapSource.map((place) => ({
+    key: place.key,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    count: place.count,
+    name: placeName(place),
+    lines: [
+      t('listenersHere', { count: place.count }),
+      ...(place.top_song && place.top_song_count
+        ? [t('mostRequestedHere', { song: place.top_song, count: place.top_song_count })]
+        : []),
+    ],
+  }));
+
   return (
     <Card className="mt-6" data-testid="geography-panel">
       <CardHeader>
@@ -85,7 +117,7 @@ export async function GeographyPanel({
             {apiKey ? (
               <PlaceMap
                 apiKey={apiKey}
-                places={places}
+                places={mapPlaces}
                 label={title}
                 unavailableLabel={t('theMapCouldNotBeLoaded')}
                 refusedLabel={t('theMapKeyWasRefused')}
@@ -124,7 +156,10 @@ export async function GeographyPanel({
                   .filter((place) => place.top_song)
                   .slice(0, TOP_N)
                   .map((place) => ({
-                    name: place.neighbourhood ?? place.city ?? place.key,
+                    // The same function the map's hover bubble titles a circle
+                    // with, so a place cannot be named one way here and another
+                    // way over its own dot.
+                    name: placeName(place),
                     // The song's title in the count column rather than a
                     // number: what a Station wants off this table is WHICH
                     // song, and the count is already in the ranking above.

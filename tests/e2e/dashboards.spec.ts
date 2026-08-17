@@ -161,6 +161,10 @@ const delegateWeakPassword = `Weak-${stamp}-pw`;
 
 const noMatchTerm = `zz-no-such-station-${stamp}`;
 
+// Module-scoped since the single-control change: with the switcher row gone,
+// a test that needs one specific Station on the screen before it starts
+// exercising the control has to say so in the URL, and that needs the id.
+let stationRT = '';
 let stationTZA = '';
 let stationTZB = '';
 let stationTZC = '';
@@ -173,14 +177,13 @@ test.beforeAll(async () => {
   const platformAdminClient = await signInAs(platformAdminEmail, platformAdminPassword);
 
   const ownerUserId = await createAuthUser(ownerEmail, ownerInitialPassword);
-  const { organization_id: organizationId, company_id: stationRT } = await provisionCustomer(
-    platformAdminClient,
-    {
-      userId: ownerUserId,
-      organizationName: `Dash Org ${stamp}`,
-      companyName: stationRTName,
-    },
-  );
+  const provisioned = await provisionCustomer(platformAdminClient, {
+    userId: ownerUserId,
+    organizationName: `Dash Org ${stamp}`,
+    companyName: stationRTName,
+  });
+  const organizationId = provisioned.organization_id;
+  stationRT = provisioned.company_id;
 
   async function addCompany(name: string, timezone: string): Promise<string> {
     const { data, error } = await platformAdminClient.rpc('add_company', {
@@ -383,12 +386,19 @@ test('the round trip: a known figure, the period switch that changes it, a rende
   // The owner reaches all six Stations this file provisions; pin to RT
   // explicitly rather than trust which one sorts first alphabetically.
   //
-  // Scoped to `station-switcher` since Block 28: the owner clears every
-  // permission check, so the StationSelection control renders for them too and
-  // every Station name is now the accessible name of TWO links on this page.
-  // Playwright's strict mode fails on that, and the failure would read as a
-  // missing pill rather than as a second one.
-  await page.getByTestId('station-switcher').getByRole('link', { name: stationRTName }).click();
+  // IN THE URL RATHER THAN THROUGH A PILL, since the switcher row was folded
+  // into "Stations shown". The owner clears every permission check, so all six
+  // of their pills toggle: clicking RT ADDS it to whichever Station the page
+  // defaulted to, and every figure below would then be a two-Station sum. What
+  // this test is about is the cards, the charts and the period — the control's
+  // own semantics are proven click-by-click in the consolidated test below,
+  // which is where a pill that stopped adding would be caught.
+  await page.goto(`/dashboards/audience?companyId=${stationRT}`);
+  // And the second row really is gone, rather than merely unused above.
+  await expect(page.getByTestId('station-switcher')).toHaveCount(0);
+  await expect(
+    page.getByTestId('station-selection').getByRole('link', { name: stationRTName }),
+  ).toHaveCount(1);
 
   // dashboard-card-<key>'s DOM order is fixed by DashboardCards/WithheldFigure:
   // CardDescription's label paragraph first, then the value paragraph — so
@@ -501,7 +511,11 @@ test('station selection: any set, gated per Station, absent when ineligible, nev
   await openNavSection(page, 'Dashboards');
   await page.getByRole('link', { name: 'Audience overview' }).click();
   await expect(page).toHaveURL(/\/dashboards\/audience$/);
-  await page.getByTestId('station-switcher').getByRole('link', { name: stationTZAName }).click();
+  // TZA alone as the starting point, named in the URL rather than clicked: all
+  // three of this delegate's Stations toggle, so a pill click here would add to
+  // whichever Station the page defaulted to instead of replacing it. Everything
+  // after this line is the control being driven by clicks.
+  await page.goto(`/dashboards/audience?companyId=${stationTZA}`);
 
   const selection = page.getByTestId('station-selection');
   await expect(selection).toBeVisible();
@@ -553,10 +567,21 @@ test('station selection: any set, gated per Station, absent when ineligible, nev
     page.getByTestId('mixed-timezone-note').or(page.getByTestId('mixed-period-note')),
   ).toBeVisible();
 
-  // Back to one Station through the switcher row above, which is what
-  // replaced the old toggle's "This station" position: the selection control
-  // adds and removes, the switcher replaces.
-  await page.getByTestId('station-switcher').getByRole('link', { name: stationTZAName }).click();
+  // BACK DOWN TO ONE STATION BY REMOVING THE OTHER TWO, which is the only way
+  // left now that the switcher row is gone — and a better assertion than the
+  // single click it replaced. Three selected, two removed, one left: it proves
+  // removal keeps working all the way to the bottom without the "a selection of
+  // zero is not a selection" fallback firing a Station early.
+  await selection.getByRole('link', { name: stationTZBName }).click();
+  // THE WAIT IS AS MUCH THE POINT AS THE FIGURE. Every pill's href is computed
+  // from the selection the page rendered with, so the second click below has to
+  // land on the row THIS navigation produced: on the three-Station row, TZC's
+  // pill removes TZC from three and leaves two. Without this line the two clicks
+  // race and the panel ends on TZA + TZB.
+  await expect(listeners).toHaveText(String(TZA_LISTENERS + TZC_LISTENERS));
+  await selection.getByRole('link', { name: stationTZCName }).click();
+  await expect(listeners).toHaveText(String(TZA_LISTENERS));
+  await expect(page.getByTestId('stations-selected')).toHaveText('1 station');
   await expect(page.getByTestId('mixed-timezone-note')).toHaveCount(0);
 
   // --- the custom range survives a sibling control's navigation -------------
@@ -582,10 +607,10 @@ test('station selection: any set, gated per Station, absent when ineligible, nev
   await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(toInput).toHaveValue('2020-01-31');
 
-  // A DIFFERENT control (the Station pill, not period-control's own inputs)
+  // A DIFFERENT control (a Station pill, not period-control's own inputs)
   // navigates while custom is active — see this file's header for what this
   // can and cannot prove given 0117's own semantics.
-  await page.getByTestId('station-switcher').getByRole('link', { name: stationTZBName }).click();
+  await selection.getByRole('link', { name: stationTZBName }).click();
   await expect(page).toHaveURL(/from=2020-01-01/);
   await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(fromInput).toHaveValue('2020-01-01');
@@ -595,8 +620,8 @@ test('station selection: any set, gated per Station, absent when ineligible, nev
     'page',
   );
 
-  // A SECOND different control — the station selection itself.
-  await page.getByTestId('station-selection').getByRole('link', { name: /All stations/ }).click();
+  // And the chip beside them, which builds its href a different way.
+  await selection.getByRole('link', { name: /All stations/ }).click();
   await expect(page).toHaveURL(/from=2020-01-01/);
   await expect(page).toHaveURL(/to=2020-02-01/);
   await expect(fromInput).toHaveValue('2020-01-01');
@@ -613,13 +638,27 @@ test('station selection: any set, gated per Station, absent when ineligible, nev
   await expect(weakPage).toHaveURL(/\/app$/);
 
   await weakPage.goto('/dashboards/audience');
-  // Both Stations are reachable (members.view holds in both) — the switcher
-  // itself renders — but reports.consolidated holds only in TZA, so the
-  // selection control specifically must not: one Station is not a selection.
-  const weakSwitcher = weakPage.getByTestId('station-switcher');
-  await expect(weakSwitcher.getByRole('link', { name: stationTZAName })).toBeVisible();
-  await expect(weakSwitcher.getByRole('link', { name: stationTZBName })).toBeVisible();
-  await expect(weakPage.getByTestId('station-selection')).toHaveCount(0);
+  // THE REGRESSION THE SINGLE-CONTROL CHANGE COULD HAVE SHIPPED, and the reason
+  // this branch is asserted rather than deleted. Both Stations are reachable
+  // (members.view holds in both) but reports.consolidated holds only in TZA, so
+  // there is no set to build here. Deleting the switcher row without this would
+  // have left this caller — and any Station outside reports.consolidated for
+  // anyone — with no way off the default Station except a hand-typed URL.
+  const weakSelection = weakPage.getByTestId('station-selection');
+  await expect(weakSelection.getByRole('link', { name: stationTZAName })).toBeVisible();
+  await expect(weakSelection.getByRole('link', { name: stationTZBName })).toBeVisible();
+  // And no "All stations": one consolidable Station is not a selection, so the
+  // chip would link to a view 0118 refuses.
+  await expect(weakSelection.getByRole('link', { name: /All stations/ })).toHaveCount(0);
+  await expect(weakPage.getByTestId('stations-selected')).toHaveCount(0);
+
+  // THE PILLS REPLACE RATHER THAN ADD for this caller. Clicking TZB must land on
+  // TZB alone: a pill that appended would build exactly the two-Station URL the
+  // next assertion below proves the RPC refuses with 42501.
+  await weakSelection.getByRole('link', { name: stationTZBName }).click();
+  await expect(weakPage).toHaveURL(new RegExp(`companyId=${stationTZB}`));
+  expect(weakPage.url()).not.toContain(stationTZA);
+  await expect(weakPage.getByTestId('dashboard-cards')).toBeVisible();
 
   // The hand-crafted URL the toggle never offered: both Stations are valid
   // (members.view holds in each), so this reaches the RPC, which refuses with

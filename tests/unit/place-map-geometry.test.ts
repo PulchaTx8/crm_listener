@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   circleRadius,
   mapScriptUrl,
+  placeName,
   MAPS_READY_CALLBACK,
 } from '@/app/(app)/dashboards/place-map-geometry';
 
@@ -43,6 +44,36 @@ describe('circleRadius', () => {
     ] as const) {
       expect(Number.isFinite(circleRadius(count, largest))).toBe(true);
     }
+  });
+});
+
+describe('placeName', () => {
+  // What the hover bubble over a circle is titled, and what the ranked tables
+  // already called the same place. One function so the two cannot drift: a
+  // neighbourhood named one way on the map and another in the table under it
+  // reads as two places.
+
+  it('prefers the neighbourhood, which is the finest thing it knows', () => {
+    expect(placeName({ key: 'br-sp-guarulhos-centro', city: 'Guarulhos', neighbourhood: 'Centro' })).toBe(
+      'Centro',
+    );
+  });
+
+  it('falls back to the city when the place was only resolved that far', () => {
+    expect(placeName({ key: 'br-sp-guarulhos', city: 'Guarulhos', neighbourhood: null })).toBe(
+      'Guarulhos',
+    );
+  });
+
+  it('names the folded key rather than nothing when a place resolved to a country', () => {
+    // 0214's member_place_key is not pretty, but a bubble reading "12 listeners"
+    // over no place at all is worse: an operator cannot tell WHICH dot they are
+    // hovering, which is the only question a hover answers.
+    expect(placeName({ key: 'br', city: null, neighbourhood: null })).toBe('br');
+  });
+
+  it('treats a blank name as no name, because a geocoder answers both', () => {
+    expect(placeName({ key: 'br-sp', city: '  ', neighbourhood: '' })).toBe('br-sp');
   });
 });
 

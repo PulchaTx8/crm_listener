@@ -19,7 +19,7 @@ import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/st
 import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
 import { NATIONALITY_LABEL_KEYS, VOCAL_LABEL_KEYS } from '../../music/format';
-import { parsePeriod, periodHref, withStationSearch } from '../period';
+import { parsePeriod } from '../period';
 import { describeDashboardError } from '../errors';
 import { PeriodControl } from '../period-control';
 import { StationSelection } from '../station-selection';
@@ -202,52 +202,19 @@ export default async function MusicDashboardPage({
         </div>
       )}
 
+      {/* ONE STATION CONTROL, in the corner the switcher row used to hold. Both
+          rows carried the same names and differed only in what a click meant,
+          which is a distinction an operator had to be told rather than shown;
+          StationSelection now carries it per pill. */}
       {(viewable.length + suspended.length > 1 || consolidatedEligible.length >= 2) && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          {/* Block 28 gave this row a testid it did not need before. The
-              StationSelection control below renders a SECOND pill per Station,
-              carrying the same name, so a page-wide `getByRole('link', { name:
-              stationName })` now matches two links and fails on strict mode.
-              The two rows do different things — this one REPLACES the selection
-              with one Station, that one adds or removes one — so telling them
-              apart is a real distinction, not a test convenience. */}
-          <div className="flex flex-wrap gap-2" data-testid="station-switcher">
-            {viewable.map((company) => (
-              <Link
-                key={company.id}
-                href={
-                  withStationSearch(periodHref(BASE, selection, [company.id]), stationSearch) as Route
-                }
-                aria-current={
-                  companyIds.length === 1 && companyIds[0] === company.id ? 'page' : undefined
-                }
-                className={
-                  companyIds.length === 1 && companyIds[0] === company.id
-                    ? 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground'
-                    : 'rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent'
-                }
-              >
-                {company.name}
-              </Link>
-            ))}
-            {suspended.map((company) => (
-              <span
-                key={company.id}
-                title={t('suspendedNoDataIsAvailableWhile')}
-                className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
-              >
-                {company.name} (suspended)
-              </span>
-            ))}
-          </div>
-
+        <div className="mb-6">
           <StationSelection
-            eligible={consolidatedEligible.length >= 2}
             base={BASE}
             period={selection}
             stationSearch={stationSearch}
             singleCompanyId={first.id}
             viewable={viewable}
+            suspended={suspended}
             consolidatedCompanyIds={consolidatedEligible.map((c) => c.id)}
             // `companyIds`, not `params.companyId`: this is the selection the
             // page actually resolved and read the panel with, after a stale or

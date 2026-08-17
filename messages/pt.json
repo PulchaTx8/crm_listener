@@ -680,7 +680,10 @@
     "song": "Música",
     "listenersColumn": "Ouvintes",
     "mostRequestedByPlace": "Mais pedida, por lugar",
-    "theMapKeyWasRefused": "O Google recusou a chave do mapa para este site. As listas abaixo continuam as mesmas. Confira a restrição de site da chave, a restrição de API e se o faturamento do projeto está ativo."
+    "theMapKeyWasRefused": "O Google recusou a chave do mapa para este site. As listas abaixo continuam as mesmas. Confira a restrição de site da chave, a restrição de API e se o faturamento do projeto está ativo.",
+    "thisStationCannotBeShownAlongside": "Esta emissora não pode ser exibida junto com as outras — ao selecioná-la, ela aparece sozinha.",
+    "listenersHere": "{count, plural, one {# ouvinte} other {# ouvintes}}",
+    "mostRequestedHere": "Mais pedida: {song} ({count})"
   },
   "team": {
     "invitationSentTo": "Convite enviado para",

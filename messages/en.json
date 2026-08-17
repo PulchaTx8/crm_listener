@@ -680,7 +680,10 @@
     "song": "Song",
     "listenersColumn": "Listeners",
     "mostRequestedByPlace": "Most requested, by place",
-    "theMapKeyWasRefused": "Google refused the map key for this site. The lists below are unchanged. Check the key’s website restriction, its API restriction, and that billing is on for the project."
+    "theMapKeyWasRefused": "Google refused the map key for this site. The lists below are unchanged. Check the key’s website restriction, its API restriction, and that billing is on for the project.",
+    "thisStationCannotBeShownAlongside": "This Station cannot be shown alongside the others — selecting it shows it on its own.",
+    "listenersHere": "{count, plural, one {# listener} other {# listeners}}",
+    "mostRequestedHere": "Most requested: {song} ({count})"
   },
   "team": {
     "invitationSentTo": "Invitation sent to",

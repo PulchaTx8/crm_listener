@@ -5,11 +5,18 @@ import Link from 'next/link';
 import type { Route } from 'next';
 import { periodHref, withStationSearch } from './period';
 import type { PeriodSelection } from './period';
-import type { ViewableCompany } from '../inventory/station-access';
+import { canSelectAll, stationPills } from './station-pills';
+import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 
 const ACTIVE_PILL = 'rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground';
 const INACTIVE_PILL =
   'rounded-full border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent';
+/**
+ * A pill that REPLACES the selection sitting next to pills that add to it. Only
+ * ever used when the row holds both kinds — see the `mixed` computation below.
+ */
+const REPLACE_PILL =
+  'rounded-full border border-dotted px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent';
 
 /**
  * Block 28. Any set of Stations, replacing Block 8a's two-position
@@ -17,6 +24,13 @@ const INACTIVE_PILL =
  * nothing between them, while the array behind it has travelled from the URL to
  * the RPC since 0118. Nothing below the URL changed to allow this; the control
  * was the only thing that could not say "these three".
+ *
+ * THE ONLY STATION CONTROL ON THESE THREE SCREENS. It used to be the second of
+ * two: a switcher row rendered every Station's name as a pill that REPLACED the
+ * selection, and this one rendered a second pill per Station that added to it.
+ * Two rows of the same names doing two different things is a reading cost paid
+ * on every visit for a distinction that matters on almost none of them, so the
+ * switcher was folded in here — which is what `mode` on each pill now carries.
  *
  * TWO THINGS ARE CARRIED FORWARD VERBATIM FROM THAT COMPONENT, because both are
  * load-bearing and neither is obvious:
@@ -34,30 +48,35 @@ const INACTIVE_PILL =
  * And the pills are `<Link>`s, not checkboxes, built by the same `periodHref`
  * every other control in this block uses, so a chosen view is a URL somebody can
  * send exactly like a chosen period.
+ *
+ * WHICH URL EACH PILL BUILDS LIVES IN ./station-pills, not here: this project
+ * installs no jsdom, and the two ways a pill can build a URL the RPC refuses are
+ * worth a test even though a row of links is not.
  */
 export function StationSelection({
-  eligible,
   base,
   period,
   stationSearch,
   singleCompanyId,
   viewable,
+  suspended,
   consolidatedCompanyIds,
   selectedIds,
   complete,
 }: {
-  eligible: boolean;
   base: string;
   period: PeriodSelection;
   stationSearch?: string;
   /**
-   * Where unselecting the LAST pill goes. See the `next` computation below: an
-   * empty selection is not a selection, and this is what it falls back to.
+   * Where unselecting the LAST pill goes. See `stationPills`: an empty selection
+   * is not a selection, and this is what it falls back to.
    */
   singleCompanyId: string;
-  /** Every Station this caller can view, for the names. */
+  /** Every Station this caller can view — all of them get a pill now. */
   viewable: ViewableCompany[];
-  /** Of those, the ones `reports.consolidated` reaches — the ones that get a pill. */
+  /** Named but not clickable, since no data exists to show for them. */
+  suspended: SuspendedCompany[];
+  /** Of `viewable`, the ones `reports.consolidated` reaches. */
   consolidatedCompanyIds: string[];
   /** The selection the page actually resolved and read the panel with. */
   selectedIds: string[];
@@ -78,23 +97,27 @@ export function StationSelection({
   complete: boolean;
 }) {
   const t = useTranslations('dashboards');
-  if (!eligible) return null;
 
-  const eligibleSet = new Set(consolidatedCompanyIds);
-  // Ordered by `viewable` rather than by `consolidatedCompanyIds`, so these
-  // pills sit in the same order as the single-Station pills the page renders
-  // beside them. Two rows of the same names in two different orders is the
-  // reading cost that makes an operator check whether they are the same list.
-  const stations = viewable.filter((company) => eligibleSet.has(company.id));
+  // Nothing to choose between. The pages guard this too; this is the list's own
+  // answer, and it is the one that survives a caller reaching the component
+  // some other way.
+  if (viewable.length + suspended.length < 2) return null;
 
-  // One Station is not a selection either, and this is the second of the two
-  // reasons this control can render nothing: `eligible` above is the page's
-  // answer, this is the list's own.
-  if (stations.length < 2) return null;
+  const multi = canSelectAll(consolidatedCompanyIds);
+  const pills = stationPills({
+    stations: viewable,
+    consolidatedIds: consolidatedCompanyIds,
+    selectedIds,
+    fallbackId: singleCompanyId,
+  });
+  // WHETHER THE ROW HOLDS BOTH KINDS AT ONCE. With every pill replacing (a
+  // caller who can consolidate fewer than two Stations) there is nothing to
+  // contrast with and the old switcher's plain styling is exactly right; with
+  // every pill toggling, likewise. It is only the mixed row where a click can
+  // mean two things, and a difference that silent is the trap worth marking.
+  const mixed = multi && pills.some((pill) => pill.mode === 'replace');
 
-  const selected = new Set(selectedIds.filter((id) => eligibleSet.has(id)));
-  const allSelected = stations.every((company) => selected.has(company.id));
-
+  const names = new Map(viewable.map((company) => [company.id, company.name]));
   const hrefFor = (ids: string[]) =>
     withStationSearch(periodHref(base, period, ids), stationSearch) as Route;
 
@@ -102,41 +125,68 @@ export function StationSelection({
     <div className="flex flex-col gap-1" data-testid="station-selection">
       <span className="text-xs text-muted-foreground">{t('selectStations')}</span>
       <div className="flex flex-wrap items-center gap-1 rounded-full border p-1">
-        {stations.map((company) => {
-          const isOn = selected.has(company.id);
-          const next = isOn
-            ? selectedIds.filter((id) => id !== company.id)
-            : [...selectedIds, company.id];
-
+        {pills.map((pill) => {
+          const replaces = pill.mode === 'replace';
           return (
             <Link
-              key={company.id}
-              // A SELECTION OF ZERO IS NOT A SELECTION. Unselecting the last
-              // pill links to the caller's own single Station rather than to an
-              // empty array: 0118 raises 22023 for an empty set, and a control
-              // that can produce a broken URL is a control that will. The
-              // fallback is `singleCompanyId` and not `company.id` — turning a
-              // pill off must never read as turning it on.
-              href={hrefFor(next.length > 0 ? next : [singleCompanyId])}
-              aria-pressed={isOn}
-              className={isOn ? ACTIVE_PILL : INACTIVE_PILL}
+              key={pill.id}
+              href={hrefFor(pill.next)}
+              // A toggle is pressed or not; a replacement is the current page or
+              // not. Two different questions, and assistive technology answers
+              // them with two different attributes.
+              aria-pressed={replaces ? undefined : pill.selected}
+              aria-current={replaces && pill.selected ? 'page' : undefined}
+              className={
+                pill.selected ? ACTIVE_PILL : mixed && replaces ? REPLACE_PILL : INACTIVE_PILL
+              }
+              title={mixed && replaces ? t('thisStationCannotBeShownAlongside') : undefined}
             >
-              {company.name}
+              {names.get(pill.id)}
             </Link>
           );
         })}
-        <Link
-          href={hrefFor(stations.map((company) => company.id))}
-          aria-current={allSelected ? 'page' : undefined}
-          className={allSelected ? ACTIVE_PILL : INACTIVE_PILL}
-          title={complete ? undefined : t('onlyTheStationsListedAbove')}
-        >
-          {complete ? t('allStations', { count: stations.length }) : t('stationsListed', { count: stations.length })}
-        </Link>
+
+        {suspended.map((company) => (
+          <span
+            key={company.id}
+            title={t('suspendedNoDataIsAvailableWhile')}
+            className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-muted-foreground"
+          >
+            {company.name} (suspended)
+          </span>
+        ))}
+
+        {/* ONLY WHEN THERE IS A SET TO SELECT. With one consolidable Station the
+            chip is a second pill for that Station wearing a label claiming more
+            than it delivers; with none it would link to an empty array, which
+            0118 raises 22023 for. */}
+        {multi && (
+          <Link
+            href={hrefFor(consolidatedCompanyIds)}
+            aria-current={
+              consolidatedCompanyIds.every((id) => selectedIds.includes(id)) ? 'page' : undefined
+            }
+            className={
+              consolidatedCompanyIds.every((id) => selectedIds.includes(id))
+                ? ACTIVE_PILL
+                : INACTIVE_PILL
+            }
+            title={complete ? undefined : t('onlyTheStationsListedAbove')}
+          >
+            {complete
+              ? t('allStations', { count: consolidatedCompanyIds.length })
+              : t('stationsListed', { count: consolidatedCompanyIds.length })}
+          </Link>
+        )}
       </div>
-      <span className="text-xs text-muted-foreground" data-testid="stations-selected">
-        {t('stationsSelected', { count: selectedIds.length })}
-      </span>
+
+      {/* Only where a count is news. Where every pill replaces, this could only
+          ever read "1 station". */}
+      {multi && (
+        <span className="text-xs text-muted-foreground" data-testid="stations-selected">
+          {t('stationsSelected', { count: selectedIds.length })}
+        </span>
+      )}
     </div>
   );
 }
