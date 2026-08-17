@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 import { geocodeTransport } from '@/lib/integrations/google';
 import { GeocodeUnavailableError } from '@/lib/integrations/google/transport';
+import type { GeocodeTransport } from '@/lib/integrations/google/transport';
 import { placeQuery } from '@/lib/places/normalise';
 import { logger } from '@/lib/logger';
 
@@ -43,8 +44,26 @@ const BATCH = 25;
  */
 export async function drainGeocodeQueue(
   supabase: SupabaseClient<Database>,
+  options: {
+    /**
+     * The transport to drain with. OMITTED means "resolve it from the
+     * environment", which is what the worker does; `null` means "there is
+     * none", which is the state every deployment without a key is in.
+     *
+     * INJECTABLE BECAUSE THE RULE BELOW IS OTHERWISE UNPROVABLE. The single most
+     * consequential behaviour in this file is that a quota refusal STOPS the
+     * batch instead of marking the rest of it unknown — and `geocodeTransport()`
+     * can only produce the real client or the fixture, neither of which can be
+     * made to refuse. A seam whose whole purpose is testability that no test can
+     * reach is a seam in name only.
+     *
+     * `!== undefined` rather than `??` on purpose: `null` is a meaningful value
+     * here and `??` would treat it as "not supplied" and go to the environment.
+     */
+    transport?: GeocodeTransport | null;
+  } = {},
 ): Promise<GeocodeDrainResult> {
-  const transport = geocodeTransport();
+  const transport = options.transport !== undefined ? options.transport : geocodeTransport();
 
   // FILL THE QUEUE BEFORE DRAINING IT. Nothing else in this system writes to
   // geocoded_places: a listener is registered, a conversation fills in a city,
