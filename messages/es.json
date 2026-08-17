@@ -681,6 +681,7 @@
     "listenersColumn": "Oyentes",
     "mostRequestedByPlace": "Más pedida, por lugar",
     "theMapKeyWasRefused": "Google rechazó la clave del mapa para este sitio. Las listas de abajo no cambian. Revisa la restricción de sitio de la clave, la restricción de API y que la facturación del proyecto esté activa.",
+    "thisStationCannotBeShownAlongside": "Esta emisora no puede mostrarse junto con las demás — al seleccionarla, aparece sola.",
     "listenersHere": "{count, plural, one {# oyente} other {# oyentes}}",
     "mostRequestedHere": "Más pedida: {song} ({count})"
   },
