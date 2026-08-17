@@ -476,6 +476,16 @@ const REQUIRED_TEST_FILES = [
   // which is what stops the screen rendering the same blank whether the call
   // succeeded or failed.
   { path: 'tests/isolation/station-settings.test.ts', minTests: 6 },
+  // Block 29b-1. Five cases over the marketing door, and the floor is the full
+  // count because three have no other proof anywhere.
+  //
+  // 64_template_channel.test.sql holds the shape and the grants as superuser
+  // with a null auth.uid(), where has_permission answers true unconditionally.
+  // It cannot see: that templates.view alone is REFUSED; that a SECOND marketing
+  // template may exist beside the first (the case the narrowed index exists for,
+  // and which raises 23505 against the old one); and that an update by id lands
+  // on the same row rather than inserting a second.
+  { path: 'tests/isolation/marketing-templates.test.ts', minTests: 5 },
   // The gender block. Six cases over the tenth requested field, and the floor
   // is the full count because four of them have no other proof anywhere.
   //

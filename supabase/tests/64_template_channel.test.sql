@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(21);
 
 -- Block 29b-1, Task 1. The two vocabularies this block adds.
 --
@@ -112,6 +112,41 @@ select ok(
     where n.nspname = 'public' and p.proname = 'enqueue_whatsapp_outbound')
     like '%channel = ''WHATSAPP''%',
   'the enqueue resolves WhatsApp templates and no others');
+
+-- ---------------------------------------------------------------------------
+-- Task 4. The marketing door: shape and grants only. pgTAP runs as superuser
+-- with a null auth.uid(), where has_permission answers true unconditionally --
+-- it cannot show the door REFUSES anybody. tests/isolation/marketing-
+-- templates.test.ts holds that half, against real sessions.
+-- ---------------------------------------------------------------------------
+select has_function('public', 'save_marketing_template',
+  array['uuid', 'message_channel', 'text', 'text', 'uuid', 'text', 'text', 'text',
+        'text', 'jsonb', 'text', 'text', 'text'],
+  'save_marketing_template exists with its full argument list');
+
+select ok(
+  has_function_privilege('authenticated',
+    'public.save_marketing_template(uuid,public.message_channel,text,text,uuid,text,text,text,text,jsonb,text,text,text)',
+    'execute'),
+  'authenticated holds execute on the marketing door');
+
+-- `anon` and PUBLIC both refused. `anon` is the widget's role and every
+-- unauthenticated caller's; a door granted to it would let the internet write
+-- a Station's templates, which nothing else in this plan would catch. PUBLIC
+-- is the default ACL PostgreSQL hands out unless a migration revokes it.
+select ok(
+  not has_function_privilege('anon',
+    'public.save_marketing_template(uuid,public.message_channel,text,text,uuid,text,text,text,text,jsonb,text,text,text)',
+    'execute')
+  and not exists (
+    select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace,
+           unnest(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
+     where n.nspname = 'public'
+       and p.proname = 'save_marketing_template'
+       and acl::text like '=X/%'),
+  'anon holds no execute and PUBLIC holds none either');
 
 select * from finish();
 rollback;
