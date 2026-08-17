@@ -334,6 +334,11 @@ describe('Block Templates — a Station\'s own words, across Stations', () => {
     const { error } = await client.from('message_templates').insert({
       organization_id: customer.organizationId,
       company_id: customer.companyId,
+      // 0225 made channel and internal_name required columns; this insert is
+      // refused by the missing grant before either is ever validated, so any
+      // values that satisfy the type serve the case.
+      channel: 'WHATSAPP',
+      internal_name: 'pela_porta_dos_fundos',
       purpose: 'PICKUP_REMINDER',
       name: 'pela_porta_dos_fundos',
       language: 'pt_BR',

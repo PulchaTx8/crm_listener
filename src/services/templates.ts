@@ -12,6 +12,7 @@ import {
 import type { Database } from '@/lib/supabase/database.types';
 import { SYSTEM_MESSAGE_DEFAULTS } from '@/lib/conversation/engine';
 import type { SystemMessageKey } from '@/lib/conversation/engine';
+import type { TemplateVariable } from '@/lib/templates/variables';
 import { SYSTEM_MESSAGE_KEYS } from '@/schemas/templates';
 import type {
   ArchiveTemplateInput,
@@ -206,12 +207,15 @@ export async function setServiceHashtags(
 
 export interface RegisteredTemplate {
   id: string;
-  purpose: string;
-  name: string;
-  language: string;
+  // 0225 widened this table to hold marketing templates too, which carry no
+  // purpose, name or language of their own (Task 8 gives this row its own
+  // proper shape; this file keeps the tree compiling until then).
+  purpose: string | null;
+  name: string | null;
+  language: string | null;
   body: string;
   /** What each position means, in order. Empty for an approved fixed-text template. */
-  variables: string[];
+  variables: TemplateVariable[];
   /**
    * Whether the approval carries an OTP button — Meta's Authentication
    * category (0165). The send must name that button or the Cloud API refuses
@@ -236,13 +240,10 @@ export async function listRegisteredTemplates(companyId: string): Promise<Regist
     name: row.name,
     language: row.language,
     body: row.body,
-    // `variables` is jsonb and arrives as Json, which says nothing about its
-    // shape. 0110's check constraint holds it to an array and 0113's door to
-    // an array of non-blank strings; this is what stops a row written before
-    // either from rendering as `[object Object]` on the screen.
-    variables: Array.isArray(row.variables)
-      ? row.variables.filter((value): value is string => typeof value === 'string')
-      : [],
+    // `variables` is `template_variable[]` (0222) since 0225's regeneration,
+    // not the jsonb this comment used to distrust -- the column's own type is
+    // now the shape guarantee, so there is nothing left here to narrow.
+    variables: row.variables,
     otpButton: row.otp_button,
     updatedAt: row.updated_at,
   }));

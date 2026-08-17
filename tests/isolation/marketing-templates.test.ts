@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Database } from '@/lib/supabase/database.types';
 import {
   addCompany,
   admin,
@@ -41,10 +42,13 @@ describe('Block 29b-1 — the marketing template door', () => {
     args: Record<string, unknown>,
   ): Promise<{ id?: string; code?: string; message?: string }> {
     const client = await signInAs(who.email, who.password);
+    // `args` is deliberately loose -- every real call below supplies the
+    // required p_channel/p_internal_name/p_body, but the generic Record type
+    // can't prove that through a spread, which is what the cast is for.
     const { data, error } = await client.rpc('save_marketing_template', {
       p_company_id: customer.companyId,
       ...args,
-    });
+    } as Database['public']['Functions']['save_marketing_template']['Args']);
     return { id: data as string | undefined, code: error?.code, message: error?.message };
   }
 
