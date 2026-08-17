@@ -116,13 +116,13 @@ values
 -- {{3}} the deadline. Station B registers none -- that absence is the whole
 -- point of its fixture.
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body)
 values
   ('00000000-0000-0000-0000-00000000e5f1', '00000000-0000-0000-0000-00000000e5c1',
-   'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR',
+   'PICKUP_REMINDER', 'WHATSAPP', 'Lembrete de retirada', 'Lembrete de retirada', 'pt_BR',
    'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}!'),
   ('00000000-0000-0000-0000-00000000e5f1', '00000000-0000-0000-0000-00000000e5c3',
-   'PICKUP_REMINDER', 'Lembrete de retirada Manaus', 'pt_BR',
+   'PICKUP_REMINDER', 'WHATSAPP', 'Lembrete de retirada Manaus', 'Lembrete de retirada Manaus', 'pt_BR',
    'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}!');
 
 insert into public.prizes (id, organization_id, company_id, name) values

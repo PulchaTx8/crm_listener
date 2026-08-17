@@ -127,12 +127,12 @@ select is(
   'no_template', 'and without an approved template it still refuses, differently');
 
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body, variables)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body, variables)
 values
   ('00000000-0000-0000-0000-000000000201',
    '00000000-0000-0000-0000-000000000202',
-   'WEB_VERIFICATION', 'web_verification', 'pt_BR',
-   'Seu codigo e {{1}}.', '["code"]'::jsonb);
+   'WEB_VERIFICATION', 'WHATSAPP', 'web_verification', 'web_verification', 'pt_BR',
+   'Seu codigo e {{1}}.', array['VERIFICATION_CODE']::public.template_variable[]);
 
 select is(
   public.widget_request_code('pw_enabledkey012345678901', '+5511999998888',

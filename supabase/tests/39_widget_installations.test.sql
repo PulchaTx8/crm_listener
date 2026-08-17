@@ -193,10 +193,10 @@ select is(
 
 -- The template that makes the warning line go away.
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body)
 values
   ('00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000f2',
-   'WEB_VERIFICATION', 'web_verification_code', 'pt_BR', 'Seu codigo e {{1}}');
+   'WEB_VERIFICATION', 'WHATSAPP', 'web_verification_code', 'web_verification_code', 'pt_BR', 'Seu codigo e {{1}}');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f6", "role": "authenticated"}';
