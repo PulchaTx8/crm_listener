@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { GeographyPlace } from '@/schemas/geography';
 import { circleRadius, mapScriptUrl, MAPS_READY_CALLBACK } from './place-map-geometry';
 
 /**
@@ -23,10 +22,46 @@ import { circleRadius, mapScriptUrl, MAPS_READY_CALLBACK } from './place-map-geo
 
 const SCRIPT_ID = 'google-maps-js';
 
+/**
+ * A circle, and what it says about itself when hovered.
+ *
+ * ALREADY WORDED, in the reader's language, by the server component above.
+ * PlaceMap could call `useTranslations` itself — it is a client component and
+ * the provider is there — but the `t` it would get back is a value this
+ * component then has to reason about the IDENTITY of: it feeds the effect that
+ * builds the map, and an effect that rebuilds is an effect that re-fits the
+ * bounds and throws away wherever the operator had panned to. Strings that
+ * arrive as props cannot have that problem, and `unavailableLabel` and
+ * `refusedLabel` beside them already work this way.
+ *
+ * `lines` rather than named fields because the Music panel's bubble has a line
+ * the Audience panel's does not (the most-requested song), and which lines exist
+ * is the panel's business, not the map's.
+ */
+export interface MapPlace {
+  key: string;
+  latitude: number;
+  longitude: number;
+  /** Sizes the circle. `circleRadius` is why that sizing does not lie. */
+  count: number;
+  /** The bubble's heading. */
+  name: string;
+  /** What it says under the heading, in order. */
+  lines: string[];
+}
+
 interface MapsGlobal {
   maps?: {
     Map: new (element: HTMLElement, options: Record<string, unknown>) => unknown;
-    Circle: new (options: Record<string, unknown>) => unknown;
+    Circle: new (options: Record<string, unknown>) => {
+      addListener(event: string, handler: () => void): void;
+    };
+    InfoWindow: new (options: Record<string, unknown>) => {
+      setContent(content: Node): void;
+      setPosition(point: { lat: number; lng: number }): void;
+      open(options: Record<string, unknown>): void;
+      close(): void;
+    };
     LatLngBounds: new () => { extend(point: { lat: number; lng: number }): void };
   };
 }
@@ -89,7 +124,7 @@ export function PlaceMap({
   refusedLabel,
 }: {
   apiKey: string;
-  places: GeographyPlace[];
+  places: MapPlace[];
   label: string;
   /** Shown when the library will not load at all — a blocked request, an offline browser, an ad blocker. */
   unavailableLabel: string;
@@ -102,6 +137,9 @@ export function PlaceMap({
 
   useEffect(() => {
     let cancelled = false;
+    // Held out here so the cleanup below can close it whether or not the library
+    // ever finished loading.
+    let openBubble: { close(): void } | null = null;
 
     // THE ONLY HOOK GOOGLE GIVES FOR A REJECTED KEY, and without it this
     // component cannot tell a refusal from a success. The script loads, the
@@ -138,23 +176,83 @@ export function PlaceMap({
         }) as { fitBounds(b: unknown): void };
         map.fitBounds(bounds);
 
+        // ONE BUBBLE, REUSED BY EVERY CIRCLE. Google's InfoWindow is a heavy
+        // object and one per place would be one per neighbourhood on the map;
+        // more importantly, a single instance can only be open in one place at a
+        // time, which is exactly the behaviour a hover wants — moving between
+        // two overlapping circles cannot leave two bubbles standing.
+        //
+        // `disableAutoPan` because the alternative is a map that scrolls itself
+        // when a circle near the edge is hovered, which moves the circle out
+        // from under the pointer, which fires mouseout, which closes the bubble
+        // and pans back. A hover must not move what is being hovered.
+        const bubble = new google.maps.InfoWindow({ disableAutoPan: true });
+        openBubble = bubble;
+
         // ONE CIRCLE PER PLACE, SIZED BY COUNT, rather than one marker each. A
         // marker says "something is here"; a radio wants to see WHERE ITS
         // AUDIENCE IS CONCENTRATED, and a pin gives every neighbourhood the
         // same visual weight whether it holds three listeners or three hundred.
         // `circleRadius` (./place-map-geometry) is why the sizing does not lie.
+        //
+        // But a circle sized by count still cannot be READ as a number — an eye
+        // compares two areas, it does not measure one. The hover is where the
+        // figure itself lives, and it is the only place on this panel where a
+        // place below the top ten names its own count at all.
         const largest = Math.max(...places.map((place) => place.count), 1);
         for (const place of places) {
-          new google.maps.Circle({
+          const center = { lat: place.latitude, lng: place.longitude };
+          const circle = new google.maps.Circle({
             map,
-            center: { lat: place.latitude, lng: place.longitude },
+            center,
             radius: circleRadius(place.count, largest),
             strokeColor: '#2563eb',
             strokeOpacity: 0.8,
             strokeWeight: 1,
             fillColor: '#2563eb',
             fillOpacity: 0.25,
+            // Without this a circle is scenery: it receives no pointer events at
+            // all, and neither listener below would ever fire.
+            clickable: true,
           });
+
+          const content = document.createElement('div');
+          // BUILT AS NODES AND FILLED WITH textContent, never as an HTML string.
+          // Two reasons, and they point the same way: `'strict-dynamic'` (see
+          // this file's header) is why the script element is created rather than
+          // written, and a place name is data from `geocoded_places` — third
+          // party text that must not be able to become markup.
+          //
+          // The colours are literal rather than themed because this content is
+          // adopted into Google's own InfoWindow frame, which paints itself
+          // white in either theme; `text-foreground` would be invisible there
+          // half the time.
+          content.className = 'flex flex-col gap-0.5 px-1 py-0.5';
+          const heading = document.createElement('p');
+          heading.className = 'text-sm font-medium text-neutral-900';
+          heading.textContent = place.name;
+          content.append(heading);
+          for (const line of place.lines) {
+            const paragraph = document.createElement('p');
+            paragraph.className = 'text-xs text-neutral-600';
+            paragraph.textContent = line;
+            content.append(paragraph);
+          }
+
+          const open = () => {
+            bubble.setContent(content);
+            // Anchored to the centre rather than to the pointer: a bubble that
+            // follows the cursor around a circle reads as a different bubble
+            // each time it moves.
+            bubble.setPosition(center);
+            bubble.open({ map });
+          };
+          circle.addListener('mouseover', open);
+          // A touch screen has no hover. Without this the figure is unreachable
+          // on a phone, which is where an operator is most likely to be looking
+          // at a map they cannot read exact numbers off.
+          circle.addListener('click', open);
+          circle.addListener('mouseout', () => bubble.close());
         }
       })
       .catch(() => {
@@ -163,6 +261,11 @@ export function PlaceMap({
 
     return () => {
       cancelled = true;
+      // A bubble left open belongs to a map that is going away. Google mounts it
+      // in the map's own container so it would go with it — but a re-run of this
+      // effect builds a SECOND map in that same container, and the old bubble
+      // would sit over the new one with a figure from the previous period.
+      openBubble?.close();
       delete (window as unknown as { gm_authFailure?: () => void }).gm_authFailure;
       // MAPS_READY_CALLBACK is deliberately NOT deleted. Google calls it once,
       // by name, whenever the library finishes — and a component that unmounted
@@ -194,13 +297,21 @@ export function PlaceMap({
     );
   }
 
+  // AS TALL AS THE WINDOW, because the question this panel answers is a shape
+  // and not a number: an operator scrolls down to the map to SEE where the
+  // audience sits, and at the old fixed height a city's worth of circles was a
+  // smudge. The subtraction is not decoration — the box lives inside a Card with
+  // its own padding, so a full 100vh would make the card taller than the
+  // viewport and there would be no scroll position from which the whole map is
+  // visible at once. The floor is for short laptop screens, where the
+  // subtraction would otherwise leave a strip.
   return (
     <div
       ref={container}
       role="img"
       aria-label={label}
       data-testid="place-map"
-      className="h-72 w-full rounded-md border"
+      className="h-[calc(100vh-8rem)] min-h-96 w-full rounded-md border"
     />
   );
 }

@@ -35,6 +35,28 @@ export function circleRadius(count: number, largest: number): number {
 }
 
 /**
+ * What to call a place — on the map's hover bubble and in the ranked tables
+ * beneath it.
+ *
+ * ONE FUNCTION SO THE TWO CANNOT DRIFT. A neighbourhood titled one way on a
+ * circle and another in the table under it reads as two different places, and
+ * the whole point of the panel is that they are the same one.
+ *
+ * The folded key is the last resort rather than an empty string: 0214's
+ * `member_place_key` is not pretty, but a bubble reading "12 listeners" over no
+ * place at all leaves an operator unable to tell WHICH dot they are hovering —
+ * which is the only question a hover answers. A blank counts as absent because a
+ * geocoder answers both `null` and `''` for the same missing thing.
+ */
+export function placeName(place: {
+  key: string;
+  city: string | null;
+  neighbourhood: string | null;
+}): string {
+  return place.neighbourhood?.trim() || place.city?.trim() || place.key;
+}
+
+/**
  * The global the Maps library calls once it is ready to be used.
  *
  * A GLOBAL BECAUSE GOOGLE'S CONTRACT SAYS SO — `callback` names a function on
