@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(18);
 
 -- Block 29b-1, Task 1. The two vocabularies this block adds.
 --
@@ -99,6 +99,19 @@ select ok(
 select ok(
   not exists (select 1 from public.message_templates where channel is null),
   'every existing row was given a channel');
+
+-- ---------------------------------------------------------------------------
+-- Task 3. The enqueue stops resolving across channels.
+-- ---------------------------------------------------------------------------
+
+-- Task 3. Without this term, the day somebody registers an email template
+-- carrying a system purpose, the pickup reminder resolves it and tries to send
+-- an email through the Cloud API.
+select ok(
+  (select prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'enqueue_whatsapp_outbound')
+    like '%channel = ''WHATSAPP''%',
+  'the enqueue resolves WhatsApp templates and no others');
 
 select * from finish();
 rollback;
