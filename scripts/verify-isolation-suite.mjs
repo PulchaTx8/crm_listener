@@ -475,7 +475,7 @@ const REQUIRED_TEST_FILES = [
   // unpaired Station answers with a row saying so rather than with no rows,
   // which is what stops the screen rendering the same blank whether the call
   // succeeded or failed.
-  { path: 'tests/isolation/station-settings.test.ts', minTests: 5 },
+  { path: 'tests/isolation/station-settings.test.ts', minTests: 6 },
   // The gender block. Six cases over the tenth requested field, and the floor
   // is the full count because four of them have no other proof anywhere.
   //

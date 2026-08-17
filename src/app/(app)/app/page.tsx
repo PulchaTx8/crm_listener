@@ -203,6 +203,22 @@ export default async function MemberHomePage() {
  * membership in the installation, and the map below would put a Settings button
  * on every card.
  *
+ * THAT SELECT IS A BOUND, NOT THE GATE, and the distinction is the second thing
+ * this helper got wrong. `is_owner_for` (the predicate under
+ * `is_owner_of_company`, which 0218 checks) requires more than an owner
+ * membership: it also requires `organizations.suspended_at is null` — Block 16's
+ * D5, the group's lock, deliberately written in one function rather than in
+ * twenty policies. A membership read that stopped at "owner" was therefore WIDER
+ * than the door, and the owner of a suspended group got a Settings button whose
+ * panel answered 42501 every time.
+ *
+ * The fix is not to restate `suspended_at` here — restating a predicate beside
+ * the one that owns it is how the two drift, and this file would then carry a
+ * copy of a rule Block 16 centralised on purpose. Instead the RPC IS the gate:
+ * a company earns an entry in the map by the door ANSWERING, and a 42501 is the
+ * database saying no, which this reads as no. The membership select only decides
+ * which companies are worth asking about, which is all a bound has to do.
+ *
  * THE STATUS READS STAY ONE RPC PER OWNED STATION, and that bound is now real —
  * "Stations this caller owns" rather than "Stations this caller can see". Said
  * plainly rather than left implied: a group of fifty radios is fifty parallel
@@ -251,6 +267,14 @@ async function stationSettings(
         p_company_id: company.id,
       });
       if (error) {
+        // 42501 is the door saying this caller is not the owner of this Station
+        // — a suspended group is the case that reaches here (see this function's
+        // header). NO ENTRY, so no button: the database answered the question
+        // and this agrees with it rather than showing a control that cannot
+        // work. Not logged either, because it is an ordinary answer and a log
+        // line per suspended Station on every page load is noise that would
+        // bury the errors below it.
+        if (error.code === '42501') return;
         logger.error({ err: error, companyId: company.id }, 'could not read whatsapp status');
         settings.set(company.id, null);
         return;

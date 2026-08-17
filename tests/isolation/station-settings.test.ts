@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   addCompany,
+  admin,
   anonClient,
   cleanupUsers,
   grantRoleWith,
   provisionCustomer,
   seedIntegration,
   signInAs,
+  suspendOrganization,
   type ProvisionedCustomer,
 } from './harness';
 
@@ -134,7 +136,57 @@ describe('Block 29a — the Station WhatsApp status door', () => {
   }, 60_000);
 
   // -------------------------------------------------------------------------
-  // 5. The widget's role, and the sign-in screen's. A Station's telephone number
+  // 5. A SUSPENDED GROUP HAS AN OWNER WHO IS NOT AN OWNER, and this is the
+  //    case /app's Settings button was built wrong for.
+  //
+  //    `is_owner_for` (0005, as Block 16's D5 left it) requires
+  //    `organizations.suspended_at is null` ON TOP OF the owner membership --
+  //    the group's lock, deliberately written in one function rather than in
+  //    twenty policies. So the membership row and the predicate disagree for a
+  //    suspended group, and a screen that reads memberships to decide what to
+  //    show has a control the door will refuse.
+  //
+  //    That is not hypothetical: /app did exactly that, and CI's server log
+  //    carried a 42501 from this function on every render for such an owner,
+  //    each one silently a Settings button that could not work. The page now
+  //    treats a 42501 here as the answer rather than as an error, which makes
+  //    THIS assertion the thing that page depends on.
+  //
+  //    LAST BUT ONE, and the ordering is deliberate: it suspends the group,
+  //    which every case above would fail against. Case 6 below uses a
+  //    different mechanism and does not care.
+  // -------------------------------------------------------------------------
+  it('refuses the owner of a SUSPENDED group, whose membership row still says owner', async () => {
+    // The membership is untouched by the suspension -- that is the whole point
+    // of the case, so it is asserted BEFORE and AFTER rather than assumed.
+    const owned = async () => {
+      const { data } = await admin
+        .from('organization_memberships')
+        .select('role, deleted_at')
+        .eq('organization_id', customer.organizationId)
+        .eq('user_id', customer.userId);
+      return (data ?? []).some(
+        (m: { role: string; deleted_at: string | null }) =>
+          m.role === 'owner' && m.deleted_at === null,
+      );
+    };
+    expect(await owned(), 'the fixture owner owns the group to begin with').toBe(true);
+
+    await suspendOrganization(customer.organizationId);
+
+    expect(await owned(), 'suspending the group does not touch the membership').toBe(true);
+
+    const owner = await signInAs(customer.email, customer.password);
+    const { data, error } = await owner.rpc('station_whatsapp_status', {
+      p_company_id: customer.companyId,
+    });
+
+    expect(error?.code).toBe('42501');
+    expect(data).toBeNull();
+  }, 60_000);
+
+  // -------------------------------------------------------------------------
+  // 6. The widget's role, and the sign-in screen's. A Station's telephone number
   //    is not public, and the revoke in 0218 is what says so.
   // -------------------------------------------------------------------------
   it('refuses anon outright', async () => {

@@ -839,13 +839,20 @@ class of defect where a redirect is written, reviewed, merged and never runs.
 own `connectWhatsApp` i18n namespace, rendered by **two** hosts:
 
 - **`/app` → `Settings` on a Station card → a tabbed dialog, WhatsApp tab.** Gated
-  on the caller's own owner memberships, so the Organization owner keeps the act
-  and a platform admin does not get a button on every card the platform has.
-  (The first version asked `is_owner` per distinct Organization on screen —
-  which for a platform admin is one round trip per Organization in the
-  installation, and produced socket failures that each silently hid a button.
-  One select against `organization_memberships` replaces it; the page's own
-  comment carries the account.) Block 15's D9 (this card
+  by `station_whatsapp_status` ITSELF: a card earns a Settings button by the
+  door answering, and a 42501 is the database saying no. One select against
+  `organization_memberships` decides which Stations are worth asking about —
+  a bound, not the gate.
+
+  Both halves of that shape were wrong in the first version and are worth
+  recording. It asked `is_owner` per distinct Organization ON SCREEN, which for
+  a platform admin is one round trip per Organization in the installation, and
+  produced socket failures that each silently hid a button. And it treated the
+  membership row as the gate, which is WIDER than the door: `is_owner_for`
+  requires `organizations.suspended_at is null` on top of it — Block 16's D5,
+  the group's lock — so the owner of a suspended group got a button whose panel
+  answered 42501 on every render. `tests/isolation/station-settings.test.ts`
+  now pins that refusal, because the page depends on it. Block 15's D9 (this card
   displays, it does not edit) is **not** reversed: the dialog edits no column on
   `companies`, it carries a row in `integrations` that no member-area screen could
   reach at all.
