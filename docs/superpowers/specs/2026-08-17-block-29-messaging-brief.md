@@ -210,13 +210,38 @@ So the status column ships **with** the sync, or not at all:
   removing it would strand the two system categories on installations whose token
   lacks the management scope.
 
-**Open decision D3 — a blocker.** Template management on the Graph API requires
-`whatsapp_business_management` on the **tenant's** WABA. This installation holds
-one installation-wide `WHATSAPP_ACCESS_TOKEN` (0057's header, 0130's D5). Whether
-that token carries the scope over WABAs onboarded through Embedded Signup must be
-verified against the live Meta app **before** this half is designed — not
-assumed. If it does not, submission is out of scope and the screen stays a
-registry with a manual status field, plainly labelled as a record and not a fact.
+**D3 — SETTLED (2026-08-17, probed against the live Meta app). The scope is
+there.**
+
+`GET /v21.0/968641936128887/message_templates?limit=1` answered with `data`,
+carrying a template already registered on that WABA (`pulchtx_widgetcode` — the
+widget's verification code, `parameter_format=POSITIONAL`,
+`message_send_ttl_seconds=300`). Reading that edge is gated on
+`whatsapp_business_management`, so the installation-wide `WHATSAPP_ACCESS_TOKEN`
+does hold it over a WABA onboarded through Embedded Signup.
+
+**So 29b ships the full half:** create, submit, and a status column that is
+SYNCHRONISED rather than remembered — which is exactly what answers 0110's
+objection to having a status column at all.
+
+**ONE RESIDUAL UNCERTAINTY, NAMED RATHER THAN ROUNDED AWAY.** A GET proves the
+SCOPE. It does not prove the system user's ROLE on that WABA permits a POST:
+Meta gates creation on the same permission *and* on the asset role, and a system
+user assigned as a viewer can list templates it may not create. The decisive
+probe is a POST, which creates a real object in the customer's WABA and then has
+to be deleted — a side effect on production, so it belongs to 29b's own first
+task rather than to this brief. **29b's plan must open with it**, before a screen
+is built on the assumption.
+
+A second thing the probe showed, worth carrying into 29b's design: this WABA
+already holds a template this system never registered a row for. So the registry
+and Meta can disagree in BOTH directions, and 29b's sync has to reconcile rather
+than merely receive — a template approved in Meta's console and absent here is
+the ordinary state today, not an anomaly.
+
+The manual registration path stays regardless, for the reason §3.2 already
+gives: it is how every template in this system got here, and removing it would
+strand the two system categories on any installation whose token is narrower.
 
 **3.3 — One template per purpose becomes many templates per Station.**
 
@@ -733,7 +758,7 @@ Every screen follows the house pattern, which is concrete here rather than gener
 |---|---|---|
 | ~~D1~~ | ~~Owner-facing Station settings~~ — **SETTLED**: `Settings` button on each `/app` card, opening a tabbed record modal; WhatsApp is its first tab | — |
 | ~~D2~~ | ~~System categories~~ — **SETTLED**: rendered from the enum, no seeded rows; grid splits System / Marketing | — |
-| **D3** | Does the installation's Meta token carry `whatsapp_business_management` over onboarded WABAs? **Awaiting a probe against the live app** — the token exists only in production, in no local `.env`. Probe: `GET /v21.0/968641936128887/message_templates?limit=1` | 29b |
+| ~~D3~~ | ~~Meta token scope~~ — **SETTLED**: probed against the live app; the scope is there, so 29b ships creation, submission and status sync. One residual, which is 29b's first task: a GET proves the scope, not the system user's role for a POST (§3.2) | — |
 | ~~D4~~ | ~~Gender and tags~~ — **SETTLED, then split**: gender is its own fully-specified block (§5b) before 29d; tags stay deferred with no ordering constraint | — |
 | ~~D8~~ | ~~Gender: targeting or eligibility~~ — **SETTLED**: targeting only; eligibility deferred with its cost written (§5b) | — |
 | ~~D9~~ | ~~Gender values~~ — **SETTLED**: `M` / `F` / `N`, with `NULL` a distinct fourth population (§5b) | — |
@@ -749,7 +774,7 @@ Every screen follows the house pattern, which is concrete here rather than gener
 | | Delivers | Depends on |
 |---|---|---|
 | **29a** | **DONE** — see §17 | — |
-| **29b** | Templates: `channel`, System/Marketing split, `purpose` nullable with narrowed unique index, email fields, variable mapping, status + Meta sync **subject to D3** | 29a |
+| **29b** | Templates: `channel`, System/Marketing split, `purpose` nullable with narrowed unique index, email fields, variable mapping, and the full Meta cycle — create, submit, sync. Opens by proving the POST, which D3's GET could not (§3.2) | 29a |
 | **29c** | `whatsapp_marketing` / `email_marketing` consent types, opt-out, unsubscribe token route, per-channel recipient validation | — |
 | **29d** | Campaigns, audience resolution in SQL, recipient snapshot table that is also the queue, providers, fifth drain on the tick, Send Now | 29b, 29c, **gender block** |
 | **29e** | Schedules: fixed date/time and event-based (birthday), pg_cron procedure committing per schedule, occurrence idempotency in the Station's timezone | 29d |
