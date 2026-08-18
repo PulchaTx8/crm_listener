@@ -89,9 +89,12 @@ select is(
   false, 'an erased listener is never a recipient, whatever the channel default says');
 
 -- THE TIEBREAK. granted_at defaults to now(), which is CONSTANT within a
--- transaction -- two rows written in one transaction carry the same timestamp,
--- and without `id desc` the winner is the planner's choice. Block 29b-1's
--- whole-branch review found this same defect one layer up.
+-- transaction -- two rows written in one transaction carry the same timestamp.
+-- id cannot break the tie: it is gen_random_uuid() (0032), which carries no
+-- information about which row was written later, so ordering by it is an
+-- arbitrary comparison, not a tiebreak. The function instead orders by
+-- granted ASC, so a tie resolves toward the refusal -- the direction that is
+-- safe to be wrong in.
 insert into public.member_consents
   (organization_id, member_id, company_id, consent_type, granted, granted_at)
 values
@@ -104,7 +107,7 @@ select is(
   (select eligible from public.members_marketing_eligible_bulk(
      array['00000000-0000-0000-0000-0000000029a1']::uuid[],
      '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
-  false, 'two rows at one instant resolve by id, not by the planner');
+  false, 'two rows at one instant resolve toward the refusal, because nothing here can say which came later');
 
 -- AN ORGANIZATION-WIDE SUSPENSION, which is member_blocks.company_id = NULL.
 -- The subtle one: a predicate matching only on equality lets this listener go

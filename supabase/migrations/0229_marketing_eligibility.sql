@@ -47,10 +47,16 @@ as $$
      where mc.company_id = p_company_id
        and mc.consent_type = ch.consent_type
        and mc.member_id = any(p_member_ids)
-     -- granted_at DESC, id DESC: granted_at defaults to now(), constant within
-     -- a transaction, so two rows written together tie and the winner would
-     -- otherwise be whichever the planner reached first.
-     order by mc.member_id, mc.granted_at desc, mc.id desc
+     -- granted_at defaults to now(), constant within a transaction, so two
+     -- rows written together tie. id cannot break that tie -- it is
+     -- gen_random_uuid() (0032), carrying no information about which row was
+     -- written later -- so ordering by it is not a tiebreak at all, only an
+     -- arbitrary comparison dressed up as one. Break the tie by MEANING
+     -- instead: granted ASC puts false before true, so where nothing here can
+     -- say which write came later, the one saying "do not send" wins. That is
+     -- deterministic and it fails in the direction this function should fail
+     -- in.
+     order by mc.member_id, mc.granted_at desc, mc.granted asc
   )
   select a.id,
          -- Layers 1 and 2 are bars, not preferences: they cannot be overridden
