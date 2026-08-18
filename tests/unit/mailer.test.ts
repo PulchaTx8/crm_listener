@@ -1,5 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DevMailer, SmtpMailer } from '@/lib/mailer';
+
+interface MockedSendMail {
+  mock: {
+    calls: unknown[][];
+  };
+}
+
+interface MockedTransporter {
+  sendMail: MockedSendMail;
+}
 
 vi.mock('nodemailer', () => ({
   default: {
@@ -51,9 +61,10 @@ describe('SmtpMailer', () => {
       headers: { 'List-Unsubscribe': '<https://app.test/unsubscribe/abc>' },
     });
 
-    const mockTransport = (nodemailer.default.createTransport as any).mock.results[0]?.value;
-    const sendMailCall = (mockTransport.sendMail as any).mock.calls[0];
-    expect(sendMailCall[0].headers?.['List-Unsubscribe']).toBe(
+    const mockedCreateTransport = vi.mocked(nodemailer.default.createTransport);
+    const mockTransport = mockedCreateTransport.mock.results[0]?.value as MockedTransporter;
+    const sendMailCall = mockTransport.sendMail.mock.calls[0]!;
+    expect((sendMailCall[0] as { headers?: Record<string, string> }).headers?.['List-Unsubscribe']).toBe(
       '<https://app.test/unsubscribe/abc>',
     );
   });
