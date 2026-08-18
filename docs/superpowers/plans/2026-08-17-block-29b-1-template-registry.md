@@ -1482,7 +1482,7 @@ git commit -m "feat(mailer): one frame, and the escape that means no sanitiser"
 
 - [ ] **Step 1: Write the failing pgTAP**
 
-Bump the plan to `select plan(18);` and append before `finish()`:
+Bump the plan to `select plan(25);` and append before `finish()`:
 
 ```sql
 -- Task 7. The Station's own sender identity.
@@ -1938,7 +1938,9 @@ git commit -m "feat(templates): the system cards, and a grid for everything an o
 
 - [ ] **Step 1: Add every key to all three catalogues**
 
-Namespaces: `templates` (the grid, the dialog, the channel badges, the preview) and `app` (`emailFromName`, `emailFromAddress`, `emailReplyTo`, `emailIdentityDomainWarning`, `tabEmail`).
+Namespace: `templates` only — the grid, the dialog, the channel badges, the preview.
+
+The `app` namespace is **not** this task's. Task 7's tab cannot render without its own labels, so `emailFromName`, `emailFromAddress`, `emailReplyTo`, `emailIdentityDomainWarning`, `tabEmail`, `save`, `saving` and `saved` all land with Task 7. Adding them again here would be a merge conflict against a file three languages wide. Verify they are present; do not re-add them.
 
 Operator strings in English, Portuguese and Spanish. **Only template bodies and subjects are Portuguese**, and those are data rather than copy.
 
