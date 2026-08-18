@@ -1926,11 +1926,11 @@ git commit -m "feat(templates): the shape the marketing form posts, and the read
 **Files:**
 - Create: `src/app/(app)/messages/templates/marketing-grid.tsx`, `src/app/(app)/messages/templates/template-dialog.tsx`
 - Modify: `src/app/(app)/messages/templates/page.tsx`, `src/app/(app)/messages/templates/actions.ts`, `src/app/(app)/messages/templates/template-registry.tsx`, `src/schemas/templates.ts`, `tests/unit/templates-schema.test.ts`, `messages/en.json`, `messages/pt.json`, `messages/es.json`
-
+- Modify: `src/app/(app)/messages/templates/page.tsx`, `src/app/(app)/messages/templates/actions.ts`, `src/app/(app)/messages/templates/template-registry.tsx`, `src/schemas/templates.ts`, `src/lib/templates/variables.ts`, `tests/unit/templates-schema.test.ts`, `tests/unit/template-variables.test.ts`, `messages/en.json`, `messages/pt.json`, `messages/es.json`
 **Every key these screens render lands here, in all three catalogues** — the grid, the dialog, the channel badges, the preview, and the seven `variable_<VALUE>` labels. Task 10 verifies them; it does not add them. A screen shipped against keys the catalogues do not hold fails its own gate, which is the whole reason the keys travel with the screen.
 
 **Interfaces:**
-- Consumes: `listTemplates`, `saveMarketingTemplate` (Task 8), `renderCampaignEmail` (Task 6), `CAMPAIGN_VARIABLES` (Task 5).
+- Consumes: `listTemplates`, `saveMarketingTemplate` (Task 8), `renderCampaignEmail` (Task 6), `CAMPAIGN_VARIABLES` (Task 5). Adds `TEMPLATE_VARIABLES` to that same module.
 - Produces: the two-group screen.
 
 - [ ] **Step 1: Render the two groups**
@@ -1965,9 +1965,20 @@ This step exists because §8 of the spec is wrong. It says the system group's sc
 
 Three files move together, and they move together because they are one change:
 
-`src/schemas/templates.ts`: retype `templateRegistrationSchema.variables` from `z.array(z.string().trim().min(1).max(MAX_VARIABLE_DESCRIPTION))` to an array over the closed vocabulary. `MAX_VARIABLE_DESCRIPTION` then has no remaining use — delete it rather than leave a constant nothing reads. Keep the `superRefine` that counts placeholders exactly as it is: the rule "one entry per `{{n}}`" is unchanged, and only what an entry may CONTAIN has narrowed.
+First, `src/lib/templates/variables.ts` gains one export, because the system screen needs a set that does not exist yet:
 
-`src/app/(app)/messages/templates/template-registry.tsx`: each positional input becomes a `<select>` over `CAMPAIGN_VARIABLES`, labelled `t(\`variable_${value}\`)`. The question the form asks is the same one it asked before — what does `{{1}}` carry — and the answer is now chosen instead of typed. The card that lists a registered template's variables (its `template.variables.map(...)`) renders the same labels rather than the raw enum tokens.
+```ts
+/** The whole vocabulary, in the enum's own order. */
+export const TEMPLATE_VARIABLES = Object.keys(CAMPAIGN_RESOLVABLE) as TemplateVariable[];
+```
+
+and `CAMPAIGN_VARIABLES` is rewritten to filter that rather than re-derive the keys.
+
+**The system screen offers all seven; only the marketing palette offers the four.** This is the distinction the whole file turns on and it is easy to get backwards: `CAMPAIGN_RESOLVABLE`'s three `false` values — `PRIZE_NAME`, `PICKUP_DEADLINE`, `VERIFICATION_CODE` — exist *because* they are what system templates carry. Offering only the campaign four here would make the widget's verification template, the one row production actually holds, impossible to register.
+
+`src/schemas/templates.ts`: retype `templateRegistrationSchema.variables` from `z.array(z.string().trim().min(1).max(MAX_VARIABLE_DESCRIPTION))` to an array over `TEMPLATE_VARIABLES` — the full seven, not `CAMPAIGN_VARIABLES`. `MAX_VARIABLE_DESCRIPTION` then has no remaining use — delete it rather than leave a constant nothing reads. Keep the `superRefine` that counts placeholders exactly as it is: the rule "one entry per `{{n}}`" is unchanged, and only what an entry may CONTAIN has narrowed.
+
+`src/app/(app)/messages/templates/template-registry.tsx`: each positional input becomes a `<select>` over `TEMPLATE_VARIABLES`, labelled `t(\`variable_${value}\`)`. The question the form asks is the same one it asked before — what does `{{1}}` carry — and the answer is now chosen instead of typed. The card that lists a registered template's variables (its `template.variables.map(...)`) renders the same labels rather than the raw enum tokens.
 
 `tests/unit/templates-schema.test.ts`: its fixtures pass prose ("nome do ouvinte", "prêmio", "prazo") and several will now fail. Replace the values, keep every case. The case asserting a blank entry is rejected keeps its meaning — a value outside the vocabulary is refused — so rewrite it to assert that rather than deleting it.
 
@@ -2017,7 +2028,7 @@ expression. Add to `tests/unit/i18n/catalogue.test.ts`, inside the existing
 `describe('the keys built at the call site')`:
 
 ```ts
-  it.each(CAMPAIGN_VARIABLES)('the palette can label %s', (value) => {
+  it.each(TEMPLATE_VARIABLES)('the palette can label %s', (value) => {
     expect(
       catalogue.templates?.[`variable_${value}`],
       `templates.variable_${value} is missing`,
