@@ -335,11 +335,11 @@ async function readFixedListMemberIds(
 
   if (error) {
     // listReach's own SELECT on send_lists (below) already found this row
-    // moments earlier under the same messaging.view gate the door re-checks,
-    // so P0002/42501 here would mean the list was deleted or the caller's
-    // permissions changed in the gap between the two calls -- rare, but real,
-    // and still answered as the same "not found" that a stale id anywhere
-    // else in this codebase would raise.
+    // moments earlier, RLS-gated on the same messaging.view the door
+    // re-checks -- so a caller who got that row already had the permission.
+    // A 42501 from the door after that means the permission changed BETWEEN
+    // the two calls, not that the list is missing, so it is left to fall
+    // through to InternalError below rather than being folded into P0002.
     if (error.code === 'P0002') throw new NotFoundError(`send list not found: ${listId}`);
     throw new InternalError(`Could not read send list members for ${listId}: ${error.message}`);
   }
