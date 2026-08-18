@@ -35,8 +35,7 @@
 --
 -- p_marketing_consent IS THE LAST PARAMETER, not inserted beside p_consent,
 -- so every existing POSITIONAL call in supabase/tests/42_widget_promotions.
--- test.sql -- all fourteen of them, six arguments apiece before this
--- migration -- keeps meaning what it already meant. The widget's own server
+-- test.sql keeps meaning what it already meant. The widget's own server
 -- action calls this RPC by name (promotion-actions.ts already names every
 -- argument it sends), so where the new one lands in the parameter list does
 -- not affect it either.
@@ -241,9 +240,9 @@ begin
   -- promotion_id IS CARRIED on the row THIS block writes, matching
   -- record_conversation_marketing_answer's own shape for the identical
   -- question (which promotion's participation this answer travelled with).
-  -- THE `rules` INSERT ABOVE (roughly sixty lines up, four statements
-  -- earlier in this function) does NOT set promotion_id, even though 0032's
-  -- own column comment expects it precisely for consent_type = 'rules' --
+  -- THE `rules` INSERT EARLIER IN THIS FUNCTION -- before apply_participation
+  -- even runs, let alone this block -- does NOT set promotion_id, even though
+  -- 0032's own column comment expects it precisely for consent_type = 'rules' --
   -- 0032 declared the column, nullable, before public.promotions existed
   -- (its comment's "does not exist yet" names the TABLE, not the column,
   -- which is why the column is nullable rather than absent). That gap
