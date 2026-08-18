@@ -39,4 +39,24 @@ describe('stationEmailIdentitySchema', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  // F13. The path this schema exists for is the one a browser's own
+  // input[type=email] sanitisation never reaches -- a hand-built request that
+  // skips that stripping. '   ' is a blank exactly as much as '' is, and must
+  // clear the field rather than being refused as a malformed address.
+  it('accepts a whitespace-only address as a clear, for both fields', () => {
+    const fromAddress = stationEmailIdentitySchema.safeParse({
+      companyId: COMPANY,
+      fromAddress: '   ',
+    });
+    expect(fromAddress.success).toBe(true);
+    if (fromAddress.success) expect(fromAddress.data.fromAddress).toBe('');
+
+    const replyTo = stationEmailIdentitySchema.safeParse({
+      companyId: COMPANY,
+      replyTo: '   ',
+    });
+    expect(replyTo.success).toBe(true);
+    if (replyTo.success) expect(replyTo.data.replyTo).toBe('');
+  });
 });

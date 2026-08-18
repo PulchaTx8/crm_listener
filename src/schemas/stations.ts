@@ -11,6 +11,29 @@ import { z } from 'zod';
  */
 
 /**
+ * An optional e-mail address that a BLANK clears rather than fails.
+ *
+ * TRIMMED BEFORE THE UNION, not inside one arm of it, and that ordering is
+ * load-bearing rather than style: `z.literal('')` compares the RAW value, so
+ * a union of `z.string().trim().email()` and `z.literal('')` sees `'   '`
+ * fail both arms at once -- the left one trims its own copy to `''` and then
+ * rejects it as an invalid e-mail, and the right one checks the untrimmed
+ * `'   '` against the literal and finds no match either. `z.preprocess` runs
+ * BEFORE the union is evaluated, so both arms see the same already-trimmed
+ * value and a whitespace-only field reaches `z.literal('')` as the blank it
+ * is. `organizations.ts`'s `fiscalEmail` still trims inside its own left arm
+ * rather than before its union, and still has that hole -- copy THIS file's
+ * shape for a new blank-clearable address, not that one, or the hole comes
+ * back.
+ */
+function optionalStationEmail(max: number) {
+  return z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() : v),
+    z.union([z.literal(''), z.string().email().max(max)]),
+  );
+}
+
+/**
  * What `saveStationEmailIdentityAction` (app/actions.ts) parses before it
  * calls `saveStationEmailIdentity` (services/company-profile.ts), which in
  * turn calls `save_station_email_identity` (0226).
@@ -21,19 +44,18 @@ import { z } from 'zod';
  * form sets every field it takes on every call, so a blank means fall back
  * to the installation's MAIL_FROM". A schema that refused '' for fromAddress
  * or replyTo would make those two fields impossible to clear once set, which
- * is why `.email()` is paired with `.or(z.literal(''))` on both -- the same
- * escape valve `updateOrganizationSchema.fiscalEmail` already uses for an
- * optional address of its own (organizations.ts).
+ * is why both go through `optionalStationEmail` above rather than a bare
+ * `.email().optional()`.
  *
  * `fromName` carries no format check to fight with a blank value in the first
- * place, so `.optional()` alone already accepts '' -- pairing it with
- * `.or(z.literal(''))` as well would be a second door onto the same room.
+ * place, so a plain `.optional()` already accepts both `''` and `'   '` --
+ * `.trim()` alone is enough, with no union to put it on the wrong side of.
  */
 export const stationEmailIdentitySchema = z.object({
   companyId: z.string().uuid(),
   fromName: z.string().trim().max(120).optional(),
-  fromAddress: z.string().trim().email().max(200).optional().or(z.literal('')),
-  replyTo: z.string().trim().email().max(200).optional().or(z.literal('')),
+  fromAddress: optionalStationEmail(200).optional(),
+  replyTo: optionalStationEmail(200).optional(),
 });
 
 export type StationEmailIdentityFormInput = z.infer<typeof stationEmailIdentitySchema>;
