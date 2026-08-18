@@ -263,15 +263,20 @@ export interface ListReach {
 }
 
 /**
- * `list.filters` comes back as plain jsonb (0238) -- create_send_list (0239)
- * stores whatever it is given, with no shape enforced by the database. Parsing
- * it here through the same three schemas resolveListMembers' own overloads
- * require is what turns that untyped value back into one TypeScript -- not
- * just this function's author -- knows matches the source it is paired with,
- * and it is where a row whose filters no longer fit its own source's shape
- * would surface, rather than being passed on silently.
+ * A LIVING list's people, resolved fresh every time -- there is nothing frozen
+ * for one of these to read, so its people are exactly whoever its stored
+ * filters match right now (0238's own header). `list.filters` comes back as
+ * plain jsonb -- create_send_list (0239) stores whatever it is given, with no
+ * shape enforced by the database -- so it is parsed here through the same
+ * three schemas resolveListMembers' own overloads require, which is what
+ * turns that untyped value back into one TypeScript -- not just this
+ * function's author -- knows matches the source it is paired with, and where
+ * a row whose filters no longer fit its own source's shape would surface,
+ * rather than being passed on silently.
+ *
+ * A FIXED list does NOT go through here -- see peopleForList below.
  */
-function resolvePeopleForList(
+function resolveLivingListPeople(
   source: SendListSource,
   filters: unknown,
   accessToken: string,
@@ -293,6 +298,53 @@ function resolvePeopleForList(
       throw new Error(`Unknown send list source: ${String(exhaustive)}`);
     }
   }
+}
+
+/**
+ * FIXED and LIVING diverge here on purpose, not by oversight (Task 5 fix
+ * round 1, F3). A FIXED list's people are frozen into send_list_members at
+ * creation and, per 0238's own header, never change -- send_list_member_ids
+ * (0240) is the one read door onto that table, since it carries RLS with no
+ * policy of its own. A LIVING list has nothing frozen to read; its people are
+ * whatever its stored filters match right now, which resolveLivingListPeople
+ * already computes the same way the screens themselves do.
+ *
+ * Resolving a FIXED list through its filters instead -- which is what this
+ * function did before 0240 existed, for lack of any door onto
+ * send_list_members -- reports reach for whoever matches TODAY, not for the
+ * roster the list actually holds. That is wrong specifically for the one kind
+ * of list that exists so that number does not move.
+ */
+function peopleForList(
+  client: ReturnType<typeof asCaller>,
+  listId: string,
+  list: { source: SendListSource; filters: unknown; kind: Database['public']['Enums']['send_list_kind'] },
+  accessToken: string,
+): Promise<string[]> {
+  if (list.kind === 'fixed') {
+    return readFixedListMemberIds(client, listId);
+  }
+  return resolveLivingListPeople(list.source, list.filters, accessToken);
+}
+
+async function readFixedListMemberIds(
+  client: ReturnType<typeof asCaller>,
+  listId: string,
+): Promise<string[]> {
+  const { data, error } = await client.rpc('send_list_member_ids', { p_list_id: listId });
+
+  if (error) {
+    // listReach's own SELECT on send_lists (below) already found this row
+    // moments earlier under the same messaging.view gate the door re-checks,
+    // so P0002/42501 here would mean the list was deleted or the caller's
+    // permissions changed in the gap between the two calls -- rare, but real,
+    // and still answered as the same "not found" that a stale id anywhere
+    // else in this codebase would raise.
+    if (error.code === 'P0002') throw new NotFoundError(`send list not found: ${listId}`);
+    throw new InternalError(`Could not read send list members for ${listId}: ${error.message}`);
+  }
+
+  return data ?? [];
 }
 
 async function channelReach(
@@ -340,13 +392,17 @@ async function channelReach(
  * caller who can see this list can still be refused reach on it -- see
  * channelReach and ChannelReach above for how that refusal is told apart from
  * an audience of zero.
+ *
+ * WHO COUNTS AS "the list's people" ALSO SPLITS ON kind, since Task 5's own
+ * fix round 1 (F3): see peopleForList's comment for why a FIXED list reads
+ * send_list_member_ids (0240) and a LIVING one re-resolves its filters.
  */
 export async function listReach(listId: string, accessToken: string): Promise<ListReach> {
   const client = asCaller(accessToken);
 
   const { data: list, error: listError } = await client
     .from('send_lists')
-    .select('company_id, source, filters')
+    .select('company_id, source, filters, kind')
     .eq('id', listId)
     .is('deleted_at', null)
     .maybeSingle();
@@ -354,7 +410,7 @@ export async function listReach(listId: string, accessToken: string): Promise<Li
   if (listError) throw new InternalError(`Could not read send list ${listId}: ${listError.message}`);
   if (!list) throw new NotFoundError(`send list not found: ${listId}`);
 
-  const memberIds = await resolvePeopleForList(list.source, list.filters, accessToken);
+  const memberIds = await peopleForList(client, listId, list, accessToken);
 
   const [whatsapp, email] = await Promise.all([
     channelReach(client, memberIds, list.company_id, 'WHATSAPP'),

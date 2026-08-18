@@ -70,15 +70,25 @@ interface RpcCall {
  * anything else throws, so a chain this fake does not expect fails loudly
  * instead of silently returning undefined.
  */
+interface FixedMembersFixture {
+  data: string[] | null;
+  error: { code?: string; message: string } | null;
+}
+
 class FakeSendListsDb {
   readonly rpcCalls: RpcCall[] = [];
 
   constructor(
-    private readonly listRow: { company_id: string; source: string; filters: unknown } | null,
+    private readonly listRow: { company_id: string; source: string; filters: unknown; kind: 'fixed' | 'living' } | null,
     private readonly eligibility: Record<
       string,
       { data: { member_id: string; eligible: boolean }[] | null; error: { code?: string; message: string } | null }
     >,
+    // Task 5 fix round 1 (F3). Only consulted for a 'fixed' listRow -- a
+    // 'living' one must never even call send_list_member_ids, which is
+    // exactly what leaving this undefined and still passing enforces: the
+    // fake throws if a living-list test somehow reaches it anyway.
+    private readonly fixedMembers?: FixedMembersFixture,
   ) {}
 
   from(table: string) {
@@ -96,13 +106,22 @@ class FakeSendListsDb {
 
   rpc(fn: string, args: Record<string, unknown>) {
     this.rpcCalls.push({ fn, args });
-    if (fn !== 'members_marketing_eligible_bulk') {
-      throw new Error(`FakeSendListsDb: unexpected rpc "${fn}"`);
+
+    if (fn === 'members_marketing_eligible_bulk') {
+      const channel = String(args.p_channel);
+      const result = this.eligibility[channel];
+      if (!result) throw new Error(`FakeSendListsDb: no eligibility fixture for channel "${channel}"`);
+      return Promise.resolve(result);
     }
-    const channel = String(args.p_channel);
-    const result = this.eligibility[channel];
-    if (!result) throw new Error(`FakeSendListsDb: no eligibility fixture for channel "${channel}"`);
-    return Promise.resolve(result);
+
+    if (fn === 'send_list_member_ids') {
+      if (!this.fixedMembers) {
+        throw new Error('FakeSendListsDb: send_list_member_ids called with no fixedMembers fixture set');
+      }
+      return Promise.resolve(this.fixedMembers);
+    }
+
+    throw new Error(`FakeSendListsDb: unexpected rpc "${fn}"`);
   }
 }
 
@@ -235,7 +254,7 @@ describe('listReach', () => {
     });
 
     const db = new FakeSendListsDb(
-      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG } },
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'living' },
       {
         WHATSAPP: {
           data: [
@@ -273,6 +292,13 @@ describe('listReach', () => {
         p_channel: call.args.p_channel,
       });
     }
+
+    // Task 5 fix round 1 (F3). A LIVING list's people come from
+    // resolveListMembers (proven above by the m1/m2/m3 that only
+    // listOrganizationMembers's mock could have produced) -- never from the
+    // door onto send_list_members, which exists specifically for the kind of
+    // list that freezes its people rather than re-matching a filter.
+    expect(db.rpcCalls.some((call) => call.fn === 'send_list_member_ids')).toBe(false);
   });
 
   it('reports a channel as \'forbidden\', never as 0, when 0235 refuses the caller (42501) for lacking members.view', async () => {
@@ -284,7 +310,7 @@ describe('listReach', () => {
     });
 
     const db = new FakeSendListsDb(
-      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG } },
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'living' },
       {
         WHATSAPP: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
         EMAIL: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
@@ -311,7 +337,7 @@ describe('listReach', () => {
     });
 
     const db = new FakeSendListsDb(
-      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG } },
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'living' },
       {
         WHATSAPP: { data: null, error: { code: '55000', message: 'db is down' } },
         EMAIL: { data: [{ member_id: 'm1', eligible: true }], error: null },
@@ -331,7 +357,7 @@ describe('listReach', () => {
     });
 
     const db = new FakeSendListsDb(
-      { company_id: STATION_B, source: 'requests', filters: { companyId: STATION_B } },
+      { company_id: STATION_B, source: 'requests', filters: { companyId: STATION_B }, kind: 'living' },
       {
         WHATSAPP: { data: [{ member_id: 'r1', eligible: false }], error: null },
         EMAIL: { data: [{ member_id: 'r1', eligible: true }], error: null },
@@ -345,6 +371,61 @@ describe('listReach', () => {
     expect(listMusicRequestsPage).toHaveBeenCalledTimes(1);
     expect(listOrganizationMembers).not.toHaveBeenCalled();
     expect(listParticipationsPage).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Task 5 fix round 1 (F3, Critical). A FIXED list's people are frozen at
+   * creation and must never move -- that is the entire reason a fixed list
+   * exists rather than a living one. Before 0240 there was no door onto
+   * send_list_members, so this fell back to resolveListMembers, re-matching
+   * the stored filters against TODAY's data: a member added, edited or removed
+   * after the list was frozen would silently change the reach numbers of a
+   * list whose whole point was that they do not change. This proves the fix:
+   * a fixed list's people come from send_list_member_ids and NEVER from the
+   * three listing services (their mocks stay untouched throughout).
+   */
+  it("reads a FIXED list's people from send_list_member_ids (the frozen roster), never by re-resolving its stored filters", async () => {
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'fixed' },
+      {
+        WHATSAPP: {
+          data: [
+            { member_id: 'f1', eligible: true },
+            { member_id: 'f2', eligible: false },
+          ],
+          error: null,
+        },
+        EMAIL: {
+          data: [
+            { member_id: 'f1', eligible: true },
+            { member_id: 'f2', eligible: true },
+          ],
+          error: null,
+        },
+      },
+      { data: ['f1', 'f2'], error: null },
+    );
+    setFakeSendListsDb(db);
+
+    const reach = await listReach('list-3', TOKEN);
+
+    expect(reach).toEqual({ people: 2, whatsapp: 1, email: 2 });
+
+    const doorCalls = db.rpcCalls.filter((call) => call.fn === 'send_list_member_ids');
+    expect(doorCalls).toEqual([{ fn: 'send_list_member_ids', args: { p_list_id: 'list-3' } }]);
+
+    const eligibilityCalls = db.rpcCalls.filter((call) => call.fn === 'members_marketing_eligible_bulk');
+    for (const call of eligibilityCalls) {
+      expect(call.args.p_member_ids).toEqual(['f1', 'f2']);
+    }
+
+    // The point of the fix: NONE of resolveListMembers' three underlying
+    // services ran, even though this list's own `source` is 'members' and
+    // its `filters` are present -- a fixed list's stored filters are a
+    // record (0238's own comment), not a query to run again.
+    expect(listOrganizationMembers).not.toHaveBeenCalled();
+    expect(listParticipationsPage).not.toHaveBeenCalled();
+    expect(listMusicRequestsPage).not.toHaveBeenCalled();
   });
 
   it('throws rather than reaching for a company_id that does not exist, when the list is unknown or RLS hides it', async () => {

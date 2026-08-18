@@ -1,5 +1,5 @@
 begin;
-select plan(35);
+select plan(42);
 
 -- Block 29d-1. The permissions a send list and, later, a campaign are guarded
 -- by. Born beside the feature they guard, which is 0010's own rule.
@@ -89,6 +89,23 @@ select ok(
   not has_function_privilege('public', 'public.delete_send_list(uuid)', 'EXECUTE'),
   'and PUBLIC holds nothing');
 
+-- Task 5 fix round 1 (F3). send_list_member_ids (0240) -- the one read door
+-- onto send_list_members, which carries no policy of its own -- gated on
+-- messaging.view rather than messaging.manage, since it is a read and the
+-- same permission the list itself is gated on (0238).
+
+select has_function('public', 'send_list_member_ids', 'send_list_member_ids exists');
+
+select ok(
+  has_function_privilege('authenticated', 'public.send_list_member_ids(uuid)', 'EXECUTE'),
+  'authenticated may read a send list''s frozen members');
+select ok(
+  not has_function_privilege('anon', 'public.send_list_member_ids(uuid)', 'EXECUTE'),
+  'anon may not');
+select ok(
+  not has_function_privilege('public', 'public.send_list_member_ids(uuid)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+
 -- Fixtures: one Organization, two Stations, three listeners. member1 and
 -- member2 are linked to Station A -- the Station every door call below
 -- names. memberX is linked ONLY to Station B, the other Station in the same
@@ -119,9 +136,13 @@ insert into public.role_permissions (role_id, permission_code) values
   ('00000000-0000-0000-0000-0000000029d6', 'messaging.view'),
   ('00000000-0000-0000-0000-0000000029d7', 'messaging.view');
 
+-- 29da holds NO company_membership row anywhere -- not at Station A, not at
+-- Station B, not in any other Organization -- the starkest "lacks
+-- messaging.view" case there is, for send_list_member_ids' own 42501 below.
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000029d8', 'send-lists-manager-29d@example.test'),
-  ('00000000-0000-0000-0000-0000000029d9', 'send-lists-viewer-29d@example.test');
+  ('00000000-0000-0000-0000-0000000029d9', 'send-lists-viewer-29d@example.test'),
+  ('00000000-0000-0000-0000-0000000029da', 'send-lists-nobody-29d@example.test');
 insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
   ('00000000-0000-0000-0000-0000000029d8', '00000000-0000-0000-0000-0000000029d1',
    '00000000-0000-0000-0000-0000000029d0', '00000000-0000-0000-0000-0000000029d6'),
@@ -219,6 +240,31 @@ select throws_ok(
   (select format('select public.delete_send_list(%L)', list_id) from t29d_fixed),
   '42501', null, 'messaging.view alone cannot delete a send list');
 
+-- Task 5 fix round 1 (F3). Unlike rename and delete above, send_list_member_ids
+-- is gated on messaging.view itself, so THIS caller -- view, no manage -- is
+-- exactly the one who should succeed, and get back the list's people and
+-- nothing else (not memberX, who is linked only to Station B and was never in
+-- this list at all).
+select is(
+  (select array_agg(member_id order by member_id)
+     from public.send_list_member_ids((select list_id from t29d_fixed)) as t(member_id)),
+  array['00000000-0000-0000-0000-0000000029d3'::uuid, '00000000-0000-0000-0000-0000000029d4'::uuid],
+  'messaging.view alone is enough to read a fixed list''s members, and returns exactly that list''s people');
+
+reset role;
+
+-- send_list_member_ids' 42501, for a caller holding NEITHER permission at
+-- Station A nor anywhere else -- the case rename/delete's own tests above
+-- have no equivalent of, since both of those are gated on messaging.manage
+-- and 29d9 already proves the view-only refusal for THAT pair of doors.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000029da", "role": "authenticated"}';
+
+select throws_ok(
+  (select format('select public.send_list_member_ids(%L)', list_id) from t29d_fixed),
+  '42501', null, 'a caller with no messaging.view anywhere cannot read a fixed list''s members');
+
 reset role;
 
 -- messaging.manage, again ---------------------------------------------------
@@ -254,6 +300,14 @@ select is(
 select is(
   (select count(*)::int from public.send_list_members where list_id = (select list_id from t29d_fixed)),
   0, 'and its people go with it');
+
+-- Task 5 fix round 1 (F3). This list is now soft-deleted -- send_list_member_ids
+-- checks `deleted_at is null` before it checks permission at all (the same
+-- order rename_send_list and delete_send_list use above), so it answers
+-- P0002 here regardless of who is asking.
+select throws_ok(
+  (select format('select public.send_list_member_ids(%L)', list_id) from t29d_fixed),
+  'P0002', null, 'send_list_member_ids refuses a soft-deleted list, the same as rename/delete');
 
 reset request.jwt.claims;
 

@@ -5886,6 +5886,7 @@ export type Database = {
         }
         Returns: string
       }
+      send_list_member_ids: { Args: { p_list_id: string }; Returns: string[] }
       service_hashtags_for: { Args: { p_company_id: string }; Returns: Json }
       set_album_cover: {
         Args: { p_album_id: string; p_url?: string }
