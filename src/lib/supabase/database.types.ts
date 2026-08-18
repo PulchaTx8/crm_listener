@@ -311,6 +311,9 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           description: string | null
+          email_from_address: string | null
+          email_from_name: string | null
+          email_reply_to: string | null
           facebook_url: string | null
           fiscal_email: string | null
           frequency_khz: number | null
@@ -350,6 +353,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           description?: string | null
+          email_from_address?: string | null
+          email_from_name?: string | null
+          email_reply_to?: string | null
           facebook_url?: string | null
           fiscal_email?: string | null
           frequency_khz?: number | null
@@ -389,6 +395,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           description?: string | null
+          email_from_address?: string | null
+          email_from_name?: string | null
+          email_reply_to?: string | null
           facebook_url?: string | null
           fiscal_email?: string | null
           frequency_khz?: number | null
@@ -5650,6 +5659,15 @@ export type Database = {
           p_title?: string
         }
         Returns: string
+      }
+      save_station_email_identity: {
+        Args: {
+          p_company_id: string
+          p_from_address?: string
+          p_from_name?: string
+          p_reply_to?: string
+        }
+        Returns: undefined
       }
       save_vendor: {
         Args: {

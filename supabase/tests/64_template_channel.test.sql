@@ -1,5 +1,5 @@
 begin;
-select plan(22);
+select plan(25);
 
 -- Block 29b-1, Task 1. The two vocabularies this block adds.
 --
@@ -152,6 +152,22 @@ select ok(
        and p.proname = 'save_marketing_template'
        and acl::text like '=X/%'),
   'PUBLIC holds no EXECUTE -- the default ACL was revoked, not left');
+
+-- Task 7. The Station's own sender identity.
+select has_column('public', 'companies', 'email_from_address', 'companies carries a sender address');
+
+select has_function('public', 'save_station_email_identity',
+  array['uuid','text','text','text'],
+  'and a door to set it');
+
+-- The gate is the OWNER, not templates.manage: this is the address every
+-- campaign of this Station goes out as, and it is a fact about the business
+-- rather than about a text somebody wrote.
+select ok(
+  (select prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'save_station_email_identity')
+    like '%is_owner_of_company%',
+  'only the Organization owner may change who a Station''s mail comes from');
 
 select * from finish();
 rollback;

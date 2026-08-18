@@ -5,6 +5,7 @@ import { useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ConnectWhatsAppBusiness } from '@/components/whatsapp/connect-whatsapp';
+import { StationEmailTab, type StationEmailIdentity } from './station-email-tab';
 
 /** What `station_whatsapp_status` (0218) answers, already resolved on the server. */
 export interface WhatsAppStatus {
@@ -32,11 +33,13 @@ export interface WhatsAppStatus {
  * member area could reach at all. The distinction is worth keeping: the day
  * somebody adds a "Station data" tab here, D9 is what they are reversing.
  *
- * ONE TAB, and it is drawn as a tab rather than as a bare section on purpose —
- * Block 29's later passes have per-Station settings to put beside it, and a
- * heading that becomes a tab strip later is a smaller change than a section that
- * becomes one. SHOW_TABS (`src/lib/record-params.ts`) is the precedent for a
- * one-tab record.
+ * TWO TABS NOW, and the earlier version of this comment named this exact
+ * moment before it happened: it said a heading that becomes a tab strip later
+ * is a smaller change than a section that becomes one, and Task 7's e-mail
+ * identity tab is that later. WhatsApp pairing and who a Station's campaign
+ * mail comes from are unrelated facts that happen to share one settings
+ * dialog — not two views of one setting — which is why they are two tabs
+ * rather than one screen carrying two headings.
  *
  * LOCAL STATE, NOT `useRecordDialog`. That hook exists so a record can open OVER
  * a keyset-paginated list without re-running its query, and keeps the open
@@ -46,10 +49,13 @@ export interface WhatsAppStatus {
  * machinery and pay for it with a second source of truth.
  */
 export function StationSettings({
+  companyId,
   companyName,
   signupUrl,
   status,
+  emailIdentity,
 }: {
+  companyId: string;
   companyName: string;
   /**
    * Resolved by `embeddedSignupUrl` on the server, null when this installation
@@ -60,9 +66,12 @@ export function StationSettings({
   signupUrl: string | null;
   /** Null when the status could not be read — see the message below. */
   status: WhatsAppStatus | null;
+  /** Read straight off the `companies` row page.tsx already selects — Task 7. */
+  emailIdentity: StationEmailIdentity;
 }) {
   const t = useTranslations('app');
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<'whatsapp' | 'email'>('whatsapp');
   const titleId = useId();
 
   return (
@@ -89,49 +98,95 @@ export function StationSettings({
 
         <DialogBody className="flex flex-col gap-4">
           <div
-            className="border-b pb-2 text-sm font-medium text-muted-foreground"
+            role="tablist"
+            aria-label={t('stationSettings')}
+            className="flex gap-4 border-b pb-2 text-sm font-medium text-muted-foreground"
             data-testid="station-settings-tabs"
           >
-            {/* The one tab. Not a button, because there is nothing to switch to
-                — a tab strip of one that responds to clicks would be a control
-                that does nothing. It becomes real the first time a second tab
-                arrives. */}
-            <span className="border-b-2 border-primary pb-2 text-foreground">
+            {/* LOCAL STATE, NOT A ROUTE OR QUERY PARAMETER, for a reason
+                distinct from the dialog's own `open` above (this file's header
+                gives that one): this dialog's state dies WITH the dialog, so a
+                `?tab=` on /app would survive a reload into a record the
+                operator had already closed, reopening it on whichever tab was
+                last selected instead of leaving /app alone the way a reload of
+                a closed dialog should. Block 20b made exactly that mistake
+                with its own `?tab=` shortcut and undid it; this dialog never
+                gives the address bar anything to remember in the first place.
+                Two real buttons with distinct keys rather than one span that
+                toggles a label — a conditionally rendered <Button> without a
+                stable key has, in this codebase, inherited `type="submit"`
+                from whichever sibling React reused its DOM node for, and the
+                email tab below renders a form. */}
+            <button
+              key="whatsapp"
+              type="button"
+              role="tab"
+              aria-selected={tab === 'whatsapp'}
+              onClick={() => setTab('whatsapp')}
+              className={
+                tab === 'whatsapp'
+                  ? 'border-b-2 border-primary pb-2 text-foreground'
+                  : 'border-b-2 border-transparent pb-2 hover:text-foreground'
+              }
+            >
               {t('tabWhatsapp')}
-            </span>
+            </button>
+            <button
+              key="email"
+              type="button"
+              role="tab"
+              aria-selected={tab === 'email'}
+              onClick={() => setTab('email')}
+              className={
+                tab === 'email'
+                  ? 'border-b-2 border-primary pb-2 text-foreground'
+                  : 'border-b-2 border-transparent pb-2 hover:text-foreground'
+              }
+            >
+              {t('tabEmail')}
+            </button>
           </div>
 
-          {/* THE STATUS COMES FIRST, above the button that changes it. An owner
-              opening this has one question — did the pairing work — and the
-              answer must not be below the control that starts a new one. */}
-          {status === null ? (
-            <p className="rounded-md border border-dashed p-3 text-xs text-destructive">
-              {t('whatsappStatusUnavailable')}
-            </p>
-          ) : (
-            <dl
-              className="grid gap-2 rounded-md border p-3 text-sm sm:grid-cols-[10rem_1fr]"
-              data-testid="station-whatsapp-status"
-            >
-              <dt className="text-muted-foreground">{t('whatsappConnection')}</dt>
-              <dd>{status.connected ? t('whatsappConnected') : t('whatsappNotConnected')}</dd>
+          {tab === 'whatsapp' && (
+            <>
+              {/* THE STATUS COMES FIRST, above the button that changes it. An
+                  owner opening this has one question — did the pairing work —
+                  and the answer must not be below the control that starts a
+                  new one. */}
+              {status === null ? (
+                <p className="rounded-md border border-dashed p-3 text-xs text-destructive">
+                  {t('whatsappStatusUnavailable')}
+                </p>
+              ) : (
+                <dl
+                  className="grid gap-2 rounded-md border p-3 text-sm sm:grid-cols-[10rem_1fr]"
+                  data-testid="station-whatsapp-status"
+                >
+                  <dt className="text-muted-foreground">{t('whatsappConnection')}</dt>
+                  <dd>{status.connected ? t('whatsappConnected') : t('whatsappNotConnected')}</dd>
 
-              {/* Only once there is something to show. A row reading "—" for a
-                  Station nobody has paired says nothing the line above did not
-                  already say, twice. */}
-              {status.connected && (
-                <>
-                  <dt className="text-muted-foreground">{t('whatsappNumber')}</dt>
-                  <dd>{status.displayPhoneNumber ?? t('whatsappNumberUnknown')}</dd>
+                  {/* Only once there is something to show. A row reading "—"
+                      for a Station nobody has paired says nothing the line
+                      above did not already say, twice. */}
+                  {status.connected && (
+                    <>
+                      <dt className="text-muted-foreground">{t('whatsappNumber')}</dt>
+                      <dd>{status.displayPhoneNumber ?? t('whatsappNumberUnknown')}</dd>
 
-                  <dt className="text-muted-foreground">{t('whatsappSending')}</dt>
-                  <dd>{status.enabled ? t('whatsappSendingOn') : t('whatsappSendingOff')}</dd>
-                </>
+                      <dt className="text-muted-foreground">{t('whatsappSending')}</dt>
+                      <dd>{status.enabled ? t('whatsappSendingOn') : t('whatsappSendingOff')}</dd>
+                    </>
+                  )}
+                </dl>
               )}
-            </dl>
+
+              <ConnectWhatsAppBusiness url={signupUrl} />
+            </>
           )}
 
-          <ConnectWhatsAppBusiness url={signupUrl} />
+          {tab === 'email' && (
+            <StationEmailTab companyId={companyId} initial={emailIdentity} />
+          )}
         </DialogBody>
 
         <DialogFooter>

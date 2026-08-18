@@ -291,3 +291,36 @@ export async function clearCompanyThumb(
   });
   if (error) throw mapProfileError(error.code, error.message);
 }
+
+/**
+ * Who this Station's campaign e-mail comes from (Block 29b-1, Task 7).
+ *
+ * A THIRD WRITER, not a fourth field folded into CompanyProfileInput. That
+ * struct is what `update_company_profile` takes, and that RPC replaces every
+ * field it is given on every call -- this file's own header states why the
+ * picture is split out for the same reason, and a save from the /app dialog
+ * would otherwise clear the twenty-four fields station-settings.tsx never
+ * shows. `save_station_email_identity` (0226) is its own door for its own
+ * three columns, gated on `is_owner_of_company` rather than the console's
+ * platform-admin write, because this is set by the Organization owner, not by
+ * support.
+ */
+export interface StationEmailIdentityInput {
+  companyId: string;
+  fromName: string | null;
+  fromAddress: string | null;
+  replyTo: string | null;
+}
+
+export async function saveStationEmailIdentity(
+  input: StationEmailIdentityInput,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('save_station_email_identity', {
+    p_company_id: input.companyId,
+    p_from_name: input.fromName ?? undefined,
+    p_from_address: input.fromAddress ?? undefined,
+    p_reply_to: input.replyTo ?? undefined,
+  });
+  if (error) throw mapProfileError(error.code, error.message);
+}
