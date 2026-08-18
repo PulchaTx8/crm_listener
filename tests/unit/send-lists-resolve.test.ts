@@ -6,7 +6,7 @@ import { encodeCursor } from '@/lib/keyset';
  * services -- the same ones the screens call -- rather than restating any of
  * their predicates. What is proved here is the orchestration around that
  * delegation: which service gets called for which source, that rows collapse
- * to distinct people, that a null member_id is dropped rather than carried,
+ * to distinct people, that a falsy member_id is dropped by a defensive guard,
  * that paging continues past a first page, and that a resolution exceeding
  * RESOLVE_CAP is reported rather than silently truncated. None of the three
  * services' own filtering is re-tested here -- that already lives beside each
@@ -67,7 +67,7 @@ describe('resolveListMembers', () => {
     expect([...ids].sort()).toEqual(['p1', 'p2']);
   });
 
-  it('drops a null member_id rather than carrying it forward (list_music_requests, 0191:50)', async () => {
+  it('drops a falsy member_id as a defensive guard, though every real row has one (music_requests.member_id is not null, 0098:193; 0191 inner-joins members)', async () => {
     listMusicRequestsPage.mockResolvedValue({
       rows: [{ memberId: 'r1' }, { memberId: null }, { memberId: 'r2' }],
       nextCursor: null,

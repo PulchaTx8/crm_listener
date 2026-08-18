@@ -36,10 +36,12 @@ export class SendListResolutionCappedError extends Error {
  * DISTINCT PEOPLE, not rows. Requests and Participations are per event:
  * somebody who asked for twelve songs is twelve rows and one recipient.
  *
- * AND A NULL member_id IS DROPPED, not counted. `list_music_requests`
- * (0191_music_requests_list_triage.sql:50) returns a nullable member_id — a
- * request whose listener was never resolved has none. Carrying those forward
- * would put holes in a list whose count the operator is about to trust.
+ * AND A ROW WITH NO member_id IS DROPPED, not counted, if one ever arrived.
+ * Nothing today can produce one: music_requests.member_id is `uuid not null`
+ * with a mandatory FK (0098_music_catalogue.sql:193, 213-215) and
+ * list_music_requests inner-joins members (0191_music_requests_list_triage.sql:123),
+ * so every row it returns already has one. The check guards against a future
+ * change to either fact, at no cost today.
  *
  * CAPPED, and the cap is reported rather than silently applied. A list that
  * quietly held the first ten thousand of forty thousand would be a number the
@@ -165,13 +167,11 @@ async function resolveRequestIds(
     );
 
     for (const row of page.rows) {
-      // list_music_requests declares `member_id uuid` with no `not null`
-      // (0191_music_requests_list_triage.sql:50) — a request whose listener
-      // was never resolved has none. Neither RequestSummary's own field nor
-      // the generated Supabase RPC return type mark it nullable; both were
-      // checked against 0191's `returns table` directly rather than trusted,
-      // and both disagree with what the SQL actually declares. Read
-      // defensively here regardless of what either type claims.
+      // Defensive, not descriptive of anything that can happen today:
+      // music_requests.member_id is `uuid not null` (0098_music_catalogue.sql:193)
+      // and list_music_requests inner-joins members (0191:123), so no row
+      // here can actually carry a null. Nothing at the type level enforces
+      // that fact, so the check stays rather than being trusted away.
       if (row.memberId) ids.add(row.memberId);
     }
 
