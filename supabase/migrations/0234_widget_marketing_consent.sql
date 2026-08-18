@@ -35,10 +35,11 @@
 --
 -- p_marketing_consent IS THE LAST PARAMETER, not inserted beside p_consent,
 -- so every existing POSITIONAL call in supabase/tests/42_widget_promotions.
--- test.sql -- four and six arguments alike -- keeps meaning what it already
--- meant. The widget's own server action calls this RPC by name
--- (promotion-actions.ts already names every argument it sends), so where the
--- new one lands in the parameter list does not affect it either.
+-- test.sql -- all fourteen of them, six arguments apiece before this
+-- migration -- keeps meaning what it already meant. The widget's own server
+-- action calls this RPC by name (promotion-actions.ts already names every
+-- argument it sends), so where the new one lands in the parameter list does
+-- not affect it either.
 drop function public.widget_enter_promotion(text, uuid, uuid, boolean, jsonb, jsonb);
 
 create function public.widget_enter_promotion(
@@ -183,11 +184,42 @@ begin
   -- fire, because nothing has opened a conversation since Block 19a
   -- (services/conversation.ts's own comment on 0179, at the `open()` call
   -- that never runs). Every participation reaches here, so this is where
-  -- whatsapp_marketing is asked and answered, in BOTH directions -- true from
-  -- a ticked box, false from an unticked one -- because the decline is
-  -- itself the fact an audit needs: not "never asked" but "asked, and said
-  -- no". record_conversation_marketing_answer (0231, F9) records its own
-  -- door's Yes/No the identical way, for the identical reason.
+  -- whatsapp_marketing is asked and answered.
+  --
+  -- FIX ROUND 1, F23 (CRITICAL). THE FIRST VERSION WROTE AN UNCONDITIONAL ROW
+  -- PER ENTRY AND REACHED LOGIC THAT SILENTLY REVOKES. The box renders
+  -- unticked on EVERY entry, not only the first, and eligibility reads the
+  -- LATEST whatsapp_marketing row per (member, company)
+  -- (members_marketing_eligible_bulk, 0229). So a listener who opted in once
+  -- and simply did not re-tick on a LATER promotion was written back to
+  -- false with no withdrawal and no notice -- hitting repeat participants
+  -- hardest, who are exactly the audience this block exists to build. A
+  -- THREE-WAY RULE replaces the blanket insert:
+  --   TICKED                         -> write true, ALWAYS -- a re-consent is
+  --                                      harmless and it is how somebody
+  --                                      changes their mind, even from a
+  --                                      prior explicit decline.
+  --   UNTICKED, no row exists yet    -> write false. This is what makes
+  --                                      "asked once" true: a decline has to
+  --                                      land somewhere or the listener is
+  --                                      asked forever.
+  --   UNTICKED, a row already exists -> write NOTHING. Silence must never
+  --                                      revoke -- an unticked box on a
+  --                                      second, third, ... entry says
+  --                                      nothing about the listener's
+  --                                      earlier answer.
+  -- The existence check is scoped to (member_id, company_id), the same pair
+  -- members_marketing_eligible_bulk reads latest-row-wins over, and
+  -- deliberately NOT to promotion_id: this is a consent about the Station on
+  -- a channel, not about any one promotion.
+  --
+  -- record_conversation_marketing_answer (0231, F9) records a ticked/unticked
+  -- answer as a plain true/false because its step runs AT MOST ONCE per
+  -- listener per Station by construction (spec D2) -- there is no repeat
+  -- entry on that door for a stale unticked default to misfire against. This
+  -- door has no such guarantee: every promotion entry reaches it, so the
+  -- three-way rule above is what this door needs that the conversation door
+  -- does not.
   --
   -- ISOLATED IN ITS OWN SUB-BLOCK, on purpose, the same shape the sweep
   -- functions use for a per-item failure that must not stop the run (0094's
@@ -206,18 +238,43 @@ begin
   -- their string would make one origin value describe two unrelated
   -- questions.
   --
-  -- promotion_id IS CARRIED, matching record_conversation_marketing_answer's
-  -- own shape for the identical question (which promotion's participation
-  -- this answer travelled with) -- unlike the 'rules' insert three lines
-  -- above, which predates promotion_id existing on this table at all (0032's
-  -- own comment: "Promotions do not exist yet").
+  -- promotion_id IS CARRIED on the row THIS block writes, matching
+  -- record_conversation_marketing_answer's own shape for the identical
+  -- question (which promotion's participation this answer travelled with).
+  -- THE `rules` INSERT ABOVE (roughly sixty lines up, four statements
+  -- earlier in this function) does NOT set promotion_id, even though 0032's
+  -- own column comment expects it precisely for consent_type = 'rules' --
+  -- 0032 declared the column, nullable, before public.promotions existed
+  -- (its comment's "does not exist yet" names the TABLE, not the column,
+  -- which is why the column is nullable rather than absent). That gap
+  -- predates this migration and is not this task's question to close.
+  declare
+    v_marketing_row_exists boolean;
   begin
-    insert into public.member_consents
-      (organization_id, member_id, company_id, consent_type, granted, origin,
-       promotion_id, recorded_by)
-    values
-      (v.o_org, p_member_id, v.o_company, 'whatsapp_marketing', p_marketing_consent,
-       'widget', p_promotion_id, null);
+    if p_marketing_consent then
+      insert into public.member_consents
+        (organization_id, member_id, company_id, consent_type, granted, origin,
+         promotion_id, recorded_by)
+      values
+        (v.o_org, p_member_id, v.o_company, 'whatsapp_marketing', true,
+         'widget', p_promotion_id, null);
+    else
+      select exists (
+        select 1 from public.member_consents
+         where member_id = p_member_id
+           and company_id = v.o_company
+           and consent_type = 'whatsapp_marketing'
+      ) into v_marketing_row_exists;
+
+      if not v_marketing_row_exists then
+        insert into public.member_consents
+          (organization_id, member_id, company_id, consent_type, granted, origin,
+           promotion_id, recorded_by)
+        values
+          (v.o_org, p_member_id, v.o_company, 'whatsapp_marketing', false,
+           'widget', p_promotion_id, null);
+      end if;
+    end if;
   exception
     when others then
       raise warning 'widget_enter_promotion: whatsapp_marketing consent write failed for participation %: %',
@@ -229,7 +286,7 @@ end;
 $$;
 
 comment on function public.widget_enter_promotion is
-  'Block 17c. Records an entry made from the Station''s own website. Refuses by name -- unknown_installation, unknown_listener, listener_anonymized, promotion_closed, missing_answers, already_entered, refused -- so the widget can say which happened. THE STEP LIST IS RECOMPUTED HERE rather than trusted from the payload: the screen is not the authority on what a promotion asks, and a promotion edited mid-walk would otherwise be answered wrongly. Since 0186 it restates THREE of the list''s conditions rather than two -- web_enabled, rules present, and no non-ESSAY question left without alternatives -- so a browser holding a list drawn before the options were deleted is answered promotion_closed rather than blamed with missing_answers for a question nobody could see. Declining writes promotion_refusals stamped WEB and nothing else. Agreeing writes a `rules` consent row, which is a deliberate divergence from complete_conversation (0071), which records none. Since Block 29c (Task 9) it ALSO writes a `whatsapp_marketing` consent row from `p_marketing_consent` -- true or false, both recorded -- ONLY after the participation above is confirmed VALID, isolated in its own exception-catching sub-block so a failure there cannot undo an entry that already succeeded (a WARNING names the participation and SQLERRM instead). origin `widget` pairs with record_conversation_marketing_answer''s (0231) `conversation`; neither door writes through record_member_consent (0034), which is unreachable for a service-role caller with no auth.uid(). Granted to service_role only.';
+  'Block 17c. Records an entry made from the Station''s own website. Refuses by name -- unknown_installation, unknown_listener, listener_anonymized, promotion_closed, missing_answers, already_entered, refused -- so the widget can say which happened. THE STEP LIST IS RECOMPUTED HERE rather than trusted from the payload: the screen is not the authority on what a promotion asks, and a promotion edited mid-walk would otherwise be answered wrongly. Since 0186 it restates THREE of the list''s conditions rather than two -- web_enabled, rules present, and no non-ESSAY question left without alternatives -- so a browser holding a list drawn before the options were deleted is answered promotion_closed rather than blamed with missing_answers for a question nobody could see. Declining writes promotion_refusals stamped WEB and nothing else. Agreeing writes a `rules` consent row, which is a deliberate divergence from complete_conversation (0071), which records none. Since Block 29c (Task 9, fix round 1 F23) it ALSO writes a `whatsapp_marketing` consent row from `p_marketing_consent`, by a three-way rule rather than a blanket insert: ticked always writes true (a re-consent is harmless); unticked writes false only when no whatsapp_marketing row exists yet for (member, company); unticked writes NOTHING when one already does, because a repeat entry''s default-unticked box must never silently revoke an earlier opt-in (eligibility, 0229, reads the latest row). Written ONLY after the participation above is confirmed VALID, isolated in its own exception-catching sub-block so a failure there cannot undo an entry that already succeeded (a WARNING names the participation and SQLERRM instead). origin `widget` pairs with record_conversation_marketing_answer''s (0231) `conversation`; neither door writes through record_member_consent (0034), which is unreachable for a service-role caller with no auth.uid(). Granted to service_role only.';
 
 -- create or replace does not reset privileges, but this migration used DROP,
 -- which does -- these two statements are load-bearing here, not merely

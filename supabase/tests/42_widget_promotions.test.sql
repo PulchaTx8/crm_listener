@@ -1,5 +1,5 @@
 begin;
-select plan(34);
+select plan(42);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -397,7 +397,7 @@ select is(
   'and a submission against it is refused as closed, not as the listener''s fault');
 
 -- ---------------------------------------------------------------------------
--- 24-34. Block 29c, Task 9. The widget's marketing checkbox, carried through
+-- 24-42. Block 29c, Task 9. The widget's marketing checkbox, carried through
 -- the door's seventh parameter -- true, false, and omitted, all three
 -- recorded rather than merely accepted -- plus the ACL a DROP + CREATE
 -- migration (0234) had to reissue by hand.
@@ -415,7 +415,18 @@ values
    '00000000-0000-0000-0000-000000000402', 'Promo consentimento de marketing',
    now() - interval '1 day', now() + interval '7 days',
    false, '{}'::public.promotion_requested_field[],
-   'Regulamento de uma promoção simples.', true);
+   'Regulamento de uma promoção simples.', true),
+  -- A SECOND promotion, needed to model a repeat participant honestly: a
+  -- second entry against 430 by the same member would be refused
+  -- already_entered before the consent logic ever runs (0171's own repeat
+  -- guard, unchanged by 0234), which would prove nothing about the marketing
+  -- write. Fix round 1, F23's own scenario is "ticks entering promotion A,
+  -- does not re-tick entering promotion B" -- two promotions, on purpose.
+  ('00000000-0000-0000-0000-000000000435', '00000000-0000-0000-0000-000000000401',
+   '00000000-0000-0000-0000-000000000402', 'Promo consentimento de marketing 2',
+   now() - interval '1 day', now() + interval '7 days',
+   false, '{}'::public.promotion_requested_field[],
+   'Regulamento de outra promoção simples.', true);
 
 insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-000000000431', '00000000-0000-0000-0000-000000000401',
@@ -423,7 +434,13 @@ insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-000000000432', '00000000-0000-0000-0000-000000000401',
    'Marketing No Listener', '+5511999992222'),
   ('00000000-0000-0000-0000-000000000433', '00000000-0000-0000-0000-000000000401',
-   'Marketing Omitted Listener', '+5511999992223');
+   'Marketing Omitted Listener', '+5511999992223'),
+  -- Fix round 1, F23. Repeat participants -- the two arms a single-entry
+  -- listener can never exercise.
+  ('00000000-0000-0000-0000-000000000434', '00000000-0000-0000-0000-000000000401',
+   'Marketing Override Listener', '+5511999992224'),
+  ('00000000-0000-0000-0000-000000000436', '00000000-0000-0000-0000-000000000401',
+   'Marketing Silent Listener', '+5511999992226');
 
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-000000000431', '00000000-0000-0000-0000-000000000402',
@@ -431,6 +448,10 @@ insert into public.member_company_links (member_id, company_id, organization_id)
   ('00000000-0000-0000-0000-000000000432', '00000000-0000-0000-0000-000000000402',
    '00000000-0000-0000-0000-000000000401'),
   ('00000000-0000-0000-0000-000000000433', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401'),
+  ('00000000-0000-0000-0000-000000000434', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401'),
+  ('00000000-0000-0000-0000-000000000436', '00000000-0000-0000-0000-000000000402',
    '00000000-0000-0000-0000-000000000401');
 
 -- 24-25. A ticked box: the entry succeeds and a granted row lands, stamped
@@ -491,7 +512,87 @@ select is(
     where member_id = '00000000-0000-0000-0000-000000000431'),
   'WEB', 'the entry itself is unaffected by the marketing checkbox');
 
--- 31-33. THE ACL A DROP DESTROYS. 0234 dropped this function to add the
+-- 31-38. Fix round 1, F23 (Critical). THE THREE-WAY RULE, on a REPEAT participant --
+-- the case a single-entry listener (431-433 above) cannot exercise, because
+-- the rule only branches differently once a whatsapp_marketing row already
+-- exists.
+--
+-- Member 434: declines on the first entry (arm B, no row yet -- proven again
+-- here incidentally), then TICKS on a second entry against a DIFFERENT
+-- promotion. Arm A says ticked always writes true, even over an existing
+-- false row -- proven by a SECOND row landing (count 2, not 1) with a TRUE
+-- row now among them, rather than the existing false row being left standing
+-- or edited in place.
+--
+-- NOT AN ORDER-BY-granted_at CHECK: pgTAP wraps this whole file in one
+-- transaction, so granted_at (default now()) is the SAME instant on every
+-- row this file writes (0229's own R8 finding, in this block's ledger) --
+-- 'order by granted_at desc' cannot tell the two rows apart, and the
+-- eligibility function's own tiebreak (granted asc, deliberately restrictive)
+-- would then read back false, not true. An EXISTS check for a true row is
+-- what this arm can actually prove here.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000434',
+     '00000000-0000-0000-0000-000000000430', true,
+     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+  'true', 'F23 setup: the first entry, unticked, still succeeds');
+
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000434',
+     '00000000-0000-0000-0000-000000000435', true,
+     '{}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
+  'true', 'F23 arm A: a later TICKED entry against a different promotion still succeeds');
+
+select is(
+  (select count(*) from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000434'
+      and consent_type = 'whatsapp_marketing'),
+  2::bigint, 'F23 arm A: ticked writes a NEW row rather than being skipped, even though one already existed');
+
+select ok(
+  exists (
+    select 1 from public.member_consents
+     where member_id = '00000000-0000-0000-0000-000000000434'
+       and consent_type = 'whatsapp_marketing'
+       and granted),
+  'F23 arm A: a true row now exists -- ticking wrote the override rather than being skipped because a decline was already on file');
+
+-- Member 436: TICKS on the first entry (a granted row exists), then leaves
+-- the box UNTICKED on a second entry against a different promotion. Arm C
+-- says an unticked box writes NOTHING once a row exists -- proven by the row
+-- count staying at 1 (no silent second row) AND the one row's own value
+-- staying true (not flipped to false) -- the exact distinction the coordinator
+-- asked this file to make between arms B and C.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000436',
+     '00000000-0000-0000-0000-000000000430', true,
+     '{}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
+  'true', 'F23 setup: the first entry, ticked, still succeeds');
+
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000436',
+     '00000000-0000-0000-0000-000000000435', true,
+     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+  'true', 'F23 arm C: a later UNTICKED entry against a different promotion still succeeds');
+
+select is(
+  (select count(*) from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000436'
+      and consent_type = 'whatsapp_marketing'),
+  1::bigint, 'F23 arm C: the unticked second entry wrote no new row -- silence, not a decline');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000436'
+      and consent_type = 'whatsapp_marketing'
+    order by granted_at desc, granted asc limit 1),
+  true, 'F23 arm C: the one row on file is still true -- an unticked repeat entry never revokes it');
+
+-- 39-42. THE ACL A DROP DESTROYS. 0234 dropped this function to add the
 -- parameter and had to reissue every grant by hand -- these assertions are
 -- what would have caught a grant that vanished rather than a caller
 -- discovering it as a permission error in production.
