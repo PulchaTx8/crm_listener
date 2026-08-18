@@ -144,21 +144,38 @@ select is(
 --     two wrong -- and which one depends on the hour the suite happens to run,
 --     which is how this passes all afternoon and fails at 21:00.
 -- ---------------------------------------------------------------------------
+-- THE BAND IS THE CURRENT LOCAL MINUTE, floored -- not `now() - 1 minute` to
+-- `now() + 1 minute`, which is what this test used to build and which broke
+-- twice a day per Station, in CI, on 2026-08-18 at 11:00 UTC.
+--
+-- Two separate boundary faults, both of them the test's and neither the
+-- function's. Around local MIDNIGHT the old form took its weekday from `now()`
+-- but its start from `now() - 1 minute`, which is the PREVIOUS local day: at
+-- 00:00:01 in Pacific/Niue it asked for weekday D, 23:59 -> 00:01, and
+-- save_show's overnight split (0175) correctly filed that as weekday D 23:59
+-- -> 24:00 plus weekday D+1 00:00 -> 00:01 -- so neither row carried weekday D
+-- at 00:00, and the programme was not on air. And at local 23:59 the old form
+-- asked for 23:58 -> 00:00, whose split produces a second row of 00:00 ->
+-- 00:00, violating show_schedules_within_a_day.
+--
+-- Flooring to the minute fixes the first (weekday and start now come from one
+-- instant) and '24:00' fixes the second (0175 stores exactly that value for a
+-- band running to the end of the day, so this asks for what it already emits).
 select lives_ok($$
   select public.save_show(
     '00000000-0000-0000-0000-000000000502', 'Agora no leste', 'MUSICAL'::public.show_kind,
     'L'::public.show_age_rating, current_date - 30,
     jsonb_build_array(jsonb_build_object(
-      'days',   jsonb_build_array(extract(isodow from (now() at time zone 'Pacific/Kiritimati'))::int),
-      'starts', to_char((now() at time zone 'Pacific/Kiritimati') - interval '1 minute', 'HH24:MI'),
-      'ends',   to_char((now() at time zone 'Pacific/Kiritimati') + interval '1 minute', 'HH24:MI'))));
+      'days',   jsonb_build_array(extract(isodow from date_trunc('minute', now() at time zone 'Pacific/Kiritimati'))::int),
+      'starts', to_char(date_trunc('minute', now() at time zone 'Pacific/Kiritimati'), 'HH24:MI'),
+      'ends',   coalesce(nullif(to_char(date_trunc('minute', now() at time zone 'Pacific/Kiritimati') + interval '1 minute', 'HH24:MI'), '00:00'), '24:00'))));
   select public.save_show(
     '00000000-0000-0000-0000-000000000503', 'Agora no oeste', 'MUSICAL'::public.show_kind,
     'L'::public.show_age_rating, current_date - 30,
     jsonb_build_array(jsonb_build_object(
-      'days',   jsonb_build_array(extract(isodow from (now() at time zone 'Pacific/Niue'))::int),
-      'starts', to_char((now() at time zone 'Pacific/Niue') - interval '1 minute', 'HH24:MI'),
-      'ends',   to_char((now() at time zone 'Pacific/Niue') + interval '1 minute', 'HH24:MI'))))
+      'days',   jsonb_build_array(extract(isodow from date_trunc('minute', now() at time zone 'Pacific/Niue'))::int),
+      'starts', to_char(date_trunc('minute', now() at time zone 'Pacific/Niue'), 'HH24:MI'),
+      'ends',   coalesce(nullif(to_char(date_trunc('minute', now() at time zone 'Pacific/Niue') + interval '1 minute', 'HH24:MI'), '00:00'), '24:00'))))
 $$, 'each Station gets a programme covering its own local minute');
 
 select is(
