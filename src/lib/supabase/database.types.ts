@@ -6092,6 +6092,8 @@ export type Database = {
         | "rules"
         | "image_use"
         | "sponsor_communication"
+        | "whatsapp_marketing"
+        | "email_marketing"
         | "identification"
       member_erasure_reason:
         | "subject_request"
@@ -6151,6 +6153,8 @@ export type Database = {
         | "LINK_MENU"
         | "LINK_PROMOTION"
         | "COUNTRY"
+        | "MARKETING_CONSENT"
+        | "MARKETING_STOPPED"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       template_variable:
         | "LISTENER_FIRST_NAME"
@@ -6347,6 +6351,8 @@ export const Constants = {
         "rules",
         "image_use",
         "sponsor_communication",
+        "whatsapp_marketing",
+        "email_marketing",
         "identification",
       ],
       member_erasure_reason: [
@@ -6410,6 +6416,8 @@ export const Constants = {
         "LINK_MENU",
         "LINK_PROMOTION",
         "COUNTRY",
+        "MARKETING_CONSENT",
+        "MARKETING_STOPPED",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       template_variable: [

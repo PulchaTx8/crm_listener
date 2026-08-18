@@ -32,6 +32,7 @@ const ALL_KEYS: SystemMessageKey[] = [
   'CITY',
   'NEIGHBOURHOOD',
   'AGE',
+  'GENDER',
   'CPF',
   'PASSPORT',
   'DISCOVERY_SOURCE',
@@ -39,6 +40,9 @@ const ALL_KEYS: SystemMessageKey[] = [
   'LINK_MUSIC',
   'LINK_MENU',
   'LINK_PROMOTION',
+  'COUNTRY',
+  'MARKETING_CONSENT',
+  'MARKETING_STOPPED',
 ];
 
 describe('SYSTEM_MESSAGE_DEFAULTS', () => {
