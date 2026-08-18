@@ -4438,8 +4438,8 @@ export type Database = {
         Args: { p_all_stations?: boolean; p_token_hash: string }
         Returns: {
           company_id: string
+          consents_written: number
           member_id: string
-          stations_left: number
         }[]
       }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }

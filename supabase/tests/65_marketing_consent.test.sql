@@ -1,5 +1,5 @@
 begin;
-select plan(62);
+select plan(66);
 
 -- Block 29c. Consent per channel, and the two things the conversation says
 -- about it. Separate values rather than one 'marketing' because §18 of the
@@ -454,7 +454,7 @@ $$, 'a token can also be minted for a group exit');
 -- calling again -- a second call on the same hash is the spent-token case,
 -- proven separately below.
 select is(
-  (select stations_left from public.consume_unsubscribe_token(repeat('b', 64), true)),
+  (select consents_written from public.consume_unsubscribe_token(repeat('b', 64), true)),
   4, 'four rows written: two linked Stations, two channels each');
 
 -- BOTH CHANNELS, EACH LINKED STATION. A listener asking to leave the group is
@@ -510,6 +510,33 @@ select is(
 select throws_ok($$
   select public.consume_unsubscribe_token(repeat('b', 64), true)
 $$, 'P0002', null, 'a spent group token cannot be spent again either');
+
+-- Fix round 2, F15 (Critical). Before this round, issue_unsubscribe_token
+-- checked only that the Station existed -- any authenticated session could
+-- mint a token for a listener and Station it had no relationship to.
+-- Reuses 29a8/29c9 from the group-exit block above: the fixture already
+-- proved that pair is not linked.
+select throws_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029a8',
+    '00000000-0000-0000-0000-0000000029c9',
+    repeat('c', 64), null)
+$$, '42501', null, 'minting for a listener not linked to the named Station is refused');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.issue_unsubscribe_token(uuid,uuid,text,text)', 'EXECUTE'),
+  'service_role holds EXECUTE -- the campaign sender that mints a token is a worker, not a user session');
+
+select ok(
+  not has_function_privilege('authenticated',
+    'public.issue_unsubscribe_token(uuid,uuid,text,text)', 'EXECUTE'),
+  'not authenticated -- F15, granting this to a user session let any operator mint a token for a listener outside their own Organization');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.issue_unsubscribe_token(uuid,uuid,text,text)', 'EXECUTE'),
+  'nor anon -- only the door that SPENDS a token is anon''s to hold');
 
 select finish();
 rollback;

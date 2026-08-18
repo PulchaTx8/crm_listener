@@ -29,11 +29,15 @@ create table public.unsubscribe_tokens (
 );
 
 alter table public.unsubscribe_tokens enable row level security;
+revoke all on public.unsubscribe_tokens from anon, authenticated;
 
 -- NO POLICY, deliberately. Nothing reads this table as a user: the public page
 -- reaches it only through consume_unsubscribe_token below, which is SECURITY
 -- DEFINER precisely so an unauthenticated visitor can spend a token without
--- being able to read the table it lives in.
+-- being able to read the table it lives in. The revoke above is belt-and-
+-- braces, the same pairing widget_link_tokens (0178) uses: RLS with no policy
+-- already blocks every path, and the explicit revoke says so rather than
+-- leaving it to be inferred from the policy list's silence.
 comment on table public.unsubscribe_tokens is
   'Block 29c. One-time tokens behind the unsubscribe link in a campaign e-mail. Hashed like widget_link_tokens (0178); RLS on with no policy, because the only reachable path is consume_unsubscribe_token.';
 
@@ -59,6 +63,18 @@ begin
     raise exception 'station not found: %', p_company_id using errcode = 'P0002';
   end if;
 
+  -- Fix round 2, F15 (Critical). p_member_id and p_company_id arrive as two
+  -- independent parameters -- nothing above this line proved they name the
+  -- same listener's own relationship, and this door minted a token for ANY
+  -- member/Station pair regardless of who called it. member_linked_to_company
+  -- (0034) is the same guard withdraw_marketing_by_phone and
+  -- record_conversation_marketing_answer (0231) already gate on, so a token
+  -- cannot bind a listener to a Station that never linked them no matter what
+  -- this function is later granted to.
+  if not public.member_linked_to_company(p_member_id, p_company_id) then
+    raise exception 'permission denied: listener is not linked to this station' using errcode = '42501';
+  end if;
+
   insert into public.unsubscribe_tokens
     (organization_id, company_id, member_id, token_hash, campaign_label)
   values (v_org, p_company_id, p_member_id, p_token_hash, p_campaign_label)
@@ -72,7 +88,7 @@ create function public.consume_unsubscribe_token(
   p_token_hash   text,
   p_all_stations boolean default false
 )
-returns table (member_id uuid, company_id uuid, stations_left int)
+returns table (member_id uuid, company_id uuid, consents_written int)
 language plpgsql
 security definer
 set search_path = pg_catalog, public
@@ -123,11 +139,22 @@ begin
 end;
 $$;
 
+-- Fix round 2, F15 (Critical). service_role ONLY, not authenticated: nothing
+-- in this block mints from a user session -- the campaign sender that calls
+-- this is a worker, the same shape withdraw_marketing_by_phone and
+-- record_conversation_marketing_answer (0231) already are. Granted to
+-- authenticated, ANY logged-in user in this multi-tenant CRM could mint a
+-- token binding a listener of an Organization they cannot otherwise touch,
+-- then spend it and force a real consent withdrawal -- the in-body
+-- member_linked_to_company check above is kept regardless, so a future
+-- re-grant to authenticated cannot silently reopen this.
 revoke execute on function public.issue_unsubscribe_token(uuid, uuid, text, text) from public;
-grant execute on function public.issue_unsubscribe_token(uuid, uuid, text, text) to authenticated;
+grant execute on function public.issue_unsubscribe_token(uuid, uuid, text, text) to service_role;
 
--- anon HOLDS THIS ONE, and it is the only door in this project that it holds
--- for a write. The visitor clicking "descadastrar" has no account and never
+-- anon HOLDS THIS. The other write anon already holds is contact_requests'
+-- own INSERT (0006's own comment calls that one "the single public write in
+-- the system", which this makes no longer true) -- this is the second, not
+-- the only one. The visitor clicking "descadastrar" has no account and never
 -- will; the alternative is asking somebody to log in before they may stop
 -- receiving mail, which is the pattern that produces complaints instead.
 revoke execute on function public.consume_unsubscribe_token(text, boolean) from public;
