@@ -1885,7 +1885,9 @@ git commit -m "feat(templates): the shape the marketing form posts, and the read
 
 **Files:**
 - Create: `src/app/(app)/messages/templates/marketing-grid.tsx`, `src/app/(app)/messages/templates/template-dialog.tsx`
-- Modify: `src/app/(app)/messages/templates/page.tsx`, `src/app/(app)/messages/templates/actions.ts`
+- Modify: `src/app/(app)/messages/templates/page.tsx`, `src/app/(app)/messages/templates/actions.ts`, `src/app/(app)/messages/templates/template-registry.tsx`, `src/schemas/templates.ts`, `tests/unit/templates-schema.test.ts`, `messages/en.json`, `messages/pt.json`, `messages/es.json`
+
+**Every key these screens render lands here, in all three catalogues** — the grid, the dialog, the channel badges, the preview, and the seven `variable_<VALUE>` labels. Task 10 verifies them; it does not add them. A screen shipped against keys the catalogues do not hold fails its own gate, which is the whole reason the keys travel with the screen.
 
 **Interfaces:**
 - Consumes: `listTemplates`, `saveMarketingTemplate` (Task 8), `renderCampaignEmail` (Task 6), `CAMPAIGN_VARIABLES` (Task 5).
@@ -1917,12 +1919,24 @@ The empty state names the act: "No marketing templates yet — create one to sen
 
 Give every conditionally rendered `<Button>` a distinct `key`. Two buttons in the same position without one let React reuse the DOM node and the survivor inherits `type="submit"` — which is how a participation was once recorded by a button nobody pressed.
 
-- [ ] **Step 4: Run the gates**
+- [ ] **Step 4: The system screen stops posting prose**
+
+This step exists because §8 of the spec is wrong. It says the system group's screen is unchanged, and it is not: `register_message_template` now writes `template_variable[]`, so the free-text boxes in `template-registry.tsx` — where an operator types "nome do ouvinte" to describe what `{{1}}` carries — post values the door refuses. The screen would fail on every registration.
+
+Three files move together, and they move together because they are one change:
+
+`src/schemas/templates.ts`: retype `templateRegistrationSchema.variables` from `z.array(z.string().trim().min(1).max(MAX_VARIABLE_DESCRIPTION))` to an array over the closed vocabulary. `MAX_VARIABLE_DESCRIPTION` then has no remaining use — delete it rather than leave a constant nothing reads. Keep the `superRefine` that counts placeholders exactly as it is: the rule "one entry per `{{n}}`" is unchanged, and only what an entry may CONTAIN has narrowed.
+
+`src/app/(app)/messages/templates/template-registry.tsx`: each positional input becomes a `<select>` over `CAMPAIGN_VARIABLES`, labelled `t(\`variable_${value}\`)`. The question the form asks is the same one it asked before — what does `{{1}}` carry — and the answer is now chosen instead of typed. The card that lists a registered template's variables (its `template.variables.map(...)`) renders the same labels rather than the raw enum tokens.
+
+`tests/unit/templates-schema.test.ts`: its fixtures pass prose ("nome do ouvinte", "prêmio", "prazo") and several will now fail. Replace the values, keep every case. The case asserting a blank entry is rejected keeps its meaning — a value outside the vocabulary is refused — so rewrite it to assert that rather than deleting it.
+
+- [ ] **Step 5: Run the gates**
 
 Run: `npx tsc --noEmit && npm run lint 2>&1 | tail -2 && npx vitest run 2>&1 | tail -4`
 Expected: clean, clean, all tests passing.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add "src/app/(app)/messages/templates"
@@ -1934,11 +1948,22 @@ git commit -m "feat(templates): the system cards, and a grid for everything an o
 ### Task 10: i18n, the e2e, and the four pins no compiler sees
 
 **Files:**
-- Modify: `messages/en.json`, `messages/pt.json`, `messages/es.json`, `tests/e2e/templates.spec.ts`
+- Modify: `tests/unit/i18n/catalogue.test.ts`, `tests/e2e/templates.spec.ts`
 
-- [ ] **Step 1: Add every key to all three catalogues**
+- [ ] **Step 1: Verify the catalogues, do not add to them**
 
-Namespace: `templates` only — the grid, the dialog, the channel badges, the preview.
+Every key this block introduces lands with the screen that renders it — Task 7's
+in the `app` namespace, Task 9's in `templates`, including the seven
+`variable_<VALUE>` labels. A screen that shipped referencing keys three files do
+not hold would have failed its own gate, so by the time this task runs they are
+all present.
+
+So this step reads rather than writes: confirm `messages/en.json`,
+`messages/pt.json` and `messages/es.json` each hold every key Tasks 7 and 9
+reference, and that the three files agree. Add nothing here. A key added twice
+is a conflict in three files at once, and `tests/unit/i18n/catalogue.test.ts`
+would not catch it — it checks parity between the languages, not which task put
+a key there.
 
 The `app` namespace is **not** this task's. Task 7's tab cannot render without its own labels, so `emailFromName`, `emailFromAddress`, `emailReplyTo`, `emailIdentityDomainWarning`, `tabEmail`, `save`, `saving` and `saved` all land with Task 7. Adding them again here would be a merge conflict against a file three languages wide. Verify they are present; do not re-add them.
 
