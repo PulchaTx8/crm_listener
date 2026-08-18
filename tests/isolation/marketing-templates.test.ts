@@ -37,18 +37,24 @@ describe('Block 29b-1 — the marketing template door', () => {
     await cleanupUsers();
   }, 60_000);
 
+  type SaveArgs = Omit<
+    Database['public']['Functions']['save_marketing_template']['Args'],
+    'p_company_id'
+  >;
+
   async function save(
     who: { email: string; password: string },
-    args: Record<string, unknown>,
+    args: SaveArgs,
   ): Promise<{ id?: string; code?: string; message?: string }> {
     const client = await signInAs(who.email, who.password);
-    // `args` is deliberately loose -- every real call below supplies the
-    // required p_channel/p_internal_name/p_body, but the generic Record type
-    // can't prove that through a spread, which is what the cast is for.
+    // The helper always supplies p_company_id from the fixture's own tenant,
+    // so call sites cannot name it — that would risk overriding the company and
+    // breaking isolation. SaveArgs requires exactly p_channel, p_internal_name,
+    // and p_body; the rest are optional.
     const { data, error } = await client.rpc('save_marketing_template', {
       p_company_id: customer.companyId,
       ...args,
-    } as Database['public']['Functions']['save_marketing_template']['Args']);
+    });
     return { id: data as string | undefined, code: error?.code, message: error?.message };
   }
 
