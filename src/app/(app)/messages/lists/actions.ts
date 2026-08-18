@@ -23,6 +23,7 @@ import type {
 import {
   createSendList,
   deleteSendList,
+  filterMemberIdsLinkedToStation,
   listReach,
   renameSendList,
   resolveListMembers,
@@ -215,19 +216,45 @@ export type ResolveSendListPreviewState =
  * catches by type rather than folding into the generic error -- a capped
  * filter gets its own message, telling the operator to narrow rather than
  * reading as an unrelated failure.
+ *
+ * `companyId` (fix round 1, F6): the Station this list will belong to,
+ * ALWAYS the caller's real, already-resolved choice -- never optional, and
+ * the dialog does not call this action for Members until one is chosen (see
+ * create-list-dialog.tsx's own `noStation` state). USED ONLY for `members`:
+ * that source resolves Organization-wide (resolveMemberIds' own comment,
+ * services/send-lists.ts), while create_send_list aborts the WHOLE creation
+ * on the first candidate it finds unlinked to the chosen Station
+ * (0239:83-91) -- so a Members preview that ignored `companyId` would show a
+ * number the door would refuse for any Organization whose audience spans
+ * more than one Station. Participations and Requests are already scoped to
+ * one Station THROUGH THEIR OWN `filters.companyId` (`listParticipationsPage`/
+ * `listMusicRequestsPage` both take it directly), so `companyId` here is
+ * accepted but unused for those two branches -- narrowing again would be
+ * asking the same question a second time.
  */
 export async function resolveSendListPreviewAction(
   source: SendListSource,
   filters: MemberSendListFilters | ParticipationSendListFilters | RequestSendListFilters,
+  companyId: string,
 ): Promise<ResolveSendListPreviewState> {
   const token = await requireAccessToken();
 
   try {
     let ids: string[];
     switch (source) {
-      case 'members':
-        ids = await resolveListMembers('members', memberSendListFiltersSchema.parse(filters), token);
+      case 'members': {
+        const candidates = await resolveListMembers(
+          'members',
+          memberSendListFiltersSchema.parse(filters),
+          token,
+        );
+        // F6: narrow the Organization-wide candidate set down to who is
+        // actually linked to the Station this list will belong to -- see
+        // filterMemberIdsLinkedToStation's own header for what this does and
+        // does not guarantee.
+        ids = await filterMemberIdsLinkedToStation(candidates, companyId, token);
         break;
+      }
       case 'participations':
         ids = await resolveListMembers(
           'participations',

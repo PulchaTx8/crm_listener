@@ -618,3 +618,67 @@ export async function createSendList(input: CreateSendListInput, accessToken: st
   if (error) throw mapSendListError(error.code, error.message);
   return data;
 }
+
+/**
+ * Task 7, fix round 1 (F6, Important). Which of a MEMBERS candidate set is
+ * actually linked to ONE Station. resolveMemberIds above resolves
+ * Organization-wide (its own comment), but every send list belongs to
+ * exactly one Station (D3), and create_send_list aborts the WHOLE creation
+ * on the FIRST id it finds unlinked to p_company_id (0239:83-91) -- so a
+ * preview that does not narrow by the chosen Station shows a number the door
+ * will not actually accept for any Organization whose Members audience spans
+ * more than one Station, which is the median case, not an edge one.
+ *
+ * CHUNKED, never one id per request and never one unbounded read of "every
+ * listener linked to this Station" -- bounded by the SAME RESOLVE_CAP-bounded
+ * candidate set resolveMemberIds already produced, at 200 ids per request
+ * (a `.in()` list PostgREST carries comfortably in one URL) rather than the
+ * whole candidate set in one query.
+ *
+ * READ AS THE CALLER, under member_company_links_select_reachable's own RLS
+ * (0035) -- platform admin, the Organization's owner, or members.view at the
+ * Station -- NOT messaging.manage, the permission this feature actually
+ * requires to reach this dialog at all. create_send_list's own linkage check
+ * (member_linked_to_company, invoked from INSIDE its own SECURITY DEFINER
+ * body) is not limited this way; this client-side read is. A caller holding
+ * messaging.manage but none of members.view/owner/platform-admin at the
+ * chosen Station will see FEWER links than truly exist. This does not break
+ * the promise the count exists to make, though: RLS only ever HIDES a real
+ * row, never fabricates one, so every id this function returns IS a genuine
+ * link and create_send_list will accept it -- the visible gap costs such a
+ * caller a SMALLER list than a more-privileged caller would see, never a
+ * count that disagrees with what actually gets created. Closing the gap
+ * itself would need a new SECURITY DEFINER door (the same shape 0240 took for
+ * the analogous fixed-list-reach gap, Task 5 fix round 1) and this fix
+ * round's own gates name no database step, so it is left open and named here
+ * rather than silently accepted.
+ */
+export async function filterMemberIdsLinkedToStation(
+  memberIds: string[],
+  companyId: string,
+  accessToken: string,
+): Promise<string[]> {
+  if (memberIds.length === 0) return [];
+
+  const client = asCaller(accessToken);
+  const linked = new Set<string>();
+  const CHUNK = 200;
+
+  for (let i = 0; i < memberIds.length; i += CHUNK) {
+    const chunk = memberIds.slice(i, i + CHUNK);
+    const { data, error } = await client
+      .from('member_company_links')
+      .select('member_id')
+      .eq('company_id', companyId)
+      .in('member_id', chunk);
+
+    if (error) {
+      throw new InternalError(
+        `Could not check Station linkage for a send list preview: ${error.message}`,
+      );
+    }
+    for (const row of data ?? []) linked.add(row.member_id);
+  }
+
+  return memberIds.filter((id) => linked.has(id));
+}

@@ -717,12 +717,13 @@
     "chooseAStation": "Elija una Emisora…",
     "listKindLivingHelp": "Se recalcula a partir de estos filtros cada vez que se usa — crece o disminuye según quién encaje cambie.",
     "listKindFixedHelp": "Congela a las personas de hoy. Esta lista nunca vuelve a cambiar, aunque los filtros luego coincidan con otra persona.",
+    "sendListChooseStationFirst": "Elija una Emisora para ver a quién incluiría esta lista.",
     "resolvingSendListCount": "Contando quién encaja…",
     "sendListWillHold": "Esta lista tendrá {count, plural, one {# persona} other {# personas}}.",
     "sendListFixedNeedsAtLeastOne": "Una lista fija necesita al menos una persona — amplíe los filtros o elija Viva.",
     "sendListTooManyPeople": "Ese filtro encuentra más de {cap} personas — redúzcalo antes de crear la lista.",
     "sendListPreviewFailed": "No se pudo contar a quién tendría esta lista. Inténtelo de nuevo.",
-    "sendListMemberNotLinked": "Algunos de estos oyentes no están vinculados a la Emisora elegida. Elija otra Emisora o reduzca los filtros.",
+    "sendListMemberNotLinked": "Algunos de estos oyentes no están vinculados a la Emisora elegida, o esa Emisora ya no está disponible. Elija otra Emisora o reduzca los filtros.",
     "actionCreateASendList": "crear una lista de envío"
   },
   "connectWhatsApp": {

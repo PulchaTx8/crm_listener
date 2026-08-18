@@ -1,7 +1,7 @@
 'use client';
 
 import type { FormEvent } from 'react';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -20,6 +20,8 @@ import type {
 type SendListFilters = MemberSendListFilters | ParticipationSendListFilters | RequestSendListFilters;
 
 type ResolveState =
+  /** No Station chosen yet (Members only) -- there is nothing to resolve against, so nothing is asked for (fix round 1, F6). */
+  | { status: 'noStation' }
   | { status: 'loading' }
   | { status: 'ok'; ids: string[] }
   | { status: 'capped'; message: string }
@@ -83,32 +85,67 @@ export function CreateSendListDialog({
   const needsStationChoice = companyId === null;
   const effectiveCompanyId = companyId ?? pickedCompanyId;
 
-  /**
-   * Resolved ONCE per opening, independent of `kind` and of the Station
-   * choice below: resolveListMembers (Task 4) answers "who matches these
-   * filters", and neither which Station the list will belong to nor whether
-   * it freezes that answer or re-asks it later changes what the filters
-   * themselves match right now. Re-run on every open (never once for the
-   * component's whole lifetime, which spans many openings) because this
-   * component is never remounted between them -- see the header above.
-   */
-  async function openDialog() {
+  function openDialog() {
     setName('');
     setKind('living');
     setPickedCompanyId('');
     setSaveError(null);
     setOpen(true);
+    // Resolution itself happens in the effect below, keyed on `open` and
+    // `effectiveCompanyId` -- setting `pickedCompanyId` back to '' here and
+    // `setOpen(true)` in the same handler batch into one re-render, so the
+    // effect's first run after opening already sees the fresh, empty choice
+    // rather than whatever a previous session left behind.
+  }
+
+  /**
+   * Resolves the count, or asks for a Station first (fix round 1, F6).
+   *
+   * RE-RUNS ON `effectiveCompanyId` CHANGING, not only once per opening: for
+   * Members (the only source with `needsStationChoice`), the Station picked
+   * changes WHICH candidates are actually linked
+   * (filterMemberIdsLinkedToStation, services/send-lists.ts) and therefore
+   * changes the count itself -- the whole reason F6 exists. For
+   * Participations/Requests `effectiveCompanyId` never changes after mount
+   * (it IS `companyId`, fixed), so this fires exactly once, the same
+   * behaviour Task 7's first version had.
+   *
+   * NOTHING IS ASKED FOR while Members has no Station yet
+   * (`effectiveCompanyId === ''`): resolveSendListPreviewAction needs a real
+   * Station to narrow Members against (see its own header), and Save is
+   * already disabled without one, so asking early would only be a wasted
+   * round trip whose answer nobody could act on.
+   *
+   * `cancelled` guards against an in-flight request from a Station the
+   * operator has since changed away from resolving AFTER a newer one already
+   * has -- picking Station A then quickly B must never leave A's stale
+   * answer on screen because it happened to respond second.
+   */
+  useEffect(() => {
+    if (!open) return;
+    if (effectiveCompanyId === '') {
+      setResolve({ status: 'noStation' });
+      return;
+    }
+
+    let cancelled = false;
     setResolve({ status: 'loading' });
 
-    const result = await resolveSendListPreviewAction(source, filters);
-    if (result.status === 'ok') {
-      setResolve({ status: 'ok', ids: result.ids });
-    } else if (result.status === 'capped') {
-      setResolve({ status: 'capped', message: result.message });
-    } else {
-      setResolve({ status: 'error', message: result.message });
-    }
-  }
+    void resolveSendListPreviewAction(source, filters, effectiveCompanyId).then((result) => {
+      if (cancelled) return;
+      if (result.status === 'ok') {
+        setResolve({ status: 'ok', ids: result.ids });
+      } else if (result.status === 'capped') {
+        setResolve({ status: 'capped', message: result.message });
+      } else {
+        setResolve({ status: 'error', message: result.message });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, effectiveCompanyId, source, filters]);
 
   const resolvedCount = resolve.status === 'ok' ? resolve.ids.length : null;
   // A FIXED list needs at least one person (create_send_list's own 22023) --
@@ -157,9 +194,7 @@ export function CreateSendListDialog({
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => {
-          void openDialog();
-        }}
+        onClick={openDialog}
         data-testid="create-send-list-button"
       >
         {t('createSendListButton')}
@@ -249,6 +284,9 @@ export function CreateSendListDialog({
               happens to the number afterward differs completely.
             */}
             <div className="text-sm" data-testid="create-send-list-count">
+              {resolve.status === 'noStation' && (
+                <span className="text-muted-foreground">{t('sendListChooseStationFirst')}</span>
+              )}
               {resolve.status === 'loading' && (
                 <span className="text-muted-foreground">{t('resolvingSendListCount')}</span>
               )}

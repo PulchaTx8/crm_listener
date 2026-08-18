@@ -717,12 +717,13 @@
     "chooseAStation": "Choose a Station…",
     "listKindLivingHelp": "Resolved from these filters again every time it is used — grows or shrinks as who matches changes.",
     "listKindFixedHelp": "Freezes today's people. This list never changes again, even if the filters would later match someone else.",
+    "sendListChooseStationFirst": "Choose a Station to see who this list would include.",
     "resolvingSendListCount": "Counting who matches…",
     "sendListWillHold": "This list will hold {count, plural, one {# person} other {# people}}.",
     "sendListFixedNeedsAtLeastOne": "A fixed list needs at least one person — widen the filters, or choose Living instead.",
     "sendListTooManyPeople": "This filter matches more than {cap} people — narrow it before creating the list.",
     "sendListPreviewFailed": "Could not count who this list would hold. Try again.",
-    "sendListMemberNotLinked": "Some of these listeners are not linked to the chosen Station. Pick a different Station, or narrow the filters.",
+    "sendListMemberNotLinked": "Some of these listeners are not linked to the chosen Station, or that Station is no longer available. Pick a different Station, or narrow the filters.",
     "actionCreateASendList": "create a send list"
   },
   "connectWhatsApp": {

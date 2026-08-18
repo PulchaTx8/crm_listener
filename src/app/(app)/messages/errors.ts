@@ -189,6 +189,13 @@ export function describeSendListWriteError(
  * `describeClearMessageError`/`describeServiceHashtagsError` set for their
  * own doors' locally-distinct `P0002`, rather than folded into the shared
  * generic text.
+ *
+ * Fix round 1 (F7, Minor): `sendListMemberNotLinked`'s own text names BOTH
+ * causes rather than only the reachable one -- the two cannot be told apart
+ * client-side (0239 raises the identical code for either), and naming only
+ * the more likely cause would tell an operator something specific that might
+ * not be what happened, which is worse than one honest sentence covering
+ * both. The door itself is unchanged; only the catalogue string was.
  */
 export function describeCreateSendListError(
   cause: unknown,
