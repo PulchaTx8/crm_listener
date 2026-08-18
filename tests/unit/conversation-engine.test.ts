@@ -9,6 +9,13 @@ import {
   FIELD_PROMPTS,
   firstPrompt,
   GENDER_BUTTON_LABELS,
+  MARKETING_CONSENT_MESSAGE,
+  MARKETING_NO_BUTTON_LABEL,
+  MARKETING_NO_ID,
+  MARKETING_YES_BUTTON_LABEL,
+  MARKETING_YES_ID,
+  marketingAnswerFromButtonId,
+  marketingConsentSteps,
   PromptContextError,
   REFUSAL_MESSAGE,
 } from '@/lib/conversation/engine';
@@ -98,6 +105,10 @@ function context(overrides: Partial<PromptContext> = {}): PromptContext {
         options: [],
       },
     },
+    // False by default, matching what every REAL context arrives with (this
+    // file's own comment on the field): true is something a caller sets
+    // deliberately, not the ordinary state of a turn.
+    needsMarketingConsent: false,
     ...overrides,
   };
 }
@@ -733,5 +744,100 @@ describe('a text-shaped field', () => {
   it('goes out as plain text, with no buttons attached', () => {
     const turn = expectPrompt(advance(conversation([CONSENT, CITY]), button(CONSENT_YES_ID), context()));
     expect(turn.outbound.kind).toBe('text');
+  });
+});
+
+describe('the marketing consent step', () => {
+  it('uses button ids of its own, never the rules-consent ones', () => {
+    // engine.ts has carried CONSENT_YES_ID/CONSENT_NO_ID since Block 5b for
+    // accepting a promotion's rules. A shared id would make "I accept the
+    // rules" and "send me campaigns" the same tap.
+    expect(MARKETING_YES_ID).toBe('marketing_yes');
+    expect(MARKETING_NO_ID).toBe('marketing_no');
+  });
+
+  it('reads a tap as an answer', () => {
+    expect(marketingAnswerFromButtonId(MARKETING_YES_ID)).toBe(true);
+    expect(marketingAnswerFromButtonId(MARKETING_NO_ID)).toBe(false);
+  });
+
+  it('reads anything else as no answer at all', () => {
+    // null, not false: a listener who typed something is not a listener who
+    // declined, and recording a decline they did not make is the one outcome
+    // this step must never produce.
+    expect(marketingAnswerFromButtonId('consent_yes')).toBeNull();
+    expect(marketingAnswerFromButtonId('whatever')).toBeNull();
+  });
+});
+
+describe('marketingConsentSteps', () => {
+  it('includes the step only when the service says nobody has been asked yet', () => {
+    expect(marketingConsentSteps(context({ needsMarketingConsent: true }))).toEqual([
+      { kind: 'marketing_consent' },
+    ]);
+  });
+
+  it('is empty when the service found an existing row -- present or absent, D2', () => {
+    expect(marketingConsentSteps(context({ needsMarketingConsent: false }))).toEqual([]);
+  });
+});
+
+describe('the marketing consent prompt', () => {
+  const MARKETING: Step = { kind: 'marketing_consent' };
+
+  it('asks MARKETING_CONSENT with Sim/Não, no header', () => {
+    const outbound = firstPrompt(conversation([MARKETING]), context());
+    const message = expectButtons(outbound);
+
+    expect(message.body).toBe(MARKETING_CONSENT_MESSAGE);
+    expect(message.buttons).toEqual([
+      { id: MARKETING_YES_ID, title: MARKETING_YES_BUTTON_LABEL },
+      { id: MARKETING_NO_ID, title: MARKETING_NO_BUTTON_LABEL },
+    ]);
+    expect(message.imageUrl).toBeNull();
+  });
+
+  it("carries the Station's own wording when it has overridden the question", () => {
+    const outbound = firstPrompt(
+      conversation([MARKETING]),
+      context({ systemMessages: { MARKETING_CONSENT: 'Quer novidades no WhatsApp?' } }),
+    );
+    expect(expectButtons(outbound).body).toBe('Quer novidades no WhatsApp?');
+  });
+
+  it('a tap of YES writes the answer and ends the turn -- nothing left to save or send', () => {
+    const turn = advance(conversation([MARKETING]), button(MARKETING_YES_ID), context());
+    expect(turn).toStrictEqual({ kind: 'marketing_answered', granted: true });
+  });
+
+  it('a tap of NO writes the answer the same way', () => {
+    const turn = advance(conversation([MARKETING]), button(MARKETING_NO_ID), context());
+    expect(turn).toStrictEqual({ kind: 'marketing_answered', granted: false });
+  });
+
+  it('an unrecognised tap writes nothing -- it re-prompts instead', () => {
+    const turn = expectPrompt(advance(conversation([MARKETING]), button('some-other-id'), context()));
+    expect(turn.conversation.reprompts).toBe(1);
+    expect(turn.conversation.cursor).toBe(0);
+  });
+
+  it('typing instead of tapping also writes nothing at the engine level', () => {
+    // isStopWord is read by the SERVICE (src/services/conversation.ts), not by
+    // this module -- engine.ts's own header limits its imports to ./steps and
+    // interactive.ts. At this layer alone, text is simply not an answer to a
+    // button-shaped question, the same rule consentTurn already states.
+    const turn = expectPrompt(advance(conversation([MARKETING]), text('parar'), context()));
+    expect(turn.conversation.reprompts).toBe(1);
+  });
+
+  it('abandons after the fourth unusable answer, the same cap every step shares', () => {
+    let conv = conversation([MARKETING]);
+    for (const expected of [1, 2, 3]) {
+      const turn = expectPrompt(advance(conv, text('não sei'), context()));
+      expect(turn.conversation.reprompts).toBe(expected);
+      conv = turn.conversation;
+    }
+    const fourth = advance(conv, text('não sei'), context());
+    expect(fourth.kind).toBe('abandon');
   });
 });

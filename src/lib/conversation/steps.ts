@@ -156,7 +156,13 @@ export type SystemMessageOverrides = Partial<Record<SystemMessageKey, string>>;
 export type Step =
   | { kind: 'consent' }
   | { kind: 'field'; field: RequestedField }
-  | { kind: 'question'; questionId: string; questionKind: QuestionKind };
+  | { kind: 'question'; questionId: string; questionKind: QuestionKind }
+  // NOT a RequestedField, and that is the structural decision of Block 29c.
+  // Requested fields are what a PROMOTION asks and an operator picks from; as
+  // one of those, whether the product asks for marketing consent at all would
+  // depend on each operator remembering to tick a box, and compliance would be
+  // a per-promotion accident. It is a step of the engine instead.
+  | { kind: 'marketing_consent' };
 
 /** One answered question. `optionId` for a list, `answerText` for an essay -- never both. */
 export interface QuestionAnswer {
@@ -261,6 +267,18 @@ export interface PromptContext {
   /** This Station's own wording, per text. Absent keys are the ordinary case. */
   systemMessages: SystemMessageOverrides;
   questions: Record<string, QuestionPrompt>;
+  /**
+   * Block 29c, D2's "once". Whether the SERVICE has checked `member_consents`
+   * and found no `whatsapp_marketing` row for this listener at this Station
+   * yet -- a lookup the engine may not do itself (this file's own header: no
+   * database, no clock). False on every context built for an ordinary turn,
+   * because that lookup is only useful the moment a participation has just
+   * been recorded (`marketingConsentSteps`, engine.ts) and running it on
+   * every turn would be a query twenty-nine turns out of thirty never need.
+   * True is therefore never the DEFAULT for a context -- it is something the
+   * service sets deliberately, once, right before deciding whether to ask.
+   */
+  needsMarketingConsent: boolean;
 }
 
 /**
@@ -277,4 +295,17 @@ export type Turn =
   | { kind: 'refused'; outbound: Outbound }
   | { kind: 'complete'; conversation: Conversation }
   | { kind: 'abandon'; outbound: Outbound }
-  | { kind: 'ignore' };
+  | { kind: 'ignore' }
+  /**
+   * Block 29c. The marketing_consent step was answered by a recognised tap.
+   * Carries neither `conversation` nor `outbound`, the same reasoning
+   * `refused`/`abandon` give for carrying no conversation: this step is
+   * always the only one in its own follow-up conversation (`engine.ts`,
+   * `marketingConsentSteps`), so there is nothing left to save, and the
+   * answer is silence rather than a reply -- the tap is its own confirmation,
+   * the same way a WhatsApp button stays visibly pressed. `granted` is the
+   * one value the caller could not otherwise recover: it is what
+   * `record_member_consent` (0034) needs and the engine is the only place
+   * that reads `MARKETING_YES_ID`/`MARKETING_NO_ID` off the wire.
+   */
+  | { kind: 'marketing_answered'; granted: boolean };

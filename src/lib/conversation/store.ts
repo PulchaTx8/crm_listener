@@ -72,6 +72,15 @@ const stepSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('consent') }),
   z.object({ kind: z.literal('field'), field: requestedField }),
   z.object({ kind: z.literal('question'), questionId: z.string(), questionKind }),
+  // Block 29c. Never built by whatsapp_conversation_steps (0066) -- that step
+  // list ends the moment a participation is recorded, on purpose (spec §6:
+  // "runs after the participation is recorded, never before"), so this
+  // literal is written by the SERVICE alone, the one time it saves the
+  // follow-up conversation `marketingConsentSteps` (engine.ts) produces. It
+  // still belongs in this schema: the store validates whatever it reads back
+  // on the next turn, and a step this union does not know would fail exactly
+  // the way a mismatch between this file and the SQL side always has.
+  z.object({ kind: z.literal('marketing_consent') }),
 ]);
 
 /**

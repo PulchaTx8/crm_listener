@@ -56,6 +56,38 @@ export const CONSENT_YES_ID = 'consent_yes';
 export const CONSENT_NO_ID = 'consent_no';
 
 /**
+ * The marketing step's own button ids.
+ *
+ * SEPARATE FROM CONSENT_YES_ID/CONSENT_NO_ID above, which are the promotion's
+ * rules acceptance. Sharing them would make one tap mean two consents, which is
+ * exactly the bundling the LGPD treats as no consent at all.
+ */
+export const MARKETING_YES_ID = 'marketing_yes';
+export const MARKETING_NO_ID = 'marketing_no';
+
+/**
+ * Null rather than false for an unrecognised tap: a listener who typed
+ * something has not declined, and writing a `granted = false` row they never
+ * asked for is worse than asking again.
+ */
+export function marketingAnswerFromButtonId(buttonId: string): boolean | null {
+  if (buttonId === MARKETING_YES_ID) return true;
+  if (buttonId === MARKETING_NO_ID) return false;
+  return null;
+}
+
+/**
+ * The marketing question's own two buttons, Sim/Não. NOT overridable by a
+ * Station -- the same asymmetry GENDER_BUTTON_LABELS carries below, and for
+ * the same reason: station_message_templates (0109) holds one body per key,
+ * so a Station may already reword the QUESTION
+ * (SYSTEM_MESSAGE_DEFAULTS.MARKETING_CONSENT) and cannot reword its two
+ * ANSWERS.
+ */
+export const MARKETING_YES_BUTTON_LABEL = 'Sim';
+export const MARKETING_NO_BUTTON_LABEL = 'Não';
+
+/**
  * Listener-facing copy. Portuguese, per the block's language rule (code and
  * comments English; only what the listener reads is not), and constants rather
  * than columns because the owner called them copy, changeable without a
@@ -369,7 +401,29 @@ export function advance(
       return fieldTurn(conversation, step.field, message, context);
     case 'question':
       return questionTurn(conversation, step, message, context);
+    case 'marketing_consent':
+      return marketingConsentTurn(conversation, message, context);
   }
+}
+
+/**
+ * Block 29c. Answered by a tap, and by nothing else -- the same rule
+ * `consentTurn` states for the promotion's own two buttons. Text is not a
+ * second way to answer this one the way it is for the gender field: a stop
+ * word typed here is withdrawal, not an answer, and reading it is the
+ * SERVICE's job (`advanceLive`, src/services/conversation.ts), not this
+ * function's -- this module may import only `./steps` and `interactive.ts`
+ * (this file's header), and `@/lib/consent/stop-words` is neither.
+ */
+function marketingConsentTurn(
+  conversation: Conversation,
+  message: InboundAnswer,
+  context: PromptContext,
+): Turn {
+  if (message.kind !== 'button') return failure(conversation, context);
+  const granted = marketingAnswerFromButtonId(message.buttonId);
+  if (granted === null) return failure(conversation, context);
+  return { kind: 'marketing_answered', granted };
 }
 
 function consentTurn(
@@ -566,7 +620,37 @@ function promptFor(step: Step, context: PromptContext): Outbound {
       return fieldOutbound(step.field, context);
     case 'question':
       return questionOutbound(step, context);
+    case 'marketing_consent':
+      return {
+        kind: 'interactive',
+        interactive: {
+          kind: 'buttons',
+          body: resolveSystemMessage(context.systemMessages, 'MARKETING_CONSENT'),
+          // No header, the same reasoning fieldOutbound gives for the gender
+          // buttons: this asks about the listener, not the promotion, and the
+          // promotion is the only thing in this conversation that has art.
+          imageUrl: null,
+          buttons: [
+            { id: MARKETING_YES_ID, title: MARKETING_YES_BUTTON_LABEL },
+            { id: MARKETING_NO_ID, title: MARKETING_NO_BUTTON_LABEL },
+          ],
+        },
+      };
   }
+}
+
+/**
+ * Block 29c. The follow-up conversation a just-completed participation may
+ * still owe: one step, asked only when `context.needsMarketingConsent` says
+ * the service found no whatsapp_marketing row for this listener at this
+ * Station yet (D2's "once"). An empty array on the other branch, not null,
+ * so the caller's "is there anything to send" is one array check away --
+ * `firstPrompt` throws on an empty step list, so the caller must make that
+ * check regardless, and an empty array is the cheaper thing to check than a
+ * second kind of absence.
+ */
+export function marketingConsentSteps(context: PromptContext): Step[] {
+  return context.needsMarketingConsent ? [{ kind: 'marketing_consent' }] : [];
 }
 
 /**

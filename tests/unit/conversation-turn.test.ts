@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CONSENT_NO_ID, CONSENT_YES_ID } from '@/lib/conversation/engine';
+import {
+  CONSENT_NO_ID,
+  CONSENT_YES_ID,
+  MARKETING_NO_ID,
+  MARKETING_YES_ID,
+} from '@/lib/conversation/engine';
 import type { Conversation } from '@/lib/conversation/steps';
 import type { ConversationKey, ConversationStore } from '@/lib/conversation/store';
 import type { Database } from '@/lib/supabase/database.types';
@@ -26,11 +31,27 @@ interface RpcCall {
   args: Record<string, unknown>;
 }
 
+/**
+ * Block 29c. `.from(table)` reads, alongside the `.rpc()` fake above --
+ * `companyIdForPromotion` and `hasWhatsappMarketingConsentRecord`
+ * (src/services/conversation.ts) are plain PostgREST reads, not RPCs, the
+ * same way `whatsapp.ts` already reads `outbox_messages` directly. Configured
+ * per TABLE rather than per exact filter: these two tests care about WHICH
+ * table was asked and what it answered, not about re-implementing PostgREST's
+ * own query builder.
+ */
+interface FromCall {
+  table: string;
+  eqs: Record<string, unknown>;
+}
+
 class FakeDb {
   readonly rpcs: RpcCall[] = [];
+  readonly fromCalls: FromCall[] = [];
   constructor(
     private readonly replies: Record<string, unknown> = {},
     private readonly errors: Record<string, string> = {},
+    private readonly tableReplies: Record<string, unknown> = {},
   ) {}
 
   rpc(fn: string, args: Record<string, unknown>) {
@@ -42,6 +63,27 @@ class FakeDb {
 
   called(fn: string): RpcCall | undefined {
     return this.rpcs.find((call) => call.fn === fn);
+  }
+
+  from(table: string) {
+    const call: FromCall = { table, eqs: {} };
+    const reply = () => Promise.resolve({ data: this.tableReplies[table] ?? null, error: null });
+    const builder = {
+      select: () => builder,
+      eq: (column: string, value: unknown) => {
+        call.eqs[column] = value;
+        return builder;
+      },
+      single: () => {
+        this.fromCalls.push(call);
+        return reply();
+      },
+      limit: (_n: number) => {
+        this.fromCalls.push(call);
+        return reply();
+      },
+    };
+    return builder;
   }
 }
 
@@ -101,6 +143,7 @@ const INTEGRATION = '44444444-4444-4444-4444-444444444444';
 const QUESTION = '55555555-5555-5555-5555-555555555555';
 const OPTION = '66666666-6666-6666-6666-666666666666';
 const EXTERNAL_ID = 'a'.repeat(64);
+const COMPANY = '88888888-8888-8888-8888-888888888888';
 
 const promotionContext = {
   name: 'Disney',
@@ -516,5 +559,213 @@ describe('runConversationTurn', () => {
     ).rejects.toMatchObject({ message: 'permission denied' });
 
     expect(db.called('release_conversation_turn')?.args).toMatchObject({ p_token: LEASE_TOKEN });
+  });
+});
+
+/**
+ * Block 29c. The wiring the brief's Step 4 does not carry on its own:
+ * `maybeAskMarketingConsent` (starts the follow-up, and only once per D2),
+ * the tap that ends it, and the stop word that ends it early.
+ *
+ * `whatsapp_prompt_context`'s reply below adds no `systemMessages` key for
+ * MARKETING_CONSENT/MARKETING_STOPPED, on purpose: these cases prove the
+ * WIRING, and the wording itself -- default vs. a Station's override -- is
+ * already `resolveSystemMessage`'s own proof (system-message-resolution
+ * tests) and the engine-level prompt cases in conversation-engine.test.ts.
+ */
+function marketingConsentConversation(overrides: Partial<Conversation> = {}): Conversation {
+  return conversation({
+    steps: [{ kind: 'marketing_consent' }],
+    cursor: 0,
+    answers: { fields: {}, questions: [] },
+    ...overrides,
+  });
+}
+
+describe('Block 29c: the marketing consent follow-up', () => {
+  it('is asked when the completed participation leaves no whatsapp_marketing row behind', async () => {
+    const db = new FakeDb(
+      {
+        claim_conversation_turn: LEASE_TOKEN,
+        whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+        complete_whatsapp_conversation: { status: 'VALID', participation_id: 'p-1' },
+      },
+      {},
+      { promotions: { company_id: COMPANY }, member_consents: [] },
+    );
+    const store = new FakeStore(
+      conversation({ steps: [{ kind: 'field', field: 'cpf' }], cursor: 0 }),
+    );
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ text: '390.533.447-05' }),
+    );
+
+    expect(outcome).toEqual({ kind: 'completed', status: 'VALID' });
+    // The state before the message, same rule `open()` follows and the same
+    // file-header reason: a Sim/Não button with no state behind it is a
+    // button nobody is listening for.
+    expect(store.saved).toHaveLength(1);
+    expect(store.saved[0]?.steps).toEqual([{ kind: 'marketing_consent' }]);
+    expect(store.saved[0]?.cursor).toBe(0);
+
+    const enqueued = db.called('enqueue_whatsapp_outbound');
+    expect(enqueued?.args.p_dedupe_key).toBe(`${EXTERNAL_ID}:marketing_consent`);
+    expect(db.fromCalls.some((c) => c.table === 'member_consents')).toBe(true);
+  });
+
+  it('is not asked when a whatsapp_marketing row already exists -- granted true or false, D2', async () => {
+    const db = new FakeDb(
+      {
+        claim_conversation_turn: LEASE_TOKEN,
+        whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+        complete_whatsapp_conversation: { status: 'VALID', participation_id: 'p-1' },
+      },
+      {},
+      // A withdrawal (granted: false) is still a row: D2 asks once, not once
+      // per answer.
+      { promotions: { company_id: COMPANY }, member_consents: [{ id: 'existing-consent' }] },
+    );
+    const store = new FakeStore(
+      conversation({ steps: [{ kind: 'field', field: 'cpf' }], cursor: 0 }),
+    );
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ text: '390.533.447-05' }),
+    );
+
+    expect(outcome).toEqual({ kind: 'completed', status: 'VALID' });
+    // Nothing saved: the follow-up never starts, so there is no second state
+    // to write and nothing new to send.
+    expect(store.saved).toHaveLength(0);
+    expect(db.called('enqueue_whatsapp_outbound')).toBeUndefined();
+  });
+
+  it('a tap writes the right value through record_member_consent, and ends the turn silently', async () => {
+    const db = new FakeDb(
+      {
+        claim_conversation_turn: LEASE_TOKEN,
+        whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      },
+      {},
+      { promotions: { company_id: COMPANY } },
+    );
+    const store = new FakeStore(marketingConsentConversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ reply: { kind: 'button', id: MARKETING_YES_ID, title: 'Sim' } }),
+    );
+
+    expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: true });
+    expect(db.called('record_member_consent')?.args).toMatchObject({
+      p_member_id: MEMBER,
+      p_company_id: COMPANY,
+      p_consent_type: 'whatsapp_marketing',
+      p_granted: true,
+      p_origin: 'conversation',
+      p_promotion_id: PROMOTION,
+    });
+    expect(store.cleared).toBe(1);
+    // Silence, not a reply: the tap is its own confirmation, the same way a
+    // WhatsApp button stays visibly pressed.
+    expect(db.called('enqueue_whatsapp_outbound')).toBeUndefined();
+  });
+
+  it('a NO tap writes granted: false the same way', async () => {
+    const db = new FakeDb(
+      {
+        claim_conversation_turn: LEASE_TOKEN,
+        whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      },
+      {},
+      { promotions: { company_id: COMPANY } },
+    );
+    const store = new FakeStore(marketingConsentConversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ reply: { kind: 'button', id: MARKETING_NO_ID, title: 'Não' } }),
+    );
+
+    expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: false });
+    expect(db.called('record_member_consent')?.args).toMatchObject({ p_granted: false });
+  });
+
+  it('an unrecognised tap writes nothing at all and re-prompts instead', async () => {
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+    });
+    const store = new FakeStore(marketingConsentConversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ reply: { kind: 'button', id: 'some-stale-button', title: 'x' } }),
+    );
+
+    expect(outcome).toEqual({ kind: 'prompted' });
+    expect(db.called('record_member_consent')).toBeUndefined();
+    expect(store.saved[0]?.reprompts).toBe(1);
+    // Never reached: an unrecognised tap has no company to look up.
+    expect(db.fromCalls.some((c) => c.table === 'promotions')).toBe(false);
+  });
+
+  it('a stop word typed AT the marketing question withdraws and replies, outside a promotion flow', async () => {
+    const db = new FakeDb(
+      {
+        claim_conversation_turn: LEASE_TOKEN,
+        whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      },
+      {},
+      { promotions: { company_id: COMPANY } },
+    );
+    const store = new FakeStore(marketingConsentConversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ text: 'PARAR' }),
+    );
+
+    expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: false });
+    expect(db.called('record_member_consent')?.args).toMatchObject({
+      p_member_id: MEMBER,
+      p_company_id: COMPANY,
+      p_consent_type: 'whatsapp_marketing',
+      p_granted: false,
+      p_origin: 'conversation',
+    });
+    const enqueued = db.called('enqueue_whatsapp_outbound');
+    expect(enqueued?.args.p_dedupe_key).toBe(`${EXTERNAL_ID}:marketing_stopped`);
+    expect(store.cleared).toBe(1);
+  });
+
+  /**
+   * The case the brief's own example names: "which city" answered with
+   * PARAR is abandoning the FIELD, not withdrawing consent. The fixture is
+   * the file's ordinary `conversation()` -- a live consent step, nothing to
+   * do with Block 29c -- which is the point: this is what every other turn
+   * in this file already looks like, and a stop word must not behave any
+   * differently there.
+   */
+  it('a stop word typed mid the ORIGINAL promotion flow does not withdraw', async () => {
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+    });
+    const store = new FakeStore(conversation());
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ text: 'PARAR' }),
+    );
+
+    // An ordinary re-prompt: consentTurn refuses text of any kind, stop word
+    // or not, exactly as it already refuses "sim".
+    expect(outcome).toEqual({ kind: 'prompted' });
+    expect(db.called('record_member_consent')).toBeUndefined();
+    expect(db.fromCalls).toHaveLength(0);
   });
 });
