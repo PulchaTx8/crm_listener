@@ -311,6 +311,9 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           description: string | null
+          email_from_address: string | null
+          email_from_name: string | null
+          email_reply_to: string | null
           facebook_url: string | null
           fiscal_email: string | null
           frequency_khz: number | null
@@ -350,6 +353,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           description?: string | null
+          email_from_address?: string | null
+          email_from_name?: string | null
+          email_reply_to?: string | null
           facebook_url?: string | null
           fiscal_email?: string | null
           frequency_khz?: number | null
@@ -389,6 +395,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           description?: string | null
+          email_from_address?: string | null
+          email_from_name?: string | null
+          email_reply_to?: string | null
           facebook_url?: string | null
           fiscal_email?: string | null
           frequency_khz?: number | null
@@ -1459,48 +1468,72 @@ export type Database = {
       message_templates: {
         Row: {
           body: string
+          channel: Database["public"]["Enums"]["message_channel"]
           company_id: string
           created_at: string
           created_by: string | null
           deleted_at: string | null
+          description: string | null
+          from_email: string | null
+          from_name: string | null
           id: string
-          language: string
-          name: string
+          internal_name: string
+          language: string | null
+          name: string | null
           organization_id: string
           otp_button: boolean
-          purpose: Database["public"]["Enums"]["template_purpose"]
+          purpose: Database["public"]["Enums"]["template_purpose"] | null
+          reply_to: string | null
+          subject: string | null
           updated_at: string
-          variables: Json
+          updated_by: string | null
+          variables: Database["public"]["Enums"]["template_variable"][]
         }
         Insert: {
           body: string
+          channel: Database["public"]["Enums"]["message_channel"]
           company_id: string
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          description?: string | null
+          from_email?: string | null
+          from_name?: string | null
           id?: string
-          language: string
-          name: string
+          internal_name: string
+          language?: string | null
+          name?: string | null
           organization_id: string
           otp_button?: boolean
-          purpose: Database["public"]["Enums"]["template_purpose"]
+          purpose?: Database["public"]["Enums"]["template_purpose"] | null
+          reply_to?: string | null
+          subject?: string | null
           updated_at?: string
-          variables?: Json
+          updated_by?: string | null
+          variables?: Database["public"]["Enums"]["template_variable"][]
         }
         Update: {
           body?: string
+          channel?: Database["public"]["Enums"]["message_channel"]
           company_id?: string
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
+          description?: string | null
+          from_email?: string | null
+          from_name?: string | null
           id?: string
-          language?: string
-          name?: string
+          internal_name?: string
+          language?: string | null
+          name?: string | null
           organization_id?: string
           otp_button?: boolean
-          purpose?: Database["public"]["Enums"]["template_purpose"]
+          purpose?: Database["public"]["Enums"]["template_purpose"] | null
+          reply_to?: string | null
+          subject?: string | null
           updated_at?: string
-          variables?: Json
+          updated_by?: string | null
+          variables?: Database["public"]["Enums"]["template_variable"][]
         }
         Relationships: [
           {
@@ -5568,6 +5601,24 @@ export type Database = {
         }
         Returns: string
       }
+      save_marketing_template: {
+        Args: {
+          p_body: string
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_description?: string
+          p_from_email?: string
+          p_from_name?: string
+          p_id?: string
+          p_internal_name: string
+          p_language?: string
+          p_name?: string
+          p_reply_to?: string
+          p_subject?: string
+          p_variables?: Json
+        }
+        Returns: string
+      }
       save_prize_category: {
         Args: { p_category_id?: string; p_company_id: string; p_name: string }
         Returns: string
@@ -5608,6 +5659,15 @@ export type Database = {
           p_title?: string
         }
         Returns: string
+      }
+      save_station_email_identity: {
+        Args: {
+          p_company_id: string
+          p_from_address?: string
+          p_from_name?: string
+          p_reply_to?: string
+        }
+        Returns: undefined
       }
       save_vendor: {
         Args: {
@@ -6037,6 +6097,7 @@ export type Database = {
         | "subject_request"
         | "court_order"
         | "internal_policy"
+      message_channel: "WHATSAPP" | "EMAIL"
       music_merge_kind: "SONG" | "ARTIST" | "LABEL" | "GENRE" | "SHOW"
       music_nationality: "DOMESTIC" | "INTERNATIONAL"
       music_reference_kind: "GENRE" | "LABEL" | "ARTIST" | "SHOW" | "SONGWRITER"
@@ -6091,6 +6152,14 @@ export type Database = {
         | "LINK_PROMOTION"
         | "COUNTRY"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
+      template_variable:
+        | "LISTENER_FIRST_NAME"
+        | "LISTENER_FULL_NAME"
+        | "LISTENER_CITY"
+        | "STATION_NAME"
+        | "PRIZE_NAME"
+        | "PICKUP_DEADLINE"
+        | "VERIFICATION_CODE"
       webhook_event_status: "RECEIVED" | "PROCESSING" | "DONE" | "FAILED"
       widget_link_purpose: "MUSIC" | "MENU" | "PROMOTION"
       winner_status:
@@ -6285,6 +6354,7 @@ export const Constants = {
         "court_order",
         "internal_policy",
       ],
+      message_channel: ["WHATSAPP", "EMAIL"],
       music_merge_kind: ["SONG", "ARTIST", "LABEL", "GENRE", "SHOW"],
       music_nationality: ["DOMESTIC", "INTERNATIONAL"],
       music_reference_kind: ["GENRE", "LABEL", "ARTIST", "SHOW", "SONGWRITER"],
@@ -6342,6 +6412,15 @@ export const Constants = {
         "COUNTRY",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
+      template_variable: [
+        "LISTENER_FIRST_NAME",
+        "LISTENER_FULL_NAME",
+        "LISTENER_CITY",
+        "STATION_NAME",
+        "PRIZE_NAME",
+        "PICKUP_DEADLINE",
+        "VERIFICATION_CODE",
+      ],
       webhook_event_status: ["RECEIVED", "PROCESSING", "DONE", "FAILED"],
       widget_link_purpose: ["MUSIC", "MENU", "PROMOTION"],
       winner_status: [

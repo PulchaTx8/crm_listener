@@ -1,5 +1,5 @@
 begin;
-select plan(82);
+select plan(81);
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-00000000e4f1', 'Org templates');
@@ -106,11 +106,15 @@ select is(
 
 -- 12: a blank name is refused. '   ' would satisfy NOT NULL and register a
 -- template whose recorded name does not match what Meta approved.
+-- Block 29b-1: channel and internal_name are NOT NULL now (0223), so both are
+-- supplied here even though neither is what this assertion is about --
+-- omitted, the NOT NULL violation on channel would fire before the CHECK
+-- this test exists to prove, and 23502 is not 23514.
 select throws_ok($$
   insert into public.message_templates
-    (organization_id, company_id, purpose, name, language, body)
+    (organization_id, company_id, purpose, channel, internal_name, name, language, body)
   values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-          'PICKUP_REMINDER', '   ', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!')
+          'PICKUP_REMINDER', 'WHATSAPP', 'x', '   ', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!')
 $$, '23514', null, 'a blank name is refused by the check constraint');
 
 -- 13: a blank language is refused, same reasoning as 12 — the Cloud API
@@ -119,42 +123,45 @@ $$, '23514', null, 'a blank name is refused by the check constraint');
 -- constraints, and a failure here says which column let a blank through.
 select throws_ok($$
   insert into public.message_templates
-    (organization_id, company_id, purpose, name, language, body)
+    (organization_id, company_id, purpose, channel, internal_name, name, language, body)
   values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-          'PICKUP_REMINDER', 'Lembrete de retirada', '   ', 'Oi {{1}}, seu prêmio te espera!')
+          'PICKUP_REMINDER', 'WHATSAPP', 'x', 'Lembrete de retirada', '   ', 'Oi {{1}}, seu prêmio te espera!')
 $$, '23514', null, 'a blank language is refused by the check constraint');
 
 -- 14: a blank body is refused — the column a listener actually reads, and a
 -- third distinct check constraint from 12 and 13.
 select throws_ok($$
   insert into public.message_templates
-    (organization_id, company_id, purpose, name, language, body)
+    (organization_id, company_id, purpose, channel, internal_name, name, language, body)
   values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-          'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', '   ')
+          'PICKUP_REMINDER', 'WHATSAPP', 'x', 'Lembrete de retirada', 'pt_BR', '   ')
 $$, '23514', null, 'a blank body is refused by the check constraint');
 
--- 15: variables must be a JSON array. Task 3's enqueue indexes it
--- positionally by {{1}}..{{n}}; an object here would fail only at send time,
--- not at write time.
-select throws_ok($$
-  insert into public.message_templates
-    (organization_id, company_id, purpose, name, language, body, variables)
-  values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-          'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!',
-          '{"1": "nome"}'::jsonb)
-$$, '23514', null, 'variables must be a JSON array, not an object');
+-- 15 DELETED (fix round 1, R6/F1). This asserted message_templates_variables_is_array
+-- (0110): a jsonb object written where the array belonged was refused with
+-- 23514. 0223 dropped that constraint along with the jsonb column itself --
+-- `variables` is now public.template_variable[], and there is no longer a
+-- shape of jsonb that assigns to an array column at all, object or otherwise.
+-- The invariant this test named ("variables must be a JSON array") is now
+-- enforced by the column's own type, which is strictly stronger than a CHECK
+-- that could only ever inspect a jsonb value after the fact -- so there is
+-- nothing left here to assert. Attempting the same insert now raises 42804
+-- (datatype mismatch), a Postgres assignment-cast failure with no SQLSTATE
+-- this file's convention would want asserted on a raw INSERT, and contriving
+-- a replacement CHECK-shaped test would test nothing this schema still needs
+-- proving. Plan count dropped by one, from 82 to 81.
 
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body)
 values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-        'PICKUP_REMINDER', 'Lembrete de retirada', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!');
+        'PICKUP_REMINDER', 'WHATSAPP', 'Lembrete de retirada', 'Lembrete de retirada', 'pt_BR', 'Oi {{1}}, seu prêmio te espera!');
 
 -- 16: one live template per (company_id, purpose).
 select throws_ok($$
   insert into public.message_templates
-    (organization_id, company_id, purpose, name, language, body)
+    (organization_id, company_id, purpose, channel, internal_name, name, language, body)
   values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-          'PICKUP_REMINDER', 'Outro nome', 'pt_BR', 'Outro corpo')
+          'PICKUP_REMINDER', 'WHATSAPP', 'Outro nome', 'Outro nome', 'pt_BR', 'Outro corpo')
 $$, '23505', null, 'a second live template for the same purpose is refused');
 
 -- 17: and archiving the first frees the purpose — the same partial-index
@@ -166,9 +173,9 @@ update public.message_templates set deleted_at = now()
 
 select lives_ok($$
   insert into public.message_templates
-    (organization_id, company_id, purpose, name, language, body)
+    (organization_id, company_id, purpose, channel, internal_name, name, language, body)
   values ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c1',
-          'PICKUP_REMINDER', 'Lembrete novo', 'pt_BR', 'Novo corpo {{1}}')
+          'PICKUP_REMINDER', 'WHATSAPP', 'Lembrete novo', 'Lembrete novo', 'pt_BR', 'Novo corpo {{1}}')
 $$, 'archiving a template frees its purpose for a new registration');
 
 -- 18: authenticated cannot write directly — Task 2 opens no door at all yet;
@@ -254,12 +261,12 @@ values
   ('00000000-0000-0000-0000-00000000e4a7', '00000000-0000-0000-0000-00000000e4f1',
    '00000000-0000-0000-0000-00000000e4c7', 'WHATSAPP', '5511900000700', true);
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body)
 values
   ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c6',
-   'PICKUP_REMINDER', 'Lembrete duas variáveis', 'pt_BR', 'Oi {{1}}, prêmio {{2}}'),
+   'PICKUP_REMINDER', 'WHATSAPP', 'Lembrete duas variáveis', 'Lembrete duas variáveis', 'pt_BR', 'Oi {{1}}, prêmio {{2}}'),
   ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4c7',
-   'PICKUP_REMINDER', 'Lembrete fixo', 'pt_BR', 'Seu prêmio já está te esperando!');
+   'PICKUP_REMINDER', 'WHATSAPP', 'Lembrete fixo', 'Lembrete fixo', 'pt_BR', 'Seu prêmio já está te esperando!');
 
 -- 22-24: the three columns exist, and only as a triple.
 select has_column('public', 'outbox_messages', 'template_name',
@@ -565,13 +572,16 @@ select throws_ok($$
 $$, '42501', null,
   'an override at a Station the caller holds nothing in is refused 42501, not P0002');
 
--- 53: the registry door writes.
+-- 53: the registry door writes. Block 29b-1: the description array is now a
+-- closed vocabulary (0223) rather than prose an operator typed, so the three
+-- positions are named from template_variable in the canonical order the
+-- migration's own backfill comment gives for PICKUP_REMINDER.
 select lives_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
     'lembrete_retirada', 'pt_BR',
     'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}.',
-    '["nome do ouvinte", "prêmio", "prazo"]'::jsonb)
+    '["LISTENER_FULL_NAME", "PRIZE_NAME", "PICKUP_DEADLINE"]'::jsonb)
 $$, 'register_message_template records an approved template');
 
 reset role;
@@ -590,7 +600,7 @@ select is(
 select is(
   (select variables from public.message_templates
     where company_id = '00000000-0000-0000-0000-00000000e4c2' and deleted_at is null),
-  '["nome do ouvinte", "prêmio", "prazo"]'::jsonb,
+  array['LISTENER_FULL_NAME', 'PRIZE_NAME', 'PICKUP_DEADLINE']::public.template_variable[],
   'the registry records what each position means, in order');
 
 set local role authenticated;
@@ -600,7 +610,7 @@ select public.register_message_template(
   '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
   'lembrete_retirada_v2', 'pt_BR',
   'Oi {{1}}, retire seu prêmio {{2}} até {{3}}.',
-  '["nome", "prêmio", "prazo"]'::jsonb);
+  '["LISTENER_FULL_NAME", "PRIZE_NAME", "PICKUP_DEADLINE"]'::jsonb);
 
 reset role;
 
@@ -629,12 +639,17 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", 
 -- caller is Task 4's unattended sweep, whose only signal is a WARNING in a
 -- server log nobody is reading. Refused here, the same mistake is a form error
 -- the operator sees at the moment they can still fix it.
+-- Two VALID tokens, not two prose strings, so the exception actually
+-- exercised is the count check this test names -- with an invalid token the
+-- cast in register_message_template would raise the same 22023 for the wrong
+-- reason, and this assertion (checking only the SQLSTATE) would still pass
+-- without ever proving the count comparison at all.
 select throws_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
     'lembrete_faltando_um', 'pt_BR',
     'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}.',
-    '["nome", "prêmio"]'::jsonb)
+    '["LISTENER_FULL_NAME", "PRIZE_NAME"]'::jsonb)
 $$, '22023', null,
   'a registration whose variable descriptions disagree with the body''s {{n}} count is refused');
 
@@ -642,6 +657,14 @@ $$, '22023', null,
 -- whole (0110's check constraint) cannot see inside it, so a null or a number
 -- here would reach the screen as a blank label beside a field the operator is
 -- being asked to fill in correctly.
+--
+-- Fix round 2 (F3): briefly untested between the first version of 0223 and
+-- this one. The cast to public.template_variable[] alone does not refuse a
+-- JSON null -- casting NULL never raises, confirmed directly against the live
+-- function -- so 0223 now re-runs 0165's own guard, unchanged in shape, ahead
+-- of that cast. Restored to a JSON null rather than left as the invalid-token
+-- input fix round 1 substituted, because a null is the specific case the
+-- guard exists to catch and the cast alone still cannot.
 select throws_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
@@ -653,7 +676,7 @@ $$, '22023', null,
 select throws_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
-    '   ', 'pt_BR', 'Oi {{1}}!', '["nome"]'::jsonb)
+    '   ', 'pt_BR', 'Oi {{1}}!', '["LISTENER_FIRST_NAME"]'::jsonb)
 $$, '22023', null, 'a blank template name is refused by the door');
 
 -- 61: the gate again, on the second door. Both doors take a company_id from
@@ -662,7 +685,7 @@ $$, '22023', null, 'a blank template name is refused by the door');
 select throws_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c9', 'PICKUP_REMINDER',
-    'nao_deveria', 'pt_BR', 'Oi {{1}}!', '["nome"]'::jsonb)
+    'nao_deveria', 'pt_BR', 'Oi {{1}}!', '["LISTENER_FIRST_NAME"]'::jsonb)
 $$, '42501', null,
   'registering at a Station the caller holds nothing in is refused 42501, not P0002');
 
@@ -688,7 +711,7 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-00000000e4b2", 
 select lives_ok($$
   select public.register_message_template(
     '00000000-0000-0000-0000-00000000e4c2', 'PICKUP_REMINDER',
-    'lembrete_depois_de_arquivar', 'pt_BR', 'Oi {{1}}!', '["nome"]'::jsonb)
+    'lembrete_depois_de_arquivar', 'pt_BR', 'Oi {{1}}!', '["LISTENER_FIRST_NAME"]'::jsonb)
 $$, 'an archived purpose can be registered again through the door');
 
 -- 65: archiving an id that names nothing answers 42501, not P0002 — 0093's
@@ -824,7 +847,7 @@ select public.register_message_template(
   '00000000-0000-0000-0000-00000000e4c2', 'WEB_VERIFICATION',
   'pulchtx_widgetcode', 'en_US',
   '*{{1}}* is your verification code.',
-  '["código de verificação"]'::jsonb,
+  '["VERIFICATION_CODE"]'::jsonb,
   true);
 
 reset role;
@@ -861,11 +884,11 @@ reset role;
 -- The registration this Station will actually send, written directly because
 -- the point of 78-79 is the ENQUEUE and the claim, not the door.
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body, variables, otp_button)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body, variables, otp_button)
 values
   ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4ca',
-   'WEB_VERIFICATION', 'pulchtx_widgetcode', 'en_US',
-   '*{{1}}* is your verification code.', '["código"]'::jsonb, true);
+   'WEB_VERIFICATION', 'WHATSAPP', 'pulchtx_widgetcode', 'pulchtx_widgetcode', 'en_US',
+   '*{{1}}* is your verification code.', array['VERIFICATION_CODE']::public.template_variable[], true);
 
 select public.enqueue_whatsapp_outbound(
   '00000000-0000-0000-0000-00000000e4aa', '5511911111110', null,
@@ -910,11 +933,11 @@ values
   ('00000000-0000-0000-0000-00000000e4ab', '00000000-0000-0000-0000-00000000e4f1',
    '00000000-0000-0000-0000-00000000e4cb', 'WHATSAPP', '5511900000111', true);
 insert into public.message_templates
-  (organization_id, company_id, purpose, name, language, body, variables, otp_button)
+  (organization_id, company_id, purpose, channel, internal_name, name, language, body, variables, otp_button)
 values
   ('00000000-0000-0000-0000-00000000e4f1', '00000000-0000-0000-0000-00000000e4cb',
-   'WEB_VERIFICATION', 'pulchtx_sem_codigo', 'en_US',
-   'Your code is ready.', '[]'::jsonb, true);
+   'WEB_VERIFICATION', 'WHATSAPP', 'pulchtx_sem_codigo', 'pulchtx_sem_codigo', 'en_US',
+   'Your code is ready.', '{}'::public.template_variable[], true);
 
 select throws_ok($$
   select public.enqueue_whatsapp_outbound(

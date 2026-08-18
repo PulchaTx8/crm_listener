@@ -476,6 +476,26 @@ const REQUIRED_TEST_FILES = [
   // which is what stops the screen rendering the same blank whether the call
   // succeeded or failed.
   { path: 'tests/isolation/station-settings.test.ts', minTests: 6 },
+  // Block 29b-1. Nine cases over the marketing door, and the floor is the full
+  // count because pgTAP cannot prove any of them -- 64_template_channel.test.sql
+  // holds the shape and the grants as superuser with a null auth.uid(), where
+  // has_permission answers true unconditionally, and every one of these nine is
+  // about what the door does with a REAL session: that templates.view alone is
+  // REFUSED; that a Station may hold more than one marketing template, because
+  // this door inserts by id rather than upserting on purpose the way
+  // register_message_template does; that a mixed-case placeholder like
+  // {{Listener_First_Name}} is recognized rather than silently waved through
+  // unchecked (fix round 1, F7); that an update lands on the same row rather
+  // than inserting a second; and the UPDATE branch's own tenancy terms, proved
+  // by driving all three ways an id can fail them (fix round 1, F10) -- another
+  // Station's row, a SYSTEM registration's row, and an id naming nothing at
+  // all, each refused with P0002, and for the first two the other row asserted
+  // unchanged rather than only the error code. And, since the whole-branch
+  // review (F24), that a JSON null among the variables is refused 22023 rather
+  // than cast to a NULL element -- the guard register_message_template has and
+  // this door, written a task later, did not; the cast cannot catch it, because
+  // casting SQL NULL to any type raises nothing.
+  { path: 'tests/isolation/marketing-templates.test.ts', minTests: 10 },
   // The gender block. Six cases over the tenth requested field, and the floor
   // is the full count because four of them have no other proof anywhere.
   //

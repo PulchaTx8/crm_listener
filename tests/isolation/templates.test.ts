@@ -65,7 +65,10 @@ describe('Block Templates — a Station\'s own words, across Stations', () => {
       p_name: 'lembrete_retirada',
       p_language: 'pt_BR',
       p_body: 'Oi {{1}}, seu prêmio te espera!',
-      p_variables: ['nome do ouvinte'],
+      // Block 29b-1: p_variables is now a closed vocabulary (0223) rather
+      // than prose an operator typed -- LISTENER_FIRST_NAME is a valid
+      // public.template_variable member matching the single {{1}} above.
+      p_variables: ['LISTENER_FIRST_NAME'],
     });
     if (firstError) throw new Error(`fixture registration failed: ${firstError.message}`);
     firstStationTemplateId = firstId as string;
@@ -76,7 +79,10 @@ describe('Block Templates — a Station\'s own words, across Stations', () => {
       p_name: 'lembrete_da_outra_estacao',
       p_language: 'pt_BR',
       p_body: 'Oi {{1}}, seu prêmio te espera!',
-      p_variables: ['nome do ouvinte'],
+      // Block 29b-1: p_variables is now a closed vocabulary (0223) rather
+      // than prose an operator typed -- LISTENER_FIRST_NAME is a valid
+      // public.template_variable member matching the single {{1}} above.
+      p_variables: ['LISTENER_FIRST_NAME'],
     });
     if (secondError) throw new Error(`second-station registration failed: ${secondError.message}`);
     secondStationTemplateId = secondId as string;
@@ -130,7 +136,7 @@ describe('Block Templates — a Station\'s own words, across Stations', () => {
       p_name: 'nao_deveria',
       p_language: 'pt_BR',
       p_body: 'Oi {{1}}!',
-      p_variables: ['nome'],
+      p_variables: ['LISTENER_FIRST_NAME'],
     });
 
     expect(error?.code).toBe('42501');
@@ -192,7 +198,7 @@ describe('Block Templates — a Station\'s own words, across Stations', () => {
       p_name: 'estacao_errada',
       p_language: 'pt_BR',
       p_body: 'Oi {{1}}!',
-      p_variables: ['nome'],
+      p_variables: ['LISTENER_FIRST_NAME'],
     });
 
     expect(error?.code).toBe('42501');
@@ -328,6 +334,11 @@ describe('Block Templates — a Station\'s own words, across Stations', () => {
     const { error } = await client.from('message_templates').insert({
       organization_id: customer.organizationId,
       company_id: customer.companyId,
+      // 0225 made channel and internal_name required columns; this insert is
+      // refused by the missing grant before either is ever validated, so any
+      // values that satisfy the type serve the case.
+      channel: 'WHATSAPP',
+      internal_name: 'pela_porta_dos_fundos',
       purpose: 'PICKUP_REMINDER',
       name: 'pela_porta_dos_fundos',
       language: 'pt_BR',

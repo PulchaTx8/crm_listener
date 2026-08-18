@@ -12,10 +12,12 @@ import {
 import type { Database } from '@/lib/supabase/database.types';
 import { SYSTEM_MESSAGE_DEFAULTS } from '@/lib/conversation/engine';
 import type { SystemMessageKey } from '@/lib/conversation/engine';
+import type { TemplateVariable } from '@/lib/templates/variables';
 import { SYSTEM_MESSAGE_KEYS } from '@/schemas/templates';
 import type {
   ArchiveTemplateInput,
   ClearSystemMessageInput,
+  MarketingTemplateInput,
   ServiceHashtagsFormInput,
   SystemMessageFormInput,
   TemplateRegistrationInput,
@@ -206,12 +208,32 @@ export async function setServiceHashtags(
 
 export interface RegisteredTemplate {
   id: string;
-  purpose: string;
-  name: string;
-  language: string;
+  // Null for a MARKETING template (0225), which carries no purpose of its
+  // own; non-null is one of TEMPLATE_PURPOSES. listTemplates below partitions
+  // on exactly this field.
+  purpose: string | null;
+  channel: 'WHATSAPP' | 'EMAIL';
+  internalName: string;
+  description: string | null;
+  name: string | null;
+  language: string | null;
   body: string;
+  subject: string | null;
+  /**
+   * Block 29b-1, Task 9. The per-template override of this Station's own
+   * sender identity (0223, 0226) — null on every row that sends as the
+   * Station's default, and on every WhatsApp row, which has no sender to
+   * name. Read back here (never only accepted on the way in) for the same
+   * reason `RegisteredTemplate` reads everything else it does: TemplateDialog
+   * prefills an edit from this row, and a save that always submits three
+   * blank fields because the screen never told it what was already there
+   * would clear an override on every edit that did not happen to retype it.
+   */
+  fromName: string | null;
+  fromEmail: string | null;
+  replyTo: string | null;
   /** What each position means, in order. Empty for an approved fixed-text template. */
-  variables: string[];
+  variables: TemplateVariable[];
   /**
    * Whether the approval carries an OTP button — Meta's Authentication
    * category (0165). The send must name that button or the Cloud API refuses
@@ -219,33 +241,126 @@ export interface RegisteredTemplate {
    */
   otpButton: boolean;
   updatedAt: string;
+  /**
+   * Block 29b-1, Task 9. Who last saved this row, for the Marketing grid's
+   * "last updated" column — `message_templates.updated_by` (0223) references
+   * `auth.users`, which is not the table this file can put a name to, so
+   * `listTemplates` below resolves it through `profiles` itself rather than a
+   * second RPC. Null for a row nothing has ever named an actor for (there is
+   * none today — every insert and every update stamps `updated_by` — but the
+   * column carries no NOT NULL, so this stays honest about what it actually
+   * is: nullable). The id itself (`message_templates.updated_by`) has no
+   * reader anywhere in this codebase and is deliberately not carried onto
+   * this type — a field nothing reads is the same defect class as the
+   * marketing OTP checkbox this block already refused to add.
+   */
+  updatedByName: string | null;
 }
 
-export async function listRegisteredTemplates(companyId: string): Promise<RegisteredTemplate[]> {
+/**
+ * Both families `message_templates` holds since 0225, in one query and split
+ * on the field that tells them apart: `purpose is null` is a marketing
+ * template, non-null is a SYSTEM registration. Partitioned here rather than
+ * with two queries because the caller (the Templates screen) renders both
+ * groups from the same read of the same Station.
+ */
+export async function listTemplates(
+  companyId: string,
+): Promise<{ system: RegisteredTemplate[]; marketing: RegisteredTemplate[] }> {
   const supabase = await createUserClient();
   const { data, error } = await supabase
     .from('message_templates')
-    .select('id, purpose, name, language, body, variables, otp_button, updated_at')
+    .select(
+      'id, purpose, channel, internal_name, description, name, language, body, subject, from_name, from_email, reply_to, variables, otp_button, updated_by, updated_at',
+    )
     .eq('company_id', companyId)
-    .order('purpose', { ascending: true });
+    // `purpose` alone orders the SYSTEM half and leaves the MARKETING half
+    // entirely unordered -- every marketing row's purpose is NULL, so the
+    // planner is free to return them in whatever order it happens to produce,
+    // and two renders of the same unchanged Station can disagree. The tiebreak
+    // pair is the one latestRulesConsent (services/members.ts) already uses --
+    // a meaningful column first, then `id` as the total order that guarantees
+    // the result is a function of the data rather than of the plan. Most
+    // paged reads in this file's neighbours (listSongsPage, listPrizesPage)
+    // append `.order('id')` for the same reason.
+    .order('purpose', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('id', { ascending: false });
   if (error) throw mapTemplateError(error.code, error.message);
 
-  return (data ?? []).map((row) => ({
+  // A second, batched read for the name behind `updated_by` — never a join in
+  // the query above, because the column references `auth.users` (0223) and
+  // PostgREST cannot embed across a foreign key that names a schema it does
+  // not expose. Same shape `listMemberStations` (services/members.ts) uses for
+  // its own batch of names: the ids this Station's rows actually carry, read
+  // once, mapped back onto every row that carries one. `profiles_select_org_member`
+  // (0020) is what makes the read itself legal — every actor on a template this
+  // caller can see shares an Organization with them by construction.
+  const actorIds = [...new Set((data ?? []).map((row) => row.updated_by).filter((id): id is string => id !== null))];
+  const { data: profiles, error: profilesError } = actorIds.length
+    ? await supabase.from('profiles').select('id, full_name').in('id', actorIds)
+    : { data: [], error: null };
+  if (profilesError) {
+    throw new InternalError(`Could not read who last updated these templates: ${profilesError.message}`);
+  }
+  const nameById = new Map((profiles ?? []).map((p) => [p.id, p.full_name]));
+
+  const rows: RegisteredTemplate[] = (data ?? []).map((row) => ({
     id: row.id,
     purpose: row.purpose,
+    channel: row.channel,
+    internalName: row.internal_name,
+    description: row.description,
     name: row.name,
     language: row.language,
     body: row.body,
-    // `variables` is jsonb and arrives as Json, which says nothing about its
-    // shape. 0110's check constraint holds it to an array and 0113's door to
-    // an array of non-blank strings; this is what stops a row written before
-    // either from rendering as `[object Object]` on the screen.
-    variables: Array.isArray(row.variables)
-      ? row.variables.filter((value): value is string => typeof value === 'string')
-      : [],
+    subject: row.subject,
+    fromName: row.from_name,
+    fromEmail: row.from_email,
+    replyTo: row.reply_to,
+    // `variables` is `template_variable[]` (0222) since 0225's regeneration,
+    // not the jsonb this comment used to distrust -- the column's own type is
+    // now the shape guarantee, so there is nothing left here to narrow.
+    variables: row.variables,
     otpButton: row.otp_button,
     updatedAt: row.updated_at,
+    updatedByName: row.updated_by ? (nameById.get(row.updated_by) ?? null) : null,
   }));
+
+  return {
+    system: rows.filter((row) => row.purpose !== null),
+    marketing: rows.filter((row) => row.purpose === null),
+  };
+}
+
+/**
+ * Creates or updates a marketing template through `save_marketing_template`
+ * (0225) — the door `register_message_template` cannot serve, because that
+ * one upserts on `(company_id, purpose)` and a marketing template has no
+ * purpose to give that ON CONFLICT clause as a target (0225's own comment).
+ */
+export async function saveMarketingTemplate(
+  input: MarketingTemplateInput,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('save_marketing_template', {
+    p_id: input.templateId,
+    p_company_id: input.companyId,
+    p_channel: input.channel,
+    p_internal_name: input.internalName,
+    p_description: input.description,
+    p_body: input.body,
+    p_subject: input.subject,
+    p_name: input.name,
+    p_language: input.language,
+    p_variables: input.variables,
+    p_from_name: input.fromName,
+    p_from_email: input.fromEmail,
+    p_reply_to: input.replyTo,
+  });
+  if (error) throw mapTemplateError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('save_marketing_template returned no id');
+  return data;
 }
 
 export async function registerTemplate(

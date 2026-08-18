@@ -11,13 +11,19 @@ import {
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
 
+// Block 29b-1, Task 9. Chosen from the vocabulary now, not typed as prose --
+// register_message_template writes template_variable[] (0223) -- and this is
+// PICKUP_REMINDER's own contract in that vocabulary's order: the SAME three
+// values 0223's backfill assigned to every existing row of this purpose, and
+// the same three purposeDetails (template-registry.tsx) prints beside the
+// form as "what this system puts in each position".
 const registration = {
   companyId: COMPANY,
   purpose: 'PICKUP_REMINDER' as const,
   name: 'lembrete_retirada',
   language: 'pt_BR',
   body: 'Oi {{1}}, seu prêmio {{2}} te espera até {{3}}.',
-  variables: ['nome do ouvinte', 'prêmio', 'prazo'],
+  variables: ['LISTENER_FULL_NAME', 'PRIZE_NAME', 'PICKUP_DEADLINE'],
   otpButton: false,
 };
 
@@ -169,7 +175,7 @@ describe('templateRegistrationSchema', () => {
     // stands.
     const result = templateRegistrationSchema.safeParse({
       ...registration,
-      variables: ['nome do ouvinte', 'prêmio'],
+      variables: ['LISTENER_FULL_NAME', 'PRIZE_NAME'],
     });
     expect(result.success).toBe(false);
     // Attached to the field the operator can act on: the body is Meta's
@@ -181,7 +187,7 @@ describe('templateRegistrationSchema', () => {
     const result = templateRegistrationSchema.safeParse({
       ...registration,
       body: 'Seu prêmio já está te esperando!',
-      variables: ['nome do ouvinte'],
+      variables: ['LISTENER_FULL_NAME'],
     });
     expect(result.success).toBe(false);
   });
@@ -206,7 +212,7 @@ describe('templateRegistrationSchema', () => {
         name: 'pulchtx_widgetcode',
         language: 'en_US',
         body: '*{{1}}* is your verification code.',
-        variables: ['código de verificação'],
+        variables: ['VERIFICATION_CODE'],
         otpButton: true,
       }).success,
     ).toBe(true);
@@ -227,10 +233,15 @@ describe('templateRegistrationSchema', () => {
     expect(result.error?.issues[0]?.path).toEqual(['otpButton']);
   });
 
-  it('refuses a blank description among otherwise valid ones', () => {
+  it('refuses a value outside the vocabulary among otherwise valid ones', () => {
+    // This case used to be "a blank description among otherwise valid ones",
+    // back when a position was prose an operator typed. It is chosen from
+    // TEMPLATE_VARIABLES now (Block 29b-1), so what a position CAN be wrong
+    // by is no longer blank text -- it is a value the enum does not have, and
+    // that is what this asserts is still refused.
     const result = templateRegistrationSchema.safeParse({
       ...registration,
-      variables: ['nome do ouvinte', '   ', 'prazo'],
+      variables: ['LISTENER_FULL_NAME', 'NOT_A_REAL_VARIABLE', 'PICKUP_DEADLINE'],
     });
     expect(result.success).toBe(false);
   });

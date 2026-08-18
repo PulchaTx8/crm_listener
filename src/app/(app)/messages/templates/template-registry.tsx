@@ -4,9 +4,10 @@ import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input, Textarea } from '@/components/ui/input';
+import { Input, Select, Textarea } from '@/components/ui/input';
 import { countPlaceholders, TEMPLATE_PURPOSES } from '@/schemas/templates';
 import type { TemplatePurpose } from '@/schemas/templates';
+import { TEMPLATE_VARIABLES } from '@/lib/templates/variables';
 import type { RegisteredTemplate } from '@/services/templates';
 import { formatInstant } from '../../promotions/format';
 import {
@@ -265,10 +266,17 @@ function RegisteredDetails({
           <span className="text-xs font-medium text-muted-foreground">
             {t('whatEachPositionMeans')}</span>
           <ol className="flex flex-col gap-0.5">
-            {template.variables.map((description, index) => (
-              <li key={`${index}-${description}`} className="text-xs">
+            {/*
+              Block 29b-1. `template.variables[index]` is one of TEMPLATE_VARIABLES
+              now, not the prose an operator once typed — register_message_template
+              writes template_variable[] (0223) — so this renders the catalogue
+              label for it rather than the raw enum token, the same translation
+              RegistrationForm's own selects below use to offer it.
+            */}
+            {template.variables.map((value, index) => (
+              <li key={`${index}-${value}`} className="text-xs">
                 <code className="font-mono text-muted-foreground">{`{{${index + 1}}}`}</code>{' '}
-                {description}
+                {t(`variable_${value}`)}
               </li>
             ))}
           </ol>
@@ -283,11 +291,18 @@ function RegisteredDetails({
  * both, because `register_message_template` (0113) is one upsert for both.
  *
  * The body is controlled state rather than an uncontrolled input, and that is
- * the one thing this component needs state for: the number of description
- * fields is derived from the body's own highest `{{n}}` as it is typed, so the
+ * the one thing this component needs state for: the number of variable fields
+ * is derived from the body's own highest `{{n}}` as it is typed, so the
  * cross-field rule schemas/templates.ts enforces on submit cannot be violated
  * by the form in the first place. An operator who pastes a two-placeholder body
  * sees two boxes, not a rejection.
+ *
+ * Block 29b-1. Each position used to be free text — an operator typing "nome
+ * do ouvinte" to describe what `{{1}}` carries — and is a `<select>` over
+ * TEMPLATE_VARIABLES now: `register_message_template` writes
+ * `template_variable[]` (0223), so prose the door would refuse must never
+ * reach it. The question is the same one it always asked, what does `{{1}}`
+ * carry; the answer is chosen instead of typed.
  */
 function RegistrationForm({
   purpose,
@@ -402,14 +417,25 @@ function RegistrationForm({
               <code className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
                 {`{{${index + 1}}}`}
               </code>
-              <Input
+              <Select
                 name="variables"
                 defaultValue={existing?.variables[index] ?? ''}
                 required
-                maxLength={200}
                 className="h-9 max-w-md"
                 aria-label={`What {{${index + 1}}} means`}
-              />
+              >
+                {/* Disabled, value-less: forces a real choice rather than
+                    letting an unpicked position silently submit the first
+                    value in TEMPLATE_VARIABLES. */}
+                <option value="" disabled>
+                  {t('chooseWhatThisPositionCarries')}
+                </option>
+                {TEMPLATE_VARIABLES.map((value) => (
+                  <option key={value} value={value}>
+                    {t(`variable_${value}`)}
+                  </option>
+                ))}
+              </Select>
             </label>
           ))}
         </div>

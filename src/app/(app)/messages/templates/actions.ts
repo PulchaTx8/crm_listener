@@ -5,8 +5,9 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
-import { archiveTemplateSchema, templateRegistrationSchema } from '@/schemas/templates';
-import { archiveTemplate, registerTemplate } from '@/services/templates';
+import { renderCampaignEmail } from '@/lib/mailer/frame';
+import { archiveTemplateSchema, marketingTemplateSchema, templateRegistrationSchema } from '@/schemas/templates';
+import { archiveTemplate, registerTemplate, saveMarketingTemplate } from '@/services/templates';
 import { describeTemplateWriteError } from '../errors';
 
 async function requireAccessToken(): Promise<string> {
@@ -114,6 +115,129 @@ export async function archiveTemplateAction(
     return {
       status: 'error',
       message: describeTemplateWriteError(cause, await getTranslations('templates'), 'actionRemoveARegisteredTemplate'),
+    };
+  }
+}
+
+export type SaveMarketingTemplateState =
+  | { status: 'idle' }
+  | { status: 'saved'; templateId: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Creates a marketing template, or replaces the one named by `templateId` —
+ * one action for both, the same shape `registerTemplateAction` gives its own:
+ * `save_marketing_template` (0225) is one door for both, writing by id rather
+ * than upserting on a conflict target this family has none of (that
+ * function's own header explains why a marketing template cannot use the
+ * system half's ON CONFLICT clause at all).
+ *
+ * `variables` only ever carries anything for a WHATSAPP row — an EMAIL body
+ * names its own placeholders inline, and 0223's own CHECK refuses a non-empty
+ * array on that channel — but the field is read the same way either way:
+ * `save_marketing_template`, not this action, is what has to know which
+ * channel is asking. Reading it uniformly is what lets TemplateDialog render
+ * either shape without this action branching on `channel` to match.
+ */
+export async function saveMarketingTemplateAction(
+  _prev: SaveMarketingTemplateState,
+  formData: FormData,
+): Promise<SaveMarketingTemplateState> {
+  const parsed = marketingTemplateSchema.safeParse({
+    templateId: formData.get('templateId') || undefined,
+    companyId: formData.get('companyId'),
+    channel: formData.get('channel'),
+    internalName: formData.get('internalName'),
+    description: formData.get('description') || undefined,
+    body: formData.get('body'),
+    subject: formData.get('subject') || undefined,
+    name: formData.get('name') || undefined,
+    language: formData.get('language') || undefined,
+    variables: formData.getAll('variables').filter((v): v is string => typeof v === 'string'),
+    fromName: formData.get('fromName') || undefined,
+    fromEmail: formData.get('fromEmail') || undefined,
+    replyTo: formData.get('replyTo') || undefined,
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: parsed.error.issues[0]?.message ?? 'Check the form.' };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    const templateId = await saveMarketingTemplate(parsed.data, token);
+    revalidatePath('/messages/templates');
+    return { status: 'saved', templateId };
+  } catch (cause) {
+    logger.error(
+      { err: cause, companyId: parsed.data.companyId, channel: parsed.data.channel },
+      'save a marketing template failed',
+    );
+    return {
+      status: 'error',
+      message: describeTemplateWriteError(cause, await getTranslations('templates'), 'actionSaveAMarketingTemplate'),
+    };
+  }
+}
+
+export type PreviewCampaignEmailState =
+  | { status: 'ok'; html: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Frames whatever body is typed right now, for the dialog's own Preview
+ * button — read-only and called directly (the shape `getSongRecordAction`,
+ * music/songs/record.ts, already uses for a read that is not a form
+ * submission), never through `useActionState`, because nothing about looking
+ * at a preview should behave like a save.
+ *
+ * THE VARIABLES ARE SHOWN AS TYPED, `{{listener_first_name}}` and all, never
+ * substituted. There is no listener behind a preview — the real substitution
+ * belongs to 29d's send loop, which has a recipient to substitute one for and
+ * this screen never does.
+ *
+ * The one HTML this action returns is read by exactly one thing downstream:
+ * `<iframe sandbox srcdoc={html} />` (frame.ts's own header states the rule
+ * this keeps — this application injects HTML into a page nowhere else).
+ */
+export async function previewCampaignEmailAction(
+  companyId: string,
+  body: string,
+): Promise<PreviewCampaignEmailState> {
+  try {
+    const supabase = await createUserClient();
+    // This does not re-check templates.manage before reading the Station's
+    // name and picture. TemplateDialog only calls this action from a dialog
+    // that page.tsx already gated on `manage` — a courtesy, not the boundary
+    // — and the real boundary is RLS on `companies` (companies_select_org_member):
+    // a caller with no standing in this Station reads no row here at all.
+    // Nothing beyond the operator's own typed body reaches the frame that
+    // RLS does not already show this same caller elsewhere in the console.
+    const { data, error } = await supabase
+      .from('companies')
+      .select('name, thumb_url')
+      .eq('id', companyId)
+      .single();
+
+    if (error || !data) {
+      return {
+        status: 'error',
+        message: (await getTranslations('templates'))('couldNotBuildThePreview'),
+      };
+    }
+
+    const { html } = renderCampaignEmail({
+      stationName: data.name,
+      logoUrl: data.thumb_url,
+      body,
+    });
+    return { status: 'ok', html };
+  } catch (cause) {
+    logger.error({ err: cause, companyId }, 'could not render the campaign preview');
+    return {
+      status: 'error',
+      message: (await getTranslations('templates'))('couldNotBuildThePreview'),
     };
   }
 }

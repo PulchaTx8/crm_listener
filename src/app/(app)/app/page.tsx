@@ -33,11 +33,22 @@ export const dynamic = 'force-dynamic';
  * it. That decision is about the COLUMNS on this card — name, picture,
  * frequency, address — and every one of them is still read-only here and still
  * written from /admin/customers. What the Settings button opens edits none of
- * them: it carries the WhatsApp pairing, which is a row in `integrations` that
- * no screen in the member area could reach at all, and which belongs to the
- * Organization owner rather than to the platform (station-settings.tsx says why
- * at length). The day somebody adds a "Station data" tab to that dialog, D9 is
- * what they are reversing; a WhatsApp tab is not.
+ * them: its WhatsApp tab carries the pairing, which is a row in `integrations`
+ * that no screen in the member area could reach at all, and which belongs to
+ * the Organization owner rather than to the platform (station-settings.tsx
+ * says why at length).
+ *
+ * TASK 7 ADDED A SECOND TAB THAT DOES WRITE TO `companies` — email_from_name,
+ * email_from_address and email_reply_to (0226) — and that is still not the
+ * "Station data" tab the paragraph above was written to rule out, because
+ * those three columns are not among D9's set. D9 is about the card's OWN
+ * columns, the operational identity /admin/customers manages for the
+ * platform; who a Station's campaign mail comes from is a fact this card
+ * never shows and /admin/customers never writes, kept for the Organization
+ * owner for the same reason the pairing is (save_station_email_identity is
+ * gated on is_owner_of_company, not the platform-admin door those other
+ * columns go through). The day somebody adds a tab that edits name, picture,
+ * frequency or address, D9 is what they are reversing; this one is not.
  *
  * THE BUTTON IS GATED ON OWNERSHIP OF THE ORGANIZATION, NOT ON
  * `is_owner_of_company`, and the difference is deliberate. The second is also
@@ -61,7 +72,7 @@ export default async function MemberHomePage() {
     // this exact string, and a `+` between two halves widens the row to
     // GenericStringError and takes every field access down with it.
     // prettier-ignore
-    .select('id, name, organization_id, status, timezone, thumb_url, broadcast_band, frequency_khz, address_line, address_number, neighbourhood, city, state, postal_code')
+    .select('id, name, organization_id, status, timezone, thumb_url, broadcast_band, frequency_khz, address_line, address_number, neighbourhood, city, state, postal_code, email_from_name, email_from_address, email_reply_to')
     .is('deleted_at', null)
     .order('name', { ascending: true });
 
@@ -144,9 +155,15 @@ export default async function MemberHomePage() {
                   {settings.has(c.id) && (
                     <div className="flex justify-end">
                       <StationSettings
+                        companyId={c.id}
                         companyName={c.name}
                         signupUrl={signupUrl}
                         status={settings.get(c.id) ?? null}
+                        emailIdentity={{
+                          fromName: c.email_from_name,
+                          fromAddress: c.email_from_address,
+                          replyTo: c.email_reply_to,
+                        }}
                       />
                     </div>
                   )}
