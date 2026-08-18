@@ -1,5 +1,5 @@
 begin;
-select plan(53);
+select plan(62);
 
 -- Block 29c. Consent per channel, and the two things the conversation says
 -- about it. Separate values rather than one 'marketing' because §18 of the
@@ -426,6 +426,90 @@ $$, 'P0002', null, 'a spent token cannot be spent again');
 select throws_ok($$
   select public.consume_unsubscribe_token(repeat('f', 64), false)
 $$, 'P0002', null, 'and an unknown one answers the same way, telling an attacker nothing');
+
+-- F14. THE GROUP BRANCH (p_all_stations = true). A third Station in the SAME
+-- Organization that this listener was never linked to -- the case a query
+-- matching only on organization_id, and not on member_company_links, would
+-- miss and write for anyway.
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029c9', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent 3');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029a8', '00000000-0000-0000-0000-0000000029c1', 'Saiu do grupo todo');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a8', '00000000-0000-0000-0000-0000000029c2', '00000000-0000-0000-0000-0000000029c1'),
+  ('00000000-0000-0000-0000-0000000029a8', '00000000-0000-0000-0000-0000000029c5', '00000000-0000-0000-0000-0000000029c1');
+
+select lives_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029a8',
+    '00000000-0000-0000-0000-0000000029c2',
+    repeat('b', 64),
+    'Saida do grupo')
+$$, 'a token can also be minted for a group exit');
+
+-- ONE CALL to the door, exactly once: like the single-Station case above,
+-- everything after this reads the rows that call left behind rather than
+-- calling again -- a second call on the same hash is the spent-token case,
+-- proven separately below.
+select is(
+  (select stations_left from public.consume_unsubscribe_token(repeat('b', 64), true)),
+  4, 'four rows written: two linked Stations, two channels each');
+
+-- BOTH CHANNELS, EACH LINKED STATION. A listener asking to leave the group is
+-- not asking for half an exit, unlike the single-Station link above, which
+-- names e-mail because the click itself was in an e-mail.
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c2'
+      and consent_type = 'email_marketing'),
+  false, 'the first linked Station loses e-mail marketing');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c2'
+      and consent_type = 'whatsapp_marketing'),
+  false, 'and WhatsApp marketing too, at the same Station');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c5'
+      and consent_type = 'email_marketing'),
+  false, 'the second linked Station loses e-mail marketing');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c5'
+      and consent_type = 'whatsapp_marketing'),
+  false, 'and WhatsApp marketing too, at the second Station');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c2'
+      and consent_type = 'email_marketing'),
+  'unsubscribe-all:Saida do grupo',
+  'origin names the group exit, apart from a single-Station unsubscribe');
+
+-- THE ASSERTION THAT MATTERS. A branch that ignored member_company_links and
+-- wrote for every Station in the Organization would pass every check above --
+-- this is the one only the join, not the count, catches.
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c9'),
+  0, 'a Station in the same Organization this listener never linked gets nothing');
+
+-- Spent exactly like the single-Station path: the group branch runs through
+-- the same UPDATE ... consumed_at is null guard above it.
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('b', 64), true)
+$$, 'P0002', null, 'a spent group token cannot be spent again either');
 
 select finish();
 rollback;
