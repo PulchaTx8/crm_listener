@@ -3400,6 +3400,64 @@ export type Database = {
         }
         Relationships: []
       }
+      unsubscribe_tokens: {
+        Row: {
+          campaign_label: string | null
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          member_id: string
+          organization_id: string
+          token_hash: string
+        }
+        Insert: {
+          campaign_label?: string | null
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id: string
+          organization_id: string
+          token_hash: string
+        }
+        Update: {
+          campaign_label?: string | null
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unsubscribe_tokens_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "unsubscribe_tokens_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unsubscribe_tokens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendors: {
         Row: {
           address_line: string | null
@@ -4376,6 +4434,14 @@ export type Database = {
         }
         Returns: Json
       }
+      consume_unsubscribe_token: {
+        Args: { p_all_stations?: boolean; p_token_hash: string }
+        Returns: {
+          company_id: string
+          member_id: string
+          stations_left: number
+        }[]
+      }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }
       country_alpha2: { Args: { p_input: string }; Returns: string }
       create_album: {
@@ -4757,6 +4823,15 @@ export type Database = {
           p_scopes: string[]
           p_token_hash: string
           p_token_prefix: string
+        }
+        Returns: string
+      }
+      issue_unsubscribe_token: {
+        Args: {
+          p_campaign_label?: string
+          p_company_id: string
+          p_member_id: string
+          p_token_hash: string
         }
         Returns: string
       }

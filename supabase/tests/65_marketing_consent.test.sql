@@ -1,5 +1,5 @@
 begin;
-select plan(43);
+select plan(53);
 
 -- Block 29c. Consent per channel, and the two things the conversation says
 -- about it. Separate values rather than one 'marketing' because §18 of the
@@ -375,6 +375,57 @@ select ok(
   not has_function_privilege('authenticated',
     'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
   'nor authenticated -- unlike record_member_consent, this is a worker-only door');
+
+-- Task 5. The token behind an unsubscribe link.
+select has_table('public', 'unsubscribe_tokens', 'the token table exists');
+
+select col_type_is('public', 'unsubscribe_tokens', 'token_hash', 'text',
+  'the hash is stored, never the token');
+
+select has_function('public', 'issue_unsubscribe_token',
+  array['uuid','uuid','text','text'], 'a campaign can mint one');
+
+select has_function('public', 'consume_unsubscribe_token',
+  array['text','boolean'], 'and the public page can spend it');
+
+-- Spending it writes the withdrawal, scoped to the sending Station (spec D3).
+select lives_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029a2',
+    '00000000-0000-0000-0000-0000000029c2',
+    repeat('a', 64),
+    'Campanha de Natal')
+$$, 'a token is minted for a listener and a Station');
+
+select is(
+  (select company_id from public.consume_unsubscribe_token(repeat('a', 64), false)),
+  '00000000-0000-0000-0000-0000000029c2'::uuid,
+  'spending it names the Station that sent');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a2'
+      and consent_type = 'email_marketing'
+    order by granted_at desc, id desc limit 1),
+  false, 'and writes the withdrawal');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a2'
+      and consent_type = 'email_marketing'
+    order by granted_at desc, id desc limit 1),
+  'unsubscribe:Campanha de Natal',
+  'naming the campaign the listener was reading when they left');
+
+-- A SPENT TOKEN IS SPENT. Mail clients prefetch and people click twice; the
+-- second use must not be a second write.
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('a', 64), false)
+$$, 'P0002', null, 'a spent token cannot be spent again');
+
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('f', 64), false)
+$$, 'P0002', null, 'and an unknown one answers the same way, telling an attacker nothing');
 
 select finish();
 rollback;
