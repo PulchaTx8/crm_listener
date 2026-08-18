@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(31);
 
 -- Block 29c. Consent per channel, and the two things the conversation says
 -- about it. Separate values rather than one 'marketing' because §18 of the
@@ -160,6 +160,116 @@ select ok(
   not has_function_privilege('public',
     'public.members_marketing_eligible_bulk(uuid[],uuid,public.message_channel)', 'EXECUTE'),
   'and PUBLIC holds nothing');
+
+-- Fix round 1, F7. The cold-path stop word: no live conversation, so the
+-- worker resolves the listener from the phone alone.
+select has_function('public', 'withdraw_marketing_by_phone',
+  array['uuid', 'text'],
+  'the cold-path door exists');
+
+-- A second Station in the SAME Organization, so the scoping case below can
+-- prove a phone known at one Station does not withdraw at another --
+-- exactly the miss a predicate matching only on identity would produce.
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029c5', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent 2');
+
+insert into public.integrations (id, organization_id, company_id, provider, phone_number_id, enabled) values
+  ('00000000-0000-0000-0000-0000000029c6', '00000000-0000-0000-0000-0000000029c1',
+   '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP', 'phone-number-id-a', true),
+  ('00000000-0000-0000-0000-0000000029c7', '00000000-0000-0000-0000-0000000029c1',
+   '00000000-0000-0000-0000-0000000029c5', 'WHATSAPP', 'phone-number-id-b', true);
+
+-- 29a5's phone is stored in the LOCAL form, exactly as apply_member_creation
+-- (0061) stores it for a listener this bot registered -- the ordinary case,
+-- and the first of the two forms the door tries.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000029a5', '00000000-0000-0000-0000-0000000029c1',
+   'Conhecida na estacao A', '11999990001');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a5', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+-- A known phone, texted through the Station it is linked to, withdraws.
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c6', '5511999990001')),
+  true, 'a known phone withdraws');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
+  false, 'granted is false');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
+  'stop_word', 'origin names the stop word path, apart from the conversation tap and the unsubscribe link');
+
+-- THE SCOPING CASE (spec D3). The same phone, texted through the OTHER
+-- Station's own integration -- one this listener was never linked to.
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c7', '5511999990001')),
+  false, 'a phone known at another Station in the group does not withdraw here');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where company_id = '00000000-0000-0000-0000-0000000029c5'),
+  0, 'nothing was written for the Station that never linked this listener');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
+  1, 'and the earlier withdrawal at the right Station is untouched');
+
+-- A STRANGER. No member anywhere holds this phone -- the reply a caller
+-- gives has to be able to tell this apart from "withdrew".
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c6', '5511900000000')),
+  false, 'an unknown phone reports no match');
+
+select is(
+  (select count(*)::int from public.member_consents where origin = 'stop_word'),
+  1, 'and writes nothing for it');
+
+-- THE FALLBACK FORM. 29a6's phone is stored FULL, country code and all --
+-- the shape a listener registered through a different door keeps. The LOCAL
+-- form the door tries first (whatsapp_local_phone strips the delivered
+-- phone's country code) does not match it; only the delivered form does,
+-- which is exactly the second attempt ingest_whatsapp_event (0179) already
+-- falls back to, and the reason this door goes through apply_member_lookup
+-- (0061) rather than one hand-written comparison.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000029a6', '00000000-0000-0000-0000-0000000029c1',
+   'Conhecida com o codigo do pais', '5511999990002');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a6', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c6', '5511999990002')),
+  true, 'the delivered form is tried when the local form does not match');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a6' and consent_type = 'whatsapp_marketing'
+      and origin = 'stop_word'),
+  1, 'and resolves to the listener registered under the full form');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
+  'service_role holds EXECUTE -- the worker has no other identity to call this as');
+
+select ok(
+  not has_function_privilege('anon', 'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
+  'anon may not');
+
+select ok(
+  not has_function_privilege('authenticated', 'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
+  'nor authenticated -- this is a worker door, not an operator one');
 
 select finish();
 rollback;

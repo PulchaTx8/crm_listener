@@ -769,3 +769,74 @@ describe('Block 29c: the marketing consent follow-up', () => {
     expect(db.fromCalls).toHaveLength(0);
   });
 });
+
+/**
+ * Block 29c, fix round 1, F7. The cold path: no live conversation, no
+ * hashtag, nothing but a phone and a stop word. `withdraw_marketing_by_phone`
+ * (0231) resolves the listener IN SQL, so this file's own job is only the
+ * wiring -- call it, and reply only when it says it matched somebody.
+ */
+describe("Block 29c, F7: the cold-path stop word", () => {
+  it('withdraws and replies when the door finds a listener', async () => {
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      withdraw_marketing_by_phone: true,
+    });
+    const store = new FakeStore(null);
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ text: 'PARAR' }),
+    );
+
+    expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: false });
+    expect(db.called('withdraw_marketing_by_phone')?.args).toMatchObject({
+      p_integration_id: INTEGRATION,
+      p_phone: '5511988887777',
+    });
+    const enqueued = db.called('enqueue_whatsapp_outbound');
+    expect(enqueued?.args.p_dedupe_key).toBe(`${EXTERNAL_ID}:marketing_stopped`);
+    expect(db.called('finish_whatsapp_turn')?.args.p_outcome).toBe('no_conversation');
+  });
+
+  it('stays silent -- and sends nothing -- when the door finds no match', async () => {
+    // A stranger, or a listener some OTHER Station knows: withdraw_marketing_by_phone
+    // answers false for both (its own comment), and a reply here would tell
+    // either one "removed" for something that never happened at this Station.
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      withdraw_marketing_by_phone: false,
+    });
+    const store = new FakeStore(null);
+
+    const outcome = await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ text: 'cancelar' }),
+    );
+
+    expect(outcome).toEqual({ kind: 'ignored' });
+    expect(db.called('enqueue_whatsapp_outbound')).toBeUndefined();
+    expect(db.called('finish_whatsapp_turn')?.args.p_outcome).toBe('no_conversation');
+  });
+
+  it('does not call the door for an ordinary message that is not a stop word', async () => {
+    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const store = new FakeStore(null);
+
+    await runConversationTurn({ supabase: asClient(db), store }, turn({ text: 'bom dia' }));
+
+    expect(db.called('withdraw_marketing_by_phone')).toBeUndefined();
+  });
+
+  it('does not call the door for a button/list reply, even if its title happens to read as a stop word', async () => {
+    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const store = new FakeStore(null);
+
+    await runConversationTurn(
+      { supabase: asClient(db), store },
+      turn({ reply: { kind: 'button', id: 'stale', title: 'parar' } }),
+    );
+
+    expect(db.called('withdraw_marketing_by_phone')).toBeUndefined();
+  });
+});

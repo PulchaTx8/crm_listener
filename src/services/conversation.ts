@@ -277,6 +277,46 @@ export async function runConversationTurn(
     if (turn.link) return await sendServiceLink(deps, turn.link);
     if (turn.start) return await open(deps, turn, key);
 
+    // Block 29c, fix round 1, F7. The stop word's OWN case, told apart from
+    // the ordinary silence below: no live conversation to answer, which is
+    // the ORDINARY shape D4 exists for -- a listener replying to a CAMPAIGN,
+    // which never opens a conversation at all. Task 4's own report named
+    // this the gap in its cold-path resolution; withdraw_marketing_by_phone
+    // (0231) is that door, and it is the only place in this file that
+    // resolves a phone to a member without one already in hand -- done IN
+    // SQL, through the same shared core (apply_member_lookup, 0061) every
+    // other door in this block resolves a listener through, because
+    // duplicating phone_normalized's own normalisation here is exactly the
+    // drift 0061's header warns against.
+    if (turn.reply === null && isStopWord(turn.text)) {
+      const { data: matched, error } = await deps.supabase.rpc('withdraw_marketing_by_phone', {
+        p_integration_id: turn.integration_id,
+        p_phone: turn.phone,
+      });
+      if (error) throw error;
+      // A stranger, or a listener this STATION never linked, gets the same
+      // silence anybody else not mid-conversation gets -- the door itself
+      // answers false for exactly that pair of cases (its own comment), so
+      // that this file is never tempted to tell either one "removed" for
+      // something that never happened here.
+      if (matched) {
+        // The code default, not a Station's own override: the door returns
+        // only whether it matched (F7's own contract), not a company id this
+        // file could resolve a wording override from, and the boolean is
+        // cheap in the one direction that matters -- a listener genuinely
+        // gets told they stopped receiving campaigns, even where the exact
+        // words are not this Station's chosen ones.
+        await enqueue(
+          deps,
+          turn,
+          { kind: 'text', body: resolveSystemMessage({}, 'MARKETING_STOPPED') },
+          'marketing_stopped',
+        );
+      }
+      await finish(deps, turn.event_id, 'no_conversation');
+      return matched ? { kind: 'marketing_consent_recorded', granted: false } : { kind: 'ignored' };
+    }
+
     // A message from somebody who is not mid-conversation and whose message
     // opens none. Silence, and the event is closed so it is not retried.
     await finish(deps, turn.event_id, 'no_conversation');

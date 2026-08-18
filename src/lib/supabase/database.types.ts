@@ -6051,6 +6051,10 @@ export type Database = {
         }
         Returns: Json
       }
+      withdraw_marketing_by_phone: {
+        Args: { p_integration_id: string; p_phone: string }
+        Returns: boolean
+      }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
