@@ -4641,6 +4641,17 @@ export type Database = {
         }
         Returns: string
       }
+      create_send_list: {
+        Args: {
+          p_company_id: string
+          p_filters: Json
+          p_kind: Database["public"]["Enums"]["send_list_kind"]
+          p_member_ids: string[]
+          p_name: string
+          p_source: Database["public"]["Enums"]["send_list_source"]
+        }
+        Returns: string
+      }
       create_song: {
         Args: {
           p_album_id?: string
@@ -4679,6 +4690,7 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      delete_send_list: { Args: { p_list_id: string }; Returns: undefined }
       deliver_prize: {
         Args: { p_note?: string; p_winner_id: string }
         Returns: undefined
@@ -5542,6 +5554,10 @@ export type Database = {
       remove_member: { Args: { p_membership_id: string }; Returns: undefined }
       remove_promotion_question: {
         Args: { p_question_id: string }
+        Returns: undefined
+      }
+      rename_send_list: {
+        Args: { p_list_id: string; p_name: string }
         Returns: undefined
       }
       reopen_pickup_deadline: {
