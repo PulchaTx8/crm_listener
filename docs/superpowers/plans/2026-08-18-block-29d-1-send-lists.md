@@ -303,7 +303,7 @@ git commit -m "feat(lists): three doors, each refusing a Station the caller cann
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/unit/send-lists-resolve.test.ts` with the three listing services mocked, asserting: the resolver calls the service matching the source and no other; it returns **distinct** member ids when the underlying pages repeat one (Requests and Participations are per event); it **drops a null member_id**, which `list_music_requests` can return for a request whose listener was never resolved; it pages until exhausted rather than returning only the first page; and it stops at `RESOLVE_CAP` and reports that it was capped rather than silently truncating.
+Create `tests/unit/send-lists-resolve.test.ts` with the three listing services mocked, asserting: the resolver calls the service matching the source and no other; it returns **distinct** member ids when the underlying pages repeat one (Requests and Participations are per event); it **drops a falsy member_id** as a defensive guard rather than for a case that can occur, since `music_requests.member_id` is not null with a mandatory FK and 0191 inner joins members; it pages until exhausted rather than returning only the first page; and it stops at `RESOLVE_CAP` and reports that it was capped rather than silently truncating.
 
 Write the cases out in full, using `vi.mock` on the three service modules.
 
@@ -326,10 +326,15 @@ Run: `npx vitest run tests/unit/send-lists-resolve.test.ts 2>&1 | tail -6`
  * DISTINCT PEOPLE, not rows. Requests and Participations are per event:
  * somebody who asked for twelve songs is twelve rows and one recipient.
  *
- * AND A NULL member_id IS DROPPED, not counted. `list_music_requests`
- * (0191_music_requests_list_triage.sql:50) returns a nullable member_id — a
- * request whose listener was never resolved has none. Carrying those forward
- * would put holes in a list whose count the operator is about to trust.
+ * A FALSY member_id IS DROPPED, defensively rather than because one can occur.
+ * `music_requests.member_id` is `uuid not null` with a mandatory foreign key
+ * (0098:193, 213-215) and `list_music_requests` inner joins `members`
+ * (0191:123), so today no row it returns can carry a null. The guard costs
+ * nothing and survives a schema that changes later; what it must NOT do is
+ * claim a cause that does not exist. (An earlier draft of this plan inferred
+ * nullability from `returns table (member_id uuid, …)` omitting `not null` —
+ * no `returns table` in this repository declares it, so the omission says
+ * nothing at all.)
  *
  * CAPPED, and the cap is reported rather than silently applied. A list that
  * quietly held the first ten thousand of forty thousand would be a number the
