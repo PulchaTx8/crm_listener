@@ -6,6 +6,12 @@ export type MailMessage = {
   text: string;
   html?: string;
   from?: string;
+  /**
+   * Extra RFC 5322 headers. Block 29c needs exactly two -- List-Unsubscribe and
+   * List-Unsubscribe-Post -- and they belong on the message rather than on the
+   * transport because they name a URL that is per recipient.
+   */
+  headers?: Record<string, string>;
 };
 export type MailResult = { id: string };
 
@@ -42,6 +48,7 @@ export class SmtpMailer implements Mailer {
       subject: msg.subject,
       text: msg.text,
       html: msg.html,
+      headers: msg.headers,
     });
     return { id: info.messageId };
   }
