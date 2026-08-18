@@ -1,5 +1,5 @@
 begin;
-select plan(31);
+select plan(43);
 
 -- Block 29c. Consent per channel, and the two things the conversation says
 -- about it. Separate values rather than one 'marketing' because §18 of the
@@ -207,6 +207,37 @@ select is(
     where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
   'stop_word', 'origin names the stop word path, apart from the conversation tap and the unsubscribe link');
 
+-- F13. The audit row this write also makes -- the door's only write pgTAP
+-- had never looked at before this round.
+select is(
+  (select action from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a5'
+                           and consent_type = 'whatsapp_marketing')),
+  'withdraw_marketing_by_phone', 'the write is audited under the door''s own name');
+
+select is(
+  (select actor_id from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a5'
+                           and consent_type = 'whatsapp_marketing')),
+  null::uuid, 'actor_id is null -- a bot-originated write, told apart from an operator''s');
+
+select is(
+  (select detail from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a5'
+                           and consent_type = 'whatsapp_marketing')),
+  jsonb_build_object(
+    'member_id', '00000000-0000-0000-0000-0000000029a5',
+    'consent_id', (select id from public.member_consents
+                     where member_id = '00000000-0000-0000-0000-0000000029a5'
+                       and consent_type = 'whatsapp_marketing')),
+  'and detail names the listener and the consent row, nothing else');
+
 -- THE SCOPING CASE (spec D3). The same phone, texted through the OTHER
 -- Station's own integration -- one this listener was never linked to.
 select is(
@@ -273,6 +304,77 @@ select ok(
 select ok(
   not has_function_privilege('authenticated', 'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
   'nor authenticated -- this is a worker door, not an operator one');
+
+-- Fix round 3, F9. The in-conversation door: record_member_consent (0034)
+-- is granted to authenticated only and gates on has_permission, which the
+-- service-role worker calling this from src/services/conversation.ts can
+-- never satisfy (auth.uid() is null). Every in-conversation write failed in
+-- production until this door existed.
+--
+-- A FRESH member, not 29a5: that one already carries the earlier
+-- withdraw_marketing_by_phone row, and granted_at defaults to now(), constant
+-- within this transaction -- ordering by it would be exactly the undefined
+-- tiebreak the eligibility predicate's own tests warn about, not a way to
+-- find the row this insert just made.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c1',
+   'Respondeu na conversa', '11999990003');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+select has_function('public', 'record_conversation_marketing_answer',
+  array['uuid', 'uuid', 'boolean', 'uuid'],
+  'the in-conversation door exists');
+
+select is(
+  (select public.record_conversation_marketing_answer(
+     '00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c2',
+     true, null)) is not null,
+  true, 'it writes a row and hands back its id');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a7' and consent_type = 'whatsapp_marketing'),
+  true, 'granted carries through as given');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a7' and consent_type = 'whatsapp_marketing'),
+  'conversation', 'origin is fixed to ''conversation'' -- never a parameter, never ''stop_word''');
+
+select is(
+  (select action from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a7'
+                           and consent_type = 'whatsapp_marketing')),
+  'record_conversation_marketing_answer', 'this write is audited under its own name too');
+
+-- The same tenancy guard record_member_consent itself is built on: a member
+-- known to the Organization but never linked to THIS Station is refused
+-- rather than silently writing a consent row for a relationship that does
+-- not exist.
+select throws_ok($$
+  select public.record_conversation_marketing_answer(
+    '00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c5',
+    true, null)
+$$, 'P0002', null, 'a member not linked to the named Station is refused');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
+  'service_role holds EXECUTE on the in-conversation door too');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
+  'anon may not');
+
+select ok(
+  not has_function_privilege('authenticated',
+    'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
+  'nor authenticated -- unlike record_member_consent, this is a worker-only door');
 
 select finish();
 rollback;

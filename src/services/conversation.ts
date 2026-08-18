@@ -513,6 +513,36 @@ async function advanceLive(
  * the ordering this whole function exists to avoid. `marketingConsentSteps`
  * (engine.ts) is the step list; an empty one means the check below already
  * found a row, and nothing is stored or sent.
+ *
+ * DORMANT TODAY (fix round 3, F10), and said plainly rather than left for a
+ * reader to discover the hard way: this function is reached only from
+ * `advanceLive`'s `complete` case, which is reached only from a LIVE
+ * conversation, which is reached only when something opened one -- and
+ * `open()` above has not run since 0179 (`ingest_whatsapp_event` no longer
+ * returns a `start` outcome; see that branch's own comment in
+ * `runConversationTurn`). Nothing here is wrong; nothing here executes.
+ * `whatsapp_marketing` consent is actually collected today through the
+ * widget's checkbox (Task 9 of this block's plan, `enter-promotion.tsx`),
+ * not through this conversation. This code stays -- deleting it would also
+ * revert `store.ts`'s step schema for no gain -- ready for whichever door
+ * opens a conversation again.
+ *
+ * F11 (Important, judged and left as a comment rather than fixed): even
+ * once reachable, this follow-up would squat on the SAME store key
+ * `(integration, phone)` as any other conversation for the 30-minute
+ * window, because the store has no notion of "which conversation" beyond
+ * that pair. A hashtag arriving while the marketing question is pending
+ * would be swallowed as a bad answer to it rather than minting a link, and
+ * a fourth stray message would abandon with a message telling the listener
+ * to "send the hashtag again" -- wrong, since their participation already
+ * stands. Not fixed here: the one contained-looking fix (special-case a
+ * `turn.link` at this step and call `sendServiceLink` directly from
+ * `advanceLive`) would violate that function's own documented invariant --
+ * "reached from runConversationTurn ONLY after the live-conversation check
+ * ... must not be called from anywhere else" (whatsapp-link.ts) -- and a fix
+ * that respects that invariant means the follow-up needs its own namespace
+ * in the store key, which is a bigger change than code nothing currently
+ * reaches justifies.
  */
 async function maybeAskMarketingConsent(
   deps: ConversationDeps,
@@ -548,14 +578,18 @@ async function maybeAskMarketingConsent(
 
 /**
  * Block 29c, F8. The Station's own MARKETING_STOPPED wording, resolved the
- * SAME WAY the in-conversation path resolves every one of the ten texts:
- * `resolveSystemMessage` (engine.ts) against whatever override exists, the
- * code default when there is none. `whatsapp_prompt_context` assembles all
- * ten keyed by a promotion; there is no promotion on this path, only the
- * Station `withdraw_marketing_by_phone` (0231) handed back, so this reads
- * the one key this reply actually needs directly off
- * `station_message_templates` -- the same table, the same partial-unique
- * `(company_id, key) where deleted_at is null`, just a narrower read.
+ * SAME WAY the in-conversation path resolves every one of the system
+ * messages: `resolveSystemMessage` (engine.ts) against whatever override
+ * exists, the code default when there is none. `SYSTEM_MESSAGE_DEFAULTS` has
+ * held seventeen keys since 0228, not ten -- the "ten" figure is D2's own,
+ * from before Block 29c's two (fix round 3, F12: this comment used to repeat
+ * it, wrongly, for a total the enum had already moved past).
+ * `whatsapp_prompt_context` assembles every one of them keyed by a
+ * promotion; there is no promotion on this path, only the Station
+ * `withdraw_marketing_by_phone` (0231) handed back, so this reads the one
+ * key this reply actually needs directly off `station_message_templates` --
+ * the same table, the same partial-unique `(company_id, key) where
+ * deleted_at is null`, just a narrower read.
  */
 async function marketingStoppedReply(deps: ConversationDeps, companyId: string): Promise<string> {
   const { data, error } = await deps.supabase
@@ -587,11 +621,12 @@ async function hasWhatsappMarketingConsentRecord(
 }
 
 /**
- * Block 29c. The Station `record_member_consent` (0034) must be told about --
- * read from the promotion rather than passed down from the integration,
- * because the promotion is what the listener actually just finished
- * answering, and record_member_consent itself refuses a member/company pair
- * that member_linked_to_company does not already hold.
+ * Block 29c. The Station the in-conversation door must be told about -- read
+ * from the promotion rather than passed down from the integration, because
+ * the promotion is what the listener actually just finished answering, and
+ * `record_conversation_marketing_answer` (0231, fix round 3) itself refuses
+ * a member/company pair that `member_linked_to_company` does not already
+ * hold.
  */
 async function companyIdForPromotion(deps: ConversationDeps, promotionId: string): Promise<string> {
   const { data, error } = await deps.supabase
@@ -603,19 +638,30 @@ async function companyIdForPromotion(deps: ConversationDeps, promotionId: string
   return data.company_id;
 }
 
-/** Block 29c. The one write both a tap and a stop word settle into. */
+/**
+ * Block 29c. The one write both a tap and a stop word settle into.
+ *
+ * NOT record_member_consent (0034) -- fix round 3, F9, a Critical finding:
+ * that RPC is granted to `authenticated` only and its body gates on
+ * `has_permission`, which reads `auth.uid()`. Both are unreachable for this
+ * file's client, which is the service-role worker and holds no user
+ * identity at all -- every call through record_member_consent failed here,
+ * silently retried the whole turn, and no unit test could see it because
+ * the fake RPC client answered success for any function name regardless of
+ * whether this worker could really call it. `record_conversation_marketing_
+ * answer` (0231) is the door built for this caller specifically, the
+ * in-conversation sibling of `withdraw_marketing_by_phone`.
+ */
 async function recordMarketingAnswer(
   deps: ConversationDeps,
   conversation: Conversation,
   granted: boolean,
 ): Promise<void> {
   const companyId = await companyIdForPromotion(deps, conversation.promotionId);
-  const { error } = await deps.supabase.rpc('record_member_consent', {
+  const { error } = await deps.supabase.rpc('record_conversation_marketing_answer', {
     p_member_id: conversation.memberId,
     p_company_id: companyId,
-    p_consent_type: 'whatsapp_marketing',
     p_granted: granted,
-    p_origin: 'conversation',
     p_promotion_id: conversation.promotionId,
   });
   if (error) throw error;

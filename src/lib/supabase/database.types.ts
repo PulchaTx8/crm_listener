@@ -5267,6 +5267,15 @@ export type Database = {
           stored: number
         }[]
       }
+      record_conversation_marketing_answer: {
+        Args: {
+          p_company_id: string
+          p_granted: boolean
+          p_member_id: string
+          p_promotion_id?: string
+        }
+        Returns: string
+      }
       record_member_consent: {
         Args: {
           p_company_id: string

@@ -116,3 +116,89 @@ grant execute on function public.withdraw_marketing_by_phone(uuid, text) to serv
 
 comment on function public.withdraw_marketing_by_phone(uuid, text) is
   'Block 29c, F7/F8. The cold-path stop word: PARAR/CANCELAR/DESCADASTRAR with no live conversation to answer. Resolves the sender through apply_member_lookup (0061) -- local form then delivered form, the same order and shared core ingest_whatsapp_event (0179) already resolves every listener through, never a re-implementation of phone_normalized''s own normalize_phone (0031). Scoped to the Station THIS integration belongs to (spec D3): a member this Station never linked answers null, identically to an unknown phone, because nothing was withdrawn HERE either way -- the caller must not tell either one "removed". Writes member_consents (whatsapp_marketing, granted=false, origin=''stop_word'') directly rather than through record_member_consent, which is gated on has_permission and would refuse a caller with no auth.uid(). Returns the STATION''S id rather than a boolean (F8): the caller needs it to resolve the Station''s own MARKETING_STOPPED wording the same way the in-conversation path already does, not only to know whether to reply at all. SECURITY DEFINER, service_role only -- the worker holds no user identity, so this is a door rather than a grant, the same shape enqueue_whatsapp_outbound (0071) already uses.';
+
+-- Fix round 3, F9 (Critical). THE IN-CONVERSATION COUNTERPART, ADDED HERE
+-- RATHER THAN AS A NEW MIGRATION for the same reason F8 amended the function
+-- above in place: this branch has never been pushed and no database anywhere
+-- has run 0231 yet.
+--
+-- src/services/conversation.ts's recordMarketingAnswer called
+-- record_member_consent (0034) directly, on the service-role worker client.
+-- That RPC is granted to authenticated ONLY (0034's own grant list) and its
+-- body gates on has_permission, which reads auth.uid() -- null for this
+-- caller. The call fails on EVERY invocation in production: the Yes/No tap
+-- and the stop word typed at the marketing_consent step both throw before
+-- the MARKETING_STOPPED reply enqueues or the state clears, so the event
+-- retries until its claim goes stale. Six green gates missed it because
+-- nothing in this codebase's unit tests can see a missing grant, only a
+-- pgTAP or isolation case can -- and the fake RPC client those unit tests use
+-- answered success for any function name, this one included (fixed
+-- separately in tests/unit/conversation-turn.test.ts, alongside this).
+--
+-- SAME SHAPE AS withdraw_marketing_by_phone ABOVE, because the underlying
+-- problem is identical: a service-role caller with no auth.uid() needs a
+-- door, not a grant, onto member_consents. The one difference between the
+-- two is WHO is already resolved -- this door's caller already knows the
+-- member and the Station from a live conversation, so there is no phone to
+-- resolve and no local/delivered ambiguity to walk.
+create or replace function public.record_conversation_marketing_answer(
+  p_member_id    uuid,
+  p_company_id   uuid,
+  p_granted      boolean,
+  p_promotion_id uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_org uuid;
+  v_id  uuid;
+begin
+  -- Same integrity checks record_member_consent (0034) itself makes, minus
+  -- the has_permission gate this caller could never pass: the listener must
+  -- still be live (not archived, not erased) and linked to the Station the
+  -- answer is about.
+  select organization_id into v_org
+  from public.members
+  where id = p_member_id and deleted_at is null and anonymized_at is null;
+
+  if not found then
+    raise exception 'listener not found, or has been anonymised: %', p_member_id
+      using errcode = 'P0002';
+  end if;
+
+  if not public.member_linked_to_company(p_member_id, p_company_id) then
+    raise exception 'this listener is not linked to that station: %', p_company_id
+      using errcode = 'P0002';
+  end if;
+
+  -- origin is fixed to 'conversation' -- never a parameter -- which is the
+  -- one thing that tells this door's rows apart from withdraw_marketing_by_
+  -- phone's own 'stop_word' rows in an audit. Append-only, the same rule
+  -- record_member_consent states for itself: a withdrawal is a NEW row,
+  -- never an edit of an earlier one.
+  insert into public.member_consents
+    (organization_id, member_id, company_id, consent_type, granted, origin, promotion_id)
+  values
+    (v_org, p_member_id, p_company_id, 'whatsapp_marketing', p_granted, 'conversation', p_promotion_id)
+  returning id into v_id;
+
+  -- actor_id null, the same convention withdraw_marketing_by_phone and
+  -- finish_whatsapp_event (0062) already use for a bot-originated write.
+  insert into public.audit_logs
+    (actor_id, action, target_table, target_id, organization_id, company_id, detail)
+  values
+    (null, 'record_conversation_marketing_answer', 'member_consents', v_id, v_org, p_company_id,
+     jsonb_build_object('member_id', p_member_id, 'consent_id', v_id));
+
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.record_conversation_marketing_answer(uuid, uuid, boolean, uuid) from public;
+grant execute on function public.record_conversation_marketing_answer(uuid, uuid, boolean, uuid) to service_role;
+
+comment on function public.record_conversation_marketing_answer(uuid, uuid, boolean, uuid) is
+  'Block 29c, fix round 3, F9. The in-conversation counterpart to withdraw_marketing_by_phone above: records a whatsapp_marketing answer (a Yes/No tap, or a stop word typed AT the marketing_consent step) for a member and Station a live conversation has ALREADY resolved. NOT record_member_consent (0034): that RPC is granted to authenticated only and gates on has_permission, both unreachable for the service-role worker that calls this (auth.uid() is null) -- every call through record_member_consent failed in production before this door existed. Same integrity checks minus the operator gate: the listener must be live (not deleted/anonymised) and linked to the Station (member_linked_to_company). origin is fixed to ''conversation'', the one difference from the cold-path door''s ''stop_word''. SECURITY DEFINER, service_role only.';

@@ -304,8 +304,11 @@ export type Turn =
    * `marketingConsentSteps`), so there is nothing left to save, and the
    * answer is silence rather than a reply -- the tap is its own confirmation,
    * the same way a WhatsApp button stays visibly pressed. `granted` is the
-   * one value the caller could not otherwise recover: it is what
-   * `record_member_consent` (0034) needs and the engine is the only place
-   * that reads `MARKETING_YES_ID`/`MARKETING_NO_ID` off the wire.
+   * one value the caller could not otherwise recover: it is what the
+   * service's own write to `member_consents` needs (fix round 3, F9:
+   * `record_conversation_marketing_answer`, 0231 -- not `record_member_
+   * consent`, which is granted to `authenticated` only) and the engine is
+   * the only place that reads `MARKETING_YES_ID`/`MARKETING_NO_ID` off the
+   * wire.
    */
   | { kind: 'marketing_answered'; granted: boolean };

@@ -59,7 +59,22 @@ class FakeDb {
     this.rpcs.push({ fn, args });
     const failure = this.errors[fn];
     if (failure !== undefined) return Promise.resolve({ data: null, error: { message: failure } });
-    return Promise.resolve({ data: this.replies[fn] ?? null, error: null });
+    // Block 29c, fix round 3, F9. Unconfigured fails LOUDLY rather than
+    // succeeding with null data. The old default -- success for any function
+    // name -- is exactly how `recordMarketingAnswer` calling
+    // `record_member_consent` (granted to `authenticated`, not the
+    // service-role worker that actually calls it) passed six green gates: no
+    // test here ever said what that call should return, so none could
+    // distinguish "this RPC exists and works" from "this RPC was never
+    // configured, and the fake doesn't care." A test that calls something
+    // real must now say so.
+    if (!(fn in this.replies)) {
+      return Promise.resolve({
+        data: null,
+        error: { message: `FakeDb: unconfigured rpc "${fn}" -- add it to replies (or errors)` },
+      });
+    }
+    return Promise.resolve({ data: this.replies[fn], error: null });
   }
 
   called(fn: string): RpcCall | undefined {
@@ -259,7 +274,11 @@ describe('runConversationTurn', () => {
   });
 
   it('opens a conversation: the state is stored BEFORE the question goes out', async () => {
-    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const db = new FakeDb({
+      claim_conversation_turn: LEASE_TOKEN,
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
+    });
     const store = new FakeStore(null);
 
     const outcome = await runConversationTurn(
@@ -304,6 +323,8 @@ describe('runConversationTurn', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(conversation());
 
@@ -339,6 +360,8 @@ describe('runConversationTurn', () => {
         questions: questionsContext,
         systemMessages: { CITY: 'De qual cidade você fala com a gente?' },
       },
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(conversation());
 
@@ -356,6 +379,7 @@ describe('runConversationTurn', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      record_whatsapp_refusal: 'refusal-1',
     });
     const store = new FakeStore(conversation());
 
@@ -414,7 +438,7 @@ describe('runConversationTurn', () => {
   });
 
   it('says nothing to somebody who is not mid-conversation', async () => {
-    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN, finish_whatsapp_turn: null });
     const store = new FakeStore(null);
 
     const outcome = await runConversationTurn(
@@ -441,6 +465,8 @@ describe('runConversationTurn', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(conversation());
 
@@ -481,6 +507,8 @@ describe('runConversationTurn', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new KeyedFakeStore(
       { integrationId: INTEGRATION, phone: DELIVERED },
@@ -541,6 +569,7 @@ describe('runConversationTurn', () => {
         mint_widget_link: 'CODE-1',
         widget_link_send_context: { publicKey: 'pw_test', systemMessages: {} },
         enqueue_whatsapp_outbound: 'ob-1',
+        finish_whatsapp_turn: null,
       });
       const store = new FakeStore(null);
 
@@ -659,11 +688,17 @@ describe('Block 29c: the marketing consent follow-up', () => {
     expect(db.called('enqueue_whatsapp_outbound')).toBeUndefined();
   });
 
-  it('a tap writes the right value through record_member_consent, and ends the turn silently', async () => {
+  it('a tap writes the right value through record_conversation_marketing_answer, and ends the turn silently', async () => {
+    // F9 (fix round 3, Critical): NOT record_member_consent -- that RPC is
+    // granted to authenticated only, and this worker calls it with no
+    // auth.uid() at all. record_conversation_marketing_answer (0231) is the
+    // door built for this caller.
     const db = new FakeDb(
       {
         claim_conversation_turn: LEASE_TOKEN,
         whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+        record_conversation_marketing_answer: 'consent-1',
+        finish_whatsapp_turn: null,
       },
       {},
       { promotions: { company_id: COMPANY } },
@@ -676,12 +711,10 @@ describe('Block 29c: the marketing consent follow-up', () => {
     );
 
     expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: true });
-    expect(db.called('record_member_consent')?.args).toMatchObject({
+    expect(db.called('record_conversation_marketing_answer')?.args).toMatchObject({
       p_member_id: MEMBER,
       p_company_id: COMPANY,
-      p_consent_type: 'whatsapp_marketing',
       p_granted: true,
-      p_origin: 'conversation',
       p_promotion_id: PROMOTION,
     });
     expect(store.cleared).toBe(1);
@@ -695,6 +728,8 @@ describe('Block 29c: the marketing consent follow-up', () => {
       {
         claim_conversation_turn: LEASE_TOKEN,
         whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+        record_conversation_marketing_answer: 'consent-1',
+        finish_whatsapp_turn: null,
       },
       {},
       { promotions: { company_id: COMPANY } },
@@ -707,13 +742,15 @@ describe('Block 29c: the marketing consent follow-up', () => {
     );
 
     expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: false });
-    expect(db.called('record_member_consent')?.args).toMatchObject({ p_granted: false });
+    expect(db.called('record_conversation_marketing_answer')?.args).toMatchObject({ p_granted: false });
   });
 
   it('an unrecognised tap writes nothing at all and re-prompts instead', async () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(marketingConsentConversation());
 
@@ -723,7 +760,7 @@ describe('Block 29c: the marketing consent follow-up', () => {
     );
 
     expect(outcome).toEqual({ kind: 'prompted' });
-    expect(db.called('record_member_consent')).toBeUndefined();
+    expect(db.called('record_conversation_marketing_answer')).toBeUndefined();
     expect(store.saved[0]?.reprompts).toBe(1);
     // Never reached: an unrecognised tap has no company to look up.
     expect(db.fromCalls.some((c) => c.table === 'promotions')).toBe(false);
@@ -734,6 +771,9 @@ describe('Block 29c: the marketing consent follow-up', () => {
       {
         claim_conversation_turn: LEASE_TOKEN,
         whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+        record_conversation_marketing_answer: 'consent-1',
+        enqueue_whatsapp_outbound: 'ob-1',
+        finish_whatsapp_turn: null,
       },
       {},
       { promotions: { company_id: COMPANY } },
@@ -746,12 +786,10 @@ describe('Block 29c: the marketing consent follow-up', () => {
     );
 
     expect(outcome).toEqual({ kind: 'marketing_consent_recorded', granted: false });
-    expect(db.called('record_member_consent')?.args).toMatchObject({
+    expect(db.called('record_conversation_marketing_answer')?.args).toMatchObject({
       p_member_id: MEMBER,
       p_company_id: COMPANY,
-      p_consent_type: 'whatsapp_marketing',
       p_granted: false,
-      p_origin: 'conversation',
     });
     const enqueued = db.called('enqueue_whatsapp_outbound');
     expect(enqueued?.args.p_dedupe_key).toBe(`${EXTERNAL_ID}:marketing_stopped`);
@@ -770,6 +808,8 @@ describe('Block 29c: the marketing consent follow-up', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       whatsapp_prompt_context: { promotion: promotionContext, questions: questionsContext },
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(conversation());
 
@@ -781,7 +821,7 @@ describe('Block 29c: the marketing consent follow-up', () => {
     // An ordinary re-prompt: consentTurn refuses text of any kind, stop word
     // or not, exactly as it already refuses "sim".
     expect(outcome).toEqual({ kind: 'prompted' });
-    expect(db.called('record_member_consent')).toBeUndefined();
+    expect(db.called('record_conversation_marketing_answer')).toBeUndefined();
     expect(db.fromCalls).toHaveLength(0);
   });
 });
@@ -800,6 +840,8 @@ describe('Block 29c, F7/F8: the cold-path stop word', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       withdraw_marketing_by_phone: COMPANY,
+      enqueue_whatsapp_outbound: 'ob-1',
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(null);
 
@@ -830,7 +872,12 @@ describe('Block 29c, F7/F8: the cold-path stop word', () => {
   it("replies with the Station's own MARKETING_STOPPED wording when it has one", async () => {
     const OWN_WORDING = 'Combinado, você não recebe mais nossas campanhas por aqui.';
     const db = new FakeDb(
-      { claim_conversation_turn: LEASE_TOKEN, withdraw_marketing_by_phone: COMPANY },
+      {
+        claim_conversation_turn: LEASE_TOKEN,
+        withdraw_marketing_by_phone: COMPANY,
+        enqueue_whatsapp_outbound: 'ob-1',
+        finish_whatsapp_turn: null,
+      },
       {},
       { station_message_templates: { body: OWN_WORDING } },
     );
@@ -851,6 +898,7 @@ describe('Block 29c, F7/F8: the cold-path stop word', () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
       withdraw_marketing_by_phone: null,
+      finish_whatsapp_turn: null,
     });
     const store = new FakeStore(null);
 
@@ -865,7 +913,7 @@ describe('Block 29c, F7/F8: the cold-path stop word', () => {
   });
 
   it('does not call the door for an ordinary message that is not a stop word', async () => {
-    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN, finish_whatsapp_turn: null });
     const store = new FakeStore(null);
 
     await runConversationTurn({ supabase: asClient(db), store }, turn({ text: 'bom dia' }));
@@ -874,7 +922,7 @@ describe('Block 29c, F7/F8: the cold-path stop word', () => {
   });
 
   it('does not call the door for a button/list reply, even if its title happens to read as a stop word', async () => {
-    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN });
+    const db = new FakeDb({ claim_conversation_turn: LEASE_TOKEN, finish_whatsapp_turn: null });
     const store = new FakeStore(null);
 
     await runConversationTurn(
