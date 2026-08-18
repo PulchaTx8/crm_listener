@@ -232,10 +232,12 @@ select is(
      '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
   false, 'an erased listener is never a recipient, whatever the channel default says');
 
--- THE TIEBREAK. granted_at defaults to now(), which is CONSTANT within a
--- transaction -- two rows written in one transaction carry the same timestamp,
--- and without `id desc` the winner is the planner's choice. Block 29b-1's
--- whole-branch review found this same defect one layer up.
+-- THE TIEBREAK, and what it can honestly claim. granted_at defaults to now(),
+-- CONSTANT within a transaction, so two rows written together tie. Nothing in
+-- this table can say which came later -- id is gen_random_uuid() -- so the tie
+-- resolves toward the refusal instead. This assertion proves that choice is
+-- deterministic; it does not prove "the later write wins", because nothing here
+-- knows which write was later.
 insert into public.member_consents
   (organization_id, member_id, company_id, consent_type, granted, granted_at)
 values
@@ -248,7 +250,7 @@ select is(
   (select eligible from public.members_marketing_eligible_bulk(
      array['00000000-0000-0000-0000-0000000029a1']::uuid[],
      '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
-  false, 'two rows at one instant resolve by id, not by the planner');
+  false, 'two rows at one instant resolve toward the refusal, because nothing can say which came later');
 
 -- AN ORGANIZATION-WIDE SUSPENSION, which is member_blocks.company_id = NULL.
 -- The subtle one: a predicate matching only on equality lets this listener go
@@ -362,10 +364,15 @@ as $$
      where mc.company_id = p_company_id
        and mc.consent_type = ch.consent_type
        and mc.member_id = any(p_member_ids)
-     -- granted_at DESC, id DESC: granted_at defaults to now(), constant within
-     -- a transaction, so two rows written together tie and the winner would
-     -- otherwise be whichever the planner reached first.
-     order by mc.member_id, mc.granted_at desc, mc.id desc
+     -- THE TIE IS RESOLVED BY MEANING, NOT BY IDENTITY. granted_at defaults to
+     -- now(), constant within a transaction, so two rows written together carry
+     -- the same timestamp. The id cannot break that tie: it is gen_random_uuid()
+     -- (0032), and a random value encodes no insertion order -- ordering by it
+     -- picks a winner about half the time, which a probe on this branch measured
+     -- at 7 of 10. So the tie resolves toward REFUSAL: false sorts before true,
+     -- and where nothing can say which consent came later, the one saying "do
+     -- not send" is the one that should stand.
+     order by mc.member_id, mc.granted_at desc, mc.granted asc
   )
   select a.id,
          -- Layers 1 and 2 are bars, not preferences: they cannot be overridden
