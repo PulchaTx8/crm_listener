@@ -6,6 +6,13 @@ export type MailMessage = {
   text: string;
   html?: string;
   from?: string;
+  /**
+   * Extra RFC 5322 headers. Groundwork for Block 29d, which will set
+   * List-Unsubscribe and List-Unsubscribe-Post when sending campaigns. They
+   * belong on the message rather than on the transport because the URL is per
+   * recipient.
+   */
+  headers?: Record<string, string>;
 };
 export type MailResult = { id: string };
 
@@ -42,6 +49,7 @@ export class SmtpMailer implements Mailer {
       subject: msg.subject,
       text: msg.text,
       html: msg.html,
+      headers: msg.headers,
     });
     return { id: info.messageId };
   }

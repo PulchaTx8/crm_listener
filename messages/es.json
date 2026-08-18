@@ -621,6 +621,10 @@
     "notSet": "Sin definir",
     "actionChangeTheServiceHashtags": "cambiar los hashtags de atención",
     "messageCountryTitle": "Preguntando el país",
+    "messageMarketingConsentTitle": "Pidiendo consentimiento de marketing",
+    "messageMarketingConsentWhen": "Se envía al preguntarle a un oyente si desea recibir campañas de marketing en este canal. El oyente puede elegir aceptar o rechazar.",
+    "messageMarketingStoppedTitle": "Confirmando la cancelación de marketing",
+    "messageMarketingStoppedWhen": "Se envía cuando un oyente cancela la recepción de campañas de marketing en este canal.",
     "fieldCountry": "el país",
     "messageGenderTitle": "Preguntando el sexo del oyente",
     "messageGenderWhen": "Se pregunta solo en una promoción que lo pide, y es la única pregunta que el bot envía con botones en lugar de texto simple. Puedes reescribir la pregunta aquí; las tres respuestas de los botones son del sistema y todavía no pueden cambiarse.",
@@ -2016,6 +2020,8 @@
     "consentImageUse": "Uso de imagen y nombre",
     "consentSponsorCommunication": "Comunicación de patrocinadores",
     "consentIdentification": "Identificación",
+    "consentWhatsappMarketing": "Marketing por WhatsApp",
+    "consentEmailMarketing": "Marketing por correo electrónico",
     "nationalityDomestic": "Nacional",
     "nationalityInternational": "Internacional",
     "vocalMale": "Masculino",
@@ -2084,6 +2090,7 @@
     "entryRecorded": "Estás participando. ¡Buena suerte!",
     "entryNotRecorded": "Está bien — tu participación no fue registrada.",
     "iAgreeToTheRules": "Leí y acepto el reglamento",
+    "marketingConsentCheckbox": "Quiero recibir promociones y novedades de la radio por WhatsApp",
     "enterNow": "Participar",
     "next": "Continuar",
     "yourAnswer": "Tu respuesta",
@@ -2311,5 +2318,14 @@
     "showingOfTheStationsYouCanReach": "Mostrando {count} de las Stations a tu alcance. Busca por nombre para llegar a una que no esté en la lista.",
     "moveThePrizesOffItFirst": "{count, plural, one {Un premio todavía usa esta etiqueta} other {# premios todavía usan esta etiqueta}}, y esta categoría no puede archivarse hasta que se muevan a otra.",
     "archivingKeepsEveryPastRecord": "Ningún premio usa esta etiqueta, así que archivar no cuesta nada más: la categoría queda registrada y solo deja de ofrecerse en el selector y en el filtro."
+  },
+  "unsubscribe": {
+    "heading": "Darse de baja del correo de marketing",
+    "explanation": "Elija qué desea dejar de recibir. Salir de esta Emisora detiene solo su correo de marketing; salir de todas las Emisoras del grupo también detiene el WhatsApp de marketing en todas donde esté registrado.",
+    "leaveThisStation": "Salir de esta Emisora",
+    "leaveEveryStationOfTheGroup": "Salir de todas las Emisoras del grupo",
+    "leftThisStation": "Listo — ya no recibirá correo de marketing de esta Emisora.",
+    "leftEveryStation": "Listo — ya no recibirá correo ni WhatsApp de marketing de ninguna Emisora del grupo.",
+    "linkNoLongerWorks": "Este enlace ya no funciona. Puede que ya se haya usado, o que haya expirado."
   }
 }

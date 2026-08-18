@@ -109,6 +109,15 @@ export const enterPromotionSchema = z
      * answer rather than a missing input.
      */
     consent: z.literal('on').optional(),
+    /**
+     * Block 29c, Task 9. The marketing checkbox — same shape as `consent`
+     * above and for the same wire reason: a checkbox that is left unticked
+     * posts no field at all. UNCHECKED IS THE DEFAULT that reaches `false`
+     * here, which is the point: a pre-ticked box is not affirmative consent
+     * under the LGPD, and this schema must not be the place that quietly
+     * turns "absent" into "yes".
+     */
+    marketingConsent: z.literal('on').optional(),
     fields: jsonString(z.record(z.enum(REQUESTED_FIELDS), z.string().max(500))),
     answers: jsonString(z.array(answerSchema).max(50)),
   })
@@ -116,6 +125,7 @@ export const enterPromotionSchema = z
   .transform((value) => ({
     promotionId: value.promotionId,
     consent: value.consent === 'on',
+    marketingConsent: value.marketingConsent === 'on',
     fields: value.fields,
     answers: value.answers,
   }));

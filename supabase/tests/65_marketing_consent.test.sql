@@ -1,0 +1,674 @@
+begin;
+select plan(73);
+
+-- Block 29c. Consent per channel, and the two things the conversation says
+-- about it. Separate values rather than one 'marketing' because §18 of the
+-- original request is precisely that an e-mail opt-out must not stop WhatsApp.
+select ok(
+  'whatsapp_marketing' = any(enum_range(null::public.member_consent_type)::text[]),
+  'a listener can consent to WhatsApp marketing');
+
+select ok(
+  'email_marketing' = any(enum_range(null::public.member_consent_type)::text[]),
+  'and to e-mail marketing, separately');
+
+select ok(
+  'MARKETING_CONSENT' = any(enum_range(null::public.system_message_key)::text[]),
+  'the conversation has a text for asking');
+
+select ok(
+  'MARKETING_STOPPED' = any(enum_range(null::public.system_message_key)::text[]),
+  'and one for confirming a stop');
+
+-- Task 2. The predicate Block 29d resolves an audience with.
+select has_function('public', 'members_marketing_eligible_bulk',
+  array['uuid[]','uuid','public.message_channel'],
+  'the set-at-a-time eligibility question exists');
+
+-- Whole-branch review, F29 (Critical). 0229 shipped this SECURITY INVOKER,
+-- which made two of its four layers -- both phrased as the ABSENCE of a row --
+-- answer "eligible" for every listener whose consent and block rows the
+-- caller's own RLS merely hid. 0235 makes it a gated definer function, and
+-- this is the assertion that stops a later "simplification" back.
+select is(
+  (select p.prosecdef from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'members_marketing_eligible_bulk'),
+  true,
+  'the eligibility question is security definer, so its own caller guard is what protects it');
+
+-- A Station, an Organization, and four listeners in four states.
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-0000000029c1', 'Org consent');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029c2', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029a1', '00000000-0000-0000-0000-0000000029c1', 'Nunca perguntada'),
+  ('00000000-0000-0000-0000-0000000029a2', '00000000-0000-0000-0000-0000000029c1', 'Disse sim'),
+  ('00000000-0000-0000-0000-0000000029a3', '00000000-0000-0000-0000-0000000029c1', 'Disse sim e depois nao'),
+  ('00000000-0000-0000-0000-0000000029a4', '00000000-0000-0000-0000-0000000029c1', 'Apagada');
+
+insert into public.member_company_links (member_id, company_id, organization_id)
+select id, '00000000-0000-0000-0000-0000000029c2', '00000000-0000-0000-0000-0000000029c1'
+  from public.members where organization_id = '00000000-0000-0000-0000-0000000029c1';
+
+-- F29's fixtures. Every assertion below now needs somebody to be asking:
+-- the gate refuses a caller who is not the platform admin, not the owner and
+-- holds no members.view at the Station -- which, in pgTAP, is what the
+-- superuser running this file is.
+--
+-- A SECOND STATION IN THE SAME ORGANIZATION, and the delegate holds a
+-- company_memberships row there whose role grants NOTHING. That pairing is
+-- the review's own scenario, not a hypothetical: a bare membership was enough
+-- to make Station B's consent and block rows invisible rather than absent,
+-- and invisible was read as permission.
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029ca', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent Elsewhere');
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029cb', '00000000-0000-0000-0000-0000000029c1', 'Consent Viewer'),
+  ('00000000-0000-0000-0000-0000000029cc', '00000000-0000-0000-0000-0000000029c1', 'Consent Nothing');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000029cb', 'members.view');
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000029ad', 'consent-delegate@example.test'),
+  ('00000000-0000-0000-0000-0000000029ae', 'consent-no-access@example.test');
+
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000029ad', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029cb'),
+  ('00000000-0000-0000-0000-0000000029ad', '00000000-0000-0000-0000-0000000029ca',
+   '00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029cc');
+
+-- Linked to the OTHER Station and to no other: 0229 reported this listener
+-- eligible when asked about through Radio Consent, because it never checked
+-- the relationship existed at all -- and EMAIL's default is eligible, so the
+-- answer was "send to them".
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029a9', '00000000-0000-0000-0000-0000000029c1', 'So na outra estacao');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a9', '00000000-0000-0000-0000-0000000029ca',
+   '00000000-0000-0000-0000-0000000029c1');
+
+insert into public.member_consents
+  (organization_id, member_id, company_id, consent_type, granted, granted_at)
+values
+  ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a2',
+   '00000000-0000-0000-0000-0000000029c2', 'whatsapp_marketing', true, now() - interval '2 days'),
+  ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a3',
+   '00000000-0000-0000-0000-0000000029c2', 'whatsapp_marketing', true, now() - interval '2 days'),
+  ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a3',
+   '00000000-0000-0000-0000-0000000029c2', 'whatsapp_marketing', false, now() - interval '1 day');
+
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-0000000029a4';
+
+-- FROM HERE TO `reset role` BELOW, THE DELEGATE IS ASKING. Every fixture
+-- change inside the section drops back to the superuser first, because these
+-- tables are RLS-protected and a fixture that failed silently under the
+-- delegate's own policies would leave an assertion proving the wrong thing.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000029ad", "role": "authenticated"}';
+
+-- THE ASYMMETRY THIS BLOCK TURNS ON (spec D1). No row at all means NOT eligible
+-- on WhatsApp, because Meta requires opt-in for a marketing template and
+-- enforces it through number quality -- and eligible on e-mail, which goes out
+-- on the existing relationship with one-click withdrawal.
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a1']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
+  false, 'never asked means not eligible on WhatsApp');
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a1']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
+  true, 'and eligible on e-mail, which is the whole asymmetry');
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a2']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
+  true, 'a listener who said yes is eligible');
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a3']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
+  false, 'and a later withdrawal beats the earlier yes');
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a4']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
+  false, 'an erased listener is never a recipient, whatever the channel default says');
+
+-- THE TIEBREAK. granted_at defaults to now(), which is CONSTANT within a
+-- transaction -- two rows written in one transaction carry the same timestamp.
+-- id cannot break the tie: it is gen_random_uuid() (0032), which carries no
+-- information about which row was written later, so ordering by it is an
+-- arbitrary comparison, not a tiebreak. The function instead orders by
+-- granted ASC, so a tie resolves toward the refusal -- the direction that is
+-- safe to be wrong in.
+reset role;
+insert into public.member_consents
+  (organization_id, member_id, company_id, consent_type, granted, granted_at)
+values
+  ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a1',
+   '00000000-0000-0000-0000-0000000029c2', 'email_marketing', true,  '2026-01-01'),
+  ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a1',
+   '00000000-0000-0000-0000-0000000029c2', 'email_marketing', false, '2026-01-01');
+set local role authenticated;
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a1']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
+  false, 'two rows at one instant resolve toward the refusal, because nothing here can say which came later');
+
+-- AN ORGANIZATION-WIDE SUSPENSION, which is member_blocks.company_id = NULL.
+-- The subtle one: a predicate matching only on equality lets this listener go
+-- on receiving campaigns from every Station in the Organization.
+reset role;
+insert into public.member_blocks (organization_id, member_id, company_id, kind, reason)
+values ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a2',
+        null, 'suspension', 'probe');
+set local role authenticated;
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a2']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
+  false, 'an Organization-wide suspension bars every Station in it');
+
+-- A DRAW BAN IS NOT A SUSPENSION. member_block_kind carries both; 'draw_ban'
+-- means "may not win a draw" and says nothing about messages. Barring it here
+-- would punish a listener for something else entirely.
+reset role;
+update public.member_blocks set lifted_at = now(), lift_reason = 'probe'
+ where member_id = '00000000-0000-0000-0000-0000000029a2';
+insert into public.member_blocks (organization_id, member_id, company_id, kind, reason)
+values ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a2',
+        '00000000-0000-0000-0000-0000000029c2', 'draw_ban', 'probe');
+set local role authenticated;
+
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a2']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
+  true, 'but a draw ban does not stop a campaign');
+
+-- Set-at-a-time: one call, one row per member asked about, no member invented.
+select is(
+  (select count(*)::int from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a1',
+           '00000000-0000-0000-0000-0000000029a2',
+           '00000000-0000-0000-0000-0000000029a3']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
+  3, 'one row per member asked about');
+
+-- F29, THE LINK CHECK. This listener belongs to the Organization and is linked
+-- to the OTHER Station only. EMAIL's own default says eligible, so a function
+-- that never asks whether the relationship exists answers "send to them" --
+-- which is what 0229 did for any member id in existence, from any tenant.
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a9']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
+  false, 'a listener this Station never linked is never a recipient of its campaigns');
+
+-- F29, THE GATE, in the review's own shape: the SAME delegate every assertion
+-- above was asking as, now asking about the Station where all they hold is a
+-- company_memberships row whose role grants nothing. Under 0229 this call
+-- returned a permissive answer built out of rows RLS had hidden; it is now
+-- refused outright.
+select throws_ok($$
+  select * from public.members_marketing_eligible_bulk(
+    array['00000000-0000-0000-0000-0000000029a9']::uuid[],
+    '00000000-0000-0000-0000-0000000029ca', 'EMAIL')
+$$, '42501', 'permission denied: members.view required',
+  'a caller with a bare membership and no members.view at the Station is refused, not answered');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000029ae", "role": "authenticated"}';
+
+select throws_ok($$
+  select * from public.members_marketing_eligible_bulk(
+    array['00000000-0000-0000-0000-0000000029a1']::uuid[],
+    '00000000-0000-0000-0000-0000000029c2', 'EMAIL')
+$$, '42501', 'permission denied: members.view required',
+  'and a caller holding nothing anywhere is refused too, for a batch of one');
+
+reset role;
+reset request.jwt.claims;
+
+select ok(
+  has_function_privilege('authenticated',
+    'public.members_marketing_eligible_bulk(uuid[],uuid,public.message_channel)', 'EXECUTE'),
+  'authenticated may ask');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.members_marketing_eligible_bulk(uuid[],uuid,public.message_channel)', 'EXECUTE'),
+  'anon may not');
+
+select ok(
+  not has_function_privilege('public',
+    'public.members_marketing_eligible_bulk(uuid[],uuid,public.message_channel)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+
+-- Fix round 1, F7. The cold-path stop word: no live conversation, so the
+-- worker resolves the listener from the phone alone.
+select has_function('public', 'withdraw_marketing_by_phone',
+  array['uuid', 'text'],
+  'the cold-path door exists');
+
+-- A second Station in the SAME Organization, so the scoping case below can
+-- prove a phone known at one Station does not withdraw at another --
+-- exactly the miss a predicate matching only on identity would produce.
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029c5', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent 2');
+
+insert into public.integrations (id, organization_id, company_id, provider, phone_number_id, enabled) values
+  ('00000000-0000-0000-0000-0000000029c6', '00000000-0000-0000-0000-0000000029c1',
+   '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP', 'phone-number-id-a', true),
+  ('00000000-0000-0000-0000-0000000029c7', '00000000-0000-0000-0000-0000000029c1',
+   '00000000-0000-0000-0000-0000000029c5', 'WHATSAPP', 'phone-number-id-b', true);
+
+-- 29a5's phone is stored in the LOCAL form, exactly as apply_member_creation
+-- (0061) stores it for a listener this bot registered -- the ordinary case,
+-- and the first of the two forms the door tries.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000029a5', '00000000-0000-0000-0000-0000000029c1',
+   'Conhecida na estacao A', '11999990001');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a5', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+-- A known phone, texted through the Station it is linked to, withdraws.
+-- F8: the return is the STATION's id, not a bare true -- so the caller can
+-- resolve THAT Station's own MARKETING_STOPPED wording.
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c6', '5511999990001')),
+  '00000000-0000-0000-0000-0000000029c2'::uuid, 'a known phone withdraws, and the Station is handed back');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
+  false, 'granted is false');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
+  'stop_word', 'origin names the stop word path, apart from the conversation tap and the unsubscribe link');
+
+-- F13. The audit row this write also makes -- the door's only write pgTAP
+-- had never looked at before this round.
+select is(
+  (select action from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a5'
+                           and consent_type = 'whatsapp_marketing')),
+  'withdraw_marketing_by_phone', 'the write is audited under the door''s own name');
+
+select is(
+  (select actor_id from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a5'
+                           and consent_type = 'whatsapp_marketing')),
+  null::uuid, 'actor_id is null -- a bot-originated write, told apart from an operator''s');
+
+select is(
+  (select detail from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a5'
+                           and consent_type = 'whatsapp_marketing')),
+  jsonb_build_object(
+    'member_id', '00000000-0000-0000-0000-0000000029a5',
+    'consent_id', (select id from public.member_consents
+                     where member_id = '00000000-0000-0000-0000-0000000029a5'
+                       and consent_type = 'whatsapp_marketing')),
+  'and detail names the listener and the consent row, nothing else');
+
+-- THE SCOPING CASE (spec D3). The same phone, texted through the OTHER
+-- Station's own integration -- one this listener was never linked to.
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c7', '5511999990001')),
+  null::uuid, 'a phone known at another Station in the group does not withdraw here');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where company_id = '00000000-0000-0000-0000-0000000029c5'),
+  0, 'nothing was written for the Station that never linked this listener');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a5' and consent_type = 'whatsapp_marketing'),
+  1, 'and the earlier withdrawal at the right Station is untouched');
+
+-- A STRANGER. No member anywhere holds this phone -- the reply a caller
+-- gives has to be able to tell this apart from "withdrew".
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c6', '5511900000000')),
+  null::uuid, 'an unknown phone reports no match');
+
+select is(
+  (select count(*)::int from public.member_consents where origin = 'stop_word'),
+  1, 'and writes nothing for it');
+
+-- THE FALLBACK FORM. 29a6's phone is stored FULL, country code and all --
+-- the shape a listener registered through a different door keeps. The LOCAL
+-- form the door tries first (whatsapp_local_phone strips the delivered
+-- phone's country code) does not match it; only the delivered form does,
+-- which is exactly the second attempt ingest_whatsapp_event (0179) already
+-- falls back to, and the reason this door goes through apply_member_lookup
+-- (0061) rather than one hand-written comparison.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000029a6', '00000000-0000-0000-0000-0000000029c1',
+   'Conhecida com o codigo do pais', '5511999990002');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a6', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+select is(
+  (select public.withdraw_marketing_by_phone(
+     '00000000-0000-0000-0000-0000000029c6', '5511999990002')),
+  '00000000-0000-0000-0000-0000000029c2'::uuid,
+  'the delivered form is tried when the local form does not match');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a6' and consent_type = 'whatsapp_marketing'
+      and origin = 'stop_word'),
+  1, 'and resolves to the listener registered under the full form');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
+  'service_role holds EXECUTE -- the worker has no other identity to call this as');
+
+select ok(
+  not has_function_privilege('anon', 'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
+  'anon may not');
+
+select ok(
+  not has_function_privilege('authenticated', 'public.withdraw_marketing_by_phone(uuid,text)', 'EXECUTE'),
+  'nor authenticated -- this is a worker door, not an operator one');
+
+-- Fix round 3, F9. The in-conversation door: record_member_consent (0034)
+-- is granted to authenticated only and gates on has_permission, which the
+-- service-role worker calling this from src/services/conversation.ts can
+-- never satisfy (auth.uid() is null). Every in-conversation write failed in
+-- production until this door existed.
+--
+-- A FRESH member, not 29a5: that one already carries the earlier
+-- withdraw_marketing_by_phone row, and granted_at defaults to now(), constant
+-- within this transaction -- ordering by it would be exactly the undefined
+-- tiebreak the eligibility predicate's own tests warn about, not a way to
+-- find the row this insert just made.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c1',
+   'Respondeu na conversa', '11999990003');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+select has_function('public', 'record_conversation_marketing_answer',
+  array['uuid', 'uuid', 'boolean', 'uuid'],
+  'the in-conversation door exists');
+
+select is(
+  (select public.record_conversation_marketing_answer(
+     '00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c2',
+     true, null)) is not null,
+  true, 'it writes a row and hands back its id');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a7' and consent_type = 'whatsapp_marketing'),
+  true, 'granted carries through as given');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a7' and consent_type = 'whatsapp_marketing'),
+  'conversation', 'origin is fixed to ''conversation'' -- never a parameter, never ''stop_word''');
+
+select is(
+  (select action from public.audit_logs
+    where target_table = 'member_consents'
+      and target_id = (select id from public.member_consents
+                         where member_id = '00000000-0000-0000-0000-0000000029a7'
+                           and consent_type = 'whatsapp_marketing')),
+  'record_conversation_marketing_answer', 'this write is audited under its own name too');
+
+-- The same tenancy guard record_member_consent itself is built on: a member
+-- known to the Organization but never linked to THIS Station is refused
+-- rather than silently writing a consent row for a relationship that does
+-- not exist.
+select throws_ok($$
+  select public.record_conversation_marketing_answer(
+    '00000000-0000-0000-0000-0000000029a7', '00000000-0000-0000-0000-0000000029c5',
+    true, null)
+$$, 'P0002', null, 'a member not linked to the named Station is refused');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
+  'service_role holds EXECUTE on the in-conversation door too');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
+  'anon may not');
+
+select ok(
+  not has_function_privilege('authenticated',
+    'public.record_conversation_marketing_answer(uuid,uuid,boolean,uuid)', 'EXECUTE'),
+  'nor authenticated -- unlike record_member_consent, this is a worker-only door');
+
+-- Task 5. The token behind an unsubscribe link.
+select has_table('public', 'unsubscribe_tokens', 'the token table exists');
+
+select col_type_is('public', 'unsubscribe_tokens', 'token_hash', 'text',
+  'the hash is stored, never the token');
+
+select has_function('public', 'issue_unsubscribe_token',
+  array['uuid','uuid','text','text'], 'a campaign can mint one');
+
+select has_function('public', 'consume_unsubscribe_token',
+  array['text','boolean'], 'and the public page can spend it');
+
+-- Spending it writes the withdrawal, scoped to the sending Station (spec D3).
+select lives_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029a2',
+    '00000000-0000-0000-0000-0000000029c2',
+    repeat('a', 64),
+    'Campanha de Natal')
+$$, 'a token is minted for a listener and a Station');
+
+select is(
+  (select company_id from public.consume_unsubscribe_token(repeat('a', 64), false)),
+  '00000000-0000-0000-0000-0000000029c2'::uuid,
+  'spending it names the Station that sent');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a2'
+      and consent_type = 'email_marketing'
+    order by granted_at desc, id desc limit 1),
+  false, 'and writes the withdrawal');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a2'
+      and consent_type = 'email_marketing'
+    order by granted_at desc, id desc limit 1),
+  'unsubscribe:Campanha de Natal',
+  'naming the campaign the listener was reading when they left');
+
+-- A SPENT TOKEN IS SPENT. Mail clients prefetch and people click twice; the
+-- second use must not be a second write.
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('a', 64), false)
+$$, 'P0002', null, 'a spent token cannot be spent again');
+
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('f', 64), false)
+$$, 'P0002', null, 'and an unknown one answers the same way, telling an attacker nothing');
+
+-- F14. THE GROUP BRANCH (p_all_stations = true). A third Station in the SAME
+-- Organization that this listener was never linked to -- the case a query
+-- matching only on organization_id, and not on member_company_links, would
+-- miss and write for anyway.
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029c9', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent 3');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029a8', '00000000-0000-0000-0000-0000000029c1', 'Saiu do grupo todo');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a8', '00000000-0000-0000-0000-0000000029c2', '00000000-0000-0000-0000-0000000029c1'),
+  ('00000000-0000-0000-0000-0000000029a8', '00000000-0000-0000-0000-0000000029c5', '00000000-0000-0000-0000-0000000029c1');
+
+select lives_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029a8',
+    '00000000-0000-0000-0000-0000000029c2',
+    repeat('b', 64),
+    'Saida do grupo')
+$$, 'a token can also be minted for a group exit');
+
+-- ONE CALL to the door, exactly once: like the single-Station case above,
+-- everything after this reads the rows that call left behind rather than
+-- calling again -- a second call on the same hash is the spent-token case,
+-- proven separately below.
+select is(
+  (select consents_written from public.consume_unsubscribe_token(repeat('b', 64), true)),
+  4, 'four rows written: two linked Stations, two channels each');
+
+-- BOTH CHANNELS, EACH LINKED STATION. A listener asking to leave the group is
+-- not asking for half an exit, unlike the single-Station link above, which
+-- names e-mail because the click itself was in an e-mail.
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c2'
+      and consent_type = 'email_marketing'),
+  false, 'the first linked Station loses e-mail marketing');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c2'
+      and consent_type = 'whatsapp_marketing'),
+  false, 'and WhatsApp marketing too, at the same Station');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c5'
+      and consent_type = 'email_marketing'),
+  false, 'the second linked Station loses e-mail marketing');
+
+select is(
+  (select granted from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c5'
+      and consent_type = 'whatsapp_marketing'),
+  false, 'and WhatsApp marketing too, at the second Station');
+
+select is(
+  (select origin from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c2'
+      and consent_type = 'email_marketing'),
+  'unsubscribe-all:Saida do grupo',
+  'origin names the group exit, apart from a single-Station unsubscribe');
+
+-- THE ASSERTION THAT MATTERS. A branch that ignored member_company_links and
+-- wrote for every Station in the Organization would pass every check above --
+-- this is the one only the join, not the count, catches.
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029a8'
+      and company_id = '00000000-0000-0000-0000-0000000029c9'),
+  0, 'a Station in the same Organization this listener never linked gets nothing');
+
+-- Spent exactly like the single-Station path: the group branch runs through
+-- the same UPDATE ... consumed_at is null guard above it.
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('b', 64), true)
+$$, 'P0002', null, 'a spent group token cannot be spent again either');
+
+-- Fix round 2, F15 (Critical). Before this round, issue_unsubscribe_token
+-- checked only that the Station existed -- any authenticated session could
+-- mint a token for a listener and Station it had no relationship to.
+-- Reuses 29a8/29c9 from the group-exit block above: the fixture already
+-- proved that pair is not linked.
+select throws_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029a8',
+    '00000000-0000-0000-0000-0000000029c9',
+    repeat('c', 64), null)
+$$, '42501', null, 'minting for a listener not linked to the named Station is refused');
+
+-- Whole-branch review, F32. A token minted before the listener was erased,
+-- clicked after. The other three doors of this block all refuse an archived or
+-- anonymised listener; this one wrote consent rows about somebody the
+-- Organization has already been told to forget. Closed in 0235, answering with
+-- the SAME P0002 the unknown, spent and expired cases answer -- a distinct
+-- error here would both undo the one-answer property and announce the erasure.
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029ab', '00000000-0000-0000-0000-0000000029c1', 'Apagada depois do envio');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029ab', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+select lives_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029ab',
+    '00000000-0000-0000-0000-0000000029c2',
+    repeat('d', 64),
+    'Campanha antes do apagamento')
+$$, 'a token is minted while the listener is still live');
+
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-0000000029ab';
+
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('d', 64), false)
+$$, 'P0002', null, 'a token whose listener has since been erased is refused, and says nothing about why');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029ab'),
+  0, 'and no consent row is written about a listener who is not supposed to have rows');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.issue_unsubscribe_token(uuid,uuid,text,text)', 'EXECUTE'),
+  'service_role holds EXECUTE -- the campaign sender that mints a token is a worker, not a user session');
+
+select ok(
+  not has_function_privilege('authenticated',
+    'public.issue_unsubscribe_token(uuid,uuid,text,text)', 'EXECUTE'),
+  'not authenticated -- F15, granting this to a user session let any operator mint a token for a listener outside their own Organization');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.issue_unsubscribe_token(uuid,uuid,text,text)', 'EXECUTE'),
+  'nor anon -- only the door that SPENDS a token is anon''s to hold');
+
+select finish();
+rollback;

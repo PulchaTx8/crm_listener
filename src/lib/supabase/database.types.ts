@@ -3400,6 +3400,64 @@ export type Database = {
         }
         Relationships: []
       }
+      unsubscribe_tokens: {
+        Row: {
+          campaign_label: string | null
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          member_id: string
+          organization_id: string
+          token_hash: string
+        }
+        Insert: {
+          campaign_label?: string | null
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id: string
+          organization_id: string
+          token_hash: string
+        }
+        Update: {
+          campaign_label?: string | null
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unsubscribe_tokens_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "unsubscribe_tokens_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unsubscribe_tokens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendors: {
         Row: {
           address_line: string | null
@@ -4376,6 +4434,14 @@ export type Database = {
         }
         Returns: Json
       }
+      consume_unsubscribe_token: {
+        Args: { p_all_stations?: boolean; p_token_hash: string }
+        Returns: {
+          company_id: string
+          consents_written: number
+          member_id: string
+        }[]
+      }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }
       country_alpha2: { Args: { p_input: string }; Returns: string }
       create_album: {
@@ -4760,6 +4826,15 @@ export type Database = {
         }
         Returns: string
       }
+      issue_unsubscribe_token: {
+        Args: {
+          p_campaign_label?: string
+          p_company_id: string
+          p_member_id: string
+          p_token_hash: string
+        }
+        Returns: string
+      }
       job_started: { Args: { p_job: string }; Returns: undefined }
       job_succeeded: {
         Args: { p_counters?: Json; p_job: string }
@@ -5138,6 +5213,17 @@ export type Database = {
           member_id: string
         }[]
       }
+      members_marketing_eligible_bulk: {
+        Args: {
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_member_ids: string[]
+        }
+        Returns: {
+          eligible: boolean
+          member_id: string
+        }[]
+      }
       merge_artists: {
         Args: { p_loser_ids: string[]; p_reason: string; p_winner_id: string }
         Returns: number
@@ -5255,6 +5341,15 @@ export type Database = {
           promotion_prize_id: string
           stored: number
         }[]
+      }
+      record_conversation_marketing_answer: {
+        Args: {
+          p_company_id: string
+          p_granted: boolean
+          p_member_id: string
+          p_promotion_id?: string
+        }
+        Returns: string
       }
       record_member_consent: {
         Args: {
@@ -5967,6 +6062,7 @@ export type Database = {
           p_answers?: Json
           p_consent: boolean
           p_fields?: Json
+          p_marketing_consent?: boolean
           p_member_id: string
           p_promotion_id: string
           p_public_key: string
@@ -6040,6 +6136,10 @@ export type Database = {
         }
         Returns: Json
       }
+      withdraw_marketing_by_phone: {
+        Args: { p_integration_id: string; p_phone: string }
+        Returns: string
+      }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -6092,6 +6192,8 @@ export type Database = {
         | "rules"
         | "image_use"
         | "sponsor_communication"
+        | "whatsapp_marketing"
+        | "email_marketing"
         | "identification"
       member_erasure_reason:
         | "subject_request"
@@ -6151,6 +6253,8 @@ export type Database = {
         | "LINK_MENU"
         | "LINK_PROMOTION"
         | "COUNTRY"
+        | "MARKETING_CONSENT"
+        | "MARKETING_STOPPED"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       template_variable:
         | "LISTENER_FIRST_NAME"
@@ -6347,6 +6451,8 @@ export const Constants = {
         "rules",
         "image_use",
         "sponsor_communication",
+        "whatsapp_marketing",
+        "email_marketing",
         "identification",
       ],
       member_erasure_reason: [
@@ -6410,6 +6516,8 @@ export const Constants = {
         "LINK_MENU",
         "LINK_PROMOTION",
         "COUNTRY",
+        "MARKETING_CONSENT",
+        "MARKETING_STOPPED",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       template_variable: [

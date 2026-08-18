@@ -621,6 +621,10 @@
     "notSet": "Not set",
     "actionChangeTheServiceHashtags": "change the service hashtags",
     "messageCountryTitle": "Asking for the country",
+    "messageMarketingConsentTitle": "Asking for marketing consent",
+    "messageMarketingConsentWhen": "Sent when asking a listener if they want to receive marketing campaigns on this channel. The listener can choose to accept or decline.",
+    "messageMarketingStoppedTitle": "Confirming marketing opt-out",
+    "messageMarketingStoppedWhen": "Sent when a listener stops receiving marketing campaigns on this channel.",
     "fieldCountry": "the country",
     "messageGenderTitle": "Asking for the listener’s sex",
     "messageGenderWhen": "Asked only by a promotion that requests it, and the one question the bot sends with buttons rather than as plain text. You can reword the question here; the three answers on the buttons are the system’s and cannot be changed yet.",
@@ -2016,6 +2020,8 @@
     "consentImageUse": "Use of image and name",
     "consentSponsorCommunication": "Sponsor communication",
     "consentIdentification": "Identification",
+    "consentWhatsappMarketing": "WhatsApp marketing",
+    "consentEmailMarketing": "E-mail marketing",
     "nationalityDomestic": "Domestic",
     "nationalityInternational": "International",
     "vocalMale": "Male",
@@ -2084,6 +2090,7 @@
     "entryRecorded": "You are in. Good luck!",
     "entryNotRecorded": "No problem — your entry was not recorded.",
     "iAgreeToTheRules": "I have read and agree to the rules",
+    "marketingConsentCheckbox": "I want to receive the station's promotions and news by WhatsApp",
     "enterNow": "Enter",
     "next": "Next",
     "yourAnswer": "Your answer",
@@ -2311,5 +2318,14 @@
     "showingOfTheStationsYouCanReach": "Showing {count} of the Stations you can reach. Search by name to reach one that is not listed.",
     "moveThePrizesOffItFirst": "{count, plural, one {One prize still wears this label} other {# prizes still wear this label}}, and this category cannot be archived until they are moved to another one.",
     "archivingKeepsEveryPastRecord": "No prize wears this label, so archiving costs nothing else: the category stays on record, and only stops being offered by the picker and the filter."
+  },
+  "unsubscribe": {
+    "heading": "Unsubscribe from marketing e-mail",
+    "explanation": "Choose what you would like to stop receiving. Leaving this Station stops its marketing e-mail only; leaving every Station of this group also stops WhatsApp marketing everywhere you are registered.",
+    "leaveThisStation": "Leave this Station",
+    "leaveEveryStationOfTheGroup": "Leave every Station of this group",
+    "leftThisStation": "Done — you will no longer receive marketing e-mail from this Station.",
+    "leftEveryStation": "Done — you will no longer receive marketing e-mail or WhatsApp from any Station in this group.",
+    "linkNoLongerWorks": "This link no longer works. It may already have been used, or it may have expired."
   }
 }

@@ -621,6 +621,10 @@
     "notSet": "Não definida",
     "actionChangeTheServiceHashtags": "alterar as hashtags de atendimento",
     "messageCountryTitle": "Perguntando o país",
+    "messageMarketingConsentTitle": "Pedindo consentimento de marketing",
+    "messageMarketingConsentWhen": "Enviado ao perguntar a um ouvinte se quer receber campanhas de marketing neste canal. O ouvinte pode escolher aceitar ou recusar.",
+    "messageMarketingStoppedTitle": "Confirmando cancelamento de marketing",
+    "messageMarketingStoppedWhen": "Enviado quando um ouvinte cancela o recebimento de campanhas de marketing neste canal.",
     "fieldCountry": "o país",
     "messageGenderTitle": "Perguntando o sexo do ouvinte",
     "messageGenderWhen": "Perguntado só por uma promoção que pede esse dado, e é a única pergunta que o bot envia com botões em vez de texto simples. Você pode reescrever a pergunta aqui; as três respostas dos botões são do sistema e ainda não podem ser alteradas.",
@@ -2016,6 +2020,8 @@
     "consentImageUse": "Uso de imagem e nome",
     "consentSponsorCommunication": "Comunicação de patrocinadores",
     "consentIdentification": "Identificação",
+    "consentWhatsappMarketing": "Marketing no WhatsApp",
+    "consentEmailMarketing": "Marketing por e-mail",
     "nationalityDomestic": "Nacional",
     "nationalityInternational": "Internacional",
     "vocalMale": "Masculino",
@@ -2084,6 +2090,7 @@
     "entryRecorded": "Você está participando. Boa sorte!",
     "entryNotRecorded": "Tudo bem — sua participação não foi registrada.",
     "iAgreeToTheRules": "Li e concordo com o regulamento",
+    "marketingConsentCheckbox": "Quero receber promoções e novidades da rádio pelo WhatsApp",
     "enterNow": "Participar",
     "next": "Continuar",
     "yourAnswer": "Sua resposta",
@@ -2311,5 +2318,14 @@
     "showingOfTheStationsYouCanReach": "Mostrando {count} das Stations ao seu alcance. Busque pelo nome para chegar a uma que não esteja listada.",
     "moveThePrizesOffItFirst": "{count, plural, one {Um prêmio ainda usa este rótulo} other {# prêmios ainda usam este rótulo}}, e esta categoria não pode ser arquivada até que sejam movidos para outra.",
     "archivingKeepsEveryPastRecord": "Nenhum prêmio usa este rótulo, então arquivar não custa mais nada: a categoria continua registrada e apenas deixa de ser oferecida no seletor e no filtro."
+  },
+  "unsubscribe": {
+    "heading": "Descadastrar de e-mail de marketing",
+    "explanation": "Escolha o que você quer parar de receber. Sair desta Emissora interrompe só o e-mail de marketing dela; sair de todas as Emissoras do grupo também interrompe o WhatsApp de marketing em todas onde você está cadastrado.",
+    "leaveThisStation": "Sair desta Emissora",
+    "leaveEveryStationOfTheGroup": "Sair de todas as Emissoras do grupo",
+    "leftThisStation": "Pronto — você não vai mais receber e-mail de marketing desta Emissora.",
+    "leftEveryStation": "Pronto — você não vai mais receber e-mail nem WhatsApp de marketing de nenhuma Emissora do grupo.",
+    "linkNoLongerWorks": "Este link não funciona mais. Ele já pode ter sido usado, ou pode ter expirado."
   }
 }
