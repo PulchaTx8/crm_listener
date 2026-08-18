@@ -1716,7 +1716,7 @@ git commit -m "feat(stations): who a Station's mail comes from, once rather than
 ### Task 8: The service and the schema learn the new shape
 
 **Files:**
-- Modify: `src/schemas/templates.ts`, `src/services/templates.ts`
+- Modify: `src/schemas/templates.ts`, `src/services/templates.ts`, `src/app/(app)/messages/templates/page.tsx`
 
 **Interfaces:**
 - Consumes: `TemplateVariable`, `variableFromPlaceholder` (Task 5); `save_marketing_template` (Task 4).
@@ -1858,8 +1858,8 @@ export async function saveMarketingTemplate(
     p_language: input.language,
     p_variables: input.variables,
     p_from_name: input.fromName,
-    p_from_email: input.fromEmail || undefined,
-    p_reply_to: input.replyTo || undefined,
+    p_from_email: input.fromEmail,
+    p_reply_to: input.replyTo,
   });
   if (error) throw mapTemplateError(error.code, error.message);
   if (typeof data !== 'string') throw new InternalError('save_marketing_template returned no id');
