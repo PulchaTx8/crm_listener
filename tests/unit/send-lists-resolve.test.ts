@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeCursor } from '@/lib/keyset';
+import { NotFoundError } from '@/lib/errors';
 
 /**
  * Block 29d-1, Task 4. resolveListMembers delegates to the three listing
@@ -21,16 +22,100 @@ vi.mock('@/services/participations', () => ({ listParticipationsPage }));
 const { listMusicRequestsPage } = vi.hoisted(() => ({ listMusicRequestsPage: vi.fn() }));
 vi.mock('@/services/music', () => ({ listMusicRequestsPage }));
 
-const { resolveListMembers, RESOLVE_CAP, SendListResolutionCappedError } = await import(
+/**
+ * Task 5. listReach builds its own client the same way every other service in
+ * this codebase does -- asCaller(accessToken), a bare createClient call, not
+ * an injected dependency (that shape belongs to services/whatsapp-link.ts and
+ * its neighbours; listReach's signature is fixed by this block's plan to
+ * (listId, accessToken)). Faking that out means replacing createClient itself
+ * for this file, which tests/unit/music-request-service.test.ts's own header
+ * notes is NOT this codebase's usual approach -- the usual one is to prove a
+ * thin asCaller(...).rpc(...) wrapper in pgTAP, where its behaviour actually
+ * lives. There is no pgTAP for listReach's own orchestration (which channel
+ * count belongs to which call, that a 42501 becomes 'forbidden' rather than
+ * 0), because it is new TypeScript with no SQL under it, so that orchestration
+ * is what gets proved here.
+ */
+const { createClientMock, setFakeSendListsDb } = vi.hoisted(() => {
+  let current: unknown = null;
+  return {
+    createClientMock: vi.fn(() => current),
+    setFakeSendListsDb: (db: unknown) => {
+      current = db;
+    },
+  };
+});
+vi.mock('@supabase/supabase-js', () => ({ createClient: createClientMock }));
+vi.mock('@/lib/supabase/config', () => ({
+  getUserSupabaseConfig: () => ({ url: 'https://example.test', anonKey: 'anon-key' }),
+}));
+
+const { resolveListMembers, RESOLVE_CAP, SendListResolutionCappedError, listReach } = await import(
   '@/services/send-lists'
 );
 
 const TOKEN = 'test-access-token';
 
+interface RpcCall {
+  fn: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * Records `.rpc()` calls structurally (fn + full args), the same shape
+ * tests/unit/whatsapp-link.test.ts's own FakeDb uses, so an eligibility call
+ * carrying a wrong or missing argument fails an assertion here rather than
+ * passing because only one field was checked. `.from('send_lists')` supports
+ * only the exact chain listReach calls (select -> eq -> is -> maybeSingle);
+ * anything else throws, so a chain this fake does not expect fails loudly
+ * instead of silently returning undefined.
+ */
+class FakeSendListsDb {
+  readonly rpcCalls: RpcCall[] = [];
+
+  constructor(
+    private readonly listRow: { company_id: string; source: string; filters: unknown } | null,
+    private readonly eligibility: Record<
+      string,
+      { data: { member_id: string; eligible: boolean }[] | null; error: { code?: string; message: string } | null }
+    >,
+  ) {}
+
+  from(table: string) {
+    if (table !== 'send_lists') throw new Error(`FakeSendListsDb: unexpected table "${table}"`);
+    return {
+      select: () => ({
+        eq: () => ({
+          is: () => ({
+            maybeSingle: async () => ({ data: this.listRow, error: null }),
+          }),
+        }),
+      }),
+    };
+  }
+
+  rpc(fn: string, args: Record<string, unknown>) {
+    this.rpcCalls.push({ fn, args });
+    if (fn !== 'members_marketing_eligible_bulk') {
+      throw new Error(`FakeSendListsDb: unexpected rpc "${fn}"`);
+    }
+    const channel = String(args.p_channel);
+    const result = this.eligibility[channel];
+    if (!result) throw new Error(`FakeSendListsDb: no eligibility fixture for channel "${channel}"`);
+    return Promise.resolve(result);
+  }
+}
+
+const ORG = '11111111-1111-1111-1111-111111111111';
+const STATION_A = '22222222-2222-2222-2222-222222222222';
+const STATION_B = '33333333-3333-3333-3333-333333333333';
+
 beforeEach(() => {
   listOrganizationMembers.mockReset();
   listParticipationsPage.mockReset();
   listMusicRequestsPage.mockReset();
+  createClientMock.mockClear();
+  setFakeSendListsDb(null);
 });
 
 describe('resolveListMembers', () => {
@@ -125,5 +210,149 @@ describe('resolveListMembers', () => {
     // must have stopped there rather than reading toward "always more".
     expect(RESOLVE_CAP).toBe(10_000);
     expect(call).toBeLessThanOrEqual(4);
+  });
+});
+
+/**
+ * Task 5. listReach reads the send_lists row (source, filters, company_id),
+ * resolves its people the same way resolveListMembers already does above, and
+ * asks members_marketing_eligible_bulk (0235) once per channel over that
+ * population. What is proved here is that orchestration -- one call per
+ * channel, carrying the right ids and company_id, counted independently -- and
+ * the R5 decision this block's plan records: 0235 is gated on members.view,
+ * the list screen itself only on messaging.view, so a caller who can see a
+ * list can still be refused reach on it, and that refusal (42501) must read
+ * as 'forbidden', never silently as 0 -- an operator reading 0 would go
+ * looking for an audience problem that is not the one they have.
+ */
+describe('listReach', () => {
+  it("asks members_marketing_eligible_bulk once per channel over the list's people, and the two channel numbers may differ from the people count and from each other", async () => {
+    listOrganizationMembers.mockResolvedValue({
+      rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }],
+      nextCursor: null,
+      previousCursor: null,
+      total: 3,
+    });
+
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG } },
+      {
+        WHATSAPP: {
+          data: [
+            { member_id: 'm1', eligible: true },
+            { member_id: 'm2', eligible: false },
+            { member_id: 'm3', eligible: false },
+          ],
+          error: null,
+        },
+        EMAIL: {
+          data: [
+            { member_id: 'm1', eligible: true },
+            { member_id: 'm2', eligible: true },
+            { member_id: 'm3', eligible: false },
+          ],
+          error: null,
+        },
+      },
+    );
+    setFakeSendListsDb(db);
+
+    const reach = await listReach('list-1', TOKEN);
+
+    // people (3) != whatsapp (1) != email (2): none of the three numbers a
+    // screen would show here can be produced by copying either of the others.
+    expect(reach).toEqual({ people: 3, whatsapp: 1, email: 2 });
+
+    const eligibilityCalls = db.rpcCalls.filter((call) => call.fn === 'members_marketing_eligible_bulk');
+    expect(eligibilityCalls).toHaveLength(2);
+    expect(eligibilityCalls.map((call) => call.args.p_channel).sort()).toEqual(['EMAIL', 'WHATSAPP']);
+    for (const call of eligibilityCalls) {
+      expect(call.args).toEqual({
+        p_member_ids: ['m1', 'm2', 'm3'],
+        p_company_id: STATION_A,
+        p_channel: call.args.p_channel,
+      });
+    }
+  });
+
+  it('reports a channel as \'forbidden\', never as 0, when 0235 refuses the caller (42501) for lacking members.view', async () => {
+    listOrganizationMembers.mockResolvedValue({
+      rows: [{ id: 'm1' }],
+      nextCursor: null,
+      previousCursor: null,
+      total: 1,
+    });
+
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG } },
+      {
+        WHATSAPP: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
+        EMAIL: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
+      },
+    );
+    setFakeSendListsDb(db);
+
+    const reach = await listReach('list-1', TOKEN);
+
+    // The list itself resolved fine (messaging.view was enough for that) --
+    // only the two channel numbers are unavailable, and 'forbidden' cannot be
+    // mistaken for a real count the way 0 could.
+    expect(reach.people).toBe(1);
+    expect(reach.whatsapp).toBe('forbidden');
+    expect(reach.email).toBe('forbidden');
+  });
+
+  it('propagates a non-permission RPC error rather than folding it into \'forbidden\'', async () => {
+    listOrganizationMembers.mockResolvedValue({
+      rows: [{ id: 'm1' }],
+      nextCursor: null,
+      previousCursor: null,
+      total: 1,
+    });
+
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG } },
+      {
+        WHATSAPP: { data: null, error: { code: '55000', message: 'db is down' } },
+        EMAIL: { data: [{ member_id: 'm1', eligible: true }], error: null },
+      },
+    );
+    setFakeSendListsDb(db);
+
+    await expect(listReach('list-1', TOKEN)).rejects.toThrow('db is down');
+  });
+
+  it('dispatches a requests-sourced list through listMusicRequestsPage with its own stored filters', async () => {
+    listMusicRequestsPage.mockResolvedValue({
+      rows: [{ memberId: 'r1' }],
+      nextCursor: null,
+      previousCursor: null,
+      total: 1,
+    });
+
+    const db = new FakeSendListsDb(
+      { company_id: STATION_B, source: 'requests', filters: { companyId: STATION_B } },
+      {
+        WHATSAPP: { data: [{ member_id: 'r1', eligible: false }], error: null },
+        EMAIL: { data: [{ member_id: 'r1', eligible: true }], error: null },
+      },
+    );
+    setFakeSendListsDb(db);
+
+    const reach = await listReach('list-2', TOKEN);
+
+    expect(reach).toEqual({ people: 1, whatsapp: 0, email: 1 });
+    expect(listMusicRequestsPage).toHaveBeenCalledTimes(1);
+    expect(listOrganizationMembers).not.toHaveBeenCalled();
+    expect(listParticipationsPage).not.toHaveBeenCalled();
+  });
+
+  it('throws rather than reaching for a company_id that does not exist, when the list is unknown or RLS hides it', async () => {
+    const db = new FakeSendListsDb(null, {});
+    setFakeSendListsDb(db);
+
+    await expect(listReach('missing-list', TOKEN)).rejects.toBeInstanceOf(NotFoundError);
+    expect(listOrganizationMembers).not.toHaveBeenCalled();
+    expect(db.rpcCalls).toHaveLength(0);
   });
 });
