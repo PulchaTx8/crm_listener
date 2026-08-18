@@ -305,9 +305,21 @@ export const marketingTemplateSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['subject'],
                        message: 'an e-mail needs a subject' });
       }
-      // Every {{name}} the body uses must be a value this system substitutes.
+      // Every {{...}} the body uses must be a value a CAMPAIGN can resolve.
       // Caught here rather than at the door so the operator sees WHICH name.
-      for (const match of value.body.matchAll(/\{\{([a-z_]+)\}\}/g)) {
+      //
+      // THE CAPTURE IS WIDE ON PURPOSE, and matches the door's own
+      // (`\{\{([^{}]*)\}\}`, 0225): anything between the braces, including
+      // nothing at all. A narrower one (letters and underscore only) does not
+      // reject what it fails to match -- it never sees it. {{PRIZE_NAME}} and
+      // {{Listener_First_Name}} both fell outside [a-z_]+ here and inside the
+      // door's wider capture, so neither guard refused them and the listener
+      // read the literal token. Judgement happens below, case-insensitively:
+      // variableFromPlaceholder lower-cases both sides, so {{PRIZE_NAME}} is
+      // refused as the known-but-not-campaign-fillable value it names rather
+      // than as gibberish, and {{Listener_First_Name}} is accepted as
+      // LISTENER_FIRST_NAME.
+      for (const match of value.body.matchAll(/\{\{([^{}]*)\}\}/g)) {
         // RESOLVABLE, not merely known. variableFromPlaceholder answers the
         // whole vocabulary, and three of its seven values are ones a campaign
         // has no source for — the prize, the deadline and the code all come

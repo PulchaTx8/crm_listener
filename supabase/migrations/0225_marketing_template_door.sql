@@ -120,6 +120,21 @@ begin
         using errcode = '22023';
     end if;
 
+    -- The same guard register_message_template carries (0223), and needed for
+    -- the same reason the cast below cannot cover: a JSON null element gives
+    -- `e #>> '{}'` = SQL NULL, and casting NULL to any type raises nothing. So
+    -- p_variables = '[null]' would store {NULL} inside an array whose column is
+    -- NOT NULL but whose ELEMENTS nothing was refusing one at a time, and the
+    -- grid would call t(`variable_${value}`) on it and render a missing key.
+    -- The blank-string half IS covered by the cast (btrim('') matches no enum
+    -- label), which is why only the non-string half is checked here.
+    if exists (
+      select 1 from jsonb_array_elements(coalesce(p_variables, '[]'::jsonb)) as e
+       where jsonb_typeof(e) <> 'string'
+    ) then
+      raise exception 'every variable must be named as a string' using errcode = '22023';
+    end if;
+
     begin
       select array_agg(e #>> '{}' order by ord)::public.template_variable[]
         into v_fields

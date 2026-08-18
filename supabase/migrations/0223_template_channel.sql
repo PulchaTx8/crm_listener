@@ -82,16 +82,34 @@ alter table public.message_templates
 -- and this section's `drop column variables` would then fail with objects
 -- depending on it. One order works; the other does not.
 --
--- THE BACKFILL PRESERVES THE COUNT INVARIANT rather than assuming a shape.
+-- THE BACKFILL TAKES THE FIRST N OF THE PURPOSE'S CANONICAL ORDER, where N is
+-- the row's existing description count -- rather than assuming a shape.
 -- register_message_template has always refused a registration whose description
 -- count disagrees with the body's placeholder count, so every existing row's
 -- count is already correct -- and a Station's approved PICKUP_REMINDER body may
--- legitimately use one placeholder or three. So the new value is the first N of
--- the purpose's canonical order, where N is the row's existing count.
+-- legitimately use one placeholder or three.
+--
+-- WHAT THE CLAMP ACTUALLY DOES, stated plainly because it is NOT a count-
+-- preserving rewrite in general: `where o <= jsonb_array_length(m.variables)`
+-- filters a FIXED canonical list (1 element for WEB_VERIFICATION, 3 for
+-- PICKUP_REMINDER, none otherwise), so it can only ever shorten that list, never
+-- extend it. The count survives exactly while N is at most the canonical
+-- length. A row carrying MORE descriptions than its purpose's canonical list
+-- comes out SHORTER than its body's placeholder count -- a shape
+-- register_message_template would itself refuse to write -- and a row of any
+-- other purpose comes out empty. Such a row must be RE-REGISTERED through
+-- register_message_template, which is the only writer that checks the count
+-- against the body. It is deliberately not padded: there is no
+-- template_variable value meaning "unknown", and inventing one would give the
+-- screen a row that reads as registered and is not.
 --
 -- Measured before writing: production holds ONE row (WEB_VERIFICATION, one
--- description). That is what makes a typed vocabulary affordable here -- over
--- hundreds of prose rows the mapping would be guesswork.
+-- description), where N equals the canonical length and the clamp cannot bite.
+-- That is what makes a typed vocabulary affordable here -- over hundreds of
+-- prose rows the mapping would be guesswork. The proof of this backfill is a
+-- post-deploy read of that one row, not a test: a test constructing input and
+-- re-running this same CASE expression would only assert that a copy of the
+-- code agrees with the code.
 -- ---------------------------------------------------------------------------
 alter table public.message_templates
   add column variable_fields public.template_variable[] not null default '{}';
@@ -102,7 +120,15 @@ update public.message_templates m
      from unnest(
        case m.purpose
          when 'PICKUP_REMINDER' then
-           array['LISTENER_FULL_NAME', 'PRIZE_NAME', 'PICKUP_DEADLINE']::public.template_variable[]
+           -- FIRST name at {{1}}, not the full one, however much the reverse
+           -- looks like the safer guess. The live sender decides this, not this
+           -- migration: 0112_sweep_pickup_reminders.sql:112 computes
+           -- `split_part(btrim(v_full_name), ' ', 1)` and passes it as the first
+           -- element of jsonb_build_array (:134), because a pickup reminder is a
+           -- message a person reads and not a record. Labelling {{1}}
+           -- LISTENER_FULL_NAME would make the screen describe a substitution
+           -- that never happens.
+           array['LISTENER_FIRST_NAME', 'PRIZE_NAME', 'PICKUP_DEADLINE']::public.template_variable[]
          when 'WEB_VERIFICATION' then
            array['VERIFICATION_CODE']::public.template_variable[]
          else '{}'::public.template_variable[]

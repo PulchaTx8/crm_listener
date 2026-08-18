@@ -126,6 +126,32 @@ describe('marketingTemplateSchema', () => {
     }
   });
 
+  // The two shapes that fell BETWEEN the two guards. Zod captured
+  // /\{\{([a-z_]+)\}\}/ and the door (0225) captures \{\{([^{}]*)\}\} and
+  // compares case-insensitively -- so anything with a capital letter matched
+  // neither this schema's pattern nor the door's refusal, saved, and was read
+  // by the listener as a literal token.
+  it('refuses an email body naming an unresolvable value in UPPER CASE', () => {
+    const r = marketingTemplateSchema.safeParse({
+      ...base, channel: 'EMAIL', subject: 'Oi', body: 'Oi, você ganhou {{PRIZE_NAME}}!',
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((issue) => issue.path.join('.') === 'body')).toBe(true);
+    }
+  });
+
+  it('accepts an email body naming a resolvable value in mixed case', () => {
+    // The other half, and the reason the fix is a wider capture plus a
+    // case-insensitive comparison rather than a wider capture alone: widening
+    // without folding the case would turn a real substitution point into a
+    // refusal. variableFromPlaceholder already lower-cases both sides.
+    const r = marketingTemplateSchema.safeParse({
+      ...base, channel: 'EMAIL', subject: 'Oi', body: 'Oi {{Listener_First_Name}}!',
+    });
+    expect(r.success, JSON.stringify(r.success ? [] : r.error.issues)).toBe(true);
+  });
+
   it('refuses a WhatsApp template with no name or language', () => {
     const r = marketingTemplateSchema.safeParse({ ...base, channel: 'WHATSAPP' });
     expect(r.success).toBe(false);

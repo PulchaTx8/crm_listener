@@ -123,6 +123,24 @@ describe('Block 29b-1 — the marketing template door', () => {
     expect(result.id).toBeTruthy();
   }, 60_000);
 
+  it('refuses a JSON null among a WhatsApp template\'s variables', async () => {
+    // The cast alone does NOT catch this: `e #>> '{}'` on a JSON null yields
+    // SQL NULL, and casting NULL to any type raises nothing -- so {NULL} would
+    // be stored inside an array whose column is NOT NULL but whose ELEMENTS
+    // nothing was refusing one at a time, and the grid would render a missing
+    // translation key for it. register_message_template has carried this guard
+    // since 0223; this door was written a task later and did not.
+    const result = await save(manager, {
+      p_channel: 'WHATSAPP',
+      p_internal_name: `nulo_${STAMP}`,
+      p_name: `nulo_${STAMP}`,
+      p_language: 'pt_BR',
+      p_body: 'Oi {{1}}!',
+      p_variables: [null] as unknown as SaveArgs['p_variables'],
+    });
+    expect(result.code).toBe('22023');
+  }, 60_000);
+
   it('refuses a caller who may see templates but not manage them', async () => {
     const result = await save(viewer, {
       p_channel: 'EMAIL',

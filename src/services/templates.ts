@@ -274,7 +274,18 @@ export async function listTemplates(
       'id, purpose, channel, internal_name, description, name, language, body, subject, from_name, from_email, reply_to, variables, otp_button, updated_by, updated_at',
     )
     .eq('company_id', companyId)
-    .order('purpose', { ascending: true });
+    // `purpose` alone orders the SYSTEM half and leaves the MARKETING half
+    // entirely unordered -- every marketing row's purpose is NULL, so the
+    // planner is free to return them in whatever order it happens to produce,
+    // and two renders of the same unchanged Station can disagree. The tiebreak
+    // pair is the one latestRulesConsent (services/members.ts) already uses --
+    // a meaningful column first, then `id` as the total order that guarantees
+    // the result is a function of the data rather than of the plan. Most
+    // paged reads in this file's neighbours (listSongsPage, listPrizesPage)
+    // append `.order('id')` for the same reason.
+    .order('purpose', { ascending: true })
+    .order('updated_at', { ascending: false })
+    .order('id', { ascending: false });
   if (error) throw mapTemplateError(error.code, error.message);
 
   // A second, batched read for the name behind `updated_by` — never a join in

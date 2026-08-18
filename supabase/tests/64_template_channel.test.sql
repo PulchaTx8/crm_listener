@@ -1,5 +1,5 @@
 begin;
-select plan(25);
+select plan(28);
 
 -- Block 29b-1, Task 1. The two vocabularies this block adds.
 --
@@ -168,6 +168,35 @@ select ok(
     where n.nspname = 'public' and p.proname = 'save_station_email_identity')
     like '%is_owner_of_company%',
   'only the Organization owner may change who a Station''s mail comes from');
+
+-- THE SAME GRANT TRIPLE the marketing door above gets, and for the same
+-- reason: the owner gate inside the body only runs for a caller the ACL let
+-- in at all, so a missing grant and a missing gate are different failures and
+-- each needs its own assertion. Asserted as three rather than one combined
+-- ok(), so the failure says which half broke. This door was the one written
+-- without them (whole-branch review, F27).
+select ok(
+  has_function_privilege('authenticated',
+    'public.save_station_email_identity(uuid,text,text,text)',
+    'execute'),
+  'authenticated holds execute on the sender-identity door');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.save_station_email_identity(uuid,text,text,text)',
+    'execute'),
+  'anon holds no execute on the sender-identity door');
+
+select ok(
+  not exists (
+    select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace,
+           unnest(coalesce(p.proacl, acldefault('f', p.proowner))) as acl
+     where n.nspname = 'public'
+       and p.proname = 'save_station_email_identity'
+       and acl::text like '=X/%'),
+  'PUBLIC holds no EXECUTE on it either -- the default ACL was revoked, not left');
 
 select * from finish();
 rollback;

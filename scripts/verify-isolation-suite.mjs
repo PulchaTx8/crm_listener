@@ -490,8 +490,12 @@ const REQUIRED_TEST_FILES = [
   // by driving all three ways an id can fail them (fix round 1, F10) -- another
   // Station's row, a SYSTEM registration's row, and an id naming nothing at
   // all, each refused with P0002, and for the first two the other row asserted
-  // unchanged rather than only the error code.
-  { path: 'tests/isolation/marketing-templates.test.ts', minTests: 9 },
+  // unchanged rather than only the error code. And, since the whole-branch
+  // review (F24), that a JSON null among the variables is refused 22023 rather
+  // than cast to a NULL element -- the guard register_message_template has and
+  // this door, written a task later, did not; the cast cannot catch it, because
+  // casting SQL NULL to any type raises nothing.
+  { path: 'tests/isolation/marketing-templates.test.ts', minTests: 10 },
   // The gender block. Six cases over the tenth requested field, and the floor
   // is the full count because four of them have no other proof anywhere.
   //
