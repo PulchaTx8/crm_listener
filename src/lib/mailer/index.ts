@@ -7,9 +7,10 @@ export type MailMessage = {
   html?: string;
   from?: string;
   /**
-   * Extra RFC 5322 headers. Block 29c needs exactly two -- List-Unsubscribe and
-   * List-Unsubscribe-Post -- and they belong on the message rather than on the
-   * transport because they name a URL that is per recipient.
+   * Extra RFC 5322 headers. Groundwork for Block 29d, which will set
+   * List-Unsubscribe and List-Unsubscribe-Post when sending campaigns. They
+   * belong on the message rather than on the transport because the URL is per
+   * recipient.
    */
   headers?: Record<string, string>;
 };
