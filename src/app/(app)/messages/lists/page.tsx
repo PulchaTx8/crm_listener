@@ -1,13 +1,16 @@
 import { getTranslations } from 'next-intl/server';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import type { Route } from 'next';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
+import { decodeCursor } from '@/lib/keyset';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
 import { listCompanyAccess } from '../../inventory/station-access';
 import type { ViewableCompany } from '../../inventory/station-access';
-import { listReach, listSendLists } from '@/services/send-lists';
-import type { ListReach, SendListRecord } from '@/services/send-lists';
+import { listSendLists } from '@/services/send-lists';
+import type { SendListsPage as SendListsReadPage } from '@/services/send-lists';
 import { describeSendListReadError } from '../errors';
 import { ListsGrid } from './lists-grid';
 import type { SendListGridRow } from './lists-grid';
@@ -26,9 +29,25 @@ export const dynamic = 'force-dynamic';
  * operator holding the permission at more than one Station sees all of them
  * in one place. 0238's own RLS policy is what actually bounds `listSendLists`'
  * read; nothing here narrows it by company_id.
+ *
+ * NEITHER THIS PAGE NOR `listSendLists` ASKS FOR REACH ANY MORE (fix round 1,
+ * F5, Critical). The first version of this screen called Task 5's `listReach`
+ * once per row inside a `Promise.all`, before anything could render -- see
+ * `listSendLists`'s own header (services/send-lists.ts) for the round-trip
+ * count that made unbounded. Reach is now asked for per row, on demand, by
+ * `ReachCells` (lists-grid.tsx) through `getSendListReachAction` -- a page
+ * load here costs exactly one `listCompanyAccess` pair plus one bounded
+ * `listSendLists` page, never more because of how many lists exist or how
+ * large a LIVING one's filters resolve to.
  */
-export default async function SendListsPage() {
+export default async function SendListsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cursor?: string }>;
+}) {
   const t = await getTranslations('templates');
+  const params = await searchParams;
+  const cursor = decodeCursor(params.cursor);
 
   const supabase = await createUserClient();
   const {
@@ -36,19 +55,21 @@ export default async function SendListsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  // listReach (Task 5) asks members_marketing_eligible_bulk as the caller, not
-  // as a worker -- its own header explains why -- so this page needs the raw
-  // access token alongside the cookie-bound client above, the same pair
-  // messages/templates/actions.ts's own requireAccessToken reads.
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) redirect('/login');
-
   let viewable: ViewableCompany[];
   let manageableCompanyIds: Set<string>;
-  let records: SendListRecord[];
+  let listPage: SendListsReadPage;
   try {
-    const [viewAccess, manageAccess, listRows] = await Promise.all([
+    // listSendLists reads under the caller's own JWT (`asCaller`, matching
+    // every other function in that file) rather than the cookie-bound
+    // `supabase` above, so it needs its own access token -- the same pair
+    // messages/templates/actions.ts's own requireAccessToken reads, fetched
+    // here rather than via requireAccessToken because this is a page render,
+    // not a Server Action, and a redirect here belongs to THIS function.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) redirect('/login');
+
+    const [viewAccess, manageAccess, sendListsResult] = await Promise.all([
       listCompanyAccess(supabase, 'messaging.view'),
       // A SECOND scan, for messaging.manage rather than a boolean read off the
       // first -- the two are different permissions a Station can hand to
@@ -56,62 +77,58 @@ export default async function SendListsPage() {
       // Station, so "can this caller rename/delete" has to be answered PER
       // ROW's own Station, never once for the whole page.
       listCompanyAccess(supabase, 'messaging.manage'),
-      listSendLists(accessToken),
+      listSendLists(accessToken, cursor),
     ]);
     viewable = viewAccess.viewable;
     manageableCompanyIds = new Set(manageAccess.viewable.map((c) => c.id));
-    records = listRows;
+    listPage = sendListsResult;
   } catch (cause) {
     logger.error({ err: cause }, 'could not load the send lists');
     return <LoadError message={describeSendListReadError(cause, t)} />;
   }
 
   // A courtesy, not the boundary: 0238's own select policy is what actually
-  // filtered `records` above to rows this caller may see. The same shape
-  // messages/templates/page.tsx and messages/promo/page.tsx already use for
-  // this section.
+  // filtered `listPage.rows` above to rows this caller may see. The same
+  // shape messages/templates/page.tsx and messages/promo/page.tsx already
+  // use for this section.
   if (viewable.length === 0) redirect('/app');
 
   const stationById = new Map(viewable.map((c) => [c.id, c]));
 
-  // One listReach round trip per row (Task 5's own API, unchanged by this
-  // task -- no bulk-reach RPC exists to ask instead). A single row's failure
-  // is caught HERE, per row, rather than let one bad list blank a grid that
-  // loaded every other row correctly -- see lists-grid.tsx's own comment on
-  // SendListGridRow.reach for the state this produces.
-  const rows: SendListGridRow[] = await Promise.all(
-    records.map(async (record) => {
-      let reach: ListReach | 'error';
-      try {
-        reach = await listReach(record.id, accessToken);
-      } catch (cause) {
-        logger.error({ err: cause, listId: record.id }, 'could not compute reach for a send list');
-        reach = 'error';
-      }
-      const station = stationById.get(record.companyId);
-      return {
-        id: record.id,
-        name: record.name,
-        companyId: record.companyId,
-        // Falls back to the raw id only for a Station beyond
-        // listCompanyAccess's own COMPANY_SCAN_CAP (station-access.ts) --
-        // narrower than the RLS boundary above, which is uncapped, so a list
-        // on such a Station still appears here with an imperfect label
-        // rather than vanishing.
-        companyName: station?.name ?? record.companyId,
-        kind: record.kind,
-        source: record.source,
-        filters: record.filters,
-        canManage: manageableCompanyIds.has(record.companyId),
-        reach,
-      };
-    }),
-  );
+  const rows: SendListGridRow[] = listPage.rows.map((record) => {
+    const station = stationById.get(record.companyId);
+    return {
+      id: record.id,
+      name: record.name,
+      companyId: record.companyId,
+      // Falls back to the raw id only for a Station beyond
+      // listCompanyAccess's own COMPANY_SCAN_CAP (station-access.ts) --
+      // narrower than the RLS boundary above, which is uncapped, so a list
+      // on such a Station still appears here with an imperfect label rather
+      // than vanishing.
+      companyName: station?.name ?? record.companyId,
+      kind: record.kind,
+      source: record.source,
+      filters: record.filters,
+      canManage: manageableCompanyIds.has(record.companyId),
+    };
+  });
 
   return (
     <>
       <PageHeader title={t('sendListsTitle')} description={t('sendListsDescription')} />
       <ListsGrid rows={rows} />
+
+      {listPage.nextCursor && (
+        <div className="mt-4 text-sm">
+          <Link
+            href={(`/messages/lists?cursor=${encodeURIComponent(listPage.nextCursor)}` as Route)}
+            className="underline underline-offset-4"
+          >
+            {t('olderSendLists')}
+          </Link>
+        </div>
+      )}
     </>
   );
 }

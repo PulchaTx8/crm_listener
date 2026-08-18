@@ -31,6 +31,7 @@ import type {
 import type { ListReach } from '@/services/send-lists';
 import {
   deleteSendListAction,
+  getSendListReachAction,
   renameSendListAction,
   type DeleteSendListState,
   type RenameSendListState,
@@ -52,11 +53,10 @@ const COLUMN_COUNT = 9;
 type Translator = (key: string, values?: Record<string, string>) => string;
 
 /**
- * One row of the grid. `reach` is `ListReach | 'error'` rather than always a
- * `ListReach`: page.tsx asks Task 5's `listReach` once per row and a single
- * bad row (a real fault, not a permission refusal -- that is `'forbidden'`,
- * carried INSIDE a real `ListReach`) must not blank the other rows it already
- * loaded successfully.
+ * One row of the grid. NO `reach` FIELD (fix round 1, F5, Critical) -- page.tsx
+ * no longer computes it for any row before rendering; `ReachCells` below asks
+ * for one row's reach only when that row's own button is pressed, keyed on
+ * `id` alone.
  */
 export interface SendListGridRow {
   id: string;
@@ -68,7 +68,6 @@ export interface SendListGridRow {
   filters: unknown;
   /** Whether this caller holds messaging.manage at THIS row's own Station -- see page.tsx's own comment for why this cannot be one flag for the whole grid. */
   canManage: boolean;
-  reach: ListReach | 'error';
 }
 
 /** MANUAL/IMPORT only -- requestSendListFiltersSchema's own `channel` is narrower than the database's four-value enum for the reason schemas/send-lists.ts gives; the same two vocab keys participations reuses for its own equivalent field (requests-filters.tsx's own CHANNEL_LABEL_KEYS). */
@@ -211,44 +210,18 @@ function formatFilters(row: SendListGridRow, tr: FilterTranslators): string {
   return parts.length === 0 ? tr.t('filtersNone') : parts.join(' · ');
 }
 
-/** The people count, or a reason there is none -- never a bare 0 for a row whose reach failed to load, which would read as an empty list rather than an unread one. */
-function PeopleCell({ reach, t }: { reach: ListReach | 'error'; t: Translator }) {
-  if (reach === 'error') {
-    return (
-      <span className="text-muted-foreground" title={t('reachCouldNotLoad')}>
-        —
-      </span>
-    );
-  }
-  return <span>{reach.people.toLocaleString()}</span>;
-}
-
 /**
- * One channel's reach. THREE STATES, RENDERED THREE WAYS: a number, `'error'`
- * (this row's `listReach` call itself failed -- a real fault), and
- * `'forbidden'` (Task 5's own state -- the caller can see this list but not
- * who on it is eligible, because messaging.view and members.view are two
- * permissions a Station can hand to two different people). `'forbidden'` MUST
- * NOT render as `0` -- R5's own ruling, and the reason the check below is
- * `=== 'forbidden'` rather than falsy.
+ * One channel's already-fetched reach. TWO STATES, RENDERED TWO WAYS: a
+ * number, and `'forbidden'` (Task 5's own state -- the caller can see this
+ * list but not who on it is eligible, because messaging.view and
+ * members.view are two permissions a Station can hand to two different
+ * people). `'forbidden'` MUST NOT render as `0` -- R5's own ruling, and the
+ * reason the check below is `=== 'forbidden'` rather than falsy. There is no
+ * third, per-channel `'error'` state any more (fix round 1, F5): a fetch
+ * failure is a property of the WHOLE row's reach request, not of one
+ * channel, and `ReachCells` below handles that one level up instead.
  */
-function ChannelReachCell({
-  reach,
-  channel,
-  t,
-}: {
-  reach: ListReach | 'error';
-  channel: 'whatsapp' | 'email';
-  t: Translator;
-}) {
-  if (reach === 'error') {
-    return (
-      <span className="text-muted-foreground" title={t('reachCouldNotLoad')}>
-        —
-      </span>
-    );
-  }
-  const value = reach[channel];
+function ChannelReachValue({ value, t }: { value: number | 'forbidden'; t: Translator }) {
   if (value === 'forbidden') {
     return (
       <span className="text-muted-foreground" title={t('reachNotPermittedHelp')}>
@@ -259,12 +232,105 @@ function ChannelReachCell({
   return <span>{value.toLocaleString()}</span>;
 }
 
+type ReachState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ok'; reach: ListReach }
+  | { status: 'error'; message: string };
+
+/**
+ * The three reach columns for ONE row (People, WhatsApp, E-mail), fetched on
+ * demand rather than automatically (fix round 1, F5, Critical). The first
+ * version of this screen asked Task 5's `listReach` for every row before the
+ * page could render at all; `listSendLists`' own header (services/send-lists.ts)
+ * has the round-trip count that made that unbounded. Returns three sibling
+ * `<TableCell>`s, not a wrapper around them, because it is spliced directly
+ * between the Kind and Built-from cells in the row below -- the same reason
+ * every other per-row cell in this file is a bare fragment of table markup
+ * rather than an element that would nest an extra `<td>`.
+ *
+ * `getSendListReachAction` is called directly from `reveal`'s `onClick`,
+ * never through `useActionState`, the same shape `template-dialog.tsx`'s own
+ * `runPreview` uses for `previewCampaignEmailAction` -- a read that is not a
+ * form submission has no form to submit.
+ */
+function ReachCells({ listId, t }: { listId: string; t: Translator }) {
+  const [state, setState] = useState<ReachState>({ status: 'idle' });
+
+  async function reveal() {
+    setState({ status: 'loading' });
+    const result = await getSendListReachAction(listId);
+    setState(
+      result.status === 'ok'
+        ? { status: 'ok', reach: result.reach }
+        : { status: 'error', message: result.message },
+    );
+  }
+
+  if (state.status === 'idle') {
+    return (
+      <>
+        <TableCell>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={reveal}
+            key="reveal-reach"
+            data-testid="send-list-reveal-reach"
+          >
+            {t('showReachButton')}
+          </Button>
+        </TableCell>
+        <TableCell />
+        <TableCell />
+      </>
+    );
+  }
+
+  if (state.status === 'loading') {
+    return (
+      <>
+        <TableCell className="text-sm text-muted-foreground">{t('reachLoading')}</TableCell>
+        <TableCell />
+        <TableCell />
+      </>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <TableCell colSpan={3} className="text-sm text-destructive">
+        {state.message}
+      </TableCell>
+    );
+  }
+
+  const { reach } = state;
+  return (
+    <>
+      <TableCell>{reach.people.toLocaleString()}</TableCell>
+      <TableCell>
+        <ChannelReachValue value={reach.whatsapp} t={t} />
+      </TableCell>
+      <TableCell>
+        <ChannelReachValue value={reach.email} t={t} />
+      </TableCell>
+    </>
+  );
+}
+
 /**
  * Every send list this caller's messaging.view reaches (page.tsx's own
  * comment explains why this is not narrowed to one Station the way
- * marketing-grid.tsx's own read is), never paginated -- the same design D6
- * marketing-grid.tsx cites for its own table, and a send list count is smaller
- * still: it is named lists an operator built by hand, not one row per event.
+ * marketing-grid.tsx's own read is), ONE BOUNDED PAGE AT A TIME since fix
+ * round 1 (F5) -- unlike marketing-grid.tsx's own table, which design D6
+ * really does leave unpaginated because a Station's marketing templates are
+ * few and never grow without a human writing a new one. Send lists share
+ * that "named, hand-built, not one row per event" shape, but nothing stops
+ * their count from growing over months the way a Station's templates don't,
+ * so `listSendLists` now pages (services/send-lists.ts's own header) and
+ * page.tsx renders an "older lists" link when there is another page.
  *
  * Actions: rename, delete -- gated per row on `canManage`, never on a single
  * flag for the whole grid, because messaging.manage is Station-scoped and this
@@ -326,15 +392,7 @@ export function ListsGrid({ rows }: { rows: SendListGridRow[] }) {
                 <TableCell className="font-medium">{row.name}</TableCell>
                 <TableCell>{row.companyName}</TableCell>
                 <TableCell>{row.kind === 'fixed' ? t('listKindFixed') : t('listKindLiving')}</TableCell>
-                <TableCell>
-                  <PeopleCell reach={row.reach} t={t} />
-                </TableCell>
-                <TableCell>
-                  <ChannelReachCell reach={row.reach} channel="whatsapp" t={t} />
-                </TableCell>
-                <TableCell>
-                  <ChannelReachCell reach={row.reach} channel="email" t={t} />
-                </TableCell>
+                <ReachCells listId={row.id} t={t} />
                 <TableCell>{BUILT_FROM_LABEL[row.source]}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{formatFilters(row, tr)}</TableCell>
                 <TableCell className="sticky right-0 bg-background">

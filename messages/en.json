@@ -706,7 +706,10 @@
     "actionRenameThisSendList": "rename this list",
     "actionDeleteThisSendList": "delete this list",
     "couldNotLoadTheSendLists": "Could not load the send lists. Refresh the page and try again.",
-    "youDoNotHavePermissionToViewTheSendLists": "You do not have permission to view the send lists in this Station."
+    "youDoNotHavePermissionToViewTheSendLists": "You do not have permission to view the send lists in this Station.",
+    "showReachButton": "Show reach",
+    "reachLoading": "Loading…",
+    "olderSendLists": "Older lists"
   },
   "connectWhatsApp": {
     "title": "Connect WhatsApp Business",

@@ -7,7 +7,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/errors';
-import { decodeCursor } from '@/lib/keyset';
+import { decodeCursor, encodeCursor, keysetFilter } from '@/lib/keyset';
 import type { Cursor } from '@/lib/keyset';
 import { listOrganizationMembers } from '@/services/members';
 import { listParticipationsPage } from '@/services/participations';
@@ -458,7 +458,7 @@ function mapSendListError(code: string | undefined, message: string): Error {
   return new InternalError(message);
 }
 
-/** One row of the grid, before Task 5's `listReach` is asked about it -- page.tsx composes the two. */
+/** One row of the grid, before Task 5's `listReach` is asked about it -- ReachCells (lists-grid.tsx) asks for that on demand, per row, never here. */
 export interface SendListRecord {
   id: string;
   companyId: string;
@@ -470,6 +470,14 @@ export interface SendListRecord {
   createdAt: string;
 }
 
+export interface SendListsPage {
+  rows: SendListRecord[];
+  nextCursor: string | null;
+}
+
+/** One page of rows, never the whole table in one round trip -- see listSendLists' own header for why this bound exists at all. */
+export const SEND_LIST_PAGE_SIZE = 50;
+
 /**
  * Every list this caller's `messaging.view` reaches, across every Station --
  * never narrowed to one Company the way `listTemplates` narrows to the
@@ -478,35 +486,75 @@ export interface SendListRecord {
  * permission at more than one sees all of them in one screen rather than
  * switching between Stations to find one, and 0238's own RLS policy
  * (`deleted_at is null and has_permission('messaging.view', company_id)`) is
- * what actually bounds the result -- this function adds no `.eq('company_id',
- * ...)` of its own.
+ * what actually bounds WHICH rows this can return -- this function adds no
+ * `.eq('company_id', ...)` of its own.
+ *
+ * BOUNDED, since Task 6's fix round 1 (F5, Critical): the first version read
+ * every visible row in one query and then asked `listReach` for every one of
+ * them before the page could render -- for a LIVING list that resolver pages
+ * at 50 up to `RESOLVE_CAP` (10,000), so a dozen modest living lists made a
+ * page view hundreds of sequential round trips deep. Reach is no longer
+ * fetched here at all (see `getSendListReachAction`, actions.ts, and
+ * `ReachCells`, lists-grid.tsx) and this read itself is now PAGED, on the
+ * same keyset machinery (`keysetFilter`/`encodeCursor`, @/lib/keyset)
+ * `listVendorsPage` (services/vendors.ts) already uses for its own small,
+ * named-things listing -- an over-fetch of `SEND_LIST_PAGE_SIZE + 1` rows
+ * answers "is there another page" without a second round trip, the same
+ * shape `listAuditLogs` (services/audit.ts) uses for its own forward-only
+ * cursor.
  *
  * ORDERED `created_at desc, id desc`, A TOTAL ORDER: both columns are
  * `not null` (`created_at` defaults to `now()`; `id` is the primary key), so
  * two renders of the same unchanged set of lists cannot disagree the way
  * `listTemplates`' own marketing half once did ordering by `purpose` alone,
- * a column that is null on every row PostgREST could return there. `id` is
- * the tiebreak precisely because it can never collide, the same pairing
- * `listTemplates` uses for its own total order.
+ * a column that is null on every row PostgREST could return there (read
+ * directly at src/services/templates.ts:277-288 before writing this comment,
+ * rather than trusted from the brief that named the defect). `id` is the
+ * tiebreak precisely because it can never collide, the same pairing
+ * `listTemplates` uses for its own total order -- and the same column pair
+ * this keyset cursor is built from below, since a keyset filter needs the
+ * identical total order the query itself applies.
  */
-export async function listSendLists(accessToken: string): Promise<SendListRecord[]> {
-  const { data, error } = await asCaller(accessToken)
+export async function listSendLists(
+  accessToken: string,
+  cursor: Cursor | null = null,
+): Promise<SendListsPage> {
+  let query = asCaller(accessToken)
     .from('send_lists')
     .select('id, company_id, name, source, kind, filters, created_at')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false });
+    .order('created_at', { ascending: false });
+
+  if (cursor) {
+    // created_at is never null (not null default now()), so nullsLast is
+    // inert here -- passed as false to match how members.ts's own
+    // nullable-aware caller resolves it for a non-nullable column
+    // (`nullable && ascending`, always false when nullable is false).
+    query = query.or(keysetFilter('created_at', 'desc', cursor, false));
+  }
+
+  const { data, error } = await query
+    .order('id', { ascending: false })
+    .limit(SEND_LIST_PAGE_SIZE + 1);
 
   if (error) throw new InternalError(`Could not list send lists: ${error.message}`);
 
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    companyId: row.company_id,
-    name: row.name,
-    source: row.source,
-    kind: row.kind,
-    filters: row.filters,
-    createdAt: row.created_at,
-  }));
+  const fetched = data ?? [];
+  const more = fetched.length > SEND_LIST_PAGE_SIZE;
+  const page = more ? fetched.slice(0, SEND_LIST_PAGE_SIZE) : fetched;
+  const last = page[page.length - 1];
+
+  return {
+    rows: page.map((row) => ({
+      id: row.id,
+      companyId: row.company_id,
+      name: row.name,
+      source: row.source,
+      kind: row.kind,
+      filters: row.filters,
+      createdAt: row.created_at,
+    })),
+    nextCursor: more && last ? encodeCursor({ value: last.created_at, id: last.id }) : null,
+  };
 }
 
 export async function renameSendList(input: RenameSendListInput, accessToken: string): Promise<void> {

@@ -118,3 +118,16 @@ export const deleteSendListSchema = z.object({
   listId: z.string().uuid(),
 });
 export type DeleteSendListInput = z.infer<typeof deleteSendListSchema>;
+
+/**
+ * Task 6, fix round 1 (F5). What asking for one list's reach on demand needs
+ * -- the same {listId} shape deleteSendListSchema carries, kept as its own
+ * schema rather than reused under a delete-flavoured name: the two actions
+ * mean different things even though today they take identical arguments, and
+ * a future change to one (say, delete gaining a reason field) should not
+ * silently reshape the other's contract too.
+ */
+export const sendListReachRequestSchema = z.object({
+  listId: z.string().uuid(),
+});
+export type SendListReachRequestInput = z.infer<typeof sendListReachRequestSchema>;

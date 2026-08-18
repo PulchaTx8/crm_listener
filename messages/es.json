@@ -706,7 +706,10 @@
     "actionRenameThisSendList": "renombrar esta lista",
     "actionDeleteThisSendList": "eliminar esta lista",
     "couldNotLoadTheSendLists": "No se pudieron cargar las listas de envío. Actualice la página e inténtelo de nuevo.",
-    "youDoNotHavePermissionToViewTheSendLists": "Usted no tiene permiso para ver las listas de envío en esta Emisora."
+    "youDoNotHavePermissionToViewTheSendLists": "Usted no tiene permiso para ver las listas de envío en esta Emisora.",
+    "showReachButton": "Mostrar alcance",
+    "reachLoading": "Cargando…",
+    "olderSendLists": "Listas más antiguas"
   },
   "connectWhatsApp": {
     "title": "Conectar WhatsApp Business",
