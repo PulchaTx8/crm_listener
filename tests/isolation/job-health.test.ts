@@ -77,6 +77,10 @@ describe('Block 11b — the scheduled routines report their own health', () => {
       'rate_limit_counters',
       'storage_erasure_queue',
       'total',
+      // Block 29c, Task 5, fix round 2, F19: 0233 extends sweep_retention with
+      // a tenth table -- unsubscribe_tokens -- sorted here where 't' < 'u'
+      // places it, between 'total' and 'webhook_events'.
+      'unsubscribe_tokens',
       'webhook_events',
       'whatsapp_conversation_leases',
       'whatsapp_conversations',

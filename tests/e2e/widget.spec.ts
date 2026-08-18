@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { test, expect, type FrameLocator, type Page } from '@playwright/test';
 import { Client } from 'pg';
 import { createClient } from '@supabase/supabase-js';
@@ -129,6 +129,14 @@ const REFUSAL_SWITCH_VISITOR_NAME = 'Listener Whose Refusal Follows Them';
 const PHANTOM_ENTRY_VISITOR_LOCAL_PHONE = `61${String(stamp).slice(-9)}`;
 const PHANTOM_ENTRY_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${PHANTOM_ENTRY_VISITOR_LOCAL_PHONE}`;
 const PHANTOM_ENTRY_VISITOR_NAME = 'Listener Whose Next Button Writes Early';
+
+/**
+ * Block 29c, Task 10. The marketing checkbox's three-way rule, end to end —
+ * a seventh phone, same per-number reason as the six before it.
+ */
+const MARKETING_CONSENT_VISITOR_LOCAL_PHONE = `71${String(stamp).slice(-9)}`;
+const MARKETING_CONSENT_VISITOR_PHONE = `+${VISITOR_COUNTRY_CODE}${MARKETING_CONSENT_VISITOR_LOCAL_PHONE}`;
+const MARKETING_CONSENT_VISITOR_NAME = 'Listener Who Ticks Once';
 
 /** Names the outbox row this run's code arrives on, and nobody else's. */
 const TEMPLATE_NAME = `web_verification_journey_${stamp}`;
@@ -606,8 +614,8 @@ test.beforeAll(async ({}, testInfo) => {
   // wearing the costume of a real failure. That suffix has now moved twice, so
   // it is not pinned here at all: everything after `widget:<step>:ip:` is
   // whatever the action decides, and this deliberately does not have an opinion
-  // about it. The four prefixes are still named separately rather than
-  // collapsed into one pattern, because they are four independent limits and a
+  // about it. The prefixes below are still named separately rather than
+  // collapsed into one pattern, because they are independent limits and a
   // reader has to be able to see that all of them were cleared.
   //
   // `widget:promo:list:ip:` and `widget:promo:enter:ip:`
@@ -617,11 +625,17 @@ test.beforeAll(async ({}, testInfo) => {
   // full local run now spends two of the twenty instead of one. Left
   // uncleared, that halves the headroom before an unrelated `rate_limited`
   // for every run after the first.
+  //
+  // `unsubscribe:` (Block 29c, Task 10) joined the same way, for the
+  // sharpest ceiling of the five: `unsubscribe/[token]/page.tsx`'s own
+  // MAX_PER_WINDOW is 5 per hour, not 10 or 20, so it is the first of these
+  // buckets a repeated local run would exhaust.
   for (const prefix of [
     'widget:code:ip:',
     'widget:verify:ip:',
     'widget:promo:enter:ip:',
     'widget:promo:list:ip:',
+    'unsubscribe:',
   ]) {
     const { error: bucketError } = await admin
       .from('rate_limit_counters')
@@ -1299,4 +1313,170 @@ test('a page on an origin the Station did not name cannot frame the widget at al
   await expect(page.frameLocator('#widget').getByTestId('widget-identify-form')).toBeHidden({
     timeout: 3_000,
   });
+});
+
+/**
+ * Block 29c, Task 10. The widget's marketing checkbox, end to end — Task 9's
+ * three-way rule (`widget_enter_promotion`, 0234): TICKED writes `true`,
+ * ALWAYS; UNTICKED with no row yet writes `false`; UNTICKED with a row already
+ * present writes NOTHING. The third arm is the Critical this block closed
+ * (fix round 1, F23) and the one worth pinning here: a listener who does not
+ * re-tick on a LATER promotion must not be read as withdrawing what they
+ * already gave.
+ *
+ * THE TWO ALREADY-SEEDED CONSENT-ONLY PROMOTIONS
+ * (CONSENT_SWITCH_PROMOTION_A/B_NAME) carry this walk: one screen each,
+ * nothing to fill in, so "Enter now" is reachable straight from the consent
+ * screen twice over. Neither is entered anywhere else in this file — the two
+ * tests that already choose them (the consent-carry-over case above and the
+ * refusal-does-not-linger case) both stop before submitting.
+ */
+test('the marketing checkbox writes true when ticked, and a later unticked entry leaves that true alone', async ({
+  page,
+}) => {
+  const widget = await identifyInFrame(page, {
+    localPhone: MARKETING_CONSENT_VISITOR_LOCAL_PHONE,
+    phone: MARKETING_CONSENT_VISITOR_PHONE,
+    name: MARKETING_CONSENT_VISITOR_NAME,
+  });
+
+  const { data: listenerRows, error: listenerError } = await admin
+    .from('members')
+    .select('id')
+    .eq('phone', MARKETING_CONSENT_VISITOR_PHONE)
+    .limit(1);
+  if (listenerError) throw new Error(`could not read the listener back: ${listenerError.message}`);
+  const memberId = listenerRows?.[0]?.id as string;
+  expect(memberId, 'identifying created a member row').toBeTruthy();
+
+  // THE DATABASE, NOT THE SCREEN, both times: a panel saying "pronto" proves
+  // the action was reached, not that anything was written.
+  async function marketingConsentRows() {
+    const { data, error } = await admin
+      .from('member_consents')
+      .select('granted, origin')
+      .eq('member_id', memberId)
+      .eq('company_id', journeyCompanyId)
+      .eq('consent_type', 'whatsapp_marketing');
+    if (error) throw new Error(`could not read member_consents back: ${error.message}`);
+    return data ?? [];
+  }
+
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_A_NAME, exact: true })
+    .click();
+
+  // UNCHECKED BY DEFAULT — the LGPD posture 0234's own comment names, not a UX
+  // preference. Asserted before the box is ever touched.
+  await expect(widget.getByTestId('widget-promotion-marketing-consent')).not.toBeChecked();
+
+  await widget.getByTestId('widget-promotion-consent').check();
+  await widget.getByTestId('widget-promotion-marketing-consent').check();
+  await widget.getByTestId('widget-promotion-send').click();
+  await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+
+  const afterFirst = await marketingConsentRows();
+  expect(afterFirst, 'ticking wrote one whatsapp_marketing row').toHaveLength(1);
+  expect(afterFirst[0]?.granted).toBe(true);
+  expect(afterFirst[0]?.origin).toBe('widget');
+
+  // BACK TO THE LIST, A DIFFERENT PROMOTION, THE BOX LEFT UNTICKED — spec D2's
+  // "once", proved rather than assumed.
+  await widget.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
+  await widget.getByTestId('widget-enter-promotion').click();
+  await expect(widget.getByTestId('widget-promotion-list')).toBeVisible({ timeout: 30_000 });
+
+  await widget
+    .getByTestId('widget-promotion-list')
+    .getByRole('button', { name: CONSENT_SWITCH_PROMOTION_B_NAME, exact: true })
+    .click();
+
+  await expect(widget.getByTestId('widget-promotion-marketing-consent')).not.toBeChecked();
+  await widget.getByTestId('widget-promotion-consent').check();
+  // The marketing box is left unticked here, deliberately — the mistake a
+  // repeat participant makes without meaning anything by it.
+  await widget.getByTestId('widget-promotion-send').click();
+  await expect(widget.getByTestId('widget-promotion-done')).toBeVisible({ timeout: 30_000 });
+
+  // THE ASSERTION THAT MATTERS: still one row, still true. A regression back
+  // to the blanket insert Task 9's fix round 1 replaced would write a second
+  // row here, or flip this one to false.
+  const afterSecond = await marketingConsentRows();
+  expect(afterSecond, 'the second, unticked entry wrote no second row').toHaveLength(1);
+  expect(afterSecond[0]?.granted, 'the earlier true survives an unticked repeat').toBe(true);
+});
+
+/**
+ * Block 29c, Task 10, §7's decision pinned end to end: THE GET WRITES
+ * NOTHING. Mail scanners and antivirus prefetch links; a route that acted on
+ * GET would unsubscribe every listener whose employer scans mail, silently,
+ * with nobody having clicked. `unsubscribe/[token]/page.tsx`'s own header
+ * comment states the design; this is the case that would catch a later
+ * "simplification" to one-click GET, which would pass every other test in
+ * this repository.
+ *
+ * A FRESH LISTENER, SEEDED DIRECTLY THROUGH create_member — this case is
+ * about the token door and the page's GET/POST split, not about identifying
+ * through the widget, so there is nothing this journey needs from a WhatsApp
+ * code round trip.
+ *
+ * THE RAW TOKEN AND ITS HASH ARE COMPUTED HERE RATHER THAN IMPORTED from
+ * services/consent.ts, for the same reason `publicKey` above is: that module
+ * is `import 'server-only'` at its first line, which vitest aliases to a stub
+ * and Playwright does not.
+ */
+test('the GET on an unsubscribe link writes nothing; only the POST does', async ({ page }) => {
+  const ownerClient = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: signInError } = await ownerClient.auth.signInWithPassword({
+    email: ownerEmail,
+    password: ownerPassword,
+  });
+  if (signInError) throw new Error(`could not sign in the owner: ${signInError.message}`);
+
+  const { data: memberId, error: memberError } = await ownerClient.rpc('create_member', {
+    p_company_id: journeyCompanyId,
+    p_full_name: 'Unsubscribe GET Journey Listener',
+  });
+  if (memberError) throw new Error(`could not seed the listener: ${memberError.message}`);
+
+  const raw = randomBytes(32).toString('base64url');
+  const hash = createHash('sha256').update(raw).digest('hex');
+
+  const { error: tokenError } = await admin.rpc('issue_unsubscribe_token', {
+    p_member_id: memberId as string,
+    p_company_id: journeyCompanyId,
+    p_token_hash: hash,
+  });
+  if (tokenError) throw new Error(`could not mint the unsubscribe token: ${tokenError.message}`);
+
+  async function consentRowCount(): Promise<number> {
+    const { data, error } = await admin.from('member_consents').select('id').eq('member_id', memberId as string);
+    if (error) throw new Error(`could not read member_consents back: ${error.message}`);
+    return data?.length ?? 0;
+  }
+
+  expect(await consentRowCount(), 'nothing recorded before the visit').toBe(0);
+
+  // THE GET. A plain navigation, exactly what a mail scanner's prefetch is.
+  await page.goto(`${appOrigin}/unsubscribe/${raw}`);
+  expect(await consentRowCount(), 'the GET must write nothing').toBe(0);
+
+  // THE POST. Only a real click reaches the Server Action behind the button.
+  await page.getByRole('button', { name: 'Leave this Station' }).click();
+  await expect(page.getByTestId('unsubscribe-success')).toBeVisible({ timeout: 30_000 });
+  expect(await consentRowCount(), 'the POST is what writes').toBe(1);
+
+  const { data: rows } = await admin
+    .from('member_consents')
+    .select('consent_type, granted')
+    .eq('member_id', memberId as string);
+  expect(rows?.[0]?.consent_type).toBe('email_marketing');
+  expect(rows?.[0]?.granted).toBe(false);
 });
