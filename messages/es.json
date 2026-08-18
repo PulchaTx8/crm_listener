@@ -670,7 +670,9 @@
     "actionSaveAMarketingTemplate": "guardar una plantilla de campaña",
     "discardUnsavedChanges": "¿Descartar los cambios que no ha guardado?",
     "createTemplate": "Crear plantilla",
-    "saveTemplateChanges": "Guardar cambios"
+    "saveTemplateChanges": "Guardar cambios",
+    "variablePositionAriaLabel": "Valor de la posición {n}",
+    "notOfferedToCampaigns": "No ofrecido a campañas"
   },
   "connectWhatsApp": {
     "title": "Conectar WhatsApp Business",

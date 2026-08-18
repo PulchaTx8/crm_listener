@@ -207,14 +207,13 @@ export async function previewCampaignEmailAction(
 ): Promise<PreviewCampaignEmailState> {
   try {
     const supabase = await createUserClient();
-    // A plain read, not a Company this caller necessarily holds
-    // templates.manage in checked again: TemplateDialog only reaches this
-    // action from a dialog templates.manage already gated (page.tsx's own
-    // `manage`), and everything the frame carries beyond the operator's own
-    // typed body — the Station's name and picture — is public within this
-    // console to anyone who can already see this screen. RLS on `companies`
-    // (companies_select_org_member) is still the actual boundary: a caller
-    // with no standing in this Station reads no row here at all.
+    // This does not re-check templates.manage before reading the Station's
+    // name and picture. TemplateDialog only calls this action from a dialog
+    // that page.tsx already gated on `manage` — a courtesy, not the boundary
+    // — and the real boundary is RLS on `companies` (companies_select_org_member):
+    // a caller with no standing in this Station reads no row here at all.
+    // Nothing beyond the operator's own typed body reaches the frame that
+    // RLS does not already show this same caller elsewhere in the console.
     const { data, error } = await supabase
       .from('companies')
       .select('name, thumb_url')

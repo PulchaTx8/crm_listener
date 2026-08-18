@@ -242,15 +242,18 @@ export interface RegisteredTemplate {
   otpButton: boolean;
   updatedAt: string;
   /**
-   * Block 29b-1, Task 9. Who last saved this row, and its display name —
-   * `message_templates.updated_by` (0223) references `auth.users`, which is
-   * not the table the Marketing grid can put a name to, so `listTemplates`
-   * below resolves it through `profiles` itself rather than a second RPC. Both
-   * null for a row nothing has ever named an actor for (there is none today —
-   * every insert and every update stamps `updated_by` — but the column carries
-   * no NOT NULL, so this stays honest about what it actually is: nullable).
+   * Block 29b-1, Task 9. Who last saved this row, for the Marketing grid's
+   * "last updated" column — `message_templates.updated_by` (0223) references
+   * `auth.users`, which is not the table this file can put a name to, so
+   * `listTemplates` below resolves it through `profiles` itself rather than a
+   * second RPC. Null for a row nothing has ever named an actor for (there is
+   * none today — every insert and every update stamps `updated_by` — but the
+   * column carries no NOT NULL, so this stays honest about what it actually
+   * is: nullable). The id itself (`message_templates.updated_by`) has no
+   * reader anywhere in this codebase and is deliberately not carried onto
+   * this type — a field nothing reads is the same defect class as the
+   * marketing OTP checkbox this block already refused to add.
    */
-  updatedById: string | null;
   updatedByName: string | null;
 }
 
@@ -310,7 +313,6 @@ export async function listTemplates(
     variables: row.variables,
     otpButton: row.otp_button,
     updatedAt: row.updated_at,
-    updatedById: row.updated_by,
     updatedByName: row.updated_by ? (nameById.get(row.updated_by) ?? null) : null,
   }));
 

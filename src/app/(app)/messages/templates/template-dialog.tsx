@@ -194,15 +194,22 @@ export function TemplateDialog({
 
           {/*
             EMAIL. `hidden`, not unmounted, for subject and the sender
-            override — the shape role-record-dialog.tsx's own tabs use, and
-            for the same two reasons: a `required` field inside a `hidden`
-            ancestor is exempt from constraint validation (so `subject`
-            staying `required` costs nothing while WhatsApp is chosen), and
-            every field the door writes UNCONDITIONALLY regardless of channel
-            (`from_name`, `from_email`, `reply_to` — save_marketing_template's
-            own INSERT/UPDATE never guards these on `p_channel`) must stay in
-            the DOM the whole time or a channel toggle mid-edit would submit
-            them blank and silently clear a Station's own override.
+            override — the shape role-record-dialog.tsx's own tabs use, but
+            NOT for the reason that shape gets away with `required` on a
+            hidden field: HTML exempts a control from constraint validation
+            only for `disabled`, `readonly`, `type=hidden`, or a `datalist`
+            descendant, and a plain `hidden` ancestor is none of those —
+            Chrome refuses submission with "An invalid form control ... is
+            not focusable" if a `required` field is left hidden while still
+            required. `subject` is safe here because `required={channel ===
+            'EMAIL'}` actually turns the attribute off while WhatsApp is
+            chosen, not because `hidden` excused it. `hidden` is doing a
+            SEPARATE job: every field the door writes UNCONDITIONALLY
+            regardless of channel (`from_name`, `from_email`, `reply_to` —
+            save_marketing_template's own INSERT/UPDATE never guards these on
+            `p_channel`) must stay in the DOM the whole time, or a channel
+            toggle mid-edit would submit them blank and silently clear a
+            Station's own override.
           */}
           <div hidden={channel !== 'EMAIL'} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1 text-sm">
@@ -341,29 +348,53 @@ export function TemplateDialog({
             {channel === 'WHATSAPP' && placeholders > 0 && (
               <div className="flex flex-col gap-2">
                 <span className="text-sm text-muted-foreground">{t('whatEachPositionMeans')}</span>
-                {Array.from({ length: placeholders }, (_, index) => (
-                  <label key={index} className="flex items-center gap-2 text-sm">
-                    <code className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
-                      {`{{${index + 1}}}`}
-                    </code>
-                    <Select
-                      name="variables"
-                      defaultValue={existing?.variables[index] ?? ''}
-                      required
-                      className="h-9 max-w-md"
-                      aria-label={`What {{${index + 1}}} means`}
-                    >
-                      <option value="" disabled>
-                        {t('chooseWhatThisPositionCarries')}
-                      </option>
-                      {CAMPAIGN_VARIABLES.map((value) => (
-                        <option key={value} value={value}>
-                          {t(`variable_${value}`)}
+                {Array.from({ length: placeholders }, (_, index) => {
+                  const current: TemplateVariable | undefined = existing?.variables[index];
+                  // F20 (Task 9 fix round 1). The door does not restrict a
+                  // WHATSAPP marketing row's `variables` to CAMPAIGN_VARIABLES
+                  // — only `marketingTemplateSchema` does, on the way IN
+                  // through this form — so a row already carrying one of the
+                  // three system-only values (PRIZE_NAME, PICKUP_DEADLINE,
+                  // VERIFICATION_CODE) is a state this screen must be able to
+                  // READ without destroying it. Without the extra option below,
+                  // `defaultValue` would match nothing, the select would fall
+                  // back to whatever the browser picks for an unmatched value,
+                  // and saving this form for an unrelated reason (retitling the
+                  // template, say) would overwrite the real stored value with
+                  // that guess — the same silent-loss shape the sender-override
+                  // fields above are guarded against.
+                  const outOfVocabulary =
+                    current !== undefined && !CAMPAIGN_VARIABLES.includes(current);
+
+                  return (
+                    <label key={index} className="flex items-center gap-2 text-sm">
+                      <code className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
+                        {`{{${index + 1}}}`}
+                      </code>
+                      <Select
+                        name="variables"
+                        defaultValue={current ?? ''}
+                        required
+                        className="h-9 max-w-md"
+                        aria-label={t('variablePositionAriaLabel', { n: index + 1 })}
+                      >
+                        <option value="" disabled>
+                          {t('chooseWhatThisPositionCarries')}
                         </option>
-                      ))}
-                    </Select>
-                  </label>
-                ))}
+                        {outOfVocabulary && (
+                          <optgroup label={t('notOfferedToCampaigns')}>
+                            <option value={current}>{t(`variable_${current}`)}</option>
+                          </optgroup>
+                        )}
+                        {CAMPAIGN_VARIABLES.map((value) => (
+                          <option key={value} value={value}>
+                            {t(`variable_${value}`)}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                  );
+                })}
               </div>
             )}
           </div>

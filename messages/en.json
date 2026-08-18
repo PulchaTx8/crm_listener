@@ -670,7 +670,9 @@
     "actionSaveAMarketingTemplate": "save a marketing template",
     "discardUnsavedChanges": "Discard the changes you have not saved?",
     "createTemplate": "Create template",
-    "saveTemplateChanges": "Save changes"
+    "saveTemplateChanges": "Save changes",
+    "variablePositionAriaLabel": "Value for position {n}",
+    "notOfferedToCampaigns": "Not offered to campaigns"
   },
   "connectWhatsApp": {
     "title": "Connect WhatsApp Business",
