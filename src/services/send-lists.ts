@@ -1,7 +1,12 @@
 import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 import { getUserSupabaseConfig } from '@/lib/supabase/config';
-import { InternalError, NotFoundError } from '@/lib/errors';
+import {
+  InternalError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+} from '@/lib/errors';
 import { decodeCursor } from '@/lib/keyset';
 import type { Cursor } from '@/lib/keyset';
 import { listOrganizationMembers } from '@/services/members';
@@ -14,8 +19,10 @@ import {
   requestSendListFiltersSchema,
 } from '@/schemas/send-lists';
 import type {
+  DeleteSendListInput,
   MemberSendListFilters,
   ParticipationSendListFilters,
+  RenameSendListInput,
   RequestSendListFilters,
   SendListSource,
 } from '@/schemas/send-lists';
@@ -418,4 +425,101 @@ export async function listReach(listId: string, accessToken: string): Promise<Li
   ]);
 
   return { people: memberIds.length, whatsapp, email };
+}
+
+// ---------------------------------------------------------------------------
+// Task 6: the grid, and the two writes it offers (rename, soft delete).
+// create_send_list has no wrapper here -- nothing built in this task calls it;
+// the dialog that does is a later task's own file.
+// ---------------------------------------------------------------------------
+
+/**
+ * The code taxonomy `create_send_list`, `rename_send_list` and
+ * `delete_send_list` (0239) actually raise -- narrower than templates.ts's own
+ * `mapTemplateError`, which also carries `23505`/`23514` for doors that upsert
+ * or hit a check constraint neither of these three can reach (all three either
+ * `insert` once with no conflict target or `update` by primary key).
+ *
+ * - `42501` is a permission refusal, and -- by 0093's rule, which all three
+ *   doors follow -- ALSO an id that names nothing: rename/delete resolve the
+ *   Station from the row, so an unknown id fails existence (`P0002`) before
+ *   permission is even checked, and this ambiguity is therefore narrower than
+ *   templates.ts's own equivalent note describes for its own doors.
+ * - `P0002` is a list id that names nothing live -- unknown, or already
+ *   soft-deleted, since 0238's own select policy hides one from every read.
+ * - `22023` is the one validation raise reachable through these three from a
+ *   caller who bypassed the form: a blank name.
+ * - Anything else is ours, not the caller's.
+ */
+function mapSendListError(code: string | undefined, message: string): Error {
+  if (code === '22023') return new ValidationError(message);
+  if (code === 'P0002') return new NotFoundError(message);
+  if (code === '42501') return new UnauthorizedError(message);
+  return new InternalError(message);
+}
+
+/** One row of the grid, before Task 5's `listReach` is asked about it -- page.tsx composes the two. */
+export interface SendListRecord {
+  id: string;
+  companyId: string;
+  name: string;
+  source: SendListSource;
+  kind: Database['public']['Enums']['send_list_kind'];
+  /** Still raw jsonb -- lists-grid.tsx parses it through the matching schema above to render it as text, the same schemas listReach itself parses `filters` through. */
+  filters: unknown;
+  createdAt: string;
+}
+
+/**
+ * Every list this caller's `messaging.view` reaches, across every Station --
+ * never narrowed to one Company the way `listTemplates` narrows to the
+ * Station its own screen has selected. A send list names its own Station as a
+ * COLUMN (spec D3: one Station per list), so an operator holding the
+ * permission at more than one sees all of them in one screen rather than
+ * switching between Stations to find one, and 0238's own RLS policy
+ * (`deleted_at is null and has_permission('messaging.view', company_id)`) is
+ * what actually bounds the result -- this function adds no `.eq('company_id',
+ * ...)` of its own.
+ *
+ * ORDERED `created_at desc, id desc`, A TOTAL ORDER: both columns are
+ * `not null` (`created_at` defaults to `now()`; `id` is the primary key), so
+ * two renders of the same unchanged set of lists cannot disagree the way
+ * `listTemplates`' own marketing half once did ordering by `purpose` alone,
+ * a column that is null on every row PostgREST could return there. `id` is
+ * the tiebreak precisely because it can never collide, the same pairing
+ * `listTemplates` uses for its own total order.
+ */
+export async function listSendLists(accessToken: string): Promise<SendListRecord[]> {
+  const { data, error } = await asCaller(accessToken)
+    .from('send_lists')
+    .select('id, company_id, name, source, kind, filters, created_at')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
+
+  if (error) throw new InternalError(`Could not list send lists: ${error.message}`);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    companyId: row.company_id,
+    name: row.name,
+    source: row.source,
+    kind: row.kind,
+    filters: row.filters,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function renameSendList(input: RenameSendListInput, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('rename_send_list', {
+    p_list_id: input.listId,
+    p_name: input.name,
+  });
+  if (error) throw mapSendListError(error.code, error.message);
+}
+
+export async function deleteSendList(input: DeleteSendListInput, accessToken: string): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('delete_send_list', {
+    p_list_id: input.listId,
+  });
+  if (error) throw mapSendListError(error.code, error.message);
 }

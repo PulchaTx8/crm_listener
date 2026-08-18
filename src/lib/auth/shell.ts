@@ -408,6 +408,23 @@ export async function getShellContext(): Promise<{
         // Pickups. Its shape reads reasonably here: a registered template is
         // the only thing that lets a Station SPEAK FIRST rather than answer.
         { href: '/messages/templates', label: t('templates'), icon: ICONS.megaphone },
+        // Block 29d-1, Task 6. LAST IN THE SECTION: it is the newest capability
+        // here and reads a list built FROM the two rows above it as much as
+        // from Audience -- Ouvintes, Pedidos and Participações are all it can
+        // be cut from (the empty state on /messages/lists itself names the
+        // three) -- so this row is where those journeys end up.
+        //
+        // Visible to every member, the same courtesy every entry in this
+        // section already extends: /messages/lists redirects at the top of
+        // its own render for anyone holding messaging.view nowhere, and
+        // 0238's own select policy filters every read regardless of that
+        // redirect. Hiding a link is a courtesy; the boundary is in the
+        // database.
+        //
+        // ICONS.list is new for this row -- see its own comment in
+        // app-shell.tsx for why neither message nor megaphone, its two
+        // neighbours here, could serve instead.
+        { href: '/messages/lists', label: t('lists'), icon: ICONS.list },
       ],
     },
     {

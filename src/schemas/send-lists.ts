@@ -102,3 +102,19 @@ export interface SendListFiltersMap {
   participations: ParticipationSendListFilters;
   requests: RequestSendListFilters;
 }
+
+/**
+ * Task 6. What the two write doors that take a name/id pair need --
+ * rename_send_list's own two arguments and delete_send_list's own one
+ * (0239). Not a third filters shape: these two never touch `filters` at all.
+ */
+export const renameSendListSchema = z.object({
+  listId: z.string().uuid(),
+  name: z.string().trim().min(1),
+});
+export type RenameSendListInput = z.infer<typeof renameSendListSchema>;
+
+export const deleteSendListSchema = z.object({
+  listId: z.string().uuid(),
+});
+export type DeleteSendListInput = z.infer<typeof deleteSendListSchema>;

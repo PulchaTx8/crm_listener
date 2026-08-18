@@ -73,6 +73,13 @@ export const ICONS = {
   // where somebody asks to be erased. Nothing declared here meant erasure.
   trash:
     'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6',
+  // Three ruled lines, for Block 29d-1's Send lists. Its own path rather than
+  // reusing anything above: `message` and `megaphone` are this row's two
+  // neighbours in the SAME section (Messages), which is exactly the case the
+  // house rule forbids, and neither one means *a named set of recipients* --
+  // one is a single conversation, the other is one blast to everybody. A send
+  // list is neither; it is a roster, which is what this glyph reads as.
+  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
 } as const;
 
 export interface ShellUser {
