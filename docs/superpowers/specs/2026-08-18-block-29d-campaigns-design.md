@@ -26,6 +26,28 @@ worker, and a send that respects a listener's consent at the moment it goes out.
 
 ---
 
+## 2b. Two passes, settled with the owner on 2026-08-18
+
+This spec covers both; the work ships in two plans and two PRs.
+
+**29d-1 — lists.** The button on Members, Requests and Participations; the list
+table and its doors; the list screen; reach per channel; the `messaging.*`
+permissions the doors need. Ends with software the owner can see: a list built
+from a filtered Requests screen, named, scoped to a Station, showing how many
+people it holds and how many of them are reachable on each channel. Nothing
+sends.
+
+**29d-2 — the send.** Campaigns, the recipient queue, the fifth drain, the
+providers, the test send, cancellation, and the retention and erasure
+obligations of §8.
+
+The split falls where it does because lists are useful and testable alone, and
+because a design error in lists is cheaper to find before a send loop is built on
+top of them. §4 and §7's list half belong to 29d-1; §5, §6, §8 and §7's campaign
+half belong to 29d-2. §9's table divides the same way.
+
+---
+
 ## 3. Decisions, all settled with the owner on 2026-08-18
 
 **D1 — Consent is re-verified at send time, not only at snapshot.**
