@@ -289,32 +289,29 @@ export async function runConversationTurn(
     // duplicating phone_normalized's own normalisation here is exactly the
     // drift 0061's header warns against.
     if (turn.reply === null && isStopWord(turn.text)) {
-      const { data: matched, error } = await deps.supabase.rpc('withdraw_marketing_by_phone', {
+      // F8. The door hands back the STATION, not a boolean, precisely so
+      // this reply is not stuck on the code default -- see
+      // `marketingStoppedReply` below.
+      const { data: companyId, error } = await deps.supabase.rpc('withdraw_marketing_by_phone', {
         p_integration_id: turn.integration_id,
         p_phone: turn.phone,
       });
       if (error) throw error;
       // A stranger, or a listener this STATION never linked, gets the same
       // silence anybody else not mid-conversation gets -- the door itself
-      // answers false for exactly that pair of cases (its own comment), so
+      // answers null for exactly that pair of cases (its own comment), so
       // that this file is never tempted to tell either one "removed" for
       // something that never happened here.
-      if (matched) {
-        // The code default, not a Station's own override: the door returns
-        // only whether it matched (F7's own contract), not a company id this
-        // file could resolve a wording override from, and the boolean is
-        // cheap in the one direction that matters -- a listener genuinely
-        // gets told they stopped receiving campaigns, even where the exact
-        // words are not this Station's chosen ones.
+      if (companyId) {
         await enqueue(
           deps,
           turn,
-          { kind: 'text', body: resolveSystemMessage({}, 'MARKETING_STOPPED') },
+          { kind: 'text', body: await marketingStoppedReply(deps, companyId) },
           'marketing_stopped',
         );
       }
       await finish(deps, turn.event_id, 'no_conversation');
-      return matched ? { kind: 'marketing_consent_recorded', granted: false } : { kind: 'ignored' };
+      return companyId ? { kind: 'marketing_consent_recorded', granted: false } : { kind: 'ignored' };
     }
 
     // A message from somebody who is not mid-conversation and whose message
@@ -547,6 +544,29 @@ async function maybeAskMarketingConsent(
   // finishing it a second time is not this function's to do, and the
   // whitelist finish_whatsapp_turn enforces would refuse a made-up outcome
   // for it besides.
+}
+
+/**
+ * Block 29c, F8. The Station's own MARKETING_STOPPED wording, resolved the
+ * SAME WAY the in-conversation path resolves every one of the ten texts:
+ * `resolveSystemMessage` (engine.ts) against whatever override exists, the
+ * code default when there is none. `whatsapp_prompt_context` assembles all
+ * ten keyed by a promotion; there is no promotion on this path, only the
+ * Station `withdraw_marketing_by_phone` (0231) handed back, so this reads
+ * the one key this reply actually needs directly off
+ * `station_message_templates` -- the same table, the same partial-unique
+ * `(company_id, key) where deleted_at is null`, just a narrower read.
+ */
+async function marketingStoppedReply(deps: ConversationDeps, companyId: string): Promise<string> {
+  const { data, error } = await deps.supabase
+    .from('station_message_templates')
+    .select('body')
+    .eq('company_id', companyId)
+    .eq('key', 'MARKETING_STOPPED')
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  return resolveSystemMessage(data ? { MARKETING_STOPPED: data.body } : {}, 'MARKETING_STOPPED');
 }
 
 /** Block 29c. Whether a `whatsapp_marketing` row already exists for this pair, granted true or false (D2). */

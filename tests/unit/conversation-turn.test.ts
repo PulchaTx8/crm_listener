@@ -5,6 +5,7 @@ import {
   CONSENT_NO_ID,
   CONSENT_YES_ID,
   MARKETING_NO_ID,
+  MARKETING_STOPPED_MESSAGE,
   MARKETING_YES_ID,
 } from '@/lib/conversation/engine';
 import type { Conversation } from '@/lib/conversation/steps';
@@ -74,7 +75,22 @@ class FakeDb {
         call.eqs[column] = value;
         return builder;
       },
+      // `.is('deleted_at', null)` -- F8's marketingStoppedReply -- filters the
+      // same way `.eq` does for this fake's purposes: it only needs to record
+      // that the column was asked about, never to evaluate the comparison.
+      is: (column: string, value: unknown) => {
+        call.eqs[column] = value;
+        return builder;
+      },
       single: () => {
+        this.fromCalls.push(call);
+        return reply();
+      },
+      // Real PostgREST answers `{data: null, error: null}` on no rows rather
+      // than erroring the way `.single()` does; `reply()` already returns
+      // `null` for an unconfigured table, so the two need no separate path
+      // here.
+      maybeSingle: () => {
         this.fromCalls.push(call);
         return reply();
       },
@@ -771,16 +787,19 @@ describe('Block 29c: the marketing consent follow-up', () => {
 });
 
 /**
- * Block 29c, fix round 1, F7. The cold path: no live conversation, no
- * hashtag, nothing but a phone and a stop word. `withdraw_marketing_by_phone`
- * (0231) resolves the listener IN SQL, so this file's own job is only the
- * wiring -- call it, and reply only when it says it matched somebody.
+ * Block 29c, fix rounds 1 and 2 (F7, F8). The cold path: no live
+ * conversation, no hashtag, nothing but a phone and a stop word.
+ * `withdraw_marketing_by_phone` (0231) resolves the listener IN SQL and
+ * hands back the STATION it withdrew at (F8: a uuid, null on no match) --
+ * this file's own job is only the wiring: call it, and when it names a
+ * Station, resolve THAT Station's own MARKETING_STOPPED wording rather than
+ * assuming the code default.
  */
-describe("Block 29c, F7: the cold-path stop word", () => {
-  it('withdraws and replies when the door finds a listener', async () => {
+describe('Block 29c, F7/F8: the cold-path stop word', () => {
+  it('withdraws and replies with the code default when the Station has no override', async () => {
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
-      withdraw_marketing_by_phone: true,
+      withdraw_marketing_by_phone: COMPANY,
     });
     const store = new FakeStore(null);
 
@@ -796,16 +815,42 @@ describe("Block 29c, F7: the cold-path stop word", () => {
     });
     const enqueued = db.called('enqueue_whatsapp_outbound');
     expect(enqueued?.args.p_dedupe_key).toBe(`${EXTERNAL_ID}:marketing_stopped`);
+    // No row configured for station_message_templates -- maybeSingle answers
+    // null, and resolveSystemMessage falls back to the constant.
+    expect(String(enqueued?.args.p_body)).toBe(MARKETING_STOPPED_MESSAGE);
     expect(db.called('finish_whatsapp_turn')?.args.p_outcome).toBe('no_conversation');
+  });
+
+  /**
+   * F8's own proof. Without this, a version of the wiring that always sent
+   * the code default would pass every other case in this file -- the whole
+   * point of handing back the Station's id rather than a boolean is that
+   * THIS is now possible, and nothing else here would notice if it broke.
+   */
+  it("replies with the Station's own MARKETING_STOPPED wording when it has one", async () => {
+    const OWN_WORDING = 'Combinado, você não recebe mais nossas campanhas por aqui.';
+    const db = new FakeDb(
+      { claim_conversation_turn: LEASE_TOKEN, withdraw_marketing_by_phone: COMPANY },
+      {},
+      { station_message_templates: { body: OWN_WORDING } },
+    );
+    const store = new FakeStore(null);
+
+    await runConversationTurn({ supabase: asClient(db), store }, turn({ text: 'PARAR' }));
+
+    const enqueued = db.called('enqueue_whatsapp_outbound');
+    expect(String(enqueued?.args.p_body)).toBe(OWN_WORDING);
+    const read = db.fromCalls.find((c) => c.table === 'station_message_templates');
+    expect(read?.eqs).toMatchObject({ company_id: COMPANY, key: 'MARKETING_STOPPED' });
   });
 
   it('stays silent -- and sends nothing -- when the door finds no match', async () => {
     // A stranger, or a listener some OTHER Station knows: withdraw_marketing_by_phone
-    // answers false for both (its own comment), and a reply here would tell
+    // answers null for both (its own comment), and a reply here would tell
     // either one "removed" for something that never happened at this Station.
     const db = new FakeDb({
       claim_conversation_turn: LEASE_TOKEN,
-      withdraw_marketing_by_phone: false,
+      withdraw_marketing_by_phone: null,
     });
     const store = new FakeStore(null);
 

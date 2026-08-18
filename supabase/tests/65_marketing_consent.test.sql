@@ -190,10 +190,12 @@ insert into public.member_company_links (member_id, company_id, organization_id)
    '00000000-0000-0000-0000-0000000029c1');
 
 -- A known phone, texted through the Station it is linked to, withdraws.
+-- F8: the return is the STATION's id, not a bare true -- so the caller can
+-- resolve THAT Station's own MARKETING_STOPPED wording.
 select is(
   (select public.withdraw_marketing_by_phone(
      '00000000-0000-0000-0000-0000000029c6', '5511999990001')),
-  true, 'a known phone withdraws');
+  '00000000-0000-0000-0000-0000000029c2'::uuid, 'a known phone withdraws, and the Station is handed back');
 
 select is(
   (select granted from public.member_consents
@@ -210,7 +212,7 @@ select is(
 select is(
   (select public.withdraw_marketing_by_phone(
      '00000000-0000-0000-0000-0000000029c7', '5511999990001')),
-  false, 'a phone known at another Station in the group does not withdraw here');
+  null::uuid, 'a phone known at another Station in the group does not withdraw here');
 
 select is(
   (select count(*)::int from public.member_consents
@@ -227,7 +229,7 @@ select is(
 select is(
   (select public.withdraw_marketing_by_phone(
      '00000000-0000-0000-0000-0000000029c6', '5511900000000')),
-  false, 'an unknown phone reports no match');
+  null::uuid, 'an unknown phone reports no match');
 
 select is(
   (select count(*)::int from public.member_consents where origin = 'stop_word'),
@@ -250,7 +252,8 @@ insert into public.member_company_links (member_id, company_id, organization_id)
 select is(
   (select public.withdraw_marketing_by_phone(
      '00000000-0000-0000-0000-0000000029c6', '5511999990002')),
-  true, 'the delivered form is tried when the local form does not match');
+  '00000000-0000-0000-0000-0000000029c2'::uuid,
+  'the delivered form is tried when the local form does not match');
 
 select is(
   (select count(*)::int from public.member_consents

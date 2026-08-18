@@ -1,11 +1,11 @@
 -- supabase/migrations/0231_withdraw_marketing_by_phone.sql
 
--- Block 29c, fix round 1, F7. The cold-path stop word: a listener texting
--- PARAR/CANCELAR/DESCADASTRAR with NO live conversation open. Task 4's
--- report named this unimplemented and why -- the worker holds no user
--- identity to resolve a phone through, and every existing resolution path
--- (apply_member_lookup, find_member_by_identifier) is revoked from
--- service_role. This is that door.
+-- Block 29c, fix round 1, F7 (amended in fix round 2, F8 -- see below). The
+-- cold-path stop word: a listener texting PARAR/CANCELAR/DESCADASTRAR with NO
+-- live conversation open. Task 4's report named this unimplemented and why --
+-- the worker holds no user identity to resolve a phone through, and every
+-- existing resolution path (apply_member_lookup, find_member_by_identifier)
+-- is revoked from service_role. This is that door.
 --
 -- SECURITY DEFINER, service_role only: the same shape enqueue_whatsapp_outbound
 -- (0071) already uses for the identical reason -- the engine that decides to
@@ -22,11 +22,24 @@
 -- WhatsApp-registered listener's members.phone holds the LOCAL form
 -- (apply_member_creation is always called with it), so the delivered form
 -- alone would miss every listener this bot itself registered.
+--
+-- F8: RETURNS uuid, NOT boolean, AND THIS IS AN AMENDMENT IN PLACE, NOT A NEW
+-- MIGRATION. F7's boolean told the caller "withdrew" from "unknown number"
+-- and nothing else, which left the cold-path reply unable to speak a
+-- Station's own MARKETING_STOPPED wording -- a Station that rewrote that
+-- sentence would see it change in the conversation and not on this path,
+-- which is worse than either behaviour alone. The Station's own id carries
+-- strictly more information at the same cost, and lets the caller resolve
+-- the override exactly as the in-conversation path already does. Amended
+-- rather than replaced by a new migration because this branch has never been
+-- pushed and no database anywhere has run 0231 yet -- the rule against
+-- editing a migration in place protects a database that ran the old body and
+-- will never run this one; none exists here.
 create or replace function public.withdraw_marketing_by_phone(
   p_integration_id uuid,
   p_phone          text
 )
-returns boolean
+returns uuid
 language plpgsql
 security definer
 set search_path = pg_catalog, public
@@ -59,13 +72,13 @@ begin
 
   -- No member at all, OR a member this STATION never linked -- spec D3's
   -- scoping, and the two are answered identically on purpose: a stranger and
-  -- a listener of a DIFFERENT Station in the same group get the same false,
+  -- a listener of a DIFFERENT Station in the same group get the same null,
   -- because nothing was withdrawn HERE either way, and telling either one
   -- "removed" would describe an action this call never took.
   -- member_linked_to_company (0034) is the same guard record_member_consent
   -- itself is built on.
   if v_member is null or not public.member_linked_to_company(v_member, v_integ.company_id) then
-    return false;
+    return null;
   end if;
 
   -- NOT record_member_consent (0034): that function is gated on
@@ -92,7 +105,9 @@ begin
      v_integ.organization_id, v_integ.company_id,
      jsonb_build_object('member_id', v_member, 'consent_id', v_id));
 
-  return true;
+  -- F8: the Station, not a bare true -- so the caller can resolve THIS
+  -- Station's own MARKETING_STOPPED wording rather than the code default.
+  return v_integ.company_id;
 end;
 $$;
 
@@ -100,4 +115,4 @@ revoke execute on function public.withdraw_marketing_by_phone(uuid, text) from p
 grant execute on function public.withdraw_marketing_by_phone(uuid, text) to service_role;
 
 comment on function public.withdraw_marketing_by_phone(uuid, text) is
-  'Block 29c, F7. The cold-path stop word: PARAR/CANCELAR/DESCADASTRAR with no live conversation to answer. Resolves the sender through apply_member_lookup (0061) -- local form then delivered form, the same order and shared core ingest_whatsapp_event (0179) already resolves every listener through, never a re-implementation of phone_normalized''s own normalize_phone (0031). Scoped to the Station THIS integration belongs to (spec D3): a member this Station never linked answers false, identically to an unknown phone, because nothing was withdrawn HERE either way -- the caller must not tell either one "removed". Writes member_consents (whatsapp_marketing, granted=false, origin=''stop_word'') directly rather than through record_member_consent, which is gated on has_permission and would refuse a caller with no auth.uid(). SECURITY DEFINER, service_role only -- the worker holds no user identity, so this is a door rather than a grant, the same shape enqueue_whatsapp_outbound (0071) already uses.';
+  'Block 29c, F7/F8. The cold-path stop word: PARAR/CANCELAR/DESCADASTRAR with no live conversation to answer. Resolves the sender through apply_member_lookup (0061) -- local form then delivered form, the same order and shared core ingest_whatsapp_event (0179) already resolves every listener through, never a re-implementation of phone_normalized''s own normalize_phone (0031). Scoped to the Station THIS integration belongs to (spec D3): a member this Station never linked answers null, identically to an unknown phone, because nothing was withdrawn HERE either way -- the caller must not tell either one "removed". Writes member_consents (whatsapp_marketing, granted=false, origin=''stop_word'') directly rather than through record_member_consent, which is gated on has_permission and would refuse a caller with no auth.uid(). Returns the STATION''S id rather than a boolean (F8): the caller needs it to resolve the Station''s own MARKETING_STOPPED wording the same way the in-conversation path already does, not only to know whether to reply at all. SECURITY DEFINER, service_role only -- the worker holds no user identity, so this is a door rather than a grant, the same shape enqueue_whatsapp_outbound (0071) already uses.';

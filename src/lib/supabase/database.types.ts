@@ -6053,7 +6053,7 @@ export type Database = {
       }
       withdraw_marketing_by_phone: {
         Args: { p_integration_id: string; p_phone: string }
-        Returns: boolean
+        Returns: string
       }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
