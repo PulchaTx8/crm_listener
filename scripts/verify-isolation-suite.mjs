@@ -558,7 +558,16 @@ const REQUIRED_TEST_FILES = [
   // 24_retention.test.sql asserts its source and cannot execute it -- the sweep
   // commits, and pgTAP rolls every file back -- which is exactly how a version
   // that deleted nothing at all stayed green.
-  { path: 'tests/isolation/retention.test.ts', minTests: 3 },
+  //
+  // Block 29c, Task 10 fix round 1, F27: a fourth case, for the identical
+  // reason and a table 24_retention.test.sql's own source-pattern match
+  // cannot prove clean -- pg_get_functiondef returns the procedure's source
+  // INCLUDING comments, so a commented-out delete satisfies
+  // `like '%delete from public.unsubscribe_tokens%'` just as well as a real
+  // one. Seeds an expired, unconsumed unsubscribe_tokens row, calls the
+  // sweep, and reads the row back. Measured to fail against a mutation that
+  // comments out that one delete, restored once the failure was seen.
+  { path: 'tests/isolation/retention.test.ts', minTests: 4 },
   // Block 11b: the stamping, CALLED. pgTAP cannot -- it wraps every file in a
   // transaction it rolls back, and a routine that COMMITS raises inside one,
   // which is how the first retention sweep shipped deleting nothing with every
