@@ -181,6 +181,14 @@ export const DEFAULT_PROMOTION_LINK_TEXT =
   'Toque no link para participar. Ele vale por 15 minutos:';
 
 /**
+ * Block 29c. Consent to marketing on a channel.
+ */
+export const MARKETING_CONSENT_MESSAGE =
+  'Quer receber as promoções e notícias da nossa rádio por aqui?';
+export const MARKETING_STOPPED_MESSAGE =
+  'Pronto! Não vamos mais te enviar promoções por aqui.';
+
+/**
  * The two override types live in `./steps` with the rest of the vocabulary and
  * are re-exported here, where the defaults and the resolver are — so a caller
  * needing "the ten texts" imports one module rather than two.
@@ -245,6 +253,8 @@ export const SYSTEM_MESSAGE_DEFAULTS: Record<SystemMessageKey, string> = {
   LINK_MUSIC: DEFAULT_MUSIC_LINK_TEXT,
   LINK_MENU: DEFAULT_MENU_LINK_TEXT,
   LINK_PROMOTION: DEFAULT_PROMOTION_LINK_TEXT,
+  MARKETING_CONSENT: MARKETING_CONSENT_MESSAGE,
+  MARKETING_STOPPED: MARKETING_STOPPED_MESSAGE,
 };
 
 /**

@@ -210,7 +210,7 @@ test('a Station takes its own voice and records the template that lets it speak 
   // caught it, which is the whole arrangement working — but the cheaper lesson
   // is that a block adding a `system_message_key` value has THIS line to change
   // and no compiler that will say so.
-  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(15);
+  await expect(ownerPage.getByTestId('system-message-list').locator('> li')).toHaveCount(17);
 
   const refusalRow = ownerPage.getByTestId('system-message-REFUSAL');
   const refusalBody = ownerPage.getByTestId('system-message-body-REFUSAL');

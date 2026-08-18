@@ -75,6 +75,8 @@ function messageLabels(
     LINK_MUSIC: { title: t('messageLinkMusicTitle'), when: t('messageLinkMusicWhen') },
     LINK_MENU: { title: t('messageLinkMenuTitle'), when: t('messageLinkMenuWhen') },
     LINK_PROMOTION: { title: t('messageLinkPromotionTitle'), when: t('messageLinkPromotionWhen') },
+    MARKETING_CONSENT: { title: t('messageMarketingConsentTitle'), when: t('messageMarketingConsentWhen') },
+    MARKETING_STOPPED: { title: t('messageMarketingStoppedTitle'), when: t('messageMarketingStoppedWhen') },
   };
 }
 

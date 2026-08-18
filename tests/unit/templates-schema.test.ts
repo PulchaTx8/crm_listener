@@ -28,21 +28,21 @@ const registration = {
 };
 
 describe('SYSTEM_MESSAGE_KEYS', () => {
-  it('is the fifteen keys, derived from the defaults rather than listed again', () => {
+  it('is the seventeen keys, derived from the defaults rather than listed again', () => {
     // Derived, so a sixteenth key added to the enum arrives here with no
     // edit -- exactly what happened when Block 19a's three LINK_* keys grew
     // this from ten to thirteen, when Block 28's COUNTRY made it fourteen,
     // and again when the gender block's GENDER made it fifteen: not one of
     // the three changed this file's own logic. A hand-written list would be
     // a second place to forget.
-    expect(SYSTEM_MESSAGE_KEYS).toHaveLength(15);
+    expect(SYSTEM_MESSAGE_KEYS).toHaveLength(17);
     expect(SYSTEM_MESSAGE_KEYS).toEqual(Object.keys(SYSTEM_MESSAGE_DEFAULTS));
     expect(SYSTEM_MESSAGE_KEYS[0]).toBe('REFUSAL');
   });
 });
 
 describe('systemMessageFormSchema', () => {
-  it('accepts a Station rewriting one of the fifteen', () => {
+  it('accepts a Station rewriting one of the seventeen', () => {
     const parsed = systemMessageFormSchema.parse({
       companyId: COMPANY,
       key: 'REFUSAL',
