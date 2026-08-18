@@ -6,13 +6,31 @@ import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import {
+  createSendListSchema,
   deleteSendListSchema,
+  memberSendListFiltersSchema,
+  participationSendListFiltersSchema,
   renameSendListSchema,
+  requestSendListFiltersSchema,
   sendListReachRequestSchema,
 } from '@/schemas/send-lists';
-import { deleteSendList, listReach, renameSendList } from '@/services/send-lists';
+import type {
+  MemberSendListFilters,
+  ParticipationSendListFilters,
+  RequestSendListFilters,
+  SendListSource,
+} from '@/schemas/send-lists';
+import {
+  createSendList,
+  deleteSendList,
+  listReach,
+  renameSendList,
+  resolveListMembers,
+  SendListResolutionCappedError,
+  RESOLVE_CAP,
+} from '@/services/send-lists';
 import type { ListReach } from '@/services/send-lists';
-import { describeSendListWriteError } from '../errors';
+import { describeCreateSendListError, describeSendListWriteError } from '../errors';
 
 async function requireAccessToken(): Promise<string> {
   const supabase = await createUserClient();
@@ -151,5 +169,193 @@ export async function getSendListReachAction(listId: string): Promise<GetSendLis
   } catch (cause) {
     logger.error({ err: cause, listId: parsed.data.listId }, 'could not compute reach for a send list');
     return { status: 'error', message: (await getTranslations('templates'))('reachCouldNotLoad') };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Task 7: the button where the filters already are. CreateSendListDialog
+// (components/send-lists/create-list-dialog.tsx) is the one caller of both
+// actions below, mounted on the three source screens rather than here --
+// they live beside rename/delete/reach anyway because create_send_list is
+// the write Task 6 deliberately left unwrapped, not because this route owns
+// the dialog.
+// ---------------------------------------------------------------------------
+
+export type ResolveSendListPreviewState =
+  | { status: 'ok'; ids: string[] }
+  | { status: 'capped'; message: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Resolves a NOT-YET-CREATED list's candidate people, so the dialog can show
+ * "this will hold N people" before Save is even enabled -- the operator sees
+ * what they are about to keep before they keep it. Calls resolveListMembers
+ * (Task 4) exactly the way the three listing screens' own filters already
+ * resolve them -- nothing here re-implements a filter, the same rule
+ * resolveListMembers' own header states for its three resolvers.
+ *
+ * THE PARSE-THEN-DISPATCH BELOW IS DELIBERATELY NOT A CALL TO
+ * resolveLivingListPeople (services/send-lists.ts), even though the two do
+ * the identical two steps (parse through the matching schema, call the
+ * matching resolveListMembers overload). That function reads an EXISTING
+ * living list's stored row, and its own doc comment says so in words --
+ * "A FIXED list does NOT go through here" -- which would become false the
+ * moment this action used it too: this resolves a CANDIDATE list with no row
+ * and no kind decided yet, and for a FIXED one the very ids returned here are
+ * what createSendListAction goes on to freeze (see its own comment on
+ * `memberIds`). Reusing that function's name for a second, differently-true
+ * caller is how its own comment ends up describing only one of two things it
+ * does. The four-line duplication below is dispatch only -- the actual
+ * filtering logic lives in resolveListMembers and the three listing
+ * services, exactly once, on both sides.
+ *
+ * THE CAP IS NOT SILENTLY SHORTENED. resolveListMembers throws
+ * SendListResolutionCappedError rather than returning a truncated array
+ * (RESOLVE_CAP's own comment states why), and that is the one branch this
+ * catches by type rather than folding into the generic error -- a capped
+ * filter gets its own message, telling the operator to narrow rather than
+ * reading as an unrelated failure.
+ */
+export async function resolveSendListPreviewAction(
+  source: SendListSource,
+  filters: MemberSendListFilters | ParticipationSendListFilters | RequestSendListFilters,
+): Promise<ResolveSendListPreviewState> {
+  const token = await requireAccessToken();
+
+  try {
+    let ids: string[];
+    switch (source) {
+      case 'members':
+        ids = await resolveListMembers('members', memberSendListFiltersSchema.parse(filters), token);
+        break;
+      case 'participations':
+        ids = await resolveListMembers(
+          'participations',
+          participationSendListFiltersSchema.parse(filters),
+          token,
+        );
+        break;
+      case 'requests':
+        ids = await resolveListMembers('requests', requestSendListFiltersSchema.parse(filters), token);
+        break;
+      default: {
+        // Exhaustiveness: a fourth send_list_source value added to 0237
+        // without a branch here is a compile error, the same guard
+        // resolveListMembers' own switch (services/send-lists.ts) carries.
+        const exhaustive: never = source;
+        throw new Error(`Unknown send list source: ${String(exhaustive)}`);
+      }
+    }
+    return { status: 'ok', ids };
+  } catch (cause) {
+    if (cause instanceof SendListResolutionCappedError) {
+      return {
+        status: 'capped',
+        message: (await getTranslations('templates'))('sendListTooManyPeople', {
+          cap: String(RESOLVE_CAP),
+        }),
+      };
+    }
+    logger.error({ err: cause, source }, 'could not resolve a send list preview');
+    return { status: 'error', message: (await getTranslations('templates'))('sendListPreviewFailed') };
+  }
+}
+
+export type CreateSendListState =
+  | { status: 'idle' }
+  | { status: 'created'; listId: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Creates a list through create_send_list (0239), Station and all. The
+ * dialog resolves the Station itself before this is ever called -- either
+ * the source screen's own selection, or one the operator picked when it had
+ * none (D3) -- and this action trusts the companyId it is given the same way
+ * TemplateDialog's own companyId prop is trusted: the RPC re-checks
+ * messaging.manage there regardless (0239's own body), so a caller who
+ * bypassed the dialog entirely is refused there, not here.
+ *
+ * `memberIds` IS EMPTY FOR A LIVING LIST, ALWAYS -- never the ids
+ * resolveSendListPreviewAction happened to return for it. 0239's own door
+ * refuses a living list carrying any id as 22023, and CreateSendListDialog
+ * (components/send-lists) enforces this at the call site: it only reads its
+ * own resolved ids back out for anything but the count when kind is 'fixed'.
+ *
+ * `filters` is validated a SECOND time here, through whichever schema
+ * matches `source` -- the dialog already validated the same object once, on
+ * its own way OUT of resolveSendListPreviewAction's caller, but a Server
+ * Action is a network boundary and this file does not trust a client-typed
+ * object to still be the shape its type claims.
+ */
+export async function createSendListAction(input: {
+  companyId: string;
+  name: string;
+  source: SendListSource;
+  kind: 'fixed' | 'living';
+  filters: MemberSendListFilters | ParticipationSendListFilters | RequestSendListFilters;
+  memberIds: string[];
+}): Promise<CreateSendListState> {
+  const parsed = createSendListSchema.safeParse({
+    companyId: input.companyId,
+    name: input.name,
+    source: input.source,
+    kind: input.kind,
+    memberIds: input.memberIds,
+  });
+
+  if (!parsed.success) {
+    return { status: 'error', message: (await getTranslations('templates'))('theListNeedsAName') };
+  }
+
+  let filters: MemberSendListFilters | ParticipationSendListFilters | RequestSendListFilters;
+  try {
+    switch (parsed.data.source) {
+      case 'members':
+        filters = memberSendListFiltersSchema.parse(input.filters);
+        break;
+      case 'participations':
+        filters = participationSendListFiltersSchema.parse(input.filters);
+        break;
+      case 'requests':
+        filters = requestSendListFiltersSchema.parse(input.filters);
+        break;
+      default: {
+        const exhaustive: never = parsed.data.source;
+        throw new Error(`Unknown send list source: ${String(exhaustive)}`);
+      }
+    }
+  } catch (cause) {
+    logger.error(
+      { err: cause, source: parsed.data.source },
+      'a send list filters payload did not match its own source',
+    );
+    return { status: 'error', message: (await getTranslations('templates'))('couldNotSave') };
+  }
+
+  const token = await requireAccessToken();
+
+  try {
+    const listId = await createSendList(
+      {
+        companyId: parsed.data.companyId,
+        name: parsed.data.name,
+        source: parsed.data.source,
+        kind: parsed.data.kind,
+        filters,
+        memberIds: parsed.data.memberIds,
+      },
+      token,
+    );
+    revalidatePath('/messages/lists');
+    return { status: 'created', listId };
+  } catch (cause) {
+    logger.error(
+      { err: cause, companyId: parsed.data.companyId, source: parsed.data.source },
+      'create a send list failed',
+    );
+    return {
+      status: 'error',
+      message: describeCreateSendListError(cause, await getTranslations('templates')),
+    };
   }
 }

@@ -131,3 +131,39 @@ export const sendListReachRequestSchema = z.object({
   listId: z.string().uuid(),
 });
 export type SendListReachRequestInput = z.infer<typeof sendListReachRequestSchema>;
+
+/**
+ * Task 7. `send_list_kind` (0237), hand-copied rather than read off the
+ * generated `Database['public']['Enums']['send_list_kind']` type on the same
+ * convention this file's own header states for its other vocabularies
+ * (schemas/music.ts's MUSIC_REQUEST_CHANNELS and neighbours): a generated
+ * type is compile-time only and z.enum needs a runtime tuple, so this is
+ * where that tuple lives for the create dialog's own radio choice.
+ */
+export const SEND_LIST_KINDS = ['fixed', 'living'] as const;
+export const sendListKindSchema = z.enum(SEND_LIST_KINDS);
+export type SendListKindInput = z.infer<typeof sendListKindSchema>;
+
+/**
+ * Task 7. What create_send_list (0239) needs beyond one of the three filters
+ * shapes above: a name, which Station, which source and which kind, and the
+ * ids a FIXED list freezes (empty for a LIVING one). `filters` is
+ * DELIBERATELY NOT PART OF THIS SCHEMA -- it is validated separately, through
+ * whichever of memberSendListFiltersSchema / participationSendListFiltersSchema
+ * / requestSendListFiltersSchema matches `source`, the same dispatch
+ * resolveListMembers' own overloads (services/send-lists.ts) already require.
+ * A single schema loose enough to accept all three filters shapes at once
+ * would strip an unrecognised field silently (Zod objects default to `strip`)
+ * rather than refuse it, which is exactly how a Requests filter payload could
+ * be silently misread as a Participations one -- both share a required
+ * `companyId` and nothing else distinguishes them once the object is merely
+ * "does this parse".
+ */
+export const createSendListSchema = z.object({
+  companyId: z.string().uuid(),
+  name: z.string().trim().min(1),
+  source: sendListSourceSchema,
+  kind: sendListKindSchema,
+  memberIds: z.array(z.string().uuid()),
+});
+export type CreateSendListInput = z.infer<typeof createSendListSchema>;

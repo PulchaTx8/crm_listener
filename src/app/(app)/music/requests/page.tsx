@@ -30,6 +30,9 @@ import type { MusicRequestSearchParams } from './list-params';
 import type { UserClient } from '@/lib/supabase/user-client';
 import { ExportDialog } from '@/components/reports/export-dialog';
 import { musicRequestsReportFilters } from '@/lib/reports/list-filters';
+import { canManageMessagingAt } from '@/components/send-lists/access';
+import { CreateSendListDialog } from '@/components/send-lists/create-list-dialog';
+import type { RequestSendListFilters } from '@/schemas/send-lists';
 
 // Renders from the caller's session cookies and a live per-Station permission
 // check, so it can never be static.
@@ -153,18 +156,28 @@ export default async function RequestsPage({
   let canSearch: boolean;
   let canRegister: boolean;
   let canAttend: boolean;
+  let canCreateSendList: boolean;
+  // The same bound the service enforces on its own argument, imported rather
+  // than copied so a URL parameter cannot drift the two apart. Extracted
+  // rather than inlined below so Task 7's send-list filters payload (further
+  // down) reads the IDENTICAL bounded value the real query runs with.
+  const searchTerm = state.search?.slice(0, SONG_SEARCH_MAX_LENGTH);
   try {
     // canSearch decides whether the listener search term is sent at all —
     // resolved before the list read, the same ordering participations/page.tsx
     // uses for the identical reason: without members.view the search matches
     // nothing (0107's RULE 3), and sending the term anyway would render an
-    // empty page indistinguishable from "no request matched".
-    [shows, permissions, canSearch, canRegister, canAttend] = await Promise.all([
+    // empty page indistinguishable from "no request matched". messaging.manage
+    // (Block 29d-1, Task 7 — whether the send-list button renders) joins the
+    // same batch: a fourth single-predicate check that decides nothing about
+    // the list read itself.
+    [shows, permissions, canSearch, canRegister, canAttend, canCreateSendList] = await Promise.all([
       listMusicReferences(selected.id, 'SHOW'),
       getMusicPermissions(supabase, selected.id),
       canSearchByListener(supabase, selected.id),
       canRegisterListenersHere(supabase, selected.id),
       canAttendRequestsHere(supabase, selected.id),
+      canManageMessagingAt(supabase, selected.id),
     ]);
 
     page = await listMusicRequestsPage(
@@ -173,11 +186,9 @@ export default async function RequestsPage({
         songId: state.songId,
         showId: state.showId,
         channel: state.channel,
-        // The same bound the service enforces on its own argument, imported
-        // rather than copied so a URL parameter cannot drift the two apart.
         // Dropped rather than forwarded when this caller cannot search, for
         // the reason above.
-        search: canSearch ? state.search?.slice(0, SONG_SEARCH_MAX_LENGTH) : undefined,
+        search: canSearch ? searchTerm : undefined,
         readStatus: state.readStatus,
         playStatus: state.playStatus,
         sort: state.sort,
@@ -192,6 +203,22 @@ export default async function RequestsPage({
     return <LoadError message={describeMusicReadError(cause, await getTranslations('music'))} />;
   }
 
+  // Block 29d-1, Task 7. The filters CreateSendListDialog resolves — mirrored
+  // field-for-field from the listMusicRequestsPage call above, minus sort/
+  // limit/cursor (requestSendListFiltersSchema's own header explains why: none
+  // of the three changes who is in a list). Same canSearch-gated search term
+  // the real query uses, for the reason members/page.tsx and
+  // participations/page.tsx both give at their own equivalent.
+  const requestSendListFilters: RequestSendListFilters = {
+    companyId: selected.id,
+    songId: state.songId,
+    showId: state.showId,
+    channel: state.channel,
+    search: canSearch ? searchTerm : undefined,
+    readStatus: state.readStatus,
+    playStatus: state.playStatus,
+  };
+
   return (
     <>
       <PageHeader
@@ -203,11 +230,28 @@ export default async function RequestsPage({
         // filtering; asking again in another vocabulary is how the file and
         // the screen come to disagree about what was exported.
         action={
-          <ExportDialog
-            reportType="MUSIC_REQUESTS"
-            companyIds={[selected.id]}
-            filters={musicRequestsReportFilters(state)}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportDialog
+              reportType="MUSIC_REQUESTS"
+              companyIds={[selected.id]}
+              filters={musicRequestsReportFilters(state)}
+            />
+            {/*
+              Both conditions, not either (Task 7 brief): `viewable` already
+              IS "can see the listing itself" (listCompanyAccess('music.view')
+              above, the same read `selected` was drawn from), named here
+              explicitly rather than left to the fact that `selected` could
+              not exist without it.
+            */}
+            {canCreateSendList && viewable.length > 0 && (
+              <CreateSendListDialog
+                source="requests"
+                filters={requestSendListFilters}
+                companyId={selected.id}
+                stationOptions={[]}
+              />
+            )}
+          </div>
         }
       />
 

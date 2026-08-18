@@ -172,3 +172,30 @@ export function describeSendListWriteError(
   }
   return t('couldNotSave');
 }
+
+/**
+ * Block 29d-1, Task 7. `create_send_list`'s (0239) own `P0002` does not mean
+ * what `describeSendListWriteError`'s generic `NotFoundError` branch says --
+ * nothing has been created yet for there to be a stale reference to. It fires
+ * for TWO reasons in that door's own body: an unknown `p_company_id` (not
+ * reachable through `CreateSendListDialog`, which only ever sends a Station
+ * id it read from a real row) and a resolved member id the door found is not
+ * linked to the chosen Station (`member_linked_to_company`, 0239's own
+ * comment on why that check exists at all). The second IS reachable -- a
+ * Members-sourced list resolves Organization-wide (`resolveMemberIds`'s own
+ * comment, services/send-lists.ts) while every list still belongs to exactly
+ * one Station (D3), so an operator can pick a Station some of the resolved
+ * people are not linked to. Named specifically here on the same precedent
+ * `describeClearMessageError`/`describeServiceHashtagsError` set for their
+ * own doors' locally-distinct `P0002`, rather than folded into the shared
+ * generic text.
+ */
+export function describeCreateSendListError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof NotFoundError) {
+    return t('sendListMemberNotLinked');
+  }
+  return describeSendListWriteError(cause, t, 'actionCreateASendList');
+}

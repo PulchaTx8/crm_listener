@@ -571,3 +571,50 @@ export async function deleteSendList(input: DeleteSendListInput, accessToken: st
   });
   if (error) throw mapSendListError(error.code, error.message);
 }
+
+// ---------------------------------------------------------------------------
+// Task 7: the write Task 6 deliberately left unwrapped -- its own report
+// named this the dialog's job, not a speculative guess at a shape no caller
+// existed for yet.
+// ---------------------------------------------------------------------------
+
+export interface CreateSendListInput {
+  companyId: string;
+  name: string;
+  source: SendListSource;
+  kind: Database['public']['Enums']['send_list_kind'];
+  /** Parsed through the matching schema by the caller, the same discipline resolveLivingListPeople above already applies to a row read back OUT of the database -- this is the identical shape going IN. */
+  filters: MemberSendListFilters | ParticipationSendListFilters | RequestSendListFilters;
+  /** Empty for a LIVING list, always -- create_send_list (0239) refuses a living list carrying any id as 22023, and this wrapper does not re-check that: the database is the boundary, this is the shape, the same division rename/deleteSendList above already draw for their own doors. */
+  memberIds: string[];
+}
+
+/**
+ * create_send_list (0239) itself. One Station, always (D3) -- p_company_id is
+ * not derived here, it is whatever the caller resolved (the source screen's
+ * own selection, or one the operator picked when it had none -- see
+ * components/send-lists/create-list-dialog.tsx for D3's own resolution).
+ *
+ * `p_filters` -- typed `Json` in the generated RPC Args, not the open object
+ * this wrapper actually holds -- is cast the same way services/reports.ts's
+ * own `p_filters` already is (line 99, with the identical comment): the
+ * generated Json type has no open-object variant, and every one of the three
+ * filters shapes above is plain JSON-serialisable data (strings, numbers,
+ * booleans, all optional), so nothing is actually smuggled past the RPC --
+ * create_send_list stores whatever jsonb it is given either way (0238's own
+ * comment).
+ */
+export async function createSendList(input: CreateSendListInput, accessToken: string): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('create_send_list', {
+    p_company_id: input.companyId,
+    p_name: input.name,
+    p_source: input.source,
+    p_kind: input.kind,
+    // Both are jsonb; the generated Json type does not admit an open object.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    p_filters: input.filters as any,
+    p_member_ids: input.memberIds,
+  });
+  if (error) throw mapSendListError(error.code, error.message);
+  return data;
+}
