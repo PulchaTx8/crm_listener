@@ -1778,7 +1778,27 @@ Expected: FAIL — `marketingTemplateSchema` is not exported.
 Append to `src/schemas/templates.ts`:
 
 ```ts
-import { variableFromPlaceholder } from '@/lib/templates/variables';
+import {
+  CAMPAIGN_RESOLVABLE,
+  CAMPAIGN_VARIABLES,
+  variableFromPlaceholder,
+  type TemplateVariable,
+} from '@/lib/templates/variables';
+
+/**
+ * An optional address that a blank clears.
+ *
+ * Identical in shape to `optionalStationEmail` (schemas/stations.ts) and
+ * identical in reason: trimming has to happen before the union, because
+ * `z.literal('')` compares the raw value and `'   '` would otherwise fail both
+ * arms at once.
+ */
+function optionalEmail(max: number) {
+  return z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() : v),
+    z.union([z.literal(''), z.string().email().max(max)]),
+  );
+}
 
 /**
  * What the marketing form posts.
@@ -1800,10 +1820,23 @@ export const marketingTemplateSchema = z
     subject: z.string().trim().max(200).optional(),
     name: z.string().trim().max(512).optional(),
     language: z.string().trim().max(20).optional(),
-    variables: z.array(z.string()).max(20).default([]),
+    // The closed vocabulary, not free strings: 0223 retyped the column to
+    // template_variable[] and the door casts to it, so a string outside the
+    // enum is a 22P02 from Postgres rather than a message beside a field.
+    // `as` because z.enum wants a non-empty tuple, the same cast
+    // SYSTEM_MESSAGE_KEYS and TEMPLATE_PURPOSES already make in this file.
+    variables: z
+      .array(z.enum(CAMPAIGN_VARIABLES as [TemplateVariable, ...TemplateVariable[]]))
+      .max(20)
+      .default([]),
     fromName: z.string().trim().max(120).optional(),
-    fromEmail: z.string().trim().email().max(200).optional().or(z.literal('')),
-    replyTo: z.string().trim().email().max(200).optional().or(z.literal('')),
+    // Trimmed BEFORE the union, not inside one arm of it. `.trim().email()
+    // .or(z.literal(''))` looks equivalent and is not: z.literal compares the
+    // RAW value, so '   ' fails the e-mail arm after trimming and fails the
+    // literal arm before it, and a field the operator cleared with a space
+    // becomes an error they cannot read. Same shape as schemas/stations.ts.
+    fromEmail: optionalEmail(200).optional(),
+    replyTo: optionalEmail(200).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.channel === 'EMAIL') {
@@ -1814,7 +1847,14 @@ export const marketingTemplateSchema = z
       // Every {{name}} the body uses must be a value this system substitutes.
       // Caught here rather than at the door so the operator sees WHICH name.
       for (const match of value.body.matchAll(/\{\{([a-z_]+)\}\}/g)) {
-        if (variableFromPlaceholder(match[1] ?? '') === null) {
+        // RESOLVABLE, not merely known. variableFromPlaceholder answers the
+        // whole vocabulary, and three of its seven values are ones a campaign
+        // has no source for — the prize, the deadline and the code all come
+        // from the specific caller that enqueues a system message. A body
+        // naming {{prize_name}} would parse, save, and send "Oi Ana, você
+        // ganhou !" to every listener on the list.
+        const named = variableFromPlaceholder(match[1] ?? '');
+        if (named === null || !CAMPAIGN_RESOLVABLE[named]) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['body'],
                          message: `this body names {{${match[1]}}}, which is not a value this system substitutes` });
         }
