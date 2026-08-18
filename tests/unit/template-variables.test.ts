@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CAMPAIGN_RESOLVABLE,
   CAMPAIGN_VARIABLES,
+  TEMPLATE_VARIABLES,
   namedPlaceholder,
   variableFromPlaceholder,
 } from '@/lib/templates/variables';
@@ -26,6 +27,33 @@ describe('the template variable vocabulary', () => {
       'LISTENER_CITY',
       'STATION_NAME',
     ]);
+  });
+
+  it('offers the SYSTEM screen all seven, in the enum\'s own order', () => {
+    // Block 29b-1, Task 9. The system registration screen has to be able to
+    // name PRIZE_NAME, PICKUP_DEADLINE and VERIFICATION_CODE -- exactly the
+    // three CAMPAIGN_VARIABLES leaves out, and exactly what a purpose's own
+    // caller supplies (enqueue_pickup_reminder, widget_request_code). Offering
+    // only the campaign four here would make the widget's verification
+    // template -- the one row production actually holds -- impossible to
+    // register.
+    expect(TEMPLATE_VARIABLES).toEqual([
+      'LISTENER_FIRST_NAME',
+      'LISTENER_FULL_NAME',
+      'LISTENER_CITY',
+      'STATION_NAME',
+      'PRIZE_NAME',
+      'PICKUP_DEADLINE',
+      'VERIFICATION_CODE',
+    ]);
+  });
+
+  it('derives CAMPAIGN_VARIABLES as a filter over TEMPLATE_VARIABLES, not a second list', () => {
+    // Asserts the RELATIONSHIP the two exports are supposed to have, which
+    // the two tests above (each pinning its own array) cannot catch on their
+    // own: two lists that happened to agree would pass both of those and
+    // still have drifted apart in the source.
+    expect(CAMPAIGN_VARIABLES).toEqual(TEMPLATE_VARIABLES.filter((v) => CAMPAIGN_RESOLVABLE[v]));
   });
 
   it('derives the email notation from the enum rather than declaring it twice', () => {

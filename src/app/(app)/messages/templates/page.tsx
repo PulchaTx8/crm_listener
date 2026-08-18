@@ -13,6 +13,7 @@ import { StationSearchForm } from '../../inventory/station-search-form';
 import type { SuspendedCompany, ViewableCompany } from '../../inventory/station-access';
 import { canManageTemplates } from '../permissions';
 import { describeTemplateReadError } from '../errors';
+import { MarketingGrid } from './marketing-grid';
 import { TemplateRegistry } from './template-registry';
 
 // Renders from the caller's session cookies and a live per-Station permission
@@ -57,17 +58,16 @@ export default async function WhatsAppTemplatesPage({
 
   const selected = viewable.find((c) => c.id === params.companyId) ?? first;
 
-  let templates: RegisteredTemplate[];
+  let system: RegisteredTemplate[];
+  let marketing: RegisteredTemplate[];
   let manage: boolean;
   try {
-    // Only the system half: this screen still renders the WhatsApp registry
-    // alone. `listTemplates` also returns a marketing half, which has no card
-    // on this screen yet (Task 9).
-    const [{ system }, canManage] = await Promise.all([
+    const [templates, canManage] = await Promise.all([
       listTemplates(selected.id),
       canManageTemplates(supabase, selected.id),
     ]);
-    templates = system;
+    system = templates.system;
+    marketing = templates.marketing;
     manage = canManage;
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the template registry');
@@ -125,24 +125,6 @@ export default async function WhatsAppTemplatesPage({
       )}
 
       {/*
-        The one thing an operator arriving here has to already know, said before
-        they can type anything: this screen RECORDS an approval, it does not ask
-        for one (D4). Somebody who fills the form expecting it to submit will
-        wait for an approval that was never requested, and read the silence as a
-        bug in this product.
-      */}
-      <div className="mb-4 flex flex-col gap-2 rounded-md border border-dashed p-3">
-        <p className="text-sm">
-          {t('templatesAreCreatedAndApprovedIn')}{' '}<strong>{t('metaSOwnConsole')}</strong>, not here.
-          Approval takes days and is outside this system. Once it comes through, transcribe the
-          approved name, language and body below — exactly as approved — so this Station can send
-          it.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {t('aRevokedOrEditedApprovalIs')}</p>
-      </div>
-
-      {/*
         THE PAIRING CARD USED TO BE HERE, owner-gated, and Block 29a moved it to
         the Station's own record on /app (station-settings.tsx). Its reasoning
         travelled with it and is written in the component's own header; what
@@ -151,8 +133,32 @@ export default async function WhatsAppTemplatesPage({
         `is_owner_of_company` at the new site — the owner who paired from this
         screen pairs from that one.
       */}
+
+      {/*
+        Block 29b-1, Task 9. Two groups, not one list — `listTemplates`
+        partitions on `purpose` (services/templates.ts's own comment) and this
+        is the screen that renders both halves of that split. A card per
+        SYSTEM purpose, unchanged from before this block; a row per MARKETING
+        template below it, new in this block. The notice that used to sit here
+        — "created and approved in Meta's own console, not here" — moved into
+        TemplateDialog's own WhatsApp branch (D4 is a fact about a WHATSAPP
+        template specifically, since Block 29b-1 an e-mail one is written here,
+        not transcribed, and a notice on the page body could not tell an
+        operator which one they were about to fill in).
+      */}
+      <h2 className="mb-2 text-lg font-semibold">{t('systemTemplatesTitle')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('systemTemplatesDescription')}</p>
       <TemplateRegistry
-        templates={templates}
+        templates={system}
+        companyId={selected.id}
+        timeZone={selected.timezone}
+        manage={manage}
+      />
+
+      <h2 className="mb-2 mt-10 text-lg font-semibold">{t('marketingTemplatesTitle')}</h2>
+      <p className="mb-4 text-sm text-muted-foreground">{t('marketingTemplatesDescription')}</p>
+      <MarketingGrid
+        templates={marketing}
         companyId={selected.id}
         timeZone={selected.timezone}
         manage={manage}

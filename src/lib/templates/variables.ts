@@ -32,10 +32,22 @@ export const CAMPAIGN_RESOLVABLE: Record<TemplateVariable, boolean> = {
   VERIFICATION_CODE: false,
 };
 
+/**
+ * The whole vocabulary, in the enum's own order.
+ *
+ * Block 29b-1, Task 9. The SYSTEM registration screen offers all seven —
+ * `register_message_template` now writes `template_variable[]` (0223), so a
+ * position on a PICKUP_REMINDER or WEB_VERIFICATION template has to be
+ * choosable from the values those purposes actually carry, and two of the
+ * three `false` values above are exactly that (`PRIZE_NAME`,
+ * `PICKUP_DEADLINE`; the third, `VERIFICATION_CODE`, is the widget's own
+ * purpose's one position). `CAMPAIGN_VARIABLES` below is the narrower list a
+ * campaign may offer; this is the wider one a system purpose may.
+ */
+export const TEMPLATE_VARIABLES = Object.keys(CAMPAIGN_RESOLVABLE) as TemplateVariable[];
+
 /** The values a campaign may offer, in the enum's own order. */
-export const CAMPAIGN_VARIABLES = (
-  Object.keys(CAMPAIGN_RESOLVABLE) as TemplateVariable[]
-).filter((value) => CAMPAIGN_RESOLVABLE[value]);
+export const CAMPAIGN_VARIABLES = TEMPLATE_VARIABLES.filter((value) => CAMPAIGN_RESOLVABLE[value]);
 
 /**
  * The email notation for a value: `{{listener_first_name}}`.

@@ -5,6 +5,7 @@ import type { Enums } from '@/lib/supabase/database.types';
 import {
   CAMPAIGN_RESOLVABLE,
   CAMPAIGN_VARIABLES,
+  TEMPLATE_VARIABLES,
   variableFromPlaceholder,
   type TemplateVariable,
 } from '@/lib/templates/variables';
@@ -84,13 +85,6 @@ export const TEMPLATE_PURPOSES = Object.keys(TEMPLATE_PURPOSE_SET) as [
  * for a message body rather than a number chosen here.
  */
 const MAX_MESSAGE_BODY = 4096;
-
-/**
- * A Meta template parameter is capped at 1024 characters, and every variable
- * description on the registry screen labels one — so a description longer than
- * the value it describes is a bound worth having.
- */
-const MAX_VARIABLE_DESCRIPTION = 200;
 
 const messageBody = z
   .string()
@@ -184,6 +178,14 @@ export function countPlaceholders(body: string): number {
  * The error is attached to `variables`, not to the form, because that is the
  * field the operator can act on: the body is Meta's approved text and must be
  * transcribed exactly, so the descriptions are what gets corrected.
+ *
+ * `variables` is CHOSEN, not typed, since Block 29b-1: `register_message_template`
+ * writes `template_variable[]` (0223), so a position names one of the seven
+ * values in `TEMPLATE_VARIABLES` rather than prose an operator once wrote
+ * ("nome do ouvinte") to describe what `{{1}}` carries. The full seven, not
+ * `CAMPAIGN_VARIABLES` — a system purpose's own values (`PRIZE_NAME`,
+ * `PICKUP_DEADLINE`, `VERIFICATION_CODE`) are exactly the three a campaign
+ * cannot offer, and this is the screen that has to be able to name them.
  */
 export const templateRegistrationSchema = z
   .object({
@@ -200,13 +202,7 @@ export const templateRegistrationSchema = z
       .min(1, 'Give the language code Meta approved, such as pt_BR.')
       .max(32),
     body: messageBody,
-    variables: z.array(
-      z
-        .string()
-        .trim()
-        .min(1, 'Say what this position means.')
-        .max(MAX_VARIABLE_DESCRIPTION),
-    ),
+    variables: z.array(z.enum(TEMPLATE_VARIABLES as [TemplateVariable, ...TemplateVariable[]])),
     /**
      * Whether Meta approved this one under the Authentication category, which
      * is the same question as "does it carry an OTP button" — every
