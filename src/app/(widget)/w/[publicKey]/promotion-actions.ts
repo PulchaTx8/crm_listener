@@ -158,6 +158,9 @@ export async function enterPromotionAction(
     // An unchecked box posts nothing at all, so the key is absent rather than
     // empty — which is what the schema's `.optional()` is reading.
     ...(formData.get('consent') === null ? {} : { consent: formData.get('consent') }),
+    ...(formData.get('marketingConsent') === null
+      ? {}
+      : { marketingConsent: formData.get('marketingConsent') }),
     fields: formData.get('fields') ?? '{}',
     answers: formData.get('answers') ?? '[]',
   });
@@ -183,6 +186,11 @@ export async function enterPromotionAction(
     p_consent: parsed.data.consent,
     p_fields: parsed.data.fields,
     p_answers: parsed.data.answers,
+    // Block 29c, Task 9. Both directions are meaningful to widget_enter_promotion
+    // (0234): a ticked box writes an opt-in, an unticked one writes an explicit
+    // decline, and either way the row is written only after the entry itself is
+    // recorded — never a reason this call can fail on its own.
+    p_marketing_consent: parsed.data.marketingConsent,
   });
 
   if (error) {

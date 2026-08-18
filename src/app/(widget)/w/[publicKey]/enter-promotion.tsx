@@ -76,6 +76,15 @@ export function EnterPromotionPanel({
    * never gave.
    */
   const [consent, setConsent] = useState(false);
+  /**
+   * Block 29c, Task 9. UNCHECKED, and it stays that way. A pre-ticked box is
+   * not affirmative consent under the LGPD and is the first thing an audit
+   * looks at. Held in state for the same reason `consent` is (see its own
+   * comment above): this box lives on the consent screen too, and a promotion
+   * asking for fields or questions submits from a later one where an
+   * unmounted input would post nothing.
+   */
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [state, submit, sending] = useActionState(enterPromotionAction, IDLE);
 
   useEffect(() => {
@@ -226,6 +235,10 @@ export function EnterPromotionPanel({
               unchecked box posts NOTHING — which is the shape the schema reads
               — so this is rendered only when the listener said yes. */}
           {consent ? <input type="hidden" name="consent" value="on" /> : null}
+          {/* Block 29c, Task 9. Same carrying mechanism as `consent` above and
+              for the same reason: the marketing checkbox lives on the consent
+              screen, which is not necessarily the screen that submits. */}
+          {marketingConsent ? <input type="hidden" name="marketingConsent" value="on" /> : null}
           <input type="hidden" name="fields" value={JSON.stringify(fields)} />
           <input
             type="hidden"
@@ -258,6 +271,31 @@ export function EnterPromotionPanel({
                   onChange={(e) => setConsent(e.target.checked)}
                 />
                 <span>{t('iAgreeToTheRules')}</span>
+              </label>
+              {/* Block 29c, Task 9. UNCHECKED, and it stays that way. A
+                  pre-ticked box is not affirmative consent under the LGPD and
+                  is the first thing an audit looks at. The default here is
+                  not a UX preference — it is the legal posture. Placed on
+                  this screen rather than the field screen because this is
+                  the ONE screen every promotion's walk includes
+                  (screensFor's own comment: consent alone, because it gates
+                  everything after it) — a promotion asking for no fields and
+                  no questions still has this screen, and this checkbox is
+                  now the block's only working consent-collection point (the
+                  WhatsApp conversation's own step cannot fire; see
+                  services/conversation.ts). */}
+              <label className="flex items-center gap-2 text-sm">
+                {/* NO `name`, same reason as the rules checkbox above: this
+                    box drives state, and the hidden input near the top of the
+                    form is what actually posts. */}
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  data-testid="widget-promotion-marketing-consent"
+                  checked={marketingConsent}
+                  onChange={(e) => setMarketingConsent(e.target.checked)}
+                />
+                <span>{t('marketingConsentCheckbox')}</span>
               </label>
             </>
           ) : null}
@@ -471,6 +509,12 @@ export function EnterPromotionPanel({
                     setChosen(promotion);
                     setScreen(0);
                     setConsent(false);
+                    // Block 29c, Task 9. The identical defect this whole
+                    // handler exists to close: leaving a ticked marketing box
+                    // in place across a promotion switch would submit an
+                    // opt-in the listener never gave for the promotion now on
+                    // screen.
+                    setMarketingConsent(false);
                     setFields({});
                     setAnswers({});
                     setFlagged(null);

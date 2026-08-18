@@ -16,6 +16,24 @@ describe('enterPromotionSchema', () => {
     ).toBe(false);
   });
 
+  it('reads the marketing checkbox the way a checkbox actually posts', () => {
+    // Same wire shape as `consent`: an unchecked box posts nothing at all, so
+    // the field is absent rather than ''. Unchecked is the default (Block 29c,
+    // Task 9) — a pre-ticked box is not affirmative consent under the LGPD.
+    expect(
+      enterPromotionSchema.parse({
+        promotionId: PROMOTION,
+        marketingConsent: 'on',
+        fields: '{}',
+        answers: '[]',
+      }).marketingConsent,
+    ).toBe(true);
+    expect(
+      enterPromotionSchema.parse({ promotionId: PROMOTION, fields: '{}', answers: '[]' })
+        .marketingConsent,
+    ).toBe(false);
+  });
+
   it('refuses a promotion id that is not a uuid', () => {
     expect(
       enterPromotionSchema.safeParse({ promotionId: 'nope', fields: '{}', answers: '[]' }).success,

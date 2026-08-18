@@ -6062,6 +6062,7 @@ export type Database = {
           p_answers?: Json
           p_consent: boolean
           p_fields?: Json
+          p_marketing_consent?: boolean
           p_member_id: string
           p_promotion_id: string
           p_public_key: string

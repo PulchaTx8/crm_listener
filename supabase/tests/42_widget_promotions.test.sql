@@ -1,5 +1,5 @@
 begin;
-select plan(23);
+select plan(34);
 
 -- Block 17c. The two doors behind the widget's second button.
 --
@@ -395,6 +395,125 @@ select is(
      '{"city": "São Paulo"}'::jsonb, '[]'::jsonb) ->> 'reason'),
   'promotion_closed',
   'and a submission against it is refused as closed, not as the listener''s fault');
+
+-- ---------------------------------------------------------------------------
+-- 24-34. Block 29c, Task 9. The widget's marketing checkbox, carried through
+-- the door's seventh parameter -- true, false, and omitted, all three
+-- recorded rather than merely accepted -- plus the ACL a DROP + CREATE
+-- migration (0234) had to reissue by hand.
+--
+-- A fresh promotion with no requested fields and no questions: the marketing
+-- write is orthogonal to what a promotion asks, and the point of these
+-- assertions is the consent row, not the entry mechanics 4-9 above already
+-- cover.
+-- ---------------------------------------------------------------------------
+insert into public.promotions
+  (id, organization_id, company_id, name, starts_at, ends_at,
+   allow_multiple_entries, requested_fields, rules, web_enabled)
+values
+  ('00000000-0000-0000-0000-000000000430', '00000000-0000-0000-0000-000000000401',
+   '00000000-0000-0000-0000-000000000402', 'Promo consentimento de marketing',
+   now() - interval '1 day', now() + interval '7 days',
+   false, '{}'::public.promotion_requested_field[],
+   'Regulamento de uma promoção simples.', true);
+
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-000000000431', '00000000-0000-0000-0000-000000000401',
+   'Marketing Yes Listener', '+5511999992221'),
+  ('00000000-0000-0000-0000-000000000432', '00000000-0000-0000-0000-000000000401',
+   'Marketing No Listener', '+5511999992222'),
+  ('00000000-0000-0000-0000-000000000433', '00000000-0000-0000-0000-000000000401',
+   'Marketing Omitted Listener', '+5511999992223');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-000000000431', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401'),
+  ('00000000-0000-0000-0000-000000000432', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401'),
+  ('00000000-0000-0000-0000-000000000433', '00000000-0000-0000-0000-000000000402',
+   '00000000-0000-0000-0000-000000000401');
+
+-- 24-25. A ticked box: the entry succeeds and a granted row lands, stamped
+-- with the door's own origin and the promotion it travelled with.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000431',
+     '00000000-0000-0000-0000-000000000430', true,
+     '{}'::jsonb, '[]'::jsonb, true) ->> 'ok'),
+  'true', 'entering with the marketing box ticked still succeeds');
+
+select is(
+  (select count(*) from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000431'
+      and consent_type = 'whatsapp_marketing' and granted and origin = 'widget'
+      and promotion_id = '00000000-0000-0000-0000-000000000430'),
+  1::bigint, 'and a granted whatsapp_marketing row lands, stamped widget and the promotion');
+
+-- 26-27. An UNTICKED box explicitly answered false: THE DECLINE IS RECORDED,
+-- not omitted -- the same "asked, and said no" 0231's own conversation door
+-- records for a Yes/No tap, and the reason this door does not simply skip
+-- the insert when p_marketing_consent is false.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000432',
+     '00000000-0000-0000-0000-000000000430', true,
+     '{}'::jsonb, '[]'::jsonb, false) ->> 'ok'),
+  'true', 'entering with the marketing box explicitly unticked still succeeds');
+
+select is(
+  (select count(*) from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000432'
+      and consent_type = 'whatsapp_marketing' and not granted and origin = 'widget'),
+  1::bigint, 'and the decline is recorded rather than left as silence');
+
+-- 28-29. The old SIX-argument call -- exactly what every assertion 4-23 above
+-- already sends -- still succeeds, and the seventh parameter's default
+-- answers the same as an explicit false: UNCHECKED IS THE DEFAULT, not merely
+-- the widget's own initial React state.
+select is(
+  (select public.widget_enter_promotion(
+     'pw_promostationa012345678', '00000000-0000-0000-0000-000000000433',
+     '00000000-0000-0000-0000-000000000430', true,
+     '{}'::jsonb, '[]'::jsonb) ->> 'ok'),
+  'true', 'the pre-existing six-argument call is still accepted');
+
+select is(
+  (select count(*) from public.member_consents
+    where member_id = '00000000-0000-0000-0000-000000000433'
+      and consent_type = 'whatsapp_marketing' and not granted and origin = 'widget'),
+  1::bigint, 'and the omitted seventh argument defaults to an explicit decline, not silence');
+
+-- 30. Entering does not disturb the entry itself when the box is ticked: the
+-- participation still carries source WEB regardless of what the marketing
+-- checkbox says, because the two are unrelated facts about one submission.
+select is(
+  (select source::text from public.participations
+    where member_id = '00000000-0000-0000-0000-000000000431'),
+  'WEB', 'the entry itself is unaffected by the marketing checkbox');
+
+-- 31-33. THE ACL A DROP DESTROYS. 0234 dropped this function to add the
+-- parameter and had to reissue every grant by hand -- these assertions are
+-- what would have caught a grant that vanished rather than a caller
+-- discovering it as a permission error in production.
+select ok(
+  has_function_privilege('service_role',
+    'public.widget_enter_promotion(text,uuid,uuid,boolean,jsonb,jsonb,boolean)', 'EXECUTE'),
+  'service_role may still enter a promotion after the drop and recreate');
+
+select ok(
+  not has_function_privilege('anon',
+    'public.widget_enter_promotion(text,uuid,uuid,boolean,jsonb,jsonb,boolean)', 'EXECUTE'),
+  'anon may not -- the widget only ever calls through the service-role client');
+
+select ok(
+  not has_function_privilege('authenticated',
+    'public.widget_enter_promotion(text,uuid,uuid,boolean,jsonb,jsonb,boolean)', 'EXECUTE'),
+  'nor authenticated');
+
+select ok(
+  not has_function_privilege('public',
+    'public.widget_enter_promotion(text,uuid,uuid,boolean,jsonb,jsonb,boolean)', 'EXECUTE'),
+  'and PUBLIC holds nothing -- the DROP wiped the old ACL and 0234 reasserts it explicitly');
 
 select * from finish();
 rollback;
