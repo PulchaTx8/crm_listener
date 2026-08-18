@@ -624,6 +624,21 @@ const REQUIRED_TEST_FILES = [
   // cannot reach any of them -- it runs single-session, so two hundred
   // concurrent callers can never contend with each other there.
   { path: 'tests/isolation/whatsapp-link-load.test.ts', minTests: 5 },
+  // Block 29d-1, Task 8. Six cases, and the floor is the full count because
+  // 67_send_lists.test.sql's own `set local role authenticated` session never
+  // leaves pgTAP's one transaction, so it cannot show a real second GoTrue
+  // session losing sight of another Station's list (RLS filtering it away
+  // silently) or send_list_members refusing a read at the GRANT layer rather
+  // than the RLS layer -- both need a caller pgTAP has no way to be.
+  //
+  // The sharpest of the six is the one this task's own brief added on top of
+  // the original five: a Members filter resolves ORGANIZATION-WIDE, but
+  // create_send_list aborts the WHOLE creation on the first id it finds
+  // unlinked to the chosen Station -- so the count a Members-sourced list
+  // actually holds is only trustworthy once it is proved end to end, from
+  // resolveListMembers' own candidate set down through
+  // filterMemberIdsLinkedToStation and into the row create_send_list writes.
+  { path: 'tests/isolation/send-lists.test.ts', minTests: 6 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */
