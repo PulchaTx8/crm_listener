@@ -2317,5 +2317,14 @@
     "showingOfTheStationsYouCanReach": "Showing {count} of the Stations you can reach. Search by name to reach one that is not listed.",
     "moveThePrizesOffItFirst": "{count, plural, one {One prize still wears this label} other {# prizes still wear this label}}, and this category cannot be archived until they are moved to another one.",
     "archivingKeepsEveryPastRecord": "No prize wears this label, so archiving costs nothing else: the category stays on record, and only stops being offered by the picker and the filter."
+  },
+  "unsubscribe": {
+    "heading": "Unsubscribe from marketing e-mail",
+    "explanation": "Choose what you would like to stop receiving. Leaving this Station stops its marketing e-mail only; leaving every Station of this group also stops WhatsApp marketing everywhere you are registered.",
+    "leaveThisStation": "Leave this Station",
+    "leaveEveryStationOfTheGroup": "Leave every Station of this group",
+    "leftThisStation": "Done — you will no longer receive marketing e-mail from this Station.",
+    "leftEveryStation": "Done — you will no longer receive marketing e-mail or WhatsApp from any Station in this group.",
+    "linkNoLongerWorks": "This link no longer works. It may already have been used, or it may have expired."
   }
 }

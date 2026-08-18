@@ -2317,5 +2317,14 @@
     "showingOfTheStationsYouCanReach": "Mostrando {count} das Stations ao seu alcance. Busque pelo nome para chegar a uma que não esteja listada.",
     "moveThePrizesOffItFirst": "{count, plural, one {Um prêmio ainda usa este rótulo} other {# prêmios ainda usam este rótulo}}, e esta categoria não pode ser arquivada até que sejam movidos para outra.",
     "archivingKeepsEveryPastRecord": "Nenhum prêmio usa este rótulo, então arquivar não custa mais nada: a categoria continua registrada e apenas deixa de ser oferecida no seletor e no filtro."
+  },
+  "unsubscribe": {
+    "heading": "Descadastrar de e-mail de marketing",
+    "explanation": "Escolha o que você quer parar de receber. Sair desta Emissora interrompe só o e-mail de marketing dela; sair de todas as Emissoras do grupo também interrompe o WhatsApp de marketing em todas onde você está cadastrado.",
+    "leaveThisStation": "Sair desta Emissora",
+    "leaveEveryStationOfTheGroup": "Sair de todas as Emissoras do grupo",
+    "leftThisStation": "Pronto — você não vai mais receber e-mail de marketing desta Emissora.",
+    "leftEveryStation": "Pronto — você não vai mais receber e-mail nem WhatsApp de marketing de nenhuma Emissora do grupo.",
+    "linkNoLongerWorks": "Este link não funciona mais. Ele já pode ter sido usado, ou pode ter expirado."
   }
 }
