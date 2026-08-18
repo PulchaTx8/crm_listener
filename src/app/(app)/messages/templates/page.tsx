@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 import { stationSwitchHref } from '@/lib/station-switch';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent } from '@/components/ui/card';
-import { listRegisteredTemplates } from '@/services/templates';
+import { listTemplates } from '@/services/templates';
 import type { RegisteredTemplate } from '@/services/templates';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../../inventory/station-access';
 import { StationSearchForm } from '../../inventory/station-search-form';
@@ -60,10 +60,15 @@ export default async function WhatsAppTemplatesPage({
   let templates: RegisteredTemplate[];
   let manage: boolean;
   try {
-    [templates, manage] = await Promise.all([
-      listRegisteredTemplates(selected.id),
+    // Only the system half: this screen still renders the WhatsApp registry
+    // alone. `listTemplates` also returns a marketing half, which has no card
+    // on this screen yet (Task 9).
+    const [{ system }, canManage] = await Promise.all([
+      listTemplates(selected.id),
       canManageTemplates(supabase, selected.id),
     ]);
+    templates = system;
+    manage = canManage;
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the template registry');
     return <LoadError message={describeTemplateReadError(cause, await getTranslations('templates'))} />;

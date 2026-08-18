@@ -17,6 +17,7 @@ import { SYSTEM_MESSAGE_KEYS } from '@/schemas/templates';
 import type {
   ArchiveTemplateInput,
   ClearSystemMessageInput,
+  MarketingTemplateInput,
   ServiceHashtagsFormInput,
   SystemMessageFormInput,
   TemplateRegistrationInput,
@@ -207,13 +208,17 @@ export async function setServiceHashtags(
 
 export interface RegisteredTemplate {
   id: string;
-  // 0225 widened this table to hold marketing templates too, which carry no
-  // purpose, name or language of their own (Task 8 gives this row its own
-  // proper shape; this file keeps the tree compiling until then).
+  // Null for a MARKETING template (0225), which carries no purpose of its
+  // own; non-null is one of TEMPLATE_PURPOSES. listTemplates below partitions
+  // on exactly this field.
   purpose: string | null;
+  channel: 'WHATSAPP' | 'EMAIL';
+  internalName: string;
+  description: string | null;
   name: string | null;
   language: string | null;
   body: string;
+  subject: string | null;
   /** What each position means, in order. Empty for an approved fixed-text template. */
   variables: TemplateVariable[];
   /**
@@ -225,21 +230,36 @@ export interface RegisteredTemplate {
   updatedAt: string;
 }
 
-export async function listRegisteredTemplates(companyId: string): Promise<RegisteredTemplate[]> {
+/**
+ * Both families `message_templates` holds since 0225, in one query and split
+ * on the field that tells them apart: `purpose is null` is a marketing
+ * template, non-null is a SYSTEM registration. Partitioned here rather than
+ * with two queries because the caller (the Templates screen) renders both
+ * groups from the same read of the same Station.
+ */
+export async function listTemplates(
+  companyId: string,
+): Promise<{ system: RegisteredTemplate[]; marketing: RegisteredTemplate[] }> {
   const supabase = await createUserClient();
   const { data, error } = await supabase
     .from('message_templates')
-    .select('id, purpose, name, language, body, variables, otp_button, updated_at')
+    .select(
+      'id, purpose, channel, internal_name, description, name, language, body, subject, variables, otp_button, updated_at',
+    )
     .eq('company_id', companyId)
     .order('purpose', { ascending: true });
   if (error) throw mapTemplateError(error.code, error.message);
 
-  return (data ?? []).map((row) => ({
+  const rows: RegisteredTemplate[] = (data ?? []).map((row) => ({
     id: row.id,
     purpose: row.purpose,
+    channel: row.channel,
+    internalName: row.internal_name,
+    description: row.description,
     name: row.name,
     language: row.language,
     body: row.body,
+    subject: row.subject,
     // `variables` is `template_variable[]` (0222) since 0225's regeneration,
     // not the jsonb this comment used to distrust -- the column's own type is
     // now the shape guarantee, so there is nothing left here to narrow.
@@ -247,6 +267,41 @@ export async function listRegisteredTemplates(companyId: string): Promise<Regist
     otpButton: row.otp_button,
     updatedAt: row.updated_at,
   }));
+
+  return {
+    system: rows.filter((row) => row.purpose !== null),
+    marketing: rows.filter((row) => row.purpose === null),
+  };
+}
+
+/**
+ * Creates or updates a marketing template through `save_marketing_template`
+ * (0225) — the door `register_message_template` cannot serve, because that
+ * one upserts on `(company_id, purpose)` and a marketing template has no
+ * purpose to give that ON CONFLICT clause as a target (0225's own comment).
+ */
+export async function saveMarketingTemplate(
+  input: MarketingTemplateInput,
+  accessToken: string,
+): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('save_marketing_template', {
+    p_id: input.templateId,
+    p_company_id: input.companyId,
+    p_channel: input.channel,
+    p_internal_name: input.internalName,
+    p_description: input.description,
+    p_body: input.body,
+    p_subject: input.subject,
+    p_name: input.name,
+    p_language: input.language,
+    p_variables: input.variables,
+    p_from_name: input.fromName,
+    p_from_email: input.fromEmail,
+    p_reply_to: input.replyTo,
+  });
+  if (error) throw mapTemplateError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('save_marketing_template returned no id');
+  return data;
 }
 
 export async function registerTemplate(

@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { SYSTEM_MESSAGE_DEFAULTS } from '@/lib/conversation/engine';
 import type { SystemMessageKey } from '@/lib/conversation/engine';
 import type { Enums } from '@/lib/supabase/database.types';
+import {
+  CAMPAIGN_RESOLVABLE,
+  CAMPAIGN_VARIABLES,
+  variableFromPlaceholder,
+  type TemplateVariable,
+} from '@/lib/templates/variables';
 
 /**
  * Mirrors 0109, 0110 and the four doors in 0113. Every bound here exists so
@@ -243,3 +249,88 @@ export type TemplateRegistrationInput = z.infer<typeof templateRegistrationSchem
 
 export const archiveTemplateSchema = z.object({ templateId: z.string().uuid() });
 export type ArchiveTemplateInput = z.infer<typeof archiveTemplateSchema>;
+
+/**
+ * An optional address that a blank clears.
+ *
+ * Identical in shape to `optionalStationEmail` (schemas/stations.ts) and
+ * identical in reason: trimming has to happen before the union, because
+ * `z.literal('')` compares the raw value and `'   '` would otherwise fail both
+ * arms at once.
+ */
+function optionalEmail(max: number) {
+  return z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() : v),
+    z.union([z.literal(''), z.string().email().max(max)]),
+  );
+}
+
+/**
+ * What the marketing form posts.
+ *
+ * The channel-conditional rules are `superRefine`d rather than expressed as two
+ * schemas, so the form has ONE parse and the error lands on the field that is
+ * wrong. They restate what 0223's CHECK constraints hold structurally — which
+ * is the point: the database is the authority and this is what turns a 23514
+ * naming a constraint into a message beside an empty box.
+ */
+export const marketingTemplateSchema = z
+  .object({
+    templateId: z.string().uuid().optional(),
+    companyId: z.string().uuid(),
+    channel: z.enum(['WHATSAPP', 'EMAIL']),
+    internalName: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(500).optional(),
+    body: z.string().trim().min(1).max(MAX_MESSAGE_BODY),
+    subject: z.string().trim().max(200).optional(),
+    name: z.string().trim().max(512).optional(),
+    language: z.string().trim().max(20).optional(),
+    // The closed vocabulary, not free strings: 0223 retyped the column to
+    // template_variable[] and the door casts to it, so a string outside the
+    // enum is a 22P02 from Postgres rather than a message beside a field.
+    // `as` because z.enum wants a non-empty tuple, the same cast
+    // SYSTEM_MESSAGE_KEYS and TEMPLATE_PURPOSES already make in this file.
+    variables: z
+      .array(z.enum(CAMPAIGN_VARIABLES as [TemplateVariable, ...TemplateVariable[]]))
+      .max(20)
+      .default([]),
+    fromName: z.string().trim().max(120).optional(),
+    // Trimmed BEFORE the union, not inside one arm of it. `.trim().email()
+    // .or(z.literal(''))` looks equivalent and is not: z.literal compares the
+    // RAW value, so '   ' fails the e-mail arm after trimming and fails the
+    // literal arm before it, and a field the operator cleared with a space
+    // becomes an error they cannot read. Same shape as schemas/stations.ts.
+    fromEmail: optionalEmail(200).optional(),
+    replyTo: optionalEmail(200).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.channel === 'EMAIL') {
+      if (!value.subject) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['subject'],
+                       message: 'an e-mail needs a subject' });
+      }
+      // Every {{name}} the body uses must be a value this system substitutes.
+      // Caught here rather than at the door so the operator sees WHICH name.
+      for (const match of value.body.matchAll(/\{\{([a-z_]+)\}\}/g)) {
+        // RESOLVABLE, not merely known. variableFromPlaceholder answers the
+        // whole vocabulary, and three of its seven values are ones a campaign
+        // has no source for — the prize, the deadline and the code all come
+        // from the specific caller that enqueues a system message. A body
+        // naming {{prize_name}} would parse, save, and send "Oi Ana, você
+        // ganhou !" to every listener on the list.
+        const named = variableFromPlaceholder(match[1] ?? '');
+        if (named === null || !CAMPAIGN_RESOLVABLE[named]) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['body'],
+                         message: `this body names {{${match[1]}}}, which is not a value this system substitutes` });
+        }
+      }
+      return;
+    }
+
+    if (!value.name || !value.language) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['name'],
+                     message: 'a WhatsApp template needs the name and language Meta approved' });
+    }
+  });
+
+export type MarketingTemplateInput = z.infer<typeof marketingTemplateSchema>;

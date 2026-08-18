@@ -5,6 +5,7 @@ import {
   namedPlaceholder,
   variableFromPlaceholder,
 } from '@/lib/templates/variables';
+import { marketingTemplateSchema } from '@/schemas/templates';
 
 describe('the template variable vocabulary', () => {
   it('says which family every value is in', () => {
@@ -48,5 +49,39 @@ describe('the template variable vocabulary', () => {
       const placeholder = namedPlaceholder(value).slice(2, -2);
       expect(variableFromPlaceholder(placeholder)).toBe(value);
     }
+  });
+});
+
+describe('marketingTemplateSchema', () => {
+  const base = {
+    companyId: '11111111-1111-1111-1111-111111111111',
+    internalName: 'natal_2026',
+    body: 'Oi {{listener_first_name}}!',
+  };
+
+  it('accepts an email template with a subject', () => {
+    const r = marketingTemplateSchema.safeParse({
+      ...base, channel: 'EMAIL', subject: 'Feliz Natal',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('refuses an email template with no subject', () => {
+    // The database CHECK refuses it too; catching it here is what turns a 23514
+    // naming a constraint into a message beside the field that is empty.
+    const r = marketingTemplateSchema.safeParse({ ...base, channel: 'EMAIL' });
+    expect(r.success).toBe(false);
+  });
+
+  it('refuses an email body naming something outside the vocabulary', () => {
+    const r = marketingTemplateSchema.safeParse({
+      ...base, channel: 'EMAIL', subject: 'Oi', body: 'Oi {{listener_shoe_size}}!',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('refuses a WhatsApp template with no name or language', () => {
+    const r = marketingTemplateSchema.safeParse({ ...base, channel: 'WHATSAPP' });
+    expect(r.success).toBe(false);
   });
 });
