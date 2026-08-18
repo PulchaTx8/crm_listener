@@ -73,11 +73,29 @@ describe('marketingTemplateSchema', () => {
     expect(r.success).toBe(false);
   });
 
+  // Two different failures, both worth having: an unknown name proves the
+  // guard rejects gibberish, and a KNOWN-but-unresolvable one proves it is
+  // checking CAMPAIGN_RESOLVABLE and not merely `variableFromPlaceholder(...)
+  // !== null` -- the weaker check a body naming {{prize_name}} would pass.
   it('refuses an email body naming something outside the vocabulary', () => {
     const r = marketingTemplateSchema.safeParse({
       ...base, channel: 'EMAIL', subject: 'Oi', body: 'Oi {{listener_shoe_size}}!',
     });
     expect(r.success).toBe(false);
+  });
+
+  it('refuses an email body naming a value no campaign can resolve', () => {
+    // {{prize_name}} is a real value in the vocabulary -- variableFromPlaceholder
+    // resolves it -- but PRIZE_NAME comes from the caller that enqueues a
+    // system message, and a campaign has no source for it. Sending this body
+    // would read "Oi Ana, você ganhou !" to every listener on the list.
+    const r = marketingTemplateSchema.safeParse({
+      ...base, channel: 'EMAIL', subject: 'Oi', body: 'Oi {{listener_first_name}}, você ganhou {{prize_name}}!',
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((issue) => issue.path.join('.') === 'body')).toBe(true);
+    }
   });
 
   it('refuses a WhatsApp template with no name or language', () => {
