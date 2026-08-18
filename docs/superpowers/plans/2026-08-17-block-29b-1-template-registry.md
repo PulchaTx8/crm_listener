@@ -1265,7 +1265,7 @@ git commit -m "feat(templates): one vocabulary, two notations, and the second de
 **Interfaces:**
 - Consumes: `TemplateVariable`, `namedPlaceholder` (Task 5).
 - Produces:
-  `export interface FrameInput { stationName: string; logoUrl: string | null; body: string; unsubscribeUrl?: string | null }`
+  `export interface FrameInput { stationName: string; logoUrl: string | null; body: string; unsubscribe?: { url: string; label: string } | null }`
   `export function renderCampaignEmail(input: FrameInput): { html: string; text: string }`
 
 - [ ] **Step 1: Write the failing test**
@@ -1329,15 +1329,23 @@ describe('the campaign email frame', () => {
     // 29c fills this. The slot ships empty because reopening the frame later is
     // dearer than leaving the seam.
     const { html } = renderCampaignEmail(base);
-    expect(html).not.toContain('unsubscribe');
+    // No anchor at all, rather than "no such word": the seam is empty when the
+    // frame renders no link, and only that is checkable without naming copy
+    // this module does not own.
+    expect(html).not.toContain('<a ');
   });
 
-  it('renders the unsubscribe link when one is given', () => {
+  it('renders the unsubscribe link with the caller-supplied label', () => {
+    // The label is the caller's, never ours: this module has no access to the
+    // i18n catalogues, and a word hardcoded here would be the one piece of
+    // untranslated copy in a message otherwise entirely in the reader's
+    // language.
     const { html } = renderCampaignEmail({
       ...base,
-      unsubscribeUrl: 'https://app.example/u/abc',
+      unsubscribe: { url: 'https://app.example/u/abc', label: 'Cancelar inscrição' },
     });
     expect(html).toContain('https://app.example/u/abc');
+    expect(html).toContain('Cancelar inscrição');
   });
 });
 ```
@@ -1377,8 +1385,15 @@ export interface FrameInput {
   logoUrl: string | null;
   /** The operator's text, with variables already substituted. */
   body: string;
-  /** Block 29c fills this. Null or absent leaves the seam empty. */
-  unsubscribeUrl?: string | null;
+  /**
+   * Block 29c fills this. Null or absent leaves the seam empty.
+   *
+   * The URL and its label travel together in one object so that the compiler
+   * refuses a link with no text. The label belongs to the caller because this
+   * module cannot reach the i18n catalogues, and the recipient reads the whole
+   * message in one language.
+   */
+  unsubscribe?: { url: string; label: string } | null;
 }
 
 /**
@@ -1410,8 +1425,8 @@ export function renderCampaignEmail(input: FrameInput): { html: string; text: st
     ? `<img src="${escapeHtml(input.logoUrl)}" alt="${station}" width="40" height="40" style="vertical-align:middle;border:0;" /> <span style="vertical-align:middle;">${station}</span>`
     : `<span>${station}</span>`;
 
-  const footer = input.unsubscribeUrl
-    ? `<a href="${escapeHtml(input.unsubscribeUrl)}" style="color:#666;">unsubscribe</a>`
+  const footer = input.unsubscribe
+    ? `<a href="${escapeHtml(input.unsubscribe.url)}" style="color:#666;">${escapeHtml(input.unsubscribe.label)}</a>`
     : '';
 
   const html = [
