@@ -5138,6 +5138,17 @@ export type Database = {
           member_id: string
         }[]
       }
+      members_marketing_eligible_bulk: {
+        Args: {
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_member_ids: string[]
+        }
+        Returns: {
+          eligible: boolean
+          member_id: string
+        }[]
+      }
       merge_artists: {
         Args: { p_loser_ids: string[]; p_reason: string; p_winner_id: string }
         Returns: number
