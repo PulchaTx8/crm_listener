@@ -18,12 +18,19 @@ import {
  * Block 29c, Task 10. The unsubscribe token and the eligibility predicate,
  * against real sessions.
  *
- * pgTAP runs as superuser with a null auth.uid(), so every RLS-gated read in
- * this file — `members_marketing_eligible_bulk` (0229) is SECURITY INVOKER for
- * exactly this reason — passes unconditionally there and proves nothing about
- * who is actually refused. It can hold the grants and the shape; only a real
- * session can show a door refusing somebody, the same argument
- * marketing-templates.test.ts's own header makes.
+ * pgTAP runs as superuser and has to hand-build a session with `set local role`
+ * and a claims GUC before it can ask anything of a gated door; here the session
+ * is real, issued by GoTrue, and carries whatever the invitation flow actually
+ * granted. That is the difference this file exists for: it can show a door
+ * refusing somebody whose permissions were produced the way production produces
+ * them, the same argument marketing-templates.test.ts's own header makes.
+ *
+ * `members_marketing_eligible_bulk` is SECURITY DEFINER with its own caller
+ * gate since 0235 (whole-branch review, F29). It was SECURITY INVOKER, and the
+ * cases below were written against that: two of its four layers are phrased as
+ * the ABSENCE of a row, so a caller whose RLS merely HID a Station's consent
+ * and block rows was told every listener there was eligible — including one who
+ * had unsubscribed and one under an active suspension.
  */
 const STAMP = Date.now();
 
@@ -221,16 +228,16 @@ describe('Block 29c — the unsubscribe token, against real sessions', () => {
     expect(readError?.code).toBe('42501');
   }, 60_000);
 
-  it('an eligible-listener query from Station A never returns a listener of Station B', async () => {
+  it('an eligible-listener query from Station A never reports a listener of Station B as a recipient', async () => {
     const memberA = await createMemberAs(customer, customer.companyId, {
       fullName: `Eligible Station A Listener ${STAMP}`,
     });
     const memberB = await createMemberAs(customer, stationB, {
       fullName: `Eligible Station B Listener ${STAMP}`,
     });
-    // Scoped to Station A alone — the precondition this case rests on: a
-    // delegate who could also read Station B would make an absent row
-    // ambiguous between "refused" and "never linked there in the first place".
+    // Scoped to Station A alone — the precondition this case rests on, and now
+    // also what the next case turns on: this delegate holds nothing whatever at
+    // Station B.
     const delegate = await grantRoleWith(customer, `consent-eligible-${STAMP}`, ['members.view'], [
       customer.companyId,
     ]);
@@ -242,30 +249,78 @@ describe('Block 29c — the unsubscribe token, against real sessions', () => {
       p_channel: 'EMAIL',
     });
     expect(error, error?.message).toBeNull();
-    const ids = (data ?? []).map((row) => row.member_id);
-    expect(ids).toContain(memberA);
-    expect(ids).not.toContain(memberB);
+
+    // A ROW PER ID, AND THE ANSWER IS IN THE ROW — not in whether the row came
+    // back. That is what changed with 0235: under SECURITY INVOKER, a listener
+    // the caller's RLS hid simply vanished from the result, which read as
+    // "not a recipient" only by accident, and read as "eligible" for every
+    // listener whose consent rows were hidden the same way. A definer function
+    // sees every row and has to SAY no, which is a claim a test can pin.
+    const answers = new Map((data ?? []).map((row) => [row.member_id, row.eligible]));
+    expect(answers.get(memberA), 'a listener of the Station being asked about').toBe(true);
+    expect(answers.get(memberB), 'a listener of a Station this campaign is not for').toBe(false);
+  }, 60_000);
+
+  /**
+   * The whole-branch review's F29, as the failure it actually was. This
+   * delegate holds `members.view` at Station A and nothing at all at Station B.
+   * Under 0229 the same call answered — with no consent rows and no block rows
+   * visible at B, both absences read as permission and every listener there came
+   * back eligible, an unsubscribed one and a suspended one included. There is no
+   * assertion about the CONTENT of that answer here on purpose: an answer at all
+   * is the defect.
+   */
+  it('a caller holding members.view at one Station is refused outright at another, not answered permissively', async () => {
+    const memberAtB = await createMemberAs(customer, stationB, {
+      fullName: `Refused Station B Listener ${STAMP}`,
+    });
+    const delegate = await grantRoleWith(customer, `consent-gate-${STAMP}`, ['members.view'], [
+      customer.companyId,
+    ]);
+    const delegateClient = await signInAs(delegate.email, delegate.password);
+
+    const { data, error } = await delegateClient.rpc('members_marketing_eligible_bulk', {
+      p_member_ids: [memberAtB],
+      p_company_id: stationB,
+      p_channel: 'EMAIL',
+    });
+    expect(data ?? [], 'nothing may come back from a Station the caller cannot ask about').toEqual(
+      [],
+    );
+    expect(error?.code, error?.message).toBe('42501');
   }, 60_000);
 });
 
 /**
- * Task 10 review gap 1. `members_marketing_eligible_bulk`'s block check scopes
- * with `b.organization_id = co.organization_id` — untouched by every case
- * above, which shares one Organization throughout, the same limit this
- * comment's own brief names in the pgTAP suite. `member_blocks_member_org_fk`
- * (0032) ties a block's `organization_id` to the blocked listener's OWN
- * organization_id, so no write path can ever record a block for a listener
- * under a DIFFERENT Organization's id — the only way left to exercise the
- * term is to ask about that listener through a Station of a different
- * Organization, which needs a caller RLS lets see across both at once: a
- * platform admin, which is what `provisionCustomer` already signs in as.
+ * Task 10 review gap 1, REWRITTEN BY THE WHOLE-BRANCH REVIEW (F29). The case
+ * below used to assert that a listener of Organization B, asked about through a
+ * Station of Organization A, came back ELIGIBLE — reasoning that Organization
+ * B's own suspension must not reach across, which is true, and concluding from
+ * it that EMAIL's default should therefore apply, which is not. Nothing in the
+ * old function asked whether the listener had any relationship to the Station
+ * at all, so "the block does not cross" and "so send them a campaign" had been
+ * run together into one assertion, and the second half of it was the defect
+ * being pinned as correct.
+ *
+ * The Organization term in the block check (`b.organization_id =
+ * co.organization_id`) is still there and still right — it is simply no longer
+ * the first thing that answers this question. `member_company_links`'
+ * composite foreign keys force a link's member and company to share one
+ * Organization, so a listener of B can never be linked to a Station of A, and
+ * 0235's link check refuses before the block layer is ever consulted.
+ *
+ * The platform-admin session is kept: it is the only caller RLS lets see a
+ * listener and a Station from two different Organizations at once, and — since
+ * 0235 — the only one the gate lets ask the question at all. That is what makes
+ * this a test of the ANSWER rather than of the gate, which the two cases above
+ * already cover.
  */
-describe('Block 29c, Task 10 review gap 1 — a suspension does not cross an Organization', () => {
+describe('Block 29c, F29 — a listener of another Organization is never a recipient here', () => {
   afterAll(async () => {
     await cleanupUsers();
   }, 60_000);
 
-  it('a suspension recorded in Organization B does not bar a listener asked about through Organization A', async () => {
+  it('a listener of Organization B is answered "not a recipient" when asked about through a Station of Organization A', async () => {
     const orgA = await provisionCustomer(`consent-gap1-a-${STAMP}`);
     const orgB = await provisionCustomer(`consent-gap1-b-${STAMP}`);
 
@@ -273,6 +328,10 @@ describe('Block 29c, Task 10 review gap 1 — a suspension does not cross an Org
       fullName: `Cross Org Suspended Listener ${STAMP}`,
     });
 
+    // The suspension is kept as a fixture rather than dropped: it is what makes
+    // the answer unambiguous. Whatever a future change does to the block
+    // layers, this listener has no business being called a recipient of
+    // Organization A's campaigns.
     const orgBOwnerClient = await signInAs(orgB.email, orgB.password);
     const { error: blockError } = await orgBOwnerClient.rpc('block_member', {
       p_member_id: memberB,
@@ -281,21 +340,16 @@ describe('Block 29c, Task 10 review gap 1 — a suspension does not cross an Org
     });
     expect(blockError, blockError?.message).toBeNull();
 
-    // orgA.adminClient: a platform admin, which platform_admins makes a
-    // system-wide status rather than one scoped to the Organization it
-    // happened to provision — the same fact member_reachable's (0033) and
-    // companies_select_org_member's (0021) own bypasses rely on, and what
-    // lets this one session read a listener and a Station from two different
-    // Organizations in the same call.
     const { data, error } = await orgA.adminClient.rpc('members_marketing_eligible_bulk', {
       p_member_ids: [memberB],
       p_company_id: orgA.companyId,
       p_channel: 'EMAIL',
     });
+    // A platform admin passes the gate's first arm, so this is answered rather
+    // than refused — and the answer is no, on the link check, before EMAIL's
+    // default (spec D1) is reached.
     expect(error, error?.message).toBeNull();
-    // EMAIL's own default (spec D1) is eligible absent a consent row for this
-    // pair — which is exactly what should still hold: Organization B's own
-    // suspension must not reach across to a question asked through A.
-    expect(data?.[0]?.eligible).toBe(true);
+    expect(data?.[0]?.member_id, 'still a row per id asked about').toBe(memberB);
+    expect(data?.[0]?.eligible).toBe(false);
   }, 120_000);
 });

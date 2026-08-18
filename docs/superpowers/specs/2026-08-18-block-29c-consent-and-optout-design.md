@@ -48,9 +48,14 @@ it as explicit opt-in.
 **D3 — A withdrawal is scoped to the Station that sent, with an explicit
 group-wide second action.** `member_consents.company_id` is `not null`, so a
 consent is a fact about one Station by construction. The unsubscribe page writes
-one row for the sending Station, and offers "leave every Station in this group"
-as a separate, deliberate action writing one row per Station the listener is
-linked to.
+one row for the sending Station — `email_marketing`, because the click was in an
+e-mail — and offers "leave every Station in this group" as a separate,
+deliberate action writing **two** rows per Station the listener is linked to,
+one per marketing channel. Corrected here by the whole-branch review: the code
+was always right and this sentence said "one row per Station". Somebody asking
+to leave a whole group is not asking for half an exit, which is exactly why the
+group action differs from the single-Station one on channels as well as on
+scope.
 
 **D4 — Stop words land in the engine now, not in 29b-2.** PARAR, CANCELAR and
 DESCADASTRAR on WhatsApp inbound. Without them 29d would send marketing through
@@ -153,6 +158,16 @@ Rate limited through `src/lib/rate-limit`. Block 11c's trap applies: the limiter
 must see the real client IP behind the proxy, or it limits the proxy as one
 person.
 
+**That limiter bounds the PAGE, and nothing else** — corrected here by the
+whole-branch review, which found this section reading as though it bounded
+spending a token. `consume_unsubscribe_token` is granted to `anon` and is
+therefore reachable directly through PostgREST, with no page and no limiter in
+front of it. That is accepted rather than closed: the token is 32 random bytes,
+so guessing one is 256 bits of work, and a rate limiter is not what stands
+between an attacker and a token — the token's own size is. What a limiter on
+the page buys is protection against somebody hammering the page itself, which
+is a different problem and the only one it solves.
+
 Two actions on the page: leave this Station, and — separate and explicit —
 leave every Station of this group the listener is linked to (D3).
 
@@ -180,9 +195,25 @@ maintainer.
 
 A set-at-a-time function shaped like `members_blocked_bulk` (0036): given a
 Station and a channel, it returns the eligible listeners, applying §5's four
-layers in one pass. `stable`, and **`security invoker`** — "who may I reach" must
-respect the RLS of whoever asks, not of whoever wrote the function. Nothing here
-is `SECURITY DEFINER`; there is no privilege to lend, only a filtered read.
+layers in one pass. `stable`, and — **corrected by the whole-branch review
+(F29)** — **`security definer` with the same three-arm caller guard 0036 has**,
+plus a `member_company_links` check so a listener with no relationship to the
+Station is never named a recipient.
+
+This paragraph originally said `security invoker`, reasoning that "who may I
+reach" must respect the RLS of whoever asks and that there was no privilege to
+lend, only a filtered read. That was wrong, and specifically: two of §5's layers
+are phrased as the ABSENCE of a row (no active suspension; no consent row, so
+the channel default). RLS does not answer "there is no such row" — it answers
+"you cannot see one", in the same shape. The filter therefore only ever ADDED
+recipients: a caller who could not read a Station's `member_consents` and
+`member_blocks` was told every listener there was eligible, an unsubscribed one
+and a suspended one included. A filtered read is safe only when the filter can
+do nothing but remove; here it could not.
+
+The consequence for 29d is now a refusal rather than an empty result: a send
+loop with no `auth.uid()` gets `42501` on the first call instead of an audience
+of zero it cannot tell from "nobody consented".
 
 ## 9. Operator surface
 
@@ -205,7 +236,7 @@ not say who created it, and the table already forbids that.
 | Token of another Station, expired token, spent token | isolation | Real sessions, two tenants — a tenancy hole no unit test reaches |
 | "Leave every Station" hits exactly the listener's links | isolation | Over-reach across an Organization |
 | Widget checkbox defaults unchecked | e2e | A pre-checked box is the LGPD failure |
-| The consent step appears once and not on a second participation | e2e | D2's "once", end to end |
+| A second, unticked participation writes no second row and does not revoke the first | e2e | The silent revocation F23 closed. It does **not** prove D2's "once": the widget's box is still re-rendered on every entry, so what is suppressed is the write, not the question |
 | Unsubscribe effects on POST, and **the GET changes nothing** | e2e | Pins §7's decision against a later "simplification" |
 
 ## 11. Traps carried in from earlier blocks

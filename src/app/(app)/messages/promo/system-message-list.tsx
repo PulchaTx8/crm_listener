@@ -29,16 +29,21 @@ function fieldWhen(fieldKey: string, t: (key: string, values?: Record<string, st
 }
 
 /**
- * What each of the fourteen texts is, in the operator's language. Ten field
- * and conversation prompts from 0109, the three Block 19a added (LINK_MUSIC,
- * LINK_MENU, LINK_PROMOTION) — the words in front of the link a matched
- * hashtag now sends — and Block 28's COUNTRY.
+ * What each text is, in the operator's language: the field and conversation
+ * prompts from 0109, the three Block 19a added (LINK_MUSIC, LINK_MENU,
+ * LINK_PROMOTION) — the words in front of the link a matched hashtag now sends
+ * — Block 28's COUNTRY, and Block 29c's two marketing texts.
  *
  * TOTAL over `SystemMessageKey`, which is the generated `system_message_key`
- * enum — so a fifteenth key fails to compile HERE rather than rendering on
- * screen as a bare key nobody can interpret. The same reason FIELD_PROMPTS
+ * enum — so a key added to the enum fails to compile HERE rather than rendering
+ * on screen as a bare key nobody can interpret. The same reason FIELD_PROMPTS
  * and FIELD_MESSAGE_KEYS are total in engine.ts, and COUNTRY is the value that
  * collected on all three promises at once.
+ *
+ * NO COUNT IS WRITTEN DOWN, here or below. `Record<SystemMessageKey, …>` is
+ * the only statement of how many there are that the compiler keeps true; a
+ * number in prose is one the next enum value silently falsifies, which is what
+ * happened to "fourteen" twice on this branch alone.
  *
  * English, like every operator-facing string in this codebase. The BODIES are
  * Portuguese and stay Portuguese: they are what a listener reads, which is the
@@ -81,9 +86,9 @@ function messageLabels(
 }
 
 /**
- * The fourteen texts, whether this Station has overridden them or not.
+ * Every text the enum carries, whether this Station has overridden it or not.
  *
- * ALL FOURTEEN ROWS ALWAYS — `listSystemMessages` builds them from the
+ * EVERY ROW, ALWAYS — `listSystemMessages` builds them from the
  * defaults and fills in what was overridden, so a brand-new Station sees
  * every text editable rather than an empty page. Rendering the query's rows
  * alone would be the

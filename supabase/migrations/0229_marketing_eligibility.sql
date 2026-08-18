@@ -2,6 +2,16 @@
 
 -- Block 29c, Task 2. Who this Station may send to, on this channel.
 --
+-- SUPERSEDED BY 0235, and this banner is the only thing edited in this file:
+-- the SECURITY INVOKER paragraph below, and its consequence for an
+-- identity-less worker, describe a body that no longer runs. The whole-branch
+-- review found (F29, Critical) that two of the four layers are phrased as the
+-- ABSENCE of a row, and RLS hiding a row looks exactly like the row not
+-- existing -- so under invoker a caller who could not read a Station's consent
+-- or block rows was told every listener there was eligible. 0235 recreates
+-- this function SECURITY DEFINER with a caller gate and a link check. Read it,
+-- not this, for what runs.
+--
 -- SET-AT-A-TIME, in the shape members_blocked_bulk (0036) already holds. Block
 -- 29d resolves audiences of thousands; a function answering one listener would
 -- be N round trips for a question the database can answer in one pass.

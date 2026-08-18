@@ -223,7 +223,7 @@ export const MARKETING_STOPPED_MESSAGE =
 /**
  * The two override types live in `./steps` with the rest of the vocabulary and
  * are re-exported here, where the defaults and the resolver are — so a caller
- * needing "the ten texts" imports one module rather than two.
+ * needing the system texts imports one module rather than two.
  */
 export type { SystemMessageKey, SystemMessageOverrides } from './steps';
 
@@ -231,7 +231,7 @@ export type { SystemMessageKey, SystemMessageOverrides } from './steps';
  * Which key carries each requested field's prompt.
  *
  * TOTAL, and that is the whole point of it existing rather than a
- * `field.toUpperCase()`: a tenth `RequestedField` fails to compile HERE as well
+ * `field.toUpperCase()`: a NEW `RequestedField` fails to compile HERE as well
  * as in `FIELD_PROMPTS`, so the pair cannot drift into a field whose prompt
  * nobody can override and, worse, a key that resolves to nothing.
  */
@@ -310,11 +310,11 @@ export function resolveSystemMessage(
 }
 
 /**
- * Narrows an untrusted key/text map to the ten texts this engine knows about.
+ * Narrows an untrusted key/text map to the texts this engine knows about.
  *
  * The map arrives as jsonb built in plpgsql (0114) and read in TypeScript, and
  * a `Record<string, string>` says nothing about which keys are in it. Rather
- * than a second list of the ten to keep in step with the enum, the keys are
+ * than a second list to keep in step with the enum, the keys are
  * checked against `SYSTEM_MESSAGE_DEFAULTS`, which is total over
  * `SystemMessageKey` and so cannot fall behind it.
  *

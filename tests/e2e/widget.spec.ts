@@ -1384,8 +1384,16 @@ test('the marketing checkbox writes true when ticked, and a later unticked entry
   expect(afterFirst[0]?.granted).toBe(true);
   expect(afterFirst[0]?.origin).toBe('widget');
 
-  // BACK TO THE LIST, A DIFFERENT PROMOTION, THE BOX LEFT UNTICKED — spec D2's
-  // "once", proved rather than assumed.
+  // BACK TO THE LIST, A DIFFERENT PROMOTION, THE BOX LEFT UNTICKED.
+  //
+  // WHAT THIS PROVES, EXACTLY, and it is less than spec D2's "once": no second
+  // consent ROW is written, and the earlier `true` survives. It does NOT prove
+  // the listener is asked only once — the checkbox is re-rendered, unticked,
+  // on this second entry, and the assertion five lines below says so. D2 asks
+  // that an existing row for (member, company, whatsapp_marketing) suppress
+  // the question forever after; the widget suppresses the WRITE, not the
+  // question. That gap is on the screen, not in this test, and the owner has
+  // it as a product decision.
   await widget.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(widget.getByTestId('widget-menu')).toBeVisible({ timeout: 30_000 });
   await widget.getByTestId('widget-enter-promotion').click();

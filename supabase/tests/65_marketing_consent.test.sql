@@ -1,5 +1,5 @@
 begin;
-select plan(66);
+select plan(73);
 
 -- Block 29c. Consent per channel, and the two things the conversation says
 -- about it. Separate values rather than one 'marketing' because §18 of the
@@ -25,6 +25,18 @@ select has_function('public', 'members_marketing_eligible_bulk',
   array['uuid[]','uuid','public.message_channel'],
   'the set-at-a-time eligibility question exists');
 
+-- Whole-branch review, F29 (Critical). 0229 shipped this SECURITY INVOKER,
+-- which made two of its four layers -- both phrased as the ABSENCE of a row --
+-- answer "eligible" for every listener whose consent and block rows the
+-- caller's own RLS merely hid. 0235 makes it a gated definer function, and
+-- this is the assertion that stops a later "simplification" back.
+select is(
+  (select p.prosecdef from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'members_marketing_eligible_bulk'),
+  true,
+  'the eligibility question is security definer, so its own caller guard is what protects it');
+
 -- A Station, an Organization, and four listeners in four states.
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-0000000029c1', 'Org consent');
@@ -41,6 +53,45 @@ insert into public.member_company_links (member_id, company_id, organization_id)
 select id, '00000000-0000-0000-0000-0000000029c2', '00000000-0000-0000-0000-0000000029c1'
   from public.members where organization_id = '00000000-0000-0000-0000-0000000029c1';
 
+-- F29's fixtures. Every assertion below now needs somebody to be asking:
+-- the gate refuses a caller who is not the platform admin, not the owner and
+-- holds no members.view at the Station -- which, in pgTAP, is what the
+-- superuser running this file is.
+--
+-- A SECOND STATION IN THE SAME ORGANIZATION, and the delegate holds a
+-- company_memberships row there whose role grants NOTHING. That pairing is
+-- the review's own scenario, not a hypothetical: a bare membership was enough
+-- to make Station B's consent and block rows invisible rather than absent,
+-- and invisible was read as permission.
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029ca', '00000000-0000-0000-0000-0000000029c1', 'Radio Consent Elsewhere');
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000029cb', '00000000-0000-0000-0000-0000000029c1', 'Consent Viewer'),
+  ('00000000-0000-0000-0000-0000000029cc', '00000000-0000-0000-0000-0000000029c1', 'Consent Nothing');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000029cb', 'members.view');
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000029ad', 'consent-delegate@example.test'),
+  ('00000000-0000-0000-0000-0000000029ae', 'consent-no-access@example.test');
+
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000029ad', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029cb'),
+  ('00000000-0000-0000-0000-0000000029ad', '00000000-0000-0000-0000-0000000029ca',
+   '00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029cc');
+
+-- Linked to the OTHER Station and to no other: 0229 reported this listener
+-- eligible when asked about through Radio Consent, because it never checked
+-- the relationship existed at all -- and EMAIL's default is eligible, so the
+-- answer was "send to them".
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029a9', '00000000-0000-0000-0000-0000000029c1', 'So na outra estacao');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029a9', '00000000-0000-0000-0000-0000000029ca',
+   '00000000-0000-0000-0000-0000000029c1');
+
 insert into public.member_consents
   (organization_id, member_id, company_id, consent_type, granted, granted_at)
 values
@@ -53,6 +104,13 @@ values
 
 update public.members set anonymized_at = now()
  where id = '00000000-0000-0000-0000-0000000029a4';
+
+-- FROM HERE TO `reset role` BELOW, THE DELEGATE IS ASKING. Every fixture
+-- change inside the section drops back to the superuser first, because these
+-- tables are RLS-protected and a fixture that failed silently under the
+-- delegate's own policies would leave an assertion proving the wrong thing.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000029ad", "role": "authenticated"}';
 
 -- THE ASYMMETRY THIS BLOCK TURNS ON (spec D1). No row at all means NOT eligible
 -- on WhatsApp, because Meta requires opt-in for a marketing template and
@@ -95,6 +153,7 @@ select is(
 -- arbitrary comparison, not a tiebreak. The function instead orders by
 -- granted ASC, so a tie resolves toward the refusal -- the direction that is
 -- safe to be wrong in.
+reset role;
 insert into public.member_consents
   (organization_id, member_id, company_id, consent_type, granted, granted_at)
 values
@@ -102,6 +161,7 @@ values
    '00000000-0000-0000-0000-0000000029c2', 'email_marketing', true,  '2026-01-01'),
   ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a1',
    '00000000-0000-0000-0000-0000000029c2', 'email_marketing', false, '2026-01-01');
+set local role authenticated;
 
 select is(
   (select eligible from public.members_marketing_eligible_bulk(
@@ -112,9 +172,11 @@ select is(
 -- AN ORGANIZATION-WIDE SUSPENSION, which is member_blocks.company_id = NULL.
 -- The subtle one: a predicate matching only on equality lets this listener go
 -- on receiving campaigns from every Station in the Organization.
+reset role;
 insert into public.member_blocks (organization_id, member_id, company_id, kind, reason)
 values ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a2',
         null, 'suspension', 'probe');
+set local role authenticated;
 
 select is(
   (select eligible from public.members_marketing_eligible_bulk(
@@ -125,11 +187,13 @@ select is(
 -- A DRAW BAN IS NOT A SUSPENSION. member_block_kind carries both; 'draw_ban'
 -- means "may not win a draw" and says nothing about messages. Barring it here
 -- would punish a listener for something else entirely.
+reset role;
 update public.member_blocks set lifted_at = now(), lift_reason = 'probe'
  where member_id = '00000000-0000-0000-0000-0000000029a2';
 insert into public.member_blocks (organization_id, member_id, company_id, kind, reason)
 values ('00000000-0000-0000-0000-0000000029c1', '00000000-0000-0000-0000-0000000029a2',
         '00000000-0000-0000-0000-0000000029c2', 'draw_ban', 'probe');
+set local role authenticated;
 
 select is(
   (select eligible from public.members_marketing_eligible_bulk(
@@ -145,6 +209,42 @@ select is(
            '00000000-0000-0000-0000-0000000029a3']::uuid[],
      '00000000-0000-0000-0000-0000000029c2', 'WHATSAPP')),
   3, 'one row per member asked about');
+
+-- F29, THE LINK CHECK. This listener belongs to the Organization and is linked
+-- to the OTHER Station only. EMAIL's own default says eligible, so a function
+-- that never asks whether the relationship exists answers "send to them" --
+-- which is what 0229 did for any member id in existence, from any tenant.
+select is(
+  (select eligible from public.members_marketing_eligible_bulk(
+     array['00000000-0000-0000-0000-0000000029a9']::uuid[],
+     '00000000-0000-0000-0000-0000000029c2', 'EMAIL')),
+  false, 'a listener this Station never linked is never a recipient of its campaigns');
+
+-- F29, THE GATE, in the review's own shape: the SAME delegate every assertion
+-- above was asking as, now asking about the Station where all they hold is a
+-- company_memberships row whose role grants nothing. Under 0229 this call
+-- returned a permissive answer built out of rows RLS had hidden; it is now
+-- refused outright.
+select throws_ok($$
+  select * from public.members_marketing_eligible_bulk(
+    array['00000000-0000-0000-0000-0000000029a9']::uuid[],
+    '00000000-0000-0000-0000-0000000029ca', 'EMAIL')
+$$, '42501', 'permission denied: members.view required',
+  'a caller with a bare membership and no members.view at the Station is refused, not answered');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000029ae", "role": "authenticated"}';
+
+select throws_ok($$
+  select * from public.members_marketing_eligible_bulk(
+    array['00000000-0000-0000-0000-0000000029a1']::uuid[],
+    '00000000-0000-0000-0000-0000000029c2', 'EMAIL')
+$$, '42501', 'permission denied: members.view required',
+  'and a caller holding nothing anywhere is refused too, for a batch of one');
+
+reset role;
+reset request.jwt.claims;
 
 select ok(
   has_function_privilege('authenticated',
@@ -522,6 +622,38 @@ select throws_ok($$
     '00000000-0000-0000-0000-0000000029c9',
     repeat('c', 64), null)
 $$, '42501', null, 'minting for a listener not linked to the named Station is refused');
+
+-- Whole-branch review, F32. A token minted before the listener was erased,
+-- clicked after. The other three doors of this block all refuse an archived or
+-- anonymised listener; this one wrote consent rows about somebody the
+-- Organization has already been told to forget. Closed in 0235, answering with
+-- the SAME P0002 the unknown, spent and expired cases answer -- a distinct
+-- error here would both undo the one-answer property and announce the erasure.
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-0000000029ab', '00000000-0000-0000-0000-0000000029c1', 'Apagada depois do envio');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000029ab', '00000000-0000-0000-0000-0000000029c2',
+   '00000000-0000-0000-0000-0000000029c1');
+
+select lives_ok($$
+  select public.issue_unsubscribe_token(
+    '00000000-0000-0000-0000-0000000029ab',
+    '00000000-0000-0000-0000-0000000029c2',
+    repeat('d', 64),
+    'Campanha antes do apagamento')
+$$, 'a token is minted while the listener is still live');
+
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-0000000029ab';
+
+select throws_ok($$
+  select public.consume_unsubscribe_token(repeat('d', 64), false)
+$$, 'P0002', null, 'a token whose listener has since been erased is refused, and says nothing about why');
+
+select is(
+  (select count(*)::int from public.member_consents
+    where member_id = '00000000-0000-0000-0000-0000000029ab'),
+  0, 'and no consent row is written about a listener who is not supposed to have rows');
 
 select ok(
   has_function_privilege('service_role',
