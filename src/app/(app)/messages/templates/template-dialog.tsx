@@ -69,6 +69,18 @@ export function TemplateDialog({
     { status: 'idle' } | { status: 'loading' } | PreviewCampaignEmailState
   >({ status: 'idle' });
 
+  // Block 29b-1, Task 9, F20 (fix round 2). Controlled rather than the
+  // uncontrolled `defaultValue` the rest of this form uses, and the reason
+  // is reactive: the warning beside a position holding a value
+  // CAMPAIGN_VARIABLES does not offer has to disappear the instant the
+  // operator re-picks it, not linger after the fix is already made. Sized
+  // from `existing.variables` once at mount — this component is a fresh
+  // mount per target (see the header above) — and otherwise grown or read
+  // by index as `placeholders` tracks the body.
+  const [whatsappVariables, setWhatsappVariables] = useState<string[]>(
+    () => existing?.variables ?? [],
+  );
+
   useEffect(() => {
     if (state.status === 'saved') {
       setDirty(false);
@@ -349,50 +361,82 @@ export function TemplateDialog({
               <div className="flex flex-col gap-2">
                 <span className="text-sm text-muted-foreground">{t('whatEachPositionMeans')}</span>
                 {Array.from({ length: placeholders }, (_, index) => {
-                  const current: TemplateVariable | undefined = existing?.variables[index];
-                  // F20 (Task 9 fix round 1). The door does not restrict a
+                  const current = whatsappVariables[index] ?? '';
+                  // F20 (Task 9 fix round 2). The door does not restrict a
                   // WHATSAPP marketing row's `variables` to CAMPAIGN_VARIABLES
                   // — only `marketingTemplateSchema` does, on the way IN
                   // through this form — so a row already carrying one of the
                   // three system-only values (PRIZE_NAME, PICKUP_DEADLINE,
                   // VERIFICATION_CODE) is a state this screen must be able to
-                  // READ without destroying it. Without the extra option below,
-                  // `defaultValue` would match nothing, the select would fall
-                  // back to whatever the browser picks for an unmatched value,
-                  // and saving this form for an unrelated reason (retitling the
-                  // template, say) would overwrite the real stored value with
-                  // that guess — the same silent-loss shape the sender-override
-                  // fields above are guarded against.
+                  // READ without destroying it, which the extra option below
+                  // is for: without it, an unmatched value would fall back to
+                  // whatever the browser picks, and saving this form for an
+                  // unrelated reason (retitling the template, say) would
+                  // overwrite the real stored value with that guess — the same
+                  // silent-loss shape the sender-override fields above are
+                  // guarded against.
+                  //
+                  // THE REFUSAL BELOW IS DELIBERATE, NOT A GAP THIS SCREEN
+                  // FAILED TO CLOSE (fix round 2). marketingTemplateSchema
+                  // still only accepts CAMPAIGN_VARIABLES here, on purpose —
+                  // a position holding one of the three system-only values is
+                  // a position a campaign's send loop has no source for, and
+                  // saving that state is the same failure the body's own
+                  // {{name}} check exists to prevent, one layer down. What
+                  // fix round 1 left unfinished was not the refusal; it was
+                  // that the operator met it with no explanation. The warning
+                  // paragraph below is that explanation, and it disappears
+                  // the moment this position is re-picked — computed from
+                  // `whatsappVariables`, the live selection, not from
+                  // `existing` alone.
                   const outOfVocabulary =
-                    current !== undefined && !CAMPAIGN_VARIABLES.includes(current);
+                    current !== '' && !CAMPAIGN_VARIABLES.includes(current as TemplateVariable);
 
                   return (
-                    <label key={index} className="flex items-center gap-2 text-sm">
-                      <code className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
-                        {`{{${index + 1}}}`}
-                      </code>
-                      <Select
-                        name="variables"
-                        defaultValue={current ?? ''}
-                        required
-                        className="h-9 max-w-md"
-                        aria-label={t('variablePositionAriaLabel', { n: index + 1 })}
-                      >
-                        <option value="" disabled>
-                          {t('chooseWhatThisPositionCarries')}
-                        </option>
-                        {outOfVocabulary && (
-                          <optgroup label={t('notOfferedToCampaigns')}>
-                            <option value={current}>{t(`variable_${current}`)}</option>
-                          </optgroup>
-                        )}
-                        {CAMPAIGN_VARIABLES.map((value) => (
-                          <option key={value} value={value}>
-                            {t(`variable_${value}`)}
+                    <div key={index} className="flex flex-col gap-1">
+                      <label className="flex items-center gap-2 text-sm">
+                        <code className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
+                          {`{{${index + 1}}}`}
+                        </code>
+                        <Select
+                          name="variables"
+                          value={current}
+                          onChange={(e) => {
+                            const picked = e.target.value;
+                            setWhatsappVariables((prev) => {
+                              const next = [...prev];
+                              next[index] = picked;
+                              return next;
+                            });
+                          }}
+                          required
+                          className="h-9 max-w-md"
+                          aria-label={t('variablePositionAriaLabel', { n: index + 1 })}
+                        >
+                          <option value="" disabled>
+                            {t('chooseWhatThisPositionCarries')}
                           </option>
-                        ))}
-                      </Select>
-                    </label>
+                          {outOfVocabulary && (
+                            <optgroup label={t('notOfferedToCampaigns')}>
+                              <option value={current}>{t(`variable_${current}`)}</option>
+                            </optgroup>
+                          )}
+                          {CAMPAIGN_VARIABLES.map((value) => (
+                            <option key={value} value={value}>
+                              {t(`variable_${value}`)}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      {outOfVocabulary && (
+                        <p
+                          className="pl-16 text-xs text-destructive"
+                          data-testid={`marketing-template-variable-warning-${index}`}
+                        >
+                          {t('positionNotFillableByCampaigns', { n: index + 1 })}
+                        </p>
+                      )}
+                    </div>
                   );
                 })}
               </div>

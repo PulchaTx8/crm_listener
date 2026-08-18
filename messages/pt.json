@@ -672,7 +672,8 @@
     "createTemplate": "Criar modelo",
     "saveTemplateChanges": "Salvar alterações",
     "variablePositionAriaLabel": "Valor da posição {n}",
-    "notOfferedToCampaigns": "Não oferecido a campanhas"
+    "notOfferedToCampaigns": "Não oferecido a campanhas",
+    "positionNotFillableByCampaigns": "A posição {n} guarda hoje um valor que só o sistema pode preencher — campanhas não conseguem enviá-lo. Escolha um dos quatro acima antes de salvar."
   },
   "connectWhatsApp": {
     "title": "Conectar WhatsApp Business",

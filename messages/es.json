@@ -672,7 +672,8 @@
     "createTemplate": "Crear plantilla",
     "saveTemplateChanges": "Guardar cambios",
     "variablePositionAriaLabel": "Valor de la posición {n}",
-    "notOfferedToCampaigns": "No ofrecido a campañas"
+    "notOfferedToCampaigns": "No ofrecido a campañas",
+    "positionNotFillableByCampaigns": "La posición {n} contiene actualmente un valor que solo el sistema puede completar — las campañas no pueden enviarlo. Elija uno de los cuatro anteriores antes de guardar."
   },
   "connectWhatsApp": {
     "title": "Conectar WhatsApp Business",
