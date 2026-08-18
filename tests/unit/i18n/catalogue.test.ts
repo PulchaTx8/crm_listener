@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AVAILABLE_LOCALES, DEFAULT_LOCALE } from '@/i18n/locales';
 import { GENDER_VALUES } from '@/lib/conversation/steps';
+import { TEMPLATE_VARIABLES } from '@/lib/templates/variables';
 import { REQUESTED_FIELD_ORDER } from '@/schemas/promotions';
 
 /**
@@ -94,6 +95,13 @@ describe('the keys built at the call site', () => {
     expect(
       catalogue.widget?.[`field_gender_${value}`],
       `widget.field_gender_${value} is missing`,
+    ).toBeTruthy();
+  });
+
+  it.each(TEMPLATE_VARIABLES)('the palette can label %s', (value) => {
+    expect(
+      catalogue.templates?.[`variable_${value}`],
+      `templates.variable_${value} is missing`,
     ).toBeTruthy();
   });
 });

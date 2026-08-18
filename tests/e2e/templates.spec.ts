@@ -287,9 +287,9 @@ test('a Station takes its own voice and records the template that lets it speak 
   await bodyField.fill(approvedBody);
   await expect(ownerPage.getByTestId('template-contract-warning-PICKUP_REMINDER')).toHaveCount(0);
 
-  await pickupCard.getByLabel('What {{1}} means').fill('The winner’s first name');
-  await pickupCard.getByLabel('What {{2}} means').fill('The prize name');
-  await pickupCard.getByLabel('What {{3}} means').fill('The pickup deadline');
+  await pickupCard.getByLabel('What {{1}} means').selectOption('LISTENER_FIRST_NAME');
+  await pickupCard.getByLabel('What {{2}} means').selectOption('PRIZE_NAME');
+  await pickupCard.getByLabel('What {{3}} means').selectOption('PICKUP_DEADLINE');
   await pickupCard.getByRole('button', { name: 'Record this template' }).click();
 
   await expect(pickupCard.getByText('Registered', { exact: true })).toBeVisible();
@@ -340,7 +340,7 @@ test('a Station takes its own voice and records the template that lets it speak 
   // and nothing else, and 0111 refuses a count that disagrees with the body.
   await ownerPage.getByTestId('template-body-WEB_VERIFICATION').fill(webBody);
   await expect(ownerPage.getByTestId('template-contract-warning-WEB_VERIFICATION')).toHaveCount(0);
-  await webCard.getByLabel('What {{1}} means').fill('The six-digit code');
+  await webCard.getByLabel('What {{1}} means').selectOption('VERIFICATION_CODE');
 
   // THE BOX THAT DID NOT EXIST UNTIL A DAY OF PRODUCTION SILENCE. Meta's
   // Authentication category carries an OTP button, the send has to name it, and
@@ -373,6 +373,69 @@ test('a Station takes its own voice and records the template that lets it speak 
   // supabase/tests/18 calls the RPC. None of them can see a checkbox that
   // posts nothing.
   expect(webRow?.otp_button).toBe(true);
+
+  // ===========================================================================
+  // 7. Block 29b-1. The OTHER half of this same page: a marketing template,
+  //    EMAIL, created and read back through save_marketing_template (0225) —
+  //    the door register_message_template cannot serve, because a marketing
+  //    template has no purpose to give that ON CONFLICT clause as a target.
+  //    MarketingGrid renders beside TemplateRegistry on the SAME page
+  //    (page.tsx's own layout), so nothing above this needed to navigate away.
+  // ===========================================================================
+  const marketingTemplateName = `boas_vindas_email_${stamp}`;
+  const marketingSubject = 'Bem-vindo à nossa rádio!';
+  const marketingBody = 'Oi {{listener_first_name}}! Que bom ter você com a gente.';
+
+  await ownerPage.getByTestId('marketing-template-create').click();
+  const createForm = ownerPage.getByTestId('marketing-template-form');
+  await createForm.getByTestId('marketing-template-channel').selectOption('EMAIL');
+  await createForm.getByTestId('marketing-template-internal-name').fill(marketingTemplateName);
+  await createForm.getByTestId('marketing-template-subject').fill(marketingSubject);
+  await createForm.getByTestId('marketing-template-body').fill(marketingBody);
+  await ownerPage.getByTestId('marketing-template-save').click();
+
+  // TemplateDialog unmounts itself once the action answers `saved` (its own
+  // effect) — proves the action returned, not that anything reached the
+  // database. The row after a reload is what proves that.
+  await expect(createForm).toHaveCount(0);
+  await ownerPage.reload();
+
+  const marketingRow = ownerPage
+    .getByTestId('marketing-template-row')
+    .filter({ hasText: marketingTemplateName });
+  await expect(marketingRow).toBeVisible();
+
+  // Reopened rather than checked from the create dialog above: this is also
+  // the READ path, the same one an operator uses a week later to see what is
+  // actually recorded, and the preview button is identical either way.
+  await marketingRow.getByText(marketingTemplateName).click();
+  const editDialog = ownerPage.getByRole('dialog');
+  await editDialog.getByTestId('marketing-template-preview-button').click();
+  const previewFrame = ownerPage.frameLocator('[data-testid="marketing-template-preview-frame"]');
+  // The Station's own name, framed by renderCampaignEmail (frame.ts) —
+  // appears twice (header and footer), never substituted: previewCampaignEmailAction
+  // shows the body AS TYPED, and the one thing this preview can prove without
+  // a listener behind it is that the frame around that body is this Station's.
+  await expect(previewFrame.getByText(stationName).first()).toBeVisible();
+  await editDialog.getByRole('button', { name: 'Cancel' }).click();
+
+  // The proof is the ROW, read back by the admin client directly — a Server
+  // Action answering `saved` proves the round trip reached
+  // save_marketing_template, not that anything was written. `variables` is
+  // empty because an EMAIL body names its own placeholders inline (0223's
+  // CHECK refuses a non-empty array on this channel) and `purpose` is null
+  // because that column is what tells a marketing template apart from a
+  // SYSTEM registration (services/templates.ts's own comment).
+  const { data: marketingDbRow, error: marketingDbError } = await admin
+    .from('message_templates')
+    .select('channel, purpose, variables')
+    .eq('internal_name', marketingTemplateName)
+    .is('deleted_at', null)
+    .single();
+  expect(marketingDbError).toBeNull();
+  expect(marketingDbRow?.channel).toBe('EMAIL');
+  expect(marketingDbRow?.purpose).toBeNull();
+  expect(marketingDbRow?.variables).toEqual([]);
 
   await ownerContext.close();
 });
