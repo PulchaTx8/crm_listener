@@ -2959,6 +2959,93 @@ export type Database = {
           },
         ]
       }
+      send_list_members: {
+        Row: {
+          list_id: string
+          member_id: string
+        }
+        Insert: {
+          list_id: string
+          member_id: string
+        }
+        Update: {
+          list_id?: string
+          member_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "send_list_members_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "send_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "send_list_members_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      send_lists: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          filters: Json
+          id: string
+          kind: Database["public"]["Enums"]["send_list_kind"]
+          name: string
+          organization_id: string
+          source: Database["public"]["Enums"]["send_list_source"]
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          filters?: Json
+          id?: string
+          kind: Database["public"]["Enums"]["send_list_kind"]
+          name: string
+          organization_id: string
+          source: Database["public"]["Enums"]["send_list_source"]
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          filters?: Json
+          id?: string
+          kind?: Database["public"]["Enums"]["send_list_kind"]
+          name?: string
+          organization_id?: string
+          source?: Database["public"]["Enums"]["send_list_source"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "send_lists_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "send_lists_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       show_schedules: {
         Row: {
           band: number
@@ -3399,6 +3486,64 @@ export type Database = {
           processed_at?: string | null
         }
         Relationships: []
+      }
+      unsubscribe_tokens: {
+        Row: {
+          campaign_label: string | null
+          company_id: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          member_id: string
+          organization_id: string
+          token_hash: string
+        }
+        Insert: {
+          campaign_label?: string | null
+          company_id: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id: string
+          organization_id: string
+          token_hash: string
+        }
+        Update: {
+          campaign_label?: string | null
+          company_id?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          member_id?: string
+          organization_id?: string
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unsubscribe_tokens_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "unsubscribe_tokens_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unsubscribe_tokens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vendors: {
         Row: {
@@ -4376,6 +4521,14 @@ export type Database = {
         }
         Returns: Json
       }
+      consume_unsubscribe_token: {
+        Args: { p_all_stations?: boolean; p_token_hash: string }
+        Returns: {
+          company_id: string
+          consents_written: number
+          member_id: string
+        }[]
+      }
       consume_widget_link: { Args: { p_code: string }; Returns: Json }
       country_alpha2: { Args: { p_input: string }; Returns: string }
       create_album: {
@@ -4488,6 +4641,17 @@ export type Database = {
         }
         Returns: string
       }
+      create_send_list: {
+        Args: {
+          p_company_id: string
+          p_filters: Json
+          p_kind: Database["public"]["Enums"]["send_list_kind"]
+          p_member_ids: string[]
+          p_name: string
+          p_source: Database["public"]["Enums"]["send_list_source"]
+        }
+        Returns: string
+      }
       create_song: {
         Args: {
           p_album_id?: string
@@ -4526,6 +4690,7 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      delete_send_list: { Args: { p_list_id: string }; Returns: undefined }
       deliver_prize: {
         Args: { p_note?: string; p_winner_id: string }
         Returns: undefined
@@ -4757,6 +4922,15 @@ export type Database = {
           p_scopes: string[]
           p_token_hash: string
           p_token_prefix: string
+        }
+        Returns: string
+      }
+      issue_unsubscribe_token: {
+        Args: {
+          p_campaign_label?: string
+          p_company_id: string
+          p_member_id: string
+          p_token_hash: string
         }
         Returns: string
       }
@@ -5138,6 +5312,17 @@ export type Database = {
           member_id: string
         }[]
       }
+      members_marketing_eligible_bulk: {
+        Args: {
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_member_ids: string[]
+        }
+        Returns: {
+          eligible: boolean
+          member_id: string
+        }[]
+      }
       merge_artists: {
         Args: { p_loser_ids: string[]; p_reason: string; p_winner_id: string }
         Returns: number
@@ -5256,6 +5441,15 @@ export type Database = {
           stored: number
         }[]
       }
+      record_conversation_marketing_answer: {
+        Args: {
+          p_company_id: string
+          p_granted: boolean
+          p_member_id: string
+          p_promotion_id?: string
+        }
+        Returns: string
+      }
       record_member_consent: {
         Args: {
           p_company_id: string
@@ -5360,6 +5554,10 @@ export type Database = {
       remove_member: { Args: { p_membership_id: string }; Returns: undefined }
       remove_promotion_question: {
         Args: { p_question_id: string }
+        Returns: undefined
+      }
+      rename_send_list: {
+        Args: { p_list_id: string; p_name: string }
         Returns: undefined
       }
       reopen_pickup_deadline: {
@@ -5688,6 +5886,7 @@ export type Database = {
         }
         Returns: string
       }
+      send_list_member_ids: { Args: { p_list_id: string }; Returns: string[] }
       service_hashtags_for: { Args: { p_company_id: string }; Returns: Json }
       set_album_cover: {
         Args: { p_album_id: string; p_url?: string }
@@ -5967,6 +6166,7 @@ export type Database = {
           p_answers?: Json
           p_consent: boolean
           p_fields?: Json
+          p_marketing_consent?: boolean
           p_member_id: string
           p_promotion_id: string
           p_public_key: string
@@ -6040,6 +6240,10 @@ export type Database = {
         }
         Returns: Json
       }
+      withdraw_marketing_by_phone: {
+        Args: { p_integration_id: string; p_phone: string }
+        Returns: string
+      }
       write_off_prize: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -6092,6 +6296,8 @@ export type Database = {
         | "rules"
         | "image_use"
         | "sponsor_communication"
+        | "whatsapp_marketing"
+        | "email_marketing"
         | "identification"
       member_erasure_reason:
         | "subject_request"
@@ -6133,6 +6339,8 @@ export type Database = {
         | "AUDIENCE_PANEL"
         | "MUSIC_PANEL"
         | "PROMOTIONS_PANEL"
+      send_list_kind: "fixed" | "living"
+      send_list_source: "members" | "participations" | "requests"
       show_age_rating: "L" | "10" | "12" | "14" | "16" | "18"
       show_kind: "MUSICAL" | "NEWS" | "TALK_SHOW" | "SPORTS" | "ENTERTAINMENT"
       system_message_key:
@@ -6151,6 +6359,8 @@ export type Database = {
         | "LINK_MENU"
         | "LINK_PROMOTION"
         | "COUNTRY"
+        | "MARKETING_CONSENT"
+        | "MARKETING_STOPPED"
       template_purpose: "PICKUP_REMINDER" | "WEB_VERIFICATION"
       template_variable:
         | "LISTENER_FIRST_NAME"
@@ -6347,6 +6557,8 @@ export const Constants = {
         "rules",
         "image_use",
         "sponsor_communication",
+        "whatsapp_marketing",
+        "email_marketing",
         "identification",
       ],
       member_erasure_reason: [
@@ -6392,6 +6604,8 @@ export const Constants = {
         "MUSIC_PANEL",
         "PROMOTIONS_PANEL",
       ],
+      send_list_kind: ["fixed", "living"],
+      send_list_source: ["members", "participations", "requests"],
       show_age_rating: ["L", "10", "12", "14", "16", "18"],
       show_kind: ["MUSICAL", "NEWS", "TALK_SHOW", "SPORTS", "ENTERTAINMENT"],
       system_message_key: [
@@ -6410,6 +6624,8 @@ export const Constants = {
         "LINK_MENU",
         "LINK_PROMOTION",
         "COUNTRY",
+        "MARKETING_CONSENT",
+        "MARKETING_STOPPED",
       ],
       template_purpose: ["PICKUP_REMINDER", "WEB_VERIFICATION"],
       template_variable: [

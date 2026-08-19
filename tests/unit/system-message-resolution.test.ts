@@ -6,6 +6,8 @@ import {
   DEFAULT_PROMOTION_LINK_TEXT,
   FIELD_MESSAGE_KEYS,
   FIELD_PROMPTS,
+  MARKETING_CONSENT_MESSAGE,
+  MARKETING_STOPPED_MESSAGE,
   REFUSAL_MESSAGE,
   SYSTEM_MESSAGE_DEFAULTS,
   resolveSystemMessage,
@@ -30,6 +32,7 @@ const ALL_KEYS: SystemMessageKey[] = [
   'CITY',
   'NEIGHBOURHOOD',
   'AGE',
+  'GENDER',
   'CPF',
   'PASSPORT',
   'DISCOVERY_SOURCE',
@@ -37,10 +40,13 @@ const ALL_KEYS: SystemMessageKey[] = [
   'LINK_MUSIC',
   'LINK_MENU',
   'LINK_PROMOTION',
+  'COUNTRY',
+  'MARKETING_CONSENT',
+  'MARKETING_STOPPED',
 ];
 
 describe('SYSTEM_MESSAGE_DEFAULTS', () => {
-  it('is the fifteen texts engine.ts already held, unchanged', () => {
+  it('is the seventeen texts engine.ts already held, unchanged', () => {
     // The constants stay where they are and BECOME the defaults. If this ever
     // drifts, a Station that overrides nothing starts speaking differently
     // than it did before the block, which is a change nobody asked for.
@@ -60,6 +66,8 @@ describe('SYSTEM_MESSAGE_DEFAULTS', () => {
       LINK_MUSIC: DEFAULT_MUSIC_LINK_TEXT,
       LINK_MENU: DEFAULT_MENU_LINK_TEXT,
       LINK_PROMOTION: DEFAULT_PROMOTION_LINK_TEXT,
+      MARKETING_CONSENT: MARKETING_CONSENT_MESSAGE,
+      MARKETING_STOPPED: MARKETING_STOPPED_MESSAGE,
     });
   });
 
@@ -75,7 +83,7 @@ describe('SYSTEM_MESSAGE_DEFAULTS', () => {
     expect(new Set(keys).size).toBe(10);
     // Two fields sharing a key would let one override silently rewrite the
     // other's prompt -- and the pgTAP enum assertion could not see it, because
-    // the enum would still have its fifteen values.
+    // the enum would still have its seventeen values.
     expect(FIELD_MESSAGE_KEYS.full_name).toBe('FULL_NAME');
     expect(FIELD_MESSAGE_KEYS.discovery_source).toBe('DISCOVERY_SOURCE');
     // Block 28's ninth. Named explicitly beside the two above rather than left

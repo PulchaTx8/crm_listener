@@ -496,6 +496,30 @@ const REQUIRED_TEST_FILES = [
   // this door, written a task later, did not; the cast cannot catch it, because
   // casting SQL NULL to any type raises nothing.
   { path: 'tests/isolation/marketing-templates.test.ts', minTests: 10 },
+  // Block 29c, Task 10. Seven cases over the unsubscribe token and the
+  // eligibility predicate, and the floor is the full count because pgTAP
+  // cannot prove any of them -- members_marketing_eligible_bulk (0229) is
+  // SECURITY INVOKER for exactly this reason, and pgTAP runs as superuser
+  // with a null auth.uid() where RLS never applies.
+  //
+  // Six drive the token door with a real session: a token minted for one
+  // Station withdraws only that Station, leaving a Station this same
+  // listener is ALSO linked to untouched; an expired token is refused
+  // P0002; a spent token is refused a second time, with exactly one
+  // withdrawal row left behind; p_all_stations writes exactly the Stations
+  // this listener is linked to, proved with a third, unlinked Station that
+  // receives nothing; anon may execute the door and may not read
+  // unsubscribe_tokens directly; and an eligible-listener query from one
+  // Station never returns a listener of another.
+  //
+  // The seventh is the gap the task brief itself named: the block check's
+  // own `b.organization_id = co.organization_id` term, exercised by nothing
+  // above because every one of those six cases shares a single Organization.
+  // A suspension recorded in one Organization must not bar a listener asked
+  // about through a Station of a different one -- reachable only through a
+  // platform admin session, since member_blocks' own composite foreign key
+  // ties a block's organization_id to the blocked listener's own.
+  { path: 'tests/isolation/consent.test.ts', minTests: 7 },
   // The gender block. Six cases over the tenth requested field, and the floor
   // is the full count because four of them have no other proof anywhere.
   //
@@ -534,7 +558,16 @@ const REQUIRED_TEST_FILES = [
   // 24_retention.test.sql asserts its source and cannot execute it -- the sweep
   // commits, and pgTAP rolls every file back -- which is exactly how a version
   // that deleted nothing at all stayed green.
-  { path: 'tests/isolation/retention.test.ts', minTests: 3 },
+  //
+  // Block 29c, Task 10 fix round 1, F27: a fourth case, for the identical
+  // reason and a table 24_retention.test.sql's own source-pattern match
+  // cannot prove clean -- pg_get_functiondef returns the procedure's source
+  // INCLUDING comments, so a commented-out delete satisfies
+  // `like '%delete from public.unsubscribe_tokens%'` just as well as a real
+  // one. Seeds an expired, unconsumed unsubscribe_tokens row, calls the
+  // sweep, and reads the row back. Measured to fail against a mutation that
+  // comments out that one delete, restored once the failure was seen.
+  { path: 'tests/isolation/retention.test.ts', minTests: 4 },
   // Block 11b: the stamping, CALLED. pgTAP cannot -- it wraps every file in a
   // transaction it rolls back, and a routine that COMMITS raises inside one,
   // which is how the first retention sweep shipped deleting nothing with every
@@ -591,6 +624,21 @@ const REQUIRED_TEST_FILES = [
   // cannot reach any of them -- it runs single-session, so two hundred
   // concurrent callers can never contend with each other there.
   { path: 'tests/isolation/whatsapp-link-load.test.ts', minTests: 5 },
+  // Block 29d-1, Task 8. Six cases, and the floor is the full count because
+  // 67_send_lists.test.sql's own `set local role authenticated` session never
+  // leaves pgTAP's one transaction, so it cannot show a real second GoTrue
+  // session losing sight of another Station's list (RLS filtering it away
+  // silently) or send_list_members refusing a read at the GRANT layer rather
+  // than the RLS layer -- both need a caller pgTAP has no way to be.
+  //
+  // The sharpest of the six is the one this task's own brief added on top of
+  // the original five: a Members filter resolves ORGANIZATION-WIDE, but
+  // create_send_list aborts the WHOLE creation on the first id it finds
+  // unlinked to the chosen Station -- so the count a Members-sourced list
+  // actually holds is only trustworthy once it is proved end to end, from
+  // resolveListMembers' own candidate set down through
+  // filterMemberIdsLinkedToStation and into the row create_send_list writes.
+  { path: 'tests/isolation/send-lists.test.ts', minTests: 6 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */

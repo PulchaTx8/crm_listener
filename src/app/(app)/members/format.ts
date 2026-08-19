@@ -1,11 +1,13 @@
 import type { MemberBlockKind, MemberConsentType } from '@/services/members';
 
-/** The four consents: three from decision 2 (0032_member_lifecycle_tables.sql) and identification from Block 17a. */
+/** The six consents: three from decision 2 (0032_member_lifecycle_tables.sql), identification from Block 17a, and two marketing channels from Block 29c. */
 export const CONSENT_TYPE_LABEL_KEYS: Record<MemberConsentType, string> = {
   rules: 'consentRules',
   image_use: 'consentImageUse',
   sponsor_communication: 'consentSponsorCommunication',
   identification: 'consentIdentification',
+  whatsapp_marketing: 'consentWhatsappMarketing',
+  email_marketing: 'consentEmailMarketing',
 };
 
 /** The two things a block covers (0032) — matches the members.block permission label. */

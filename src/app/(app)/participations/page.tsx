@@ -18,6 +18,9 @@ import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/stati
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { StationSearchForm } from '../inventory/station-search-form';
 import { canRunDraw, canSearchByListener } from './access';
+import { canManageMessagingAt } from '@/components/send-lists/access';
+import { CreateSendListDialog } from '@/components/send-lists/create-list-dialog';
+import type { ParticipationSendListFilters } from '@/schemas/send-lists';
 import { DrawPanel } from './draw-panel';
 import { describeParticipationsReadError } from './errors';
 import {
@@ -113,6 +116,7 @@ export default async function ParticipationsPage({
 
   let canSearch: boolean;
   let canDraw: boolean;
+  let canCreateSendList: boolean;
   let page: ParticipationListPage;
   try {
     // Resolved BEFORE the list read, because its answer decides whether the
@@ -123,10 +127,14 @@ export default async function ParticipationsPage({
     // draws.execute goes out beside it rather than after, because unlike the
     // search it decides nothing about the read — it only decides whether the
     // Draw button renders — and two single-predicate calls in flight together
-    // cost one round trip rather than two.
-    [canSearch, canDraw] = await Promise.all([
+    // cost one round trip rather than two. messaging.manage (Block 29d-1,
+    // Task 7 — whether the send-list button renders) joins the same batch for
+    // the identical reason: a third single-predicate check that decides
+    // nothing about the read itself.
+    [canSearch, canDraw, canCreateSendList] = await Promise.all([
       canSearchByListener(supabase, selected.id),
       canRunDraw(supabase, selected.id),
+      canManageMessagingAt(supabase, selected.id),
     ]);
 
     page = await listParticipationsPage(
@@ -162,6 +170,24 @@ export default async function ParticipationsPage({
     logger.error({ err: cause, companyId: selected.id }, 'could not load the participations list');
     return <LoadError message={describeParticipationsReadError(cause, await getTranslations('participations'))} />;
   }
+
+  // Block 29d-1, Task 7. The filters CreateSendListDialog resolves — mirrored
+  // field-for-field from the listParticipationsPage call above, including the
+  // same two conversions that call itself makes (ANY_STATUS read as "no
+  // narrowing", and the search term dropped entirely when canSearch is
+  // false): a send list from this screen has to hold exactly what the screen
+  // is showing, never a second, independently recomputed reading of `state`.
+  const participationSendListFilters: ParticipationSendListFilters = {
+    companyId: selected.id,
+    promotionId: state.promotionId,
+    status: state.status === ANY_STATUS ? undefined : state.status,
+    source: state.source,
+    from: state.from,
+    to: state.to,
+    search: canSearch ? searchTerm : undefined,
+    answeredCorrectly: state.answeredCorrectly,
+    optionId: state.optionId,
+  };
 
   // The promotion picker's options: ONE page of promotions by name, never the
   // whole Station. A picker that walked the cursor to the end would grow without
@@ -282,11 +308,30 @@ export default async function ParticipationsPage({
         // filtering; asking again in another vocabulary is how the file and
         // the screen come to disagree about what was exported.
         action={
-          <ExportDialog
-            reportType="PARTICIPATIONS"
-            companyIds={[selected.id]}
-            filters={participationsReportFilters(state)}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportDialog
+              reportType="PARTICIPATIONS"
+              companyIds={[selected.id]}
+              filters={participationsReportFilters(state)}
+            />
+            {/*
+              Both conditions, not either (Task 7 brief): messaging.manage
+              alone is not enough — this button is a door to the same data
+              the grid below shows, and `viewable` already IS "can see the
+              listing itself" (listCompanyAccess('participations.view')
+              above, the same read `selected` was drawn from), so it is named
+              here explicitly rather than left to the fact that `selected`
+              could not exist otherwise.
+            */}
+            {canCreateSendList && viewable.length > 0 && (
+              <CreateSendListDialog
+                source="participations"
+                filters={participationSendListFilters}
+                companyId={selected.id}
+                stationOptions={[]}
+              />
+            )}
+          </div>
         }
       />
 

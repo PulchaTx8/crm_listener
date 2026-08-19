@@ -94,7 +94,8 @@ export async function middleware(request: NextRequest) {
   const themeScoped =
     !WIDGET_PATH.test(request.nextUrl.pathname) &&
     !PUBLIC_PATHS.includes(request.nextUrl.pathname) &&
-    !request.nextUrl.pathname.startsWith('/invite/');
+    !request.nextUrl.pathname.startsWith('/invite/') &&
+    !request.nextUrl.pathname.startsWith('/unsubscribe/');
 
   /**
    * Snapshotted FRESH on every call, and that is the whole of Block 11b's fix.
@@ -334,10 +335,13 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
 
-  // `/invite/<token>` is public and prefix-matched, since PUBLIC_PATHS is an
-  // exact-match list and a dynamic segment cannot be enumerated. The invitee has
-  // no session yet, and bouncing them to /login would strand the invitation.
-  const isPublic = PUBLIC_PATHS.includes(path) || path.startsWith('/invite/');
+  // `/invite/<token>` and `/unsubscribe/<token>` (Block 29c) are public and
+  // prefix-matched, since PUBLIC_PATHS is an exact-match list and a dynamic
+  // segment cannot be enumerated. Neither visitor has a session, and bouncing
+  // either to /login would strand them -- the invitee mid-invitation, the
+  // listener mid-"descadastrar".
+  const isPublic =
+    PUBLIC_PATHS.includes(path) || path.startsWith('/invite/') || path.startsWith('/unsubscribe/');
 
   if (!user) {
     if (isPublic) return response;

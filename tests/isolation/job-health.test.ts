@@ -71,24 +71,35 @@ describe('Block 11b — the scheduled routines report their own health', () => {
       .single();
 
     const counters = (data?.last_counters ?? {}) as Record<string, number>;
-    expect(Object.keys(counters).sort()).toEqual([
-      'contact_requests',
-      'outbox_messages',
-      'rate_limit_counters',
-      'storage_erasure_queue',
-      'total',
-      'webhook_events',
-      'whatsapp_conversation_leases',
-      'whatsapp_conversations',
-      // Block 17a: 0161 extends sweep_retention with one more table -- see its
-      // migration comment for why it reproduces this procedure's 0133 body
-      // rather than its superseded 0131 one.
-      // Block 19a, final review fix wave: 0183 extends it with a ninth --
-      // widget_link_tokens -- and reproduces 0161's body for the identical
-      // reason, extracted by script rather than reassembled from 0131.
-      'widget_link_tokens',
-      'widget_verifications',
-    ]);
+    // A SUPERSET, not an exact match (Task 10 fix round 1, F28): this list has
+    // gone stale three times already as sweep_retention grew a table -- 0161,
+    // 0183 and now 0233 (below) -- each one briefly breaking this assertion
+    // for a reason that had nothing to do with what it exists to catch. A
+    // known key DISAPPEARING still fails; an unrelated key arriving no longer
+    // does.
+    expect(Object.keys(counters)).toEqual(
+      expect.arrayContaining([
+        'contact_requests',
+        'outbox_messages',
+        'rate_limit_counters',
+        'storage_erasure_queue',
+        'total',
+        // Block 29c, Task 5, fix round 2, F19: 0233 extends sweep_retention
+        // with a tenth table -- unsubscribe_tokens.
+        'unsubscribe_tokens',
+        'webhook_events',
+        'whatsapp_conversation_leases',
+        'whatsapp_conversations',
+        // Block 17a: 0161 extends sweep_retention with one more table -- see
+        // its migration comment for why it reproduces this procedure's 0133
+        // body rather than its superseded 0131 one.
+        // Block 19a, final review fix wave: 0183 extends it with a ninth --
+        // widget_link_tokens -- and reproduces 0161's body for the identical
+        // reason, extracted by script rather than reassembled from 0131.
+        'widget_link_tokens',
+        'widget_verifications',
+      ]),
+    );
   }, 60_000);
 
   it('a routine that has just run is not reported as unhealthy', async () => {

@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(21);
 
 -- Block 11a. The retention sweep, and the two lists it must never grow.
 
@@ -145,6 +145,23 @@ select ok(
   (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
     like '%delete from public.widget_link_tokens%where expires_at < now() - interval ''30 days''%',
   'widget_link_tokens is kept for 30 days past expires_at specifically, not past created_at or any other column');
+
+-- ---------------------------------------------------------------------------
+-- Block 29c, Task 5, fix round 2, F19. unsubscribe_tokens (0233) shipped in
+-- 0232 with an expiry and no sweep -- the same gap widget_link_tokens (0178)
+-- once had, closed here the same distance behind. Asserted with the same
+-- SECOND-DISPATCH tightening: on the exact delete statement, not on a
+-- comment that could name the table with no delete behind it.
+-- ---------------------------------------------------------------------------
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%delete from public.unsubscribe_tokens%',
+  'the sweep deletes from unsubscribe_tokens (0233) -- the token behind a campaign''s unsubscribe link');
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%delete from public.unsubscribe_tokens%where consumed_at is not null%or expires_at < now() - interval ''30 days''%',
+  'a spent token is swept at any age; an unused one waits 30 days past its own expiry, the same clock widget_link_tokens is swept on');
 
 select * from finish();
 rollback;

@@ -5,6 +5,8 @@ import {
   PromptContextError,
   advance,
   firstPrompt,
+  marketingConsentSteps,
+  resolveSystemMessage,
   toSystemMessageOverrides,
 } from '@/lib/conversation/engine';
 import type {
@@ -18,6 +20,7 @@ import {
   type ConversationKey,
   type ConversationStore,
 } from '@/lib/conversation/store';
+import { isStopWord } from '@/lib/consent/stop-words';
 import type { Database, Json } from '@/lib/supabase/database.types';
 import { hashCpf } from '@/services/members';
 import { sendServiceLink } from '@/services/whatsapp-link';
@@ -70,7 +73,16 @@ export type TurnOutcome =
    * and null means say nothing -- the whole protection against five hashtags
    * in a row producing five messages.
    */
-  | { kind: 'already_answered' };
+  | { kind: 'already_answered' }
+  /**
+   * Block 29c. The follow-up marketing_consent step was settled -- by a
+   * recognised tap (`granted` is what was tapped) or by a stop word typed
+   * instead of tapping (`granted` is always false there). Distinct from
+   * `completed`: that outcome is a PARTICIPATION being decided, and this one
+   * is a CHANNEL PREFERENCE being decided, sometimes several messages later
+   * and always after the participation already stands.
+   */
+  | { kind: 'marketing_consent_recorded'; granted: boolean };
 
 const replySchema = z.object({
   kind: z.enum(['button', 'list']),
@@ -265,6 +277,43 @@ export async function runConversationTurn(
     if (turn.link) return await sendServiceLink(deps, turn.link);
     if (turn.start) return await open(deps, turn, key);
 
+    // Block 29c, fix round 1, F7. The stop word's OWN case, told apart from
+    // the ordinary silence below: no live conversation to answer, which is
+    // the ORDINARY shape D4 exists for -- a listener replying to a CAMPAIGN,
+    // which never opens a conversation at all. Task 4's own report named
+    // this the gap in its cold-path resolution; withdraw_marketing_by_phone
+    // (0231) is that door, and it is the only place in this file that
+    // resolves a phone to a member without one already in hand -- done IN
+    // SQL, through the same shared core (apply_member_lookup, 0061) every
+    // other door in this block resolves a listener through, because
+    // duplicating phone_normalized's own normalisation here is exactly the
+    // drift 0061's header warns against.
+    if (turn.reply === null && isStopWord(turn.text)) {
+      // F8. The door hands back the STATION, not a boolean, precisely so
+      // this reply is not stuck on the code default -- see
+      // `marketingStoppedReply` below.
+      const { data: companyId, error } = await deps.supabase.rpc('withdraw_marketing_by_phone', {
+        p_integration_id: turn.integration_id,
+        p_phone: turn.phone,
+      });
+      if (error) throw error;
+      // A stranger, or a listener this STATION never linked, gets the same
+      // silence anybody else not mid-conversation gets -- the door itself
+      // answers null for exactly that pair of cases (its own comment), so
+      // that this file is never tempted to tell either one "removed" for
+      // something that never happened here.
+      if (companyId) {
+        await enqueue(
+          deps,
+          turn,
+          { kind: 'text', body: await marketingStoppedReply(deps, companyId) },
+          'marketing_stopped',
+        );
+      }
+      await finish(deps, turn.event_id, 'no_conversation');
+      return companyId ? { kind: 'marketing_consent_recorded', granted: false } : { kind: 'ignored' };
+    }
+
     // A message from somebody who is not mid-conversation and whose message
     // opens none. Silence, and the event is closed so it is not retried.
     await finish(deps, turn.event_id, 'no_conversation');
@@ -319,6 +368,29 @@ async function advanceLive(
 ): Promise<TurnOutcome> {
   const context = await loadPromptContext(deps, conversation.promotionId);
   const message = inboundAnswer(turn);
+
+  // Block 29c, D4's placement. Checked HERE -- ahead of `advance()`, and only
+  // when the live step is the marketing question itself -- never inside it.
+  // A listener mid the PROMOTION's own consent/field/question steps who
+  // types PARAR is refusing to answer, which the engine already treats as an
+  // ordinary bad answer (a re-prompt, then an abandon); routing it here
+  // instead would turn an abandoned FIELD into a withdrawal nobody asked
+  // for, exactly the miscount D4 warns against. The marketing_consent step
+  // is the one place this file can make that promise safely: it is the
+  // engine's own follow-up conversation (`marketingConsentSteps`), never a
+  // promotion's, so nothing about entering the promotion is at stake here.
+  //
+  // `isStopWord` is read here, not in engine.ts, so that file's own import
+  // rule (its header: "`./steps` and `interactive.ts`, and nothing else")
+  // stays exactly what it says -- this is a text-classification decision a
+  // CALLER makes, the same class of decision that rule exists to keep out.
+  if (
+    conversation.steps[conversation.cursor]?.kind === 'marketing_consent' &&
+    message.kind === 'text' &&
+    isStopWord(message.text)
+  ) {
+    return await stopMarketingConsent(deps, turn, conversation, context, key);
+  }
 
   let result;
   try {
@@ -383,6 +455,29 @@ async function advanceLive(
       if (error) throw error;
       await deps.store.clear(key);
       const status = (data as { status?: string } | null)?.status ?? null;
+      // Block 29c. AFTER the clear, never before: `maybeAskMarketingConsent`
+      // starts a SEPARATE follow-up conversation under the same key, and
+      // starting it ahead of the clear above would have this write undo the
+      // one it just made. The participation itself is unconditional on
+      // `status` -- complete_whatsapp_conversation already wrote SOMETHING
+      // for every status a listener can reach here, VALID or not, and D2's
+      // "once per Station" is about the QUESTION having been asked, not
+      // about the entry having been VALID.
+      //
+      // Caught rather than let propagate, the same reasoning the worker route
+      // gives its own secondary drains: the entry is ALREADY COMMITTED by the
+      // time this runs, and a listener who just got their promotion must not
+      // have that turn fail -- and be retried, and re-logged as a failure --
+      // over a channel-consent question that failed to send.
+      try {
+        await maybeAskMarketingConsent(deps, turn, conversation, context, key);
+      } catch (cause) {
+        console.error(
+          `conversation turn: could not offer the marketing consent question: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+      }
       return { kind: 'completed', status };
     }
 
@@ -395,7 +490,209 @@ async function advanceLive(
     case 'ignore':
       await finish(deps, turn.event_id, 'conversation_turn');
       return { kind: 'ignored' };
+
+    case 'marketing_answered':
+      await recordMarketingAnswer(deps, conversation, result.granted);
+      await deps.store.clear(key);
+      await finish(deps, turn.event_id, 'conversation_turn');
+      return { kind: 'marketing_consent_recorded', granted: result.granted };
   }
+}
+
+/**
+ * Block 29c. The question a completed participation may still owe -- never
+ * before the entry is safely recorded (§4.3's ordering, restated for this
+ * block: an abandoned answer here must not cost anybody their promotion,
+ * which is exactly why this runs from `advanceLive`'s `complete` case and
+ * nowhere earlier).
+ *
+ * A SEPARATE, one-step conversation under the SAME key, not a longer step
+ * list on the original: `whatsapp_conversation_steps` (0066, SQL) decides
+ * the promotion's own steps, and appending a channel-consent question to
+ * that list from here would make participation wait on it being answered --
+ * the ordering this whole function exists to avoid. `marketingConsentSteps`
+ * (engine.ts) is the step list; an empty one means the check below already
+ * found a row, and nothing is stored or sent.
+ *
+ * DORMANT TODAY (fix round 3, F10), and said plainly rather than left for a
+ * reader to discover the hard way: this function is reached only from
+ * `advanceLive`'s `complete` case, which is reached only from a LIVE
+ * conversation, which is reached only when something opened one -- and
+ * `open()` above has not run since 0179 (`ingest_whatsapp_event` no longer
+ * returns a `start` outcome; see that branch's own comment in
+ * `runConversationTurn`). Nothing here is wrong; nothing here executes.
+ * `whatsapp_marketing` consent is actually collected today through the
+ * widget's checkbox (Task 9 of this block's plan, `enter-promotion.tsx`),
+ * not through this conversation. This code stays -- deleting it would also
+ * revert `store.ts`'s step schema for no gain -- ready for whichever door
+ * opens a conversation again.
+ *
+ * F11 (Important, judged and left as a comment rather than fixed): even
+ * once reachable, this follow-up would squat on the SAME store key
+ * `(integration, phone)` as any other conversation for the 30-minute
+ * window, because the store has no notion of "which conversation" beyond
+ * that pair. A hashtag arriving while the marketing question is pending
+ * would be swallowed as a bad answer to it rather than minting a link, and
+ * a fourth stray message would abandon with a message telling the listener
+ * to "send the hashtag again" -- wrong, since their participation already
+ * stands. Not fixed here: the one contained-looking fix (special-case a
+ * `turn.link` at this step and call `sendServiceLink` directly from
+ * `advanceLive`) would violate that function's own documented invariant --
+ * "reached from runConversationTurn ONLY after the live-conversation check
+ * ... must not be called from anywhere else" (whatsapp-link.ts) -- and a fix
+ * that respects that invariant means the follow-up needs its own namespace
+ * in the store key, which is a bigger change than code nothing currently
+ * reaches justifies.
+ */
+async function maybeAskMarketingConsent(
+  deps: ConversationDeps,
+  turn: InboundTurn,
+  conversation: Conversation,
+  context: PromptContext,
+  key: ConversationKey,
+): Promise<void> {
+  const companyId = await companyIdForPromotion(deps, conversation.promotionId);
+  const asked = await hasWhatsappMarketingConsentRecord(deps, conversation.memberId, companyId);
+  const steps = marketingConsentSteps({ ...context, needsMarketingConsent: !asked });
+  if (steps.length === 0) return;
+
+  const follow: Conversation = {
+    ...conversation,
+    steps,
+    cursor: 0,
+    answers: { fields: {}, questions: [] },
+    reprompts: 0,
+  };
+  const outbound = firstPrompt(follow, { ...context, needsMarketingConsent: true });
+  // The state before the message, same as `open()` and the same reason (this
+  // file's header): a listener pressing Sim/Não with no state behind it
+  // presses a button nobody is listening for.
+  await deps.store.save(key, follow);
+  await enqueue(deps, turn, outbound, 'marketing_consent');
+  // No `finish()` call: complete_whatsapp_conversation already finished THIS
+  // event, inside the same transaction that recorded the entry (0071) --
+  // finishing it a second time is not this function's to do, and the
+  // whitelist finish_whatsapp_turn enforces would refuse a made-up outcome
+  // for it besides.
+}
+
+/**
+ * Block 29c, F8. The Station's own MARKETING_STOPPED wording, resolved the
+ * SAME WAY the in-conversation path resolves every one of the system
+ * messages: `resolveSystemMessage` (engine.ts) against whatever override
+ * exists, the code default when there is none. `SYSTEM_MESSAGE_DEFAULTS` has
+ * held seventeen keys since 0228, not ten -- the "ten" figure is D2's own,
+ * from before Block 29c's two (fix round 3, F12: this comment used to repeat
+ * it, wrongly, for a total the enum had already moved past).
+ * `whatsapp_prompt_context` assembles every one of them keyed by a
+ * promotion; there is no promotion on this path, only the Station
+ * `withdraw_marketing_by_phone` (0231) handed back, so this reads the one
+ * key this reply actually needs directly off `station_message_templates` --
+ * the same table, the same partial-unique `(company_id, key) where
+ * deleted_at is null`, just a narrower read.
+ */
+async function marketingStoppedReply(deps: ConversationDeps, companyId: string): Promise<string> {
+  const { data, error } = await deps.supabase
+    .from('station_message_templates')
+    .select('body')
+    .eq('company_id', companyId)
+    .eq('key', 'MARKETING_STOPPED')
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw error;
+  return resolveSystemMessage(data ? { MARKETING_STOPPED: data.body } : {}, 'MARKETING_STOPPED');
+}
+
+/** Block 29c. Whether a `whatsapp_marketing` row already exists for this pair, granted true or false (D2). */
+async function hasWhatsappMarketingConsentRecord(
+  deps: ConversationDeps,
+  memberId: string,
+  companyId: string,
+): Promise<boolean> {
+  const { data, error } = await deps.supabase
+    .from('member_consents')
+    .select('id')
+    .eq('member_id', memberId)
+    .eq('company_id', companyId)
+    .eq('consent_type', 'whatsapp_marketing')
+    .limit(1);
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
+/**
+ * Block 29c. The Station the in-conversation door must be told about -- read
+ * from the promotion rather than passed down from the integration, because
+ * the promotion is what the listener actually just finished answering, and
+ * `record_conversation_marketing_answer` (0231, fix round 3) itself refuses
+ * a member/company pair that `member_linked_to_company` does not already
+ * hold.
+ */
+async function companyIdForPromotion(deps: ConversationDeps, promotionId: string): Promise<string> {
+  const { data, error } = await deps.supabase
+    .from('promotions')
+    .select('company_id')
+    .eq('id', promotionId)
+    .single();
+  if (error) throw error;
+  return data.company_id;
+}
+
+/**
+ * Block 29c. The one write both a tap and a stop word settle into.
+ *
+ * NOT record_member_consent (0034) -- fix round 3, F9, a Critical finding:
+ * that RPC is granted to `authenticated` only and its body gates on
+ * `has_permission`, which reads `auth.uid()`. Both are unreachable for this
+ * file's client, which is the service-role worker and holds no user
+ * identity at all -- every call through record_member_consent failed here,
+ * silently retried the whole turn, and no unit test could see it because
+ * the fake RPC client answered success for any function name regardless of
+ * whether this worker could really call it. `record_conversation_marketing_
+ * answer` (0231) is the door built for this caller specifically, the
+ * in-conversation sibling of `withdraw_marketing_by_phone`.
+ */
+async function recordMarketingAnswer(
+  deps: ConversationDeps,
+  conversation: Conversation,
+  granted: boolean,
+): Promise<void> {
+  const companyId = await companyIdForPromotion(deps, conversation.promotionId);
+  const { error } = await deps.supabase.rpc('record_conversation_marketing_answer', {
+    p_member_id: conversation.memberId,
+    p_company_id: companyId,
+    p_granted: granted,
+    p_promotion_id: conversation.promotionId,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Block 29c, D4. A stop word typed AT the marketing_consent step, told apart
+ * from an ordinary bad answer by the caller (`advanceLive`, above) before
+ * `advance()` ever runs. Ends the follow-up conversation exactly as a tap
+ * would, plus the one thing a tap does not need: a reply, because a listener
+ * who typed a command to stop something is owed the words that say it
+ * stopped, where a listener who pressed a button already has WhatsApp's own
+ * confirmation that the tap landed.
+ */
+async function stopMarketingConsent(
+  deps: ConversationDeps,
+  turn: InboundTurn,
+  conversation: Conversation,
+  context: PromptContext,
+  key: ConversationKey,
+): Promise<TurnOutcome> {
+  await recordMarketingAnswer(deps, conversation, false);
+  await deps.store.clear(key);
+  await enqueue(
+    deps,
+    turn,
+    { kind: 'text', body: resolveSystemMessage(context.systemMessages, 'MARKETING_STOPPED') },
+    'marketing_stopped',
+  );
+  await finish(deps, turn.event_id, 'conversation_turn');
+  return { kind: 'marketing_consent_recorded', granted: false };
 }
 
 /**
@@ -453,6 +750,11 @@ function promptContext(source: {
     // as trustworthy as the enum that produced them.
     systemMessages: toSystemMessageOverrides(source.systemMessages),
     questions: source.questions as PromptContext['questions'],
+    // Block 29c. Always false here: this context is built once per ORDINARY
+    // turn (`open`, `loadPromptContext`), before a participation exists to
+    // ask the marketing question about. `maybeAskMarketingConsent` builds its
+    // own copy with the real answer, the one time it is worth a query.
+    needsMarketingConsent: false,
   };
 }
 

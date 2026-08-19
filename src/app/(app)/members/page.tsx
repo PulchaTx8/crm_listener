@@ -20,6 +20,8 @@ import type { SuspendedCompany, ViewableCompany } from '../inventory/station-acc
 import { StationSearchForm } from '../inventory/station-search-form';
 import { ExportDialog } from '@/components/reports/export-dialog';
 import { listenersReportFilters } from '@/lib/reports/list-filters';
+import { CreateSendListDialog } from '@/components/send-lists/create-list-dialog';
+import type { MemberSendListFilters } from '@/schemas/send-lists';
 
 // Renders from the caller's session cookies and a live per-Organization
 // permission check, so it can never be static.
@@ -103,15 +105,20 @@ export default async function MembersPage({
   if (sessionError || !sessionData.session) redirect('/login');
   const accessToken = sessionData.session.access_token;
 
+  // The same bound the service enforces on its own argument, imported rather
+  // than hand-copied so a caller-controlled URL parameter cannot drift the two
+  // apart (Block 3, Task 8 re-review). Extracted rather than inlined below so
+  // Task 7's send-list filters payload uses the IDENTICAL bounded value the
+  // real query runs with, not a second, unbounded read of state.search that
+  // could disagree with what the grid actually shows.
+  const searchTerm = state.search?.slice(0, MEMBER_SEARCH_MAX_LENGTH);
+
   let page: MemberListPage;
   try {
     page = await listOrganizationMembers(
       {
         organizationId,
-        // The same bound the service enforces on its own argument, imported
-        // rather than hand-copied so a caller-controlled URL parameter cannot
-        // drift the two apart (Block 3, Task 8 re-review).
-        search: state.search?.slice(0, MEMBER_SEARCH_MAX_LENGTH),
+        search: searchTerm,
         sort: state.sort,
         direction: state.direction,
         cursor,
@@ -176,21 +183,95 @@ export default async function MembersPage({
     logger.error({ err: cause, organizationId }, 'could not resolve listener export scope');
   }
 
+  // Block 29d-1, Task 7. Which Stations this caller may create a send list
+  // at. Members has NO Station of its own (this screen is Organization-wide
+  // — D3's own comment on resolveMemberIds), so unlike Participations and
+  // Requests below, "can this caller create a list here" cannot be asked at
+  // one company_id: it is asked across every Station listCompanyAccess
+  // reaches, and CreateSendListDialog's own Station picker only ever offers
+  // the ones this scan returns — an operator can never freeze a list at a
+  // Station they hold messaging.manage nowhere for.
+  //
+  // NARROWED TO THIS ORGANIZATION, and that fourth argument is the whole point
+  // of it (whole-branch review, F8). The other two scans on this page answer
+  // "where may this caller do X", which is a question that legitimately
+  // crosses Organizations; this one has to agree with the audience the list is
+  // cut FROM, and that audience is `organizationId`'s and nothing else. A
+  // platform admin, or anyone holding memberships in two Organizations, was
+  // otherwise offered a Station whose Organization did not match the very
+  // `organizationId` sitting inside the filters below — a list whose stored
+  // question and stored Station disagree, and which resolves to nobody because
+  // no listener is in both.
+  //
+  // Folded into an empty list on failure, the same DELIBERATE, NARROWER
+  // choice the registration and export scans above already make for the
+  // identical reason: this screen's purpose is the audience list, and a
+  // failure resolving who may create a send list should cost the button, not
+  // the page.
+  let sendListStations: ViewableCompany[] = [];
+  try {
+    ({ viewable: sendListStations } = await listCompanyAccess(
+      supabase,
+      'messaging.manage',
+      undefined,
+      organizationId,
+    ));
+  } catch (cause) {
+    logger.error({ err: cause, organizationId }, 'could not resolve send-list creation scope');
+  }
+
+  // The filters CreateSendListDialog resolves — mirrored field-for-field from
+  // the listOrganizationMembers call above, on the same reasoning searchTerm
+  // itself was extracted for: a send list from this screen has to hold
+  // exactly what the screen is showing, not a second, independently
+  // recomputed reading of state that could disagree with it.
+  const memberSendListFilters: MemberSendListFilters = {
+    organizationId,
+    search: searchTerm,
+    ageMin: state.ageMin,
+    ageMax: state.ageMax,
+    blockedOnly: state.blockedOnly || undefined,
+    hasRulesConsent: state.consent === undefined ? undefined : state.consent === 'yes',
+    gender: state.gender,
+    registeredFrom: state.registeredFrom,
+    registeredTo: state.registeredTo,
+  };
+
   return (
     <>
       <PageHeader
         title={t('members')}
         description={t('membersDescription')}
         action={
-          <ExportDialog
-            reportType="LISTENERS"
-            companyIds={exportableStations.map((station) => station.id)}
-            filters={listenersReportFilters(state)}
-            // Disabled rather than hidden when there is no Station to export:
-            // a button that vanishes reads as a feature that does not exist,
-            // where a disabled one reads as one this caller cannot use here.
-            disabled={exportableStations.length === 0}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportDialog
+              reportType="LISTENERS"
+              companyIds={exportableStations.map((station) => station.id)}
+              filters={listenersReportFilters(state)}
+              // Disabled rather than hidden when there is no Station to export:
+              // a button that vanishes reads as a feature that does not exist,
+              // where a disabled one reads as one this caller cannot use here.
+              disabled={exportableStations.length === 0}
+            />
+            {/*
+              The button is a door to the same data, and a door that skips the
+              check the front door makes is a side entrance (Task 7 brief).
+              `canView` (already true by construction: the redirect above
+              already sent this caller to /app otherwise) is named again here
+              anyway, ANDed with messaging.manage, rather than relying on that
+              earlier control flow alone — the same "both conditions, not
+              either" the brief states, made explicit at the point this button
+              actually renders rather than only implied by an earlier return.
+            */}
+            {canView && sendListStations.length > 0 && (
+              <CreateSendListDialog
+                source="members"
+                filters={memberSendListFilters}
+                companyId={null}
+                stationOptions={sendListStations.map((station) => ({ id: station.id, name: station.name }))}
+              />
+            )}
+          </div>
         }
       />
 
