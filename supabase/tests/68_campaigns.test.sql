@@ -1,5 +1,5 @@
 begin;
-select plan(85);
+select plan(99);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -764,6 +764,207 @@ select ok(
       and pg_get_indexdef(i.indexrelid) like '%(claimed_at)%'
   ),
   'the claimed-status partial index exists, keyed on claimed_at, and names exactly claimed -- never also pending');
+
+-- ---------------------------------------------------------------------------
+-- Task 6a, Part 2. members_marketing_eligible_bulk (0235) is granted to
+-- authenticated alone and raises 42501 unless the caller resolves, through
+-- auth.uid(), to the platform admin, the Organization's owner or a holder of
+-- members.view. The worker runs as service_role with no auth.uid(), so it can
+-- never call that door. members_marketing_eligible_bulk_for_worker (0246) is
+-- its own door for that caller, sharing ONE extracted rule
+-- (apply_members_marketing_eligible) with 0235 rather than a second copy of
+-- it -- the assertion below is why: without it the extraction is exactly the
+-- fork it exists to prevent.
+--
+-- Fixtures: one Organization, two Stations, five listeners at Station A in
+-- five different states -- plainly eligible; anonymized despite an explicit
+-- yes; the latest consent row says no; linked only to Station B, a real
+-- cross-Station listener rather than an id matching nothing; and an active
+-- suspension despite an explicit yes. Two roles -- members.view alone, and
+-- messaging.view alone (a real, different permission, not merely nothing) --
+-- because the gate-survival case needs a real authenticated caller who holds
+-- some permission, just not this one.
+-- ---------------------------------------------------------------------------
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-024600000001', 'Org worker eligibility 0246');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001', 'Station 0246 A'),
+  ('00000000-0000-0000-0000-024600000003', '00000000-0000-0000-0000-024600000001', 'Station 0246 B');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-024600000010', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Elegivel'),
+  ('00000000-0000-0000-0000-024600000011', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Anonimizado'),
+  ('00000000-0000-0000-0000-024600000012', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Disse Nao'),
+  ('00000000-0000-0000-0000-024600000013', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 So Na B'),
+  ('00000000-0000-0000-0000-024600000014', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Suspenso');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-024600000010', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
+  ('00000000-0000-0000-0000-024600000011', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
+  ('00000000-0000-0000-0000-024600000012', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
+  ('00000000-0000-0000-0000-024600000014', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
+  ('00000000-0000-0000-0000-024600000013', '00000000-0000-0000-0000-024600000003', '00000000-0000-0000-0000-024600000001');
+
+-- Explicit yes for three of the five, so the anonymized and suspended cases
+-- prove their bars override a real consent row rather than merely agreeing
+-- with a default nobody recorded.
+insert into public.member_consents (organization_id, member_id, company_id, consent_type, granted) values
+  ('00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000010',
+   '00000000-0000-0000-0000-024600000002', 'whatsapp_marketing', true),
+  ('00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000011',
+   '00000000-0000-0000-0000-024600000002', 'whatsapp_marketing', true),
+  ('00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000012',
+   '00000000-0000-0000-0000-024600000002', 'whatsapp_marketing', false),
+  ('00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000014',
+   '00000000-0000-0000-0000-024600000002', 'whatsapp_marketing', true);
+
+update public.members set anonymized_at = now()
+ where id = '00000000-0000-0000-0000-024600000011';
+
+insert into public.member_blocks (organization_id, member_id, company_id, kind, reason) values
+  ('00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000014',
+   '00000000-0000-0000-0000-024600000002', 'suspension', 'probe 0246');
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024600000020', '00000000-0000-0000-0000-024600000001', 'Members Viewer 0246'),
+  ('00000000-0000-0000-0000-024600000021', '00000000-0000-0000-0000-024600000001', 'Messaging Viewer 0246');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-024600000020', 'members.view'),
+  ('00000000-0000-0000-0000-024600000021', 'messaging.view');
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-024600000030', 'campaigns-eligibility-operator-0246@example.test'),
+  ('00000000-0000-0000-0000-024600000031', 'campaigns-eligibility-nobody-0246@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-024600000030', '00000000-0000-0000-0000-024600000002',
+   '00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000020'),
+  ('00000000-0000-0000-0000-024600000031', '00000000-0000-0000-0000-024600000002',
+   '00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000021');
+
+select has_function('public', 'members_marketing_eligible_bulk_for_worker',
+  array['uuid[]','uuid','public.message_channel'],
+  'the worker''s own eligibility door exists');
+
+select is(
+  (select pg_get_function_result(p.oid) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'members_marketing_eligible_bulk_for_worker'),
+  'TABLE(member_id uuid, eligible boolean)',
+  'and returns the same (member_id, eligible) shape members_marketing_eligible_bulk does');
+
+-- `create function` grants EXECUTE to PUBLIC by default; this door revokes
+-- that and grants back only to service_role -- it carries no identity gate at
+-- all, so anybody who could call it would get an unchecked answer.
+select ok(
+  has_function_privilege('service_role',
+    'public.members_marketing_eligible_bulk_for_worker(uuid[], uuid, public.message_channel)', 'EXECUTE'),
+  'service_role may ask the worker''s door -- this is what the drain (Task 6b) calls');
+select ok(
+  not has_function_privilege('authenticated',
+    'public.members_marketing_eligible_bulk_for_worker(uuid[], uuid, public.message_channel)', 'EXECUTE'),
+  'authenticated may not -- this door has no identity gate, so a browser session reaching it would get an unchecked answer');
+select ok(
+  not has_function_privilege('anon',
+    'public.members_marketing_eligible_bulk_for_worker(uuid[], uuid, public.message_channel)', 'EXECUTE'),
+  'nor anon');
+select ok(
+  not has_function_privilege('public',
+    'public.members_marketing_eligible_bulk_for_worker(uuid[], uuid, public.message_channel)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+
+-- The recreate (0246) is create-or-replace, which preserves an ACL rather
+-- than destroying it the way drop+create would -- this is the assertion that
+-- it actually did.
+select ok(
+  has_function_privilege('authenticated',
+    'public.members_marketing_eligible_bulk(uuid[], uuid, public.message_channel)', 'EXECUTE'),
+  'members_marketing_eligible_bulk still grants authenticated EXECUTE -- its ACL survived the recreate');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024600000031", "role": "authenticated"}';
+
+-- The same caller who holds messaging.view but not members.view at this exact
+-- Station -- a real, different permission, not merely an empty role -- is
+-- still refused. This is the assertion that 0246's recreate delegated the
+-- COMPUTATION and left the GATE untouched.
+select throws_ok(
+  $$select * from public.members_marketing_eligible_bulk(
+      array['00000000-0000-0000-0000-024600000010']::uuid[],
+      '00000000-0000-0000-0000-024600000002', 'WHATSAPP')$$,
+  '42501', 'permission denied: members.view required',
+  'members_marketing_eligible_bulk still refuses a caller holding no members.view -- its gate survived the recreate');
+
+reset role;
+reset request.jwt.claims;
+
+-- THE ASSERTION THIS TASK EXISTS FOR. Two doors, two callers, one shared
+-- core: the operator's door is asked as the operator (members.view),
+-- the worker's door is asked as service_role, and every one of the five
+-- listeners above is asked about through both. If the extraction had forked
+-- into two copies of the rule -- the thing R23 exists to prevent -- this is
+-- where the fork would show up, not before.
+
+create temporary table t0246_operator_view (member_id uuid, eligible boolean);
+create temporary table t0246_worker_view (member_id uuid, eligible boolean);
+-- The temp table is owned by the pgTAP superuser; INSERT under a restricted
+-- role needs an explicit grant, the same reason 00_smoke.test.sql grants
+-- service_role INSERT on its own probe table before switching role.
+grant insert on t0246_operator_view to authenticated;
+grant insert on t0246_worker_view to service_role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024600000030", "role": "authenticated"}';
+
+insert into t0246_operator_view
+  select member_id, eligible from public.members_marketing_eligible_bulk(
+    array['00000000-0000-0000-0000-024600000010'::uuid,
+          '00000000-0000-0000-0000-024600000011'::uuid,
+          '00000000-0000-0000-0000-024600000012'::uuid,
+          '00000000-0000-0000-0000-024600000013'::uuid,
+          '00000000-0000-0000-0000-024600000014'::uuid],
+    '00000000-0000-0000-0000-024600000002', 'WHATSAPP');
+
+reset role;
+reset request.jwt.claims;
+
+set local role service_role;
+
+insert into t0246_worker_view
+  select member_id, eligible from public.members_marketing_eligible_bulk_for_worker(
+    array['00000000-0000-0000-0000-024600000010'::uuid,
+          '00000000-0000-0000-0000-024600000011'::uuid,
+          '00000000-0000-0000-0000-024600000012'::uuid,
+          '00000000-0000-0000-0000-024600000013'::uuid,
+          '00000000-0000-0000-0000-024600000014'::uuid],
+    '00000000-0000-0000-0000-024600000002', 'WHATSAPP');
+
+reset role;
+
+-- Each state's expected answer, proven through the WORKER'S door directly --
+-- not only asserted by comparison to the operator's -- so a worker door that
+-- always answered, say, `true` would be caught here rather than only in the
+-- equivalence check below (which two doors sharing the SAME bug would still
+-- pass).
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000010'),
+  true, 'plainly eligible: linked, not anonymized, not blocked, an explicit yes -- eligible through the worker''s door');
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000011'),
+  false, 'anonymized bars even an explicit yes -- through the worker''s door');
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000012'),
+  false, 'the latest consent row says no -- through the worker''s door');
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000013'),
+  false, 'linked only to another Station -- through the worker''s door');
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000014'),
+  false, 'an active suspension bars even an explicit yes -- through the worker''s door');
+
+select is(
+  (select jsonb_object_agg(member_id::text, eligible order by member_id) from t0246_operator_view),
+  (select jsonb_object_agg(member_id::text, eligible order by member_id) from t0246_worker_view),
+  'the operator''s door and the worker''s door answer identically for the same five listeners, row for row -- proof the two share one rule rather than each holding a copy of it');
 
 select finish();
 rollback;

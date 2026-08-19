@@ -4421,6 +4421,17 @@ export type Database = {
         }
         Returns: string
       }
+      apply_members_marketing_eligible: {
+        Args: {
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_member_ids: string[]
+        }
+        Returns: {
+          eligible: boolean
+          member_id: string
+        }[]
+      }
       apply_music_merge: {
         Args: {
           p_company_id: string
@@ -5500,6 +5511,17 @@ export type Database = {
         }[]
       }
       members_marketing_eligible_bulk: {
+        Args: {
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_member_ids: string[]
+        }
+        Returns: {
+          eligible: boolean
+          member_id: string
+        }[]
+      }
+      members_marketing_eligible_bulk_for_worker: {
         Args: {
           p_channel: Database["public"]["Enums"]["message_channel"]
           p_company_id: string
