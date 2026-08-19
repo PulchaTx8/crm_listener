@@ -9,7 +9,8 @@ import { NotFoundError } from '@/lib/errors';
  * delegation: which service gets called for which source, that rows collapse
  * to distinct people, that a falsy member_id is dropped by a defensive guard,
  * that paging continues past a first page, and that a resolution exceeding
- * RESOLVE_CAP is reported rather than silently truncated. None of the three
+ * either of its two bounds -- RESOLVE_CAP on people, RESOLVE_PAGE_CAP on the
+ * reads it takes to find them -- is reported rather than silently truncated. None of the three
  * services' own filtering is re-tested here -- that already lives beside each
  * one (member-search-filter.test.ts and the services' own pgTAP).
  */
@@ -50,9 +51,13 @@ vi.mock('@/lib/supabase/config', () => ({
   getUserSupabaseConfig: () => ({ url: 'https://example.test', anonKey: 'anon-key' }),
 }));
 
-const { resolveListMembers, RESOLVE_CAP, SendListResolutionCappedError, listReach } = await import(
-  '@/services/send-lists'
-);
+const {
+  resolveListMembers,
+  RESOLVE_CAP,
+  RESOLVE_PAGE_CAP,
+  SendListResolutionCappedError,
+  listReach,
+} = await import('@/services/send-lists');
 
 const TOKEN = 'test-access-token';
 
@@ -75,8 +80,22 @@ interface FixedMembersFixture {
   error: { code?: string; message: string } | null;
 }
 
+/**
+ * Whole-branch review, F8. Which member ids member_company_links shows for the
+ * Station being asked about -- the read filterMemberIdsLinkedToStation makes,
+ * and now the read a LIVING members list's people count passes through too.
+ * Absent, the fake throws on the table entirely, which is what keeps the
+ * requests-sourced and FIXED cases below honest: neither may narrow, and
+ * neither carries this fixture.
+ */
+interface LinkFixture {
+  linked: string[];
+}
+
 class FakeSendListsDb {
   readonly rpcCalls: RpcCall[] = [];
+  /** Every member_company_links narrowing this run made, so a case can assert it made NONE. */
+  readonly linkQueries: { companyId: string; memberIds: string[] }[] = [];
 
   constructor(
     private readonly listRow: { company_id: string; source: string; filters: unknown; kind: 'fixed' | 'living' } | null,
@@ -89,19 +108,49 @@ class FakeSendListsDb {
     // exactly what leaving this undefined and still passing enforces: the
     // fake throws if a living-list test somehow reaches it anyway.
     private readonly fixedMembers?: FixedMembersFixture,
+    // Whole-branch review, F8. Only consulted for a LIVING 'members' listRow;
+    // leaving it undefined is what makes any other case that narrows fail
+    // loudly rather than quietly reading an empty table.
+    private readonly links?: LinkFixture,
   ) {}
 
   from(table: string) {
-    if (table !== 'send_lists') throw new Error(`FakeSendListsDb: unexpected table "${table}"`);
-    return {
-      select: () => ({
-        eq: () => ({
-          is: () => ({
-            maybeSingle: async () => ({ data: this.listRow, error: null }),
+    if (table === 'send_lists') {
+      return {
+        select: () => ({
+          eq: () => ({
+            is: () => ({
+              maybeSingle: async () => ({ data: this.listRow, error: null }),
+            }),
           }),
         }),
-      }),
-    };
+      };
+    }
+
+    if (table === 'member_company_links') {
+      const links = this.links;
+      if (!links) {
+        throw new Error('FakeSendListsDb: member_company_links read with no links fixture set');
+      }
+      const queries = this.linkQueries;
+      return {
+        select: () => ({
+          eq: (_column: string, companyId: string) => ({
+            in: async (_memberColumn: string, memberIds: string[]) => {
+              queries.push({ companyId, memberIds });
+              return {
+                data: memberIds
+                  .filter((id) => links.linked.includes(id))
+                  .map((id) => ({ member_id: id })),
+                error: null,
+              };
+            },
+          }),
+        }),
+      };
+    }
+
+    throw new Error(`FakeSendListsDb: unexpected table "${table}"`);
   }
 
   rpc(fn: string, args: Record<string, unknown>) {
@@ -229,6 +278,55 @@ describe('resolveListMembers', () => {
     // must have stopped there rather than reading toward "always more".
     expect(RESOLVE_CAP).toBe(10_000);
     expect(call).toBeLessThanOrEqual(4);
+
+    // WHICH bound refused, since the whole-branch review's F11 added a second
+    // one: the two need different sentences on screen, and the actions read
+    // this field to choose between them.
+    await expect(
+      resolveListMembers('participations', { companyId: 'co-1' }, TOKEN),
+    ).rejects.toMatchObject({ bound: 'people' });
+  });
+
+  /**
+   * Whole-branch review, F11 (Important). RESOLVE_CAP counts PEOPLE while the
+   * loop's cost is proportional to ROWS, and Participations and Requests are
+   * per event: one listener is many rows. A promotion with 120,000
+   * participations across 6,000 listeners leaves ids.size at 6,000 for ever --
+   * RESOLVE_CAP never trips -- while the resolver runs thousands of sequential
+   * round trips inside one Server Action. Invisible against the empty database
+   * db:reset creates, certain on the first real Station.
+   *
+   * The mock below is that shape reduced to its essence: every page returns
+   * the SAME person and claims there is more, so the answer never grows and
+   * only the work does.
+   */
+  it('stops at RESOLVE_PAGE_CAP when the rows keep coming but the people do not', async () => {
+    let call = 0;
+    listParticipationsPage.mockImplementation(async () => {
+      call += 1;
+      // One row, one person, every page -- the answer is a set of size 1 no
+      // matter how long this runs.
+      return {
+        rows: [{ memberId: 'the-same-listener' }],
+        nextCursor: `cursor-${call}`,
+        previousCursor: null,
+        total: 999_999,
+      };
+    });
+
+    await expect(
+      resolveListMembers('participations', { companyId: 'co-1' }, TOKEN),
+    ).rejects.toThrow(SendListResolutionCappedError);
+
+    expect(RESOLVE_PAGE_CAP).toBe(400);
+    // Exactly the bound, not "somewhere under it": a resolver that stopped
+    // early would bound the work by accident rather than by this constant.
+    expect(call).toBe(RESOLVE_PAGE_CAP);
+
+    call = 0;
+    await expect(
+      resolveListMembers('participations', { companyId: 'co-1' }, TOKEN),
+    ).rejects.toMatchObject({ bound: 'pages' });
   });
 });
 
@@ -273,6 +371,10 @@ describe('listReach', () => {
           error: null,
         },
       },
+      undefined,
+      // All three are linked to STATION_A, so F8's narrowing changes nothing
+      // here and the three channel numbers stay the point of this case.
+      { linked: ['m1', 'm2', 'm3'] },
     );
     setFakeSendListsDb(db);
 
@@ -315,6 +417,8 @@ describe('listReach', () => {
         WHATSAPP: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
         EMAIL: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
       },
+      undefined,
+      { linked: ['m1'] },
     );
     setFakeSendListsDb(db);
 
@@ -342,6 +446,8 @@ describe('listReach', () => {
         WHATSAPP: { data: null, error: { code: '55000', message: 'db is down' } },
         EMAIL: { data: [{ member_id: 'm1', eligible: true }], error: null },
       },
+      undefined,
+      { linked: ['m1'] },
     );
     setFakeSendListsDb(db);
 
@@ -371,6 +477,77 @@ describe('listReach', () => {
     expect(listMusicRequestsPage).toHaveBeenCalledTimes(1);
     expect(listOrganizationMembers).not.toHaveBeenCalled();
     expect(listParticipationsPage).not.toHaveBeenCalled();
+    // Whole-branch review, F8: a requests-sourced list is ALREADY one
+    // Station's, through its own filters.companyId, so narrowing it again
+    // would ask the same question twice. No links fixture is set above, so a
+    // narrowing here would have thrown before reaching this line -- this
+    // records the intent that the throw is the assertion.
+    expect(db.linkQueries).toEqual([]);
+  });
+
+  /**
+   * Whole-branch review, F8 (Important). A LIVING list built from MEMBERS
+   * resolves ORGANIZATION-WIDE -- resolveMemberIds' own header says why -- but
+   * belongs to exactly one Station (D3). Until this fix only the dialog's
+   * preview narrowed (filterMemberIdsLinkedToStation, applied inside
+   * resolveSendListPreviewAction), so a list created saying "2 people" went on
+   * to report 3 on the list screen, and the next block's send-time resolution
+   * would have started from the wider set.
+   *
+   * The mocked resolution deliberately returns somebody who is NOT linked to
+   * the list's Station: without that third id the case would pass with no
+   * narrowing at all and prove nothing.
+   */
+  it('narrows a LIVING members list to its own Station, so its people count matches the preview that created it', async () => {
+    listOrganizationMembers.mockResolvedValue({
+      rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'elsewhere' }],
+      nextCursor: null,
+      previousCursor: null,
+      total: 3,
+    });
+
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'living' },
+      {
+        WHATSAPP: {
+          data: [
+            { member_id: 'm1', eligible: true },
+            { member_id: 'm2', eligible: false },
+          ],
+          error: null,
+        },
+        EMAIL: {
+          data: [
+            { member_id: 'm1', eligible: true },
+            { member_id: 'm2', eligible: true },
+          ],
+          error: null,
+        },
+      },
+      undefined,
+      // 'elsewhere' matches the filters and is in the Organization, but is
+      // linked to another Station -- the median case, not an edge one.
+      { linked: ['m1', 'm2'] },
+    );
+    setFakeSendListsDb(db);
+
+    const reach = await listReach('list-4', TOKEN);
+
+    // 2, not the 3 the Organization-wide resolution returned.
+    expect(reach.people).toBe(2);
+
+    // Narrowed against THIS list's Station, read from the row rather than
+    // from the stored filters.
+    expect(db.linkQueries).toEqual([
+      { companyId: STATION_A, memberIds: ['m1', 'm2', 'elsewhere'] },
+    ]);
+
+    // And eligibility is asked about the narrowed set, so the two channel
+    // numbers cannot silently be computed over somebody this list does not
+    // hold.
+    for (const call of db.rpcCalls.filter((c) => c.fn === 'members_marketing_eligible_bulk')) {
+      expect(call.args.p_member_ids).toEqual(['m1', 'm2']);
+    }
   });
 
   /**

@@ -1,5 +1,5 @@
 begin;
-select plan(42);
+select plan(48);
 
 -- Block 29d-1. The permissions a send list and, later, a campaign are guarded
 -- by. Born beside the feature they guard, which is 0010's own rule.
@@ -39,6 +39,19 @@ select ok(
     where table_schema = 'public' and table_name = 'send_lists'
       and column_name in ('company_id', 'organization_id', 'source', 'kind', 'filters', 'name')) = 6,
   'a list carries its Station, its origin, its kind and the filters that built it');
+
+-- Whole-branch review, F9. send_lists had its default-ACL TRUNCATE revoked
+-- from service_role and send_list_members did not, so one statement from
+-- anything holding the service key emptied every fixed list on the platform.
+-- Pinned here rather than left to a reading of the migration, because the hole
+-- is invisible in the file: `revoke all ... from anon, authenticated` looks
+-- like a closing and names the one role that keeps TRUNCATE nowhere in it.
+select ok(
+  not has_table_privilege('service_role', 'public.send_list_members', 'TRUNCATE'),
+  'service_role cannot truncate a fixed list''s membership');
+select ok(
+  not has_table_privilege('service_role', 'public.send_list_members', 'SELECT'),
+  'and cannot read it either -- 0240 is the only door onto this table');
 
 -- Task 3. The three doors -- create_send_list, rename_send_list and
 -- delete_send_list -- and nothing else writes send_lists or
@@ -105,6 +118,54 @@ select ok(
 select ok(
   not has_function_privilege('public', 'public.send_list_member_ids(uuid)', 'EXECUTE'),
   'and PUBLIC holds nothing');
+
+-- Whole-branch review, F13. THE FOUR ENUMS src/schemas/send-lists.ts COPIES
+-- BY HAND. participationSendListFiltersSchema and requestSendListFiltersSchema
+-- restate participation_status, participation_source,
+-- music_request_read_status and music_request_play_status as z.enum tuples --
+-- deliberately, for the reasons that file's own comments give -- and nothing
+-- in TypeScript can notice when the database's vocabulary moves underneath
+-- them. Add a value to participation_status and the Participations screen
+-- offers it, the dialog sends it, and createSendListAction's second parse
+-- rejects it as a generic "could not save" with no gate anywhere going red.
+--
+-- Sorted rather than in enumsortorder: the ORDER of these labels changes
+-- nothing about which filters are accepted, and pinning it would turn a
+-- harmless reordering into a red gate that teaches people to edit the
+-- assertion. What is pinned is the SET.
+--
+-- 22_reports pins a label COUNT and 34_api_intake and 52_inventory_tabs pin a
+-- single label's presence; the whole set is pinned here because the failure
+-- this guards against is a value being ADDED, which a count alone would catch
+-- but could not name.
+
+select is(
+  (select array_agg(e.enumlabel::text order by e.enumlabel)
+     from pg_enum e join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'participation_status'),
+  array['DUPLICATE', 'OVER_LIMIT', 'TOO_SOON', 'VALID'],
+  'participation_status holds exactly what PARTICIPATION_STATUS_VALUES copies');
+
+select is(
+  (select array_agg(e.enumlabel::text order by e.enumlabel)
+     from pg_enum e join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'participation_source'),
+  array['IMPORT', 'MANUAL', 'WEB', 'WHATSAPP'],
+  'participation_source too -- four values, two of them added after 0052 (0060, 0170)');
+
+select is(
+  (select array_agg(e.enumlabel::text order by e.enumlabel)
+     from pg_enum e join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'music_request_read_status'),
+  array['CANCELLED', 'READ', 'UNREAD'],
+  'music_request_read_status holds exactly what REQUEST_READ_STATUS_VALUES copies');
+
+select is(
+  (select array_agg(e.enumlabel::text order by e.enumlabel)
+     from pg_enum e join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'music_request_play_status'),
+  array['CANCELLED', 'NOT_PLAYED', 'PLAYED'],
+  'music_request_play_status holds exactly what REQUEST_PLAY_STATUS_VALUES copies');
 
 -- Fixtures: one Organization, two Stations, three listeners. member1 and
 -- member2 are linked to Station A -- the Station every door call below

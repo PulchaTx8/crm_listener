@@ -152,6 +152,14 @@ export type GetSendListReachState =
  * before trying again. 'forbidden' is not a failure here at all -- it is
  * listReach's own successful answer for a channel the caller may not ask
  * about, carried inside `reach` unchanged.
+ *
+ * WITH ONE EXCEPTION, since the whole-branch review's F12: a LIVING list that
+ * has GROWN past one of the resolver's two bounds is not a transient failure
+ * and never will be, so "try again" is advice that can only ever be followed
+ * for ever. That is a permanent condition with a fixable cause, and it gets
+ * the same two sentences resolveSendListPreviewAction below already shows for
+ * the identical refusal on the way IN -- the operator is told to narrow the
+ * list, which is the only thing that actually changes the answer.
  */
 export async function getSendListReachAction(listId: string): Promise<GetSendListReachState> {
   const parsed = sendListReachRequestSchema.safeParse({ listId });
@@ -168,9 +176,30 @@ export async function getSendListReachAction(listId: string): Promise<GetSendLis
     const reach = await listReach(parsed.data.listId, token);
     return { status: 'ok', reach };
   } catch (cause) {
+    if (cause instanceof SendListResolutionCappedError) {
+      // Not logged as an error: nothing failed. The list outgrew a bound, and
+      // the sentence below says so.
+      return { status: 'error', message: await describeResolutionCap(cause) };
+    }
     logger.error({ err: cause, listId: parsed.data.listId }, 'could not compute reach for a send list');
     return { status: 'error', message: (await getTranslations('templates'))('reachCouldNotLoad') };
   }
+}
+
+/**
+ * The one sentence for each of the resolver's two bounds, in one place because
+ * both actions below and above show them and two copies would drift.
+ *
+ * `bound` rather than the error's own message text: that message is English
+ * prose for a log, and which of the two conditions fired is the only thing a
+ * translated string can be keyed on -- see SendListResolutionCappedError
+ * (services/send-lists.ts) for why the two cannot share one sentence.
+ */
+async function describeResolutionCap(cause: SendListResolutionCappedError): Promise<string> {
+  const t = await getTranslations('templates');
+  return cause.bound === 'people'
+    ? t('sendListTooManyPeople', { cap: String(RESOLVE_CAP) })
+    : t('sendListTooManyRows');
 }
 
 // ---------------------------------------------------------------------------
@@ -210,12 +239,14 @@ export type ResolveSendListPreviewState =
  * filtering logic lives in resolveListMembers and the three listing
  * services, exactly once, on both sides.
  *
- * THE CAP IS NOT SILENTLY SHORTENED. resolveListMembers throws
+ * NEITHER CAP IS SILENTLY SHORTENED. resolveListMembers throws
  * SendListResolutionCappedError rather than returning a truncated array
- * (RESOLVE_CAP's own comment states why), and that is the one branch this
- * catches by type rather than folding into the generic error -- a capped
- * filter gets its own message, telling the operator to narrow rather than
- * reading as an unrelated failure.
+ * (RESOLVE_CAP's and RESOLVE_PAGE_CAP's own comments state why), and that is
+ * the one branch this catches by type rather than folding into the generic
+ * error -- a capped filter gets its own message, telling the operator to
+ * narrow rather than reading as an unrelated failure. The error carries WHICH
+ * bound refused, because "too many people" and "too many rows behind them" ask
+ * the operator to narrow different things (whole-branch review, F11).
  *
  * `companyId` (fix round 1, F6): the Station this list will belong to,
  * ALWAYS the caller's real, already-resolved choice -- never optional, and
@@ -276,12 +307,7 @@ export async function resolveSendListPreviewAction(
     return { status: 'ok', ids };
   } catch (cause) {
     if (cause instanceof SendListResolutionCappedError) {
-      return {
-        status: 'capped',
-        message: (await getTranslations('templates'))('sendListTooManyPeople', {
-          cap: String(RESOLVE_CAP),
-        }),
-      };
+      return { status: 'capped', message: await describeResolutionCap(cause) };
     }
     logger.error({ err: cause, source }, 'could not resolve a send list preview');
     return { status: 'error', message: (await getTranslations('templates'))('sendListPreviewFailed') };

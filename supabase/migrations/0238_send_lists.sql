@@ -49,10 +49,27 @@ comment on table public.send_lists is
 comment on column public.send_lists.filters is
   'The listing filter this list was cut from -- kept even for a FIXED list, whose membership never re-reads it, because a list named months ago says nothing on its own about who was in it.';
 
--- ON DELETE CASCADE on both foreign keys below, deliberately: a deleted list's
--- people are not a fact about anything once the list itself is gone, and a
--- member erased under section 12 must not go on existing inside a list that
--- outlives them.
+-- ON DELETE CASCADE on both foreign keys below, and the two cover different
+-- things -- writing them as one sentence is how the second one ends up
+-- claiming something it does not do (whole-branch review, F10).
+--
+-- list_id: fires on a hard DELETE of a send_lists row. A deleted list's people
+-- are not a fact about anything once the list itself is gone. NOTHING IN THIS
+-- FEATURE ISSUES THAT DELETE -- delete_send_list (0239) is a soft delete and
+-- empties this table by hand for exactly that reason -- so the cascade is what
+-- keeps a future hard delete from leaving orphans, not something the doors
+-- lean on.
+--
+-- member_id: fires on a hard DELETE of a members row, WHICH ERASURE IS NOT.
+-- Erasure under section 12 runs through anonymize_member (0034, last replaced
+-- in 0220), which UPDATES the row in place -- every personal column nulled,
+-- anonymized_at set -- and nothing in this project deletes from members at
+-- all. So an erased listener's id GOES ON EXISTING in every fixed list it was
+-- already in, and this cascade is not what covers that. It is ids only, and
+-- members_marketing_eligible_bulk (0235) bars an anonymised listener before
+-- anything is sent (`m.anonymized_at is null`, outside its coalesce, so no
+-- consent row can override it) -- but a later block must not read this cascade
+-- as "erasure already prunes these lists", because it does not.
 create table public.send_list_members (
   list_id   uuid not null references public.send_lists (id) on delete cascade,
   member_id uuid not null references public.members (id) on delete cascade,
@@ -60,7 +77,7 @@ create table public.send_list_members (
 );
 
 comment on table public.send_list_members is
-  'Block 29d-1. A FIXED list''s frozen membership. ON DELETE CASCADE on both foreign keys: a deleted list''s people are not a fact about anything once the list itself is gone, and a member erased under section 12 must not go on existing inside a list that outlives them. RLS is on with NO POLICY, the same shape unsubscribe_tokens (0232) uses for its own table -- nothing reads this as a user; the doors (0239) and the send-time resolver reach it.';
+  'Block 29d-1. A FIXED list''s frozen membership. ON DELETE CASCADE on both foreign keys, and NEITHER ONE IS WHAT COVERS ERASURE: list_id fires only on a hard DELETE of a send_lists row (delete_send_list is a soft delete and empties this table itself, 0239), and member_id only on a hard DELETE of a members row -- anonymize_member (0034, last replaced in 0220) erases IN PLACE with an UPDATE and nothing here ever deletes from members, so an erased listener''s id stays in every fixed list and is barred at send by members_marketing_eligible_bulk (0235) instead. RLS is on with NO POLICY, the same shape unsubscribe_tokens (0232) uses for its own table -- nothing reads this as a user; the doors (0239, 0240) and the send-time resolver reach it. anon and authenticated hold nothing; service_role holds no SELECT, and its default-ACL TRUNCATE is revoked below.';
 
 -- RLS -------------------------------------------------------------------
 
@@ -93,6 +110,19 @@ alter table public.send_list_members enable row level security;
 
 -- NO POLICY, deliberately, as 0232's unsubscribe_tokens states for its own
 -- table: nothing reads this as a user, so there is nothing for a policy to
--- grant. The doors and the send-time resolver reach it from inside a
--- SECURITY DEFINER body, where RLS never applies.
+-- grant. The doors (0239, 0240) and the send-time resolver reach it from
+-- inside a SECURITY DEFINER body, where RLS never applies.
 revoke all on public.send_list_members from anon, authenticated;
+
+-- AND THE SAME CLOSING send_lists GETS TWELVE LINES ABOVE, which this table
+-- was missing (whole-branch review, F9). The revoke on the line above names
+-- only anon and authenticated, so service_role kept the default ACL's
+-- TRUNCATE -- 0198_vendors.sql:114-119 closed exactly this hole on vendors,
+-- and 0029 and 0099 closed it before that. "Nothing reads this as a user" and
+-- "RLS with no policy" say nothing whatever about the service key: neither is
+-- a GRANT, and one `truncate public.send_list_members` from anything holding
+-- that key would empty every fixed list on the platform in one statement.
+-- No `grant select` to service_role either, unlike send_lists: nothing that
+-- runs as the service key reads this table, and 0240 is the door for
+-- everything that does.
+revoke truncate on public.send_list_members from service_role;

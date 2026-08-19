@@ -246,11 +246,20 @@ test('a filtered Requests listing becomes a named fixed send list, proven on scr
   if (!memberB) throw new Error(`no members row named ${listenerBName}`);
 
   // A direct connection, not admin.from(): 0238 grants send_lists a bare
-  // `select` to service_role but gives send_list_members no grant at all
-  // (its own comment: "nothing reads this as a user" — service_role
-  // included), so the ONE way anything outside a SECURITY DEFINER door reads
-  // this table's real rows is the same superuser connection
-  // draw-flow.spec.ts's own preamble already uses for the identical reason.
+  // `select` to service_role and gives send_list_members no SELECT at all, so
+  // the ONE way anything outside a SECURITY DEFINER door reads this table's
+  // real rows is a superuser connection. "Nothing reads this as a user"
+  // (0238's own comment) is about the missing POLICY and says nothing about
+  // what the service key holds — which is why the same review that corrected
+  // this sentence also had 0238 revoke service_role's default-ACL TRUNCATE
+  // here (whole-branch review, F9).
+  //
+  // draw-flow.spec.ts's own preamble reaches for the same connection, but NOT
+  // for the same reason (F15): there the table is perfectly readable and it is
+  // one UPDATE grant on promotions that is missing, so raw SQL substitutes for
+  // a seventeen-argument door. Here nothing can READ the table at all. Same
+  // escape hatch, different hole — and calling them identical is how the next
+  // reader concludes send_list_members is merely un-writable.
   const sql = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
   await sql.connect();
   let memberIds: string[];

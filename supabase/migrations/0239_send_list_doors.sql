@@ -203,6 +203,19 @@ begin
   -- send_list_members' ON DELETE CASCADE: that cascade fires on an actual
   -- DELETE of the send_lists row, and this is a soft delete — only an UPDATE
   -- of deleted_at — so no DELETE on send_lists ever happens for it to catch.
+  --
+  -- AND THIS IS THE LINE THAT MAKES THE SOFT DELETE ONE-WAY. Setting
+  -- deleted_at back to null would bring the ROW back, not the LIST: a fixed
+  -- list would return holding nobody, which is a different list from the one
+  -- that was deleted and one create_send_list would itself have refused
+  -- ('a fixed list needs at least one person', above). That is the decision,
+  -- not an oversight, and it is written here because here is where a later
+  -- block reaching for an "undo" will look: deleted_at exists so the row
+  -- survives for the audit trail and for whatever 29d-2 comes to link to it
+  -- (a campaign must still be able to name the list it went out to), NOT so
+  -- the list can be restored. Nothing restores one today; anything that wants
+  -- to must snapshot the membership first, because this statement does not
+  -- keep it.
   delete from public.send_list_members where list_id = p_list_id;
 
   update public.send_lists
@@ -218,7 +231,7 @@ end;
 $$;
 
 comment on function public.delete_send_list(uuid) is
-  'Soft-deletes a send list. Station is resolved from the row and gated on messaging.manage there. Explicitly empties send_list_members first: that table''s ON DELETE CASCADE (0238) only fires on an actual DELETE of the send_lists row, and a soft delete never issues one. An unknown or already-deleted list answers P0002.';
+  'Soft-deletes a send list. Station is resolved from the row and gated on messaging.manage there. Explicitly empties send_list_members first: that table''s ON DELETE CASCADE (0238) only fires on an actual DELETE of the send_lists row, and a soft delete never issues one. NOT REVERSIBLE, deliberately: deleted_at keeps the ROW for the audit trail and for anything that must still name the list it sent to, not the LIST for restoration -- clearing deleted_at would bring a fixed list back holding nobody. An unknown or already-deleted list answers P0002.';
 
 -- `create function` grants EXECUTE to PUBLIC by default; every write door in
 -- this project revokes that and grants back only to `authenticated`, so

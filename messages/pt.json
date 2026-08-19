@@ -722,6 +722,7 @@
     "sendListWillHold": "Esta lista terá {count, plural, one {# pessoa} other {# pessoas}}.",
     "sendListFixedNeedsAtLeastOne": "Uma lista fixa precisa de pelo menos uma pessoa — amplie os filtros ou escolha Viva.",
     "sendListTooManyPeople": "Esse filtro encontra mais de {cap} pessoas — restrinja-o antes de criar a lista.",
+    "sendListTooManyRows": "Esses filtros percorrem registros demais para montar uma lista de uma só vez — restrinja o período antes de tentar de novo.",
     "sendListPreviewFailed": "Não foi possível contar quem esta lista teria. Tente novamente.",
     "sendListMemberNotLinked": "Alguns desses ouvintes não estão vinculados à Emissora escolhida, ou essa Emissora não está mais disponível. Escolha outra Emissora ou restrinja os filtros.",
     "actionCreateASendList": "criar uma lista de envio"

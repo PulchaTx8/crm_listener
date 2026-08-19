@@ -3,7 +3,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LOCAL_SUPABASE_DB_URL } from '../local-supabase';
 import type { Database } from '@/lib/supabase/database.types';
-import { createSendList, filterMemberIdsLinkedToStation, resolveListMembers } from '@/services/send-lists';
+import {
+  createSendList,
+  filterMemberIdsLinkedToStation,
+  listReach,
+  resolveListMembers,
+} from '@/services/send-lists';
 import {
   addCompany,
   cleanupUsers,
@@ -162,7 +167,16 @@ describe('Block 29d-1 — send lists, against real sessions', () => {
     expect(error?.code).toBe('42501');
   }, 60_000);
 
-  it("deleting a member removes them from every list they were frozen into — the cascade §12's obligation would reach through", async () => {
+  // NAMED FOR WHAT IT ACTUALLY PROVES (whole-branch review, F10). This case
+  // deletes the members ROW, through a superuser connection, because nothing
+  // in the application ever does — erasure under §12 is anonymize_member
+  // (0034, last replaced in 0220), an UPDATE in place, so send_list_members'
+  // ON DELETE CASCADE never fires for it and an erased listener's id STAYS in
+  // every fixed list. Reading this case as "§12 reaches through the cascade",
+  // which its own name used to say, is exactly the wrong conclusion to carry
+  // into 29d-2. What bars an anonymised listener is
+  // members_marketing_eligible_bulk (0235), at send, not this foreign key.
+  it('HARD-deleting a members row removes them from every list they were frozen into — which is not what erasure does', async () => {
     const memberId = await createMemberAs(customer, customer.companyId, {
       fullName: `Cascade Listener ${STAMP}`,
     });
@@ -178,11 +192,15 @@ describe('Block 29d-1 — send lists, against real sessions', () => {
     expect(createError, createError?.message).toBeNull();
 
     // send_list_member_ids (0240), not a direct table read: service_role holds
-    // no grant on send_list_members at all (0238 grants authenticated and
-    // service_role alike nothing on it, unlike send_lists' own explicit
-    // `grant select … to service_role`) — the RPC is the one caller alive that
-    // can see this table's real contents, being SECURITY DEFINER, and the owner
-    // reaches it through the same is_owner bypass has_permission itself uses.
+    // no SELECT on send_list_members — 0238 grants it none, unlike send_lists'
+    // own explicit `grant select … to service_role`. NOT "no grant at all":
+    // it keeps the default ACL's REFERENCES and TRIGGER, and kept TRUNCATE too
+    // until the whole-branch review's F9 had 0238 revoke it beside the one it
+    // already revoked on send_lists. What is true is only that it cannot READ
+    // a row here, which is what this line needs. The RPC is the one caller
+    // alive that can see this table's real contents, being SECURITY DEFINER,
+    // and the owner reaches it through the same is_owner bypass has_permission
+    // itself uses.
     const { data: before, error: beforeError } = await ownerClient.rpc('send_list_member_ids', {
       p_list_id: listId as string,
     });
@@ -266,5 +284,60 @@ describe('Block 29d-1, Task 8 — a Members list for one Station holds exactly w
     // was 2, and create_send_list did not abort on memberA the way a preview
     // that skipped filterMemberIdsLinkedToStation would have forced it to.
     expect(rows ?? []).toEqual([memberB]);
+  }, 120_000);
+
+  /**
+   * Whole-branch review, F8. The case above proves it for a FIXED list, whose
+   * membership is frozen by the very ids the preview returned — the two
+   * numbers agree there almost by construction. A LIVING list stores no ids at
+   * all: listReach re-resolves its filters every time it is asked, and until
+   * F8 that resolution was Organization-wide while the preview beside it was
+   * not. So the list was created saying "1 person" and reported 2 on the list
+   * screen the moment it rendered, with no send and no data change in between.
+   *
+   * Asserted as an EQUALITY between the two numbers, not as `toBe(1)` alone:
+   * 1 is what both should say here, but the property is that they say the SAME
+   * thing, and a future change that moved both together would still be honest.
+   */
+  it('a LIVING Members list reports the same people its own preview counted, not the whole Organization', async () => {
+    const customer = await provisionCustomer(`send-lists-living-${STAMP}`);
+    const stationB = await addCompany(customer, `Send Lists Living Station B ${STAMP}`);
+    const ownerClient = await signInAs(customer.email, customer.password);
+    const accessToken = await accessTokenFor(ownerClient);
+
+    const memberA = await createMemberAs(customer, customer.companyId, {
+      fullName: `Living Count Station A ${STAMP}`,
+    });
+    const memberB = await createMemberAs(customer, stationB, {
+      fullName: `Living Count Station B ${STAMP}`,
+    });
+
+    const filters = { organizationId: customer.organizationId };
+
+    // What the dialog shows before Save: Organization-wide candidates, then
+    // narrowed to the Station the list will belong to.
+    const candidates = await resolveListMembers('members', filters, accessToken);
+    expect(candidates.sort()).toEqual([memberA, memberB].sort());
+    const preview = await filterMemberIdsLinkedToStation(candidates, stationB, accessToken);
+    expect(preview).toEqual([memberB]);
+
+    const listId = await createSendList(
+      {
+        companyId: stationB,
+        name: `Living count for Station B ${STAMP}`,
+        source: 'members',
+        kind: 'living',
+        filters,
+        // Empty, always, for a living list — 0239 refuses one carrying ids.
+        memberIds: [],
+      },
+      accessToken,
+    );
+
+    const reach = await listReach(listId, accessToken);
+    expect(reach.people).toBe(preview.length);
+    // And named outright, so a regression that made BOTH sides Organization-wide
+    // could not satisfy the equality above while quietly counting memberA again.
+    expect(reach.people).toBe(1);
   }, 120_000);
 });

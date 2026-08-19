@@ -27,16 +27,27 @@ import type {
   SendListSource,
 } from '@/schemas/send-lists';
 
+/** Which of the two bounds below refused; see RESOLVE_PAGE_CAP for why there are two. */
+export type SendListResolutionBound = 'people' | 'pages';
+
 /**
- * Thrown by resolveListMembers when a list's true population runs past
- * RESOLVE_CAP and more remains unread. There is no other signal for this —
+ * Thrown by resolveListMembers when a list's resolution runs past one of its
+ * two bounds and more remains unread. There is no other signal for this —
  * resolveListMembers never returns a quietly shortened array — which is the
  * whole reason RESOLVE_CAP's own comment gives for existing at all.
+ *
+ * `bound` says WHICH one, because the two need different sentences on screen:
+ * "this matches too many people" is advice to narrow the audience, and "this
+ * reads through too many rows" is advice to narrow the period. One message
+ * covering both would be wrong for whichever case it was not written for.
  */
 export class SendListResolutionCappedError extends Error {
-  constructor(message: string) {
+  readonly bound: SendListResolutionBound;
+
+  constructor(bound: SendListResolutionBound, message: string) {
     super(message);
     this.name = 'SendListResolutionCappedError';
+    this.bound = bound;
   }
 }
 
@@ -65,9 +76,42 @@ export class SendListResolutionCappedError extends Error {
  */
 export const RESOLVE_CAP = 10_000;
 
-function cappedError(): SendListResolutionCappedError {
+/**
+ * THE SECOND BOUND, and the reason one is not enough (whole-branch review,
+ * F11). RESOLVE_CAP bounds the ANSWER — how many people a list may hold. This
+ * bounds the WORK — how many sequential round trips one Server Action may
+ * spend arriving at that answer. They are different quantities because two of
+ * the three sources are PER EVENT, not per person: listParticipationsPage
+ * pages 25 rows at a time and listMusicRequestsPage 50, while one listener is
+ * many rows. A promotion with 120,000 participations across 6,000 listeners
+ * leaves `ids.size` at 6,000 — RESOLVE_CAP never trips — and the loop below
+ * still runs 4,800 round trips before it finishes. Nothing about the resulting
+ * list is too big; the act of computing it is.
+ *
+ * 400 SPECIFICALLY, so the people cap stays reachable rather than being
+ * shadowed by this one: 25 is the smallest page any of the three services
+ * returns, and 10,000 / 25 = 400, so a source where every row IS a distinct
+ * person can still walk all the way to RESOLVE_CAP and refuse there, with its
+ * own message. Anything past 400 pages therefore means rows-per-person is high
+ * enough that the loop, not the audience, is what has run away.
+ *
+ * REFUSED, NOT TRUNCATED, exactly as RESOLVE_CAP is: a list quietly holding
+ * whoever happened to fall inside the first 400 pages is a number the operator
+ * would trust and should not.
+ */
+export const RESOLVE_PAGE_CAP = 400;
+
+function peopleCappedError(): SendListResolutionCappedError {
   return new SendListResolutionCappedError(
+    'people',
     `A send list cannot hold more than ${RESOLVE_CAP} people; this filter resolves to more, and resolution stopped rather than silently keeping only the first ${RESOLVE_CAP}.`,
+  );
+}
+
+function pagesCappedError(): SendListResolutionCappedError {
+  return new SendListResolutionCappedError(
+    'pages',
+    `Resolving this filter needs more than ${RESOLVE_PAGE_CAP} sequential reads; resolution stopped rather than silently keeping only what the first ${RESOLVE_PAGE_CAP} returned.`,
   );
 }
 
@@ -89,6 +133,7 @@ async function resolveMemberIds(
 ): Promise<Set<string>> {
   const ids = new Set<string>();
   let cursor: Cursor | null = null;
+  let pages = 0;
 
   for (;;) {
     const page = await listOrganizationMembers(
@@ -111,9 +156,14 @@ async function resolveMemberIds(
     );
 
     for (const row of page.rows) ids.add(row.id);
+    pages += 1;
 
+    // Both bounds are checked only once there is demonstrably MORE to read
+    // (nextCursor is not null), so a filter that exactly fills its last page
+    // returns rather than being refused for landing on a round number.
     if (page.nextCursor === null) return ids;
-    if (ids.size >= RESOLVE_CAP) throw cappedError();
+    if (ids.size >= RESOLVE_CAP) throw peopleCappedError();
+    if (pages >= RESOLVE_PAGE_CAP) throw pagesCappedError();
     cursor = decodeCursor(page.nextCursor);
   }
 }
@@ -124,6 +174,7 @@ async function resolveParticipationIds(
 ): Promise<Set<string>> {
   const ids = new Set<string>();
   let cursor: Cursor | null = null;
+  let pages = 0;
 
   for (;;) {
     const page = await listParticipationsPage(
@@ -146,9 +197,14 @@ async function resolveParticipationIds(
     // DISTINCT PEOPLE, not rows: a listener with twelve valid entries in one
     // promotion is twelve rows here and one id in the Set.
     for (const row of page.rows) ids.add(row.memberId);
+    pages += 1;
 
+    // RESOLVE_PAGE_CAP is the bound that actually bites HERE rather than
+    // RESOLVE_CAP: 25 rows a page and many rows per listener, so the work
+    // outgrows the answer long before the answer outgrows itself.
     if (page.nextCursor === null) return ids;
-    if (ids.size >= RESOLVE_CAP) throw cappedError();
+    if (ids.size >= RESOLVE_CAP) throw peopleCappedError();
+    if (pages >= RESOLVE_PAGE_CAP) throw pagesCappedError();
     cursor = decodeCursor(page.nextCursor);
   }
 }
@@ -159,6 +215,7 @@ async function resolveRequestIds(
 ): Promise<Set<string>> {
   const ids = new Set<string>();
   let cursor: Cursor | null = null;
+  let pages = 0;
 
   for (;;) {
     const page = await listMusicRequestsPage(
@@ -190,9 +247,11 @@ async function resolveRequestIds(
       // that fact, so the check stays rather than being trusted away.
       if (row.memberId) ids.add(row.memberId);
     }
+    pages += 1;
 
     if (page.nextCursor === null) return ids;
-    if (ids.size >= RESOLVE_CAP) throw cappedError();
+    if (ids.size >= RESOLVE_CAP) throw peopleCappedError();
+    if (pages >= RESOLVE_PAGE_CAP) throw pagesCappedError();
     cursor = decodeCursor(page.nextCursor);
   }
 }
@@ -322,16 +381,49 @@ function resolveLivingListPeople(
  * roster the list actually holds. That is wrong specifically for the one kind
  * of list that exists so that number does not move.
  */
-function peopleForList(
+async function peopleForList(
   client: ReturnType<typeof asCaller>,
   listId: string,
-  list: { source: SendListSource; filters: unknown; kind: Database['public']['Enums']['send_list_kind'] },
+  list: {
+    companyId: string;
+    source: SendListSource;
+    filters: unknown;
+    kind: Database['public']['Enums']['send_list_kind'];
+  },
   accessToken: string,
 ): Promise<string[]> {
   if (list.kind === 'fixed') {
     return readFixedListMemberIds(client, listId);
   }
-  return resolveLivingListPeople(list.source, list.filters, accessToken);
+
+  const people = await resolveLivingListPeople(list.source, list.filters, accessToken);
+
+  // NARROWED TO THE LIST'S OWN STATION, and only `members` needs it
+  // (whole-branch review, F8). resolveMemberIds resolves Organization-wide by
+  // design (its own comment) while every list belongs to exactly one Station
+  // (D3), so without this a living Members list reported every matching
+  // listener in the ORGANISATION -- a bigger number than the very preview that
+  // created it, which already narrows through this same function
+  // (resolveSendListPreviewAction, messages/lists/actions.ts). Fixing the
+  // preview alone left the two disagreeing about one list; they run the
+  // identical narrowing now, so the count the operator agreed to is the count
+  // the list screen shows back.
+  //
+  // Participations and Requests are already one Station's, through their own
+  // `filters.companyId` -- narrowing again would ask the same question twice.
+  //
+  // WHAT THIS DOES NOT FIX: a caller holding messaging.view here but not
+  // members.view at the Station sees fewer links than exist, so their count is
+  // low rather than high -- the RLS gap filterMemberIdsLinkedToStation's own
+  // header already names for the preview path, now reaching a second caller.
+  // It is the same trade, and it fails in the same direction: RLS only ever
+  // HIDES a real link, so this can under-report and never invent a recipient.
+  // That caller is already told nothing about reach either (0235 refuses
+  // members.view-less callers outright, see channelReach), so the row they see
+  // is uniformly "not permitted to know" rather than one honest number beside
+  // two refusals.
+  if (list.source !== 'members') return people;
+  return filterMemberIdsLinkedToStation(people, list.companyId, accessToken);
 }
 
 async function readFixedListMemberIds(
@@ -402,7 +494,9 @@ async function channelReach(
  *
  * WHO COUNTS AS "the list's people" ALSO SPLITS ON kind, since Task 5's own
  * fix round 1 (F3): see peopleForList's comment for why a FIXED list reads
- * send_list_member_ids (0240) and a LIVING one re-resolves its filters.
+ * send_list_member_ids (0240) and a LIVING one re-resolves its filters -- and,
+ * since the whole-branch review's F8, why a LIVING one built from MEMBERS is
+ * then narrowed to this list's own Station, the way its preview already was.
  */
 export async function listReach(listId: string, accessToken: string): Promise<ListReach> {
   const client = asCaller(accessToken);
@@ -417,7 +511,12 @@ export async function listReach(listId: string, accessToken: string): Promise<Li
   if (listError) throw new InternalError(`Could not read send list ${listId}: ${listError.message}`);
   if (!list) throw new NotFoundError(`send list not found: ${listId}`);
 
-  const memberIds = await peopleForList(client, listId, list, accessToken);
+  const memberIds = await peopleForList(
+    client,
+    listId,
+    { companyId: list.company_id, source: list.source, filters: list.filters, kind: list.kind },
+    accessToken,
+  );
 
   const [whatsapp, email] = await Promise.all([
     channelReach(client, memberIds, list.company_id, 'WHATSAPP'),
@@ -620,7 +719,13 @@ export async function createSendList(input: CreateSendListInput, accessToken: st
 }
 
 /**
- * Task 7, fix round 1 (F6, Important). Which of a MEMBERS candidate set is
+ * Task 7, fix round 1 (F6, Important), and since the whole-branch review's F8
+ * the SHARED narrowing rather than the preview's own: both the dialog's
+ * "this list will hold N people" (resolveSendListPreviewAction) and the list
+ * screen's people count (peopleForList above, for a LIVING members list) pass
+ * through here, which is what makes those two numbers the same number.
+ *
+ * Which of a MEMBERS candidate set is
  * actually linked to ONE Station. resolveMemberIds above resolves
  * Organization-wide (its own comment), but every send list belongs to
  * exactly one Station (D3), and create_send_list aborts the WHOLE creation
