@@ -1,5 +1,5 @@
 begin;
-select plan(51);
+select plan(53);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -352,6 +352,16 @@ select throws_ok(
       '{}'::jsonb, '{}'::jsonb)$$,
   '22023', null, 'a WhatsApp campaign is refused when the template is not registered');
 
+-- An empty p_member_ids. array_length(empty_array, 1) returns NULL, not 0 --
+-- the Postgres quirk create_campaign's own v_total is null or v_total = 0
+-- works around -- the identical guard create_send_list states for itself
+-- (67_send_lists.test.sql, 'a fixed list needs at least one person').
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000009', array[]::uuid[],
+      '{}'::jsonb, '{}'::jsonb)$$,
+  '22023', null, 'create_campaign refuses an empty recipient set');
+
 -- The snapshot itself: two recipients, each with their OWN address and
 -- variables, keyed by member id cast to text -- proving the door reads each
 -- recipient's own entry rather than, say, applying the first one to everybody.
@@ -410,6 +420,19 @@ select ok(
        and action = 'create_campaign' and detail::text ilike '%90000-0001%'
   ),
   'and the audit row carries no phone number -- ids and counts only (0034''s own rule)');
+
+-- message_campaign_recipients_variables_is_positional (0242). 0222 states a
+-- WhatsApp template's own variables is POSITIONAL, index 0 is {{1}}; the
+-- column's comment says a recipient's resolved values are a parallel array
+-- in that same order, and this constraint is what makes the database hold
+-- that, not only the comment's word for it. Direct insert, the same way the
+-- unique constraint above is proven -- this is a table constraint, not
+-- something either door decides.
+select throws_ok(
+  $$insert into public.message_campaign_recipients (campaign_id, member_id, channel, variables)
+    values ((select campaign_id from t0243_campaign), '00000000-0000-0000-0000-024300000006',
+            'WHATSAPP', '{"1": "Maria"}'::jsonb)$$,
+  '23514', null, 'a recipient''s variables must be a positional array, not an object');
 
 -- Simulate one recipient already claimed by the drain, as the pgTAP
 -- superuser -- nothing in this feature's own doors moves a row to claimed

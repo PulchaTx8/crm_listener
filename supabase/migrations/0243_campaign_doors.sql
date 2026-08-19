@@ -160,13 +160,16 @@ begin
   -- exactly the shape a caller building one map per array in application code
   -- already has to hand. A member id absent from p_addresses stores a null
   -- address (the column allows it, 0242); one absent from p_variables stores
-  -- '{}', matching the column's own NOT NULL default rather than a null the
-  -- column would refuse.
+  -- '[]', matching the column's own NOT NULL default rather than a null the
+  -- column would refuse -- an empty array, not an empty object, because 0242's
+  -- own CHECK requires variables to be positional (0222: a WhatsApp template's
+  -- variables is positional, index 0 is {{1}}), and an object is not an array
+  -- regardless of whether it is empty.
   insert into public.message_campaign_recipients
     (campaign_id, member_id, channel, address, variables)
   select v_id, m, p_channel,
          p_addresses ->> m::text,
-         coalesce(p_variables -> m::text, '{}'::jsonb)
+         coalesce(p_variables -> m::text, '[]'::jsonb)
     from unnest(v_member_ids) as m;
 
   get diagnostics v_count = row_count;

@@ -131,7 +131,15 @@ create table public.message_campaign_recipients (
   -- time, positional in the same order as message_templates.variables (0222).
   -- Cleared alongside address by the same erasure, for the same reason: a
   -- listener's name and city are personal data too.
-  variables           jsonb not null default '{}'::jsonb,
+  --
+  -- BUILT ONCE, AT SNAPSHOT, AND NEVER RE-ORDERED AFTER. A provider (Task 5)
+  -- must send this array exactly as it stands and must never re-consult
+  -- message_templates.variables' CURRENT order to interpret it: a template
+  -- edited while a campaign is draining would then read this same array
+  -- against a different position list and scramble values into the wrong
+  -- slots, silently, because nothing about a jsonb array says which index
+  -- used to mean what.
+  variables           jsonb not null default '[]'::jsonb,
 
   status              public.campaign_recipient_status not null default 'pending',
   attempts            integer not null default 0 check (attempts >= 0),
@@ -164,6 +172,15 @@ create table public.message_campaign_recipients (
   constraint message_campaign_recipients_failed_says_why check (
     status <> 'failed' or error_code is not null
   ),
+
+  -- POSITIONAL, not keyed: 0222 states in capitals that a WhatsApp template's
+  -- own variables is positional, index 0 is {{1}}, and this column's comment
+  -- above says a recipient's resolved values are a parallel array in that
+  -- same order. Prose said so and the column's own default, '{}'::jsonb, was
+  -- an empty OBJECT -- the gap between a contract asserted in a comment and
+  -- one the database actually holds. This CHECK is the difference.
+  constraint message_campaign_recipients_variables_is_positional
+    check (jsonb_typeof(variables) = 'array'),
 
   -- Two rows for the same listener in the same campaign means one listener
   -- receives the campaign twice. That is the complaint that costs a WhatsApp
