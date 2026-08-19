@@ -4542,6 +4542,10 @@ export type Database = {
         Args: { p_organization_id: string; p_reason: string }
         Returns: undefined
       }
+      cancel_campaign: {
+        Args: { p_campaign_id: string; p_reason: string }
+        Returns: number
+      }
       cancel_delivery: {
         Args: { p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -4695,6 +4699,18 @@ export type Database = {
           p_release_date?: string
           p_title: string
           p_upc?: string
+        }
+        Returns: string
+      }
+      create_campaign: {
+        Args: {
+          p_addresses: Json
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_list_id: string
+          p_member_ids: string[]
+          p_template_id: string
+          p_variables: Json
         }
         Returns: string
       }

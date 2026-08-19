@@ -1,5 +1,5 @@
 begin;
-select plan(19);
+select plan(51);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -177,6 +177,307 @@ select throws_ok(
   '23505',
   'duplicate key value violates unique constraint "message_campaign_recipients_one_row_per_listener"',
   'two rows for the same listener in the same campaign are refused');
+
+-- ---------------------------------------------------------------------------
+-- Task 3. The two doors: create_campaign (the snapshot) and cancel_campaign
+-- (the stop). Both SECURITY DEFINER, both gated on messaging.send rather
+-- than messaging.manage -- 0236's own reason, restated in 0243's header:
+-- approving a send is not the act of drafting one.
+-- ---------------------------------------------------------------------------
+
+select has_function('public', 'create_campaign', 'create_campaign exists');
+select has_function('public', 'cancel_campaign', 'cancel_campaign exists');
+
+-- `create function` grants EXECUTE to PUBLIC by default; 0243 revokes that and
+-- grants back only to authenticated -- so anon, PUBLIC and service_role must
+-- all hold nothing. service_role is checked explicitly here, unlike the three
+-- send-list doors' own test (67), because these two doors sit one step closer
+-- to the drain than send_list's ever did, and the point that the worker never
+-- calls them is exactly the fact a stray grant would quietly contradict.
+
+select ok(
+  has_function_privilege('authenticated',
+    'public.create_campaign(uuid, uuid, public.message_channel, uuid, uuid[], jsonb, jsonb)', 'EXECUTE'),
+  'authenticated may create a campaign');
+select ok(
+  not has_function_privilege('anon',
+    'public.create_campaign(uuid, uuid, public.message_channel, uuid, uuid[], jsonb, jsonb)', 'EXECUTE'),
+  'anon may not');
+select ok(
+  not has_function_privilege('public',
+    'public.create_campaign(uuid, uuid, public.message_channel, uuid, uuid[], jsonb, jsonb)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+select ok(
+  not has_function_privilege('service_role',
+    'public.create_campaign(uuid, uuid, public.message_channel, uuid, uuid[], jsonb, jsonb)', 'EXECUTE'),
+  'nor service_role -- the worker never creates a campaign, only the drain (Task 6) reads its queue');
+
+select ok(
+  has_function_privilege('authenticated', 'public.cancel_campaign(uuid, text)', 'EXECUTE'),
+  'authenticated may cancel a campaign');
+select ok(
+  not has_function_privilege('anon', 'public.cancel_campaign(uuid, text)', 'EXECUTE'),
+  'anon may not');
+select ok(
+  not has_function_privilege('public', 'public.cancel_campaign(uuid, text)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+select ok(
+  not has_function_privilege('service_role', 'public.cancel_campaign(uuid, text)', 'EXECUTE'),
+  'nor service_role -- cancellation is an operator''s action, never the worker''s own');
+
+-- Fixtures: one Organization, two Stations, three listeners -- A1 and A2
+-- linked to Station A, the Station every call below names; B1 linked ONLY to
+-- Station B, a real cross-Station listener rather than merely an id that
+-- matches nothing. Two living lists, one per Station. Three templates: a
+-- WhatsApp template registered at Station A, the same at Station B (to prove
+-- "wrong Station" rather than "wrong channel"), and an e-mail template at
+-- Station A -- which message_templates_email_no_meta_fields (0223) forces to
+-- carry null name and null language, making it, by 0223's own definition,
+-- the one template in this fixture that is NOT a registered WhatsApp
+-- template. Two roles -- messaging.send alone, messaging.manage alone --
+-- because the permission split is the point of this task.
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-024300000001', 'Org campaign doors 0243');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000001', 'Station 0243 A'),
+  ('00000000-0000-0000-0000-024300000003', '00000000-0000-0000-0000-024300000001', 'Station 0243 B');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-024300000004', '00000000-0000-0000-0000-024300000001', 'Ouvinte 0243 A1'),
+  ('00000000-0000-0000-0000-024300000005', '00000000-0000-0000-0000-024300000001', 'Ouvinte 0243 A2'),
+  ('00000000-0000-0000-0000-024300000006', '00000000-0000-0000-0000-024300000001', 'Ouvinte 0243 so da B');
+
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-024300000004', '00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000001'),
+  ('00000000-0000-0000-0000-024300000005', '00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000001'),
+  ('00000000-0000-0000-0000-024300000006', '00000000-0000-0000-0000-024300000003', '00000000-0000-0000-0000-024300000001');
+
+insert into public.send_lists (id, organization_id, company_id, name, source, kind) values
+  ('00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000002', 'Lista 0243 A', 'members', 'living'),
+  ('00000000-0000-0000-0000-024300000008', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000003', 'Lista 0243 B', 'members', 'living');
+
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, name, language, body) values
+  ('00000000-0000-0000-0000-024300000009', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000002', 'WHATSAPP', 'Modelo 0243 A', 'modelo_0243_a', 'pt_BR',
+   'Corpo de teste do Bloco 0243 A'),
+  ('00000000-0000-0000-0000-024300000010', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000003', 'WHATSAPP', 'Modelo 0243 B', 'modelo_0243_b', 'pt_BR',
+   'Corpo de teste do Bloco 0243 B');
+
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, subject, body) values
+  ('00000000-0000-0000-0000-024300000011', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000002', 'EMAIL', 'Modelo 0243 email', 'Assunto de teste 0243',
+   'Corpo de e-mail de teste do Bloco 0243');
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024300000012', '00000000-0000-0000-0000-024300000001', 'Messaging Sender 0243'),
+  ('00000000-0000-0000-0000-024300000013', '00000000-0000-0000-0000-024300000001', 'Messaging Manager 0243');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-024300000012', 'messaging.send'),
+  ('00000000-0000-0000-0000-024300000013', 'messaging.manage');
+
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-024300000014', 'campaigns-sender-0243@example.test'),
+  ('00000000-0000-0000-0000-024300000015', 'campaigns-manager-0243@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-024300000014', '00000000-0000-0000-0000-024300000002',
+   '00000000-0000-0000-0000-024300000001', '00000000-0000-0000-0000-024300000012'),
+  ('00000000-0000-0000-0000-024300000015', '00000000-0000-0000-0000-024300000002',
+   '00000000-0000-0000-0000-024300000001', '00000000-0000-0000-0000-024300000013');
+
+-- messaging.manage alone -- STEP 5's own case: the caller this permission
+-- split exists to refuse. Params are otherwise entirely valid (Station A's
+-- own list, template and a linked listener), so the ONLY thing standing
+-- between this call and success is the permission check itself.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000015", "role": "authenticated"}';
+
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000009', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb, '{}'::jsonb)$$,
+  '42501', null, 'messaging.manage alone cannot create a campaign -- messaging.send is required');
+
+reset role;
+
+-- messaging.send -- every business-rule refusal below runs as this caller,
+-- so each throws_ok isolates exactly one guard rather than also proving the
+-- permission gate again.
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+
+-- member_linked_to_company (0034): B1 is a real listener, just not this
+-- Station's. Without this check a caller who could pass any member id would
+-- assemble a recipient list of people at a Station they hold no permission
+-- at, from the id alone -- create_send_list's own reason (0239) for the
+-- identical check.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000009', array['00000000-0000-0000-0000-024300000006'::uuid],
+      '{}'::jsonb, '{}'::jsonb)$$,
+  'P0002', null, 'create_campaign refuses a listener linked only to another Station');
+
+-- Template 0010 exists, and belongs to Station B -- a real template, not
+-- merely an id that matches nothing, the same shape B1 gives the listener
+-- check above.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000010', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb, '{}'::jsonb)$$,
+  'P0002', null, 'create_campaign refuses a template belonging to another Station');
+
+-- List 0008 exists, and belongs to Station B -- the guard this task adds
+-- beyond the brief's own list, for the identical reason: a caller who could
+-- name any list id would otherwise snapshot a Station's listeners into a
+-- campaign built against a list they hold no permission to read.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000008',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000009', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb, '{}'::jsonb)$$,
+  'P0002', null, 'create_campaign refuses a list belonging to another Station');
+
+-- Template 0011 is Station A's own, but it is an EMAIL template --
+-- message_templates_email_no_meta_fields (0223) forces its name and language
+-- both null, which is exactly what 0223 itself calls "is this registered at
+-- Meta". Requesting WHATSAPP against it exercises the registration check
+-- specifically, not the not-found path the two throws_ok above already cover.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000011', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb, '{}'::jsonb)$$,
+  '22023', null, 'a WhatsApp campaign is refused when the template is not registered');
+
+-- The snapshot itself: two recipients, each with their OWN address and
+-- variables, keyed by member id cast to text -- proving the door reads each
+-- recipient's own entry rather than, say, applying the first one to everybody.
+create temporary table t0243_campaign as
+select public.create_campaign(
+  '00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007', 'WHATSAPP',
+  '00000000-0000-0000-0000-024300000009',
+  array['00000000-0000-0000-0000-024300000004'::uuid, '00000000-0000-0000-0000-024300000005'::uuid],
+  jsonb_build_object(
+    '00000000-0000-0000-0000-024300000004', '+55 11 90000-0001',
+    '00000000-0000-0000-0000-024300000005', '+55 11 90000-0002'),
+  jsonb_build_object(
+    '00000000-0000-0000-0000-024300000004', jsonb_build_array('Maria'),
+    '00000000-0000-0000-0000-024300000005', jsonb_build_array('Joao'))
+) as campaign_id;
+
+reset role;
+
+-- Verification as the pgTAP superuser -- create_campaign's own row and its
+-- recipients are readable this way regardless of RLS, the same convention
+-- 67_send_lists.test.sql uses for its own doors' results.
+
+select is(
+  (select total_recipients from public.message_campaigns where id = (select campaign_id from t0243_campaign)),
+  2, 'total_recipients is written once, from the snapshot size');
+select is(
+  (select status from public.message_campaigns where id = (select campaign_id from t0243_campaign)),
+  'queued', 'a fresh campaign starts queued, the enum''s own default');
+select is(
+  (select created_by from public.message_campaigns where id = (select campaign_id from t0243_campaign)),
+  '00000000-0000-0000-0000-024300000014'::uuid, 'created_by names the operator who called the door');
+select is(
+  (select address from public.message_campaign_recipients
+    where campaign_id = (select campaign_id from t0243_campaign)
+      and member_id = '00000000-0000-0000-0000-024300000004'),
+  '+55 11 90000-0001', 'the first recipient gets their own resolved address');
+select is(
+  (select address from public.message_campaign_recipients
+    where campaign_id = (select campaign_id from t0243_campaign)
+      and member_id = '00000000-0000-0000-0000-024300000005'),
+  '+55 11 90000-0002', 'and the second gets theirs -- not the first one''s, copied');
+select is(
+  (select variables from public.message_campaign_recipients
+    where campaign_id = (select campaign_id from t0243_campaign)
+      and member_id = '00000000-0000-0000-0000-024300000004'),
+  '["Maria"]'::jsonb, 'variables are stored per recipient too');
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_table = 'message_campaigns' and target_id = (select campaign_id from t0243_campaign)
+      and action = 'create_campaign'),
+  1, 'the create is audited under the door''s own name');
+select ok(
+  not exists (
+    select 1 from public.audit_logs
+     where target_table = 'message_campaigns' and target_id = (select campaign_id from t0243_campaign)
+       and action = 'create_campaign' and detail::text ilike '%90000-0001%'
+  ),
+  'and the audit row carries no phone number -- ids and counts only (0034''s own rule)');
+
+-- Simulate one recipient already claimed by the drain, as the pgTAP
+-- superuser -- nothing in this feature's own doors moves a row to claimed
+-- (that is claim_campaign_batch, Task 4, not built by this task), so the
+-- state is written directly to set up cancel_campaign's own test.
+update public.message_campaign_recipients
+   set status = 'claimed', claimed_at = now()
+ where campaign_id = (select campaign_id from t0243_campaign)
+   and member_id = '00000000-0000-0000-0000-024300000005';
+
+-- messaging.manage alone, again -- cancel_campaign's own Step 5 case.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000015", "role": "authenticated"}';
+
+select throws_ok(
+  (select format('select public.cancel_campaign(%L, %L)', campaign_id, 'nao deveria') from t0243_campaign),
+  '42501', null, 'messaging.manage alone cannot cancel a campaign -- messaging.send is required');
+
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+
+select throws_ok(
+  $$select public.cancel_campaign('00000000-0000-0000-0000-024300000fff', 'motivo')$$,
+  'P0002', null, 'cancelling an unknown campaign is P0002');
+
+create temporary table t0243_cancelled as
+select public.cancel_campaign((select campaign_id from t0243_campaign), 'operator changed the offer') as marked;
+
+reset role;
+
+select is(
+  (select marked from t0243_cancelled),
+  1, 'cancel_campaign marks exactly the one still-pending row, not the claimed one too');
+select is(
+  (select status from public.message_campaign_recipients
+    where campaign_id = (select campaign_id from t0243_campaign)
+      and member_id = '00000000-0000-0000-0000-024300000004'),
+  'cancelled', 'the pending recipient is marked cancelled');
+select is(
+  (select status from public.message_campaign_recipients
+    where campaign_id = (select campaign_id from t0243_campaign)
+      and member_id = '00000000-0000-0000-0000-024300000005'),
+  'claimed', 'and the claimed recipient is left exactly alone -- it is in flight and cannot be recalled');
+select is(
+  (select status from public.message_campaigns where id = (select campaign_id from t0243_campaign)),
+  'cancelled', 'the campaign itself is marked cancelled');
+select is(
+  (select cancelled_by from public.message_campaigns where id = (select campaign_id from t0243_campaign)),
+  '00000000-0000-0000-0000-024300000014'::uuid, 'cancelled_by names who cancelled it');
+select is(
+  (select cancel_reason from public.message_campaigns where id = (select campaign_id from t0243_campaign)),
+  'operator changed the offer', 'cancel_reason carries the operator''s free text');
+
+-- Re-cancelling a campaign already cancelled must not overwrite its history
+-- with a second, later cancellation -- the guard this task adds beyond the
+-- brief's own list, because without it this door could turn a fully-sent
+-- campaign's row back into 'cancelled', which would simply be false.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+
+select throws_ok(
+  (select format('select public.cancel_campaign(%L, %L)', campaign_id, 'segunda tentativa') from t0243_campaign),
+  '22023', null, 'cancelling an already-cancelled campaign is refused, not silently repeated');
+
+reset role;
+reset request.jwt.claims;
 
 select finish();
 rollback;
