@@ -83,16 +83,19 @@ interface CampaignFixture {
  * A WhatsApp integration is seeded directly (`seedIntegration`, harness.ts's
  * own escape hatch for a table with no PostgREST grant to any role) because
  * the drain refuses to send WHATSAPP at all without a Station's own
- * `phone_number_id` on record.
+ * `phone_number_id` on record -- UNLESS `opts.skipIntegration`, fix round 1
+ * Item 2's own case, which needs a Station that genuinely has none.
  */
 async function createWhatsAppCampaignFixture(
   label: string,
   memberCount: number,
-  opts: { snapshotValues?: string[] } = {},
+  opts: { snapshotValues?: string[]; skipIntegration?: boolean } = {},
 ): Promise<CampaignFixture> {
   const customer = await provisionCustomer(`campaigns-${label}-${STAMP}`);
   const companyId = customer.companyId;
-  await seedIntegration(customer, `e2e-campaigns-${label}-${STAMP}`, companyId);
+  if (!opts.skipIntegration) {
+    await seedIntegration(customer, `e2e-campaigns-${label}-${STAMP}`, companyId);
+  }
   const ownerClient = await signInAs(customer.email, customer.password);
 
   const memberIds: string[] = [];
@@ -210,28 +213,33 @@ describe('Block 29d-2 -- campaigns, against real sessions', () => {
     ]);
     const viewerBClient = await signInAs(viewerB.email, viewerB.password);
 
-    const { data, error } = await viewerBClient
-      .from('message_campaigns')
-      .select('id')
-      .eq('id', fixture.campaignId);
-    // Not 42501: 0242's select policy FILTERS the row (`authenticated` holds a
-    // bare SELECT grant on the table), so a caller who cannot see this
-    // Station simply gets nothing back -- the identical shape
-    // send-lists.test.ts's own cross-Station case documents for send_lists.
-    expect(error, error?.message).toBeNull();
-    expect(data ?? []).toHaveLength(0);
-
-    // Cleanup: this fixture's one recipient row would otherwise sit `pending`
-    // for every later case in this file that calls drainCampaigns (which
-    // claims the globally-oldest due rows, not only its own fixture's) to
-    // claim and settle by accident. cancel_campaign is the real door for
-    // that, and messaging.send is what the owner holds by the ownership
-    // bypass has_permission itself carries.
-    const { error: cancelError } = await fixture.ownerClient.rpc('cancel_campaign', {
-      p_campaign_id: fixture.campaignId,
-      p_reason: 'isolation suite cleanup',
-    });
-    expect(cancelError, cancelError?.message).toBeNull();
+    try {
+      const { data, error } = await viewerBClient
+        .from('message_campaigns')
+        .select('id')
+        .eq('id', fixture.campaignId);
+      // Not 42501: 0242's select policy FILTERS the row (`authenticated` holds a
+      // bare SELECT grant on the table), so a caller who cannot see this
+      // Station simply gets nothing back -- the identical shape
+      // send-lists.test.ts's own cross-Station case documents for send_lists.
+      expect(error, error?.message).toBeNull();
+      expect(data ?? []).toHaveLength(0);
+    } finally {
+      // Cleanup, in a finally (fix round 1, Item 1). A plain statement after
+      // the assertions above -- what this used to be -- is skipped on a
+      // failing run, leaking this fixture's one `pending` recipient row into
+      // whatever later case in this file next calls drainCampaigns (which
+      // claims the globally-oldest due rows, not only its own fixture's) --
+      // the exact contamination shape case 7's own comment documents for its
+      // rollback, reached here by a failing assertion instead. cancel_campaign
+      // is the real door for that, and messaging.send is what the owner holds
+      // by the ownership bypass has_permission itself carries.
+      const { error: cancelError } = await fixture.ownerClient.rpc('cancel_campaign', {
+        p_campaign_id: fixture.campaignId,
+        p_reason: 'isolation suite cleanup',
+      });
+      if (cancelError) throw new Error('cleanup cancel_campaign failed: ' + cancelError.message);
+    }
   }, 60_000);
 
   it('message_campaign_recipients cannot be read directly by an authenticated caller -- only the doors and the drain reach it', async () => {
@@ -319,72 +327,82 @@ describe('Block 29d-2 -- campaigns, against real sessions', () => {
     const fixture = await createWhatsAppCampaignFixture(`cancel-${STAMP}`, 2);
     const [pendingRecipientId, claimedRecipientId] = fixture.recipientIds as [string, string];
 
-    // Simulated the same way 68_campaigns.test.sql's own cancel_campaign
-    // section sets one up: claim_campaign_batch is the only real door onto
-    // `claimed`, and it is reachable only from service_role (case 4 above),
-    // so a direct write, through the same connection every other superuser
-    // escape hatch in this suite uses, is the only way to produce the state
-    // at all.
-    const superuser = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
-    await superuser.connect();
     try {
-      await superuser.query(
-        `update public.message_campaign_recipients set status = 'claimed', claimed_at = now() where id = $1`,
-        [claimedRecipientId],
-      );
+      // Simulated the same way 68_campaigns.test.sql's own cancel_campaign
+      // section sets one up: claim_campaign_batch is the only real door onto
+      // `claimed`, and it is reachable only from service_role (case 4 above),
+      // so a direct write, through the same connection every other superuser
+      // escape hatch in this suite uses, is the only way to produce the state
+      // at all.
+      const superuser = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+      await superuser.connect();
+      try {
+        await superuser.query(
+          `update public.message_campaign_recipients set status = 'claimed', claimed_at = now() where id = $1`,
+          [claimedRecipientId],
+        );
+      } finally {
+        await superuser.end();
+      }
+
+      const { data: cancelledCount, error: cancelError } = await fixture.ownerClient.rpc('cancel_campaign', {
+        p_campaign_id: fixture.campaignId,
+        p_reason: 'testing the boundary between pending and claimed',
+      });
+      expect(cancelError, cancelError?.message).toBeNull();
+      // ONLY the pending row -- the claimed one is already in flight at a
+      // provider and cancel_campaign does not touch it (0243's own header).
+      expect(cancelledCount).toBe(1);
+
+      const { data: rows, error: readError } = await service
+        .from('message_campaign_recipients')
+        .select('id, status')
+        .in('id', [pendingRecipientId, claimedRecipientId]);
+      expect(readError, readError?.message).toBeNull();
+      const byId = new Map((rows ?? []).map((row) => [row.id, row.status]));
+      expect(byId.get(pendingRecipientId)).toBe('cancelled');
+      // THE ASSERTION THIS CASE EXISTS FOR: still `claimed`, untouched --
+      // cancel_campaign's own WHERE clause names `status = 'pending'` and
+      // nothing else, so a row already claimed answers to neither this UPDATE
+      // nor any later one from this door.
+      expect(byId.get(claimedRecipientId)).toBe('claimed');
+
+      const { data: campaignRow, error: campaignReadError } = await service
+        .from('message_campaigns')
+        .select('status, cancelled_by, cancelled_at')
+        .eq('id', fixture.campaignId)
+        .single();
+      expect(campaignReadError, campaignReadError?.message).toBeNull();
+      expect(campaignRow?.status).toBe('cancelled');
+      expect(campaignRow?.cancelled_by).toBe(fixture.customer.userId);
+      expect(campaignRow?.cancelled_at).not.toBeNull();
     } finally {
-      await superuser.end();
-    }
-
-    const { data: cancelledCount, error: cancelError } = await fixture.ownerClient.rpc('cancel_campaign', {
-      p_campaign_id: fixture.campaignId,
-      p_reason: 'testing the boundary between pending and claimed',
-    });
-    expect(cancelError, cancelError?.message).toBeNull();
-    // ONLY the pending row -- the claimed one is already in flight at a
-    // provider and cancel_campaign does not touch it (0243's own header).
-    expect(cancelledCount).toBe(1);
-
-    const { data: rows, error: readError } = await service
-      .from('message_campaign_recipients')
-      .select('id, status')
-      .in('id', [pendingRecipientId, claimedRecipientId]);
-    expect(readError, readError?.message).toBeNull();
-    const byId = new Map((rows ?? []).map((row) => [row.id, row.status]));
-    expect(byId.get(pendingRecipientId)).toBe('cancelled');
-    // THE ASSERTION THIS CASE EXISTS FOR: still `claimed`, untouched --
-    // cancel_campaign's own WHERE clause names `status = 'pending'` and
-    // nothing else, so a row already claimed answers to neither this UPDATE
-    // nor any later one from this door.
-    expect(byId.get(claimedRecipientId)).toBe('claimed');
-
-    const { data: campaignRow, error: campaignReadError } = await service
-      .from('message_campaigns')
-      .select('status, cancelled_by, cancelled_at')
-      .eq('id', fixture.campaignId)
-      .single();
-    expect(campaignReadError, campaignReadError?.message).toBeNull();
-    expect(campaignRow?.status).toBe('cancelled');
-    expect(campaignRow?.cancelled_by).toBe(fixture.customer.userId);
-    expect(campaignRow?.cancelled_at).not.toBeNull();
-
-    // Cleanup, not part of the property under test: a row left `claimed`
-    // stays reclaimable -- drainCampaigns' own reclaim step (services/
-    // campaigns.ts) moves any `claimed` row older than STALE_CLAIM (5
-    // minutes, src/services/whatsapp.ts) back to `pending` on its NEXT call,
-    // which would hand this fixture's own fully-eligible listener to a
-    // LATER test's drain (case 8, or a future run of this file) as a real,
-    // unexpected send. Moved to `cancelled` directly -- a status nothing
-    // ever reclaims or re-drains -- rather than left for the clock.
-    const cleanup = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
-    await cleanup.connect();
-    try {
-      await cleanup.query(
-        `update public.message_campaign_recipients set status = 'cancelled' where id = $1`,
-        [claimedRecipientId],
-      );
-    } finally {
-      await cleanup.end();
+      // Cleanup, in a finally (fix round 1, Item 1) -- not a plain statement
+      // after the assertions above, which is what this used to be: a failing
+      // assertion anywhere in the try block above used to skip this entirely
+      // and leave `claimedRecipientId` sitting `claimed` forever. A row left
+      // `claimed` stays reclaimable -- drainCampaigns' own reclaim step
+      // (services/campaigns.ts) moves any `claimed` row older than
+      // STALE_CLAIM (5 minutes, src/services/whatsapp.ts) back to `pending`
+      // on its NEXT call, which would hand this fixture's own fully-eligible
+      // listener to a LATER test's drain (case 8, or a future run of this
+      // file) as a real, unexpected send -- the exact contamination shape
+      // case 7's own comment documents for its rollback, reached here by a
+      // failing run instead. Both ids, not only the claimed one: a failure
+      // between the RPC call and the read-back above could leave
+      // pendingRecipientId still `pending` too, and `cancelled` is the
+      // correct rest state for either row regardless of which assertion
+      // failed.
+      const cleanup = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+      await cleanup.connect();
+      try {
+        await cleanup.query(
+          `update public.message_campaign_recipients set status = 'cancelled' where id = any($1)`,
+          [[pendingRecipientId, claimedRecipientId]],
+        );
+      } finally {
+        await cleanup.end();
+      }
     }
   }, 60_000);
 
@@ -536,5 +554,123 @@ describe('Block 29d-2 -- campaigns, against real sessions', () => {
     // proof the row's provider_message_id came from the fake actually being
     // called, not from a status flipped by hand.
     expect(recipientRow?.provider_message_id).toMatch(/^wamid\.FAKE\d+$/);
+  }, 60_000);
+
+  /**
+   * Fix round 1, Item 2. No case anywhere in this file -- including the
+   * fixture helper every other case shares -- ever exercises
+   * claim_campaign_batch against a Station with NO integrations row:
+   * `createWhatsAppCampaignFixture` seeds one unconditionally. The behaviour
+   * without one is correct by code trace alone (0252's own LEFT JOIN returns
+   * `phone_number_id` null; the drain's own `row.phone_number_id === null`
+   * branch settles the row `failed` with `no_whatsapp_integration`,
+   * services/campaigns.ts) -- but that LEFT JOIN is exactly the join whose
+   * absence produced the real defect this task found and fixed (0252's own
+   * header), and nothing stops a future "simplification" back to an INNER
+   * JOIN, which would compile, pass every OTHER case in this file, and
+   * silently strand every such row `claimed` forever instead: the claiming
+   * CTE's UPDATE marks it claimed unconditionally (0244's own reasoning,
+   * restated by 0252), and an INNER JOIN that then fails to match would drop
+   * the row from what the function RETURNS while leaving it claimed in the
+   * table -- never sent, never failed, never seen again.
+   *
+   * TWO RECIPIENT ROWS, not one, because the two halves of that claim need
+   * different callers to observe. The first is claimed directly, by raw SQL,
+   * so the assertion is on claim_campaign_batch's OWN return value -- present,
+   * with `phone_number_id` null -- rather than on anything the drain layers
+   * on top. The second is left pending for drainCampaigns' own claim to take,
+   * so the assertion is on the CONSEQUENCE: settled `failed`, with the
+   * taxonomy code an operator's history screen would read, never left
+   * `claimed` for ever.
+   *
+   * MEASURED, not merely reasoned about: `left join public.integrations` in
+   * supabase/migrations/0252_claim_campaign_batch_reads_integration.sql was
+   * temporarily changed to `inner join`, the database reset, and this case
+   * re-run alone. Both halves failed for the reason this comment predicts --
+   * see task-9-report.md for the verbatim output. The join was restored and
+   * the database reset again before any other case in this file ran against
+   * it.
+   */
+  it('a WhatsApp campaign at a Station with no integration is claimed with a null phone number id and settles failed -- never silently stranded', async () => {
+    const fixture = await createWhatsAppCampaignFixture(`nointegration-${STAMP}`, 2, {
+      skipIntegration: true,
+    });
+    const [rowA, rowB] = fixture.recipientIds as [string, string];
+
+    try {
+      const superuser = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+      await superuser.connect();
+      let rawClaimed: { id: string; phone_number_id: string | null }[];
+      try {
+        const result = await superuser.query<{ id: string; phone_number_id: string | null }>(
+          'select id, phone_number_id from public.claim_campaign_batch($1)',
+          [1],
+        );
+        rawClaimed = result.rows;
+      } finally {
+        await superuser.end();
+      }
+
+      // THE ASSERTION THIS CASE EXISTS FOR, first half: claimed and RETURNED,
+      // not silently dropped -- exactly what an INNER JOIN to integrations
+      // would fail to do, since the row's own status is already flipped to
+      // `claimed` by the CTE's UPDATE regardless of whether the final
+      // SELECT's join matches anything.
+      expect(
+        rawClaimed,
+        'claim_campaign_batch returned no row at all for a Station with no integration',
+      ).toHaveLength(1);
+      expect([rowA, rowB]).toContain(rawClaimed[0]!.id);
+      expect(rawClaimed[0]!.phone_number_id).toBeNull();
+
+      const claimedViaRawSql = rawClaimed[0]!.id;
+      const remaining = claimedViaRawSql === rowA ? rowB : rowA;
+
+      const transport = new FakeTransport();
+      const result = await drainCampaigns(service, {
+        whatsappProvider: new WhatsAppMessagingProvider(transport),
+      });
+      expect(result.dbErrors, 'the drain could not settle a recipient row').toBe(0);
+      // Never reached the transport -- refused before a send was attempted,
+      // the same shape drainOutbox uses for a row with no phone_number_id
+      // (services/campaigns.ts's own comment on this exact branch).
+      expect(transport.sentTemplates).toHaveLength(0);
+
+      const { data: recipientRow, error: recipientReadError } = await service
+        .from('message_campaign_recipients')
+        .select('status, error_code, provider_message_id')
+        .eq('id', remaining)
+        .single();
+      expect(recipientReadError, recipientReadError?.message).toBeNull();
+      // THE ASSERTION THIS CASE EXISTS FOR, second half: settled `failed`
+      // with the taxonomy code an operator's history screen reads -- not
+      // left `claimed` for ever, which is what an INNER JOIN would produce:
+      // drainCampaigns' own claim call would ALSO return nothing for this
+      // row, even though the CTE had already marked it claimed in the table.
+      expect(recipientRow?.status).toBe('failed');
+      expect(recipientRow?.error_code).toBe('no_whatsapp_integration');
+      expect(recipientRow?.provider_message_id).toBeNull();
+    } finally {
+      // Cleanup, in a finally from the start (fix round 1, Item 1's own
+      // lesson): the row claimed by raw SQL above never goes through the
+      // drain in this case, so nothing else ever moves it off `claimed` --
+      // left there, it is exactly the STALE_CLAIM-reclaimable row cases 6
+      // and 7's own comments warn about. Both ids and either idle status,
+      // not only the one the happy path expects to still be `claimed`: a
+      // failure partway through the try block above could leave either row
+      // `pending` or `claimed`, and `cancelled` is the correct rest state
+      // for both regardless of which assertion failed.
+      const cleanup = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+      await cleanup.connect();
+      try {
+        await cleanup.query(
+          `update public.message_campaign_recipients set status = 'cancelled'
+             where id = any($1) and status in ('pending', 'claimed')`,
+          [[rowA, rowB]],
+        );
+      } finally {
+        await cleanup.end();
+      }
+    }
   }, 60_000);
 });

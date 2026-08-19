@@ -658,13 +658,13 @@ const REQUIRED_TEST_FILES = [
   // resolveListMembers' own candidate set down through
   // filterMemberIdsLinkedToStation and into the row create_send_list writes.
   { path: 'tests/isolation/send-lists.test.ts', minTests: 6 },
-  // Block 29d-2, Task 9. Eight cases: the six the task brief names -- a
+  // Block 29d-2, Task 9. Nine cases: the six the task brief names -- a
   // caller holding messaging.manage but not messaging.send refused,
   // 0242's own cross-Station filter proven with a real second session,
   // message_campaign_recipients' grant-layer refusal, claim_campaign_batch's
   // service_role-only grant, the block's own central promise (a listener who
   // withdrew after the snapshot is suppressed and never sent to), and
-  // cancel_campaign leaving an already-claimed row alone -- plus two proofs
+  // cancel_campaign leaving an already-claimed row alone -- plus three proofs
   // 68_campaigns.test.sql cannot give and nothing before this file asserted.
   //
   // THE FIRST: `for update skip locked` inside claim_campaign_batch (0244).
@@ -684,7 +684,15 @@ const REQUIRED_TEST_FILES = [
   // cause. Asserted on FakeTransport's own `sentTemplates` array (src/lib/
   // integrations/whatsapp/fake.ts) -- what the transport was actually HANDED
   // -- not on what message_campaign_recipients says about itself afterwards.
-  { path: 'tests/isolation/campaigns.test.ts', minTests: 8 },
+  //
+  // THE THIRD, fix round 1 Item 2: claim_campaign_batch's own LEFT JOIN to
+  // `integrations` (0252), the join whose absence -- a caller reading that
+  // table directly instead -- was the real, production-breaking defect this
+  // task found and fixed. A Station with no integration row is claimed with
+  // `phone_number_id` null and settles `failed`; an INNER JOIN in its place
+  // would silently strand the row `claimed` forever instead, and nothing but
+  // this case would notice.
+  { path: 'tests/isolation/campaigns.test.ts', minTests: 9 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */
