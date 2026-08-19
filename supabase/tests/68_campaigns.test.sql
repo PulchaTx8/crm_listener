@@ -504,11 +504,10 @@ reset request.jwt.claims;
 
 -- ---------------------------------------------------------------------------
 -- Task 4. claim_campaign_batch: the claim the fifth drain (Task 6, not built
--- yet) takes a batch of recipient rows with. claim_outbox_batch's own shape
--- (0063/0111/0165) -- one statement, for update skip locked, attempts
--- returned unchanged -- checked live via pg_get_functiondef, not any one of
--- those three migrations' text, because it has been amended twice since 0063
--- first wrote it.
+-- yet) takes a batch of recipient rows with. claim_outbox_batch's own shape --
+-- one statement, for update skip locked, attempts returned unchanged -- checked
+-- live via pg_get_functiondef, not any one migration's text, because it has
+-- been dropped and recreated more than once since it was first written.
 --
 -- Fixtures: one Organization, one Station, one send list, two templates (a
 -- WhatsApp one carrying name/language, an e-mail one carrying subject --
@@ -726,10 +725,11 @@ select ok(
 -- The stale-claim case. R3 (id ...022) sits in the table as `claimed` since
 -- the fixture above, and the assertion in the first-call section already
 -- proved this function leaves it alone while it holds that status. No
--- reclaim function exists yet -- claimed_at's own column comment (0242) names
--- that a later task's job, the role outbox_messages.claimed_at plays for
--- STALE_CLAIM (0063) -- so the reset below is written directly, the same way
--- 0243's own test simulates a claimed row to set up cancel_campaign's test.
+-- reclaim function exists yet for this table -- when one is built it is Task
+-- 6's drain's own direct write, not a new RPC, the same shape 0242's own
+-- grant comment already justifies for settling a send's outcome -- so the
+-- reset below is written directly, the same way 0243's own test simulates a
+-- claimed row to set up cancel_campaign's test.
 -- What this proves is the half claim_campaign_batch is actually responsible
 -- for: once a claim has been reset to pending -- what a stale-claim reclaim
 -- would do -- this function has no OTHER guard (an attempts cap, a minimum
