@@ -36,6 +36,23 @@ export type CancelCampaignFormInput = z.infer<typeof cancelCampaignSchema>;
  * an e-mail address for EMAIL, and for WHATSAPP just enough digits to be a
  * real phone number -- not a stricter format check than normalize_phone
  * (0031) itself applies, which strips non-digits and asks nothing more.
+ *
+ * FIX ROUND 1, F9: BOTH addIssue messages BELOW ARE UNUSED BY THE ONE
+ * CALLER THIS SCHEMA HAS TODAY. testSendCampaignAction (messages/
+ * campaigns/actions.ts) never reads parsed.error on a failed safeParse; it
+ * picks testSendInvalidEmailDestination/testSendInvalidWhatsappDestination
+ * by rawChannel alone -- DELIBERATELY, not an oversight: those are
+ * TRANSLATED catalogue sentences, and showing this schema's own English
+ * text instead (the way saveMarketingTemplateAction, messages/templates/
+ * actions.ts, does read parsed.error.issues[0]?.message for
+ * marketingTemplateSchema) would put untranslated prose in front of an
+ * operator reading Portuguese or Spanish -- a worse outcome than an unused
+ * string. They stay anyway, on the house exception every schema's own
+ * messages already claim ("Zod messages inside src/schemas/ are the
+ * established exception"), so that a FUTURE caller of this schema that
+ * reads parsed.error directly -- there is none today, and this is the one
+ * schema in this project where that caller does not yet exist -- finds an
+ * honest sentence rather than Zod's own generic default.
  */
 export const testSendCampaignSchema = z
   .object({

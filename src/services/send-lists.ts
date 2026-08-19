@@ -8,6 +8,7 @@ import {
   ValidationError,
 } from '@/lib/errors';
 import { decodeCursor, encodeCursor, keysetFilter } from '@/lib/keyset';
+import { escapeLikePattern } from '@/lib/postgrest';
 import type { Cursor } from '@/lib/keyset';
 import { listOrganizationMembers } from '@/services/members';
 import { listParticipationsPage } from '@/services/participations';
@@ -737,6 +738,49 @@ export async function listSendLists(
     })),
     nextCursor: more && last ? encodeCursor({ value: last.created_at, id: last.id }) : null,
   };
+}
+
+/** One send list a name search can turn up, for the campaigns screen's own list picker (below) -- narrower than SendListRecord because a search result is only ever shown as a name to choose, never rendered as a grid row. */
+export interface SendListSearchResult {
+  id: string;
+  companyId: string;
+  name: string;
+}
+
+/** A defensive bound on the search term itself, not on any stored name -- send_lists.name (0238) carries no length limit at all (only `btrim(name) <> ''`), so this exists only to keep a pasted wall of text from reaching ilike as a pattern, not to mirror a limit that does not exist. */
+export const SEND_LIST_SEARCH_MAX_LENGTH = 200;
+
+/**
+ * Block 29d-2, Task 7 fix round 1 (F3, Important). listSendLists (above) caps
+ * its own read at SEND_LIST_PAGE_SIZE (50), newest-first -- which means the
+ * new-campaign dialog's list picker, built from that same first page, loses
+ * every list past the fiftieth NEWEST one, with the OLDEST lists the ones an
+ * operator cannot reach through it. This is the way back: a name search,
+ * unbounded by recency, reaching every list `messaging.view` (0238's own
+ * select policy, still the only boundary this function adds no narrowing of
+ * its own on top of) admits -- so a list built a year ago is exactly as
+ * findable here as one built this morning, by name rather than by scrolling.
+ *
+ * CAPPED AT 20 RESULTS, not paged: this is a picker for choosing ONE list
+ * by a name the operator already has in mind, not a grid to browse -- a
+ * search specific enough to type is a search specific enough to narrow to a
+ * small result set, and one that is not gets a shorter list to look through
+ * rather than a second unbounded page.
+ */
+export async function searchSendLists(query: string, accessToken: string): Promise<SendListSearchResult[]> {
+  const trimmed = query.trim().slice(0, SEND_LIST_SEARCH_MAX_LENGTH);
+  if (trimmed.length === 0) return [];
+
+  const { data, error } = await asCaller(accessToken)
+    .from('send_lists')
+    .select('id, company_id, name')
+    .ilike('name', `%${escapeLikePattern(trimmed)}%`)
+    .order('name', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(20);
+  if (error) throw new InternalError(`Could not search send lists: ${error.message}`);
+
+  return (data ?? []).map((row) => ({ id: row.id, companyId: row.company_id, name: row.name }));
 }
 
 export async function renameSendList(input: RenameSendListInput, accessToken: string): Promise<void> {

@@ -1095,6 +1095,36 @@ export async function cancelCampaign(input: CancelCampaignInput, accessToken: st
   return data ?? 0;
 }
 
+export interface RecordCampaignTestSendInput {
+  companyId: string;
+  channel: Database['public']['Enums']['message_channel'];
+  listId: string;
+  templateId: string;
+  destination: string;
+}
+
+/**
+ * Task 7 fix round 1 (F2, Important). The ONE write and the ONE permission
+ * check a test send goes through -- record_campaign_test_send (0249),
+ * called BEFORE any provider is asked to send anything. Its own 42501 means
+ * exactly one thing (messaging.send is missing at this Station), so the
+ * caller does not check that permission a second time first; it just calls
+ * this and reacts to what comes back.
+ */
+export async function recordCampaignTestSend(
+  input: RecordCampaignTestSendInput,
+  accessToken: string,
+): Promise<void> {
+  const { error } = await asCaller(accessToken).rpc('record_campaign_test_send', {
+    p_company_id: input.companyId,
+    p_channel: input.channel,
+    p_list_id: input.listId,
+    p_template_id: input.templateId,
+    p_destination: input.destination,
+  });
+  if (error) throw mapCampaignError(error.code, error.message);
+}
+
 /** A marketing template's full content, as the new-campaign dialog and the create/test-send actions need it. */
 export interface CampaignTemplate {
   id: string;
@@ -1244,10 +1274,16 @@ export async function readStationEmailIdentity(
 
 /**
  * One CAMPAIGN_RESOLVABLE value, resolved from the recipient and the
- * Station. Mirrors enqueue_pickup_reminder's own first-name split
- * (`split_part(btrim(v_full_name), ' ', 1)`, 0112) in TypeScript rather than
- * a second SQL copy, so a campaign's greeting and a pickup reminder's agree
- * on what "first name" means for the same listener.
+ * Station. The first-name split (below) resolves the same real name
+ * enqueue_pickup_reminder's own `split_part(btrim(v_full_name), ' ', 1)`
+ * (0112) does for every ordinarily-typed name -- the same idea, in
+ * TypeScript rather than a second SQL copy, so a campaign's greeting and a
+ * pickup reminder's agree in the cases that matter. NOT BYTE-IDENTICAL
+ * (fix round 1, F11): `split(/\s+/)` and Postgres' `' '` split_part
+ * diverge on a tab or a non-breaking space inside a name, where
+ * JavaScript's \s matches both and Postgres' literal single-space
+ * delimiter matches neither -- an edge case neither implementation was
+ * written to agree on, not a claim this comment makes any more.
  *
  * A MISSING FIELD RESOLVES TO AN EMPTY STRING, never a placeholder throw --
  * `member.fullName`/`member.city` are both nullable columns (0031), and a
@@ -1305,14 +1341,37 @@ export function buildWhatsAppVariableValues(
 }
 
 /**
+ * Thrown by extractEmailVariables for a placeholder neither save time gate
+ * would have let through -- EXCEPT ONE CASE THAT IS GENUINELY REACHABLE,
+ * not merely defensive (fix round 1, F7): save_marketing_template (0225)
+ * validates {{...}} names against the vocabulary in v_body ONLY, never in
+ * v_subject, and marketingTemplateSchema's own superRefine (schemas/
+ * templates.ts) scans only value.body for the identical reason -- neither
+ * gate this file's own header used to claim covers "both validations" was
+ * ever written to look at an e-mail template's SUBJECT at all. A template
+ * saved through the ordinary screen with {{prize_name}} in its subject
+ * line -- a typo, not a bypass -- saves cleanly and only surfaces here,
+ * the first time a campaign is built from it. A named class, not a bare
+ * ValidationError, so the Server Action that calls this can give the
+ * operator a translated sentence instead of this constructor's own English.
+ */
+export class UnresolvableEmailPlaceholderError extends Error {
+  readonly placeholder: string;
+  constructor(placeholder: string) {
+    super(`this template names {{${placeholder}}}, which is not a value a campaign can resolve`);
+    this.name = 'UnresolvableEmailPlaceholderError';
+    this.placeholder = placeholder;
+  }
+}
+
+/**
  * Every CAMPAIGN_RESOLVABLE value an e-mail template's body and subject
- * name, deduplicated -- the wide capture `\{\{([^{}]*)\}\}` matches
- * save_marketing_template's own (0225) and marketingTemplateSchema's own
- * (schemas/templates.ts), so a name neither of those would have accepted at
- * save time is refused here too rather than silently ignored. Reachable in
- * practice only for a row written by something that bypassed both
- * validations -- see resolveCampaignVariable's own comment on the identical
- * defence.
+ * name, deduplicated -- the wide capture matches save_marketing_template's
+ * own (0225) and marketingTemplateSchema's own (schemas/templates.ts)
+ * captures, BOTH OVER THE BODY ONLY. Reachable through the ordinary screen
+ * for the SUBJECT specifically -- see UnresolvableEmailPlaceholderError's
+ * own header for why -- and reachable for the BODY only through a row that
+ * bypassed both save-time gates.
  */
 export function extractEmailVariables(body: string, subject: string): TemplateVariable[] {
   const found = new Set<TemplateVariable>();
@@ -1321,9 +1380,7 @@ export function extractEmailVariables(body: string, subject: string): TemplateVa
       const captured = match[1] ?? '';
       const variable = variableFromPlaceholder(captured);
       if (!variable || !CAMPAIGN_RESOLVABLE[variable]) {
-        throw new ValidationError(
-          `this template names {{${captured}}}, which is not a value a campaign can resolve`,
-        );
+        throw new UnresolvableEmailPlaceholderError(captured);
       }
       found.add(variable);
     }
@@ -1381,13 +1438,22 @@ export interface TestSendCampaignInput {
 /**
  * Sends ONE message through the same provider a real campaign uses
  * (WhatsAppMessagingProvider / EmailMessagingProvider), to an address the
- * operator typed rather than to any listener -- and writes NOTHING: no
- * `message_campaign_recipients` row, no `message_campaigns` row, no
- * `audit_logs` row, and no unsubscribe token (`issue_unsubscribe_token`,
- * 0232, is granted to `service_role` alone in any case -- a test send could
- * not mint one even if this function tried). A test send that left a trace
- * would corrupt the count an operator reads before deciding whether to send
- * for real (Task 7 brief's own words).
+ * operator typed rather than to any listener. THIS FUNCTION ITSELF WRITES
+ * NOTHING -- no `message_campaign_recipients` row, no `message_campaigns`
+ * row, and no unsubscribe token (`issue_unsubscribe_token`, 0232, is
+ * granted to `service_role` alone in any case -- a test send could not
+ * mint one even if this function tried). Leaving either of those a trace
+ * would corrupt the count an operator reads before deciding whether to
+ * send for real (Task 7 brief's own words).
+ *
+ * ONE audit_logs ROW IS WRITTEN, DELIBERATELY, BUT NOT HERE (fix round 1,
+ * F2): record_campaign_test_send (0249) is called by
+ * testSendCampaignAction (messages/campaigns/actions.ts) BEFORE this
+ * function ever runs, not by this function -- a test send is a send, and
+ * spending real provider traffic to a real address with no trace at all
+ * was the gap that fix closed. This function's own silence on writes is
+ * still real; it just is not the whole of the test send's own contract
+ * any more.
  *
  * `unsubscribe: null` on the EMAIL job -- `EmailSendJob.unsubscribe` is
  * required but nullable (provider.ts), and `renderCampaignEmail`

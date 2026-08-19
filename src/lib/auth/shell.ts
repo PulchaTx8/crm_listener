@@ -377,12 +377,18 @@ export async function getShellContext(): Promise<{
       // next page load, for a copy change they did not ask about. The label is
       // what a member reads; the key is what the browser remembers.
       key: 'templates',
-      // Visible to every member, including those holding templates.view in no
-      // Station at all — the same courtesy every section above extends. Both
-      // pages redirect at the top of their own render for anyone holding it
-      // nowhere, 0109's and 0110's select policies cut every read to the
-      // Stations that do hold it, and all four doors in 0113 re-check
-      // templates.manage in their own bodies. Hiding a link is a courtesy; the
+      // Visible to every member, including those holding NEITHER permission
+      // this section's four rows answer to, in no Station at all -- the same
+      // courtesy every section above extends. FIX ROUND 1, F10: not "both
+      // pages" any more -- Promo Messages and Templates redirect at the top
+      // of their own render for anyone holding templates.view nowhere
+      // (0109's and 0110's select policies cut every read to the Stations
+      // that do hold it, and all four doors in 0113 re-check templates.manage
+      // in their own bodies); Send lists and Campaigns do the identical
+      // redirect for messaging.view, under 0238's and 0242's own select
+      // policies, with messaging.send/messaging.manage re-checked inside
+      // their own doors (0239, 0243) the same way. Two permissions, two
+      // pairs of rows, one courtesy. Hiding a link is a courtesy; the
       // boundary is in the database.
       label: t('messages'),
       items: [

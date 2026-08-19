@@ -783,7 +783,17 @@
     "couldNotLoadTheCampaigns": "No se pudieron cargar las campañas. Actualice la página e inténtelo de nuevo.",
     "actionCreateACampaign": "crear una campaña",
     "actionCancelACampaign": "cancelar una campaña",
-    "actionSendATestMessage": "enviar un mensaje de prueba"
+    "actionSendATestMessage": "enviar un mensaje de prueba",
+    "campaignListSearchPlaceholder": "Buscar listas por nombre",
+    "campaignListSearchButton": "Buscar",
+    "campaignListSearchHelp": "Alcanza todas las listas que usted puede ver, no solo las cincuenta más recientes mostradas arriba.",
+    "campaignListSearchLoading": "Buscando…",
+    "campaignListSearchNoMatches": "Ninguna lista coincide con ese nombre.",
+    "campaignListSearchFailed": "No se pudieron buscar las listas. Inténtelo de nuevo.",
+    "campaignSelectedListLabel": "Seleccionada: {name} — {station}",
+    "campaignSendNeedsTemplate": "Elija una plantilla antes de enviar.",
+    "campaignEmailPlaceholderNotResolvable": "Esta plantilla usa el marcador \"{placeholder}\", que no es un valor que una campaña pueda completar — revise también el asunto, además del cuerpo.",
+    "testSendRateLimited": "Demasiados envíos de prueba en poco tiempo. Espere un momento e inténtelo de nuevo."
   },
   "connectWhatsApp": {
     "title": "Conectar WhatsApp Business",

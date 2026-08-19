@@ -773,16 +773,38 @@ export async function getMembersForCampaign(
 ): Promise<Map<string, CampaignRecipientDetail>> {
   if (memberIds.length === 0) return new Map();
 
-  const { data, error } = await asCaller(accessToken)
-    .from('members')
-    .select('id, full_name, city, phone_normalized, email_normalized')
-    .in('id', memberIds);
-  if (error) {
-    throw new InternalError(`Could not read listener details for a campaign: ${error.message}`);
+  // CHUNKED, the same 200-per-request bound and the same reason
+  // filterMemberIdsLinkedToStation (services/send-lists.ts) already chunks
+  // its own `.in()` read: memberIds here can be up to RESOLVE_CAP (10,000) --
+  // a LIVING list's whole eligible audience, in the spec's own twenty-
+  // thousand-recipient example -- and a single GET carrying that many UUIDs
+  // is not a PostgREST request this project has anywhere else asked a URL to
+  // carry. 200 is the same constant, not a second number to keep in step
+  // with the first.
+  const CHUNK = 200;
+  const rows: {
+    id: string;
+    full_name: string | null;
+    city: string | null;
+    phone_normalized: string | null;
+    email_normalized: string | null;
+  }[] = [];
+  const client = asCaller(accessToken);
+
+  for (let i = 0; i < memberIds.length; i += CHUNK) {
+    const chunk = memberIds.slice(i, i + CHUNK);
+    const { data, error } = await client
+      .from('members')
+      .select('id, full_name, city, phone_normalized, email_normalized')
+      .in('id', chunk);
+    if (error) {
+      throw new InternalError(`Could not read listener details for a campaign: ${error.message}`);
+    }
+    rows.push(...(data ?? []));
   }
 
   return new Map(
-    (data ?? []).map((row) => [
+    rows.map((row) => [
       row.id,
       {
         fullName: row.full_name,

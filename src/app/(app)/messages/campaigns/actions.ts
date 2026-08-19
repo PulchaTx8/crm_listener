@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { createUserClient } from '@/lib/supabase/user-client';
 import { logger } from '@/lib/logger';
 import { UnauthorizedError } from '@/lib/errors';
+import { InMemoryRateLimiter } from '@/lib/rate-limit';
 import type { Json } from '@/lib/supabase/database.types';
 import { sendListReachRequestSchema } from '@/schemas/send-lists';
 import { createCampaignSchema, cancelCampaignSchema, testSendCampaignSchema } from '@/schemas/campaigns';
@@ -13,9 +14,11 @@ import {
   eligibleMemberIds,
   listReach,
   resolveSendListAudience,
+  searchSendLists,
   SendListResolutionCappedError,
 } from '@/services/send-lists';
 import type { ListReach } from '@/services/send-lists';
+import { listCompanyAccess } from '../../inventory/station-access';
 import { getMembersForCampaign } from '@/services/members';
 import {
   buildEmailVariableValues,
@@ -26,18 +29,47 @@ import {
   listCampaignTemplateOptions,
   loadCampaignTemplate,
   readStationName,
+  recordCampaignTestSend,
   testSendCampaign,
+  UnresolvableEmailPlaceholderError,
 } from '@/services/campaigns';
 import type { CampaignTemplateOption } from '@/services/campaigns';
 import { describeCampaignWriteError } from '../errors';
 import { describeResolutionCap } from '../lists/actions';
 
+/**
+ * Fix round 1, F2. A test send spends real provider traffic -- exactly the
+ * concern deezer-actions.ts' own InMemoryRateLimiter exists for, and the
+ * only rate limiter this codebase has that a Server Action under (app) can
+ * reach directly: PostgresRateLimiter (@/lib/rate-limit) requires a
+ * service_role client, which src/lib/supabase/service-client.ts's own
+ * header says must never be built inside a user request -- the identical
+ * boundary campaign_whatsapp_sender's own header (0248) already states for
+ * this same screen. Module scope, so it survives between requests within
+ * one instance -- with `output: 'standalone'` there may be several, each
+ * with its own counter, the same disclosed-rather-than-pretended-away gap
+ * deezer-actions.ts' own comment names for itself.
+ */
+const testSendLimiter = new InMemoryRateLimiter();
+const TEST_SENDS_PER_MINUTE = 10;
+
 async function requireAccessToken(): Promise<string> {
+  return (await requireSession()).token;
+}
+
+/**
+ * Fix round 1, F2. The pair requireAccessToken alone never carried: a
+ * caller id, for the test send's own rate-limit key (below) -- the same
+ * shape deezer-actions.ts' own requireSession returns for the identical
+ * reason, keyed by Station AND person so one operator cannot spend a whole
+ * Station's budget alone.
+ */
+async function requireSession(): Promise<{ userId: string; token: string }> {
   const supabase = await createUserClient();
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) redirect('/login');
-  return token;
+  const session = data.session;
+  if (!session) redirect('/login');
+  return { userId: session.user.id, token: session.access_token };
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +103,60 @@ export async function getCampaignReachAction(listId: string): Promise<GetCampaig
     }
     logger.error({ err: cause, listId: parsed.data.listId }, 'could not compute reach for a campaign candidate list');
     return { status: 'error', message: (await getTranslations('templates'))('reachCouldNotLoad') };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fix round 1, F3. The list picker's own <select> is built from page.tsx's
+// first SEND_LIST_PAGE_SIZE (50) lists, newest first -- an Organization with
+// more can never reach an OLDER list through it. This is the way back: a
+// name search over every list messaging.view admits, unbounded by recency.
+// ---------------------------------------------------------------------------
+
+export interface CampaignListSearchOption {
+  id: string;
+  name: string;
+  companyId: string;
+  companyName: string;
+}
+
+export type SearchCampaignListsState =
+  | { status: 'ok'; lists: CampaignListSearchOption[] }
+  | { status: 'error'; message: string };
+
+/**
+ * searchSendLists (services/send-lists.ts) returns id/companyId/name only --
+ * it has no Station NAME to give back, since resolving one for every match
+ * would mean a second read this function does instead, once, the same shape
+ * page.tsx's own listCompanyAccess call already establishes for the initial
+ * list. A result whose Station this caller cannot find in that access list
+ * (should not happen -- both reads are bounded by the identical messaging.view
+ * RLS -- but is not asserted by either read alone) is dropped rather than
+ * shown with a fabricated name, the same discipline page.tsx's own listOptions
+ * filter already applies to the first page.
+ */
+export async function searchCampaignListsAction(query: string): Promise<SearchCampaignListsState> {
+  const supabase = await createUserClient();
+  const token = await requireAccessToken();
+
+  try {
+    const [access, results] = await Promise.all([
+      listCompanyAccess(supabase, 'messaging.view'),
+      searchSendLists(query, token),
+    ]);
+    const stationNameById = new Map(access.viewable.map((c) => [c.id, c.name]));
+    const lists: CampaignListSearchOption[] = results
+      .filter((row) => stationNameById.has(row.companyId))
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        companyId: row.companyId,
+        companyName: stationNameById.get(row.companyId)!,
+      }));
+    return { status: 'ok', lists };
+  } catch (cause) {
+    logger.error({ err: cause }, 'could not search send lists for a campaign');
+    return { status: 'error', message: (await getTranslations('templates'))('campaignListSearchFailed') };
   }
 }
 
@@ -230,6 +316,18 @@ export async function createCampaignAction(
     if (cause instanceof SendListResolutionCappedError) {
       return { status: 'error', message: await describeResolutionCap(cause) };
     }
+    // Fix round 1, F7. extractEmailVariables throws this for an EMAIL
+    // template naming an unresolvable placeholder -- genuinely reachable
+    // through the ordinary screen when the placeholder sits in the
+    // SUBJECT (that function's own header explains why save time never
+    // catches it there), so it earns its own translated sentence rather
+    // than describeCampaignWriteError's generic ValidationError pass-through.
+    if (cause instanceof UnresolvableEmailPlaceholderError) {
+      return {
+        status: 'error',
+        message: t('campaignEmailPlaceholderNotResolvable', { placeholder: cause.placeholder }),
+      };
+    }
     logger.error({ err: cause, listId: parsed.data.listId, channel: parsed.data.channel }, 'create a campaign failed');
     return { status: 'error', message: describeCampaignWriteError(cause, t, 'actionCreateACampaign') };
   }
@@ -310,11 +408,50 @@ export async function testSendCampaignAction(
     };
   }
 
-  const token = await requireAccessToken();
+  const { userId, token } = await requireSession();
   const t = await getTranslations('templates');
 
   try {
     const audience = await resolveSendListAudience(parsed.data.listId, token);
+
+    // Fix round 1, F2. Rate-limited before the permission check and the
+    // audit write below -- a throttled caller should not spend either on a
+    // request this function is about to refuse anyway. Keyed by Station AND
+    // person, the identical shape deezer-actions.ts uses for its own
+    // outside-service call, so one operator holding the button down cannot
+    // spend a whole Station's budget, and one Station's own volume of
+    // legitimate testing cannot exhaust another's.
+    const gate = await testSendLimiter.check(
+      `campaign-test-send:${audience.companyId}:${userId}`,
+      TEST_SENDS_PER_MINUTE,
+      60,
+    );
+    if (!gate.allowed) {
+      return { status: 'error', message: t('testSendRateLimited') };
+    }
+
+    // Fix round 1, F2. A test send is a send: the one permission check and
+    // the one audit_logs row this action produces, both from ONE call
+    // (record_campaign_test_send, 0249), before anything else -- including
+    // before checking whether this list even has a sample member to draw
+    // from, so a caller lacking messaging.send learns that first rather than
+    // last. Its own header explains why the gate lives there rather than a
+    // separate has_permission round trip here.
+    await recordCampaignTestSend(
+      {
+        companyId: audience.companyId,
+        channel: parsed.data.channel,
+        listId: parsed.data.listId,
+        templateId: parsed.data.templateId,
+        // The RAW, operator-typed destination, before WHATSAPP's own
+        // digit-only normalisation below -- the audit trail is about what
+        // the operator told this system to send to, not the shape the
+        // transport layer happened to need it in.
+        destination: parsed.data.destination,
+      },
+      token,
+    );
+
     const sampleMemberId = audience.memberIds[0];
     if (!sampleMemberId) {
       return { status: 'error', message: t('testSendListHasNobody') };
@@ -349,6 +486,15 @@ export async function testSendCampaignAction(
   } catch (cause) {
     if (cause instanceof SendListResolutionCappedError) {
       return { status: 'error', message: await describeResolutionCap(cause) };
+    }
+    // Fix round 1, F7. testSendCampaign calls extractEmailVariables too, so
+    // the identical genuinely-reachable subject-placeholder case can surface
+    // here -- see createCampaignAction's own comment on the same branch.
+    if (cause instanceof UnresolvableEmailPlaceholderError) {
+      return {
+        status: 'error',
+        message: t('campaignEmailPlaceholderNotResolvable', { placeholder: cause.placeholder }),
+      };
     }
     logger.error({ err: cause, listId: parsed.data.listId, channel: parsed.data.channel }, 'a campaign test send failed');
     return { status: 'error', message: describeCampaignWriteError(cause, t, 'actionSendATestMessage') };

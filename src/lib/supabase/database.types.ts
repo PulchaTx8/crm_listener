@@ -5667,6 +5667,16 @@ export type Database = {
           stored: number
         }[]
       }
+      record_campaign_test_send: {
+        Args: {
+          p_channel: Database["public"]["Enums"]["message_channel"]
+          p_company_id: string
+          p_destination: string
+          p_list_id: string
+          p_template_id: string
+        }
+        Returns: undefined
+      }
       record_conversation_marketing_answer: {
         Args: {
           p_company_id: string

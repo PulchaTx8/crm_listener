@@ -783,7 +783,17 @@
     "couldNotLoadTheCampaigns": "Could not load the campaigns. Refresh the page and try again.",
     "actionCreateACampaign": "create a campaign",
     "actionCancelACampaign": "cancel a campaign",
-    "actionSendATestMessage": "send a test message"
+    "actionSendATestMessage": "send a test message",
+    "campaignListSearchPlaceholder": "Search lists by name",
+    "campaignListSearchButton": "Search",
+    "campaignListSearchHelp": "Reaches every list you can see, not only the fifty newest shown above.",
+    "campaignListSearchLoading": "Searching…",
+    "campaignListSearchNoMatches": "No list matches that name.",
+    "campaignListSearchFailed": "Could not search the lists. Try again.",
+    "campaignSelectedListLabel": "Selected: {name} — {station}",
+    "campaignSendNeedsTemplate": "Choose a template before sending.",
+    "campaignEmailPlaceholderNotResolvable": "This template names the placeholder \"{placeholder}\", which is not a value a campaign can fill in — check its subject as well as its body.",
+    "testSendRateLimited": "Too many test sends in a short time. Wait a moment and try again."
   },
   "connectWhatsApp": {
     "title": "Connect WhatsApp Business",

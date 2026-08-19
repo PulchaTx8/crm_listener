@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { ValidationError } from '@/lib/errors';
 
 /**
  * Block 29d-2, Task 7 addendum, section 3. The two channels do not share a
@@ -19,9 +18,8 @@ import { ValidationError } from '@/lib/errors';
  */
 process.env.NEXT_PUBLIC_SITE_URL = 'https://app.example.test';
 
-const { buildWhatsAppVariableValues, buildEmailVariableValues, extractEmailVariables } = await import(
-  '@/services/campaigns'
-);
+const { buildWhatsAppVariableValues, buildEmailVariableValues, extractEmailVariables, UnresolvableEmailPlaceholderError } =
+  await import('@/services/campaigns');
 
 const STATION_NAME = 'Radio Nova';
 
@@ -92,17 +90,46 @@ describe('extractEmailVariables', () => {
     expect(extractEmailVariables('Oi, tudo bem?', 'Novidades')).toEqual([]);
   });
 
-  it('throws ValidationError for a name outside the campaign-resolvable vocabulary (a SYSTEM-only value)', () => {
+  /**
+   * Fix round 1, F7. THE GENUINELY REACHABLE CASE, not merely defensive:
+   * save_marketing_template (0225) and marketingTemplateSchema (schemas/
+   * templates.ts) both validate a saved EMAIL template's BODY only -- never
+   * its SUBJECT -- so a template with a clean body and a subject naming an
+   * unresolvable placeholder saves successfully through the ordinary
+   * screen, and this is the first place that ever notices.
+   */
+  it('throws for an unresolvable placeholder in the SUBJECT alone, with a clean body -- the case save time never catches', () => {
+    expect(() => extractEmailVariables('Oi, tudo bem?', 'Oferta de {{prize_name}} só hoje')).toThrow(
+      UnresolvableEmailPlaceholderError,
+    );
+  });
+
+  it('throws UnresolvableEmailPlaceholderError for a name outside the campaign-resolvable vocabulary (a SYSTEM-only value)', () => {
     // PRIZE_NAME is a real template_variable (0222) but CAMPAIGN_RESOLVABLE
     // marks it false -- a campaign has no source for it (src/lib/templates/
     // variables.ts's own comment). marketingTemplateSchema (schemas/
     // templates.ts) and save_marketing_template (0225) both already refuse
     // this at save time; this is the defence for a row that bypassed both.
-    expect(() => extractEmailVariables('Você ganhou {{prize_name}}!', '')).toThrow(ValidationError);
+    expect(() => extractEmailVariables('Você ganhou {{prize_name}}!', '')).toThrow(
+      UnresolvableEmailPlaceholderError,
+    );
   });
 
-  it('throws ValidationError for a name outside the whole template_variable vocabulary', () => {
-    expect(() => extractEmailVariables('Oi {{not_a_real_variable}}', '')).toThrow(ValidationError);
+  it('throws UnresolvableEmailPlaceholderError for a name outside the whole template_variable vocabulary, naming which one', () => {
+    expect(() => extractEmailVariables('Oi {{not_a_real_variable}}', '')).toThrow(
+      UnresolvableEmailPlaceholderError,
+    );
+    // The captured name travels with the error, so the Server Action can
+    // show the operator WHICH placeholder is the problem (fix round 1, F7).
+    try {
+      extractEmailVariables('Oi {{not_a_real_variable}}', '');
+      throw new Error('expected extractEmailVariables to throw');
+    } catch (cause) {
+      expect(cause).toBeInstanceOf(UnresolvableEmailPlaceholderError);
+      expect((cause as InstanceType<typeof UnresolvableEmailPlaceholderError>).placeholder).toBe(
+        'not_a_real_variable',
+      );
+    }
   });
 });
 

@@ -33,12 +33,15 @@ export const dynamic = 'force-dynamic';
  * messaging.view at more than one sees every campaign in one place.
  *
  * ALSO LOADS `listSendLists`' FIRST PAGE, for the New Campaign dialog's own
- * "choose a list" dropdown -- capped at SEND_LIST_PAGE_SIZE (50) rather than
- * every list this Organization has ever built, the same bound
- * SendListsPage itself accepts before an operator follows its own
- * "older lists" link. An Organization with more than fifty send lists is a
- * real future case this dialog does not yet reach past; nothing about that
- * cap is silent, since the list screen's own pagination is one click away.
+ * "choose a list" dropdown's initial <select> -- capped at
+ * SEND_LIST_PAGE_SIZE (50), newest first, the same bound SendListsPage
+ * itself accepts before an operator follows its own "older lists" link.
+ * AN OPERATOR WITH MORE THAN FIFTY LISTS IS NOT STRANDED (fix round 1, F3):
+ * the dialog's own search box (searchCampaignListsAction, actions.ts)
+ * reaches every list this caller's messaging.view admits, by name,
+ * unbounded by this page's own 50-newest cap -- the fiftieth-oldest list
+ * this read drops is still one keystroke away, not a silent loss with no
+ * way back.
  */
 export default async function CampaignsPage({
   searchParams,

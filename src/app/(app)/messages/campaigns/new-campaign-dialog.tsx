@@ -11,7 +11,9 @@ import {
   createCampaignAction,
   getCampaignReachAction,
   listCampaignTemplatesAction,
+  searchCampaignListsAction,
   testSendCampaignAction,
+  type CampaignListSearchOption,
   type CreateCampaignState,
   type TestSendCampaignState,
 } from './actions';
@@ -42,13 +44,21 @@ type TemplatesState =
   | { status: 'ok'; templates: CampaignTemplateOption[] }
   | { status: 'error'; message: string };
 
+type ListSearchState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ok'; lists: CampaignListSearchOption[] }
+  | { status: 'error'; message: string };
+
 /**
  * Block 29d-2, Task 7, Step 1-2. The trigger and the dialog it opens --
  * visible to every caller who reached this page at all (messaging.view
  * already gates the page itself, page.tsx's own comment), the same courtesy
  * `CreateSendListDialog`'s own trigger extends. The SEND button inside is
  * gated separately, on messaging.send (Task 7 addendum §5): opening this
- * dialog and drafting a choice is not the act of approving a send.
+ * dialog and drafting a choice is not the act of approving a send. Fix
+ * round 1, F2: the test send is gated on the identical permission, since a
+ * test send spends real provider traffic exactly like a real one does.
  *
  * The dialog's own body unmounts entirely on close (`{open && ...}`), the
  * same shape `RenameSendListDialog`/`DeleteSendListDialog` (lists-grid.tsx)
@@ -95,16 +105,42 @@ function NewCampaignDialogBody({
   const titleId = useId();
   const createFormId = useId();
 
-  const [listId, setListId] = useState('');
+  // Fix round 1, F3. THE ONE PIECE OF STATE A LIST CAN BE CHOSEN THROUGH TWO
+  // WAYS -- the initial <select> (bounded to page.tsx's own first 50 lists)
+  // or a name search reaching every list this caller's messaging.view admits
+  // (searchCampaignListsAction) -- so selection is tracked as the full
+  // option object, set by whichever picker the operator actually used,
+  // rather than a bare id re-looked-up in the `lists` prop alone. A search
+  // result and a `lists` row share the identical shape (CampaignListOption /
+  // CampaignListSearchOption) on purpose, so either can be stored here
+  // without a conversion step.
+  const [selectedListInfo, setSelectedListInfo] = useState<CampaignListOption | null>(null);
   const [channel, setChannel] = useState<Channel>('WHATSAPP');
   const [templateId, setTemplateId] = useState('');
 
   const [reachState, setReachState] = useState<ReachState>({ status: 'idle' });
   const [templatesState, setTemplatesState] = useState<TemplatesState>({ status: 'idle' });
 
-  const selectedList = lists.find((list) => list.id === listId) ?? null;
-  const selectedCompanyId = selectedList?.companyId ?? null;
-  const canSend = selectedList ? sendableCompanyIds.has(selectedList.companyId) : false;
+  const [listQuery, setListQuery] = useState('');
+  const [listSearchState, setListSearchState] = useState<ListSearchState>({ status: 'idle' });
+
+  const listId = selectedListInfo?.id ?? '';
+  const selectedCompanyId = selectedListInfo?.companyId ?? null;
+  const canSend = selectedListInfo ? sendableCompanyIds.has(selectedListInfo.companyId) : false;
+
+  function chooseList(next: CampaignListOption | null) {
+    setSelectedListInfo(next);
+  }
+
+  async function runListSearch() {
+    const query = listQuery.trim();
+    if (!query) return;
+    setListSearchState({ status: 'loading' });
+    const result = await searchCampaignListsAction(query);
+    setListSearchState(
+      result.status === 'ok' ? { status: 'ok', lists: result.lists } : { status: 'error', message: result.message },
+    );
+  }
 
   // The reach number this dialog shows, from THE SAME resolver listReach
   // itself uses (Task 7 addendum §2) -- re-fetched whenever the chosen list
@@ -163,12 +199,17 @@ function NewCampaignDialogBody({
   const channelReach =
     reachState.status === 'ok' ? reachState.reach[channel === 'WHATSAPP' ? 'whatsapp' : 'email'] : null;
 
-  // The SEND button appears only once every one of these is true; anything
-  // false already has its own sentence rendered above it in the body
-  // (ReachDisplay's zero-reach/forbidden text, or campaignSendNoPermission)
-  // -- Task 7 brief's own rule, "say why rather than disabling a button
-  // silently", applies to withholding it entirely just as much as it would
-  // to a disabled one.
+  const hasTemplateChoice = templatesState.status === 'ok' && templatesState.templates.length > 0;
+  // Fix round 1, F6. Every condition the SEND button is withheld for now has
+  // its own sentence rendered above it: canSend (campaignSendNoPermission),
+  // reach (ReachDisplay's own zero/forbidden text) -- and, closing the one
+  // this dialog's first draft left silent, no template chosen yet while real
+  // choices exist (campaignSendNeedsTemplate, shown only then -- a Station
+  // with NO templates at all already says so inline, via
+  // campaignNoTemplatesForChannel, and repeating that here would be the same
+  // fact twice).
+  const needsTemplateChoice = !!selectedListInfo && canSend && templateId === '' && hasTemplateChoice;
+
   const canSubmit = canSend && templateId !== '' && typeof channelReach === 'number' && channelReach > 0;
 
   return (
@@ -182,26 +223,94 @@ function NewCampaignDialogBody({
           <input type="hidden" name="channel" value={channel} />
           <input type="hidden" name="templateId" value={templateId} />
 
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">{t('campaignListLabel')}</span>
-            {lists.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('campaignNoListsAvailable')}</p>
-            ) : (
-              <Select
-                value={listId}
-                onChange={(event) => setListId(event.target.value)}
-                required
-                data-testid="campaign-list-select"
+          <div className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">{t('campaignListLabel')}</span>
+              {lists.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('campaignNoListsAvailable')}</p>
+              ) : (
+                <Select
+                  value={selectedListInfo && lists.some((list) => list.id === selectedListInfo.id) ? listId : ''}
+                  onChange={(event) => {
+                    chooseList(lists.find((list) => list.id === event.target.value) ?? null);
+                  }}
+                  data-testid="campaign-list-select"
+                >
+                  <option value="">{t('campaignChooseAList')}</option>
+                  {lists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {list.name} — {list.companyName}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </label>
+
+            {/* Fix round 1, F3. Reaches every list this caller's messaging.view
+                admits, by name, unbounded by the <select> above's own 50-newest
+                cap -- see searchCampaignListsAction's own header (actions.ts). */}
+            <div className="flex flex-col gap-1 rounded-md border p-2">
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runListSearch();
+                }}
               >
-                <option value="">{t('campaignChooseAList')}</option>
-                {lists.map((list) => (
-                  <option key={list.id} value={list.id}>
-                    {list.name} — {list.companyName}
-                  </option>
-                ))}
-              </Select>
+                <Input
+                  value={listQuery}
+                  onChange={(event) => setListQuery(event.target.value)}
+                  placeholder={t('campaignListSearchPlaceholder')}
+                  data-testid="campaign-list-search-input"
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  disabled={listQuery.trim() === ''}
+                  key="search-lists"
+                  data-testid="campaign-list-search-submit"
+                >
+                  {t('campaignListSearchButton')}
+                </Button>
+              </form>
+              <p className="text-xs text-muted-foreground">{t('campaignListSearchHelp')}</p>
+              {listSearchState.status === 'loading' && (
+                <p className="text-sm text-muted-foreground">{t('campaignListSearchLoading')}</p>
+              )}
+              {listSearchState.status === 'error' && (
+                <p className="text-sm text-destructive">{listSearchState.message}</p>
+              )}
+              {listSearchState.status === 'ok' && listSearchState.lists.length === 0 && (
+                <p className="text-sm text-muted-foreground">{t('campaignListSearchNoMatches')}</p>
+              )}
+              {listSearchState.status === 'ok' && listSearchState.lists.length > 0 && (
+                <ul className="flex flex-col gap-1">
+                  {listSearchState.lists.map((result) => (
+                    <li key={result.id}>
+                      <button
+                        type="button"
+                        className="w-full rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                        onClick={() => chooseList(result)}
+                        data-testid="campaign-list-search-result"
+                      >
+                        {result.name} — {result.companyName}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {selectedListInfo && (
+              <p className="text-xs text-muted-foreground">
+                {t('campaignSelectedListLabel', {
+                  name: selectedListInfo.name,
+                  station: selectedListInfo.companyName,
+                })}
+              </p>
             )}
-          </label>
+          </div>
 
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">{t('channelLabel')}</span>
@@ -248,11 +357,19 @@ function NewCampaignDialogBody({
 
         {createState.status === 'error' && <p className="text-sm text-destructive">{createState.message}</p>}
 
-        {selectedList && !canSend && (
+        {selectedListInfo && !canSend && (
           <p className="text-sm text-muted-foreground">{t('campaignSendNoPermission')}</p>
         )}
+        {needsTemplateChoice && <p className="text-sm text-muted-foreground">{t('campaignSendNeedsTemplate')}</p>}
 
-        <TestSendSection listId={listId} channel={channel} templateId={templateId} t={t} />
+        <TestSendSection
+          listId={listId}
+          channel={channel}
+          templateId={templateId}
+          canSend={canSend}
+          hasSelectedList={!!selectedListInfo}
+          t={t}
+        />
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose} key="close">
@@ -314,6 +431,15 @@ function ReachDisplay({ reachState, channel, t }: { reachState: ReachState; chan
  * campaign, no history entry and mints no unsubscribe token
  * (testSendCampaign's own header, services/campaigns.ts, says why for each).
  *
+ * Fix round 1, F2. GATED ON messaging.send (`canSend`), the identical
+ * permission the real Send button checks -- a test send spends real
+ * provider traffic to a real address exactly the way a real send does, and
+ * `record_campaign_test_send` (0249) already refuses it server-side; this
+ * is the screen agreeing with the door rather than only relying on it,
+ * matching the same courtesy the SEND button already extended. `!canSend`
+ * renders the identical `campaignSendNoPermission` sentence the create form
+ * already shows for the same fact, rather than a second, near-duplicate one.
+ *
  * Its OWN `<form>`, carrying its OWN hidden copies of listId/channel/templateId:
  * a FormData object belongs to exactly one `<form>` element, so these three
  * values cannot be shared with the create form above them -- the same reason
@@ -324,51 +450,61 @@ function TestSendSection({
   listId,
   channel,
   templateId,
+  canSend,
+  hasSelectedList,
   t,
 }: {
   listId: string;
   channel: Channel;
   templateId: string;
+  canSend: boolean;
+  hasSelectedList: boolean;
   t: Translator;
 }) {
   const formId = useId();
   const [destination, setDestination] = useState('');
   const [state, action, pending] = useActionState(testSendCampaignAction, INITIAL_TEST_SEND);
 
-  const ready = listId !== '' && templateId !== '';
+  const ready = listId !== '' && templateId !== '' && canSend;
 
   return (
     <div className="flex flex-col gap-2 border-t pt-4">
       <h3 className="text-sm font-medium">{t('testSendTitle')}</h3>
-      <form id={formId} action={action} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <input type="hidden" name="listId" value={listId} />
-        <input type="hidden" name="channel" value={channel} />
-        <input type="hidden" name="templateId" value={templateId} />
-        <label className="flex flex-1 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">{t('testSendDestinationLabel')}</span>
-          <Input
-            name="destination"
-            value={destination}
-            onChange={(event) => setDestination(event.target.value)}
-            disabled={!ready}
-            data-testid="campaign-test-send-destination"
-          />
-          <span className="text-xs text-muted-foreground">
-            {channel === 'WHATSAPP' ? t('testSendDestinationHelpWhatsapp') : t('testSendDestinationHelpEmail')}
-          </span>
-        </label>
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={!ready || pending || destination.trim() === ''}
-          key="test-send"
-          data-testid="campaign-test-send-button"
-        >
-          {pending ? t('testSendSending') : t('testSendButton')}
-        </Button>
-      </form>
-      {state.status === 'sent' && <p className="text-sm text-muted-foreground">{t('testSendSuccess')}</p>}
-      {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
+      {hasSelectedList && !canSend ? (
+        <p className="text-sm text-muted-foreground">{t('campaignSendNoPermission')}</p>
+      ) : (
+        <>
+          <form id={formId} action={action} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <input type="hidden" name="listId" value={listId} />
+            <input type="hidden" name="channel" value={channel} />
+            <input type="hidden" name="templateId" value={templateId} />
+            <label className="flex flex-1 flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">{t('testSendDestinationLabel')}</span>
+              <Input
+                name="destination"
+                value={destination}
+                onChange={(event) => setDestination(event.target.value)}
+                disabled={!ready}
+                data-testid="campaign-test-send-destination"
+              />
+              <span className="text-xs text-muted-foreground">
+                {channel === 'WHATSAPP' ? t('testSendDestinationHelpWhatsapp') : t('testSendDestinationHelpEmail')}
+              </span>
+            </label>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={!ready || pending || destination.trim() === ''}
+              key="test-send"
+              data-testid="campaign-test-send-button"
+            >
+              {pending ? t('testSendSending') : t('testSendButton')}
+            </Button>
+          </form>
+          {state.status === 'sent' && <p className="text-sm text-muted-foreground">{t('testSendSuccess')}</p>}
+          {state.status === 'error' && <p className="text-sm text-destructive">{state.message}</p>}
+        </>
+      )}
     </div>
   );
 }
