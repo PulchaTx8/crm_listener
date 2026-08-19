@@ -1,5 +1,5 @@
 begin;
-select plan(102);
+select plan(110);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -1036,6 +1036,63 @@ select is(
   (select jsonb_agg(jsonb_build_object('member_id', member_id, 'channel', channel, 'eligible', eligible) order by channel, member_id)
      from t0246_worker_view),
   'the operator''s door and the worker''s door answer identically for all six listeners on BOTH channels, row for row -- proof the two share one rule, channel included, rather than each holding a copy of it');
+
+-- ---------------------------------------------------------------------------
+-- Task 6b fix round 1 (review Item 2). bump_campaign_counters (0247): the
+-- atomic increment PostgREST cannot express -- see 0247's own header for why
+-- a read-then-write from TypeScript loses an update under two overlapping
+-- ticks settling the same campaign.
+-- ---------------------------------------------------------------------------
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-024700000001', 'Org campaign counters 0247');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024700000002', '00000000-0000-0000-0000-024700000001', 'Station 0247');
+insert into public.send_lists (id, organization_id, company_id, name, source, kind) values
+  ('00000000-0000-0000-0000-024700000003', '00000000-0000-0000-0000-024700000001',
+   '00000000-0000-0000-0000-024700000002', 'Lista 0247', 'members', 'living');
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, name, language, body) values
+  ('00000000-0000-0000-0000-024700000004', '00000000-0000-0000-0000-024700000001',
+   '00000000-0000-0000-0000-024700000002', 'WHATSAPP', 'Modelo 0247', 'modelo_0247', 'pt_BR', 'Corpo {{1}}');
+insert into public.message_campaigns (id, organization_id, company_id, list_id, channel, template_id) values
+  ('00000000-0000-0000-0000-024700000005', '00000000-0000-0000-0000-024700000001',
+   '00000000-0000-0000-0000-024700000002', '00000000-0000-0000-0000-024700000003', 'WHATSAPP',
+   '00000000-0000-0000-0000-024700000004');
+
+select has_function('public', 'bump_campaign_counters', 'bump_campaign_counters exists');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.bump_campaign_counters(uuid, integer, integer, integer)', 'EXECUTE'),
+  'service_role may bump a campaign''s counters -- the drain''s own atomic settle write');
+select ok(
+  not has_function_privilege('authenticated',
+    'public.bump_campaign_counters(uuid, integer, integer, integer)', 'EXECUTE'),
+  'authenticated may not -- this is the worker''s own write, not an operator door');
+select ok(
+  not has_function_privilege('anon',
+    'public.bump_campaign_counters(uuid, integer, integer, integer)', 'EXECUTE'),
+  'nor anon');
+select ok(
+  not has_function_privilege('public',
+    'public.bump_campaign_counters(uuid, integer, integer, integer)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+
+-- Two calls, as two overlapping ticks would make them: proof this
+-- accumulates rather than overwrites, which is the whole reason it exists
+-- rather than a plain PostgREST update.
+select public.bump_campaign_counters('00000000-0000-0000-0000-024700000005', 3, 1, 0);
+select public.bump_campaign_counters('00000000-0000-0000-0000-024700000005', 2, 0, 1);
+
+select is(
+  (select sent_count from public.message_campaigns where id = '00000000-0000-0000-0000-024700000005'),
+  5, 'two calls accumulate rather than overwrite -- sent_count is the sum of both calls'' deltas');
+select is(
+  (select failed_count from public.message_campaigns where id = '00000000-0000-0000-0000-024700000005'),
+  1, 'failed_count carries the first call''s delta forward through the second');
+select is(
+  (select suppressed_count from public.message_campaigns where id = '00000000-0000-0000-0000-024700000005'),
+  1, 'suppressed_count carries the second call''s delta, not overwritten by it');
 
 select finish();
 rollback;

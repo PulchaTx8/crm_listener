@@ -4553,6 +4553,19 @@ export type Database = {
         Args: { p_organization_id: string; p_reason: string }
         Returns: undefined
       }
+      bump_campaign_counters: {
+        Args: {
+          p_campaign_id: string
+          p_failed: number
+          p_sent: number
+          p_suppressed: number
+        }
+        Returns: {
+          failed_count: number
+          sent_count: number
+          suppressed_count: number
+        }[]
+      }
       cancel_campaign: {
         Args: { p_campaign_id: string; p_reason: string }
         Returns: number

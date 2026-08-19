@@ -65,7 +65,7 @@ const post = (headers: Record<string, string>) =>
 const NO_ERASURES = { deleted: 0, failed: 0 };
 const NO_REPORTS = { requeued: 0, claimed: 0, ready: 0, failed: 0 };
 const NO_PLACES = { resolved: 0, failed: 0, skipped: 0 };
-const NO_CAMPAIGNS = { claimed: 0, sent: 0, failed: 0, suppressed: 0 };
+const NO_CAMPAIGNS = { claimed: 0, sent: 0, failed: 0, suppressed: 0, dbErrors: 0 };
 
 beforeEach(() => {
   runTick.mockReset();
