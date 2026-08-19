@@ -100,8 +100,36 @@ describe('EmailMessagingProvider', () => {
       sender: { fromName: 'Rádio Pulcha FM', fromAddress: 'campanhas@pulcha.fm', replyTo: 'contato@pulcha.fm' },
     });
 
-    expect(mailer.calls[0]?.from).toBe('Rádio Pulcha FM <campanhas@pulcha.fm>');
+    expect(mailer.calls[0]?.from).toBe('"Rádio Pulcha FM" <campanhas@pulcha.fm>');
     expect(mailer.calls[0]?.headers?.['Reply-To']).toBe('contato@pulcha.fm');
+  });
+
+  it('quotes a sender name containing a comma so it survives as one address token', async () => {
+    // pt-BR writes a frequency's decimal separator as a comma, so
+    // "Rádio Alvorada 96,5 FM" is the ordinary shape of this field, not an
+    // edge case — an unquoted display name would split on that comma into two
+    // address-list entries, the second of which is not an address at all.
+    const mailer = fakeMailer();
+    const provider = new EmailMessagingProvider(mailer);
+
+    await provider.send({
+      ...baseEmailJob,
+      sender: { fromName: 'Rádio Alvorada 96,5 FM', fromAddress: 'campanhas@alvorada.fm', replyTo: null },
+    });
+
+    expect(mailer.calls[0]?.from).toBe('"Rádio Alvorada 96,5 FM" <campanhas@alvorada.fm>');
+  });
+
+  it('escapes an embedded quote in the sender name rather than letting it break the quoting', async () => {
+    const mailer = fakeMailer();
+    const provider = new EmailMessagingProvider(mailer);
+
+    await provider.send({
+      ...baseEmailJob,
+      sender: { fromName: 'Rádio "A Voz" FM', fromAddress: 'campanhas@avoz.fm', replyTo: null },
+    });
+
+    expect(mailer.calls[0]?.from).toBe('"Rádio \\"A Voz\\" FM" <campanhas@avoz.fm>');
   });
 
   it('omits `from` entirely when the job carries no sender identity, leaving the installation default', async () => {
@@ -160,6 +188,22 @@ describe('EmailMessagingProvider', () => {
     expect(outcome).toMatchObject({ ok: false, retryable: false, code: 'eenvelope' });
   });
 
+  it('reports a TLS handshake failure with no server response as retryable', async () => {
+    // nodemailer sets `code: 'ETLS'` with no responseCode for a STARTTLS
+    // upgrade that never completes (a cert or cipher mismatch, a connection
+    // dropped mid-handshake) — read directly from
+    // node_modules/nodemailer/lib/smtp-connection/index.js and
+    // smtp-transport/index.js rather than assumed. Nothing about the message
+    // was refused; the TLS layer never produced a usable connection.
+    const mailer = fakeMailer();
+    mailer.rejectNextWith(smtpError('Error initiating TLS - self-signed certificate', { code: 'ETLS' }));
+    const provider = new EmailMessagingProvider(mailer);
+
+    const outcome = await provider.send(baseEmailJob);
+
+    expect(outcome).toMatchObject({ ok: false, retryable: true, code: 'etls' });
+  });
+
   it('returns the mailer id as providerMessageId on success', async () => {
     const mailer = fakeMailer();
     const provider = new EmailMessagingProvider(mailer);
@@ -167,6 +211,18 @@ describe('EmailMessagingProvider', () => {
     const outcome = await provider.send(baseEmailJob);
 
     expect(outcome).toEqual({ ok: true, providerMessageId: 'mail-1' });
+  });
+
+  it('throws rather than sending when handed a job for the wrong channel', async () => {
+    // A later change that quietly turned this guard into a swallowed failure
+    // would route an e-mail job through the WhatsApp provider (or vice versa)
+    // and lose it silently rather than failing loudly — this case is what
+    // would catch that regression.
+    const mailer = fakeMailer();
+    const provider = new EmailMessagingProvider(mailer);
+
+    await expect(provider.send(baseWhatsAppJob)).rejects.toThrow(TypeError);
+    expect(mailer.calls).toHaveLength(0);
   });
 });
 
@@ -266,5 +322,16 @@ describe('WhatsAppMessagingProvider', () => {
     } else {
       throw new Error('expected a failure outcome');
     }
+  });
+
+  it('throws rather than sending when handed a job for the wrong channel', async () => {
+    // See EmailMessagingProvider's identical case: a routing bug that quietly
+    // became a swallowed failure would route a WhatsApp job through the
+    // e-mail provider (or vice versa) and lose it silently.
+    const transport = fakeTransport();
+    const provider = new WhatsAppMessagingProvider(transport);
+
+    await expect(provider.send(baseEmailJob)).rejects.toThrow(TypeError);
+    expect(transport.sentTemplates).toHaveLength(0);
   });
 });
