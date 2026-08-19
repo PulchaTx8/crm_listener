@@ -28,9 +28,14 @@
 -- SO: a narrow, new, per-Station door, the same shape 0246's own
 -- members_marketing_eligible_bulk_for_worker is for its caller -- a
 -- SEPARATE, VISIBLY DIFFERENT door rather than one more arm bolted onto an
--- existing gate. NO SECRET LEAVES IT: only phone_number_id, which 0057's own
--- table comment calls out by name as not one ("Holds no secret (design spec
--- D6)... phone_number_id, WABA id, display number and nothing else").
+-- existing gate. NO SECRET LEAVES IT: only phone_number_id -- this table's
+-- own comment says it "Holds no secret (design spec D6)" (0057), and 0130's
+-- own header, about the door onto it list_integrations/upsert_integration/
+-- disable_integration share, is more specific still: "NO SECRET IS WRITTEN
+-- HERE. These functions carry identifiers -- the phone_number_id, the WABA
+-- id, the display number -- and nothing else" (0130:19-20, fix round 1, F5 --
+-- attributed to 0057 as one quotation in this migration's first draft,
+-- which it was not).
 -- Gated on messaging.view -- the same permission that gates the whole
 -- campaigns screen and, per the addendum, the test send along with it
 -- ("messaging.send gates the send button and the cancel button, separately

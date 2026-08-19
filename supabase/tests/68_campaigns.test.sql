@@ -1,5 +1,5 @@
 begin;
-select plan(123);
+select plan(135);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -451,6 +451,20 @@ select throws_ok(
       '{}'::jsonb,
       jsonb_build_object('00000000-0000-0000-0000-024300000004', jsonb_build_array('Maria')))$$,
   '22023', null, 'create_campaign refuses WHATSAPP-shaped variables for an EMAIL campaign');
+
+-- Fix round 1, F4. An EMAIL element missing the `name` key (or `value`)
+-- entirely -- not merely holding the wrong type -- is the shape the
+-- reviewer confirmed slipped through before this fix: `e -> 'name'` is SQL
+-- NULL when the key is absent, `jsonb_typeof(NULL)` is NULL, and `where not
+-- (... and NULL and ...)` drops the row under three-valued logic rather
+-- than flagging it.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'EMAIL', '00000000-0000-0000-0000-024300000011', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb,
+      jsonb_build_object('00000000-0000-0000-0000-024300000004',
+        jsonb_build_array(jsonb_build_object('value', 'Maria'))))$$,
+  '22023', null, 'create_campaign refuses an e-mail variable element with no name key at all');
 
 -- Not even a JSON array at all -- the "unnamed 22023 from
 -- jsonb_array_elements" case this guard exists to pre-empt with its own
@@ -1230,6 +1244,95 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000017", 
 select is(
   public.campaign_whatsapp_sender('00000000-0000-0000-0000-024300000002'),
   'phone-number-id-0243', 'and the phone_number_id once one exists, disabled or not');
+reset role;
+
+-- Fix round 1, F12. A messaging.view holder at STATION A is refused STATION
+-- B's own phone_number_id -- the door's gate is per-Station, checked
+-- against p_company_id, not merely "does this caller hold messaging.view
+-- anywhere". Station B gets its OWN integration row first, a real number
+-- rather than an id that would answer null either way -- proving this is a
+-- permission refusal, not an absence.
+insert into public.integrations (id, organization_id, company_id, provider, phone_number_id) values
+  ('00000000-0000-0000-0000-024300000019', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000003', 'WHATSAPP', 'phone-number-id-0243-b');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000017", "role": "authenticated"}';
+select throws_ok(
+  $$select public.campaign_whatsapp_sender('00000000-0000-0000-0000-024300000003')$$,
+  '42501', null, 'a messaging.view holder at Station A is refused Station B''s own phone_number_id');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- 0249. record_campaign_test_send -- the one write a test send performs
+-- (fix round 1, F2): re-checks messaging.send (the campaign screen's own
+-- Send Test button now checks the same permission before rendering) and
+-- writes the one audit_logs row a test send leaves.
+-- ---------------------------------------------------------------------------
+
+select has_function('public', 'record_campaign_test_send', 'record_campaign_test_send exists');
+
+select ok(
+  has_function_privilege('authenticated', 'public.record_campaign_test_send(uuid, public.message_channel, uuid, uuid, text)', 'EXECUTE'),
+  'authenticated may call it');
+select ok(
+  not has_function_privilege('anon', 'public.record_campaign_test_send(uuid, public.message_channel, uuid, uuid, text)', 'EXECUTE'),
+  'anon may not');
+select ok(
+  not has_function_privilege('public', 'public.record_campaign_test_send(uuid, public.message_channel, uuid, uuid, text)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+select ok(
+  not has_function_privilege('service_role', 'public.record_campaign_test_send(uuid, public.message_channel, uuid, uuid, text)', 'EXECUTE'),
+  'nor service_role -- the drain never test-sends, only an operator does');
+
+-- Neither messaging.view (...017) nor messaging.manage (...015) satisfies
+-- this gate -- only messaging.send does, the same split create_campaign and
+-- cancel_campaign already enforce for the real send and the cancel.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000017", "role": "authenticated"}';
+select throws_ok(
+  $$select public.record_campaign_test_send('00000000-0000-0000-0000-024300000002', 'WHATSAPP',
+      '00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000009', '+55 11 90000-0009')$$,
+  '42501', null, 'messaging.view alone cannot call record_campaign_test_send -- messaging.send is required');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000015", "role": "authenticated"}';
+select throws_ok(
+  $$select public.record_campaign_test_send('00000000-0000-0000-0000-024300000002', 'WHATSAPP',
+      '00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000009', '+55 11 90000-0009')$$,
+  '42501', null, 'messaging.manage alone cannot call it either');
+reset role;
+
+-- messaging.send (...014) succeeds, and writes exactly one audit_logs row
+-- naming the actor, the channel, the template and the destination in the
+-- clear -- unlike create_campaign's own audit row, this one is not about a
+-- member.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+select lives_ok(
+  $$select public.record_campaign_test_send('00000000-0000-0000-0000-024300000002', 'WHATSAPP',
+      '00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000009', '+55 11 90000-0009')$$,
+  'messaging.send may call record_campaign_test_send');
+reset role;
+
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'campaign_test_send'
+      and company_id = '00000000-0000-0000-0000-024300000002'
+      and actor_id = '00000000-0000-0000-0000-024300000014'
+      and detail ->> 'destination' = '+55 11 90000-0009'
+      and detail ->> 'channel' = 'WHATSAPP'
+      and detail ->> 'template_id' = '00000000-0000-0000-0000-024300000009'),
+  1, 'the audit row names the actor, the Station, the channel, the template and the destination');
+
+-- An unknown Station is P0002, not a silent no-op.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+select throws_ok(
+  $$select public.record_campaign_test_send('00000000-0000-0000-0000-024300000fff', 'WHATSAPP',
+      '00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000009', '+55 11 90000-0009')$$,
+  'P0002', null, 'record_campaign_test_send refuses an unknown Station');
 reset role;
 
 select finish();

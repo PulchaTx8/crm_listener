@@ -171,6 +171,17 @@ begin
     raise exception 'a recipient''s variable values must be a JSON array' using errcode = '22023';
   end if;
 
+  -- WHATSAPP and EMAIL, EXPLICITLY, NOT if/else. 0222's own comment on
+  -- message_channel anticipates a third value ("a third (SMS, push) is a
+  -- later block adding one"), and a bare `else` here would apply EMAIL's
+  -- own element shape to it by accident the day that value exists, the
+  -- exact class of defect the `exhaustive: never` guard already fences
+  -- against on the TypeScript side of this feature (resolveListMembers'
+  -- own switch, services/send-lists.ts, and every sibling it names). The
+  -- final branch below is unreachable today -- message_channel holds
+  -- exactly two values -- and stays that way on purpose: it is what turns
+  -- a third value arriving with no matching branch into a loud failure
+  -- here, at campaign creation, rather than a silent one at the drain.
   if p_channel = 'WHATSAPP' then
     if exists (
       select 1
@@ -181,20 +192,39 @@ begin
       raise exception 'a WhatsApp campaign''s variable values must be a positional array of strings'
         using errcode = '22023';
     end if;
-  else
+  elsif p_channel = 'EMAIL' then
+    -- Each element must carry BOTH keys as strings. `e -> 'name'`/`e ->
+    -- 'value'` are SQL NULL, not jsonb null, whenever the key is absent --
+    -- and `jsonb_typeof(NULL)` is itself NULL, which `and`s with the other
+    -- two conjuncts under three-valued logic to NULL rather than FALSE, and
+    -- `where not (NULL)` is also NULL, which a WHERE clause treats as "does
+    -- not match": `[{"value": "Maria"}]`, missing `name` entirely, passed
+    -- this door silently before this fix (fix round 1, F4, confirmed against
+    -- the live database), was snapshotted, and failed every recipient one
+    -- at a time at drain time -- exactly the outcome this whole guard exists
+    -- to prevent. `coalesce(..., '')` closes it: a missing key now compares
+    -- to '' rather than NULL, which is definitively not 'string', which
+    -- makes the conjunct definitively FALSE rather than unknown.
     if exists (
       select 1
         from unnest(v_member_ids) as m
         cross join lateral jsonb_array_elements(coalesce(p_variables -> m::text, '[]'::jsonb)) as e
        where not (
          jsonb_typeof(e) = 'object'
-         and jsonb_typeof(e -> 'name') = 'string'
-         and jsonb_typeof(e -> 'value') = 'string'
+         and coalesce(jsonb_typeof(e -> 'name'), '') = 'string'
+         and coalesce(jsonb_typeof(e -> 'value'), '') = 'string'
        )
     ) then
       raise exception 'an e-mail campaign''s variable values must be named {name, value} pairs'
         using errcode = '22023';
     end if;
+  else
+    -- Unreachable today (see this block's own header) -- a defensive raise,
+    -- not a validation of caller input, so no errcode override: a third
+    -- channel reaching here means this function itself was not updated when
+    -- that channel was added, which is this door's own defect to fix, not
+    -- the caller's mistake to be told about.
+    raise exception 'create_campaign has no variables-shape guard for channel % yet', p_channel;
   end if;
 
   insert into public.message_campaigns
