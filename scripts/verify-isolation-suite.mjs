@@ -567,7 +567,19 @@ const REQUIRED_TEST_FILES = [
   // one. Seeds an expired, unconsumed unsubscribe_tokens row, calls the
   // sweep, and reads the row back. Measured to fail against a mutation that
   // comments out that one delete, restored once the failure was seen.
-  { path: 'tests/isolation/retention.test.ts', minTests: 4 },
+  //
+  // Block 29d-2, Task 8: three more, for message_campaign_recipients (0242),
+  // the identical weakness one table over -- 24_retention.test.sql's own
+  // source assertions prove the DELETE's join and window are WRITTEN, not
+  // that a row is actually removed. A `sent` campaign finished a day past
+  // the 180-day window; the boundary's other half, well inside it; and a
+  // CANCELLED campaign, whose recipients age on cancelled_at because
+  // cancel_campaign (0243) never sets finished_at at all -- the case that
+  // proves the sweep's `coalesce(finished_at, cancelled_at)` is real rather
+  // than a finished_at check that happens to also mention "cancelled".
+  // Measured to fail against the identical mutation (commenting out the
+  // message_campaign_recipients delete), restored once the failure was seen.
+  { path: 'tests/isolation/retention.test.ts', minTests: 7 },
   // Block 11b: the stamping, CALLED. pgTAP cannot -- it wraps every file in a
   // transaction it rolls back, and a routine that COMMITS raises inside one,
   // which is how the first retention sweep shipped deleting nothing with every

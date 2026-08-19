@@ -210,3 +210,178 @@ describe('Block 29c, Task 10 fix round 1, F27 — the sweep actually deletes an 
     expect(await unsubscribeTokenExists(tokenId), 'the expired token survived the sweep').toBe(false);
   }, 60_000);
 });
+
+/**
+ * Block 29d-2, Task 8. message_campaign_recipients (0242) carries no
+ * timestamp of its own to sweep on -- 24_retention.test.sql's own source
+ * assertions can prove the sweep's DELETE joins to message_campaigns and
+ * names the right window, but not that the join and the window actually
+ * remove a row, for the same reason the rest of this file exists:
+ * sweep_retention COMMITs, and pgTAP's own transaction would roll any of it
+ * back before the DELETE could be observed.
+ *
+ * A DIRECT INSERT, the same shape seedExpiredUnsubscribeToken above uses, and
+ * for the identical reason: message_campaign_recipients grants service_role
+ * only select+update (0242's own grant comment -- create_campaign is the
+ * table's only writer), so no client this test could sign in as may insert a
+ * row here at all.
+ */
+async function seedFinishedCampaignRecipient(params: {
+  organizationId: string;
+  companyId: string;
+  memberId: string;
+  cancelledByUserId: string;
+  /** 'sent' ages on finished_at; 'cancelled' ages on cancelled_at, the fallback clock cancel_campaign (0243) is the only door that ever sets. */
+  campaignStatus: 'sent' | 'cancelled';
+  /** How many days ago the clock (finished_at or cancelled_at) is set to. */
+  ageDays: number;
+}): Promise<{ campaignId: string; recipientId: string }> {
+  const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+  await client.connect();
+  try {
+    const list = await client.query<{ id: string }>(
+      `insert into public.send_lists (organization_id, company_id, name, source, kind)
+       values ($1, $2, 'Retention sweep fixture list', 'members', 'living')
+       returning id`,
+      [params.organizationId, params.companyId],
+    );
+    const template = await client.query<{ id: string }>(
+      `insert into public.message_templates
+         (organization_id, company_id, channel, internal_name, name, language, body)
+       values ($1, $2, 'WHATSAPP', 'retention-fixture-template', 'retention_fixture_template', 'pt_BR', 'fixture body')
+       returning id`,
+      [params.organizationId, params.companyId],
+    );
+
+    const isCancelled = params.campaignStatus === 'cancelled';
+    const campaign = await client.query<{ id: string }>(
+      `insert into public.message_campaigns
+         (organization_id, company_id, list_id, channel, template_id, status,
+          finished_at, cancelled_at, cancelled_by)
+       values ($1, $2, $3, 'WHATSAPP', $4, $5::public.campaign_status,
+               case when $6 then null else now() - make_interval(days => $7) end,
+               case when $6 then now() - make_interval(days => $7) else null end,
+               case when $6 then $8::uuid else null end)
+       returning id`,
+      [
+        params.organizationId,
+        params.companyId,
+        list.rows[0]!.id,
+        template.rows[0]!.id,
+        params.campaignStatus,
+        isCancelled,
+        params.ageDays,
+        params.cancelledByUserId,
+      ],
+    );
+
+    const recipient = await client.query<{ id: string }>(
+      `insert into public.message_campaign_recipients
+         (campaign_id, member_id, channel, address, variables, status, provider_message_id)
+       values ($1, $2, 'WHATSAPP', '+55 11 90000-0000', '[]'::jsonb, $3::public.campaign_recipient_status, $4)
+       returning id`,
+      [
+        campaign.rows[0]!.id,
+        params.memberId,
+        isCancelled ? 'cancelled' : 'sent',
+        isCancelled ? null : 'retention-fixture-provider-id',
+      ],
+    );
+
+    return { campaignId: campaign.rows[0]!.id, recipientId: recipient.rows[0]!.id };
+  } finally {
+    await client.end();
+  }
+}
+
+/** Read the same way callSweep calls -- a direct connection, since this table carries no PostgREST grant a test client could read through instead. */
+async function campaignRecipientExists(recipientId: string): Promise<boolean> {
+  const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+  await client.connect();
+  try {
+    const result = await client.query('select 1 from public.message_campaign_recipients where id = $1', [
+      recipientId,
+    ]);
+    return (result.rowCount ?? 0) > 0;
+  } finally {
+    await client.end();
+  }
+}
+
+describe("Block 29d-2, Task 8 — the sweep actually deletes a finished campaign's recipient rows", () => {
+  let customer: ProvisionedCustomer;
+  let memberId: string;
+  let oldSentRecipientId: string;
+  let freshSentRecipientId: string;
+  let oldCancelledRecipientId: string;
+
+  beforeAll(async () => {
+    customer = await provisionCustomer(`retention-campaigns-${STAMP}`);
+    memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: `Retention Campaign Listener ${STAMP}`,
+    });
+
+    // One day past the 180-day window a `sent` campaign is kept for -- not
+    // merely past it, so this case cannot pass on a boundary rounding error.
+    ({ recipientId: oldSentRecipientId } = await seedFinishedCampaignRecipient({
+      organizationId: customer.organizationId,
+      companyId: customer.companyId,
+      memberId,
+      cancelledByUserId: customer.userId,
+      campaignStatus: 'sent',
+      ageDays: 181,
+    }));
+
+    // Well inside the window -- the boundary's other half, in the same
+    // table, so the assertion below is about the BOUNDARY and not merely
+    // about the delete running at all.
+    ({ recipientId: freshSentRecipientId } = await seedFinishedCampaignRecipient({
+      organizationId: customer.organizationId,
+      companyId: customer.companyId,
+      memberId,
+      cancelledByUserId: customer.userId,
+      campaignStatus: 'sent',
+      ageDays: 10,
+    }));
+
+    // A CANCELLED campaign, past the window on cancelled_at with finished_at
+    // left null -- cancel_campaign (0243) never sets finished_at, so this is
+    // the case that proves the sweep's `coalesce(finished_at, cancelled_at)`
+    // is real and not merely a finished_at check that happens to also
+    // mention the word "cancelled" somewhere in its source.
+    ({ recipientId: oldCancelledRecipientId } = await seedFinishedCampaignRecipient({
+      organizationId: customer.organizationId,
+      companyId: customer.companyId,
+      memberId,
+      cancelledByUserId: customer.userId,
+      campaignStatus: 'cancelled',
+      ageDays: 181,
+    }));
+  }, 60_000);
+
+  afterAll(async () => {
+    await cleanupUsers();
+  }, 60_000);
+
+  it('removes a recipient row of a `sent` campaign finished a day past the 180-day window', async () => {
+    await expect(callSweep(), 'sweep_retention raised').resolves.toBeUndefined();
+    expect(
+      await campaignRecipientExists(oldSentRecipientId),
+      'the recipient row of a campaign finished past its window survived the sweep',
+    ).toBe(false);
+  }, 60_000);
+
+  it('leaves a recipient row of a `sent` campaign finished well inside the window alone', async () => {
+    expect(
+      await campaignRecipientExists(freshSentRecipientId),
+      'the recipient row of a campaign finished inside its window was deleted',
+    ).toBe(true);
+  }, 60_000);
+
+  it('removes a recipient row of a CANCELLED campaign past the window on cancelled_at, which finished_at alone would miss', async () => {
+    expect(
+      await campaignRecipientExists(oldCancelledRecipientId),
+      'the recipient row of a cancelled campaign past its own window survived the sweep',
+    ).toBe(false);
+  }, 60_000);
+});

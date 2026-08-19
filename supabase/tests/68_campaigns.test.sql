@@ -1,5 +1,5 @@
 begin;
-select plan(135);
+select plan(144);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -1334,6 +1334,151 @@ select throws_ok(
       '00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000009', '+55 11 90000-0009')$$,
   'P0002', null, 'record_campaign_test_send refuses an unknown Station');
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- 0250. Task 8 -- erasure reaches message_campaign_recipients. The retention
+-- SWEEP cannot be exercised here: it COMMITs internally and this whole file
+-- runs inside one transaction pgTAP rolls back (24_retention.test.sql's own
+-- header explains why), so the sweep's own behaviour is proved in
+-- tests/isolation/retention.test.ts instead. What belongs here is
+-- anonymize_member, an ordinary SECURITY DEFINER function this transaction
+-- can call and roll back like anything else.
+--
+-- Two campaigns because message_campaign_recipients_one_row_per_listener
+-- (0242) forbids two rows for the same listener in the same campaign: one
+-- WHATSAPP row left `pending`, one EMAIL row already `claimed`, so both of
+-- 0250's own branches (flip to suppressed; leave exactly as it stands) are
+-- exercised on the SAME erased listener, not two different ones. A third
+-- row, a DIFFERENT listener's, is the control that proves the erasure is
+-- scoped by member_id and not a blanket clear of the whole table.
+-- ---------------------------------------------------------------------------
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-025000000001', 'Org campaign erasure 0250');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000001', 'Station 0250');
+
+insert into public.send_lists (id, organization_id, company_id, name, source, kind) values
+  ('00000000-0000-0000-0000-025000000003', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', 'Lista 0250', 'members', 'living');
+
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, name, language, body) values
+  ('00000000-0000-0000-0000-025000000004', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', 'WHATSAPP', 'Modelo 0250', 'modelo_0250', 'pt_BR',
+   'Corpo de teste do Bloco 0250');
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, subject, body) values
+  ('00000000-0000-0000-0000-025000000005', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', 'EMAIL', 'Modelo 0250 email', 'Assunto 0250',
+   'Corpo de e-mail de teste do Bloco 0250');
+
+insert into public.message_campaigns (id, organization_id, company_id, list_id, channel, template_id) values
+  ('00000000-0000-0000-0000-025000000006', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000003', 'WHATSAPP',
+   '00000000-0000-0000-0000-025000000004'),
+  ('00000000-0000-0000-0000-025000000007', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000003', 'EMAIL',
+   '00000000-0000-0000-0000-025000000005');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-025000000008', '00000000-0000-0000-0000-025000000001', 'Ouvinte a ser apagado 0250'),
+  ('00000000-0000-0000-0000-025000000009', '00000000-0000-0000-0000-025000000001', 'Ouvinte controle 0250');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-025000000008', '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000001'),
+  ('00000000-0000-0000-0000-025000000009', '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000001');
+
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-025000000010', '00000000-0000-0000-0000-025000000001', 'Eraser 0250');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-025000000010', 'members.view'),
+  ('00000000-0000-0000-0000-025000000010', 'members.erase');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-025000000011', 'eraser-0250@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-025000000011', '00000000-0000-0000-0000-025000000002',
+   '00000000-0000-0000-0000-025000000001', '00000000-0000-0000-0000-025000000010');
+
+-- The erased listener's own two rows: one `pending` on the WHATSAPP campaign
+-- (variables a positional array of strings, 0242's own WHATSAPP shape), one
+-- already `claimed` on the EMAIL campaign (variables an array of {name,
+-- value} objects naming template_variable placeholders, 0242's own EMAIL
+-- shape -- the very values Task 8's brief names as carrying a first name,
+-- full name and city).
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status)
+values
+  ('00000000-0000-0000-0000-025000000012', '00000000-0000-0000-0000-025000000006',
+   '00000000-0000-0000-0000-025000000008', 'WHATSAPP', '+55 11 98888-0000',
+   '["Erasure", "Cidade Erasure"]'::jsonb, 'pending');
+
+-- Inserted separately, and WITH claimed_at in the same statement --
+-- message_campaign_recipients_claim_shape (0242) requires it the instant the
+-- row exists, not merely by the time this fixture is done setting it up.
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status, claimed_at)
+values
+  ('00000000-0000-0000-0000-025000000013', '00000000-0000-0000-0000-025000000007',
+   '00000000-0000-0000-0000-025000000008', 'EMAIL', 'erase-me-0250@example.test',
+   '[{"name": "listener_first_name", "value": "Erasure"}]'::jsonb, 'claimed', now());
+
+-- The control listener's row, on the SAME WHATSAPP campaign as the erased
+-- listener's `pending` row above -- the same table, the same campaign,
+-- untouched, because member_id is what scopes the erasure and not campaign_id.
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status)
+values
+  ('00000000-0000-0000-0000-025000000014', '00000000-0000-0000-0000-025000000006',
+   '00000000-0000-0000-0000-025000000009', 'WHATSAPP', '+55 11 97777-0000',
+   '["Controle"]'::jsonb, 'pending');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-025000000011", "role": "authenticated"}';
+select lives_ok(
+  $$select public.anonymize_member('00000000-0000-0000-0000-025000000008', 'subject_request')$$,
+  'members.erase lets the operator erase the listener');
+reset role;
+
+-- The `pending` row: address and variables cleared, and moved to
+-- `suppressed` -- left `pending`, claim_campaign_batch would still claim a
+-- row with no address to send to.
+select ok(
+  (select address is null from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000012'),
+  'the pending row''s address is cleared by anonymize_member');
+select is(
+  (select variables from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000012'),
+  '[]'::jsonb, 'and its variables -- the listener''s own first name and city -- are cleared too');
+select is(
+  (select status::text from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000012'),
+  'suppressed', 'and it is moved to suppressed, since a row with no address is not the sendable row pending claims to be');
+
+-- The `claimed` row: address and variables cleared the same way, but status
+-- left exactly as it stands -- the drain's own eligibility re-check settles
+-- it, not this function.
+select ok(
+  (select address is null from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000013'),
+  'the claimed row''s address is cleared too');
+select is(
+  (select variables from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000013'),
+  '[]'::jsonb, 'and its variables are cleared too');
+select is(
+  (select status::text from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000013'),
+  'claimed', 'but a claimed row is left claimed -- the drain re-checks eligibility before it ever reads an address');
+
+-- The control row: a different listener, same campaign, untouched -- proof
+-- the erasure is scoped by member_id, not a blanket clear.
+select is(
+  (select address from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000014'),
+  '+55 11 97777-0000', 'a different listener''s row on the same campaign keeps its own address');
+select is(
+  (select status::text from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000014'),
+  'pending', 'and keeps its own pending status');
 
 select finish();
 rollback;

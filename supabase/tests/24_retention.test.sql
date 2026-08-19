@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(24);
 
 -- Block 11a. The retention sweep, and the two lists it must never grow.
 
@@ -162,6 +162,38 @@ select ok(
   (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
     like '%delete from public.unsubscribe_tokens%where consumed_at is not null%or expires_at < now() - interval ''30 days''%',
   'a spent token is swept at any age; an unused one waits 30 days past its own expiry, the same clock widget_link_tokens is swept on');
+
+-- ---------------------------------------------------------------------------
+-- Block 29d-2, Task 8. message_campaign_recipients (0242) -- a real person's
+-- phone number or e-mail address, and an EMAIL campaign's own resolved
+-- variable values (a listener's first name, full name and city). Asserted
+-- with the same SECOND-DISPATCH tightening as widget_link_tokens and
+-- unsubscribe_tokens above: on the exact delete statement, not on a comment
+-- that could name the table with no delete behind it -- pg_get_functiondef
+-- returns comments too, and a commented-out delete satisfies a `like` that
+-- only checks the table name is mentioned somewhere.
+--
+-- UNLIKE every table above, this one carries no timestamp column of its own
+-- to sweep on -- only the campaign it belongs to, joined in with `using`.
+-- Asserted as three separate patterns rather than one long one so that
+-- weakening any single part (the join, the window, or which statuses count
+-- as finished) fails its own assertion rather than hiding behind the other
+-- two.
+-- ---------------------------------------------------------------------------
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%delete from public.message_campaign_recipients r%using public.message_campaigns c%where r.campaign_id = c.id%',
+  'the sweep deletes from message_campaign_recipients (0250), joined to its own campaign');
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%c.status in (''sent'', ''failed'', ''cancelled'')%',
+  'only rows of a campaign that reached a terminal status are swept -- a queued or running campaign''s recipients are still live work');
+
+select ok(
+  (select pg_get_functiondef(oid) from pg_proc where proname = 'sweep_retention')
+    like '%coalesce(c.finished_at, c.cancelled_at) < now() - interval ''180 days''%',
+  'kept 180 days past the campaign''s own finished_at, or cancelled_at when cancel_campaign stopped it -- that door never sets finished_at, so cancelled_at is the only clock a cancelled campaign''s recipients have');
 
 select * from finish();
 rollback;

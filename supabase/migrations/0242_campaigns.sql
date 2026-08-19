@@ -105,14 +105,16 @@ comment on column public.message_campaigns.cancel_reason is
 --
 -- message_campaign_recipients HOLDS A REAL PERSON'S PHONE NUMBER OR E-MAIL
 -- ADDRESS AND THE VARIABLE VALUES RESOLVED FOR THEM, IN THE CLEAR. That is not
--- an oversight this migration leaves for later to notice: Task 8 (0245)
--- extends anonymize_member to clear address and variables on a listener's rows
--- here the moment they are erased, and wires the retention sweep to remove
--- rows of finished campaigns beyond its window, the same way it already
--- removes outbox_messages and unsubscribe_tokens. A reader who finds contact
--- details sitting in a queue table with no erasure path anywhere in this file
--- should conclude it was missed -- so this sentence says plainly that it is
--- not: 0245 is where it is paid.
+-- an oversight this migration leaves for later to notice: Task 8 (0250 --
+-- 0245 through 0249 were claimed by other tasks of this same block before
+-- Task 8 was written, so the number moved) extends anonymize_member to clear
+-- address and variables on a listener's rows here the moment they are erased,
+-- and wires the retention sweep to remove rows of finished campaigns beyond
+-- its window, the same way it already removes outbox_messages and
+-- unsubscribe_tokens. A reader who finds contact details sitting in a queue
+-- table with no erasure path anywhere in this file should conclude it was
+-- missed -- so this sentence says plainly that it is not: 0250 is where it is
+-- paid.
 -- ---------------------------------------------------------------------------
 create table public.message_campaign_recipients (
   id                  uuid primary key default gen_random_uuid(),
@@ -121,7 +123,7 @@ create table public.message_campaign_recipients (
 
   channel             public.message_channel not null,
 
-  -- NULLABLE, and only because Task 8's anonymize_member (0245) empties it on
+  -- NULLABLE, and only because Task 8's anonymize_member (0250) empties it on
   -- erasure. Unlike outbox_messages.to_phone (0059), which has no member_id to
   -- join erasure through and is only ever cleared by retention age, this table
   -- carries member_id (below) and erasure reaches a row here directly, at
@@ -229,13 +231,13 @@ create table public.message_campaign_recipients (
 );
 
 comment on table public.message_campaign_recipients is
-  'One row per recipient of a campaign -- the snapshot AND the queue, the same row rather than two kept in agreement (see this file''s header). HOLDS A REAL PERSON''S PHONE NUMBER OR E-MAIL ADDRESS AND THEIR RESOLVED VARIABLE VALUES IN THE CLEAR: Task 8 (0245) extends anonymize_member to clear address and variables on a listener''s rows here, and wires the retention sweep to remove rows of finished campaigns beyond its window -- do not read the absence of either mechanism in THIS file as the obligation being skipped; it is paid in 0245. RLS is on with NO POLICY, the same shape send_list_members (0238) uses for its own table: nothing reads this as a user, and the doors (0243) and claim_campaign_batch (0244) reach it from inside a SECURITY DEFINER body, where RLS never applies. UNLIKE send_list_members, service_role DOES hold SELECT and UPDATE here (below) -- the drain (Task 6) settles a send''s outcome with a direct write after calling a provider, no RPC mediates that step, the same reason outbox_messages (0059) grants service_role that exact pair. Its default-ACL TRUNCATE is revoked below regardless: a queue that can be emptied by one statement is worse than a list that can.';
+  'One row per recipient of a campaign -- the snapshot AND the queue, the same row rather than two kept in agreement (see this file''s header). HOLDS A REAL PERSON''S PHONE NUMBER OR E-MAIL ADDRESS AND THEIR RESOLVED VARIABLE VALUES IN THE CLEAR: Task 8 (0250) extends anonymize_member to clear address and variables on a listener''s rows here, and wires the retention sweep to remove rows of finished campaigns beyond its window -- do not read the absence of either mechanism in THIS file as the obligation being skipped; it is paid in 0250. RLS is on with NO POLICY, the same shape send_list_members (0238) uses for its own table: nothing reads this as a user, and the doors (0243) and claim_campaign_batch (0244) reach it from inside a SECURITY DEFINER body, where RLS never applies. UNLIKE send_list_members, service_role DOES hold SELECT and UPDATE here (below) -- the drain (Task 6) settles a send''s outcome with a direct write after calling a provider, no RPC mediates that step, the same reason outbox_messages (0059) grants service_role that exact pair. Its default-ACL TRUNCATE is revoked below regardless: a queue that can be emptied by one statement is worse than a list that can.';
 
 comment on column public.message_campaign_recipients.campaign_id is
   'The campaign this row belongs to. No ON DELETE behaviour: nothing in this project hard-deletes a message_campaigns row -- it outlives everything it describes, like report_runs -- so there is no cascade to reason about.';
 
 comment on column public.message_campaign_recipients.member_id is
-  'The listener this row was resolved for. This is the join outbox_messages (0059) never had, which is exactly why THAT table could only be pruned by retention age and never by erasure -- anonymize_member (0245) reaches these rows by this column directly, whatever their status.';
+  'The listener this row was resolved for. This is the join outbox_messages (0059) never had, which is exactly why THAT table could only be pruned by retention age and never by erasure -- anonymize_member (0250) reaches these rows by this column directly, whatever their status.';
 
 comment on column public.message_campaign_recipients.status is
   'pending, claimed, sent, failed, suppressed or cancelled (campaign_recipient_status, 0241). suppressed is never retried and never counted with failed -- see message_campaigns.suppressed_count.';
@@ -314,8 +316,13 @@ revoke all on public.message_campaign_recipients from anon, authenticated;
 -- Interfaces list names none). outbox_messages (0059) grants service_role the
 -- identical pair, select+update, for the identical reason. No INSERT:
 -- create_campaign (0243) writes the snapshot as the owner. No DELETE: the
--- retention sweep (0245) removes rows itself as a SECURITY DEFINER
--- procedure and does not need the grant either.
+-- retention sweep (0250) removes rows itself and does not need the grant
+-- either -- NOT because it is SECURITY DEFINER (0094's own header proves a
+-- procedure that must COMMIT can carry neither `security definer` nor a `set`
+-- clause; either one makes the first COMMIT raise "invalid transaction
+-- termination"), but because pg_cron runs a scheduled CALL as the role that
+-- scheduled it, the migration-running role that owns this table, the same
+-- reason 0094 gives for sweep_pickup_deadlines needing no such grant.
 grant select, update on public.message_campaign_recipients to service_role;
 
 -- And TRUNCATE, which the default ACL hands out and which neither grant above
