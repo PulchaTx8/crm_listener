@@ -1465,6 +1465,161 @@ export type Database = {
           },
         ]
       }
+      message_campaign_recipients: {
+        Row: {
+          address: string | null
+          attempts: number
+          campaign_id: string
+          channel: Database["public"]["Enums"]["message_channel"]
+          claimed_at: string | null
+          error_code: string | null
+          error_description: string | null
+          id: string
+          member_id: string
+          next_attempt_at: string
+          provider_message_id: string | null
+          status: Database["public"]["Enums"]["campaign_recipient_status"]
+          variables: Json
+        }
+        Insert: {
+          address?: string | null
+          attempts?: number
+          campaign_id: string
+          channel: Database["public"]["Enums"]["message_channel"]
+          claimed_at?: string | null
+          error_code?: string | null
+          error_description?: string | null
+          id?: string
+          member_id: string
+          next_attempt_at?: string
+          provider_message_id?: string | null
+          status?: Database["public"]["Enums"]["campaign_recipient_status"]
+          variables?: Json
+        }
+        Update: {
+          address?: string | null
+          attempts?: number
+          campaign_id?: string
+          channel?: Database["public"]["Enums"]["message_channel"]
+          claimed_at?: string | null
+          error_code?: string | null
+          error_description?: string | null
+          id?: string
+          member_id?: string
+          next_attempt_at?: string
+          provider_message_id?: string | null
+          status?: Database["public"]["Enums"]["campaign_recipient_status"]
+          variables?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_campaign_recipients_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "message_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_campaign_recipients_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      message_campaigns: {
+        Row: {
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          channel: Database["public"]["Enums"]["message_channel"]
+          company_id: string
+          created_at: string
+          created_by: string | null
+          failed_count: number
+          finished_at: string | null
+          id: string
+          list_id: string
+          organization_id: string
+          sent_count: number
+          started_at: string | null
+          status: Database["public"]["Enums"]["campaign_status"]
+          suppressed_count: number
+          template_id: string
+          total_recipients: number
+        }
+        Insert: {
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          channel: Database["public"]["Enums"]["message_channel"]
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          id?: string
+          list_id: string
+          organization_id: string
+          sent_count?: number
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["campaign_status"]
+          suppressed_count?: number
+          template_id: string
+          total_recipients?: number
+        }
+        Update: {
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          channel?: Database["public"]["Enums"]["message_channel"]
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          id?: string
+          list_id?: string
+          organization_id?: string
+          sent_count?: number
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["campaign_status"]
+          suppressed_count?: number
+          template_id?: string
+          total_recipients?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_campaigns_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "message_campaigns_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "send_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_campaigns_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_campaigns_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "message_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_templates: {
         Row: {
           body: string
@@ -6252,6 +6407,14 @@ export type Database = {
     Enums: {
       billing_entity: "ORGANIZATION" | "STATIONS"
       broadcast_band: "FM" | "AM" | "WEB"
+      campaign_recipient_status:
+        | "pending"
+        | "claimed"
+        | "sent"
+        | "failed"
+        | "suppressed"
+        | "cancelled"
+      campaign_status: "queued" | "running" | "sent" | "failed" | "cancelled"
       company_status: "active" | "suspended"
       contact_request_status: "new" | "contacted" | "converted" | "discarded"
       data_deletion_request_status:
@@ -6510,6 +6673,15 @@ export const Constants = {
     Enums: {
       billing_entity: ["ORGANIZATION", "STATIONS"],
       broadcast_band: ["FM", "AM", "WEB"],
+      campaign_recipient_status: [
+        "pending",
+        "claimed",
+        "sent",
+        "failed",
+        "suppressed",
+        "cancelled",
+      ],
+      campaign_status: ["queued", "running", "sent", "failed", "cancelled"],
       company_status: ["active", "suspended"],
       contact_request_status: ["new", "contacted", "converted", "discarded"],
       data_deletion_request_status: [
