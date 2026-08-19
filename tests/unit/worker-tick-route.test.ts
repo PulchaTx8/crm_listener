@@ -24,6 +24,13 @@ vi.mock('@/lib/reports/drain', () => ({ drainReportRuns }));
 const { drainGeocodeQueue } = vi.hoisted(() => ({ drainGeocodeQueue: vi.fn() }));
 vi.mock('@/services/places', () => ({ drainGeocodeQueue }));
 
+// Block 29d-2's campaign drain is the fifth, and the largest thing this tick
+// will ever do. Mocked like its four siblings, for the same reason: this file
+// is about the gate in front of them all, not about any one drain's own
+// logic (that belongs to tests/unit/campaign-drain.test.ts).
+const { drainCampaigns } = vi.hoisted(() => ({ drainCampaigns: vi.fn() }));
+vi.mock('@/services/campaigns', () => ({ drainCampaigns }));
+
 // The real client would need a service-role key and a URL. Neither is what is
 // under test here.
 // Block 11b: the client now carries one call worth watching -- the tick's own
@@ -58,6 +65,7 @@ const post = (headers: Record<string, string>) =>
 const NO_ERASURES = { deleted: 0, failed: 0 };
 const NO_REPORTS = { requeued: 0, claimed: 0, ready: 0, failed: 0 };
 const NO_PLACES = { resolved: 0, failed: 0, skipped: 0 };
+const NO_CAMPAIGNS = { claimed: 0, sent: 0, failed: 0, suppressed: 0 };
 
 beforeEach(() => {
   runTick.mockReset();
@@ -68,6 +76,8 @@ beforeEach(() => {
   drainReportRuns.mockResolvedValue(NO_REPORTS);
   drainGeocodeQueue.mockReset();
   drainGeocodeQueue.mockResolvedValue(NO_PLACES);
+  drainCampaigns.mockReset();
+  drainCampaigns.mockResolvedValue(NO_CAMPAIGNS);
   rpc.mockReset();
   rpc.mockResolvedValue({ error: null });
 });
@@ -84,6 +94,7 @@ describe('POST /api/worker/tick', () => {
       erasures: NO_ERASURES,
       reports: NO_REPORTS,
       places: NO_PLACES,
+      campaigns: NO_CAMPAIGNS,
     });
     expect(runTick).toHaveBeenCalledTimes(1);
   });
@@ -103,6 +114,7 @@ describe('POST /api/worker/tick', () => {
       erasures: { error: 'storage is unreachable' },
       reports: NO_REPORTS,
       places: NO_PLACES,
+      campaigns: NO_CAMPAIGNS,
     });
   });
 
@@ -122,6 +134,7 @@ describe('POST /api/worker/tick', () => {
       erasures: NO_ERASURES,
       reports: { error: 'the bucket refused the upload' },
       places: NO_PLACES,
+      campaigns: NO_CAMPAIGNS,
     });
     // The point of the whole assertion: the outbox still ran and still reported.
     expect(runTick).toHaveBeenCalledTimes(1);

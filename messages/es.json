@@ -2374,6 +2374,7 @@
     "leaveEveryStationOfTheGroup": "Salir de todas las Emisoras del grupo",
     "leftThisStation": "Listo — ya no recibirá correo de marketing de esta Emisora.",
     "leftEveryStation": "Listo — ya no recibirá correo ni WhatsApp de marketing de ninguna Emisora del grupo.",
-    "linkNoLongerWorks": "Este enlace ya no funciona. Puede que ya se haya usado, o que haya expirado."
+    "linkNoLongerWorks": "Este enlace ya no funciona. Puede que ya se haya usado, o que haya expirado.",
+    "emailLinkLabel": "Darse de baja"
   }
 }

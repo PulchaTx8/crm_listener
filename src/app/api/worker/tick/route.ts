@@ -13,6 +13,8 @@ import { drainReportRuns } from '@/lib/reports/drain';
 import type { ReportDrainResult } from '@/lib/reports/drain';
 import { drainGeocodeQueue } from '@/services/places';
 import type { GeocodeDrainResult } from '@/services/places';
+import { drainCampaigns } from '@/services/campaigns';
+import type { CampaignDrainResult } from '@/services/campaigns';
 import type { Json } from '@/lib/supabase/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -108,6 +110,17 @@ export async function POST(request: Request): Promise<Response> {
     places = { error: cause instanceof Error ? cause.message : 'unknown' };
   }
 
+  // Block 29d-2, the fifth drain. Last on purpose, by the principle this file's
+  // own header states: a listener waiting on a WhatsApp reply must not wait
+  // because somebody sent a campaign. This is the largest thing this tick will
+  // ever do, so it runs after the conversation outbox and in bounded batches.
+  let campaigns: CampaignDrainResult | { error: string };
+  try {
+    campaigns = await drainCampaigns(supabase);
+  } catch (cause) {
+    campaigns = { error: cause instanceof Error ? cause.message : 'unknown' };
+  }
+
   // Block 11b, D5. The tick's own heartbeat, written here because pg_cron
   // cannot: its statement only ENQUEUES an HTTP request, so pg_cron reports
   // success the moment pg_net accepts it -- with this application in the
@@ -124,7 +137,7 @@ export async function POST(request: Request): Promise<Response> {
       // index signature, which is what `Json` asks for -- not because anything
       // here is unknown. The same object is already serialised into the
       // response below.
-      p_counters: { ...result, erasures, reports, places } as unknown as Json,
+      p_counters: { ...result, erasures, reports, places, campaigns } as unknown as Json,
     });
     // An error RESULT is not a throw. Without this line a missing grant leaves
     // the heartbeat silently unwritten, and silence reads as health.
@@ -139,7 +152,7 @@ export async function POST(request: Request): Promise<Response> {
 
   // pg_net stores the response in net._http_response, so these counters are
   // the only account of a tick anybody can read afterwards.
-  return Response.json({ ...result, erasures, reports, places });
+  return Response.json({ ...result, erasures, reports, places, campaigns });
 }
 
 /**

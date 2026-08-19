@@ -2374,6 +2374,7 @@
     "leaveEveryStationOfTheGroup": "Sair de todas as Emissoras do grupo",
     "leftThisStation": "Pronto — você não vai mais receber e-mail de marketing desta Emissora.",
     "leftEveryStation": "Pronto — você não vai mais receber e-mail nem WhatsApp de marketing de nenhuma Emissora do grupo.",
-    "linkNoLongerWorks": "Este link não funciona mais. Ele já pode ter sido usado, ou pode ter expirado."
+    "linkNoLongerWorks": "Este link não funciona mais. Ele já pode ter sido usado, ou pode ter expirado.",
+    "emailLinkLabel": "Descadastrar"
   }
 }

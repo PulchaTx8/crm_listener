@@ -2374,6 +2374,7 @@
     "leaveEveryStationOfTheGroup": "Leave every Station of this group",
     "leftThisStation": "Done — you will no longer receive marketing e-mail from this Station.",
     "leftEveryStation": "Done — you will no longer receive marketing e-mail or WhatsApp from any Station in this group.",
-    "linkNoLongerWorks": "This link no longer works. It may already have been used, or it may have expired."
+    "linkNoLongerWorks": "This link no longer works. It may already have been used, or it may have expired.",
+    "emailLinkLabel": "Unsubscribe"
   }
 }
