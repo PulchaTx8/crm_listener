@@ -133,6 +133,16 @@ interface ClaimedRow {
   template_language: string | null;
   body: string | null;
   subject: string | null;
+  /**
+   * The Station's live WhatsApp integration (0057), joined INSIDE
+   * claim_campaign_batch itself (0252) -- service_role holds no SELECT on
+   * `integrations` through PostgREST (0057's own design: "nothing reaches
+   * this table through a user-scoped client"), confirmed live, which is why
+   * this column cannot be resolved by a second query from here the way a
+   * Station's name or its WhatsApp-eligible member ids are. Null for an
+   * EMAIL row or a WHATSAPP Station with no live integration.
+   */
+  phone_number_id: string | null;
 }
 
 interface CompanyIdentity {
@@ -229,11 +239,6 @@ export async function drainCampaigns(
 
   const companyIds = distinct(rows.map((r) => r.company_id).filter(isNotNull));
   const companies = await loadCompanies(supabase, companyIds);
-
-  const whatsappCompanyIds = distinct(
-    rows.filter((r) => r.channel === 'WHATSAPP' && r.company_id !== null).map((r) => r.company_id as string),
-  );
-  const phoneNumberIds = await loadPhoneNumberIds(supabase, whatsappCompanyIds);
 
   const campaignInfo = await loadCampaignInfo(supabase, [...byCampaign.keys()]);
 
@@ -369,7 +374,7 @@ export async function drainCampaigns(
         continue;
       }
 
-      if (row.channel === 'WHATSAPP' && !phoneNumberIds.has(row.company_id!)) {
+      if (row.channel === 'WHATSAPP' && row.phone_number_id === null) {
         // The same reasoning drainOutbox uses for a row with no
         // phone_number_id (src/services/whatsapp.ts): parked with a reason
         // rather than sent to nowhere, and never handed to the transport.
@@ -390,7 +395,7 @@ export async function drainCampaigns(
         campaignId,
         company,
         info,
-        phoneNumberId: row.channel === 'WHATSAPP' ? phoneNumberIds.get(row.company_id!)! : undefined,
+        phoneNumberId: row.channel === 'WHATSAPP' ? row.phone_number_id! : undefined,
         memberId,
         provider: row.channel === 'EMAIL' ? emailProvider : whatsappProvider,
       });
@@ -729,19 +734,6 @@ async function loadCompanies(supabase: ServiceClient, companyIds: string[]): Pro
   );
 }
 
-async function loadPhoneNumberIds(supabase: ServiceClient, companyIds: string[]): Promise<Map<string, string>> {
-  if (companyIds.length === 0) return new Map();
-  const { data, error } = await supabase
-    .from('integrations')
-    .select('company_id, phone_number_id')
-    .eq('provider', 'WHATSAPP')
-    .is('deleted_at', null)
-    .in('company_id', companyIds);
-  if (error) {
-    throw new Error(`campaigns drain: could not resolve WhatsApp sender numbers: ${error.message}`);
-  }
-  return new Map((data ?? []).map((row) => [row.company_id, row.phone_number_id]));
-}
 
 async function loadCampaignInfo(supabase: ServiceClient, campaignIds: string[]): Promise<Map<string, CampaignInfo>> {
   const { data: campaigns, error: campaignsError } = await supabase

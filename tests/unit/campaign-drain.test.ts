@@ -50,6 +50,20 @@ interface ClaimedRow {
   template_language: string | null;
   body: string | null;
   subject: string | null;
+  /**
+   * Block 29d-2, Task 9 (0252). ON THE CLAIMED ROW ITSELF now, the same
+   * shape production's `claim_campaign_batch` returns since it joins
+   * `integrations` inside its own SECURITY DEFINER body rather than leaving
+   * the drain to read that table separately -- a separate read this FakeDb
+   * used to simulate through its own `integrations` fixture (now removed),
+   * mocked away entirely, which is exactly why this file could never have
+   * caught the real defect: service_role holds no grant on `integrations`
+   * at all, and the drain's own second query threw "permission denied for
+   * table integrations" on every WhatsApp campaign, in every environment,
+   * until a real Postgres connection (tests/isolation/campaigns.test.ts)
+   * proved it.
+   */
+  phone_number_id: string | null;
 }
 
 interface UpdateCall {
@@ -78,11 +92,6 @@ interface CompanyRow {
   email_reply_to: string | null;
 }
 
-interface IntegrationRow {
-  company_id: string;
-  phone_number_id: string;
-}
-
 interface CampaignRow {
   id: string;
   status: string;
@@ -104,7 +113,6 @@ interface Fixture {
   claimBatch?: ClaimedRow[];
   memberByRowId?: Record<string, string>;
   companies?: CompanyRow[];
-  integrations?: IntegrationRow[];
   campaigns?: CampaignRow[];
   templates?: TemplateRow[];
   /** member_id -> eligible. Absent members default to eligible. */
@@ -303,7 +311,6 @@ class FakeDb {
       return { data, error: null };
     }
     if (table === 'companies') return { data: this.fx.companies ?? [], error: null };
-    if (table === 'integrations') return { data: this.fx.integrations ?? [], error: null };
     if (table === 'message_campaigns' && columns === 'id') {
       // Item 1(b), fix round 1. finalizeEmptyRunningCampaigns' own
       // `select('id').eq('status', 'running')`. Reads `this.campaignStatus`
@@ -383,6 +390,10 @@ function emailRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
     template_language: null,
     body: 'Ola!',
     subject: 'Promo',
+    // Irrelevant to EMAIL (never read for that channel), and null is what a
+    // real claim's LEFT JOIN to `integrations` returns for a Station this
+    // row's own campaign never asked that table about in the first place.
+    phone_number_id: null,
     ...overrides,
   };
 }
@@ -400,6 +411,10 @@ function whatsappRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
     template_language: 'pt_BR',
     body: null,
     subject: null,
+    // Every existing call site here wants a live integration -- this used to
+    // arrive through the FakeDb's own `integrations` fixture (0252 removed
+    // it: the field production now reads is this one, on the row itself).
+    phone_number_id: 'phone-1',
     ...overrides,
   };
 }
@@ -433,7 +448,6 @@ describe('drainCampaigns — retry, permanence and the drain-wide park', () => {
       claimBatch: [whatsappRow({ id: 'row-1', attempts: 1 })],
       memberByRowId: { 'row-1': 'member-1' },
       companies: [BASE_COMPANY],
-      integrations: [{ company_id: 'company-1', phone_number_id: 'phone-1' }],
       campaigns: [BASE_CAMPAIGN],
       templates: [BASE_TEMPLATE],
       remaining: { 'campaign-1': [] },
@@ -481,7 +495,6 @@ describe('drainCampaigns — retry, permanence and the drain-wide park', () => {
       claimBatch: [whatsappRow({ id: 'row-1', attempts: BACKOFF_SECONDS.length })],
       memberByRowId: { 'row-1': 'member-1' },
       companies: [BASE_COMPANY],
-      integrations: [{ company_id: 'company-1', phone_number_id: 'phone-1' }],
       campaigns: [BASE_CAMPAIGN],
       templates: [BASE_TEMPLATE],
       remaining: { 'campaign-1': [] },
@@ -507,7 +520,6 @@ describe('drainCampaigns — retry, permanence and the drain-wide park', () => {
       claimBatch: [whatsappRow({ id: 'row-1', attempts: 0 })],
       memberByRowId: { 'row-1': 'member-1' },
       companies: [BASE_COMPANY],
-      integrations: [{ company_id: 'company-1', phone_number_id: 'phone-1' }],
       campaigns: [BASE_CAMPAIGN],
       templates: [BASE_TEMPLATE],
       remaining: { 'campaign-1': [] },
@@ -540,7 +552,6 @@ describe('drainCampaigns — retry, permanence and the drain-wide park', () => {
       claimBatch: rows,
       memberByRowId: Object.fromEntries(rows.map((r) => [r.id, `member-${r.id}`])),
       companies: [BASE_COMPANY],
-      integrations: [{ company_id: 'company-1', phone_number_id: 'phone-1' }],
       campaigns: [BASE_CAMPAIGN],
       templates: [BASE_TEMPLATE],
       remaining: { 'campaign-1': [] },
@@ -876,7 +887,6 @@ describe('drainCampaigns — finalizeCampaign', () => {
       claimBatch: [whatsappRow({ id: 'row-1', attempts: 0 })],
       memberByRowId: { 'row-1': 'member-1' },
       companies: [BASE_COMPANY],
-      integrations: [{ company_id: 'company-1', phone_number_id: 'phone-1' }],
       campaigns: [BASE_CAMPAIGN],
       templates: [BASE_TEMPLATE],
       remaining: { 'campaign-1': [] },

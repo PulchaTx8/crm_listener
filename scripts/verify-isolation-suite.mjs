@@ -658,6 +658,33 @@ const REQUIRED_TEST_FILES = [
   // resolveListMembers' own candidate set down through
   // filterMemberIdsLinkedToStation and into the row create_send_list writes.
   { path: 'tests/isolation/send-lists.test.ts', minTests: 6 },
+  // Block 29d-2, Task 9. Eight cases: the six the task brief names -- a
+  // caller holding messaging.manage but not messaging.send refused,
+  // 0242's own cross-Station filter proven with a real second session,
+  // message_campaign_recipients' grant-layer refusal, claim_campaign_batch's
+  // service_role-only grant, the block's own central promise (a listener who
+  // withdrew after the snapshot is suppressed and never sent to), and
+  // cancel_campaign leaving an already-claimed row alone -- plus two proofs
+  // 68_campaigns.test.sql cannot give and nothing before this file asserted.
+  //
+  // THE FIRST: `for update skip locked` inside claim_campaign_batch (0244).
+  // 68_campaigns.test.sql's own comment beside its single-session case says
+  // outright that this is where the clause is actually proven -- pgTAP runs
+  // one session inside one transaction, so its own "not returned twice" case
+  // only shows a row ALREADY marked `claimed` is not reclaimed, which holds
+  // whether or not the clause is there. This file opens two real, independent
+  // Postgres connections, holds the first one's transaction open mid-claim,
+  // and asserts the second comes back with the disjoint remainder immediately
+  // rather than blocking on the first's still-open row lock.
+  //
+  // THE SECOND: a WhatsApp recipient's positional `variables` array reaches
+  // the transport exactly as `create_campaign` snapshotted it, even after the
+  // live template's own order changes mid-campaign -- the scramble 0242's own
+  // column comment warns a re-read against the template's CURRENT order would
+  // cause. Asserted on FakeTransport's own `sentTemplates` array (src/lib/
+  // integrations/whatsapp/fake.ts) -- what the transport was actually HANDED
+  // -- not on what message_campaign_recipients says about itself afterwards.
+  { path: 'tests/isolation/campaigns.test.ts', minTests: 8 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */

@@ -4617,6 +4617,7 @@ export type Database = {
           channel: Database["public"]["Enums"]["message_channel"]
           company_id: string
           id: string
+          phone_number_id: string
           subject: string
           template_language: string
           template_name: string
