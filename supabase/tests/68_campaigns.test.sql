@@ -1,5 +1,5 @@
 begin;
-select plan(53);
+select plan(84);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -501,6 +501,246 @@ select throws_ok(
 
 reset role;
 reset request.jwt.claims;
+
+-- ---------------------------------------------------------------------------
+-- Task 4. claim_campaign_batch: the claim the fifth drain (Task 6, not built
+-- yet) takes a batch of recipient rows with. claim_outbox_batch's own shape
+-- (0063/0111/0165) -- one statement, for update skip locked, attempts
+-- returned unchanged -- checked live via pg_get_functiondef, not any one of
+-- those three migrations' text, because it has been amended twice since 0063
+-- first wrote it.
+--
+-- Fixtures: one Organization, one Station, one send list, two templates (a
+-- WhatsApp one carrying name/language, an e-mail one carrying subject --
+-- 0223's own conditional pairs, message_templates_whatsapp_shape and
+-- message_templates_email_no_meta_fields, forbid a row from carrying both),
+-- two campaigns (one per channel, so the join to message_templates is proven
+-- for both shapes rather than only the one this block sends more of), and
+-- eight recipients, one per status this schema has plus one due row on the
+-- e-mail campaign. Inserted directly rather than through create_campaign
+-- (0243): that door cannot produce a `claimed`, `sent`, `failed`,
+-- `suppressed` or `cancelled` row at all, the same reason 0243's own test
+-- writes its one claimed row by hand.
+-- ---------------------------------------------------------------------------
+
+insert into public.organizations (id, name) values
+  ('00000000-0000-0000-0000-024400000001', 'Org campaign claim 0244');
+insert into public.companies (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024400000002', '00000000-0000-0000-0000-024400000001', 'Station 0244');
+
+insert into public.send_lists (id, organization_id, company_id, name, source, kind) values
+  ('00000000-0000-0000-0000-024400000003', '00000000-0000-0000-0000-024400000001',
+   '00000000-0000-0000-0000-024400000002', 'Lista 0244', 'members', 'living');
+
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, name, language, body) values
+  ('00000000-0000-0000-0000-024400000004', '00000000-0000-0000-0000-024400000001',
+   '00000000-0000-0000-0000-024400000002', 'WHATSAPP', 'Modelo 0244 W', 'modelo_0244_w', 'pt_BR',
+   'Corpo A {{1}}');
+
+insert into public.message_templates (id, organization_id, company_id, channel, internal_name, subject, body) values
+  ('00000000-0000-0000-0000-024400000005', '00000000-0000-0000-0000-024400000001',
+   '00000000-0000-0000-0000-024400000002', 'EMAIL', 'Modelo 0244 E', 'Assunto 0244',
+   'Corpo email 0244');
+
+insert into public.message_campaigns (id, organization_id, company_id, list_id, channel, template_id) values
+  ('00000000-0000-0000-0000-024400000006', '00000000-0000-0000-0000-024400000001',
+   '00000000-0000-0000-0000-024400000002', '00000000-0000-0000-0000-024400000003', 'WHATSAPP',
+   '00000000-0000-0000-0000-024400000004'),
+  ('00000000-0000-0000-0000-024400000007', '00000000-0000-0000-0000-024400000001',
+   '00000000-0000-0000-0000-024400000002', '00000000-0000-0000-0000-024400000003', 'EMAIL',
+   '00000000-0000-0000-0000-024400000005');
+
+insert into public.members (id, organization_id, full_name) values
+  ('00000000-0000-0000-0000-024400000010', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R1'),
+  ('00000000-0000-0000-0000-024400000011', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R2'),
+  ('00000000-0000-0000-0000-024400000012', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R3'),
+  ('00000000-0000-0000-0000-024400000013', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R4'),
+  ('00000000-0000-0000-0000-024400000014', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R5'),
+  ('00000000-0000-0000-0000-024400000015', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R6'),
+  ('00000000-0000-0000-0000-024400000016', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R7'),
+  ('00000000-0000-0000-0000-024400000017', '00000000-0000-0000-0000-024400000001', 'Ouvinte 0244 R8');
+
+-- R1: pending, due -- the plain case this function exists for.
+-- R2: pending, NOT due -- next_attempt_at in the future.
+-- R3: already claimed -- doubles as the fixture for the stale-claim section
+--     below, which resets it to pending and claims it again.
+-- R4: sent -- provider_message_id required by message_campaign_recipients_sent_shape.
+-- R5: failed -- error_code required by message_campaign_recipients_failed_says_why.
+-- R6: suppressed -- the listener's own withdrawal, never retried.
+-- R7: cancelled -- what cancel_campaign (0243) leaves a pending row as.
+-- R8: pending, due, on the EMAIL campaign -- proves the claim's predicate is
+--     on status and timing, not channel, and that the template join carries
+--     subject rather than name/language for this row.
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status, attempts, next_attempt_at, claimed_at, provider_message_id, error_code) values
+  ('00000000-0000-0000-0000-024400000020', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000010', 'WHATSAPP', '+55 11 90000-1001', '["Ana"]'::jsonb,
+   'pending', 1, now() - interval '5 minutes', null, null, null),
+  ('00000000-0000-0000-0000-024400000021', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000011', 'WHATSAPP', '+55 11 90000-1002', '[]'::jsonb,
+   'pending', 0, now() + interval '1 hour', null, null, null),
+  ('00000000-0000-0000-0000-024400000022', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000012', 'WHATSAPP', '+55 11 90000-1003', '[]'::jsonb,
+   'claimed', 0, now(), now() - interval '10 minutes', null, null),
+  ('00000000-0000-0000-0000-024400000023', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000013', 'WHATSAPP', '+55 11 90000-1004', '[]'::jsonb,
+   'sent', 1, now(), null, 'wamid.TEST0244', null),
+  ('00000000-0000-0000-0000-024400000024', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000014', 'WHATSAPP', '+55 11 90000-1005', '[]'::jsonb,
+   'failed', 3, now(), null, null, 'PERMANENT_TEST'),
+  ('00000000-0000-0000-0000-024400000025', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000015', 'WHATSAPP', '+55 11 90000-1006', '[]'::jsonb,
+   'suppressed', 0, now(), null, null, null),
+  ('00000000-0000-0000-0000-024400000026', '00000000-0000-0000-0000-024400000006',
+   '00000000-0000-0000-0000-024400000016', 'WHATSAPP', '+55 11 90000-1007', '[]'::jsonb,
+   'cancelled', 0, now(), null, null, null),
+  ('00000000-0000-0000-0000-024400000027', '00000000-0000-0000-0000-024400000007',
+   '00000000-0000-0000-0000-024400000017', 'EMAIL', 'oitava.0244@example.test', '[]'::jsonb,
+   'pending', 0, now() - interval '1 minute', null, null, null);
+
+select has_function('public', 'claim_campaign_batch', 'claim_campaign_batch exists');
+
+-- `create function` grants EXECUTE to PUBLIC by default; this function
+-- revokes that and grants back only to service_role -- the drain (Task 6) is
+-- the only caller, and a claim reachable by a user session is a way to take
+-- real recipient rows out of circulation that nothing in this block can give
+-- back yet.
+select ok(
+  has_function_privilege('service_role', 'public.claim_campaign_batch(integer)', 'EXECUTE'),
+  'service_role may claim a batch -- the drain''s only door into this queue');
+select ok(
+  not has_function_privilege('authenticated', 'public.claim_campaign_batch(integer)', 'EXECUTE'),
+  'authenticated may not -- a claim reachable by a user session is work nobody can give back');
+select ok(
+  not has_function_privilege('anon', 'public.claim_campaign_batch(integer)', 'EXECUTE'),
+  'nor anon');
+select ok(
+  not has_function_privilege('public', 'public.claim_campaign_batch(integer)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+
+-- The limit is raised well past this fixture's own eight rows, the same
+-- reason 07_whatsapp_worker.test.sql raises claim_outbox_batch's own limit
+-- past its fixture: this function has no tenant scope, so every assertion
+-- below is scoped to this fixture's own ids rather than to a bare count.
+create temporary table t0244_claimed_first as
+  select * from public.claim_campaign_batch(10000);
+
+select ok(
+  exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  'a pending row whose next_attempt_at has arrived is claimed');
+select ok(
+  not exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000021'),
+  'a pending row whose next_attempt_at has not arrived yet is left alone');
+select ok(
+  not exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000022'),
+  'a row already claimed is not claimed again');
+select ok(
+  not exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000023'),
+  'a sent row is not claimed');
+select ok(
+  not exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000024'),
+  'a failed row is not claimed');
+select ok(
+  not exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000025'),
+  'a suppressed row is not claimed -- the listener''s withdrawal, never retried');
+select ok(
+  not exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000026'),
+  'a cancelled row is not claimed');
+select ok(
+  exists (select 1 from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000027'),
+  'a due pending row on an EMAIL campaign is claimed too -- the predicate is on status and timing, not channel');
+
+-- Written to the table, not only returned as such -- the UPDATE inside the
+-- claim CTE is what this checks, not merely the SELECT's own shape.
+select is(
+  (select status from public.message_campaign_recipients where id = '00000000-0000-0000-0000-024400000020'),
+  'claimed', 'the claimed row is marked claimed in the table');
+select ok(
+  (select claimed_at from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-024400000020') is not null,
+  'and claimed_at is set in the same statement');
+
+-- The return shape itself: channel and address come from the recipient row,
+-- company_id and the four template columns are resolved by the join, and
+-- variables comes back exactly as stored -- not reshaped, not re-keyed.
+select is(
+  (select channel from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  'WHATSAPP'::public.message_channel, 'channel comes back from the recipient row itself');
+select is(
+  (select address from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  '+55 11 90000-1001', 'address comes back exactly as snapshotted');
+select is(
+  (select variables from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  '["Ana"]'::jsonb, 'variables come back verbatim -- positional, never reshaped');
+select is(
+  (select attempts from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  1, 'attempts comes back unchanged -- claiming is not attempting');
+select is(
+  (select company_id from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  '00000000-0000-0000-0000-024400000002'::uuid,
+  'company_id is resolved from the campaign, not stored on the recipient row itself');
+select is(
+  (select template_name from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  'modelo_0244_w', 'template_name is the campaign''s own template, joined at claim time');
+select is(
+  (select template_language from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  'pt_BR', 'and its language');
+select is(
+  (select body from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020'),
+  'Corpo A {{1}}', 'and its body');
+select ok(
+  (select subject from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000020') is null,
+  'a WhatsApp template has no subject');
+
+-- The e-mail campaign's own recipient: the join carries subject rather than
+-- name/language, message_templates_email_no_meta_fields' (0223) own shape.
+select is(
+  (select company_id from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000027'),
+  '00000000-0000-0000-0000-024400000002'::uuid, 'company_id resolves correctly for an EMAIL campaign too');
+select ok(
+  (select template_name from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000027') is null,
+  'an EMAIL template carries no Meta name (0223''s own shape)');
+select ok(
+  (select template_language from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000027') is null,
+  'nor a language');
+select is(
+  (select subject from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000027'),
+  'Assunto 0244', 'subject comes back for an EMAIL campaign''s template');
+select is(
+  (select body from t0244_claimed_first where id = '00000000-0000-0000-0000-024400000027'),
+  'Corpo email 0244', 'and its body');
+
+-- THE ASSERTION THIS SECTION EXISTS FOR. pgTAP wraps this whole file in one
+-- transaction and one session, so a second CONNECTION cannot be opened from
+-- inside it -- the same limit 07_whatsapp_worker.test.sql's own
+-- claim_outbox_batch section works within. What this proves is narrower than
+-- "two concurrent workers never collide": R1, already marked claimed by the
+-- call above, is not returned by a SECOND call in this SAME session. It does
+-- NOT prove the row-level lock holds between two concurrent sessions -- that
+-- is what the brief's own step-5 experiment (removing skip locked) and,
+-- later, Task 9's isolation suite prove.
+select ok(
+  not exists (select 1 from public.claim_campaign_batch(10000) where id = '00000000-0000-0000-0000-024400000020'),
+  'a row already claimed by an earlier call in this session is not returned by a second call');
+
+-- The stale-claim case. R3 (id ...022) sits in the table as `claimed` since
+-- the fixture above, and the assertion in the first-call section already
+-- proved this function leaves it alone while it holds that status. No
+-- reclaim function exists yet -- claimed_at's own column comment (0242) names
+-- that a later task's job, the role outbox_messages.claimed_at plays for
+-- STALE_CLAIM (0063) -- so the reset below is written directly, the same way
+-- 0243's own test simulates a claimed row to set up cancel_campaign's test.
+-- What this proves is the half claim_campaign_batch is actually responsible
+-- for: once a claim has been reset to pending -- what a stale-claim reclaim
+-- would do -- this function has no OTHER guard (an attempts cap, a minimum
+-- age) standing between that row and being claimed again.
+update public.message_campaign_recipients
+   set status = 'pending', claimed_at = null, next_attempt_at = now() - interval '1 minute'
+ where id = '00000000-0000-0000-0000-024400000022';
+
+select ok(
+  exists (select 1 from public.claim_campaign_batch(10000) where id = '00000000-0000-0000-0000-024400000022'),
+  'a claim reset to pending -- what a stale-claim reclaim would do -- is claimable again');
 
 select finish();
 rollback;

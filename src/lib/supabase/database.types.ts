@@ -4579,6 +4579,22 @@ export type Database = {
           last_success_at: string
         }[]
       }
+      claim_campaign_batch: {
+        Args: { p_limit: number }
+        Returns: {
+          address: string
+          attempts: number
+          body: string
+          campaign_id: string
+          channel: Database["public"]["Enums"]["message_channel"]
+          company_id: string
+          id: string
+          subject: string
+          template_language: string
+          template_name: string
+          variables: Json
+        }[]
+      }
       claim_conversation_turn: {
         Args: {
           p_integration_id: string
