@@ -1,5 +1,5 @@
 begin;
-select plan(99);
+select plan(102);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -776,14 +776,31 @@ select ok(
 -- it -- the assertion below is why: without it the extraction is exactly the
 -- fork it exists to prevent.
 --
--- Fixtures: one Organization, two Stations, five listeners at Station A in
--- five different states -- plainly eligible; anonymized despite an explicit
+-- Fixtures: one Organization, two Stations, six listeners at Station A in
+-- six different states -- plainly eligible; anonymized despite an explicit
 -- yes; the latest consent row says no; linked only to Station B, a real
--- cross-Station listener rather than an id matching nothing; and an active
--- suspension despite an explicit yes. Two roles -- members.view alone, and
--- messaging.view alone (a real, different permission, not merely nothing) --
--- because the gate-survival case needs a real authenticated caller who holds
--- some permission, just not this one.
+-- cross-Station listener rather than an id matching nothing; an active
+-- suspension despite an explicit yes; and never asked at all. Two roles --
+-- members.view alone, and messaging.view alone (a real, different
+-- permission, not merely nothing) -- because the gate-survival case needs a
+-- real authenticated caller who holds some permission, just not this one.
+--
+-- Fix round 1 (review, Important 1 and 2). Every assertion below the first
+-- version of this fixture shipped with asked only WHATSAPP -- so a worker's
+-- door that hardcoded the channel, or dropped p_channel on the way into the
+-- shared core, was invisible to this suite. Worse, the not-linked listener
+-- (...13) had no consent row at all, and WHATSAPP's own absent-consent
+-- default is already `false`, so that assertion passed whether or not
+-- member_linked_to_company was in the shared core -- proving nothing about
+-- the link check specifically. Both are fixed the same way
+-- 65_marketing_consent.test.sql:213-221 already fixes the identical trap for
+-- 0235 itself: the not-linked case is asked on EMAIL, where the default is
+-- `true`, so a missing link check flips the answer and the assertion bites.
+-- The sixth listener (never asked, linked and otherwise clean) gives the
+-- equivalence check and the individual assertions a case whose answer
+-- genuinely DIFFERS by channel -- false on WHATSAPP, true on EMAIL -- for a
+-- reason that has nothing to do with the link check, so the two effects are
+-- never tested by the same row.
 -- ---------------------------------------------------------------------------
 
 insert into public.organizations (id, name) values
@@ -797,18 +814,24 @@ insert into public.members (id, organization_id, full_name) values
   ('00000000-0000-0000-0000-024600000011', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Anonimizado'),
   ('00000000-0000-0000-0000-024600000012', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Disse Nao'),
   ('00000000-0000-0000-0000-024600000013', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 So Na B'),
-  ('00000000-0000-0000-0000-024600000014', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Suspenso');
+  ('00000000-0000-0000-0000-024600000014', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Suspenso'),
+  ('00000000-0000-0000-0000-024600000015', '00000000-0000-0000-0000-024600000001', 'Ouvinte 0246 Nunca Perguntado');
 
 insert into public.member_company_links (member_id, company_id, organization_id) values
   ('00000000-0000-0000-0000-024600000010', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
   ('00000000-0000-0000-0000-024600000011', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
   ('00000000-0000-0000-0000-024600000012', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
   ('00000000-0000-0000-0000-024600000014', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
+  ('00000000-0000-0000-0000-024600000015', '00000000-0000-0000-0000-024600000002', '00000000-0000-0000-0000-024600000001'),
   ('00000000-0000-0000-0000-024600000013', '00000000-0000-0000-0000-024600000003', '00000000-0000-0000-0000-024600000001');
 
--- Explicit yes for three of the five, so the anonymized and suspended cases
--- prove their bars override a real consent row rather than merely agreeing
--- with a default nobody recorded.
+-- Explicit yes for three of the five consent-bearing listeners, so the
+-- anonymized and suspended cases prove their bars override a real consent
+-- row rather than merely agreeing with a default nobody recorded. ...15
+-- (Nunca Perguntado) deliberately gets NO consent row of any kind, on
+-- either channel -- that absence, not a block or a link, is the whole point
+-- of that listener: WHATSAPP's and EMAIL's opposite defaults (spec D1) are
+-- what answer for them, and nothing else does.
 insert into public.member_consents (organization_id, member_id, company_id, consent_type, granted) values
   ('00000000-0000-0000-0000-024600000001', '00000000-0000-0000-0000-024600000010',
    '00000000-0000-0000-0000-024600000002', 'whatsapp_marketing', true),
@@ -872,13 +895,16 @@ select ok(
     'public.members_marketing_eligible_bulk_for_worker(uuid[], uuid, public.message_channel)', 'EXECUTE'),
   'and PUBLIC holds nothing');
 
--- The recreate (0246) is create-or-replace, which preserves an ACL rather
--- than destroying it the way drop+create would -- this is the assertion that
--- it actually did.
+-- Fix round 1, ITEM 3. This proves authenticated still holds EXECUTE on
+-- members_marketing_eligible_bulk once 0246 has run -- not, by itself, WHICH
+-- mechanism produced that. 0246 restates this grant explicitly (0235's own
+-- self-containment precedent), so this assertion would read identically
+-- whether create-or-replace had preserved the ACL on its own or a drop+create
+-- had simply re-granted it afterwards; it does not distinguish the two.
 select ok(
   has_function_privilege('authenticated',
     'public.members_marketing_eligible_bulk(uuid[], uuid, public.message_channel)', 'EXECUTE'),
-  'members_marketing_eligible_bulk still grants authenticated EXECUTE -- its ACL survived the recreate');
+  'members_marketing_eligible_bulk still grants authenticated EXECUTE after 0246''s recreate');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024600000031", "role": "authenticated"}';
@@ -899,13 +925,15 @@ reset request.jwt.claims;
 
 -- THE ASSERTION THIS TASK EXISTS FOR. Two doors, two callers, one shared
 -- core: the operator's door is asked as the operator (members.view),
--- the worker's door is asked as service_role, and every one of the five
--- listeners above is asked about through both. If the extraction had forked
--- into two copies of the rule -- the thing R23 exists to prevent -- this is
--- where the fork would show up, not before.
+-- the worker's door is asked as service_role, and every one of the six
+-- listeners above is asked about through both -- ON BOTH CHANNELS, so a
+-- worker door that hardcoded a channel or dropped p_channel on the way into
+-- the shared core would show up here too, not only WHATSAPP. If the
+-- extraction had forked into two copies of the rule -- the thing R23 exists
+-- to prevent -- this is where the fork would show up, not before.
 
-create temporary table t0246_operator_view (member_id uuid, eligible boolean);
-create temporary table t0246_worker_view (member_id uuid, eligible boolean);
+create temporary table t0246_operator_view (member_id uuid, channel public.message_channel, eligible boolean);
+create temporary table t0246_worker_view (member_id uuid, channel public.message_channel, eligible boolean);
 -- The temp table is owned by the pgTAP superuser; INSERT under a restricted
 -- role needs an explicit grant, the same reason 00_smoke.test.sql grants
 -- service_role INSERT on its own probe table before switching role.
@@ -916,13 +944,23 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024600000030", "role": "authenticated"}';
 
 insert into t0246_operator_view
-  select member_id, eligible from public.members_marketing_eligible_bulk(
+  select member_id, 'WHATSAPP'::public.message_channel, eligible from public.members_marketing_eligible_bulk(
     array['00000000-0000-0000-0000-024600000010'::uuid,
           '00000000-0000-0000-0000-024600000011'::uuid,
           '00000000-0000-0000-0000-024600000012'::uuid,
           '00000000-0000-0000-0000-024600000013'::uuid,
-          '00000000-0000-0000-0000-024600000014'::uuid],
+          '00000000-0000-0000-0000-024600000014'::uuid,
+          '00000000-0000-0000-0000-024600000015'::uuid],
     '00000000-0000-0000-0000-024600000002', 'WHATSAPP');
+insert into t0246_operator_view
+  select member_id, 'EMAIL'::public.message_channel, eligible from public.members_marketing_eligible_bulk(
+    array['00000000-0000-0000-0000-024600000010'::uuid,
+          '00000000-0000-0000-0000-024600000011'::uuid,
+          '00000000-0000-0000-0000-024600000012'::uuid,
+          '00000000-0000-0000-0000-024600000013'::uuid,
+          '00000000-0000-0000-0000-024600000014'::uuid,
+          '00000000-0000-0000-0000-024600000015'::uuid],
+    '00000000-0000-0000-0000-024600000002', 'EMAIL');
 
 reset role;
 reset request.jwt.claims;
@@ -930,13 +968,23 @@ reset request.jwt.claims;
 set local role service_role;
 
 insert into t0246_worker_view
-  select member_id, eligible from public.members_marketing_eligible_bulk_for_worker(
+  select member_id, 'WHATSAPP'::public.message_channel, eligible from public.members_marketing_eligible_bulk_for_worker(
     array['00000000-0000-0000-0000-024600000010'::uuid,
           '00000000-0000-0000-0000-024600000011'::uuid,
           '00000000-0000-0000-0000-024600000012'::uuid,
           '00000000-0000-0000-0000-024600000013'::uuid,
-          '00000000-0000-0000-0000-024600000014'::uuid],
+          '00000000-0000-0000-0000-024600000014'::uuid,
+          '00000000-0000-0000-0000-024600000015'::uuid],
     '00000000-0000-0000-0000-024600000002', 'WHATSAPP');
+insert into t0246_worker_view
+  select member_id, 'EMAIL'::public.message_channel, eligible from public.members_marketing_eligible_bulk_for_worker(
+    array['00000000-0000-0000-0000-024600000010'::uuid,
+          '00000000-0000-0000-0000-024600000011'::uuid,
+          '00000000-0000-0000-0000-024600000012'::uuid,
+          '00000000-0000-0000-0000-024600000013'::uuid,
+          '00000000-0000-0000-0000-024600000014'::uuid,
+          '00000000-0000-0000-0000-024600000015'::uuid],
+    '00000000-0000-0000-0000-024600000002', 'EMAIL');
 
 reset role;
 
@@ -944,27 +992,50 @@ reset role;
 -- not only asserted by comparison to the operator's -- so a worker door that
 -- always answered, say, `true` would be caught here rather than only in the
 -- equivalence check below (which two doors sharing the SAME bug would still
--- pass).
+-- pass). WHATSAPP unless the case is specifically about a channel difference.
 select is(
-  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000010'),
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000010' and channel = 'WHATSAPP'),
   true, 'plainly eligible: linked, not anonymized, not blocked, an explicit yes -- eligible through the worker''s door');
 select is(
-  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000011'),
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000011' and channel = 'WHATSAPP'),
   false, 'anonymized bars even an explicit yes -- through the worker''s door');
 select is(
-  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000012'),
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000012' and channel = 'WHATSAPP'),
   false, 'the latest consent row says no -- through the worker''s door');
 select is(
-  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000013'),
-  false, 'linked only to another Station -- through the worker''s door');
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000013' and channel = 'WHATSAPP'),
+  false, 'linked only to another Station -- false here on WhatsApp, though WhatsApp''s own absent-consent default already says false too, so this alone proves nothing about the link check; the discriminating case is EMAIL, just below');
 select is(
-  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000014'),
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000014' and channel = 'WHATSAPP'),
   false, 'an active suspension bars even an explicit yes -- through the worker''s door');
 
+-- Fix round 1, ITEM 1. EMAIL's own absent-consent default is `true` -- the
+-- opposite of WHATSAPP's -- so a shared core that dropped or never applied
+-- member_linked_to_company would answer `true` here. It answers `false`,
+-- which is what actually proves the link check runs inside the worker's
+-- door, the same way 65_marketing_consent.test.sql:213-221 proves it for
+-- 0235 itself.
 select is(
-  (select jsonb_object_agg(member_id::text, eligible order by member_id) from t0246_operator_view),
-  (select jsonb_object_agg(member_id::text, eligible order by member_id) from t0246_worker_view),
-  'the operator''s door and the worker''s door answer identically for the same five listeners, row for row -- proof the two share one rule rather than each holding a copy of it');
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000013' and channel = 'EMAIL'),
+  false, 'linked only to another Station -- still false on EMAIL, despite EMAIL''s own default being eligible -- this is what actually proves the link check, through the worker''s door');
+
+-- Fix round 1, ITEM 2. Never asked, on either channel, and otherwise clean --
+-- the one listener whose correct answer genuinely DIFFERS by channel, for a
+-- reason that has nothing to do with the link check: spec D1's own asymmetry,
+-- WhatsApp requires an explicit yes and e-mail does not.
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000015' and channel = 'WHATSAPP'),
+  false, 'never asked means not eligible on WhatsApp -- through the worker''s door');
+select is(
+  (select eligible from t0246_worker_view where member_id = '00000000-0000-0000-0000-024600000015' and channel = 'EMAIL'),
+  true, 'and eligible on e-mail, the same asymmetry 65_marketing_consent.test.sql proves for 0235 -- through the worker''s door too');
+
+select is(
+  (select jsonb_agg(jsonb_build_object('member_id', member_id, 'channel', channel, 'eligible', eligible) order by channel, member_id)
+     from t0246_operator_view),
+  (select jsonb_agg(jsonb_build_object('member_id', member_id, 'channel', channel, 'eligible', eligible) order by channel, member_id)
+     from t0246_worker_view),
+  'the operator''s door and the worker''s door answer identically for all six listeners on BOTH channels, row for row -- proof the two share one rule, channel included, rather than each holding a copy of it');
 
 select finish();
 rollback;
