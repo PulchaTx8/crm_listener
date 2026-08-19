@@ -148,6 +148,55 @@ begin
     raise exception 'listener not linked to this station: %', v_bad_member using errcode = 'P0002';
   end if;
 
+  -- Task 7 addendum's own guard. 0242's own CHECK on message_campaign_recipients
+  -- (message_campaign_recipients_variables_is_positional) only asks
+  -- jsonb_typeof(variables) = 'array' -- true of BOTH channels' own element
+  -- shapes (WHATSAPP: strings; EMAIL: {name, value} objects, 0242's own
+  -- column comment), so it cannot catch a WHATSAPP snapshot carrying EMAIL's
+  -- element shape or the reverse. Left unchecked, that mismatch either
+  -- inserts successfully with values the drain (Task 6b) can never
+  -- substitute -- discovered one recipient at a time, over however long the
+  -- campaign takes to drain, on a row that already looks queued and correct
+  -- -- or, if some entry is not even a JSON array at all, aborts the INSERT
+  -- below with an unnamed 22023 raised by jsonb_array_elements itself rather
+  -- than a sentence this door chose. Checked for every member's own entry,
+  -- not merely that SOME entry somewhere is wrong, and before a single row
+  -- is inserted -- the door can refuse the whole campaign here; the drain can
+  -- only fail rows one at a time.
+  if exists (
+    select 1
+      from unnest(v_member_ids) as m
+     where jsonb_typeof(coalesce(p_variables -> m::text, '[]'::jsonb)) <> 'array'
+  ) then
+    raise exception 'a recipient''s variable values must be a JSON array' using errcode = '22023';
+  end if;
+
+  if p_channel = 'WHATSAPP' then
+    if exists (
+      select 1
+        from unnest(v_member_ids) as m
+        cross join lateral jsonb_array_elements(coalesce(p_variables -> m::text, '[]'::jsonb)) as e
+       where jsonb_typeof(e) <> 'string'
+    ) then
+      raise exception 'a WhatsApp campaign''s variable values must be a positional array of strings'
+        using errcode = '22023';
+    end if;
+  else
+    if exists (
+      select 1
+        from unnest(v_member_ids) as m
+        cross join lateral jsonb_array_elements(coalesce(p_variables -> m::text, '[]'::jsonb)) as e
+       where not (
+         jsonb_typeof(e) = 'object'
+         and jsonb_typeof(e -> 'name') = 'string'
+         and jsonb_typeof(e -> 'value') = 'string'
+       )
+    ) then
+      raise exception 'an e-mail campaign''s variable values must be named {name, value} pairs'
+        using errcode = '22023';
+    end if;
+  end if;
+
   insert into public.message_campaigns
     (organization_id, company_id, list_id, channel, template_id, created_by, total_recipients)
   values
@@ -161,10 +210,14 @@ begin
   -- already has to hand. A member id absent from p_addresses stores a null
   -- address (the column allows it, 0242); one absent from p_variables stores
   -- '[]', matching the column's own NOT NULL default rather than a null the
-  -- column would refuse -- an empty array, not an empty object, because 0242's
-  -- own CHECK requires variables to be positional (0222: a WhatsApp template's
-  -- variables is positional, index 0 is {{1}}), and an object is not an array
-  -- regardless of whether it is empty.
+  -- column would refuse -- an empty array either way, because 0242's own
+  -- CHECK requires variables to be a JSON array (true of both channels' own
+  -- shapes: WHATSAPP's positional strings and EMAIL's {name, value} objects,
+  -- 0242's own column comment), and an object is not an array regardless of
+  -- whether it is empty. The guard just above this insert already refused a
+  -- p_variables whose PER-MEMBER shape disagrees with p_channel, so every
+  -- value read out here is known, by this point, to be shaped for the
+  -- channel this campaign is actually sending on.
   insert into public.message_campaign_recipients
     (campaign_id, member_id, channel, address, variables)
   select v_id, m, p_channel,
@@ -192,7 +245,7 @@ $$;
 comment on function public.create_campaign(
   uuid, uuid, public.message_channel, uuid, uuid[], jsonb, jsonb
 ) is
-  'Snapshots a send list into a queued campaign. Gated on messaging.send, not messaging.manage (0236: approving a send is not the act of drafting one). The member set, their resolved addresses (p_addresses) and their variable values (p_variables) arrive as parameters -- both jsonb objects keyed by member id cast to text -- rather than being computed here: a LIVING list is re-resolved by the src/services/ listing resolvers (29d-1), which SQL cannot call, and the addresses/variables require reading members and the template''s own mapping, work the screen (Task 7) already does. NOT because a definer door calling members_marketing_eligible_bulk (0235) would ask with the wrong identity -- it would not; auth.uid() reads the request''s JWT claims regardless of SECURITY DEFINER. Refuses P0002 for an unknown or wrong-Station list, an unknown or wrong-Station template, or any member id not linked to this Station (member_linked_to_company, 0034); refuses 22023 for a WhatsApp campaign whose template is not itself WHATSAPP with a transcribed name and language (0223''s own definition of "registered"), for a template of the requested channel''s opposite, and for an empty recipient set. Writes total_recipients once, from the snapshot size, and an audit_logs row naming the list, channel, template and recipient count -- never an address or a variable value.';
+  'Snapshots a send list into a queued campaign. Gated on messaging.send, not messaging.manage (0236: approving a send is not the act of drafting one). The member set, their resolved addresses (p_addresses) and their variable values (p_variables) arrive as parameters -- both jsonb objects keyed by member id cast to text -- rather than being computed here: a LIVING list is re-resolved by the src/services/ listing resolvers (29d-1), which SQL cannot call, and the addresses/variables require reading members and the template''s own mapping, work the screen (Task 7) already does. NOT because a definer door calling members_marketing_eligible_bulk (0235) would ask with the wrong identity -- it would not; auth.uid() reads the request''s JWT claims regardless of SECURITY DEFINER. Refuses P0002 for an unknown or wrong-Station list, an unknown or wrong-Station template, or any member id not linked to this Station (member_linked_to_company, 0034); refuses 22023 for a WhatsApp campaign whose template is not itself WHATSAPP with a transcribed name and language (0223''s own definition of "registered"), for a template of the requested channel''s opposite, for an empty recipient set, for a p_variables entry that is not a JSON array at all, and -- Task 7 addendum''s own guard -- for a p_variables entry whose ELEMENT shape disagrees with p_channel (WHATSAPP wants a positional array of strings; EMAIL wants named {name, value} pairs), checked per member and refused before a single recipient row is inserted rather than left for 0242''s own top-level CHECK (message_campaign_recipients_variables_is_positional, true of both channels'' shapes alike) or for the drain (Task 6b) to fail one row at a time. Writes total_recipients once, from the snapshot size, and an audit_logs row naming the list, channel, template and recipient count -- never an address or a variable value.';
 
 -- cancel_campaign. FOR UPDATE on the campaign row before anything is
 -- decided, the same reason cancel_draw (0079) takes it: two simultaneous

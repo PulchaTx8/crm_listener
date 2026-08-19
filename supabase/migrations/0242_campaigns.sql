@@ -128,17 +128,37 @@ create table public.message_campaign_recipients (
   -- whatever status it holds, the moment the listener it names asks for it.
   address             text,
   -- The template variable values resolved for this recipient at snapshot
-  -- time, positional in the same order as message_templates.variables (0222).
+  -- time. THE TWO CHANNELS DO NOT SHARE A SHAPE (Task 7 addendum, section 3):
+  --
+  --   WHATSAPP -- a JSON ARRAY OF STRINGS, positional in the same order as
+  --   message_templates.variables (0222) AT THE MOMENT OF THE SNAPSHOT. Index
+  --   0 is {{1}}.
+  --
+  --   EMAIL -- message_templates_email_variables_empty (0223) refuses a
+  --   positional array for this channel at all; an e-mail body and subject
+  --   name their OWN placeholders from the template_variable vocabulary
+  --   instead ({{listener_first_name}} and so on, validated at save time by
+  --   save_marketing_template, 0225). This column's own snapshot is a JSON
+  --   ARRAY OF {"name": ..., "value": ...} OBJECTS -- an array, so the
+  --   message_campaign_recipients_variables_is_positional CHECK below (which
+  --   asks only jsonb_typeof(variables) = 'array', true of both shapes) still
+  --   holds; create_campaign's own new shape guard (0243) is what tells the
+  --   two apart by p_channel and refuses whichever does not match.
+  --
   -- Cleared alongside address by the same erasure, for the same reason: a
   -- listener's name and city are personal data too.
   --
-  -- BUILT ONCE, AT SNAPSHOT, AND NEVER RE-ORDERED AFTER. A provider (Task 5)
-  -- must send this array exactly as it stands and must never re-consult
-  -- message_templates.variables' CURRENT order to interpret it: a template
-  -- edited while a campaign is draining would then read this same array
-  -- against a different position list and scramble values into the wrong
-  -- slots, silently, because nothing about a jsonb array says which index
-  -- used to mean what.
+  -- BUILT ONCE, AT SNAPSHOT, AND NEVER RE-ORDERED OR RE-READ AGAINST THE
+  -- TEMPLATE'S CURRENT SHAPE AFTER. A provider (Task 5) must send this array
+  -- exactly as it stands: for WHATSAPP, must never re-consult
+  -- message_templates.variables' CURRENT order to interpret it, since a
+  -- template edited while a campaign is draining would then read this same
+  -- array against a different position list and scramble values into the
+  -- wrong slots, silently, because nothing about a jsonb array says which
+  -- index used to mean what; for EMAIL, the drain substitutes by NAME
+  -- (src/services/campaigns.ts' own parseEmailVariables/substitutePlaceholders),
+  -- so a body edited afterwards can only fail loudly (an unresolved
+  -- placeholder) rather than silently misattribute a value.
   variables           jsonb not null default '[]'::jsonb,
 
   status              public.campaign_recipient_status not null default 'pending',
@@ -173,12 +193,28 @@ create table public.message_campaign_recipients (
     status <> 'failed' or error_code is not null
   ),
 
-  -- POSITIONAL, not keyed: 0222 states in capitals that a WhatsApp template's
-  -- own variables is positional, index 0 is {{1}}, and this column's comment
-  -- above says a recipient's resolved values are a parallel array in that
-  -- same order. Prose said so and the column's own default, '{}'::jsonb, was
-  -- an empty OBJECT -- the gap between a contract asserted in a comment and
-  -- one the database actually holds. This CHECK is the difference.
+  -- AN ARRAY, not an object -- true of BOTH channels' own shapes (this
+  -- column's own comment above): WHATSAPP's is positional, index 0 is {{1}}
+  -- (0222); EMAIL's is an array of {name, value} objects, an array all the
+  -- same. The name "positional" describes only what the ORIGINAL COMMENT
+  -- HERE SAID, not what this CHECK itself enforces or ever enforced: the
+  -- check's own condition, `jsonb_typeof(variables) = 'array'`, was always
+  -- channel-agnostic; only the prose beside it (added, like the check, to
+  -- close the gap between a contract asserted in a comment and one the
+  -- database actually held -- this column's own default, '{}'::jsonb, was an
+  -- empty OBJECT) described a single channel's shape as if it were the whole
+  -- of what "an array" could mean here. It stays under this name because
+  -- EMAIL's own shape needs exactly the same top-level check.
+  --
+  -- DELIBERATELY LEFT AT "IS THIS AN ARRAY", not strengthened to also judge
+  -- each ELEMENT's shape against this row's own `channel` column, though that
+  -- column sits right beside it and a CHECK reading both is expressible. Per
+  -- element channel-shape agreement is create_campaign's own new guard
+  -- instead (0243, Task 7 addendum): a violation there raises a named,
+  -- specific exception ("this campaign's variable values are not shaped for
+  -- WhatsApp"), while a violation of a per-element CHECK here would still
+  -- only ever surface as this constraint's own name, 23514, which is exactly
+  -- the outcome the addendum names as worse than the door's own words.
   constraint message_campaign_recipients_variables_is_positional
     check (jsonb_typeof(variables) = 'array'),
 

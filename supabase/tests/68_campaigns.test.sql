@@ -1,5 +1,5 @@
 begin;
-select plan(110);
+select plan(123);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -420,6 +420,68 @@ select ok(
        and action = 'create_campaign' and detail::text ilike '%90000-0001%'
   ),
   'and the audit row carries no phone number -- ids and counts only (0034''s own rule)');
+
+-- ---------------------------------------------------------------------------
+-- Task 7 addendum's own guard. 0242's own CHECK on message_campaign_recipients
+-- only asks "is this a JSON array", true of BOTH channels' own element
+-- shapes (WHATSAPP: strings; EMAIL: {name, value} objects), so it cannot
+-- catch a snapshot whose ELEMENTS are shaped for the wrong channel.
+-- create_campaign now refuses the whole campaign for that, by name, before a
+-- single recipient row is inserted -- run as the same messaging.send caller
+-- the successful create above used.
+-- ---------------------------------------------------------------------------
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+
+-- EMAIL's own shape ({name, value} objects) handed to a WHATSAPP campaign.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000009', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb,
+      jsonb_build_object('00000000-0000-0000-0000-024300000004',
+        jsonb_build_array(jsonb_build_object('name', 'listener_first_name', 'value', 'Maria'))))$$,
+  '22023', null, 'create_campaign refuses EMAIL-shaped variables for a WHATSAPP campaign');
+
+-- WHATSAPP's own shape (a positional array of strings) handed to an EMAIL
+-- campaign, against the Station's own EMAIL template (id ...011).
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'EMAIL', '00000000-0000-0000-0000-024300000011', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb,
+      jsonb_build_object('00000000-0000-0000-0000-024300000004', jsonb_build_array('Maria')))$$,
+  '22023', null, 'create_campaign refuses WHATSAPP-shaped variables for an EMAIL campaign');
+
+-- Not even a JSON array at all -- the "unnamed 22023 from
+-- jsonb_array_elements" case this guard exists to pre-empt with its own
+-- named sentence instead.
+select throws_ok(
+  $$select public.create_campaign('00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007',
+      'WHATSAPP', '00000000-0000-0000-0000-024300000009', array['00000000-0000-0000-0000-024300000004'::uuid],
+      '{}'::jsonb,
+      jsonb_build_object('00000000-0000-0000-0000-024300000004', jsonb_build_object('not', 'an array')))$$,
+  '22023', null, 'create_campaign refuses a variables value that is not a JSON array at all');
+
+-- The positive EMAIL case: a real e-mail campaign, snapshotting the named
+-- {name, value} shape the throws_ok cases above proved is required for it.
+create temporary table t0243_email_campaign as
+select public.create_campaign(
+  '00000000-0000-0000-0000-024300000002', '00000000-0000-0000-0000-024300000007', 'EMAIL',
+  '00000000-0000-0000-0000-024300000011',
+  array['00000000-0000-0000-0000-024300000004'::uuid],
+  jsonb_build_object('00000000-0000-0000-0000-024300000004', 'maria@example.test'),
+  jsonb_build_object('00000000-0000-0000-0000-024300000004',
+    jsonb_build_array(jsonb_build_object('name', 'listener_first_name', 'value', 'Maria')))
+) as campaign_id;
+
+reset role;
+
+select is(
+  (select variables from public.message_campaign_recipients
+    where campaign_id = (select campaign_id from t0243_email_campaign)
+      and member_id = '00000000-0000-0000-0000-024300000004'),
+  '[{"name": "listener_first_name", "value": "Maria"}]'::jsonb,
+  'an e-mail campaign snapshots the named {name, value} shape, not the positional one');
 
 -- message_campaign_recipients_variables_is_positional (0242). 0222 states a
 -- WhatsApp template's own variables is POSITIONAL, index 0 is {{1}}; the
@@ -1093,6 +1155,82 @@ select is(
 select is(
   (select suppressed_count from public.message_campaigns where id = '00000000-0000-0000-0000-024700000005'),
   1, 'suppressed_count carries the second call''s delta, not overwritten by it');
+
+-- ---------------------------------------------------------------------------
+-- 0248. campaign_whatsapp_sender -- the narrow door the test send needs onto
+-- public.integrations (RLS, no policy, 0057), gated on messaging.view rather
+-- than messaging.send or messaging.manage: neither of THOSE two 0243
+-- fixtures above holds messaging.view at all, which is itself part of what
+-- this proves -- the three permissions really are three different codes,
+-- and this door answers to only one of them.
+-- ---------------------------------------------------------------------------
+
+select has_function('public', 'campaign_whatsapp_sender', 'campaign_whatsapp_sender exists');
+
+select ok(
+  has_function_privilege('authenticated', 'public.campaign_whatsapp_sender(uuid)', 'EXECUTE'),
+  'authenticated may call it');
+select ok(
+  not has_function_privilege('anon', 'public.campaign_whatsapp_sender(uuid)', 'EXECUTE'),
+  'anon may not');
+select ok(
+  not has_function_privilege('public', 'public.campaign_whatsapp_sender(uuid)', 'EXECUTE'),
+  'and PUBLIC holds nothing');
+select ok(
+  not has_function_privilege('service_role', 'public.campaign_whatsapp_sender(uuid)', 'EXECUTE'),
+  'nor service_role -- the drain (Task 6b) already reads integrations directly as service_role and needs no door onto it');
+
+-- Neither messaging.send (0243's own fixture user ...014) nor
+-- messaging.manage (...015) satisfies this gate -- only messaging.view does.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+select throws_ok(
+  $$select public.campaign_whatsapp_sender('00000000-0000-0000-0000-024300000002')$$,
+  '42501', null, 'messaging.send alone cannot call campaign_whatsapp_sender -- messaging.view is required');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000015", "role": "authenticated"}';
+select throws_ok(
+  $$select public.campaign_whatsapp_sender('00000000-0000-0000-0000-024300000002')$$,
+  '42501', null, 'messaging.manage alone cannot call it either');
+reset role;
+
+-- A fresh messaging.view holder at Station A, and Station A starts with no
+-- integrations row at all.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-024300000016', '00000000-0000-0000-0000-024300000001', 'Messaging Viewer 0243');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-024300000016', 'messaging.view');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-024300000017', 'campaigns-viewer-0243@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-024300000017', '00000000-0000-0000-0000-024300000002',
+   '00000000-0000-0000-0000-024300000001', '00000000-0000-0000-0000-024300000016');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000017", "role": "authenticated"}';
+select is(
+  public.campaign_whatsapp_sender('00000000-0000-0000-0000-024300000002'),
+  null, 'a messaging.view holder gets null, not an error, for a Station with no WhatsApp integration');
+reset role;
+
+-- One WHATSAPP integration for Station A. `enabled` is left at its default
+-- (false) on purpose -- the identical filter drainCampaigns' own
+-- loadPhoneNumberIds (src/services/campaigns.ts) applies carries no
+-- `enabled` check either, and this function's own comment says why: a test
+-- send disagreeing with the drain about which integration counts would prove
+-- nothing about what a real campaign will do.
+insert into public.integrations (id, organization_id, company_id, provider, phone_number_id) values
+  ('00000000-0000-0000-0000-024300000018', '00000000-0000-0000-0000-024300000001',
+   '00000000-0000-0000-0000-024300000002', 'WHATSAPP', 'phone-number-id-0243');
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000017", "role": "authenticated"}';
+select is(
+  public.campaign_whatsapp_sender('00000000-0000-0000-0000-024300000002'),
+  'phone-number-id-0243', 'and the phone_number_id once one exists, disabled or not');
+reset role;
 
 select finish();
 rollback;
