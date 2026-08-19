@@ -206,3 +206,51 @@ export function describeCreateSendListError(
   }
   return describeSendListWriteError(cause, t, 'actionCreateASendList');
 }
+
+/**
+ * Block 29d-2, Task 7. `listCampaigns` reads `message_campaigns` directly
+ * under RLS (0242's own select policy), the same shape `listSendLists`
+ * already establishes for its own grid -- a caller without `messaging.view`
+ * anywhere reads zero rows rather than an error, so `UnauthorizedError` below
+ * is kept for the same reason `describeSendListReadError` keeps its own.
+ */
+export function describeCampaignReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof ConflictError) return cause.message;
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return t('thatCouldNotBeFound');
+  }
+  if (cause instanceof UnauthorizedError) {
+    return t('youDoNotHavePermissionToViewTheCampaigns');
+  }
+  return t('couldNotLoadTheCampaigns');
+}
+
+/**
+ * The write half, for `createCampaign`/`cancelCampaign` (services/campaigns.ts).
+ *
+ * `ValidationError` passes through verbatim, the same reasoning
+ * `describeSendListWriteError` gives for its own: `create_campaign`'s 22023s
+ * (an empty recipient set, an unregistered WhatsApp template, the new
+ * variables-shape guard) and `cancel_campaign`'s (a campaign already
+ * finished) are each already specific database sentences, not a code a
+ * caller could have bypassed a form to reach the way a blank name can.
+ */
+export function describeCampaignWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
+  if (cause instanceof ConflictError) return cause.message;
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return t('thatCouldNotBeFound');
+  }
+  if (cause instanceof UnauthorizedError) {
+    return t('youDoNotHavePermissionToHere', { action: t(actionKey) });
+  }
+  return t('couldNotSave');
+}

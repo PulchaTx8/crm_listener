@@ -195,7 +195,15 @@ export async function getSendListReachAction(listId: string): Promise<GetSendLis
  * translated string can be keyed on -- see SendListResolutionCappedError
  * (services/send-lists.ts) for why the two cannot share one sentence.
  */
-async function describeResolutionCap(cause: SendListResolutionCappedError): Promise<string> {
+/**
+ * Exported (Block 29d-2, Task 7) so the campaigns screen's own
+ * getCampaignReachAction can show the identical two sentences for the
+ * identical refusal on a list it reads through the same listReach -- a
+ * second copy of this dispatch, one catalogue lookup away from the first,
+ * is exactly the kind of drift this file's own header on describeResolutionCap
+ * warns about for its two bounds.
+ */
+export async function describeResolutionCap(cause: SendListResolutionCappedError): Promise<string> {
   const t = await getTranslations('templates');
   return cause.bound === 'people'
     ? t('sendListTooManyPeople', { cap: String(RESOLVE_CAP) })

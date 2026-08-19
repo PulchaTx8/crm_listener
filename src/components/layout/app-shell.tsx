@@ -80,6 +80,14 @@ export const ICONS = {
   // one is a single conversation, the other is one blast to everybody. A send
   // list is neither; it is a roster, which is what this glyph reads as.
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  // A paper plane, for Block 29d-2's Campaigns -- the row directly below Send
+  // lists in this same section (Messages), which is exactly the case the
+  // house rule forbids for a reused glyph. `list` is the roster this row acts
+  // ON, not the act itself; `message` is one conversation and `megaphone`
+  // (Templates, two rows up) is the words a Station keeps ready to speak with
+  // -- neither means *dispatching a bulk send*, which is what this row does
+  // that none of its neighbours do.
+  send: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z',
 } as const;
 
 export interface ShellUser {

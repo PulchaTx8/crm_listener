@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeCursor } from '@/lib/keyset';
-import { NotFoundError } from '@/lib/errors';
+import { NotFoundError, UnauthorizedError } from '@/lib/errors';
 
 /**
  * Block 29d-1, Task 4. resolveListMembers delegates to the three listing
@@ -57,6 +57,8 @@ const {
   RESOLVE_PAGE_CAP,
   SendListResolutionCappedError,
   listReach,
+  resolveSendListAudience,
+  eligibleMemberIds,
 } = await import('@/services/send-lists');
 
 const TOKEN = 'test-access-token';
@@ -612,5 +614,133 @@ describe('listReach', () => {
     await expect(listReach('missing-list', TOKEN)).rejects.toBeInstanceOf(NotFoundError);
     expect(listOrganizationMembers).not.toHaveBeenCalled();
     expect(db.rpcCalls).toHaveLength(0);
+  });
+});
+
+/**
+ * Block 29d-2, Task 7 addendum §1-2. resolveSendListAudience is the wrapper
+ * the addendum names directly -- "Export a small wrapper around it
+ * [peopleForList] and use that -- do not write a second resolution path" --
+ * so what needs proving here is narrow: that it delegates to the identical
+ * peopleForList/fetchSendList path listReach's own tests above already prove
+ * exhaustively (FIXED vs LIVING, the Station narrowing for a LIVING members
+ * list), rather than that whole matrix again. Two cases stand in for it: one
+ * FIXED, one LIVING and narrowed, each cross-checked against what listReach
+ * itself would report for the same fixture -- if the two ever disagreed, the
+ * reach an operator approved and the audience a campaign actually snapshots
+ * would disagree too, which is section 4 of the spec's whole complaint.
+ */
+describe('resolveSendListAudience', () => {
+  it("returns a FIXED list's Station and its frozen roster, the exact set listReach's own people count uses", async () => {
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'fixed' },
+      { WHATSAPP: { data: [], error: null }, EMAIL: { data: [], error: null } },
+      { data: ['f1', 'f2'], error: null },
+    );
+    setFakeSendListsDb(db);
+
+    const audience = await resolveSendListAudience('list-3', TOKEN);
+
+    expect(audience).toEqual({ companyId: STATION_A, memberIds: ['f1', 'f2'] });
+    // No eligibility RPC at all -- this answers "who is on the list", not
+    // "who may be sent to on channel X" (see this function's own header).
+    expect(db.rpcCalls.some((call) => call.fn === 'members_marketing_eligible_bulk')).toBe(false);
+  });
+
+  it('narrows a LIVING members list to its own Station, the same narrowing listReach applies to its own people count', async () => {
+    listOrganizationMembers.mockResolvedValue({
+      rows: [{ id: 'm1' }, { id: 'm2' }, { id: 'elsewhere' }],
+      nextCursor: null,
+      previousCursor: null,
+      total: 3,
+    });
+
+    const db = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: { organizationId: ORG }, kind: 'living' },
+      { WHATSAPP: { data: [], error: null }, EMAIL: { data: [], error: null } },
+      undefined,
+      { linked: ['m1', 'm2'] },
+    );
+    setFakeSendListsDb(db);
+
+    const audience = await resolveSendListAudience('list-4', TOKEN);
+
+    expect(audience.companyId).toBe(STATION_A);
+    expect(audience.memberIds.sort()).toEqual(['m1', 'm2']);
+    expect(db.linkQueries).toEqual([{ companyId: STATION_A, memberIds: ['m1', 'm2', 'elsewhere'] }]);
+  });
+
+  it('throws NotFoundError for an unknown or RLS-hidden list, the same as listReach', async () => {
+    const db = new FakeSendListsDb(null, {});
+    setFakeSendListsDb(db);
+
+    await expect(resolveSendListAudience('missing-list', TOKEN)).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+/**
+ * Block 29d-2, Task 7 addendum §1. eligibleMemberIds calls the SAME RPC
+ * channelReach (above, inside listReach) already calls -- one core answering
+ * "who is eligible", asked two ways: a count for the screen, a filtered id
+ * list for the door. What is proved here is that it filters correctly and,
+ * UNLIKE channelReach, that it THROWS rather than silently returning an
+ * empty array on a 42501 -- creating a campaign is a write with real
+ * consequences, and a caller who lacks members.view must be told so, not
+ * handed a recipient set that reads as "nobody is eligible" when the true
+ * answer is "you may not ask".
+ */
+describe('eligibleMemberIds', () => {
+  it('returns only the ids the RPC marks eligible, for the channel and Station asked', async () => {
+    const db = new FakeSendListsDb(null, {
+      WHATSAPP: {
+        data: [
+          { member_id: 'm1', eligible: true },
+          { member_id: 'm2', eligible: false },
+          { member_id: 'm3', eligible: true },
+        ],
+        error: null,
+      },
+    });
+    setFakeSendListsDb(db);
+
+    const ids = await eligibleMemberIds(['m1', 'm2', 'm3'], STATION_A, 'WHATSAPP', TOKEN);
+
+    expect(ids).toEqual(['m1', 'm3']);
+    expect(db.rpcCalls).toEqual([
+      {
+        fn: 'members_marketing_eligible_bulk',
+        args: { p_member_ids: ['m1', 'm2', 'm3'], p_company_id: STATION_A, p_channel: 'WHATSAPP' },
+      },
+    ]);
+  });
+
+  it('returns an empty array with no RPC call at all when there is nobody to ask about', async () => {
+    const db = new FakeSendListsDb(null, {});
+    setFakeSendListsDb(db);
+
+    const ids = await eligibleMemberIds([], STATION_A, 'EMAIL', TOKEN);
+
+    expect(ids).toEqual([]);
+    expect(db.rpcCalls).toHaveLength(0);
+  });
+
+  it('throws UnauthorizedError, never a silently empty list, when 0235 refuses the caller (42501)', async () => {
+    const db = new FakeSendListsDb(null, {
+      EMAIL: { data: null, error: { code: '42501', message: 'permission denied: members.view required' } },
+    });
+    setFakeSendListsDb(db);
+
+    await expect(eligibleMemberIds(['m1'], STATION_A, 'EMAIL', TOKEN)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
+  });
+
+  it('propagates a non-permission RPC error rather than folding it into an empty result', async () => {
+    const db = new FakeSendListsDb(null, {
+      WHATSAPP: { data: null, error: { code: '55000', message: 'db is down' } },
+    });
+    setFakeSendListsDb(db);
+
+    await expect(eligibleMemberIds(['m1'], STATION_A, 'WHATSAPP', TOKEN)).rejects.toThrow('db is down');
   });
 });

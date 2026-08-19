@@ -498,9 +498,18 @@ async function channelReach(
  * since the whole-branch review's F8, why a LIVING one built from MEMBERS is
  * then narrowed to this list's own Station, the way its preview already was.
  */
-export async function listReach(listId: string, accessToken: string): Promise<ListReach> {
-  const client = asCaller(accessToken);
+/** The one row listReach and resolveSendListAudience both need before they can resolve anybody. */
+interface SendListRow {
+  companyId: string;
+  source: SendListSource;
+  filters: unknown;
+  kind: Database['public']['Enums']['send_list_kind'];
+}
 
+async function fetchSendList(
+  client: ReturnType<typeof asCaller>,
+  listId: string,
+): Promise<SendListRow> {
   const { data: list, error: listError } = await client
     .from('send_lists')
     .select('company_id, source, filters, kind')
@@ -511,19 +520,93 @@ export async function listReach(listId: string, accessToken: string): Promise<Li
   if (listError) throw new InternalError(`Could not read send list ${listId}: ${listError.message}`);
   if (!list) throw new NotFoundError(`send list not found: ${listId}`);
 
-  const memberIds = await peopleForList(
-    client,
-    listId,
-    { companyId: list.company_id, source: list.source, filters: list.filters, kind: list.kind },
-    accessToken,
-  );
+  return { companyId: list.company_id, source: list.source, filters: list.filters, kind: list.kind };
+}
+
+export async function listReach(listId: string, accessToken: string): Promise<ListReach> {
+  const client = asCaller(accessToken);
+  const list = await fetchSendList(client, listId);
+  const memberIds = await peopleForList(client, listId, list, accessToken);
 
   const [whatsapp, email] = await Promise.all([
-    channelReach(client, memberIds, list.company_id, 'WHATSAPP'),
-    channelReach(client, memberIds, list.company_id, 'EMAIL'),
+    channelReach(client, memberIds, list.companyId, 'WHATSAPP'),
+    channelReach(client, memberIds, list.companyId, 'EMAIL'),
   ]);
 
   return { people: memberIds.length, whatsapp, email };
+}
+
+/** A list's Station together with its people, resolved through peopleForList -- see resolveSendListAudience's own header. */
+export interface SendListAudience {
+  companyId: string;
+  memberIds: string[];
+}
+
+/**
+ * Block 29d-2, Task 7 addendum §1-2. THE SAME RESOLUTION listReach ITSELF
+ * USES, exported rather than re-implemented, because this is the wrapper the
+ * addendum names directly: "Export a small wrapper around it [peopleForList]
+ * and use that -- do not write a second resolution path." The new-campaign
+ * action calls this to build the recipient set it snapshots into
+ * create_campaign; listReach calls the exact same peopleForList to show the
+ * operator a number BEFORE that snapshot is taken. A FIXED list's frozen
+ * roster (send_list_member_ids, 0240) and a LIVING list's Station-narrowed
+ * re-resolution (peopleForList's own header) therefore answer identically for
+ * the reach shown and the recipients written -- if the two ever diverged, the
+ * number an operator approved and the audience the queue actually held would
+ * disagree, which is section 4 of the spec's whole complaint.
+ *
+ * Eligibility (members_marketing_eligible_bulk) is deliberately NOT applied
+ * here -- this answers "who is on the list", the same question listReach's
+ * own `people` count answers, not "who may be sent to on channel X". The
+ * caller narrows to the eligible subset itself, through eligibleMemberIds
+ * below, the same two-step shape listReach's own whatsapp/email fields take.
+ */
+export async function resolveSendListAudience(
+  listId: string,
+  accessToken: string,
+): Promise<SendListAudience> {
+  const client = asCaller(accessToken);
+  const list = await fetchSendList(client, listId);
+  const memberIds = await peopleForList(client, listId, list, accessToken);
+  return { companyId: list.companyId, memberIds };
+}
+
+/**
+ * Block 29d-2, Task 7 addendum §1. The SAME RPC channelReach above calls,
+ * asked for WHICH ids rather than how many -- one core, not a second
+ * eligibility question invented for this screen. Unlike channelReach, a
+ * 42501 here is NOT folded into a quiet answer: creating a campaign is a
+ * write with real consequences, and an operator who reaches this call
+ * without members.view (or the platform admin, or the Organization's owner)
+ * must be told so in words, not handed an empty, silently-narrowed recipient
+ * set that reads as "nobody is eligible" when the true answer is "you may
+ * not ask".
+ */
+export async function eligibleMemberIds(
+  memberIds: string[],
+  companyId: string,
+  channel: Database['public']['Enums']['message_channel'],
+  accessToken: string,
+): Promise<string[]> {
+  if (memberIds.length === 0) return [];
+
+  const { data, error } = await asCaller(accessToken).rpc('members_marketing_eligible_bulk', {
+    p_member_ids: memberIds,
+    p_company_id: companyId,
+    p_channel: channel,
+  });
+
+  if (error) {
+    if (error.code === '42501') {
+      throw new UnauthorizedError(
+        `Could not check ${channel} eligibility for this campaign: members.view is required at this Station.`,
+      );
+    }
+    throw new InternalError(`Could not check ${channel} eligibility for this campaign: ${error.message}`);
+  }
+
+  return (data ?? []).filter((row) => row.eligible).map((row) => row.member_id);
 }
 
 // ---------------------------------------------------------------------------

@@ -386,12 +386,14 @@ export async function getShellContext(): Promise<{
       // boundary is in the database.
       label: t('messages'),
       items: [
-        // TWO ITEMS, WHERE BLOCK 29's design names five. Campaigns, Schedules
-        // and Message History arrive WITH THE SCREENS THEY POINT AT, one per
-        // later pass, rather than now: Block 20b shipped navigation ahead of
-        // its destinations and its own report calls that the error of the
-        // block — three sidebar rows that answer a click with a 404 are worse
-        // than three rows nobody has yet.
+        // FOUR ITEMS NOW, WHERE BLOCK 29's original design named five and
+        // this comment once said two: Campaigns (below) and Send lists
+        // arrived one pass each, WITH THE SCREENS THEY POINT AT, rather than
+        // in one shot up front -- Block 20b shipped navigation ahead of its
+        // destinations and its own report calls that the error of the block,
+        // three sidebar rows that answered a click with a 404 being worse
+        // than three rows nobody had yet. Only Schedules and Message History
+        // remain unbuilt.
         //
         // ICONS.message is the Templates block's own: this is the one section
         // about WORDS rather than records, and nothing already declared meant
@@ -425,6 +427,21 @@ export async function getShellContext(): Promise<{
         // app-shell.tsx for why neither message nor megaphone, its two
         // neighbours here, could serve instead.
         { href: '/messages/lists', label: t('lists'), icon: ICONS.list },
+        // Block 29d-2, Task 7. LAST IN THE SECTION, one row below Send lists,
+        // for the same reason that row sits below Templates: a campaign is
+        // built FROM a send list, so this is where that journey now ends up.
+        //
+        // Visible to every member, the same courtesy every entry in this
+        // section already extends: /messages/campaigns redirects at the top
+        // of its own render for anyone holding messaging.view nowhere, and
+        // 0242's own select policy filters every read regardless of that
+        // redirect. Hiding a link is a courtesy; the boundary is in the
+        // database.
+        //
+        // ICONS.send is new for this row -- see its own comment in
+        // app-shell.tsx for why neither list nor its other two neighbours
+        // here could serve instead.
+        { href: '/messages/campaigns', label: t('campaigns'), icon: ICONS.send },
       ],
     },
     {

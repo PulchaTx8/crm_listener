@@ -1,5 +1,8 @@
 import 'server-only';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { getUserSupabaseConfig } from '@/lib/supabase/config';
+import { encodeCursor, keysetFilter } from '@/lib/keyset';
+import type { Cursor } from '@/lib/keyset';
 import type { Database, Json } from '@/lib/supabase/database.types';
 import {
   MAX_CONSECUTIVE_SEND_FAILURES,
@@ -7,7 +10,7 @@ import {
   STALE_CLAIM,
   nextAttemptDelay,
 } from '@/services/whatsapp';
-import { parseTemplate } from '@/lib/integrations/whatsapp/template';
+import { parseTemplate, TemplateLimitError, type Template } from '@/lib/integrations/whatsapp/template';
 import { GraphTransport } from '@/lib/integrations/whatsapp/graph';
 import { FakeTransport } from '@/lib/integrations/whatsapp/fake';
 import { WhatsAppMessagingProvider } from '@/lib/messaging/whatsapp-provider';
@@ -20,9 +23,16 @@ import type {
   WhatsAppSendJob,
 } from '@/lib/messaging/provider';
 import { DevMailer, SmtpMailer, type Mailer } from '@/lib/mailer';
-import { namedPlaceholder, variableFromPlaceholder, type TemplateVariable } from '@/lib/templates/variables';
+import {
+  CAMPAIGN_RESOLVABLE,
+  namedPlaceholder,
+  variableFromPlaceholder,
+  type TemplateVariable,
+} from '@/lib/templates/variables';
 import { newUnsubscribeToken } from '@/services/consent';
+import type { CampaignRecipientDetail } from '@/services/members';
 import { env } from '@/lib/env';
+import { InternalError, NotFoundError, UnauthorizedError, ValidationError } from '@/lib/errors';
 import ptMessages from '../../messages/pt.json';
 
 type ServiceClient = SupabaseClient<Database>;
@@ -99,12 +109,14 @@ function staleClaimMs(interval: string): number {
   return Number(match[1]) * unitMs[match[2]!]!;
 }
 
-function resolveMailer(): Mailer {
+/** Exported for Task 7's test send (actions.ts), which needs the identical env-resolved mailer the drain uses -- a second copy of this resolution would be a second place for the two to disagree about which mailer a Station's messages actually go through. */
+export function resolveMailer(): Mailer {
   if (env.SMTP_URL && env.MAIL_FROM) return new SmtpMailer(env.SMTP_URL, env.MAIL_FROM);
   return new DevMailer();
 }
 
-function resolveWhatsAppTransport() {
+/** Exported for the identical reason resolveMailer above is. */
+export function resolveWhatsAppTransport() {
   return env.WHATSAPP_ACCESS_TOKEN ? new GraphTransport(env.WHATSAPP_ACCESS_TOKEN) : new FakeTransport();
 }
 
@@ -838,4 +850,648 @@ function distinct<T>(values: T[]): T[] {
 
 function isNotNull<T>(value: T | null | undefined): value is T {
   return value !== null && value !== undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Task 7: the screen -- listing, creating and cancelling a campaign, and the
+// four-step resolution create_campaign (0243) deliberately leaves to the
+// application layer (0243's own header: a LIVING list is re-resolved by the
+// src/services/ listing resolvers, which SQL cannot call, and the addresses
+// and variable values need members and the template's own mapping -- work
+// this screen already does to show the operator what will be sent).
+// ---------------------------------------------------------------------------
+
+/** A client bound to the caller's JWT, the same shape every other service file in this codebase declares for itself (send-lists.ts's own asCaller has the fullest comment on why). */
+function asCaller(accessToken: string) {
+  const { url, anonKey } = getUserSupabaseConfig();
+  return createClient<Database>(url, anonKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+/**
+ * The code taxonomy create_campaign and cancel_campaign (0243) raise, the
+ * same shape mapSendListError (services/send-lists.ts) and mapTemplateError
+ * (services/templates.ts) document for their own doors.
+ *
+ * - `42501` is a permission refusal, and -- 0093's rule, which both doors
+ *   follow -- ALSO an id that names nothing this caller may reach: an unknown
+ *   Station, list or template resolve to `P0002` instead (below), but a
+ *   caller who lacks `messaging.send` outright is refused before either door
+ *   even looks at the ids it was given.
+ * - `P0002` is create_campaign's unknown-or-wrong-Station list/template, a
+ *   listener not linked to the Station, or cancel_campaign's unknown
+ *   campaign.
+ * - `22023` is every validation raise: an empty recipient set, a WhatsApp
+ *   campaign whose template is not Meta-registered, a template of the wrong
+ *   channel, the new variables-shape guard this task adds to create_campaign,
+ *   or cancel_campaign's refusal of an already-finished campaign.
+ * - Anything else is ours, not the caller's.
+ */
+function mapCampaignError(code: string | undefined, message: string): Error {
+  if (code === '22023') return new ValidationError(message);
+  if (code === 'P0002') return new NotFoundError(message);
+  if (code === '42501') return new UnauthorizedError(message);
+  return new InternalError(message);
+}
+
+/** One row of the history grid -- see listCampaigns' own header for why list/template/creator names are batched reads rather than a PostgREST embed. */
+export interface CampaignRecord {
+  id: string;
+  companyId: string;
+  status: Database['public']['Enums']['campaign_status'];
+  listId: string;
+  /** Null when the list has been archived (soft-deleted, 0238) since this campaign was created, or this caller cannot read it -- see listCampaigns' own header. Never a fabricated name. */
+  listName: string | null;
+  channel: Database['public']['Enums']['message_channel'];
+  templateId: string;
+  /** Null when this caller holds messaging.view but not templates.view (0110's own select policy) -- a real, documented gap this screen inherits rather than papers over, the same shape idFragment (messages/lists/lists-grid.tsx) accepts for a promotion/song/show id this caller may not have the matching permission to name. */
+  templateName: string | null;
+  totalRecipients: number;
+  sentCount: number;
+  failedCount: number;
+  suppressedCount: number;
+  createdByName: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface CampaignsPage {
+  rows: CampaignRecord[];
+  nextCursor: string | null;
+}
+
+/** One page of rows, the same bound listSendLists (services/send-lists.ts) uses for its own grid. */
+export const CAMPAIGN_PAGE_SIZE = 50;
+
+/**
+ * Every campaign this caller's `messaging.view` reaches, across every
+ * Station -- `message_campaigns_select_messaging_view` (0242) is what
+ * actually bounds which rows come back, the same division listSendLists
+ * draws for its own read against 0238's policy.
+ *
+ * ORDERED `created_at desc, id desc`, A TOTAL ORDER, for the reason this
+ * project has already paid for once: `created_at` defaults to `now()` and
+ * `id` is the primary key, so neither is ever null, unlike the `purpose`
+ * column `listTemplates` (services/templates.ts) once ordered its own
+ * marketing half by alone -- see listSendLists' own comment for the full
+ * story of that defect. A history grid ordered by a nullable column (say,
+ * `finished_at`, null for every row still queued or running) would render
+ * every unfinished campaign in an undefined order across two loads of the
+ * same unchanged data.
+ *
+ * list/template names and the creator's name are NOT read through a
+ * PostgREST embed: nothing else in this codebase's services layer embeds a
+ * foreign-key join (listTemplates, services/templates.ts, reads its own
+ * `updated_by` name through a second batched query for the identical
+ * reason -- `profiles` sits behind `auth.users`, which PostgREST cannot
+ * embed across -- and every other cross-table name in this project's grids
+ * follows that same shape), so this keeps to it rather than being the first
+ * departure.
+ */
+export async function listCampaigns(
+  accessToken: string,
+  cursor: Cursor | null = null,
+): Promise<CampaignsPage> {
+  const client = asCaller(accessToken);
+
+  let query = client
+    .from('message_campaigns')
+    .select(
+      'id, company_id, list_id, channel, template_id, status, total_recipients, sent_count, failed_count, suppressed_count, created_by, created_at, started_at, finished_at',
+    )
+    .order('created_at', { ascending: false });
+
+  if (cursor) {
+    query = query.or(keysetFilter('created_at', 'desc', cursor, false));
+  }
+
+  const { data, error } = await query.order('id', { ascending: false }).limit(CAMPAIGN_PAGE_SIZE + 1);
+  if (error) throw new InternalError(`Could not list campaigns: ${error.message}`);
+
+  const fetched = data ?? [];
+  const more = fetched.length > CAMPAIGN_PAGE_SIZE;
+  const page = more ? fetched.slice(0, CAMPAIGN_PAGE_SIZE) : fetched;
+  const last = page[page.length - 1];
+
+  const listIds = distinct(page.map((row) => row.list_id));
+  const templateIds = distinct(page.map((row) => row.template_id));
+  const actorIds = distinct(page.map((row) => row.created_by).filter(isNotNull));
+
+  // Three batched reads, sequential rather than Promise.all -- the same
+  // shape listTemplates (services/templates.ts) uses for its own actor-name
+  // batch, kept here rather than parallelised so each supabase-js query
+  // builder's return type is inferred on its own rather than unified across
+  // three different shapes inside one Promise.all array.
+  const { data: listRows, error: listsError } =
+    listIds.length === 0
+      ? { data: [] as { id: string; name: string }[], error: null }
+      : await client.from('send_lists').select('id, name').in('id', listIds);
+  if (listsError) throw new InternalError(`Could not read the lists behind these campaigns: ${listsError.message}`);
+
+  const { data: templateRows, error: templatesError } =
+    templateIds.length === 0
+      ? { data: [] as { id: string; internal_name: string }[], error: null }
+      : await client.from('message_templates').select('id, internal_name').in('id', templateIds);
+  if (templatesError) {
+    throw new InternalError(`Could not read the templates behind these campaigns: ${templatesError.message}`);
+  }
+
+  const { data: profileRows, error: profilesError } =
+    actorIds.length === 0
+      ? { data: [] as { id: string; full_name: string | null }[], error: null }
+      : await client.from('profiles').select('id, full_name').in('id', actorIds);
+  if (profilesError) {
+    throw new InternalError(`Could not read who created these campaigns: ${profilesError.message}`);
+  }
+
+  const listNameById = new Map((listRows ?? []).map((row) => [row.id, row.name]));
+  const templateNameById = new Map((templateRows ?? []).map((row) => [row.id, row.internal_name]));
+  const actorNameById = new Map((profileRows ?? []).map((row) => [row.id, row.full_name]));
+
+  return {
+    rows: page.map((row) => ({
+      id: row.id,
+      companyId: row.company_id,
+      status: row.status,
+      listId: row.list_id,
+      listName: listNameById.get(row.list_id) ?? null,
+      channel: row.channel,
+      templateId: row.template_id,
+      templateName: templateNameById.get(row.template_id) ?? null,
+      totalRecipients: row.total_recipients,
+      sentCount: row.sent_count,
+      failedCount: row.failed_count,
+      suppressedCount: row.suppressed_count,
+      createdByName: row.created_by ? (actorNameById.get(row.created_by) ?? null) : null,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      finishedAt: row.finished_at,
+    })),
+    nextCursor: more && last ? encodeCursor({ value: last.created_at, id: last.id }) : null,
+  };
+}
+
+export interface CreateCampaignInput {
+  companyId: string;
+  listId: string;
+  channel: Database['public']['Enums']['message_channel'];
+  templateId: string;
+  memberIds: string[];
+  /** Keyed by member id, the exact object shape create_campaign's own p_addresses expects (0243's own comment). */
+  addresses: Record<string, string>;
+  /** Keyed by member id; each value is a positional string[] for WHATSAPP or a {name, value}[] for EMAIL -- see this file's buildWhatsAppVariableValues/buildEmailVariableValues. */
+  variables: Record<string, Json>;
+}
+
+/**
+ * create_campaign (0243) itself. Every id and value here was resolved by
+ * this same file's own audience-and-template functions below, called from
+ * the campaigns screen's Server Action (messages/campaigns/actions.ts) --
+ * this wrapper trusts none of it further than the RPC call does; the door
+ * re-derives the Station from p_company_id and re-checks messaging.send
+ * regardless (0243's own body).
+ */
+export async function createCampaign(input: CreateCampaignInput, accessToken: string): Promise<string> {
+  const { data, error } = await asCaller(accessToken).rpc('create_campaign', {
+    p_company_id: input.companyId,
+    p_list_id: input.listId,
+    p_channel: input.channel,
+    p_template_id: input.templateId,
+    p_member_ids: input.memberIds,
+    // jsonb on the database side; the generated Json type has no open-object
+    // variant, the identical cast services/send-lists.ts's own createSendList
+    // uses for its own p_filters, and for the identical reason -- nothing is
+    // actually smuggled past the RPC, every value here is plain
+    // JSON-serialisable data.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    p_addresses: input.addresses as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    p_variables: input.variables as any,
+  });
+  if (error) throw mapCampaignError(error.code, error.message);
+  if (typeof data !== 'string') throw new InternalError('create_campaign returned no id');
+  return data;
+}
+
+export interface CancelCampaignInput {
+  campaignId: string;
+  reason?: string;
+}
+
+/** cancel_campaign (0243) itself. Returns how many still-pending recipient rows it marked cancelled. */
+export async function cancelCampaign(input: CancelCampaignInput, accessToken: string): Promise<number> {
+  const { data, error } = await asCaller(accessToken).rpc('cancel_campaign', {
+    p_campaign_id: input.campaignId,
+    // '', not null: cancel_campaign's own body already folds the two
+    // together (`nullif(btrim(coalesce(p_reason, '')), '')`, 0243), and the
+    // generated Args type for a `text` parameter with no SQL default is
+    // `string`, not `string | null` -- p_reason carries no default here.
+    p_reason: input.reason ?? '',
+  });
+  if (error) throw mapCampaignError(error.code, error.message);
+  return data ?? 0;
+}
+
+/** A marketing template's full content, as the new-campaign dialog and the create/test-send actions need it. */
+export interface CampaignTemplate {
+  id: string;
+  channel: Database['public']['Enums']['message_channel'];
+  name: string | null;
+  language: string | null;
+  body: string;
+  subject: string | null;
+  /** Positional, WHATSAPP only -- empty for EMAIL, whose placeholders are named IN the body/subject instead (see this file's extractEmailVariables). */
+  variables: TemplateVariable[];
+  otpButton: boolean;
+  fromName: string | null;
+  fromEmail: string | null;
+  replyTo: string | null;
+}
+
+/**
+ * Reads ONE marketing template (`purpose is null`, 0225) belonging to
+ * `companyId`, re-verifying its channel matches `channel` -- the same pair of
+ * checks create_campaign's own body makes (0243), so a stale dialog selection
+ * (a template archived or recreated on a different channel between load and
+ * submit) is caught here with a clear error before the door is ever called,
+ * rather than surfacing as the door's own 22023/P0002 with less context.
+ *
+ * Under `message_templates_select_view` (0110): `templates.view` at
+ * `companyId`, a DIFFERENT permission from `messaging.view`/`messaging.send`
+ * -- an operator who can reach this screen but holds no `templates.view`
+ * here reads zero rows, which this function turns into NotFoundError the
+ * same as a genuinely unknown id, rather than a false claim that the
+ * template does not exist.
+ */
+export async function loadCampaignTemplate(
+  templateId: string,
+  companyId: string,
+  channel: Database['public']['Enums']['message_channel'],
+  accessToken: string,
+): Promise<CampaignTemplate> {
+  const { data, error } = await asCaller(accessToken)
+    .from('message_templates')
+    .select(
+      'id, channel, name, language, body, subject, variables, otp_button, from_name, from_email, reply_to',
+    )
+    .eq('id', templateId)
+    .eq('company_id', companyId)
+    .is('purpose', null)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new InternalError(`Could not read this campaign's template: ${error.message}`);
+  if (!data) throw new NotFoundError(`marketing template not found: ${templateId}`);
+  if (data.channel !== channel) {
+    throw new ValidationError('this template does not send on the channel requested');
+  }
+
+  return {
+    id: data.id,
+    channel: data.channel,
+    name: data.name,
+    language: data.language,
+    body: data.body,
+    subject: data.subject,
+    variables: data.variables,
+    otpButton: data.otp_button,
+    fromName: data.from_name,
+    fromEmail: data.from_email,
+    replyTo: data.reply_to,
+  };
+}
+
+export interface CampaignTemplateOption {
+  id: string;
+  internalName: string;
+}
+
+/**
+ * The dialog's template dropdown, narrowed to marketing templates
+ * (`purpose is null`) of the chosen Station and channel -- ordered by
+ * `internal_name, id`, a total order for the reason listCampaigns' own
+ * header gives, though this list is short enough that the ordering is a
+ * courtesy rather than a defence against a defect this project has already
+ * paid for once.
+ */
+export async function listCampaignTemplateOptions(
+  companyId: string,
+  channel: Database['public']['Enums']['message_channel'],
+  accessToken: string,
+): Promise<CampaignTemplateOption[]> {
+  const { data, error } = await asCaller(accessToken)
+    .from('message_templates')
+    .select('id, internal_name')
+    .eq('company_id', companyId)
+    .eq('channel', channel)
+    .is('purpose', null)
+    .is('deleted_at', null)
+    .order('internal_name', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw new InternalError(`Could not list marketing templates: ${error.message}`);
+  return (data ?? []).map((row) => ({ id: row.id, internalName: row.internal_name }));
+}
+
+/** The one company fact both the create-campaign and test-send paths need for STATION_NAME -- name only; `companies_select_org_member` (0006/0021) admits any member of this Station's Organization, which every caller reaching this screen already is. */
+export async function readStationName(companyId: string, accessToken: string): Promise<string> {
+  const { data, error } = await asCaller(accessToken)
+    .from('companies')
+    .select('name')
+    .eq('id', companyId)
+    .maybeSingle();
+  if (error) throw new InternalError(`Could not read this Station's name: ${error.message}`);
+  if (!data) throw new NotFoundError(`station not found: ${companyId}`);
+  return data.name;
+}
+
+/** The e-mail sender identity fields the test send needs -- the same four columns loadCompanies (this file's own drain code, above) reads for the real send, for one company rather than a batch. */
+export interface StationEmailIdentity {
+  name: string;
+  logoUrl: string | null;
+  emailFromName: string | null;
+  emailFromAddress: string | null;
+  emailReplyTo: string | null;
+}
+
+export async function readStationEmailIdentity(
+  companyId: string,
+  accessToken: string,
+): Promise<StationEmailIdentity> {
+  const { data, error } = await asCaller(accessToken)
+    .from('companies')
+    .select('name, thumb_url, email_from_name, email_from_address, email_reply_to')
+    .eq('id', companyId)
+    .maybeSingle();
+  if (error) throw new InternalError(`Could not read this Station's sender identity: ${error.message}`);
+  if (!data) throw new NotFoundError(`station not found: ${companyId}`);
+  return {
+    name: data.name,
+    logoUrl: data.thumb_url,
+    emailFromName: data.email_from_name,
+    emailFromAddress: data.email_from_address,
+    emailReplyTo: data.email_reply_to,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The variable resolver. PURE FUNCTIONS, no I/O -- everything they need
+// (the member's own fields, the Station's name) is read by the caller
+// above, so these can be proven directly rather than through a fake
+// database (tests/unit/campaigns-variables.test.ts).
+// ---------------------------------------------------------------------------
+
+/**
+ * One CAMPAIGN_RESOLVABLE value, resolved from the recipient and the
+ * Station. Mirrors enqueue_pickup_reminder's own first-name split
+ * (`split_part(btrim(v_full_name), ' ', 1)`, 0112) in TypeScript rather than
+ * a second SQL copy, so a campaign's greeting and a pickup reminder's agree
+ * on what "first name" means for the same listener.
+ *
+ * A MISSING FIELD RESOLVES TO AN EMPTY STRING, never a placeholder throw --
+ * `member.fullName`/`member.city` are both nullable columns (0031), and a
+ * listener who never gave a name or a city is a real, if incomplete, row.
+ * For EMAIL this is a legitimate value: substitutePlaceholders (this file's
+ * drain code, above) only refuses a placeholder NAME it cannot resolve, not
+ * a resolved value that happens to be blank. For WHATSAPP, an empty
+ * parameter is refused downstream by validateParameters
+ * (lib/integrations/whatsapp/template.ts) -- a guaranteed, visible
+ * `no_template` outcome on that ONE recipient's row (see this file's own
+ * WhatsAppMessagingProvider.send), not a silent success with a blank
+ * greeting. Excluding such a listener at snapshot time was considered and
+ * rejected: it would make total_recipients disagree with the reach number
+ * `listReach` showed the operator before they sent (Task 7 addendum §1's own
+ * warning against a second resolution path), for a case -- a listener with
+ * no name on file -- that is itself visible data, not a defect in this
+ * resolution.
+ *
+ * Only ever called with one of the four CAMPAIGN_RESOLVABLE-true values:
+ * a WhatsApp marketing template's own `variables` is restricted to
+ * CAMPAIGN_VARIABLES at save time (marketingTemplateSchema,
+ * schemas/templates.ts), and extractEmailVariables below refuses any other
+ * name before this function is ever called for EMAIL. The `default` branch
+ * is defence against a row written by something that bypassed both, not a
+ * reachable path today.
+ */
+function resolveCampaignVariable(
+  variable: TemplateVariable,
+  member: Pick<CampaignRecipientDetail, 'fullName' | 'city'>,
+  stationName: string,
+): string {
+  switch (variable) {
+    case 'LISTENER_FIRST_NAME': {
+      const trimmed = member.fullName?.trim();
+      return trimmed ? trimmed.split(/\s+/)[0]! : '';
+    }
+    case 'LISTENER_FULL_NAME':
+      return member.fullName?.trim() ?? '';
+    case 'LISTENER_CITY':
+      return member.city?.trim() ?? '';
+    case 'STATION_NAME':
+      return stationName;
+    default:
+      throw new ValidationError(`${variable} is not a value a campaign can resolve`);
+  }
+}
+
+/** One recipient's positional WHATSAPP array, in `template.variables`' own order -- see message_campaign_recipients.variables' column comment (0242) for why this order is fixed at snapshot and never re-read against the template's current one afterwards. */
+export function buildWhatsAppVariableValues(
+  templateVariables: TemplateVariable[],
+  member: Pick<CampaignRecipientDetail, 'fullName' | 'city'>,
+  stationName: string,
+): string[] {
+  return templateVariables.map((variable) => resolveCampaignVariable(variable, member, stationName));
+}
+
+/**
+ * Every CAMPAIGN_RESOLVABLE value an e-mail template's body and subject
+ * name, deduplicated -- the wide capture `\{\{([^{}]*)\}\}` matches
+ * save_marketing_template's own (0225) and marketingTemplateSchema's own
+ * (schemas/templates.ts), so a name neither of those would have accepted at
+ * save time is refused here too rather than silently ignored. Reachable in
+ * practice only for a row written by something that bypassed both
+ * validations -- see resolveCampaignVariable's own comment on the identical
+ * defence.
+ */
+export function extractEmailVariables(body: string, subject: string): TemplateVariable[] {
+  const found = new Set<TemplateVariable>();
+  for (const text of [body, subject]) {
+    for (const match of text.matchAll(/\{\{([^{}]*)\}\}/g)) {
+      const captured = match[1] ?? '';
+      const variable = variableFromPlaceholder(captured);
+      if (!variable || !CAMPAIGN_RESOLVABLE[variable]) {
+        throw new ValidationError(
+          `this template names {{${captured}}}, which is not a value a campaign can resolve`,
+        );
+      }
+      found.add(variable);
+    }
+  }
+  return [...found];
+}
+
+/** One recipient's EMAIL variables -- a named array of {name, value} pairs (Task 7 addendum §3), `name` lower-cased to match the exact notation the body/subject itself uses (namedPlaceholder's own transform) and variableFromPlaceholder's own case-insensitive read on the way back out (drain code, above). */
+export function buildEmailVariableValues(
+  usedVariables: TemplateVariable[],
+  member: Pick<CampaignRecipientDetail, 'fullName' | 'city'>,
+  stationName: string,
+): { name: string; value: string }[] {
+  return usedVariables.map((variable) => ({
+    name: variable.toLowerCase(),
+    value: resolveCampaignVariable(variable, member, stationName),
+  }));
+}
+
+/**
+ * The Station's active WhatsApp `phone_number_id`, for the test send only.
+ *
+ * `public.integrations` carries RLS with NO POLICY at all (0057's own
+ * comment: "nothing reaches this table through a user-scoped client, by
+ * design"), and the one existing authenticated door onto it,
+ * `list_integrations` (0130), is gated on `is_platform_admin()` alone -- an
+ * installation-wide console, the wrong shape for "may THIS caller test-send
+ * from THEIR OWN Station". `campaign_whatsapp_sender` (0248) is the narrow
+ * door this screen needed instead: gated on `messaging.view`, the same
+ * permission that gates the whole screen and, per the addendum, the test
+ * send along with it, and it returns nothing but the `phone_number_id`
+ * itself -- "no secret", by 0057's own words.
+ */
+export async function resolveWhatsAppSenderId(
+  companyId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const { data, error } = await asCaller(accessToken).rpc('campaign_whatsapp_sender', {
+    p_company_id: companyId,
+  });
+  if (error) throw mapCampaignError(error.code, error.message);
+  return data ?? null;
+}
+
+export interface TestSendCampaignInput {
+  companyId: string;
+  channel: Database['public']['Enums']['message_channel'];
+  template: CampaignTemplate;
+  /** The one sample listener's own fields, already resolved by the caller (Task 7's action). */
+  sampleMember: Pick<CampaignRecipientDetail, 'fullName' | 'city'>;
+  /** The phone number or e-mail address the OPERATOR typed -- never a listener's own, see this function's own header. */
+  destination: string;
+}
+
+/**
+ * Sends ONE message through the same provider a real campaign uses
+ * (WhatsAppMessagingProvider / EmailMessagingProvider), to an address the
+ * operator typed rather than to any listener -- and writes NOTHING: no
+ * `message_campaign_recipients` row, no `message_campaigns` row, no
+ * `audit_logs` row, and no unsubscribe token (`issue_unsubscribe_token`,
+ * 0232, is granted to `service_role` alone in any case -- a test send could
+ * not mint one even if this function tried). A test send that left a trace
+ * would corrupt the count an operator reads before deciding whether to send
+ * for real (Task 7 brief's own words).
+ *
+ * `unsubscribe: null` on the EMAIL job -- `EmailSendJob.unsubscribe` is
+ * required but nullable (provider.ts), and `renderCampaignEmail`
+ * (`FrameInput.unsubscribe`) treats it as optional either way: the seam is
+ * simply left empty. A real unsubscribe link promises the reader a working
+ * way out of a mailing list they are actually on; this recipient consented
+ * to nothing and is not on any list, so a link that could never be honoured
+ * would be a worse trace than none.
+ */
+export async function testSendCampaign(
+  input: TestSendCampaignInput,
+  accessToken: string,
+): Promise<SendOutcome> {
+  if (input.channel === 'WHATSAPP') {
+    if (!input.template.name || !input.template.language) {
+      return {
+        ok: false,
+        retryable: false,
+        code: 'no_template',
+        description: 'this template is not a registered WhatsApp template',
+      };
+    }
+
+    const [phoneNumberId, stationName] = await Promise.all([
+      resolveWhatsAppSenderId(input.companyId, accessToken),
+      readStationName(input.companyId, accessToken),
+    ]);
+    if (!phoneNumberId) {
+      return {
+        ok: false,
+        retryable: false,
+        code: 'no_whatsapp_integration',
+        description: 'this station has no active WhatsApp integration',
+      };
+    }
+
+    const template: Template = {
+      name: input.template.name,
+      language: input.template.language,
+      variables: buildWhatsAppVariableValues(input.template.variables, input.sampleMember, stationName),
+      otpButton: input.template.otpButton,
+    };
+
+    const provider = new WhatsAppMessagingProvider(resolveWhatsAppTransport());
+    const job: WhatsAppSendJob = { channel: 'WHATSAPP', address: input.destination, phoneNumberId, template };
+    try {
+      return await provider.send(job);
+    } catch (cause) {
+      // buildTemplatePayload (called from GraphTransport.sendTemplate) throws
+      // TemplateLimitError for a shape the Cloud API would reject -- most
+      // realistically here, an empty parameter from a sample listener with no
+      // name or city on file (resolveCampaignVariable's own comment). The
+      // drain (this file's own sendOne) never sees this throw because
+      // parseTemplate swallows it to null for a batch that must keep moving;
+      // a test send has exactly one recipient and one operator waiting on the
+      // result, so it is surfaced as an honest outcome instead.
+      if (cause instanceof TemplateLimitError) {
+        return { ok: false, retryable: false, code: 'template_limit', description: cause.message };
+      }
+      throw cause;
+    }
+  }
+
+  // EMAIL.
+  const usedVariables = extractEmailVariables(input.template.body, input.template.subject ?? '');
+  const stationIdentity = await readStationEmailIdentity(input.companyId, accessToken);
+
+  // The IDENTICAL substitution the drain itself runs (substitutePlaceholders,
+  // this file's own Task 6b code, above) -- not a second, simplified copy: a
+  // template that would fail to resolve for a real recipient must fail the
+  // same way here, with the same taxonomy code, rather than silently
+  // blanking under a hand-rolled replace.
+  const values = new Map(
+    usedVariables.map((variable) => [
+      variable,
+      resolveCampaignVariable(variable, input.sampleMember, stationIdentity.name),
+    ]),
+  );
+
+  const bodyResult = substitutePlaceholders(input.template.body, values);
+  if (!bodyResult.ok) {
+    return { ok: false, retryable: false, code: bodyResult.code, description: bodyResult.description };
+  }
+  const subjectResult = substitutePlaceholders(input.template.subject ?? '', values);
+  if (!subjectResult.ok) {
+    return { ok: false, retryable: false, code: subjectResult.code, description: subjectResult.description };
+  }
+
+  const fromName = input.template.fromName ?? stationIdentity.emailFromName ?? null;
+  const fromAddress = input.template.fromEmail ?? stationIdentity.emailFromAddress ?? null;
+  const replyTo = input.template.replyTo ?? stationIdentity.emailReplyTo ?? null;
+  const sender: EmailSenderIdentity | null = fromAddress ? { fromAddress, fromName, replyTo } : null;
+
+  const job: EmailSendJob = {
+    channel: 'EMAIL',
+    address: input.destination,
+    subject: subjectResult.text,
+    stationName: stationIdentity.name,
+    logoUrl: stationIdentity.logoUrl,
+    body: bodyResult.text,
+    unsubscribe: null,
+    sender,
+  };
+
+  const provider = new EmailMessagingProvider(resolveMailer());
+  return provider.send(job);
 }

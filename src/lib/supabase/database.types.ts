@@ -4566,6 +4566,10 @@ export type Database = {
           suppressed_count: number
         }[]
       }
+      campaign_whatsapp_sender: {
+        Args: { p_company_id: string }
+        Returns: string
+      }
       cancel_campaign: {
         Args: { p_campaign_id: string; p_reason: string }
         Returns: number

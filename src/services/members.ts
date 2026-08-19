@@ -733,6 +733,67 @@ export async function getMember(memberId: string, accessToken: string): Promise<
   };
 }
 
+/** The four members columns Block 29d-2's campaign screen needs to build a recipient's variable values and address -- see getMembersForCampaign's own header. */
+export interface CampaignRecipientDetail {
+  fullName: string | null;
+  city: string | null;
+  phoneNormalized: string | null;
+  emailNormalized: string | null;
+}
+
+/**
+ * Block 29d-2, Task 7 addendum §1 and §3. Reads full_name, city and both
+ * normalised addresses for a batch of ids, under members_select_reachable's
+ * own RLS (0035: `members.view` at some Station this listener is linked to,
+ * or the platform admin, or the Organization's owner) -- the SAME permission
+ * the addendum names as what the create-campaign action needs and the door
+ * (0243) deliberately does not have: "reading a listener's phone or e-mail
+ * needs members.view -- which the operator has and the door does not."
+ *
+ * A caller lacking members.view for some of `memberIds` gets a Map missing
+ * exactly those entries, never a thrown error and never a fabricated row --
+ * RLS only ever hides a real row here, the same trade filterMemberIdsLinkedToStation
+ * (services/send-lists.ts) accepts for its own read of member_company_links.
+ * The campaign action reads this Map with `.get(id)`, so a missing entry
+ * becomes a recipient with no resolved address and no resolved variables --
+ * exactly the existing `no_address` outcome the drain (services/campaigns.ts)
+ * already settles a WHATSAPP row with no phone on file as, not a new failure
+ * mode this file invents.
+ *
+ * `phone_normalized`/`email_normalized`, not the raw `phone`/`email` columns:
+ * the same generated, digits-only / lower-cased-and-trimmed values
+ * enqueue_pickup_reminder (0112) already sends WhatsApp template messages to
+ * (`m.phone_normalized`, read directly as the outbound `to`), so a campaign's
+ * own address resolution agrees with the one other place in this codebase
+ * that already resolves a listener's address for an outbound send.
+ */
+export async function getMembersForCampaign(
+  memberIds: string[],
+  accessToken: string,
+): Promise<Map<string, CampaignRecipientDetail>> {
+  if (memberIds.length === 0) return new Map();
+
+  const { data, error } = await asCaller(accessToken)
+    .from('members')
+    .select('id, full_name, city, phone_normalized, email_normalized')
+    .in('id', memberIds);
+  if (error) {
+    throw new InternalError(`Could not read listener details for a campaign: ${error.message}`);
+  }
+
+  return new Map(
+    (data ?? []).map((row) => [
+      row.id,
+      {
+        fullName: row.full_name,
+        city: row.city,
+        phoneNormalized: row.phone_normalized,
+        emailNormalized: row.email_normalized,
+      },
+    ]),
+  );
+}
+
 export interface MemberConsentRow {
   id: string;
   companyId: string;
