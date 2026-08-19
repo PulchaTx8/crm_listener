@@ -673,4 +673,120 @@ describe('Block 29d-2 -- campaigns, against real sessions', () => {
       }
     }
   }, 60_000);
+
+  /**
+   * WHOLE-BRANCH REVIEW C1, ruling R34. A campaign an operator has STOPPED
+   * must never resume sending -- spec D1 from the other side, since the
+   * operator's Cancel is the listener's "make it stop" arriving through a
+   * different door.
+   *
+   * EVERY STEP OF THE STATE THIS SETS UP IS REACHABLE, and that is the point
+   * of proving it here rather than in the unit suite. cancel_campaign (0243)
+   * marks only `pending` rows, deliberately: a `claimed` row may be in flight
+   * at a provider and cannot be recalled. But `claimed` does not mean in
+   * flight. The circuit breaker parks a batch's unprocessed rows `claimed`
+   * after three consecutive retryable failures -- which is the ordinary
+   * response to exactly the provider trouble that makes an operator reach for
+   * Cancel -- and a tick that dies mid-batch leaves them the same way. The
+   * drain's own reclaim then returns any row `claimed` longer than
+   * STALE_CLAIM to `pending`, unconditionally, and claim_campaign_batch
+   * claims on `status = 'pending'` alone.
+   *
+   * So: a row `claimed` six minutes ago (past STALE_CLAIM's five), a campaign
+   * cancelled through the REAL door by an owner holding messaging.send, and
+   * then a real drain against a real database.
+   *
+   * THE ASSERTION IS ON WHAT THE TRANSPORT WAS HANDED, not on the row's
+   * resulting status: a fix that settled these rows `cancelled` AFTER sending
+   * them would leave the queue looking identical and would still have put
+   * marketing in front of a listener who was told it had stopped.
+   */
+  it('a campaign cancelled while its rows were claimed never sends them, even after the stale-claim reclaim gives them back', async () => {
+    const fixture = await createWhatsAppCampaignFixture(`cancelled-resumes-${STAMP}`, 1);
+    const recipientId = fixture.recipientIds[0]!;
+    const address = fixture.addresses[fixture.memberIds[0]!];
+
+    try {
+      // The circuit-breaker/dead-tick state: claimed, and old enough that
+      // this drain's own reclaim (STALE_CLAIM, 5 minutes) will hand it back.
+      const superuser = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+      await superuser.connect();
+      try {
+        await superuser.query(
+          `update public.message_campaign_recipients
+              set status = 'claimed', claimed_at = now() - interval '6 minutes'
+            where id = $1`,
+          [recipientId],
+        );
+      } finally {
+        await superuser.end();
+      }
+
+      const { data: cancelledCount, error: cancelError } = await fixture.ownerClient.rpc('cancel_campaign', {
+        p_campaign_id: fixture.campaignId,
+        p_reason: 'the provider started failing',
+      });
+      expect(cancelError, cancelError?.message).toBeNull();
+      // ZERO rows marked: the only recipient of this campaign is `claimed`,
+      // which cancel_campaign does not touch. The campaign itself is
+      // cancelled all the same, and reports success to the operator -- which
+      // is precisely why the drain has to be the one that refuses.
+      expect(cancelledCount).toBe(0);
+
+      const transport = new FakeTransport();
+      const result = await drainCampaigns(service, {
+        whatsappProvider: new WhatsAppMessagingProvider(transport),
+      });
+      expect(result.dbErrors, 'the drain could not settle a recipient row').toBe(0);
+
+      // THE ASSERTION THIS CASE EXISTS FOR. Scoped to this fixture's own
+      // address rather than to an empty array, for the reason case 5's own
+      // comment gives: this drain claims the globally-oldest due rows, so
+      // another campaign's legitimate send sharing the tick is ordinary.
+      expect(transport.sentTemplates.some((call) => call.to === address)).toBe(false);
+      expect(transport.sent.some((call) => call.to === address)).toBe(false);
+      expect(transport.sentInteractive.some((call) => call.to === address)).toBe(false);
+
+      const { data: recipientRow, error: recipientReadError } = await service
+        .from('message_campaign_recipients')
+        .select('status, attempts, error_code, provider_message_id')
+        .eq('id', recipientId)
+        .single();
+      expect(recipientReadError, recipientReadError?.message).toBeNull();
+      // Settled, not stranded: the row is out of the queue for good rather
+      // than left `pending` for the next reclaim to find again -- which is
+      // why R34 put this in the drain instead of narrowing the claim.
+      expect(recipientRow?.status).toBe('cancelled');
+      // Nothing was attempted and nothing went wrong.
+      expect(recipientRow?.attempts).toBe(0);
+      expect(recipientRow?.error_code).toBeNull();
+      expect(recipientRow?.provider_message_id).toBeNull();
+
+      const { data: campaignRow, error: campaignReadError } = await service
+        .from('message_campaigns')
+        .select('status, sent_count, failed_count, suppressed_count')
+        .eq('id', fixture.campaignId)
+        .single();
+      expect(campaignReadError, campaignReadError?.message).toBeNull();
+      // Still cancelled -- the drain's own finish write is guarded on
+      // `in ('queued', 'running')`, so settling the last row cannot rewrite
+      // the operator's decision as `sent`.
+      expect(campaignRow?.status).toBe('cancelled');
+      expect(campaignRow?.sent_count).toBe(0);
+      expect(campaignRow?.failed_count).toBe(0);
+      expect(campaignRow?.suppressed_count).toBe(0);
+    } finally {
+      const cleanup = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+      await cleanup.connect();
+      try {
+        await cleanup.query(
+          `update public.message_campaign_recipients set status = 'cancelled'
+             where id = $1 and status in ('pending', 'claimed')`,
+          [recipientId],
+        );
+      } finally {
+        await cleanup.end();
+      }
+    }
+  }, 60_000);
 });

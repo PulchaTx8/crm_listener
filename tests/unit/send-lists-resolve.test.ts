@@ -94,6 +94,21 @@ interface LinkFixture {
   linked: string[];
 }
 
+/**
+ * Whole-branch review I2, ruling R36. The two normalised address columns
+ * `readMemberAddresses` reads, keyed by member id -- what decides whether an
+ * ELIGIBLE listener is also REACHABLE on the channel being counted.
+ *
+ * UNSET MEANS "everybody has both", deliberately: every case in this file
+ * that predates the finding is about eligibility, resolution or narrowing,
+ * and would otherwise have to restate an address fixture it does not care
+ * about in order to keep counting the same people. The cases that ARE about
+ * the address filter set it explicitly.
+ */
+interface AddressFixture {
+  [memberId: string]: { phone: string | null; email: string | null };
+}
+
 class FakeSendListsDb {
   readonly rpcCalls: RpcCall[] = [];
   /** Every member_company_links narrowing this run made, so a case can assert it made NONE. */
@@ -114,9 +129,29 @@ class FakeSendListsDb {
     // leaving it undefined is what makes any other case that narrows fail
     // loudly rather than quietly reading an empty table.
     private readonly links?: LinkFixture,
+    // Whole-branch review I2. See AddressFixture: undefined means every id
+    // asked about carries both a phone and an e-mail, which is what keeps
+    // every case written before that finding counting the same people.
+    private readonly addresses?: AddressFixture,
   ) {}
 
   from(table: string) {
+    if (table === 'members') {
+      const addresses = this.addresses;
+      return {
+        select: () => ({
+          in: async (_column: string, memberIds: string[]) => ({
+            data: memberIds.map((id) => ({
+              id,
+              phone_normalized: addresses ? (addresses[id]?.phone ?? null) : `5511${id}`,
+              email_normalized: addresses ? (addresses[id]?.email ?? null) : `${id}@example.com`,
+            })),
+            error: null,
+          }),
+        }),
+      };
+    }
+
     if (table === 'send_lists') {
       return {
         select: () => ({
@@ -722,6 +757,118 @@ describe('eligibleMemberIds', () => {
 
     expect(ids).toEqual([]);
     expect(db.rpcCalls).toHaveLength(0);
+  });
+
+  /**
+   * Whole-branch review I2, ruling R36. ELIGIBLE IS NOT REACHABLE. For EMAIL
+   * the eligibility rule's own default with no consent row on file is TRUE
+   * (0246's channel CTE), so a listener who has never given an e-mail address
+   * at all comes back eligible -- correct for the question 0235 is asked, and
+   * the wrong recipient set to snapshot.
+   *
+   * The channel matters to the filter, which is why m3 is here: it has a
+   * phone and no e-mail, so a filter reading the wrong column would keep it.
+   */
+  it('drops an eligible listener with no address on the channel being asked about', async () => {
+    const eligibility = {
+      EMAIL: {
+        data: [
+          { member_id: 'm1', eligible: true },
+          { member_id: 'm2', eligible: true },
+          { member_id: 'm3', eligible: true },
+        ],
+        error: null,
+      },
+    };
+    const addresses = {
+      m1: { phone: '5511999999999', email: 'm1@example.com' },
+      // Registered by WhatsApp: a real listener with no e-mail at all.
+      m2: { phone: '5511888888888', email: null },
+      m3: { phone: '5511777777777', email: null },
+    };
+    const db = new FakeSendListsDb(null, eligibility, undefined, undefined, addresses);
+    setFakeSendListsDb(db);
+
+    expect(await eligibleMemberIds(['m1', 'm2', 'm3'], STATION_A, 'EMAIL', TOKEN)).toEqual(['m1']);
+
+    // And the same three, asked about the channel they DO have an address on,
+    // all come back -- so the filter is reading the channel's own column
+    // rather than dropping anybody with a gap anywhere.
+    const whatsappDb = new FakeSendListsDb(
+      null,
+      {
+        WHATSAPP: {
+          data: [
+            { member_id: 'm1', eligible: true },
+            { member_id: 'm2', eligible: true },
+            { member_id: 'm3', eligible: true },
+          ],
+          error: null,
+        },
+      },
+      undefined,
+      undefined,
+      addresses,
+    );
+    setFakeSendListsDb(whatsappDb);
+
+    expect(await eligibleMemberIds(['m1', 'm2', 'm3'], STATION_A, 'WHATSAPP', TOKEN)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+    ]);
+  });
+
+  /**
+   * THE HALF THAT MAKES I2 A FIX RATHER THAN A NARROWING: the number the
+   * operator reads before pressing Send and the recipient set the campaign
+   * snapshots come from the SAME filter. A fix applied to `eligibleMemberIds`
+   * alone would leave the dialog promising 3 and the queue holding 1.
+   */
+  it('agrees, id for id, with the e-mail reach listReach shows for the same people', async () => {
+    const addresses = {
+      m1: { phone: '5511999999999', email: 'm1@example.com' },
+      m2: { phone: '5511888888888', email: null },
+    };
+    const eligibility = {
+      WHATSAPP: {
+        data: [
+          { member_id: 'm1', eligible: true },
+          { member_id: 'm2', eligible: true },
+        ],
+        error: null,
+      },
+      EMAIL: {
+        data: [
+          { member_id: 'm1', eligible: true },
+          { member_id: 'm2', eligible: true },
+        ],
+        error: null,
+      },
+    };
+
+    const reachDb = new FakeSendListsDb(
+      { company_id: STATION_A, source: 'members', filters: {}, kind: 'fixed' },
+      eligibility,
+      { data: ['m1', 'm2'], error: null },
+      undefined,
+      addresses,
+    );
+    setFakeSendListsDb(reachDb);
+    const reach = await listReach('list-address', TOKEN);
+    expect(reach.people).toBe(2);
+    expect(reach.email).toBe(1);
+    expect(reach.whatsapp).toBe(2);
+
+    const snapshotDb = new FakeSendListsDb(null, eligibility, undefined, undefined, addresses);
+    setFakeSendListsDb(snapshotDb);
+    const snapshot = await eligibleMemberIds(['m1', 'm2'], STATION_A, 'EMAIL', TOKEN);
+    // `reach.email` is a ChannelReach -- a number OR 'forbidden' -- and the
+    // equality below is only meaningful for the number: this fake answers the
+    // eligibility RPC without a 42501, so it is one here, and saying so is
+    // what keeps the comparison honest rather than casting it away.
+    expect(typeof reach.email).toBe('number');
+    expect(snapshot).toHaveLength(reach.email as number);
   });
 
   it('throws UnauthorizedError, never a silently empty list, when 0235 refuses the caller (42501)', async () => {

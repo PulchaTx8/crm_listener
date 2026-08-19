@@ -76,6 +76,13 @@ interface SelectCall {
   table: string;
   columns: string;
   filters: Array<[string, unknown]>;
+  /** supabase-js' second `select` argument -- `{ count, head }` for a counted read. */
+  options?: SelectOptions;
+}
+
+interface SelectOptions {
+  count?: 'exact' | 'planned' | 'estimated';
+  head?: boolean;
 }
 
 interface RpcCall {
@@ -122,6 +129,14 @@ interface Fixture {
   issueTokenError?: string;
   /** rowId -> error message, to make that row's own settle write fail. */
   settleErrors?: Record<string, string>;
+  /**
+   * Recipient rows this campaign already SETTLED before this tick -- earlier
+   * ticks' work, in whatever terminal status they reached. Only the
+   * reconciliation at finalisation reads them (whole-branch review I3), and
+   * it is what lets a test seed the exact disagreement that finding is about:
+   * rows that are `sent` while the campaign's own counters say they are not.
+   */
+  settledRows?: { id: string; campaignId: string; status: string }[];
 }
 
 class FakeDb {
@@ -145,6 +160,15 @@ class FakeDb {
    * actually reached the database, not on what the drain merely tried.
    */
   private readonly campaignStatus = new Map<string, string>();
+  /**
+   * Every recipient row this fake knows about and the status it currently
+   * holds -- this tick's own claimed batch (`claimed` until settled) plus any
+   * `settledRows` an earlier tick left behind. Kept live by resolveUpdate, so
+   * the counted reads finalizeCampaign now issues (whole-branch review I3)
+   * are answered from what this drain ACTUALLY wrote, not from a fixture
+   * restating what the test expects it to have written.
+   */
+  private readonly recipientStatus = new Map<string, { campaignId: string; status: string }>();
 
   constructor(private readonly fx: Fixture = {}) {
     for (const c of fx.campaigns ?? []) {
@@ -154,6 +178,12 @@ class FakeDb {
         suppressed_count: c.suppressed_count,
       });
       this.campaignStatus.set(c.id, c.status);
+    }
+    for (const row of fx.claimBatch ?? []) {
+      this.recipientStatus.set(row.id, { campaignId: row.campaign_id, status: 'claimed' });
+    }
+    for (const row of fx.settledRows ?? []) {
+      this.recipientStatus.set(row.id, { campaignId: row.campaignId, status: row.status });
     }
   }
 
@@ -203,7 +233,8 @@ class FakeDb {
   from(table: string) {
     const db = this;
     return {
-      select: (columns: string) => db.chain(table, 'select', columns),
+      select: (columns: string, options?: SelectOptions) =>
+        db.chain(table, 'select', columns, undefined, options),
       update: (patch: Record<string, unknown>) => db.chain(table, 'update', undefined, patch),
     };
   }
@@ -213,6 +244,7 @@ class FakeDb {
     mode: 'select' | 'update',
     columns?: string,
     patch?: Record<string, unknown>,
+    options?: SelectOptions,
   ) {
     const filters: Array<[string, unknown]> = [];
     const db = this;
@@ -241,7 +273,7 @@ class FakeDb {
         const result =
           mode === 'update'
             ? db.resolveUpdate(table, patch ?? {}, filters)
-            : db.resolveSelect(table, columns ?? '', filters);
+            : db.resolveSelect(table, columns ?? '', filters, options);
         return Promise.resolve(result).then(onfulfilled, onrejected);
       },
     };
@@ -278,51 +310,67 @@ class FakeDb {
     if (table === 'message_campaign_recipients' && rowId) {
       const failure = this.fx.settleErrors?.[rowId];
       if (failure) return { error: { message: failure } };
+      // The settle landed: this row now holds the status the drain wrote, and
+      // the reconciliation's counted reads must see it.
+      const known = this.recipientStatus.get(rowId);
+      if (known && typeof patch.status === 'string') {
+        this.recipientStatus.set(rowId, { campaignId: known.campaignId, status: patch.status });
+      }
     }
     return { error: null };
   }
 
-  private resolveSelect(table: string, columns: string, filters: Array<[string, unknown]>) {
-    this.selectCalls.push({ table, columns, filters });
+  private resolveSelect(
+    table: string,
+    columns: string,
+    filters: Array<[string, unknown]>,
+    options?: SelectOptions,
+  ) {
+    this.selectCalls.push({ table, columns, filters, options });
     this.callLog.push(`select:${table}`);
+
+    if (options?.head) {
+      // A counted read: `select('id', { count: 'exact', head: true })` --
+      // finalizeCampaign's reconciliation, one call per counted status. No
+      // rows come back from PostgREST for a head request, only the count.
+      const campaignId = filters.find(([k]) => k === 'eq:campaign_id')?.[1] as string | undefined;
+      const status = filters.find(([k]) => k === 'eq:status')?.[1] as string | undefined;
+      const count = [...this.recipientStatus.values()].filter(
+        (row) => row.campaignId === campaignId && row.status === status,
+      ).length;
+      return { data: null, count, error: null };
+    }
 
     if (table === 'message_campaign_recipients' && columns.includes('member_id')) {
       const ids = (filters.find(([k]) => k === 'in:id')?.[1] as string[]) ?? [];
       const data = ids.map((id) => ({ id, member_id: this.fx.memberByRowId?.[id] ?? null }));
       return { data, error: null };
     }
-    if (table === 'message_campaign_recipients' && columns === 'campaign_id') {
-      // Item 1(b), fix round 1. finalizeEmptyRunningCampaigns' own bulk
-      // "is this campaign still active" check: `select('campaign_id')
-      // .in('campaign_id', runningIds).in('status', ['pending', 'claimed'])`.
-      // Reuses `fx.remaining` -- the SAME fixture the per-campaign finish
-      // check below already reads -- rather than a second fixture field
-      // meaning the identical thing under a different name.
-      const campaignIds = (filters.find(([k]) => k === 'in:campaign_id')?.[1] as string[]) ?? [];
-      const data = campaignIds
-        .filter((id) => (this.fx.remaining?.[id] ?? []).length > 0)
-        .map((id) => ({ campaign_id: id }));
-      return { data, error: null };
-    }
     if (table === 'message_campaign_recipients') {
-      // The finish check: `select('id').eq('campaign_id', x).in('status', [...])`.
+      // Two callers, one shape: finalizeCampaign's own finish check and
+      // finalizeEmptyOpenCampaigns' per-candidate outstanding check are both
+      // `select('id').eq('campaign_id', x).in('status', ['pending','claimed'])`
+      // -- the second gained the `eq` and the `limit(1)` when the whole-branch
+      // review's Minor 6 replaced its unbounded `.in('campaign_id', ids)` read,
+      // which is why this fake now needs only one branch where it needed two.
       const campaignId = filters.find(([k]) => k === 'eq:campaign_id')?.[1] as string;
       const data = this.fx.remaining?.[campaignId] ?? [];
       return { data, error: null };
     }
     if (table === 'companies') return { data: this.fx.companies ?? [], error: null };
     if (table === 'message_campaigns' && columns === 'id') {
-      // Item 1(b), fix round 1. finalizeEmptyRunningCampaigns' own
-      // `select('id').eq('status', 'running')`. Reads `this.campaignStatus`
-      // -- the LIVE map, kept current by every status-changing update this
-      // FakeDb has resolved so far -- rather than the static `fx.campaigns`
-      // seed: this query runs AFTER this tick's own batch loop (drainCampaigns'
-      // own ordering), so a campaign the batch loop already finished this
-      // same tick must already read back as no-longer-running here, the same
-      // as it would against a real database.
-      const status = filters.find(([k]) => k === 'eq:status')?.[1] as string | undefined;
+      // Item 1(b), fix round 1. finalizeEmptyOpenCampaigns' own
+      // `select('id').in('status', ['queued', 'running'])` -- an `in` since
+      // the whole-branch review's Minor 4 widened it from `running` alone.
+      // Reads `this.campaignStatus` -- the LIVE map, kept current by every
+      // status-changing update this FakeDb has resolved so far -- rather than
+      // the static `fx.campaigns` seed: this query runs AFTER this tick's own
+      // batch loop (drainCampaigns' own ordering), so a campaign the batch
+      // loop already finished this same tick must already read back as no
+      // longer open here, the same as it would against a real database.
+      const statuses = filters.find(([k]) => k === 'in:status')?.[1] as string[] | undefined;
       const data = [...this.campaignStatus.entries()]
-        .filter(([, s]) => !status || s === status)
+        .filter(([, s]) => !statuses || statuses.includes(s))
         .map(([id]) => ({ id }));
       return { data, error: null };
     }
@@ -435,7 +483,7 @@ describe('drainCampaigns — the consent re-check', () => {
     const result = await drainCampaigns(asClient(db), { emailProvider });
 
     expect(emailProvider.calls).toEqual([]);
-    expect(result).toEqual({ claimed: 1, sent: 0, failed: 0, suppressed: 1, dbErrors: 0 });
+    expect(result).toEqual({ claimed: 1, sent: 0, failed: 0, suppressed: 1, cancelled: 0, dbErrors: 0 });
 
     const settle = db.updateCalls.find((c) => c.table === 'message_campaign_recipients' && c.filters.some(([k, v]) => k === 'eq:id' && v === 'row-1'));
     expect(settle?.patch).toEqual({ status: 'suppressed' });
@@ -671,7 +719,7 @@ describe('drainCampaigns — the e-mail body and subject are substituted by name
     const emailProvider = scriptedProvider({ ok: true, providerMessageId: 'm-1' });
     const result = await drainCampaigns(asClient(db), { emailProvider });
 
-    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0, suppressed: 0, dbErrors: 0 });
+    expect(result).toEqual({ claimed: 1, sent: 1, failed: 0, suppressed: 0, cancelled: 0, dbErrors: 0 });
     expect(emailProvider.calls).toHaveLength(1);
     const job = emailProvider.calls[0]!;
     if (job.channel !== 'EMAIL') throw new Error('expected an EMAIL job');
@@ -750,9 +798,9 @@ describe('drainCampaigns — resolving once per group', () => {
     // Filtered on loadCampaignInfo's own column list, deliberately, rather
     // than on the table alone: Item 1(b), fix round 1 added a SECOND,
     // unrelated `message_campaigns` select every tick
-    // (finalizeEmptyRunningCampaigns' own `select('id').eq('status',
-    // 'running')`, columns 'id' rather than 'id, status, template_id') that
-    // this test is not about and would otherwise fail it by coincidence.
+    // (finalizeEmptyOpenCampaigns' own `select('id').in('status', [...])`,
+    // columns 'id' rather than 'id, status, template_id') that this test is
+    // not about and would otherwise fail it by coincidence.
     const campaignSelects = db.selectCalls.filter(
       (c) => c.table === 'message_campaigns' && c.columns === 'id, status, template_id',
     );
@@ -927,12 +975,176 @@ describe('drainCampaigns — finalizeCampaign', () => {
     expect(finish).toBeUndefined();
   });
 
-  it('bumps the counters of a campaign cancelled mid-drain, but never overwrites its cancelled status', async () => {
-    // The split (finalizeCampaign) exists exactly for this case: an
-    // already-claimed row is "in flight, cannot be recalled" (cancel_campaign,
-    // 0243) and this drain is what settles it -- its outcome must still
-    // reach the campaign's own counters even though the campaign's status
-    // must never be overwritten back to `sent`/`failed`.
+  it('never overwrites a cancelled campaign’s status when it settles its rows', async () => {
+    const cancelled: CampaignRow = { ...BASE_CAMPAIGN, status: 'cancelled' };
+    const db = new FakeDb({
+      claimBatch: [emailRow({ id: 'row-1' })],
+      memberByRowId: { 'row-1': 'member-1' },
+      companies: [BASE_COMPANY],
+      campaigns: [cancelled],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    const emailProvider = scriptedProvider({ ok: true, providerMessageId: 'm' });
+    await drainCampaigns(asClient(db), { emailProvider });
+
+    // The finish write is guarded on `in ('queued', 'running')`, so a
+    // cancelled campaign's own status survives whatever this drain did to
+    // its rows -- `cancelled` is the operator's word, and `sent` written over
+    // it would be a lie about a campaign that was stopped.
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish).toBeUndefined();
+  });
+
+  /**
+   * WHOLE-BRANCH REVIEW I3, ruling R37. The counters can only under-report
+   * one way that has no path back: a tick settles a group's rows durably and
+   * then dies before its own bump lands. The rows are `sent`, so nothing ever
+   * claims them again, and nothing ever adds them to the campaign.
+   *
+   * Seeded here as the state such a crash leaves behind -- two rows already
+   * `sent` from an earlier tick, a campaign whose counters say zero -- and
+   * what proves the fix is that the counters end at the ROWS' truth (3 sent)
+   * rather than at the bump's arithmetic (0 seeded + 1 this tick = 1).
+   */
+  it('reconciles the counters from the recipient rows when the queue empties, recovering a lost tick’s deltas', async () => {
+    const db = new FakeDb({
+      claimBatch: [emailRow({ id: 'row-3' })],
+      memberByRowId: { 'row-3': 'member-3' },
+      companies: [BASE_COMPANY],
+      campaigns: [BASE_CAMPAIGN],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+      settledRows: [
+        { id: 'row-1', campaignId: 'campaign-1', status: 'sent' },
+        { id: 'row-2', campaignId: 'campaign-1', status: 'sent' },
+      ],
+    });
+
+    const emailProvider = scriptedProvider({ ok: true, providerMessageId: 'm' });
+    await drainCampaigns(asClient(db), { emailProvider });
+
+    const reconcile = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.sent_count === 'number',
+    );
+    expect(reconcile, 'the counters were never reconciled against the rows').toBeDefined();
+    expect(reconcile?.patch).toEqual({ sent_count: 3, failed_count: 0, suppressed_count: 0 });
+    // A blind overwrite would be as wrong as the undercount: this write must
+    // carry no status and no finished_at, which belong to the guarded write
+    // after it.
+    expect(reconcile?.patch.status).toBeUndefined();
+  });
+
+  it('decides `failed` from the reconciled counts, not from the bump’s own arithmetic', async () => {
+    // Seeded counters that disagree with the rows in the direction that
+    // changes the verdict: the campaign's own sent_count claims 5, and no
+    // row of it was ever actually sent. The rows win.
+    const lying: CampaignRow = { ...BASE_CAMPAIGN, sent_count: 5 };
+    const db = new FakeDb({
+      claimBatch: [whatsappRow({ id: 'row-1', attempts: 0 })],
+      memberByRowId: { 'row-1': 'member-1' },
+      companies: [BASE_COMPANY],
+      campaigns: [lying],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    const whatsappProvider = scriptedProvider({
+      ok: false,
+      retryable: false,
+      code: 'whatsapp_permanent_error',
+      description: 'bad number',
+    });
+    await drainCampaigns(asClient(db), { whatsappProvider });
+
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish?.patch.status).toBe('failed');
+  });
+
+  it('does not reconcile while pending or claimed rows remain', async () => {
+    // The reconciliation is safe ONLY because the queue is empty when it
+    // runs: rows still to come would make the count a snapshot of a moving
+    // set, and writing it as the total would then be the recompute 0242
+    // forbids.
+    const db = new FakeDb({
+      claimBatch: [emailRow({ id: 'row-1' })],
+      memberByRowId: { 'row-1': 'member-1' },
+      companies: [BASE_COMPANY],
+      campaigns: [BASE_CAMPAIGN],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [{ id: 'row-2', status: 'pending' }] },
+    });
+
+    const emailProvider = scriptedProvider({ ok: true, providerMessageId: 'm' });
+    await drainCampaigns(asClient(db), { emailProvider });
+
+    const reconcile = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.sent_count === 'number',
+    );
+    expect(reconcile).toBeUndefined();
+    // The incremental bump still happened -- that is what an operator watches
+    // while a long campaign runs.
+    expect(db.rpcCalls.filter((c) => c.fn === 'bump_campaign_counters')).toHaveLength(1);
+  });
+});
+
+/**
+ * WHOLE-BRANCH REVIEW C1, ruling R34. A campaign an operator has stopped must
+ * never reach a provider again.
+ *
+ * The state these cases start from is the reachable one, not a contrived one:
+ * cancel_campaign (0243) marks only `pending` rows, deliberately, because a
+ * `claimed` row may be in flight -- but the circuit breaker and a tick that
+ * dies mid-batch both leave rows `claimed` having offered them to nothing,
+ * and this drain's own reclaim then returns them to `pending`
+ * unconditionally. By the time they are claimed again the campaign says
+ * `cancelled`, and until this fix nothing in the send path read that.
+ */
+describe('drainCampaigns — a cancelled campaign', () => {
+  it('settles a cancelled campaign’s claimed rows `cancelled` and never hands one to a provider', async () => {
+    const cancelled: CampaignRow = { ...BASE_CAMPAIGN, status: 'cancelled' };
+    const db = new FakeDb({
+      claimBatch: [emailRow({ id: 'row-1' }), emailRow({ id: 'row-2', address: 'other@example.com' })],
+      memberByRowId: { 'row-1': 'member-1', 'row-2': 'member-2' },
+      companies: [BASE_COMPANY],
+      campaigns: [cancelled],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    const emailProvider = scriptedProvider({ ok: true, providerMessageId: 'm' });
+    const result = await drainCampaigns(asClient(db), { emailProvider });
+
+    // THE ASSERTION THIS CASE EXISTS FOR, and it is about the PROVIDER rather
+    // than about the resulting status: a version of this fix that settled the
+    // rows `cancelled` after sending them would leave the queue looking
+    // exactly the same and would still have put marketing in front of a
+    // listener after an explicit stop.
+    expect(emailProvider.calls, 'a cancelled campaign reached the provider').toHaveLength(0);
+
+    // By `eq:id`, which is what tells a per-row settle apart from step 1's
+    // own reclaim (a blanket update of every stale `claimed` row).
+    const settles = db.updateCalls.filter(
+      (c) => c.table === 'message_campaign_recipients' && c.filters.some(([k]) => k === 'eq:id'),
+    );
+    expect(settles).toHaveLength(2);
+    for (const settle of settles) {
+      // `cancelled` alone: no attempts increment (nothing was attempted), no
+      // error code (nothing went wrong), no provider_message_id.
+      expect(settle.patch).toEqual({ status: 'cancelled' });
+    }
+    expect(result.cancelled).toBe(2);
+    expect(result.sent).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.suppressed).toBe(0);
+  });
+
+  it('moves no counter for them, because no counter covers a cancelled row', async () => {
     const cancelled: CampaignRow = { ...BASE_CAMPAIGN, status: 'cancelled' };
     const db = new FakeDb({
       claimBatch: [emailRow({ id: 'row-1' })],
@@ -947,16 +1159,58 @@ describe('drainCampaigns — finalizeCampaign', () => {
     await drainCampaigns(asClient(db), { emailProvider });
 
     const bump = db.rpcCalls.find((c) => c.fn === 'bump_campaign_counters');
-    expect(bump?.args).toMatchObject({ p_sent: 1, p_failed: 0, p_suppressed: 0 });
-
+    expect(bump?.args).toEqual({ p_campaign_id: 'campaign-1', p_sent: 0, p_failed: 0, p_suppressed: 0 });
+    // And its status is left exactly where the operator put it.
     const finish = db.updateCalls.find(
       (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
     );
     expect(finish).toBeUndefined();
   });
+
+  it('does not ask eligibility for a cancelled campaign at all — the answer could not change the outcome', async () => {
+    const cancelled: CampaignRow = { ...BASE_CAMPAIGN, status: 'cancelled' };
+    const db = new FakeDb({
+      claimBatch: [emailRow({ id: 'row-1' })],
+      memberByRowId: { 'row-1': 'member-1' },
+      companies: [BASE_COMPANY],
+      campaigns: [cancelled],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    await drainCampaigns(asClient(db), { emailProvider: scriptedProvider({ ok: true, providerMessageId: 'm' }) });
+
+    expect(
+      db.rpcCalls.find((c) => c.fn === 'members_marketing_eligible_bulk_for_worker'),
+    ).toBeUndefined();
+  });
+
+  it('still sends a RUNNING campaign in the same batch — the branch is per campaign, not per tick', async () => {
+    const cancelled: CampaignRow = { ...BASE_CAMPAIGN, id: 'campaign-1', status: 'cancelled' };
+    const running: CampaignRow = { ...BASE_CAMPAIGN, id: 'campaign-2', status: 'running' };
+    const db = new FakeDb({
+      claimBatch: [
+        emailRow({ id: 'row-1', campaign_id: 'campaign-1' }),
+        emailRow({ id: 'row-2', campaign_id: 'campaign-2', address: 'live@example.com' }),
+      ],
+      memberByRowId: { 'row-1': 'member-1', 'row-2': 'member-2' },
+      companies: [BASE_COMPANY],
+      campaigns: [cancelled, running],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [], 'campaign-2': [] },
+    });
+
+    const emailProvider = scriptedProvider({ ok: true, providerMessageId: 'm' });
+    const result = await drainCampaigns(asClient(db), { emailProvider });
+
+    expect(emailProvider.calls).toHaveLength(1);
+    expect(emailProvider.calls[0]?.address).toBe('live@example.com');
+    expect(result.sent).toBe(1);
+    expect(result.cancelled).toBe(1);
+  });
 });
 
-describe('drainCampaigns — finalizeEmptyRunningCampaigns (Item 1(b), fix round 1)', () => {
+describe('drainCampaigns — finalizeEmptyOpenCampaigns (Item 1(b), fix round 1)', () => {
   it('finalizes a `running` campaign with an empty queue even when this tick claims NOTHING at all', async () => {
     // THE WHOLE POINT of this fix: a campaign stranded `running` by
     // anonymize_member (Task 8) moving its last `pending` row straight to
@@ -1021,16 +1275,66 @@ describe('drainCampaigns — finalizeEmptyRunningCampaigns (Item 1(b), fix round
     expect(finish).toBeUndefined();
   });
 
-  it('does not touch a campaign that is not `running` (queued, sent, failed or cancelled)', async () => {
-    // finalizeEmptyRunningCampaigns' own first query is `eq('status',
-    // 'running')` -- a campaign in any other status must never reach
-    // finalizeCampaign through this path at all, queued included: a queued
-    // campaign with nothing claimed yet is not "stranded", it has simply
-    // not started.
+  /**
+   * WHOLE-BRANCH REVIEW, Minor 4. This scan asked for `running` alone until
+   * that review, which left the identical hole one status over. A campaign
+   * sits `queued` until this drain claims its FIRST row, so a campaign whose
+   * every recipient was erased (anonymize_member, 0251) before any tick
+   * claimed one has an empty queue and is still `queued`: it reads "Na fila"
+   * on the operator's grid for ever, and its rows never satisfy the retention
+   * sweep's own `c.status in ('sent','failed','cancelled')` gate.
+   */
+  it('finalizes a `queued` campaign whose queue emptied before a single row was ever claimed', async () => {
     const queuedCampaign: CampaignRow = { ...BASE_CAMPAIGN, status: 'queued' };
     const db = new FakeDb({
       claimBatch: [],
       campaigns: [queuedCampaign],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+      settledRows: [{ id: 'row-1', campaignId: 'campaign-1', status: 'suppressed' }],
+    });
+
+    await drainCampaigns(asClient(db));
+
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish, 'a queued campaign with an empty queue was left stranded').toBeDefined();
+    // Every row suppressed is `sent` with sent_count zero -- it ran to
+    // completion and the counters say what happened (finalizeCampaign's own
+    // rule), and `sent` is one of the three statuses retention will act on.
+    expect(finish?.patch.status).toBe('sent');
+  });
+
+  it('leaves a `queued` campaign alone while its rows are still pending', async () => {
+    // The other half of Minor 4's widening, and the one that keeps it safe:
+    // an ordinary queued campaign waiting for its first claim must not be
+    // finished out from under itself.
+    const queuedCampaign: CampaignRow = { ...BASE_CAMPAIGN, status: 'queued' };
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [queuedCampaign],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [{ id: 'row-1', status: 'pending' }] },
+    });
+
+    await drainCampaigns(asClient(db));
+
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish).toBeUndefined();
+  });
+
+  it('does not touch a campaign that is already finished (sent, failed or cancelled)', async () => {
+    // The scan names the two OPEN statuses; a campaign that has already
+    // reached a terminal one must never be re-finished, whatever its queue
+    // looks like -- which is also what keeps a cancelled campaign's status
+    // from being overwritten by this path.
+    const done: CampaignRow = { ...BASE_CAMPAIGN, status: 'cancelled' };
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [done],
       templates: [BASE_TEMPLATE],
       remaining: { 'campaign-1': [] },
     });
@@ -1042,5 +1346,39 @@ describe('drainCampaigns — finalizeEmptyRunningCampaigns (Item 1(b), fix round
       (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
     );
     expect(finish).toBeUndefined();
+  });
+
+  /**
+   * WHOLE-BRANCH REVIEW, Minor 6. The outstanding-row check used to be one
+   * unbounded `.in('campaign_id', ids).in('status', [...])` select of
+   * `campaign_id`, which returns ONE ROW PER OUTSTANDING RECIPIENT -- every
+   * ten seconds, capped only by PostgREST's own max_rows of 1000 -- to answer
+   * a question with one bit per campaign in it.
+   */
+  it('asks for at most one outstanding row per open campaign, never the whole queue', async () => {
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [BASE_CAMPAIGN, { ...BASE_CAMPAIGN, id: 'campaign-2' }],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [{ id: 'row-1', status: 'pending' }], 'campaign-2': [] },
+    });
+
+    await drainCampaigns(asClient(db));
+
+    const outstanding = db.selectCalls.filter(
+      (c) =>
+        c.table === 'message_campaign_recipients' &&
+        c.columns === 'id' &&
+        c.filters.some(([k]) => k === 'in:status'),
+    );
+    expect(outstanding.length).toBeGreaterThan(0);
+    for (const call of outstanding) {
+      expect(call.filters).toContainEqual(['limit', 1]);
+      // Per campaign, by equality -- never a set of ids whose answer is
+      // proportional to how many recipients are outstanding across all of
+      // them.
+      expect(call.filters.some(([k]) => k === 'eq:campaign_id')).toBe(true);
+      expect(call.filters.some(([k]) => k === 'in:campaign_id')).toBe(false);
+    }
   });
 });

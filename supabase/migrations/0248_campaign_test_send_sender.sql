@@ -56,11 +56,16 @@ begin
     raise exception 'permission denied: messaging.view required' using errcode = '42501';
   end if;
 
-  -- The identical filter drainCampaigns' own loadPhoneNumberIds
-  -- (src/services/campaigns.ts) applies for the real send -- deliberately not
-  -- a stricter one (say, adding `enabled`): a test send disagreeing with the
-  -- drain about which integration counts as "this Station's WhatsApp sender"
-  -- would prove nothing about what a real campaign will do.
+  -- The identical filter the REAL send resolves its sender through --
+  -- deliberately not a stricter one (say, adding `enabled`): a test send
+  -- disagreeing with the drain about which integration counts as "this
+  -- Station's WhatsApp sender" would prove nothing about what a real campaign
+  -- will do. That filter lived in a drain-side helper called
+  -- loadPhoneNumberIds when this migration was written; Task 9 found that the
+  -- helper could not work at all (service_role holds no SELECT on
+  -- `integrations`) and moved the identical three conditions into
+  -- claim_campaign_batch's own LEFT JOIN (0252). Same three conditions, one
+  -- SECURITY DEFINER body over.
   select i.phone_number_id into v_phone_number_id
     from public.integrations i
    where i.company_id = p_company_id
@@ -76,4 +81,4 @@ revoke execute on function public.campaign_whatsapp_sender(uuid) from public;
 grant execute on function public.campaign_whatsapp_sender(uuid) to authenticated;
 
 comment on function public.campaign_whatsapp_sender(uuid) is
-  'The Station''s own active WhatsApp phone_number_id, for the campaigns screen''s test send alone (Task 7 addendum, section 4) -- public.integrations (0057) carries RLS with no policy and the one existing authenticated door onto it, list_integrations (0130), is gated on is_platform_admin() alone for its own, wider console. This is the narrow, per-Station equivalent: gated on messaging.view, the same permission that gates the whole campaigns screen, and returns nothing but the phone_number_id itself -- "no secret", by 0057''s own words. Uses the identical filter (provider = WHATSAPP, deleted_at is null, no `enabled` check) drainCampaigns'' own loadPhoneNumberIds (src/services/campaigns.ts) applies for a real send, so a test send''s sender resolution cannot disagree with what a real campaign''s drain would use.';
+  'The Station''s own active WhatsApp phone_number_id, for the campaigns screen''s test send alone (Task 7 addendum, section 4) -- public.integrations (0057) carries RLS with no policy and the one existing authenticated door onto it, list_integrations (0130), is gated on is_platform_admin() alone for its own, wider console. This is the narrow, per-Station equivalent: gated on messaging.view, the same permission that gates the whole campaigns screen, and returns nothing but the phone_number_id itself -- "no secret", by 0057''s own words. Uses the identical filter (provider = WHATSAPP, deleted_at is null, no `enabled` check) a real send resolves its sender through -- claim_campaign_batch''s own LEFT JOIN to integrations since 0252, and a drain-side helper named loadPhoneNumberIds before that -- so a test send''s sender resolution cannot disagree with what a real campaign''s drain would use.';

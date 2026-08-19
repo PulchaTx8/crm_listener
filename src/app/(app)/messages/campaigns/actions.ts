@@ -13,6 +13,7 @@ import { createCampaignSchema, cancelCampaignSchema, testSendCampaignSchema } fr
 import {
   eligibleMemberIds,
   listReach,
+  readSendListStation,
   resolveSendListAudience,
   searchSendLists,
   SendListResolutionCappedError,
@@ -34,7 +35,7 @@ import {
   UnresolvableEmailPlaceholderError,
 } from '@/services/campaigns';
 import type { CampaignTemplateOption } from '@/services/campaigns';
-import { describeCampaignWriteError } from '../errors';
+import { describeCampaignWriteError, describeCancelCampaignError } from '../errors';
 import { describeResolutionCap } from '../lists/actions';
 
 /**
@@ -367,9 +368,14 @@ export async function cancelCampaignAction(
     return { status: 'cancelled' };
   } catch (cause) {
     logger.error({ err: cause, campaignId: parsed.data.campaignId }, 'cancel a campaign failed');
+    // describeCancelCampaignError, not the shared write describer: the one
+    // 22023 cancel_campaign raises is reachable by an ordinary race (the
+    // campaign finishes between this row being rendered and this button being
+    // pressed), and the shared describer would show that door's own English
+    // sentence to a Portuguese operator. See its own header.
     return {
       status: 'error',
-      message: describeCampaignWriteError(cause, await getTranslations('templates'), 'actionCancelACampaign'),
+      message: describeCancelCampaignError(cause, await getTranslations('templates')),
     };
   }
 }
@@ -412,7 +418,15 @@ export async function testSendCampaignAction(
   const t = await getTranslations('templates');
 
   try {
-    const audience = await resolveSendListAudience(parsed.data.listId, token);
+    // The Station, and NOTHING ELSE, before the limiter (whole-branch review,
+    // Minor 5). This used to be the full `resolveSendListAudience` call now
+    // below, which for a LIVING list re-resolves the whole audience -- up to
+    // RESOLVE_CAP (10,000) ids -- so a throttled caller still paid for the
+    // most expensive step in this action before being refused, and the
+    // comment below claiming the limiter runs before the work it protects was
+    // false. `readSendListStation` reads one `send_lists` row, which is the
+    // one fact the limiter's key needs.
+    const companyId = await readSendListStation(parsed.data.listId, token);
 
     // Fix round 1, F2. Rate-limited before the permission check and the
     // audit write below -- a throttled caller should not spend either on a
@@ -422,7 +436,7 @@ export async function testSendCampaignAction(
     // spend a whole Station's budget, and one Station's own volume of
     // legitimate testing cannot exhaust another's.
     const gate = await testSendLimiter.check(
-      `campaign-test-send:${audience.companyId}:${userId}`,
+      `campaign-test-send:${companyId}:${userId}`,
       TEST_SENDS_PER_MINUTE,
       60,
     );
@@ -439,19 +453,27 @@ export async function testSendCampaignAction(
     // separate has_permission round trip here.
     await recordCampaignTestSend(
       {
-        companyId: audience.companyId,
+        companyId,
         channel: parsed.data.channel,
         listId: parsed.data.listId,
         templateId: parsed.data.templateId,
         // The RAW, operator-typed destination, before WHATSAPP's own
         // digit-only normalisation below -- the audit trail is about what
         // the operator told this system to send to, not the shape the
-        // transport layer happened to need it in.
+        // transport layer happened to need it in. The door itself masks it
+        // before it reaches audit_logs (0249, ruling R35); what travels here
+        // is what the operator typed, because the mask is the door's job and
+        // a caller that pre-masked would leave the door still able to store a
+        // clear address for anybody who called it differently.
         destination: parsed.data.destination,
       },
       token,
     );
 
+    // The audience itself, AFTER the limiter and the permission check above:
+    // this is the expensive step, and it is only needed for the one sample
+    // listener whose own field values the test message is built from.
+    const audience = await resolveSendListAudience(parsed.data.listId, token);
     const sampleMemberId = audience.memberIds[0];
     if (!sampleMemberId) {
       return { status: 'error', message: t('testSendListHasNobody') };
@@ -459,7 +481,7 @@ export async function testSendCampaignAction(
 
     const template = await loadCampaignTemplate(
       parsed.data.templateId,
-      audience.companyId,
+      companyId,
       parsed.data.channel,
       token,
     );
@@ -477,7 +499,7 @@ export async function testSendCampaignAction(
         : parsed.data.destination;
 
     const outcome = await testSendCampaign(
-      { companyId: audience.companyId, channel: parsed.data.channel, template, sampleMember, destination },
+      { companyId, channel: parsed.data.channel, template, sampleMember, destination },
       token,
     );
 

@@ -657,7 +657,14 @@ const REQUIRED_TEST_FILES = [
   // actually holds is only trustworthy once it is proved end to end, from
   // resolveListMembers' own candidate set down through
   // filterMemberIdsLinkedToStation and into the row create_send_list writes.
-  { path: 'tests/isolation/send-lists.test.ts', minTests: 6 },
+  //
+  // The seventh, whole-branch review I2 (ruling R36): a listener with no
+  // e-mail address on file counts in neither the reach number the operator
+  // reads nor the recipient set the campaign snapshots. Both halves in one
+  // case, because the finding is about the two AGREEING -- eligibility
+  // (0246) defaults to true for EMAIL with no consent row, so both listeners
+  // are eligible here and only one is reachable.
+  { path: 'tests/isolation/send-lists.test.ts', minTests: 7 },
   // Block 29d-2, Task 9. Nine cases: the six the task brief names -- a
   // caller holding messaging.manage but not messaging.send refused,
   // 0242's own cross-Station filter proven with a real second session,
@@ -692,7 +699,15 @@ const REQUIRED_TEST_FILES = [
   // `phone_number_id` null and settles `failed`; an INNER JOIN in its place
   // would silently strand the row `claimed` forever instead, and nothing but
   // this case would notice.
-  { path: 'tests/isolation/campaigns.test.ts', minTests: 9 },
+  //
+  // THE FOURTH, whole-branch review C1 (ruling R34): a campaign an operator
+  // CANCELLED while its rows sat `claimed` -- the state the circuit breaker
+  // and a dead tick both leave behind -- must not resume sending once the
+  // stale-claim reclaim hands those rows back. Asserted on what
+  // `FakeTransport` was handed, not on the row's resulting status: a fix that
+  // settled the row `cancelled` after sending it would leave the queue
+  // looking identical.
+  { path: 'tests/isolation/campaigns.test.ts', minTests: 10 },
 ];
 
 /** Every file the config's include glob (`tests/isolation/ ** /*.test.ts`) would collect. */

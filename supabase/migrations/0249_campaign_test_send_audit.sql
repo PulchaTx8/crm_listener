@@ -21,13 +21,34 @@
 -- thing (messaging.send is missing) and a courtesy check ahead of it would
 -- only be a second place for that one fact to be asked.
 --
--- THE DESTINATION IS RECORDED IN THE CLEAR, unlike create_campaign's own
--- audit row (0243's own comment: "No personal value in the detail... ids and
--- counts only, never an address"). That rule protects a MEMBER's own PII,
--- cross-referenced elsewhere by member_id; a test send's destination belongs
--- to no member record at all -- it is whatever the operator typed, often
--- their own number or inbox -- and "who sent what to which address" is
--- exactly what this door exists to answer.
+-- THE DESTINATION IS RECORDED MASKED (whole-branch review, R35). It used to
+-- be recorded in the clear, on the argument that create_campaign's own rule
+-- ("No personal value in the detail... ids and counts only, never an
+-- address", 0243) protects a MEMBER's PII, cross-referenced elsewhere by
+-- member_id, while a test send's destination belongs to no member record --
+-- it is whatever the operator typed, often their own number or inbox.
+-- "Often" is the word that broke it: nothing stops an operator typing a
+-- listener's real number, and the argument had no answer for the times it is
+-- not their own. audit_logs is the ONE table sweep_retention's own comment
+-- says is kept for ever, and that anonymize_member (0034, last replaced in
+-- 0250) only ever ADDS a row to rather than clears anything in -- so an
+-- address written here has no erasure path at all, and a listener who
+-- exercises erasure would still be reachable from this row.
+--
+-- Masking keeps everything this door exists to answer -- who test-sent, when,
+-- from which Station, on which channel, against which list and template, and
+-- which address FAMILY it went to -- and drops the one thing that makes the
+-- row a permanent contact record. WHATSAPP keeps the last four digits, the
+-- same cut list_music_requests (0191) already makes for a listener's number
+-- on a screen (`right(normalize_phone(...), 4)`), so the two agree about what
+-- "a phone number, reduced" means in this system. EMAIL keeps the first
+-- character and the domain, which is what tells an auditor whether a test
+-- went to the Station's own inbox or to somebody else's.
+--
+-- THE MASK IS APPLIED HERE, NOT BY THE CALLER. A caller that masked before
+-- calling would leave this door still able to store a clear address for
+-- anybody who called it differently later; masking inside the definer body
+-- means no caller can write one at all.
 --
 -- WRITTEN BEFORE THE SEND IS ATTEMPTED, not after it succeeds. The
 -- application layer (testSendCampaignAction) calls this first and only
@@ -49,8 +70,12 @@ security definer
 set search_path = pg_catalog, public
 as $$
 declare
-  v_actor uuid := auth.uid();
-  v_org   uuid;
+  v_actor  uuid := auth.uid();
+  v_org    uuid;
+  v_digits text;
+  v_local  text;
+  v_domain text;
+  v_masked text;
 begin
   select organization_id into v_org
     from public.companies
@@ -69,6 +94,29 @@ begin
     raise exception 'permission denied: messaging.send required' using errcode = '42501';
   end if;
 
+  -- The mask itself. Built from the RAW string the operator typed, because
+  -- that is what this door is given and what the trail is about -- the
+  -- application layer's own WHATSAPP normalisation (digits only) happens
+  -- after this call, so masking here cannot depend on it having run.
+  if p_channel = 'WHATSAPP' then
+    v_digits := regexp_replace(coalesce(p_destination, ''), '[^0-9]', '', 'g');
+    -- Four digits are only worth keeping when there is more than that to
+    -- hide: a "number" of four digits or fewer would be stored whole by a
+    -- bare right(), which is the one outcome this mask exists to prevent.
+    v_masked := case when length(v_digits) > 4 then '****' || right(v_digits, 4) else '****' end;
+  else
+    v_local  := split_part(coalesce(p_destination, ''), '@', 1);
+    v_domain := split_part(coalesce(p_destination, ''), '@', 2);
+    -- An address with no '@' at all (split_part returns '' for the domain)
+    -- is not an e-mail this system would have sent to, and there is nothing
+    -- here worth half-keeping: mask the lot rather than publish a fragment
+    -- of a string whose shape is unknown.
+    v_masked := case
+                  when v_domain = '' or v_local = '' then '****'
+                  else left(v_local, 1) || '****@' || v_domain
+                end;
+  end if;
+
   insert into public.audit_logs
     (actor_id, action, target_table, target_id, organization_id, company_id, detail)
   values
@@ -76,7 +124,10 @@ begin
      jsonb_build_object(
        'channel', p_channel,
        'template_id', p_template_id,
-       'destination', p_destination
+       -- NAMED destination_masked, not destination: a reader who greps this
+       -- trail for a whole number must find nothing rather than find a key
+       -- whose name promises the address and whose value is not it.
+       'destination_masked', v_masked
      ));
 end;
 $$;
@@ -91,4 +142,4 @@ grant execute on function public.record_campaign_test_send(
 comment on function public.record_campaign_test_send(
   uuid, public.message_channel, uuid, uuid, text
 ) is
-  'The one write a campaign test send performs (Task 7 fix round 1, F2): re-checks messaging.send (the same permission create_campaign/cancel_campaign gate on, and the one the campaigns screen''s own Send Test button now checks before rendering) and writes an audit_logs row naming the actor, the Station, the channel, the list and template the sample was drawn from, and the destination the operator typed -- in the clear, unlike create_campaign''s own audit row, because this address belongs to no member record for create_campaign''s own rule (0034) to protect. Called from messages/campaigns/actions.ts before the provider is ever asked to send, so a refused or failed test send still leaves the attempt in the trail. Refuses 42501 for a caller lacking messaging.send and P0002 for an unknown Station.';
+  'The one write a campaign test send performs (Task 7 fix round 1, F2): re-checks messaging.send (the same permission create_campaign/cancel_campaign gate on, and the one the campaigns screen''s own Send Test button now checks before rendering) and writes an audit_logs row naming the actor, the Station, the channel, the list and template the sample was drawn from, and the destination the operator typed -- MASKED (whole-branch review, R35), as detail -> destination_masked: the last four digits for WHATSAPP, the first character and the domain for EMAIL. It was stored in the clear until that review, on the argument that the address belongs to no member record for create_campaign''s own rule (0034) to protect -- true of an operator testing against their own inbox, and not true of one who types a listener''s number, which nothing stops. audit_logs is the one table sweep_retention''s own comment calls kept for ever, and the one anonymize_member only ever adds a row to rather than clears anything in, so an address written here would have had no erasure path at all. The mask is applied inside this body rather than by the caller, so no caller can store a clear address by calling differently. Called from messages/campaigns/actions.ts before the provider is ever asked to send, so a refused or failed test send still leaves the attempt in the trail. Refuses 42501 for a caller lacking messaging.send and P0002 for an unknown Station.';

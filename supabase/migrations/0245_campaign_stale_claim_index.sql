@@ -1,7 +1,11 @@
 -- supabase/migrations/0245_campaign_stale_claim_index.sql
 
--- Block 29d-2, Task 6a Part 1. The index a stale-claim reclaim (Task 6b, not
--- built yet) will scan.
+-- Block 29d-2, Task 6a Part 1. The index the stale-claim reclaim scans.
+-- (Task 6b built that reclaim: drainCampaigns' own step 1, a direct UPDATE
+-- from src/services/campaigns.ts rather than an RPC. This file shipped one
+-- task ahead of it and said so in the future tense until the whole-branch
+-- review corrected the tense here, along with the two function comments that
+-- made the same claim.)
 --
 -- A tick that crashes between claim_campaign_batch (0244) and the drain's own
 -- settle write leaves a recipient row `claimed` forever: its listener is
@@ -13,8 +17,10 @@
 -- other query's answer, so if this does not look for it nothing will."
 --
 -- That reclaim's outbound arm asks `status = 'SENDING' and claimed_at < now()
--- - p_stale_after` -- the campaign equivalent will ask `status = 'claimed'
--- and claimed_at < now() - interval` the same way.
+-- - p_stale_after`; the campaign equivalent asks `status = 'claimed' and
+-- claimed_at < now() - STALE_CLAIM` the same way, with the interval computed
+-- in JavaScript rather than handed to Postgres, since it is a plain PostgREST
+-- UPDATE and not a function call (staleClaimMs, src/services/campaigns.ts).
 -- message_campaign_recipients has only message_campaign_recipients_sendable_idx
 -- (0242), partial on `status = 'pending'` and built for claim_campaign_batch's
 -- own scan, so a campaign reclaim would sequential-scan the whole table on

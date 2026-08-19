@@ -447,11 +447,90 @@ async function readFixedListMemberIds(
   return data ?? [];
 }
 
+/** One listener's two normalised addresses, as `members` stores them (0031). */
+interface MemberAddresses {
+  phoneNormalized: string | null;
+  emailNormalized: string | null;
+}
+
+/**
+ * Whole-branch review I2, ruling R36. THE ONE PLACE THAT DECIDES WHETHER A
+ * LISTENER CAN BE WRITTEN TO ON A CHANNEL AT ALL.
+ *
+ * Eligibility (0235/0246) answers "may this Station send to this listener",
+ * never "is there an address to send to": for EMAIL the default with no
+ * consent row on file is eligible, so a listener who has never given an
+ * e-mail address in their life came back eligible. That is a defensible
+ * answer to the question 0235 is asked; it is the wrong answer to the one
+ * both callers of this file actually have, which is "how many messages will
+ * go out" and "which rows should be queued".
+ *
+ * Both callers now ask through this function, which is the point of it
+ * existing rather than each applying its own test: the number `listReach`
+ * shows the operator BEFORE they send and the recipient set
+ * `eligibleMemberIds` hands to `create_campaign` are computed the same way,
+ * so `total_recipients` cannot exceed the reach the operator agreed to. The
+ * alternative -- keeping the wider set and settling the addressless rows
+ * `failed` at drain time -- was rejected by R36: `failed` means OUR error in
+ * this block's taxonomy, and "this person never gave us an e-mail" is not an
+ * error at all.
+ */
+function hasAddressOn(
+  channel: Database['public']['Enums']['message_channel'],
+  addresses: MemberAddresses | undefined,
+): boolean {
+  if (!addresses) return false;
+  const address = channel === 'WHATSAPP' ? addresses.phoneNormalized : addresses.emailNormalized;
+  return address !== null && address.trim() !== '';
+}
+
+/**
+ * Both normalised address columns for a batch of listeners, read as the
+ * caller under `members_select_reachable`'s own RLS (0035) -- the same two
+ * columns and the same 200-per-request chunk `getMembersForCampaign`
+ * (services/members.ts) already reads for the create path, for the same
+ * reason: `memberIds` here reaches RESOLVE_CAP (10,000), and one GET carrying
+ * that many UUIDs is not a request this project asks a URL to carry anywhere
+ * else.
+ *
+ * A row RLS hides is a listener with no entry in the returned Map, which
+ * `hasAddressOn` reads as "no address". That fails in the same direction as
+ * every other RLS gap this file documents -- it can only ever under-report,
+ * never invent a recipient -- and it is consistent, because the create path
+ * reads the same table under the same policy: a listener this caller cannot
+ * see is excluded from the reach number AND from the snapshot, rather than
+ * counted in one and dropped by the other.
+ */
+async function readMemberAddresses(
+  client: ReturnType<typeof asCaller>,
+  memberIds: string[],
+): Promise<Map<string, MemberAddresses>> {
+  const found = new Map<string, MemberAddresses>();
+  if (memberIds.length === 0) return found;
+
+  const CHUNK = 200;
+  for (let i = 0; i < memberIds.length; i += CHUNK) {
+    const chunk = memberIds.slice(i, i + CHUNK);
+    const { data, error } = await client
+      .from('members')
+      .select('id, phone_normalized, email_normalized')
+      .in('id', chunk);
+    if (error) {
+      throw new InternalError(`Could not read listener addresses for a send list: ${error.message}`);
+    }
+    for (const row of data ?? []) {
+      found.set(row.id, { phoneNormalized: row.phone_normalized, emailNormalized: row.email_normalized });
+    }
+  }
+  return found;
+}
+
 async function channelReach(
   client: ReturnType<typeof asCaller>,
   memberIds: string[],
   companyId: string,
   channel: Database['public']['Enums']['message_channel'],
+  addresses: Map<string, MemberAddresses>,
 ): Promise<ChannelReach> {
   const { data, error } = await client.rpc('members_marketing_eligible_bulk', {
     p_member_ids: memberIds,
@@ -470,17 +549,24 @@ async function channelReach(
     throw new InternalError(`Could not compute ${channel} reach: ${error.message}`);
   }
 
-  return (data ?? []).filter((row) => row.eligible).length;
+  // Eligible AND reachable -- see hasAddressOn's own header for why the
+  // second half is not folded into 0235's own rule instead.
+  return (data ?? []).filter((row) => row.eligible && hasAddressOn(channel, addresses.get(row.member_id))).length;
 }
 
 /**
  * How many of a list's people may actually be written to, per channel.
  *
- * A list of 500 is not 500 messages. On e-mail it is nearly that; on WhatsApp
- * today it is close to zero, because 29c's D1 requires an explicit opt-in and
- * collection only began with that block. Both numbers sit on the screen before
- * anything is sent -- without them the first WhatsApp campaign looks like a
- * defect rather than like an audience that has not been asked yet.
+ * A list of 500 is not 500 messages. On WhatsApp today it is close to zero,
+ * because 29c's D1 requires an explicit opt-in and collection only began with
+ * that block. On e-mail it is however many of them actually gave an address
+ * and have not opted out -- which, for a Station whose listeners register by
+ * WhatsApp, is far below the list size (whole-branch review I2, ruling R36:
+ * this number counted them all until then, and the campaign built from it
+ * recorded every addressless listener as a failure). Both numbers sit on the
+ * screen before anything is sent -- without them the first WhatsApp campaign
+ * looks like a defect rather than like an audience that has not been asked
+ * yet.
  *
  * ASKED AS THE OPERATOR, never as a worker. members_marketing_eligible_bulk
  * (0235) is SECURITY DEFINER behind a permission gate and refuses a caller with
@@ -529,9 +615,16 @@ export async function listReach(listId: string, accessToken: string): Promise<Li
   const list = await fetchSendList(client, listId);
   const memberIds = await peopleForList(client, listId, list, accessToken);
 
+  // Read ONCE, for both channels: the two columns come back in the same rows,
+  // and asking per channel would double a chunked read of up to RESOLVE_CAP
+  // ids to answer the same question twice. `people` above is unaffected by it
+  // -- that number answers "who is on the list", which is not a question
+  // about addresses.
+  const addresses = await readMemberAddresses(client, memberIds);
+
   const [whatsapp, email] = await Promise.all([
-    channelReach(client, memberIds, list.companyId, 'WHATSAPP'),
-    channelReach(client, memberIds, list.companyId, 'EMAIL'),
+    channelReach(client, memberIds, list.companyId, 'WHATSAPP', addresses),
+    channelReach(client, memberIds, list.companyId, 'EMAIL', addresses),
   ]);
 
   return { people: memberIds.length, whatsapp, email };
@@ -592,7 +685,8 @@ export async function eligibleMemberIds(
 ): Promise<string[]> {
   if (memberIds.length === 0) return [];
 
-  const { data, error } = await asCaller(accessToken).rpc('members_marketing_eligible_bulk', {
+  const client = asCaller(accessToken);
+  const { data, error } = await client.rpc('members_marketing_eligible_bulk', {
     p_member_ids: memberIds,
     p_company_id: companyId,
     p_channel: channel,
@@ -607,7 +701,33 @@ export async function eligibleMemberIds(
     throw new InternalError(`Could not check ${channel} eligibility for this campaign: ${error.message}`);
   }
 
-  return (data ?? []).filter((row) => row.eligible).map((row) => row.member_id);
+  // NARROWED TO WHO HAS AN ADDRESS ON THIS CHANNEL, through the identical
+  // hasAddressOn channelReach above uses (whole-branch review I2, ruling
+  // R36) -- the reach number an operator reads and the recipient set this
+  // returns have to be the same set, or total_recipients counts people no
+  // message can ever be written to and the drain records each of them
+  // `failed`. Applied here rather than inside the eligibility rule itself
+  // (0246's shared core) because "may we write to them" and "is there
+  // anywhere to write to" are different questions, and the worker's own
+  // re-check asks the first one of rows whose address was already
+  // snapshotted.
+  const addresses = await readMemberAddresses(client, memberIds);
+  return (data ?? [])
+    .filter((row) => row.eligible && hasAddressOn(channel, addresses.get(row.member_id)))
+    .map((row) => row.member_id);
+}
+
+/**
+ * The Station a list belongs to, resolving nobody (whole-branch review,
+ * Minor 5). `resolveSendListAudience` above answers the same question on its
+ * way past, but it costs a full re-resolution of a LIVING list first -- up to
+ * RESOLVE_CAP ids -- and the campaigns screen's test send needs the Station
+ * id BEFORE that work, to key the rate limiter that exists to refuse it.
+ */
+export async function readSendListStation(listId: string, accessToken: string): Promise<string> {
+  const client = asCaller(accessToken);
+  const list = await fetchSendList(client, listId);
+  return list.companyId;
 }
 
 // ---------------------------------------------------------------------------

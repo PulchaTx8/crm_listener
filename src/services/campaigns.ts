@@ -43,6 +43,14 @@ export interface CampaignDrainResult {
   failed: number;
   suppressed: number;
   /**
+   * Rows this tick claimed for a campaign an operator has already stopped, and
+   * settled `cancelled` without offering to any provider (whole-branch review
+   * C1, ruling R34). Counted apart from `suppressed` for the same reason
+   * `suppressed` is counted apart from `failed`: three different things
+   * happened, and one number covering all three would hide which.
+   */
+  cancelled: number;
+  /**
    * Settle writes that failed at the database, not send outcomes -- the same
    * distinction `TickResult.dbErrors` draws in src/services/whatsapp.ts.
    * Zero is what "nothing to do" looks like; anything else means a row's
@@ -188,7 +196,14 @@ export async function drainCampaigns(
   supabase: ServiceClient,
   deps: CampaignDrainDeps = {},
 ): Promise<CampaignDrainResult> {
-  const result: CampaignDrainResult = { claimed: 0, sent: 0, failed: 0, suppressed: 0, dbErrors: 0 };
+  const result: CampaignDrainResult = {
+    claimed: 0,
+    sent: 0,
+    failed: 0,
+    suppressed: 0,
+    cancelled: 0,
+    dbErrors: 0,
+  };
 
   // 1. Reclaim first, before anything is claimed: a row abandoned mid-claim
   // is in no other query's answer, so if this does not look for it nothing
@@ -216,11 +231,11 @@ export async function drainCampaigns(
   result.claimed = rows.length;
   if (rows.length === 0) {
     // Item 1(b), Task 8 fix round 1. A tick that claims nothing is exactly
-    // the case this exists for: a campaign stranded `running` by something
-    // OTHER than this drain never appears in any claimed batch again, so a
-    // tick with nothing to claim must still be the one that finds it. See
-    // finalizeEmptyRunningCampaigns' own comment for the full reasoning.
-    await finalizeEmptyRunningCampaigns(supabase);
+    // the case this exists for: a campaign stranded open by something OTHER
+    // than this drain never appears in any claimed batch again, so a tick
+    // with nothing to claim must still be the one that finds it. See
+    // finalizeEmptyOpenCampaigns' own comment for the full reasoning.
+    await finalizeEmptyOpenCampaigns(supabase);
     return result;
   }
 
@@ -298,6 +313,55 @@ export async function drainCampaigns(
       continue;
     }
 
+    /**
+     * A CAMPAIGN AN OPERATOR HAS STOPPED NEVER REACHES A PROVIDER AGAIN
+     * (whole-branch review C1, ruling R34). This is spec D1 from the other
+     * side: the listener's "descadastrar" is checked below, and the
+     * operator's Cancel button is the same instruction arriving through a
+     * different door.
+     *
+     * How a cancelled campaign's row gets here at all, since cancel_campaign
+     * (0243) marks every `pending` row itself: it marks only those. A row
+     * sitting `claimed` is deliberately left alone -- "already in flight at a
+     * provider ... cannot be recalled" -- but `claimed` does not actually
+     * mean in flight. The circuit breaker below (`aborted`) parks a whole
+     * batch's unprocessed rows `claimed` after three consecutive retryable
+     * failures, and a tick that dies mid-batch leaves them the same way;
+     * neither ever offered them to anything. Five minutes later THIS
+     * function's own reclaim (step 1 above) puts them back to `pending`,
+     * unconditionally, and claim_campaign_batch (0252) claims on
+     * `status = 'pending'` alone. Without this branch they would then be
+     * sent -- after an explicit stop, unrecallably, bumping sent_count on a
+     * campaign whose own row says `cancelled`.
+     *
+     * FIXED HERE RATHER THAN IN THE CLAIM, per R34: a row claim_campaign_batch
+     * refused to claim is a row nothing ever settles, and it would sit
+     * `pending` for ever -- which is exactly the stranding hole R31 had to
+     * close one status over (see finalizeEmptyOpenCampaigns below). So the
+     * rows are claimed, and settled here.
+     *
+     * `cancelled`, not `suppressed` and not `failed`: no attempt was made, so
+     * nothing increments `attempts`; nothing went wrong, so there is no error
+     * code (message_campaign_recipients_failed_says_why, 0242, would refuse a
+     * `failed` row without one anyway); and no listener withdrew. It is the
+     * same status cancel_campaign itself would have written had the row been
+     * `pending` when the operator pressed the button. No counter moves,
+     * because no counter covers cancelled rows (0242) -- which is also why
+     * `deltas` stays all-zero through this branch.
+     */
+    if (info.status === 'cancelled') {
+      for (const row of campaignRows) {
+        const settled = await settleRow(supabase, result, row.id, { status: 'cancelled' });
+        if (settled) result.cancelled += 1;
+      }
+      // Still finalized: the queue may now be empty, and a cancelled campaign
+      // whose counters this drain has bumped in earlier ticks still wants the
+      // reconciliation below. finalizeCampaign's own finish write is guarded
+      // on `in ('queued', 'running')`, so it cannot overwrite `cancelled`.
+      await finalizeCampaign(supabase, campaignId, info, deltas);
+      continue;
+    }
+
     if (info.status === 'queued') {
       await supabase
         .from('message_campaigns')
@@ -342,11 +406,19 @@ export async function drainCampaigns(
       }
 
       /**
-       * CONSENT IS ASKED AGAIN HERE, not only at snapshot (spec D1). A large campaign
+       * CONSENT IS ASKED AGAIN, not only at snapshot (spec D1). A large campaign
        * takes hours to drain, and a listener who clicks "descadastrar" while it does
        * has, from their side, done the thing the button promised. Sending anyway is
        * the complaint that costs a WhatsApp number its quality rating -- and it is
        * indistinguishable, to them, from the button not working.
+       *
+       * ASKED ONCE PER BATCH GROUP, NOT ONCE PER ROW, and this reads the answer
+       * rather than fetching it: the RPC above runs for the whole group's member
+       * ids before this loop starts (R3's grouping -- a per-row call is the N+1
+       * this block had to undo one layer up). So the window this closes is the
+       * hours between snapshot and send, not the seconds between one row's send
+       * and the next: a withdrawal landing partway through a batch of at most
+       * OUTBOX_BATCH (50) rows is seen by the NEXT batch, not by this one.
        *
        * A refusal here is `suppressed`, never `failed`: it is their choice, not our
        * error, and it must never be retried.
@@ -461,12 +533,15 @@ export async function drainCampaigns(
 
   // Item 1(b), Task 8 fix round 1. Runs every tick, AFTER this tick's own
   // batch loop above -- a campaign the loop just finished (the ordinary
-  // case) already reads back as no longer `running` by the time this runs,
-  // so it only ever does real work for a campaign THIS tick's own claim
-  // never touched at all. See finalizeEmptyRunningCampaigns' own comment for
-  // why that case matters and cannot simply wait for a later tick that
-  // claims something.
-  await finalizeEmptyRunningCampaigns(supabase);
+  // case) already reads back as neither `queued` nor `running` by the time
+  // this runs, so the only campaign it can actually FINISH is one THIS
+  // tick's own claim never touched at all. It still issues its own read for
+  // every campaign this tick merely drained part of (whole-branch review,
+  // Minor 11 -- the earlier wording of this sentence claimed otherwise);
+  // those reads find outstanding rows and finalize nothing. See
+  // finalizeEmptyOpenCampaigns' own comment for why the untouched case
+  // matters and cannot simply wait for a later tick that claims something.
+  await finalizeEmptyOpenCampaigns(supabase);
 
   return result;
 }
@@ -510,8 +585,9 @@ async function sendOne(
   // template_variable vocabulary instead ({{listener_first_name}} and so on,
   // validated at save time by save_marketing_template, 0225). This
   // recipient's own snapshot carries the values by name -- an array of
-  // {name, value} objects (Task 6b fix round 1 ruling; 0242's column comment,
-  // which still describes the positional shape, is Task 7's to correct).
+  // {name, value} objects (Task 6b fix round 1 ruling; 0242's column comment
+  // describes both channels' shapes at length, corrected in Task 7 -- the
+  // sentence here used to say that correction was still owed).
   // Substituted here, per recipient, because the values are per recipient.
   const values = parseEmailVariables(row.variables);
 
@@ -776,11 +852,12 @@ async function loadCampaignInfo(supabase: ServiceClient, campaignIds: string[]):
  * `bump_campaign_counters` (0247, Task 6b fix round 1 Item 2) -- an atomic
  * SQL update, never a read-then-write from here: two overlapping ticks
  * settling different rows of the same campaign (the ordinary case for this
- * worker, not an edge one) would otherwise lose one tick's own delta. Never
- * recomputed from message_campaign_recipients either (0242's own comment: a
- * campaign's history must still answer once its recipient rows have aged out
- * under retention). "The queue is empty" is judged here, once per campaign in
- * the batch, never once per row.
+ * worker, not an edge one) would otherwise lose one tick's own delta.
+ * "The queue is empty" is judged here, once per campaign in the batch, never
+ * once per row -- and when it IS empty, the counters are reconciled against
+ * the recipient rows one final time before the campaign is finished (see the
+ * argument at that step for why that is not the recompute 0242's own comment
+ * forbids).
  */
 async function finalizeCampaign(
   supabase: ServiceClient,
@@ -829,13 +906,60 @@ async function finalizeCampaign(
   }
   if ((remaining.data ?? []).length > 0) return;
 
+  /**
+   * RECONCILED ONCE, HERE, AT THE ONE MOMENT IT IS SAFE (whole-branch review
+   * I3, ruling R37).
+   *
+   * The bump above is durable per group, but the rows of that group were
+   * settled individually and BEFORE it: anything that stops the process
+   * between the last settle and the bump -- a timeout, a deploy, or the
+   * bump's own throw -- loses those deltas for ever, because the rows are
+   * already `sent` and are therefore never claimed again. That is R25's
+   * "4,300 of 20,000" outcome reached by the other route: R25 closed the
+   * lost-update race BETWEEN two ticks and left open the window inside one.
+   *
+   * THIS IS NOT THE RECOMPUTE 0242's COMMENT FORBIDS, and the difference is
+   * worth stating because that rule is two migrations away from here. What
+   * 0242 forbids is deriving a FINISHED campaign's counters from
+   * message_campaign_recipients on READ -- retention (0250) deletes those
+   * rows 180 days after the campaign finishes, and a history that recomputes
+   * itself from them would report zeros for every campaign old enough to
+   * matter. This runs at the single instant when the opposite is true of
+   * every part of it: the queue has just been observed empty, so no row will
+   * ever be written again; retention's own clock starts at `finished_at`,
+   * which the write below is about to set for the first time, so nothing can
+   * have been deleted yet. Counting here is counting a complete set.
+   *
+   * Idempotent, unlike a bump: two ticks that both reach this point for the
+   * same campaign write the same three numbers rather than doubling them.
+   */
+  const settled = await countSettledRecipients(supabase, campaignId);
+
+  // UNGUARDED on status, for the same reason the bump above is: the counters
+  // describe what happened to rows, not what the campaign's status says. A
+  // campaign cancelled mid-drain still wants its sent/failed/suppressed
+  // totals to agree with its own rows.
+  const reconcile = await supabase
+    .from('message_campaigns')
+    .update({
+      sent_count: settled.sent,
+      failed_count: settled.failed,
+      suppressed_count: settled.suppressed,
+    })
+    .eq('id', campaignId);
+  if (reconcile.error) {
+    throw new Error(
+      `campaigns drain: could not reconcile campaign ${campaignId}'s counters: ${reconcile.error.message}`,
+    );
+  }
+
   // GUARDED, unlike the counters above: a campaign already `cancelled` (by an
   // operator, mid-drain) or already finished must never have its status
   // overwritten back to `sent`/`failed` just because its last claimed rows
   // happened to be settled after that. The totals used for the decision are
-  // the POST-BUMP row `bump_campaign_counters` just returned, not a value
-  // read earlier in this function that a concurrent tick's own bump could
-  // since have moved past.
+  // the RECONCILED ones just written -- the recipient rows themselves -- not
+  // a value read earlier in this function that a concurrent tick's own bump
+  // could since have moved past.
   const finish = await supabase
     .from('message_campaigns')
     .update({
@@ -844,7 +968,7 @@ async function finalizeCampaign(
       // sent_count zero: it ran to completion and the counters say what
       // happened. `failed` only when nothing was sent and something was --
       // OUR problem, not the listener's choice.
-      status: totals.sent_count === 0 && totals.failed_count > 0 ? 'failed' : 'sent',
+      status: settled.sent === 0 && settled.failed > 0 ? 'failed' : 'sent',
     })
     .eq('id', campaignId)
     .in('status', ['queued', 'running']);
@@ -854,50 +978,102 @@ async function finalizeCampaign(
 }
 
 /**
+ * How many of a campaign's recipient rows actually ended in each of the three
+ * counted outcomes -- three counted reads, no row bodies fetched
+ * (`head: true`), and only ever run once per campaign, at the moment
+ * finalizeCampaign has established its queue is empty.
+ *
+ * `cancelled` is deliberately absent: no column counts it (0242), which is
+ * why a cancelled campaign's grid row does not add up to total_recipients.
+ */
+async function countSettledRecipients(
+  supabase: ServiceClient,
+  campaignId: string,
+): Promise<{ sent: number; failed: number; suppressed: number }> {
+  const counts = { sent: 0, failed: 0, suppressed: 0 };
+  for (const status of ['sent', 'failed', 'suppressed'] as const) {
+    const { count, error } = await supabase
+      .from('message_campaign_recipients')
+      .select('id', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId)
+      .eq('status', status);
+    if (error) {
+      throw new Error(
+        `campaigns drain: could not count ${status} recipients of campaign ${campaignId}: ${error.message}`,
+      );
+    }
+    counts[status] = count ?? 0;
+  }
+  return counts;
+}
+
+/**
  * Item 1(b), Task 8 fix round 1. `finalizeCampaign` above used to run ONLY
  * for a campaign this tick's own batch loop drew a claimed row from. A
  * campaign whose queue empties some OTHER way -- Task 8's `anonymize_member`
  * (0251) moving a listener's last `pending` row straight to `suppressed` is
  * the concrete case that surfaced this, but any future writer that empties a
  * queue without going through this drain has the identical shape -- was left
- * `running` for ever. That is worse than a stuck status flag: the retention
+ * open for ever. That is worse than a stuck status flag: the retention
  * sweep's own DELETE (0250) is gated on
- * `c.status in ('sent', 'failed', 'cancelled')`, so a campaign stranded in
- * `running` is invisible to retention for ever too -- not just the one
+ * `c.status in ('sent', 'failed', 'cancelled')`, so a campaign stranded
+ * unfinished is invisible to retention for ever too -- not just the one
  * listener's row, EVERY recipient row of that campaign, phone numbers and
  * e-mail addresses included. Exactly the obligation this task exists to
  * discharge, defeated by a side effect of the task itself.
+ *
+ * BOTH OPEN STATUSES, not `running` alone (whole-branch review, Minor 4).
+ * This scan asked for `running` only until that review, which left the
+ * identical hole one status over: `queued` is where a campaign sits until
+ * this drain claims its FIRST row, so a campaign whose every recipient was
+ * erased before any tick claimed one of them has an empty queue, still reads
+ * "Na fila" on the operator's grid for ever, and its rows never satisfy the
+ * sweep's own status gate. `finalizeCampaign`'s finish write already admits
+ * both (`in ('queued', 'running')`), so widening the scan is all that was
+ * missing.
  *
  * Runs every tick, unconditionally, BEFORE the "claimed nothing" early
  * return above -- a tick that claims zero rows is precisely the case a
  * campaign stranded by an outside writer needs, since such a campaign will
  * never again appear in a claimed batch (nothing is left in it to claim).
  *
- * ONE BOUNDED QUERY PAIR, not one per campaign: every `running` campaign id,
- * then which of those ids still has a `pending` or `claimed` row, in a
- * single `.in(...)` read apiece. The remainder -- `running` with nothing
- * left in its queue -- is what gets finalized, reusing `loadCampaignInfo`
- * and `finalizeCampaign` exactly as the batch loop above already does, with
- * an all-zero delta, rather than a second version of either.
+ * ONE BOUNDED READ PER CANDIDATE, not one unbounded read for all of them
+ * (whole-branch review, Minor 6). The "is anything still outstanding" check
+ * used to be a single `.in(campaign_id, ids).in(status, [...])` select of
+ * `campaign_id`, which pulls back one row per OUTSTANDING RECIPIENT -- every
+ * ten seconds, capped only by PostgREST's own `max_rows` of 1000
+ * (supabase/config.toml) -- to answer a question with one bit per campaign
+ * in it. `limit(1)` per candidate asks the same question of the same index
+ * and fetches at most one row each. The candidate set is campaigns currently
+ * open, which is small in a way the outstanding-row count is not: a single
+ * running campaign of twenty thousand recipients used to make that one query
+ * return its thousand-row cap, and makes this one return one row.
+ *
+ * `loadCampaignInfo` and `finalizeCampaign` are reused exactly as the batch
+ * loop above already does, with an all-zero delta, rather than a second
+ * version of either.
  */
-async function finalizeEmptyRunningCampaigns(supabase: ServiceClient): Promise<void> {
-  const running = await supabase.from('message_campaigns').select('id').eq('status', 'running');
-  if (running.error) {
-    throw new Error(`campaigns drain: could not list running campaigns: ${running.error.message}`);
+async function finalizeEmptyOpenCampaigns(supabase: ServiceClient): Promise<void> {
+  const open = await supabase.from('message_campaigns').select('id').in('status', ['queued', 'running']);
+  if (open.error) {
+    throw new Error(`campaigns drain: could not list open campaigns: ${open.error.message}`);
   }
-  const runningIds = (running.data ?? []).map((c) => c.id);
-  if (runningIds.length === 0) return;
+  const openIds = (open.data ?? []).map((c) => c.id);
+  if (openIds.length === 0) return;
 
-  const active = await supabase
-    .from('message_campaign_recipients')
-    .select('campaign_id')
-    .in('campaign_id', runningIds)
-    .in('status', ['pending', 'claimed']);
-  if (active.error) {
-    throw new Error(`campaigns drain: could not check for outstanding recipients: ${active.error.message}`);
+  const emptyIds: string[] = [];
+  for (const id of openIds) {
+    const outstanding = await supabase
+      .from('message_campaign_recipients')
+      .select('id')
+      .eq('campaign_id', id)
+      .in('status', ['pending', 'claimed'])
+      .limit(1);
+    if (outstanding.error) {
+      throw new Error(`campaigns drain: could not check for outstanding recipients: ${outstanding.error.message}`);
+    }
+    if ((outstanding.data ?? []).length === 0) emptyIds.push(id);
   }
-  const stillActive = new Set((active.data ?? []).map((r) => r.campaign_id));
-  const emptyIds = runningIds.filter((id) => !stillActive.has(id));
   if (emptyIds.length === 0) return;
 
   const info = await loadCampaignInfo(supabase, emptyIds);
@@ -1508,6 +1684,20 @@ export interface TestSendCampaignInput {
  * mint one even if this function tried). Leaving either of those a trace
  * would corrupt the count an operator reads before deciding whether to
  * send for real (Task 7 brief's own words).
+ *
+ * NO CONSENT CHECK HAPPENS ON THIS PATH, and that is spec D4's own design
+ * rather than an omission (whole-branch review, Minor 9). Every other route
+ * to a provider in this block asks members_marketing_eligible_bulk_for_worker
+ * first (drainCampaigns above); this one cannot, because there is no member
+ * to ask about -- the destination is a string the operator typed, which may
+ * belong to nobody in `members` at all. The consequence is worth naming
+ * plainly so that nobody reads this block's consent promise as covering it:
+ * an operator holding messaging.send can put a Meta-approved marketing
+ * template in front of any number they can type, INCLUDING one that
+ * withdrew. What stands in for consent here is that the act is deliberate,
+ * attributed and bounded -- gated on messaging.send, audited
+ * (record_campaign_test_send, 0249), and rate-limited to
+ * TEST_SENDS_PER_MINUTE per Station per person (messages/campaigns/actions.ts).
  *
  * ONE audit_logs ROW IS WRITTEN, DELIBERATELY, BUT NOT HERE (fix round 1,
  * F2): record_campaign_test_send (0249) is called by

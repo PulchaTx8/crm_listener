@@ -97,27 +97,39 @@ export default async function CampaignsPage({
 
   const stationById = new Map(viewable.map((c) => [c.id, c]));
 
-  const rows: CampaignGridRow[] = campaignsPage.rows.map((record) => ({
-    id: record.id,
-    companyId: record.companyId,
-    companyName: stationById.get(record.companyId)?.name ?? record.companyId,
-    status: record.status,
-    listName: record.listName,
-    channel: record.channel,
-    templateName: record.templateName,
-    totalRecipients: record.totalRecipients,
-    sentCount: record.sentCount,
-    failedCount: record.failedCount,
-    suppressedCount: record.suppressedCount,
-    createdByName: record.createdByName,
-    createdAt: record.createdAt,
-    startedAt: record.startedAt,
-    finishedAt: record.finishedAt,
-    // Gated per row on its OWN Station's messaging.send, never on a single
-    // flag for the whole grid -- the identical reasoning ListsGrid's own
-    // `canManage` gives for messaging.manage.
-    canCancel: sendableCompanyIds.has(record.companyId),
-  }));
+  // Only campaigns whose Station this caller can also NAME (whole-branch
+  // review, Minor 7). Both reads are bounded by the identical messaging.view
+  // -- 0242's own select policy filtered `campaignsPage.rows`, and
+  // `listCompanyAccess` filtered `viewable` -- so in practice this removes
+  // nothing; it is the same defensive filter `listOptions` below already
+  // applies. What it replaces is a fallback that rendered the raw company
+  // UUID in the Station column, which is a fabricated name in the one place
+  // this branch is otherwise careful never to fabricate one (`listName` and
+  // `templateName` are null rather than invented, and
+  // `searchCampaignListsAction` drops the row).
+  const rows: CampaignGridRow[] = campaignsPage.rows
+    .filter((record) => stationById.has(record.companyId))
+    .map((record) => ({
+      id: record.id,
+      companyId: record.companyId,
+      companyName: stationById.get(record.companyId)!.name,
+      status: record.status,
+      listName: record.listName,
+      channel: record.channel,
+      templateName: record.templateName,
+      totalRecipients: record.totalRecipients,
+      sentCount: record.sentCount,
+      failedCount: record.failedCount,
+      suppressedCount: record.suppressedCount,
+      createdByName: record.createdByName,
+      createdAt: record.createdAt,
+      startedAt: record.startedAt,
+      finishedAt: record.finishedAt,
+      // Gated per row on its OWN Station's messaging.send, never on a single
+      // flag for the whole grid -- the identical reasoning ListsGrid's own
+      // `canManage` gives for messaging.manage.
+      canCancel: sendableCompanyIds.has(record.companyId),
+    }));
 
   // Only lists this caller can also SEE the Station of -- `listSendLists`
   // is already bounded by the identical `messaging.view` RLS policy this

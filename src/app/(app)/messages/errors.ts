@@ -235,9 +235,13 @@ export function describeCampaignReadError(
  * `ValidationError` passes through verbatim, the same reasoning
  * `describeSendListWriteError` gives for its own: `create_campaign`'s 22023s
  * (an empty recipient set, an unregistered WhatsApp template, the new
- * variables-shape guard) and `cancel_campaign`'s (a campaign already
- * finished) are each already specific database sentences, not a code a
- * caller could have bypassed a form to reach the way a blank name can.
+ * variables-shape guard) are each already specific database sentences, not a
+ * code a caller could have bypassed a form to reach the way a blank name can
+ * -- and, being unreachable without bypassing the dialog, they are English
+ * sentences an ordinary operator never sees.
+ *
+ * `cancel_campaign`'s own 22023 is NOT in that set and no longer arrives here:
+ * see `describeCancelCampaignError` below.
  */
 export function describeCampaignWriteError(
   cause: unknown,
@@ -253,4 +257,33 @@ export function describeCampaignWriteError(
     return t('youDoNotHavePermissionToHere', { action: t(actionKey) });
   }
   return t('couldNotSave');
+}
+
+/**
+ * Whole-branch review, I5. `cancel_campaign` (0243) raises exactly one 22023
+ * -- "this campaign has already finished and cannot be cancelled" -- and that
+ * one is reachable WITHOUT bypassing anything, which is what separates it
+ * from the 22023s describeCampaignWriteError above still passes through
+ * verbatim. The grid renders Cancel from server-rendered state
+ * (campaigns-grid.tsx, on a `queued` or `running` row); a campaign that
+ * finishes between that render and the click answers with it. That is not an
+ * operator defeating a form, it is the ordinary outcome of watching a
+ * campaign and pressing the button on it -- so the sentence reaches a
+ * Portuguese operator, and it has to be Portuguese.
+ *
+ * One branch and a catalogue string, the shape describeClearMessageError and
+ * describeServiceHashtagsError above already establish for a locally-distinct,
+ * genuinely reachable code. Unconditional on `ValidationError` rather than
+ * matched against the message text: that door raises no other one, and
+ * matching English prose to decide which sentence to show would break the
+ * moment the prose is reworded.
+ */
+export function describeCancelCampaignError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof ValidationError) {
+    return t('campaignAlreadyFinished');
+  }
+  return describeCampaignWriteError(cause, t, 'actionCancelACampaign');
 }

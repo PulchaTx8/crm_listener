@@ -1,5 +1,5 @@
 begin;
-select plan(152);
+select plan(155);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -1230,8 +1230,8 @@ select is(
 reset role;
 
 -- One WHATSAPP integration for Station A. `enabled` is left at its default
--- (false) on purpose -- the identical filter drainCampaigns' own
--- loadPhoneNumberIds (src/services/campaigns.ts) applies carries no
+-- (false) on purpose -- the filter a REAL send resolves its sender through
+-- (claim_campaign_batch's own LEFT JOIN to integrations, 0252) carries no
 -- `enabled` check either, and this function's own comment says why: a test
 -- send disagreeing with the drain about which integration counts would prove
 -- nothing about what a real campaign will do.
@@ -1305,9 +1305,10 @@ select throws_ok(
 reset role;
 
 -- messaging.send (...014) succeeds, and writes exactly one audit_logs row
--- naming the actor, the channel, the template and the destination in the
--- clear -- unlike create_campaign's own audit row, this one is not about a
--- member.
+-- naming the actor, the channel, the template and the destination MASKED
+-- (whole-branch review, R35): the trail keeps who tested, when, from where
+-- and against what, and drops the one thing that would make the row a
+-- permanent contact record in the table sweep_retention never touches.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
 select lives_ok(
@@ -1321,10 +1322,42 @@ select is(
     where action = 'campaign_test_send'
       and company_id = '00000000-0000-0000-0000-024300000002'
       and actor_id = '00000000-0000-0000-0000-024300000014'
-      and detail ->> 'destination' = '+55 11 90000-0009'
+      and detail ->> 'destination_masked' = '****0009'
       and detail ->> 'channel' = 'WHATSAPP'
       and detail ->> 'template_id' = '00000000-0000-0000-0000-024300000009'),
-  1, 'the audit row names the actor, the Station, the channel, the template and the destination');
+  1, 'the audit row names the actor, the Station, the channel, the template and the masked destination');
+
+-- THE ASSERTION THE MASK EXISTS FOR, and it is about the WHOLE detail rather
+-- than about one key: a door that kept storing the clear address under any
+-- name at all -- the old `destination`, a second key beside the masked one,
+-- or the number embedded in some other value -- would still be the sink R35
+-- ruled against. `detail::text` is the only phrasing that catches all three.
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'campaign_test_send'
+      and detail::text like '%90000-0009%'),
+  0, 'and the number the operator typed appears nowhere in the audit detail');
+
+-- EMAIL masks differently, because "the last four characters" of an address
+-- is `.com` and tells an auditor nothing: the first character and the domain
+-- are what say whether a test went to the Station's own inbox or somebody
+-- else's. record_campaign_test_send does not tie p_channel to the template's
+-- own channel (it writes and reads nothing back), so the same fixture ids
+-- serve here.
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-024300000014", "role": "authenticated"}';
+select lives_ok(
+  $$select public.record_campaign_test_send('00000000-0000-0000-0000-024300000002', 'EMAIL',
+      '00000000-0000-0000-0000-024300000007', '00000000-0000-0000-0000-024300000009', 'joana.silva@example.com')$$,
+  'an EMAIL test send is recorded too');
+reset role;
+
+select is(
+  (select count(*)::int from public.audit_logs
+    where action = 'campaign_test_send'
+      and detail ->> 'channel' = 'EMAIL'
+      and detail ->> 'destination_masked' = 'j****@example.com'),
+  1, 'and an e-mail destination keeps its first character and its domain, nothing else');
 
 -- An unknown Station is P0002, not a silent no-op.
 set local role authenticated;

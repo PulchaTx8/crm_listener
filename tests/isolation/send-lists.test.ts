@@ -5,6 +5,7 @@ import { LOCAL_SUPABASE_DB_URL } from '../local-supabase';
 import type { Database } from '@/lib/supabase/database.types';
 import {
   createSendList,
+  eligibleMemberIds,
   filterMemberIdsLinkedToStation,
   listReach,
   resolveListMembers,
@@ -339,5 +340,82 @@ describe('Block 29d-1, Task 8 — a Members list for one Station holds exactly w
     // And named outright, so a regression that made BOTH sides Organization-wide
     // could not satisfy the equality above while quietly counting memberA again.
     expect(reach.people).toBe(1);
+  }, 120_000);
+
+  /**
+   * Whole-branch review I2, ruling R36. A LISTENER WITH NO ADDRESS ON THE
+   * CHANNEL IS NOT REACHABLE ON IT, and the number the operator reads has to
+   * be the number that gets queued.
+   *
+   * The two halves used to disagree in a way nothing noticed. EMAIL
+   * eligibility (0246's channel default) is TRUE when no consent row exists,
+   * and nothing anywhere asked whether the listener had an e-mail address at
+   * all -- so a Station whose listeners register by WhatsApp saw the whole
+   * list in `reach.email`, created a campaign with `total_recipients` to
+   * match, and the drain then settled every addressless row `failed` with
+   * `no_address`. `failed` means OUR error in this block's taxonomy, and
+   * "this person never gave us an e-mail" is not an error at all.
+   *
+   * Asserted through BOTH doors in one case, because the finding is about
+   * them agreeing: `listReach` is what the dialog shows, `eligibleMemberIds`
+   * is what `createCampaignAction` snapshots, and a fix applied to one alone
+   * would restore the same disagreement from the other side.
+   *
+   * WHATSAPP is asserted at zero as the control: neither listener granted
+   * whatsapp_marketing (29c's D1 opt-in), so that channel's number is zero
+   * for a reason that has nothing to do with addresses -- which is what shows
+   * the e-mail number below is answering the address question and not
+   * accidentally counting consent twice.
+   */
+  it('a listener with no e-mail address counts in neither the e-mail reach nor the campaign snapshot', async () => {
+    const customer = await provisionCustomer(`send-lists-address-${STAMP}`);
+    const ownerClient = await signInAs(customer.email, customer.password);
+    const accessToken = await accessTokenFor(ownerClient);
+
+    const withEmail = await createMemberAs(customer, customer.companyId, {
+      fullName: `Reachable By Email ${STAMP}`,
+      email: `reachable-${STAMP}@example.com`,
+    });
+    // Registered by WhatsApp, which is how this Station's listeners arrive:
+    // a real, complete listener row with a phone and no e-mail at all.
+    const phoneOnly = await createMemberAs(customer, customer.companyId, {
+      fullName: `Phone Only ${STAMP}`,
+      phone: `+5511${String(STAMP).slice(-8)}`,
+    });
+
+    const listId = await createSendList(
+      {
+        companyId: customer.companyId,
+        name: `Address reach ${STAMP}`,
+        source: 'members',
+        kind: 'fixed',
+        // Stored, never resolved: a FIXED list's people are the ids below,
+        // frozen into send_list_members (0238), and peopleForList reads them
+        // through send_list_member_ids (0240) rather than through these.
+        filters: { organizationId: customer.organizationId },
+        memberIds: [withEmail, phoneOnly],
+      },
+      accessToken,
+    );
+
+    const reach = await listReach(listId, accessToken);
+    // Both are ON the list -- `people` answers "who is on it", which is not a
+    // question about addresses and must not move.
+    expect(reach.people).toBe(2);
+    // THE ASSERTION THIS CASE EXISTS FOR: one, not two. Neither has an
+    // email_marketing consent row, so both are ELIGIBLE by 0246's own
+    // default; only one of them can actually be written to.
+    expect(reach.email).toBe(1);
+    expect(reach.whatsapp).toBe(0);
+
+    // And the snapshot the create action would take agrees with the number
+    // the operator just read, id for id.
+    const eligible = await eligibleMemberIds(
+      [withEmail, phoneOnly],
+      customer.companyId,
+      'EMAIL',
+      accessToken,
+    );
+    expect(eligible).toEqual([withEmail]);
   }, 120_000);
 });
