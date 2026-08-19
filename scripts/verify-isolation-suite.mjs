@@ -579,7 +579,14 @@ const REQUIRED_TEST_FILES = [
   // than a finished_at check that happens to also mention "cancelled".
   // Measured to fail against the identical mutation (commenting out the
   // message_campaign_recipients delete), restored once the failure was seen.
-  { path: 'tests/isolation/retention.test.ts', minTests: 7 },
+  //
+  // Fix round 1, Item 3: an eighth case, the other half of the status gate
+  // the review's Item 1 turned out to hinge on -- a `running` campaign, 400
+  // days old, whose row must survive because `c.status in ('sent', 'failed',
+  // 'cancelled')` excludes it, not because it looks fresh. Only an executed
+  // run can show the gate actually PROTECTS a row; 24_retention.test.sql's
+  // own source assertions can only show the gate is WRITTEN.
+  { path: 'tests/isolation/retention.test.ts', minTests: 8 },
   // Block 11b: the stamping, CALLED. pgTAP cannot -- it wraps every file in a
   // transaction it rolls back, and a routine that COMMITS raises inside one,
   // which is how the first retention sweep shipped deleting nothing with every

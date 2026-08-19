@@ -1,5 +1,5 @@
 begin;
-select plan(144);
+select plan(152);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -1377,7 +1377,20 @@ insert into public.message_campaigns (id, organization_id, company_id, list_id, 
    '00000000-0000-0000-0000-025000000004'),
   ('00000000-0000-0000-0000-025000000007', '00000000-0000-0000-0000-025000000001',
    '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000003', 'EMAIL',
-   '00000000-0000-0000-0000-025000000005');
+   '00000000-0000-0000-0000-025000000005'),
+  -- Fix round 1, Item 2. Three more campaigns, one per terminal status the
+  -- original fixture never reached -- the plan's own reasoning for reaching
+  -- these rows at all names `sent` above all: that is where an old number
+  -- would otherwise sit for ever, long after the campaign is history.
+  ('00000000-0000-0000-0000-025000000015', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000003', 'WHATSAPP',
+   '00000000-0000-0000-0000-025000000004'),
+  ('00000000-0000-0000-0000-025000000016', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000003', 'WHATSAPP',
+   '00000000-0000-0000-0000-025000000004'),
+  ('00000000-0000-0000-0000-025000000017', '00000000-0000-0000-0000-025000000001',
+   '00000000-0000-0000-0000-025000000002', '00000000-0000-0000-0000-025000000003', 'WHATSAPP',
+   '00000000-0000-0000-0000-025000000004');
 
 insert into public.members (id, organization_id, full_name) values
   ('00000000-0000-0000-0000-025000000008', '00000000-0000-0000-0000-025000000001', 'Ouvinte a ser apagado 0250'),
@@ -1430,6 +1443,30 @@ values
    '00000000-0000-0000-0000-025000000009', 'WHATSAPP', '+55 11 97777-0000',
    '["Controle"]'::jsonb, 'pending');
 
+-- Fix round 1, Item 2. Three more rows for the SAME erased listener, one per
+-- terminal status the WHERE clause has no filter for today -- this is here
+-- to stop somebody adding one. `sent` and `failed` each carry the column
+-- their own shape constraint requires
+-- (message_campaign_recipients_sent_shape / _failed_says_why, 0242).
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status, provider_message_id)
+values
+  ('00000000-0000-0000-0000-025000000018', '00000000-0000-0000-0000-025000000015',
+   '00000000-0000-0000-0000-025000000008', 'WHATSAPP', '+55 11 96666-0000',
+   '["Erasure"]'::jsonb, 'sent', 'provider-msg-0250-sent');
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status, attempts, error_code)
+values
+  ('00000000-0000-0000-0000-025000000019', '00000000-0000-0000-0000-025000000016',
+   '00000000-0000-0000-0000-025000000008', 'WHATSAPP', '+55 11 95555-0000',
+   '["Erasure"]'::jsonb, 'failed', 3, 'whatsapp_permanent_error');
+insert into public.message_campaign_recipients
+  (id, campaign_id, member_id, channel, address, variables, status)
+values
+  ('00000000-0000-0000-0000-025000000020', '00000000-0000-0000-0000-025000000017',
+   '00000000-0000-0000-0000-025000000008', 'WHATSAPP', '+55 11 94444-0000',
+   '["Erasure"]'::jsonb, 'cancelled');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-025000000011", "role": "authenticated"}';
 select lives_ok(
@@ -1479,6 +1516,57 @@ select is(
   (select status::text from public.message_campaign_recipients
     where id = '00000000-0000-0000-0000-025000000014'),
   'pending', 'and keeps its own pending status');
+
+-- Fix round 1, Item 2. The three terminal-status rows: address and
+-- variables cleared exactly like the pending and claimed rows above, status
+-- left exactly as it stands -- each is a row the drain (or cancel_campaign)
+-- already finished with, and rewriting its status now would misstate what
+-- actually happened at send time.
+select ok(
+  (select address is null from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000018'),
+  'a sent row''s address is cleared too -- the plan''s own reason for reaching these rows at all');
+select is(
+  (select status::text from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000018'),
+  'sent', 'and a sent row stays sent');
+
+select ok(
+  (select address is null from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000019'),
+  'a failed row''s address is cleared too');
+select is(
+  (select status::text from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000019'),
+  'failed', 'and a failed row stays failed');
+
+select ok(
+  (select address is null from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000020'),
+  'a cancelled row''s address is cleared too');
+select is(
+  (select status::text from public.message_campaign_recipients
+    where id = '00000000-0000-0000-0000-025000000020'),
+  'cancelled', 'and a cancelled row stays cancelled');
+
+-- Fix round 1, Item 1(a). message_campaigns.suppressed_count is bumped for
+-- the WHATSAPP campaign whose row moved pending -> suppressed, through
+-- bump_campaign_counters (0247) -- called from inside anonymize_member's own
+-- SECURITY DEFINER body, in the same statement that flipped the row.
+select is(
+  (select suppressed_count from public.message_campaigns
+    where id = '00000000-0000-0000-0000-025000000006'),
+  1, 'the WHATSAPP campaign''s suppressed_count is bumped by the erasure');
+
+-- And the EMAIL campaign's own counter is untouched: its row stayed
+-- `claimed`, never transitioned to `suppressed`, so nothing here should have
+-- bumped it -- the counter that would catch a version of this fix that
+-- bumped every affected campaign rather than only the ones that actually
+-- flipped.
+select is(
+  (select suppressed_count from public.message_campaigns
+    where id = '00000000-0000-0000-0000-025000000007'),
+  0, 'but the EMAIL campaign''s own counter is untouched -- its row stayed claimed, not suppressed');
 
 select finish();
 rollback;

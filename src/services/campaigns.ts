@@ -204,7 +204,15 @@ export async function drainCampaigns(
   }
   const rows = (claim.data ?? []) as unknown as ClaimedRow[];
   result.claimed = rows.length;
-  if (rows.length === 0) return result;
+  if (rows.length === 0) {
+    // Item 1(b), Task 8 fix round 1. A tick that claims nothing is exactly
+    // the case this exists for: a campaign stranded `running` by something
+    // OTHER than this drain never appears in any claimed batch again, so a
+    // tick with nothing to claim must still be the one that finds it. See
+    // finalizeEmptyRunningCampaigns' own comment for the full reasoning.
+    await finalizeEmptyRunningCampaigns(supabase);
+    return result;
+  }
 
   // 3. Group the batch before doing anything per row.
   const byCampaign = new Map<string, ClaimedRow[]>();
@@ -445,6 +453,15 @@ export async function drainCampaigns(
 
     await finalizeCampaign(supabase, campaignId, info, deltas);
   }
+
+  // Item 1(b), Task 8 fix round 1. Runs every tick, AFTER this tick's own
+  // batch loop above -- a campaign the loop just finished (the ordinary
+  // case) already reads back as no longer `running` by the time this runs,
+  // so it only ever does real work for a campaign THIS tick's own claim
+  // never touched at all. See finalizeEmptyRunningCampaigns' own comment for
+  // why that case matters and cannot simply wait for a later tick that
+  // claims something.
+  await finalizeEmptyRunningCampaigns(supabase);
 
   return result;
 }
@@ -841,6 +858,60 @@ async function finalizeCampaign(
     .in('status', ['queued', 'running']);
   if (finish.error) {
     throw new Error(`campaigns drain: could not finish campaign ${campaignId}: ${finish.error.message}`);
+  }
+}
+
+/**
+ * Item 1(b), Task 8 fix round 1. `finalizeCampaign` above used to run ONLY
+ * for a campaign this tick's own batch loop drew a claimed row from. A
+ * campaign whose queue empties some OTHER way -- Task 8's `anonymize_member`
+ * (0251) moving a listener's last `pending` row straight to `suppressed` is
+ * the concrete case that surfaced this, but any future writer that empties a
+ * queue without going through this drain has the identical shape -- was left
+ * `running` for ever. That is worse than a stuck status flag: the retention
+ * sweep's own DELETE (0250) is gated on
+ * `c.status in ('sent', 'failed', 'cancelled')`, so a campaign stranded in
+ * `running` is invisible to retention for ever too -- not just the one
+ * listener's row, EVERY recipient row of that campaign, phone numbers and
+ * e-mail addresses included. Exactly the obligation this task exists to
+ * discharge, defeated by a side effect of the task itself.
+ *
+ * Runs every tick, unconditionally, BEFORE the "claimed nothing" early
+ * return above -- a tick that claims zero rows is precisely the case a
+ * campaign stranded by an outside writer needs, since such a campaign will
+ * never again appear in a claimed batch (nothing is left in it to claim).
+ *
+ * ONE BOUNDED QUERY PAIR, not one per campaign: every `running` campaign id,
+ * then which of those ids still has a `pending` or `claimed` row, in a
+ * single `.in(...)` read apiece. The remainder -- `running` with nothing
+ * left in its queue -- is what gets finalized, reusing `loadCampaignInfo`
+ * and `finalizeCampaign` exactly as the batch loop above already does, with
+ * an all-zero delta, rather than a second version of either.
+ */
+async function finalizeEmptyRunningCampaigns(supabase: ServiceClient): Promise<void> {
+  const running = await supabase.from('message_campaigns').select('id').eq('status', 'running');
+  if (running.error) {
+    throw new Error(`campaigns drain: could not list running campaigns: ${running.error.message}`);
+  }
+  const runningIds = (running.data ?? []).map((c) => c.id);
+  if (runningIds.length === 0) return;
+
+  const active = await supabase
+    .from('message_campaign_recipients')
+    .select('campaign_id')
+    .in('campaign_id', runningIds)
+    .in('status', ['pending', 'claimed']);
+  if (active.error) {
+    throw new Error(`campaigns drain: could not check for outstanding recipients: ${active.error.message}`);
+  }
+  const stillActive = new Set((active.data ?? []).map((r) => r.campaign_id));
+  const emptyIds = runningIds.filter((id) => !stillActive.has(id));
+  if (emptyIds.length === 0) return;
+
+  const info = await loadCampaignInfo(supabase, emptyIds);
+  const zeroDeltas: CampaignDeltas = { sentDelta: 0, failedDelta: 0, suppressedDelta: 0 };
+  for (const id of emptyIds) {
+    await finalizeCampaign(supabase, id, info.get(id), zeroDeltas);
   }
 }
 

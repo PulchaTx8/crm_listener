@@ -283,6 +283,19 @@ class FakeDb {
       const data = ids.map((id) => ({ id, member_id: this.fx.memberByRowId?.[id] ?? null }));
       return { data, error: null };
     }
+    if (table === 'message_campaign_recipients' && columns === 'campaign_id') {
+      // Item 1(b), fix round 1. finalizeEmptyRunningCampaigns' own bulk
+      // "is this campaign still active" check: `select('campaign_id')
+      // .in('campaign_id', runningIds).in('status', ['pending', 'claimed'])`.
+      // Reuses `fx.remaining` -- the SAME fixture the per-campaign finish
+      // check below already reads -- rather than a second fixture field
+      // meaning the identical thing under a different name.
+      const campaignIds = (filters.find(([k]) => k === 'in:campaign_id')?.[1] as string[]) ?? [];
+      const data = campaignIds
+        .filter((id) => (this.fx.remaining?.[id] ?? []).length > 0)
+        .map((id) => ({ campaign_id: id }));
+      return { data, error: null };
+    }
     if (table === 'message_campaign_recipients') {
       // The finish check: `select('id').eq('campaign_id', x).in('status', [...])`.
       const campaignId = filters.find(([k]) => k === 'eq:campaign_id')?.[1] as string;
@@ -291,6 +304,21 @@ class FakeDb {
     }
     if (table === 'companies') return { data: this.fx.companies ?? [], error: null };
     if (table === 'integrations') return { data: this.fx.integrations ?? [], error: null };
+    if (table === 'message_campaigns' && columns === 'id') {
+      // Item 1(b), fix round 1. finalizeEmptyRunningCampaigns' own
+      // `select('id').eq('status', 'running')`. Reads `this.campaignStatus`
+      // -- the LIVE map, kept current by every status-changing update this
+      // FakeDb has resolved so far -- rather than the static `fx.campaigns`
+      // seed: this query runs AFTER this tick's own batch loop (drainCampaigns'
+      // own ordering), so a campaign the batch loop already finished this
+      // same tick must already read back as no-longer-running here, the same
+      // as it would against a real database.
+      const status = filters.find(([k]) => k === 'eq:status')?.[1] as string | undefined;
+      const data = [...this.campaignStatus.entries()]
+        .filter(([, s]) => !status || s === status)
+        .map(([id]) => ({ id }));
+      return { data, error: null };
+    }
     if (table === 'message_campaigns') return { data: this.fx.campaigns ?? [], error: null };
     if (table === 'message_templates') return { data: this.fx.templates ?? [], error: null };
     throw new Error(`unexpected select on ${table}`);
@@ -708,7 +736,15 @@ describe('drainCampaigns — resolving once per group', () => {
 
     const companySelects = db.selectCalls.filter((c) => c.table === 'companies');
     const templateSelects = db.selectCalls.filter((c) => c.table === 'message_templates');
-    const campaignSelects = db.selectCalls.filter((c) => c.table === 'message_campaigns');
+    // Filtered on loadCampaignInfo's own column list, deliberately, rather
+    // than on the table alone: Item 1(b), fix round 1 added a SECOND,
+    // unrelated `message_campaigns` select every tick
+    // (finalizeEmptyRunningCampaigns' own `select('id').eq('status',
+    // 'running')`, columns 'id' rather than 'id, status, template_id') that
+    // this test is not about and would otherwise fail it by coincidence.
+    const campaignSelects = db.selectCalls.filter(
+      (c) => c.table === 'message_campaigns' && c.columns === 'id, status, template_id',
+    );
 
     expect(companySelects).toHaveLength(1);
     expect(templateSelects).toHaveLength(1);
@@ -744,7 +780,10 @@ describe('drainCampaigns — resolving once per group', () => {
     await drainCampaigns(asClient(db), { emailProvider });
 
     expect(db.selectCalls.filter((c) => c.table === 'companies')).toHaveLength(1);
-    expect(db.selectCalls.filter((c) => c.table === 'message_campaigns')).toHaveLength(1);
+    // Same exclusion as the test above: loadCampaignInfo's own select only.
+    expect(
+      db.selectCalls.filter((c) => c.table === 'message_campaigns' && c.columns === 'id, status, template_id'),
+    ).toHaveLength(1);
     expect(emailProvider.calls).toHaveLength(2);
   });
 });
@@ -900,6 +939,95 @@ describe('drainCampaigns — finalizeCampaign', () => {
     const bump = db.rpcCalls.find((c) => c.fn === 'bump_campaign_counters');
     expect(bump?.args).toMatchObject({ p_sent: 1, p_failed: 0, p_suppressed: 0 });
 
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish).toBeUndefined();
+  });
+});
+
+describe('drainCampaigns — finalizeEmptyRunningCampaigns (Item 1(b), fix round 1)', () => {
+  it('finalizes a `running` campaign with an empty queue even when this tick claims NOTHING at all', async () => {
+    // THE WHOLE POINT of this fix: a campaign stranded `running` by
+    // anonymize_member (Task 8) moving its last `pending` row straight to
+    // `suppressed` never appears in any claimed batch again -- nothing is
+    // left in it to claim. A test that claimed a row first would exercise
+    // the ORDINARY path (finalizeCampaign, called from inside the batch
+    // loop) and prove nothing about the case this item exists for.
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [BASE_CAMPAIGN],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    const result = await drainCampaigns(asClient(db));
+    expect(result.claimed).toBe(0);
+
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish).toBeDefined();
+    // sent_count and failed_count are both 0 (BASE_CAMPAIGN's own seed, and
+    // this path bumps nothing): "ran to completion, nothing failed" is
+    // `sent`, the same rule finalizeCampaign's own comment states.
+    expect(finish?.patch.status).toBe('sent');
+  });
+
+  it('bumps the counters through the SAME bump_campaign_counters call, with an all-zero delta', async () => {
+    // Reuse, not a second version: this path calls finalizeCampaign exactly
+    // as the batch loop does, so the RPC log shows the identical call shape,
+    // only with nothing to add.
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [BASE_CAMPAIGN],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    await drainCampaigns(asClient(db));
+
+    const bump = db.rpcCalls.find((c) => c.fn === 'bump_campaign_counters');
+    expect(bump?.args).toEqual({ p_campaign_id: 'campaign-1', p_sent: 0, p_failed: 0, p_suppressed: 0 });
+  });
+
+  it('leaves a `running` campaign alone while a row is still pending or claimed, even on a tick that claims nothing else', async () => {
+    // The other half: a sweep that finalized every `running` campaign
+    // regardless of its queue would pass the case above and be
+    // catastrophic. A row belonging to SOME OTHER tick's claim (or simply
+    // not yet due) must not be raced past.
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [BASE_CAMPAIGN],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [{ id: 'row-x', status: 'pending' }] },
+    });
+
+    await drainCampaigns(asClient(db));
+
+    const finish = db.updateCalls.find(
+      (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
+    );
+    expect(finish).toBeUndefined();
+  });
+
+  it('does not touch a campaign that is not `running` (queued, sent, failed or cancelled)', async () => {
+    // finalizeEmptyRunningCampaigns' own first query is `eq('status',
+    // 'running')` -- a campaign in any other status must never reach
+    // finalizeCampaign through this path at all, queued included: a queued
+    // campaign with nothing claimed yet is not "stranded", it has simply
+    // not started.
+    const queuedCampaign: CampaignRow = { ...BASE_CAMPAIGN, status: 'queued' };
+    const db = new FakeDb({
+      claimBatch: [],
+      campaigns: [queuedCampaign],
+      templates: [BASE_TEMPLATE],
+      remaining: { 'campaign-1': [] },
+    });
+
+    await drainCampaigns(asClient(db));
+
+    expect(db.rpcCalls.find((c) => c.fn === 'bump_campaign_counters')).toBeUndefined();
     const finish = db.updateCalls.find(
       (c) => c.table === 'message_campaigns' && typeof c.patch.finished_at === 'string',
     );

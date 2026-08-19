@@ -308,12 +308,65 @@ async function campaignRecipientExists(recipientId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Fix round 1, Item 3. A campaign the sweep must NEVER touch: `queued` or
+ * `running`, created long ago -- `created_at` is set 400 days in the past on
+ * purpose, so a version of the sweep that windowed on the wrong column
+ * (`created_at` instead of `coalesce(finished_at, cancelled_at)`) would fail
+ * this case rather than pass it by accident. `finished_at` and
+ * `cancelled_at` are both left null, which is the ordinary state of a
+ * campaign nothing has finished or cancelled yet.
+ */
+async function seedUnfinishedCampaignRecipient(params: {
+  organizationId: string;
+  companyId: string;
+  memberId: string;
+  campaignStatus: 'queued' | 'running';
+}): Promise<{ campaignId: string; recipientId: string }> {
+  const client = new Client({ connectionString: LOCAL_SUPABASE_DB_URL });
+  await client.connect();
+  try {
+    const list = await client.query<{ id: string }>(
+      `insert into public.send_lists (organization_id, company_id, name, source, kind)
+       values ($1, $2, 'Retention sweep fixture list (unfinished)', 'members', 'living')
+       returning id`,
+      [params.organizationId, params.companyId],
+    );
+    const template = await client.query<{ id: string }>(
+      `insert into public.message_templates
+         (organization_id, company_id, channel, internal_name, name, language, body)
+       values ($1, $2, 'WHATSAPP', 'retention-fixture-template-unfinished',
+               'retention_fixture_template_unfinished', 'pt_BR', 'fixture body')
+       returning id`,
+      [params.organizationId, params.companyId],
+    );
+    const campaign = await client.query<{ id: string }>(
+      `insert into public.message_campaigns
+         (organization_id, company_id, list_id, channel, template_id, status, created_at)
+       values ($1, $2, $3, 'WHATSAPP', $4, $5::public.campaign_status, now() - interval '400 days')
+       returning id`,
+      [params.organizationId, params.companyId, list.rows[0]!.id, template.rows[0]!.id, params.campaignStatus],
+    );
+    const recipient = await client.query<{ id: string }>(
+      `insert into public.message_campaign_recipients
+         (campaign_id, member_id, channel, address, variables, status)
+       values ($1, $2, 'WHATSAPP', '+55 11 90000-0000', '[]'::jsonb, 'pending')
+       returning id`,
+      [campaign.rows[0]!.id, params.memberId],
+    );
+    return { campaignId: campaign.rows[0]!.id, recipientId: recipient.rows[0]!.id };
+  } finally {
+    await client.end();
+  }
+}
+
 describe("Block 29d-2, Task 8 — the sweep actually deletes a finished campaign's recipient rows", () => {
   let customer: ProvisionedCustomer;
   let memberId: string;
   let oldSentRecipientId: string;
   let freshSentRecipientId: string;
   let oldCancelledRecipientId: string;
+  let oldRunningRecipientId: string;
 
   beforeAll(async () => {
     customer = await provisionCustomer(`retention-campaigns-${STAMP}`);
@@ -357,6 +410,18 @@ describe("Block 29d-2, Task 8 — the sweep actually deletes a finished campaign
       campaignStatus: 'cancelled',
       ageDays: 181,
     }));
+
+    // Fix round 1, Item 3. A `running` campaign, 400 days old, that has
+    // simply never finished -- the case item 1 taught us matters most,
+    // since the sweep's own DELETE is gated on
+    // `status in ('sent', 'failed', 'cancelled')` and this row must survive
+    // on THAT gate, not because it happens to look fresh.
+    ({ recipientId: oldRunningRecipientId } = await seedUnfinishedCampaignRecipient({
+      organizationId: customer.organizationId,
+      companyId: customer.companyId,
+      memberId,
+      campaignStatus: 'running',
+    }));
   }, 60_000);
 
   afterAll(async () => {
@@ -383,5 +448,18 @@ describe("Block 29d-2, Task 8 — the sweep actually deletes a finished campaign
       await campaignRecipientExists(oldCancelledRecipientId),
       'the recipient row of a cancelled campaign past its own window survived the sweep',
     ).toBe(false);
+  }, 60_000);
+
+  it("leaves a `running` campaign's recipient row alone, however old, because it never finished or was cancelled", async () => {
+    // Fix round 1, Item 3. 24_retention.test.sql's own source-pattern
+    // assertions prove `c.status in ('sent', 'failed', 'cancelled')` is
+    // WRITTEN; only an executed run proves it actually PROTECTS a `queued`
+    // or `running` campaign's rows -- the exact property whose absence would
+    // have stranded every recipient row of the campaign Item 1 found, not
+    // only the one erased listener's.
+    expect(
+      await campaignRecipientExists(oldRunningRecipientId),
+      'the recipient row of a still-running campaign was deleted by the sweep',
+    ).toBe(true);
   }, 60_000);
 });
