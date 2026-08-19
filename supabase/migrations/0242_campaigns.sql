@@ -163,7 +163,16 @@ create table public.message_campaign_recipients (
   -- no taxonomy code to require.
   constraint message_campaign_recipients_failed_says_why check (
     status <> 'failed' or error_code is not null
-  )
+  ),
+
+  -- Two rows for the same listener in the same campaign means one listener
+  -- receives the campaign twice. That is the complaint that costs a WhatsApp
+  -- Business number its quality rating, which is exactly why this block's
+  -- stated reason for existing is to check consent on every single row before
+  -- sending: a listener sent twice is the same inbox complaint as one sent
+  -- after they withdrew.
+  constraint message_campaign_recipients_one_row_per_listener
+    unique (campaign_id, member_id)
 );
 
 comment on table public.message_campaign_recipients is

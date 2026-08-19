@@ -1,5 +1,5 @@
 begin;
-select plan(18);
+select plan(19);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -127,6 +127,9 @@ insert into public.message_campaigns (id, organization_id, company_id, list_id, 
    '00000000-0000-0000-0000-024200000002', '00000000-0000-0000-0000-024200000003', 'WHATSAPP',
    '00000000-0000-0000-0000-024200000004');
 
+insert into public.members (id, organization_id, full_name, email) values
+  ('00000000-0000-0000-0000-024200000009', '00000000-0000-0000-0000-024200000001', 'Test Member 0242', 'member0242@example.test');
+
 insert into public.roles (id, organization_id, name) values
   ('00000000-0000-0000-0000-024200000006', '00000000-0000-0000-0000-024200000001', 'Messaging Viewer 0242');
 insert into public.role_permissions (role_id, permission_code) values
@@ -157,6 +160,23 @@ select is(
 
 reset role;
 reset request.jwt.claims;
+
+-- Task 2: The unique constraint on (campaign_id, member_id). A duplicate
+-- row means one listener receives the campaign twice, which is the complaint
+-- that costs a WhatsApp Business number its quality rating -- the whole block
+-- exists to check consent on every single row before sending, and a listener
+-- sent twice is the same inbox complaint as one sent after they withdrew.
+insert into public.message_campaign_recipients (id, campaign_id, member_id, channel, address)
+  values ('00000000-0000-0000-0000-024200000010', '00000000-0000-0000-0000-024200000005',
+          '00000000-0000-0000-0000-024200000009', 'WHATSAPP', '+55 (11) 99999-0000');
+
+select throws_ok(
+  $$insert into public.message_campaign_recipients (id, campaign_id, member_id, channel, address)
+    values ('00000000-0000-0000-0000-024200000011', '00000000-0000-0000-0000-024200000005',
+            '00000000-0000-0000-0000-024200000009', 'WHATSAPP', '+55 (11) 99999-0001')$$,
+  '23505',
+  'duplicate key value violates unique constraint "message_campaign_recipients_one_row_per_listener"',
+  'two rows for the same listener in the same campaign are refused');
 
 select finish();
 rollback;
