@@ -1,5 +1,5 @@
 begin;
-select plan(84);
+select plan(85);
 
 -- Block 29d-2. Two vocabularies: what a campaign is doing, and what happened to
 -- one recipient.
@@ -741,6 +741,29 @@ update public.message_campaign_recipients
 select ok(
   exists (select 1 from public.claim_campaign_batch(10000) where id = '00000000-0000-0000-0000-024400000022'),
   'a claim reset to pending -- what a stale-claim reclaim would do -- is claimable again');
+
+-- ---------------------------------------------------------------------------
+-- Task 6a, Part 1. The index a stale-claim reclaim (Task 6b, not built yet)
+-- will scan: partial on `claimed` alone -- never also `pending` -- on
+-- claimed_at, the column the reclaim's age comparison actually uses. Checked
+-- the same way message_campaign_recipients_sendable_idx is checked above:
+-- against pg_index directly, and the predicate text is compared for an EXACT
+-- match so a later "helpful" widening to more than one status would fail
+-- this assertion rather than pass it silently.
+-- ---------------------------------------------------------------------------
+select ok(
+  exists (
+    select 1
+    from pg_index i
+    join pg_class c on c.oid = i.indexrelid
+    join pg_class t on t.oid = i.indrelid
+    where c.relname = 'message_campaign_recipients_claimed_idx'
+      and t.relname = 'message_campaign_recipients'
+      and i.indpred is not null
+      and pg_get_expr(i.indpred, i.indrelid) = $pred$(status = 'claimed'::campaign_recipient_status)$pred$
+      and pg_get_indexdef(i.indexrelid) like '%(claimed_at)%'
+  ),
+  'the claimed-status partial index exists, keyed on claimed_at, and names exactly claimed -- never also pending');
 
 select finish();
 rollback;

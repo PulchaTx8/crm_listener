@@ -1,0 +1,50 @@
+-- supabase/migrations/0245_campaign_stale_claim_index.sql
+
+-- Block 29d-2, Task 6a Part 1. The index a stale-claim reclaim (Task 6b, not
+-- built yet) will scan.
+--
+-- A tick that crashes between claim_campaign_batch (0244) and the drain's own
+-- settle write leaves a recipient row `claimed` forever: its listener is
+-- never written to and its campaign's counters never complete. The outbox
+-- answers the identical hazard for outbox_messages with
+-- reclaim_stale_whatsapp_claims (0063), which drainWhatsApp calls FIRST, and
+-- before anything is claimed, for the reason its own comment gives
+-- (src/services/whatsapp.ts:209-210): "a row abandoned mid-claim is in no
+-- other query's answer, so if this does not look for it nothing will."
+--
+-- That reclaim's outbound arm asks `status = 'SENDING' and claimed_at < now()
+-- - p_stale_after` -- the campaign equivalent will ask `status = 'claimed'
+-- and claimed_at < now() - interval` the same way.
+-- message_campaign_recipients has only message_campaign_recipients_sendable_idx
+-- (0242), partial on `status = 'pending'` and built for claim_campaign_batch's
+-- own scan, so a campaign reclaim would sequential-scan the whole table on
+-- every tick -- exactly the cost 0063's own comment on webhook_events_processing
+-- and outbox_messages_sending (lines 291-296) names: "Both reclaim arms scan
+-- on a status their table's main index does not cover, every ten seconds, for
+-- ever. Without these that is two sequential scans of growing tables per
+-- tick, spent on a question whose answer is almost always 'none'."
+--
+-- A SECOND, SEPARATE PARTIAL INDEX -- not `claimed` folded into the existing
+-- sendable one -- for the reason outbox_messages' own migration (0059, lines
+-- 142-149) gives about claim_outbox_batch's identical index: "With two
+-- statuses in the predicate, claim_outbox_batch's `status = 'PENDING'` stops
+-- being part of the index condition and becomes a FILTER applied to rows the
+-- scan has already fetched ... it degrades exactly in the failure the reclaim
+-- exists to answer: an abandoned SENDING row keeps the old next_attempt_at it
+-- was claimed with, so it sits at the HEAD of this index, and every claim
+-- walks past every one of them for up to the stale threshold before reaching
+-- a row it may actually send." claim_campaign_batch's own predicate is
+-- `status = 'pending'` alone (0244's own comment says so explicitly, twice);
+-- widening message_campaign_recipients_sendable_idx to also cover `claimed`
+-- would do to THAT claim exactly what 0059 warns against, to save the reclaim
+-- an index it can have of its own for free instead.
+--
+-- Partial on `claimed` alone, keyed on claimed_at -- the column the reclaim's
+-- age comparison actually uses -- the same shape outbox_messages_sending
+-- (0063) holds for its own reclaim arm. Normally EMPTY: a row enters and
+-- leaves `claimed` inside one claim-then-settle cycle, so there is nothing to
+-- keep and nothing to maintain except on the rare abandoned row this index
+-- exists to find.
+create index message_campaign_recipients_claimed_idx
+  on public.message_campaign_recipients (claimed_at)
+  where status = 'claimed';
