@@ -58,7 +58,8 @@ export const STATION_SEARCH_MAX_LENGTH = 100;
 
 /**
  * Resolves which Companies (Stations) the signed-in caller holds `permission`
- * in, bounded rather than O(N) in the platform's total Company count.
+ * in, bounded rather than O(N) in the platform's total Company count, and --
+ * when `organizationId` is given -- inside that one Organization only.
  *
  * Generalised over `permission` (Task 9 review, Important 3) rather than
  * hard-coding `inventory.view`: `members/station-access.ts` used to carry a
@@ -99,12 +100,26 @@ export async function listCompanyAccess(
   supabase: UserClient,
   permission: string,
   search?: string,
+  organizationId?: string,
 ): Promise<CompanyAccess> {
   let query = supabase
     .from('companies')
     .select('id, name, status, timezone')
     .is('deleted_at', null)
     .order('name');
+
+  // OPTIONAL, and every caller that existed before Block 29d-1 leaves it off
+  // deliberately: an inventory or catalogue Station switcher is meant to reach
+  // every Station the caller holds the permission in, whichever Organization
+  // that is. It exists for the one caller whose answer has to sit inside a
+  // SINGLE Organization -- members/page.tsx's send-list Station picker, whose
+  // list is built from an Organization-wide audience and would otherwise offer
+  // a Station belonging to a different Organization than the one the filters
+  // name (whole-branch review, F8). A platform admin sees every Company on the
+  // platform through companies_select_org_member (0021), and a person with
+  // memberships in two Organizations sees both, so this is the ordinary case
+  // for those callers rather than a contrived one.
+  if (organizationId) query = query.eq('organization_id', organizationId);
 
   // The route to the fifty-first Station (Block 3b). Before this, the cap was
   // the whole story: a platform admin got the alphabetically-first fifty and

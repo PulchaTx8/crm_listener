@@ -2959,6 +2959,93 @@ export type Database = {
           },
         ]
       }
+      send_list_members: {
+        Row: {
+          list_id: string
+          member_id: string
+        }
+        Insert: {
+          list_id: string
+          member_id: string
+        }
+        Update: {
+          list_id?: string
+          member_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "send_list_members_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "send_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "send_list_members_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      send_lists: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          filters: Json
+          id: string
+          kind: Database["public"]["Enums"]["send_list_kind"]
+          name: string
+          organization_id: string
+          source: Database["public"]["Enums"]["send_list_source"]
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          filters?: Json
+          id?: string
+          kind: Database["public"]["Enums"]["send_list_kind"]
+          name: string
+          organization_id: string
+          source: Database["public"]["Enums"]["send_list_source"]
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          filters?: Json
+          id?: string
+          kind?: Database["public"]["Enums"]["send_list_kind"]
+          name?: string
+          organization_id?: string
+          source?: Database["public"]["Enums"]["send_list_source"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "send_lists_company_org_fk"
+            columns: ["company_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "send_lists_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       show_schedules: {
         Row: {
           band: number
@@ -4554,6 +4641,17 @@ export type Database = {
         }
         Returns: string
       }
+      create_send_list: {
+        Args: {
+          p_company_id: string
+          p_filters: Json
+          p_kind: Database["public"]["Enums"]["send_list_kind"]
+          p_member_ids: string[]
+          p_name: string
+          p_source: Database["public"]["Enums"]["send_list_source"]
+        }
+        Returns: string
+      }
       create_song: {
         Args: {
           p_album_id?: string
@@ -4592,6 +4690,7 @@ export type Database = {
         Returns: string
       }
       delete_role: { Args: { p_role_id: string }; Returns: undefined }
+      delete_send_list: { Args: { p_list_id: string }; Returns: undefined }
       deliver_prize: {
         Args: { p_note?: string; p_winner_id: string }
         Returns: undefined
@@ -5457,6 +5556,10 @@ export type Database = {
         Args: { p_question_id: string }
         Returns: undefined
       }
+      rename_send_list: {
+        Args: { p_list_id: string; p_name: string }
+        Returns: undefined
+      }
       reopen_pickup_deadline: {
         Args: { p_deadline_at: string; p_reason: string; p_winner_id: string }
         Returns: undefined
@@ -5783,6 +5886,7 @@ export type Database = {
         }
         Returns: string
       }
+      send_list_member_ids: { Args: { p_list_id: string }; Returns: string[] }
       service_hashtags_for: { Args: { p_company_id: string }; Returns: Json }
       set_album_cover: {
         Args: { p_album_id: string; p_url?: string }
@@ -6235,6 +6339,8 @@ export type Database = {
         | "AUDIENCE_PANEL"
         | "MUSIC_PANEL"
         | "PROMOTIONS_PANEL"
+      send_list_kind: "fixed" | "living"
+      send_list_source: "members" | "participations" | "requests"
       show_age_rating: "L" | "10" | "12" | "14" | "16" | "18"
       show_kind: "MUSICAL" | "NEWS" | "TALK_SHOW" | "SPORTS" | "ENTERTAINMENT"
       system_message_key:
@@ -6498,6 +6604,8 @@ export const Constants = {
         "MUSIC_PANEL",
         "PROMOTIONS_PANEL",
       ],
+      send_list_kind: ["fixed", "living"],
+      send_list_source: ["members", "participations", "requests"],
       show_age_rating: ["L", "10", "12", "14", "16", "18"],
       show_kind: ["MUSICAL", "NEWS", "TALK_SHOW", "SPORTS", "ENTERTAINMENT"],
       system_message_key: [

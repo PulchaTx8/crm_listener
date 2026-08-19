@@ -121,3 +121,88 @@ export function describeServiceHashtagsError(
   }
   return t('couldNotSave');
 }
+
+/**
+ * Block 29d-1, Task 6. `listSendLists` reads `send_lists` directly under RLS
+ * (0238's own select policy), so a caller without `messaging.view` anywhere
+ * reads zero rows rather than an error -- the `UnauthorizedError` branch below
+ * is kept for the same reason describeTemplateReadError keeps its own: this
+ * taxonomy is shared shape, not a claim that every branch fires from every
+ * read in the section.
+ */
+export function describeSendListReadError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof ConflictError) return cause.message;
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return t('thatCouldNotBeFound');
+  }
+  if (cause instanceof UnauthorizedError) {
+    return t('youDoNotHavePermissionToViewTheSendLists');
+  }
+  return t('couldNotLoadTheSendLists');
+}
+
+/**
+ * The write half, for `renameSendList`/`deleteSendList`
+ * (services/send-lists.ts), each passing its own `actionKey` the same way
+ * `archiveTemplateAction` passes `actionRemoveARegisteredTemplate` above.
+ *
+ * `ValidationError` passes through verbatim, on the same reasoning
+ * describeTemplateWriteError gives for its own: `rename_send_list`'s only
+ * reachable `22023` is a blank name, and `renameSendListSchema` already
+ * refuses that before the request leaves the browser -- a caller who reaches
+ * this branch bypassed the form, and the door's own sentence ("the list needs
+ * a name") is the accurate one.
+ */
+export function describeSendListWriteError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+  actionKey: string,
+): string {
+  if (cause instanceof ConflictError) return cause.message;
+  if (cause instanceof ValidationError) return cause.message;
+  if (cause instanceof NotFoundError) {
+    return t('thatCouldNotBeFound');
+  }
+  if (cause instanceof UnauthorizedError) {
+    return t('youDoNotHavePermissionToHere', { action: t(actionKey) });
+  }
+  return t('couldNotSave');
+}
+
+/**
+ * Block 29d-1, Task 7. `create_send_list`'s (0239) own `P0002` does not mean
+ * what `describeSendListWriteError`'s generic `NotFoundError` branch says --
+ * nothing has been created yet for there to be a stale reference to. It fires
+ * for TWO reasons in that door's own body: an unknown `p_company_id` (not
+ * reachable through `CreateSendListDialog`, which only ever sends a Station
+ * id it read from a real row) and a resolved member id the door found is not
+ * linked to the chosen Station (`member_linked_to_company`, 0239's own
+ * comment on why that check exists at all). The second IS reachable -- a
+ * Members-sourced list resolves Organization-wide (`resolveMemberIds`'s own
+ * comment, services/send-lists.ts) while every list still belongs to exactly
+ * one Station (D3), so an operator can pick a Station some of the resolved
+ * people are not linked to. Named specifically here on the same precedent
+ * `describeClearMessageError`/`describeServiceHashtagsError` set for their
+ * own doors' locally-distinct `P0002`, rather than folded into the shared
+ * generic text.
+ *
+ * Fix round 1 (F7, Minor): `sendListMemberNotLinked`'s own text names BOTH
+ * causes rather than only the reachable one -- the two cannot be told apart
+ * client-side (0239 raises the identical code for either), and naming only
+ * the more likely cause would tell an operator something specific that might
+ * not be what happened, which is worse than one honest sentence covering
+ * both. The door itself is unchanged; only the catalogue string was.
+ */
+export function describeCreateSendListError(
+  cause: unknown,
+  t: (key: string, values?: Record<string, string>) => string,
+): string {
+  if (cause instanceof NotFoundError) {
+    return t('sendListMemberNotLinked');
+  }
+  return describeSendListWriteError(cause, t, 'actionCreateASendList');
+}
