@@ -295,3 +295,53 @@ standing in for the other — the isolation test's own second, non-wrapping
 case (the same July window, asserted to exclude both December and January) is
 what that needs, and is why it exists alongside the wrapping one rather than
 instead of it.
+
+## Block 30c — a certificate nobody validates, and a link that outlives its Programme
+
+**`promotions.authorization_certificate`** (`0258`) — `text`, nullable, free
+text. **Deliberately not unique**, unlike `site_integration_code` (`0040`),
+which carries a unique index because this system itself issues that number.
+The authorisation certificate is issued *outside* this system — a regulator,
+a lottery authority — which has no way here to tell "two promotions sharing
+one number" apart from "one licence legitimately covering both". A unique
+index would turn a question about somebody else's paperwork into a save that
+fails with a message the operator cannot act on. **Never format-checked**,
+for the same reason: the format belongs to whoever issues the number, and a
+pattern invented here would refuse a valid one from an issuer who writes it
+differently. `update_promotion`/`create_promotion` (`0259`) write it straight
+through, trimmed and blank-to-null like every other free-text field on this
+row.
+
+**`promotions.show_id`** (`0258`) — `uuid`, nullable, the Programme (`shows`)
+this promotion belongs to. **Composite FK** — `promotions_show_fk (show_id,
+company_id) references shows (id, company_id)` — the same device
+`promotion_questions` (`0041`) and `promotions`' own Organization/Station pair
+already use, so a promotion cannot point at a Programme belonging to a
+*different* Station; `shows_id_company_unique` already gives the FK its
+matching unique target, so no new index was needed.
+
+**No `on delete` action, and none is needed**: `shows` is soft-deleted through
+`deleted_at` (`0098`), never hard-deleted, so there is no `DELETE` for a
+referential action to fire on in the first place — a Programme with
+promotions attached is unremovable by construction, not merely discouraged.
+
+**Survives the Programme being archived, rather than being cleared.** A
+promotion that ran inside a Programme ran inside it whether or not the
+Programme is still on air — the same treatment `list_music_requests` gives an
+archived song (`0101`)'s reasoning: a historical fact outlives the thing it
+names. Block 30e is the reader this is for: it can still walk from a
+promotion to its Programme's schedule through a privileged path, unaffected
+by whether the Programme has since ended.
+
+**The display half of that promise cannot currently be kept**, found while
+building the record read (`getPromotionRecord`, `src/services/promotions.ts`):
+nothing in this codebase ever writes `shows.deleted_at` (no archiving action
+exists yet), and `shows_select_music_view` (`0099`) — unlike `promotions`' own
+select policy, which deliberately admits the owner — carries no such
+exception, so an archived Programme would be unreadable through the embed for
+*every* caller, owner included. The link would still be intact in the column;
+the record would simply show no Programme name at all, indistinguishable from
+none ever having been linked. Not a defect this migration introduces — the
+column's job is to survive the archive, not to render it — but recorded here
+because the next reader who wires up archiving `shows` will otherwise expect
+the name to reappear on its own.

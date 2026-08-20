@@ -217,32 +217,51 @@ file at the `is_owner_of_company` assertion and nowhere else.
 exist and are gated — and stops there, because pgTAP runs as superuser with a
 null `auth.uid()` where RLS never applies.
 
-## Programmes are gated on music, not on the audience (Block 18)
+## Programmes are gated on music, and the screen has moved twice (Block 18 → 27 → 30c)
 
-`/shows` lives under **Audiência** in the sidebar, third after Ouvintes and
-Participações. **Its permission did not move with it.**
+`/shows` now lives under **Promotions** in the sidebar, directly after
+Pickups — its **third section in twelve blocks**. Audience filed it in Block
+18; Catalog took it in Block 27; Block 30c moved it here, on the owner's
+ruling of 2026-08-19, because a promotion can now name the Programme it
+belongs to (`promotions.show_id`, `0258`) and the two screens read as one
+errand. **Its permission has never moved with it, across either move.**
 
 `shows` carries exactly one policy — `shows_select_music_view`, gated on
-**`music.view`** — and no insert or update policy at all, so every write already
-goes through a `SECURITY DEFINER` door. `save_show` and `end_show` (0175) each
-re-check **`music.manage`** against `auth.uid()`. `show_schedules` follows
-`shows` exactly.
+**`music.view`** — and no insert or update policy at all, so every write
+already goes through a `SECURITY DEFINER` door. `save_show` and `end_show`
+(0175) each re-check **`music.manage`** against `auth.uid()`. `show_schedules`
+follows `shows` exactly. So a member who administers Promotions and holds
+nothing in music sees the **Programmes** link and finds nothing behind it.
 
-So a member who administers the audience and holds nothing in music sees the
-link and finds nothing behind it.
+**Block 30c found a second surface of the same mismatch**, during its own
+Task 4 review. `listShowOptions` (`src/services/shows.ts:254-266`) — which
+fills the Programme combobox on a promotion's own record (item 17) — reads
+through the caller's own client, so `shows_select_music_view`'s `music.view`
+gate applies there too. The same member who cannot open `/shows` also sees
+that combobox with **no options at all**, permanently reading "No programme".
+The first surface is a dead link — visibly broken, and an operator learns
+something is wrong. The second looks exactly like a Station that has no
+Programmes; there is nothing on screen to tell the two apart.
 
-**That is deliberate, and the reason is §4 of this document read backwards.**
-Adding a permission is cheap in the schema and expensive in the field: a
-`shows.view` / `shows.manage` pair means a migration, the roles screen, every
-seeded role, this document — and, decisively, **every role a customer has
-already configured, none of which would grant the new code**. Shipping the
-screen behind a permission nobody holds would hide it from everyone who has one.
+**That is still deliberate, and the reason is still §4 of this document read
+backwards.** Two fixes were weighed for Block 30c and neither is this block:
+
+- **A `shows.view` / `shows.manage` pair** is not two rows in a table — it is
+  a permissions migration, the roles screen, every seeded role, this
+  document — and, decisively, **every role a customer has already
+  configured, none of which would grant the new code**. Shipping either
+  screen behind a permission nobody holds would hide it from everyone who has
+  one today.
+- **Re-gating both surfaces on `promotions.view`/`promotions.edit` instead**
+  is cheaper to ship, but it takes the screen — and the combobox — away from
+  whoever administers the catalogue and holds `music.view` today. It trades
+  the mismatch for a different one rather than closing it.
 
 The mismatch is recorded in three places that a reader will actually reach:
-`src/lib/auth/shell.ts` beside the nav entry, the header of
-`src/app/(app)/shows/page.tsx`, and §5 of the Block 18 design. Closing it is a
-block of its own, and it should start by deciding what happens to roles that
-already exist.
+`src/lib/auth/shell.ts` beside the nav entry (both surfaces), the header of
+`src/app/(app)/shows/page.tsx`, and this section. Closing it is a block of its
+own, and it should start by deciding what happens to roles that already
+exist.
 
 ## The listener card is governed by `members.view`, not a new permission (Block 30a)
 
