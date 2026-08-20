@@ -151,6 +151,18 @@ the screen away from whoever administers the catalogue and has it today.
 
 Both are product decisions with blast radius, and neither is item 11.
 
+**The mismatch has a SECOND surface, found in Task 4's review and not anticipated
+here.** `listShowOptions` reads through the caller's own client, so
+`shows_select_music_view`'s `music.view` gate applies to it too: a member holding
+`promotions.edit` but no `music.view` sees the Programme combobox of item 17 with
+**no options at all** — permanently reading "No programme", for every promotion.
+
+That is worse than the menu case and worth stating separately. A link that leads
+nowhere is visibly broken; a combobox that is simply empty looks like a Station
+with no Programmes, and the operator has no way to tell the two apart. Same root
+cause, same deferred fix, but whoever decides the `shows.view` question should
+weigh this surface rather than only the nav link.
+
 ### D5 — Two layout corrections, and one of them exposes a spacer that was waiting
 
 Item 10's field goes where `promotion-fields.tsx` currently renders
