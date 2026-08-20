@@ -1555,6 +1555,18 @@ existing sign-in and seeding helpers:
 4. Click Hand over. Assert `hand-over-promotion`, `hand-over-listener` and
    `hand-over-prize` are populated, type into `hand-over-note`, click
    `hand-over-confirm`, and assert the row's status becomes delivered.
+5. Open `/participations`, seeded with a listener who has **CPF digits and no
+   telephone number**. Open the entry window and assert the phone slot reads
+   `—` and **not** `••••`.
+
+Step 5 is not decoration. That exact expression changed three times in this
+branch — Task 1 twice and Task 3 once — and produced a defect on two of those
+three, each invisible to every suite in the repository. There is no component
+testing here to catch it (no testing-library, no jsdom, `environment: 'node'`,
+and the unit glob is `tests/unit/**/*.test.ts`), and adding that infrastructure
+for one assertion would be a bigger change than the block it serves. Playwright
+already exists and already drives this screen; the assertion goes where the risk
+is, using what is already here.
 
 - [ ] **Step 2: Run it**
 
