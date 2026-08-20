@@ -1555,18 +1555,22 @@ existing sign-in and seeding helpers:
 4. Click Hand over. Assert `hand-over-promotion`, `hand-over-listener` and
    `hand-over-prize` are populated, type into `hand-over-note`, click
    `hand-over-confirm`, and assert the row's status becomes delivered.
-5. Open `/participations`, seeded with a listener who has **CPF digits and no
-   telephone number**. Open the entry window and assert the phone slot reads
-   `—` and **not** `••••`.
+**Then, in the EXISTING spec — not in the new one:**
 
-Step 5 is not decoration. That exact expression changed three times in this
-branch — Task 1 twice and Task 3 once — and produced a defect on two of those
-three, each invisible to every suite in the repository. There is no component
-testing here to catch it (no testing-library, no jsdom, `environment: 'node'`,
-and the unit glob is `tests/unit/**/*.test.ts`), and adding that infrastructure
-for one assertion would be a bigger change than the block it serves. Playwright
-already exists and already drives this screen; the assertion goes where the risk
-is, using what is already here.
+`tests/e2e/participation-record.spec.ts:215-217` already asserts
+`participation-phone` reads exactly `•••• <last4>`, with a comment explaining
+why it is an exact match rather than `toContainText`. That is the right home for
+the missing case, beside the case it already covers. Add one: a listener with
+**CPF digits and no telephone number** — the phone slot must read `—` and **not**
+`••••`.
+
+This is not decoration. That one expression changes three times in this branch —
+twice in Task 1, once in Task 3 — and produced a defect on two of those three,
+each invisible to every suite in the repository. There is no component testing
+here to catch it (no testing-library, no jsdom, vitest `environment: 'node'`,
+unit glob `tests/unit/**/*.test.ts`), and standing that infrastructure up for one
+assertion would be a larger change than the block it serves. Playwright already
+exists, already drives this screen, and already asserts this exact test id.
 
 - [ ] **Step 2: Run it**
 
