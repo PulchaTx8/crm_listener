@@ -331,10 +331,10 @@ select is(public.is_owner_of_company(gen_random_uuid()), false,
 -- uploaded rather than typed and a wholesale replace would delete it on every
 -- ordinary Save; set_promotion_art is its only writer now.
 select ok(
-  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text, text, uuid)', 'EXECUTE'),
   'anon may not call create_promotion');
 select ok(
-  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text, text, uuid)', 'EXECUTE'),
   'authenticated may call create_promotion');
 
 -- Fifteen here too, for the reason above. The bad failure this pair cannot see
@@ -342,10 +342,10 @@ select ok(
 -- to remove — which is why 02_permissions.test.sql counts pg_proc entries by
 -- name for this function: no signature pin, here or there, can see a twin.
 select ok(
-  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text)', 'EXECUTE'),
+  not has_function_privilege('anon', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text, text, uuid)', 'EXECUTE'),
   'anon may not call update_promotion');
 select ok(
-  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.update_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text, text, uuid)', 'EXECUTE'),
   'authenticated may call update_promotion');
 
 select ok(

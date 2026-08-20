@@ -16,6 +16,14 @@ select plan(10);
 -- its own Station, the same tenancy assertion 44_service_hashtags.test.sql
 -- makes for set_service_hashtags itself, mirrored here for the reverse
 -- direction.
+--
+-- Block 30c D2. Every call below carries WhatsApp on with no rules, which the
+-- new rules gate (0259) now refuses outright for a fresh promotion and, for
+-- an update, refuses whenever the door was not already on with rules blank --
+-- neither of which is what this file exists to test. `p_rules` is the 17th
+-- parameter, so it is passed by name on every call below rather than filling
+-- every positional slot in between, and only so the collision guard is what
+-- actually gets exercised.
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000701', 'Org promotion hashtag collision');
@@ -63,7 +71,7 @@ select throws_ok($$
   select public.create_promotion(
     '00000000-0000-0000-0000-000000000702', 'Promo colide musica',
     now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#TOCA')
+    null, null, false, null, false, true, '#TOCA', p_rules => 'Regras de teste')
 $$, '22023', 'the hashtag #TOCA already belongs to this Station''s music hashtag',
   'create_promotion refuses a hashtag equal to this Station''s own music hashtag');
 
@@ -71,7 +79,7 @@ select throws_ok($$
   select public.create_promotion(
     '00000000-0000-0000-0000-000000000702', 'Promo colide servico',
     now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#AJUDA')
+    null, null, false, null, false, true, '#AJUDA', p_rules => 'Regras de teste')
 $$, '22023', 'the hashtag #AJUDA already belongs to this Station''s service hashtag',
   'create_promotion refuses a hashtag equal to this Station''s own service hashtag, naming which one');
 
@@ -89,7 +97,7 @@ create temporary table t47_ended as
 select public.create_promotion(
   '00000000-0000-0000-0000-000000000702', 'Promo colide mas ja acabou',
   now() - interval '40 days', now() - interval '10 days',
-  null, null, false, null, false, true, '#TOCA') as id;
+  null, null, false, null, false, true, '#TOCA', p_rules => 'Regras de teste') as id;
 
 select isnt(
   (select id from t47_ended), null,
@@ -103,7 +111,7 @@ select lives_ok($$
   select public.create_promotion(
     '00000000-0000-0000-0000-000000000703', 'Promo Station B mesma palavra',
     now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#TOCA')
+    null, null, false, null, false, true, '#TOCA', p_rules => 'Regras de teste')
 $$, 'the same hashtag at a different Station, which never configured it, is accepted');
 
 -- ---------------------------------------------------------------------------
@@ -115,7 +123,7 @@ create temporary table t47_promo as
 select public.create_promotion(
   '00000000-0000-0000-0000-000000000702', 'Promo sem colisao',
   now() - interval '1 day', now() + interval '30 days',
-  null, null, false, null, false, true, '#SEMCOLISAO') as id;
+  null, null, false, null, false, true, '#SEMCOLISAO', p_rules => 'Regras de teste') as id;
 
 select isnt(
   (select id from t47_promo), null,
@@ -129,14 +137,14 @@ select isnt(
 select throws_ok($$
   select public.update_promotion(
     (select id from t47_promo), 'Promo sem colisao', now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#TOCA')
+    null, null, false, null, false, true, '#TOCA', p_rules => 'Regras de teste')
 $$, '22023', 'the hashtag #TOCA already belongs to this Station''s music hashtag',
   'update_promotion refuses renaming a promotion''s hashtag to this Station''s own music hashtag');
 
 select throws_ok($$
   select public.update_promotion(
     (select id from t47_promo), 'Promo sem colisao', now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#AJUDA')
+    null, null, false, null, false, true, '#AJUDA', p_rules => 'Regras de teste')
 $$, '22023', 'the hashtag #AJUDA already belongs to this Station''s service hashtag',
   'update_promotion refuses renaming a promotion''s hashtag to this Station''s own service hashtag');
 
@@ -149,7 +157,7 @@ select lives_ok($$
   select public.update_promotion(
     (select id from public.promotions where hashtag = '#TOCA' and company_id = '00000000-0000-0000-0000-000000000703'),
     'Promo Station B mesma palavra', now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#TOCA')
+    null, null, false, null, false, true, '#TOCA', p_rules => 'Regras de teste')
 $$, 'update_promotion at a different Station is unaffected by Station A''s own hashtags');
 
 -- ---------------------------------------------------------------------------
@@ -160,7 +168,7 @@ $$, 'update_promotion at a different Station is unaffected by Station A''s own h
 select lives_ok($$
   select public.update_promotion(
     (select id from t47_promo), 'Promo sem colisao renomeada', now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#SEMCOLISAO')
+    null, null, false, null, false, true, '#SEMCOLISAO', p_rules => 'Regras de teste')
 $$, 'an ordinary resave with no colliding hashtag still lives');
 
 -- ---------------------------------------------------------------------------
@@ -178,7 +186,7 @@ select lives_ok($$
   select public.update_promotion(
     (select id from t47_ended), 'Promo colide mas ja acabou, revivida',
     now() - interval '1 day', now() + interval '30 days',
-    null, null, false, null, false, true, '#TOCA')
+    null, null, false, null, false, true, '#TOCA', p_rules => 'Regras de teste')
 $$, 'reviving an ended promotion without touching its already-colliding hashtag is never refused');
 
 select * from finish();

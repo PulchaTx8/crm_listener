@@ -4845,6 +4845,7 @@ export type Database = {
       create_promotion: {
         Args: {
           p_allow_multiple_entries?: boolean
+          p_authorization_certificate?: string
           p_call_to_action?: string
           p_company_id: string
           p_ends_at: string
@@ -4856,6 +4857,7 @@ export type Database = {
           p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           p_require_correct_answer?: boolean
           p_rules?: string
+          p_show_id?: string
           p_site_integration_code?: number
           p_starts_at: string
           p_web_enabled?: boolean
@@ -6341,6 +6343,7 @@ export type Database = {
       update_promotion: {
         Args: {
           p_allow_multiple_entries?: boolean
+          p_authorization_certificate?: string
           p_call_to_action?: string
           p_ends_at: string
           p_hashtag?: string
@@ -6352,6 +6355,7 @@ export type Database = {
           p_requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           p_require_correct_answer?: boolean
           p_rules?: string
+          p_show_id?: string
           p_site_integration_code?: number
           p_starts_at: string
           p_web_enabled?: boolean
