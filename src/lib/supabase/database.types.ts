@@ -6015,6 +6015,10 @@ export type Database = {
         Args: { p_company_id: string; p_note: string; p_promotion_id: string }
         Returns: number
       }
+      reveal_member_field: {
+        Args: { p_field: string; p_member_id: string }
+        Returns: string
+      }
       reveal_request_phone: { Args: { p_request_id: string }; Returns: string }
       reverse_movement: {
         Args: { p_movement_id: string; p_note: string }
