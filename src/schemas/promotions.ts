@@ -114,8 +114,18 @@ export const promotionFormSchema = z
      * rule invented here would refuse a valid number from a state that writes
      * them differently.
      */
-    authorizationCertificate: z.string().trim().max(60).optional(),
-    showId: z.string().uuid().optional(),
+    authorizationCertificate: z
+      .string()
+      .trim()
+      .max(60, 'The certificate number cannot be longer than 60 characters.')
+      .optional(),
+    // 'Choose a programme.', matching promotionPrizeLinkSchema's prizeId
+    // ('Choose a prize.') below — only reachable if a stale option list posts
+    // an id the combobox never offered, the same shape as companyId's own
+    // unmessaged .uuid() above for a hidden field, but named this time since
+    // this one arrives from a value the operator picked rather than one the
+    // page set.
+    showId: z.string().uuid('Choose a programme.').optional(),
 
     // BLOCK 24 REMOVED `callToAction`, AND THE COLUMN STAYS (D2). It was the
     // sentence under the promotion's name in the WhatsApp consent message, and

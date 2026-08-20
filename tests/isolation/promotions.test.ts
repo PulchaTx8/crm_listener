@@ -23,6 +23,7 @@ import {
   grantRoleWith,
   provisionCustomer,
   seedGrandfatheredPromotion,
+  seedShow,
   signInAs,
 } from './harness';
 import type { ProvisionedCustomer } from './harness';
@@ -182,8 +183,28 @@ describe('the promotion record', () => {
       const delegate = await grantRoleWith(customer, label, [
         'promotions.create',
         'promotions.view',
+        // D4 (spec doc): shows carries exactly one policy, gated on
+        // music.view, not any promotions.* permission — a promotions-only
+        // delegate reads showId back but gets showName null regardless of
+        // whether the Programme is archived, because shows_select_music_view
+        // (0099) never admits them at all. Granted here so this fixture
+        // proves the embed positively resolves, which is the point of
+        // adding it; the gap itself is D4's own recorded cost, not
+        // something to route around silently.
+        'music.view',
       ]);
       const token = await tokenFor(delegate.email, delegate.password);
+
+      // The create door's own seam for the two new fields (Block 30c):
+      // Task 2's pgTAP proves create_promotion writes both when called
+      // directly, and typecheck cannot catch either being dropped from
+      // promotionRpcArgs — both Args entries are optional, the same shape as
+      // the maxEntriesPerMember mutation this file's own header documents
+      // above. showId also exercises the shows(name, deleted_at) embed's
+      // first positive assertion in this suite: everything else that reads
+      // it either gets null (no Programme) or is this task's own throwaway
+      // verification, never committed.
+      const showId = await seedShow(customer, `Programme ${label}`);
 
       const promotionId = await createPromotion(
         promotionInput(customer.companyId, {
@@ -191,6 +212,8 @@ describe('the promotion record', () => {
           whatsappEnabled: true,
           hashtag: '#DELEGADO',
           rules: `Create rules ${label}`,
+          authorizationCertificate: `CERT-${label}`,
+          showId,
           // No banner here as of Block 14: it is not a field of this form and
           // create_promotion does not take one. A promotion is born without
           // pictures because neither storage key exists until the row does.
@@ -209,6 +232,10 @@ describe('the promotion record', () => {
       expect(record?.name).toBe('Delegate promotion');
       expect(record?.requestedFields).toEqual(['full_name', 'address', 'city']);
       expect(record?.minHoursBetweenEntries).toBe(24);
+      expect(record?.authorizationCertificate).toBe(`CERT-${label}`);
+      expect(record?.showId).toBe(showId);
+      expect(record?.showName).toBe(`Programme ${label}`);
+      expect(record?.showArchived).toBe(false);
 
       // A PROMOTION IS BORN WITHOUT PICTURES, and this asserts it rather than
       // merely stopping asserting the opposite. Neither storage key exists
@@ -844,6 +871,14 @@ describe('the promotion record', () => {
       // src/services/promotions.ts.
     });
     expect(opening.error?.code).toBe('22023');
+    // The sqlstate alone does not distinguish this refusal from update_promotion's
+    // other six 22023 sites (name/dates missing, the two freezes, the two
+    // hashtag collisions — verified by reading every `errcode = '22023'` in
+    // 0259's own body) — none reachable by this fixture today, but the
+    // file's own idiom pins the sentence rather than trust that they never
+    // will be (see the collision test above, and participations.test.ts's
+    // own comment on why sqlstate alone cannot tell a freeze from this gate).
+    expect(opening.error?.message).toContain('needs its rules');
 
     // The grandfathered shape, seeded past the door through the harness's
     // superuser connection because the door now refuses to create it, and
@@ -859,5 +894,16 @@ describe('the promotion record', () => {
       p_web_enabled: true,
     });
     expect(editing.error).toBeNull();
+
+    // `error is null` is not the claim this scenario makes — the freeze case
+    // above spells out why: a refusal written as an early `return` rather
+    // than a `raise` would raise nothing, write nothing, and pass that
+    // assertion too. Only the row can tell "allowed" apart from "swallowed".
+    const { data: renamed } = await owner
+      .from('promotions')
+      .select('name')
+      .eq('id', legacyId)
+      .single();
+    expect(renamed?.name).toBe(`${label} legacy renamed`);
   });
 });

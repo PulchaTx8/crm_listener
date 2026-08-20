@@ -80,9 +80,9 @@ function readPromotionForm(formData: FormData) {
     startsAt: formData.get('startsAt'),
     endsAt: formData.get('endsAt'),
     siteIntegrationCode: readOptionalNumber(formData.get('siteIntegrationCode')),
-    // Block 30c. Read unconditionally, like the certificate below: neither
-    // depends on a door being open, so there is no stale-tab case to guard
-    // against the way the WhatsApp fields further down are guarded.
+    // Block 30c. Both read unconditionally: neither depends on a door being
+    // open, so there is no stale-tab case to guard against the way the
+    // WhatsApp fields further down are guarded.
     authorizationCertificate: formData.get('authorizationCertificate') || undefined,
     showId: formData.get('showId') || undefined,
     // `callToAction` is gone from this read and from the schema (Block 24, D2).

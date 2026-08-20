@@ -733,8 +733,11 @@ export async function setPromotionPrizeDrawnDirectly(
  * reached that shape before the gate existed — has no route through any RPC
  * any more. service_role cannot reach it either: `grant select on
  * public.promotions to authenticated, service_role` (0044_rls_promotions.sql)
- * is the only grant that table carries, so `admin.from('promotions').insert`
- * is refused the same way a caller's own token would be.
+ * is the only DML grant this schema issues on that table — its own comment
+ * says no table takes an insert, update or delete grant from any role,
+ * service_role included, so every write goes through a SECURITY DEFINER RPC
+ * — so `admin.from('promotions').insert` is refused the same way a caller's
+ * own token would be.
  *
  * Bypasses every check create_promotion makes — the Station lookup,
  * has_permission, the hashtag guards — because it writes the table directly,
@@ -757,6 +760,31 @@ export async function seedGrandfatheredPromotion(
     throw new Error(
       `seedGrandfatheredPromotion: expected to insert exactly one row, got ${rows.length}`,
     );
+  }
+  return rows[0]!.id;
+}
+
+/**
+ * A live Programme carrying nothing but a name, through the superuser
+ * connection rather than `save_show` (0175): that RPC requires a kind, an age
+ * rating, a start date and at least one band, and a promotion's `showId` test
+ * fixture needs none of that — `shows` itself has no NOT NULL beyond
+ * organization_id/company_id/name (0175's own header: "production already
+ * holds four programmes carrying nothing but a name," the same shape this
+ * seeds). Not through `admin`: `shows` carries no insert grant for any role
+ * (0099 grants select only), the same gap seedGrandfatheredPromotion's own
+ * comment documents for promotions.
+ */
+export async function seedShow(customer: ProvisionedCustomer, name: string): Promise<string> {
+  const rows = await superuserQuery<{ id: string }>(
+    'seedShow',
+    `insert into public.shows (organization_id, company_id, name)
+     values ($1, $2, $3)
+     returning id`,
+    [customer.organizationId, customer.companyId, name],
+  );
+  if (rows.length !== 1) {
+    throw new Error(`seedShow: expected to insert exactly one row, got ${rows.length}`);
   }
   return rows[0]!.id;
 }

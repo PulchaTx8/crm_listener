@@ -395,11 +395,19 @@ export interface PromotionDetail {
   /** Null when no Programme is linked, or when the caller cannot read it. */
   showName: string | null;
   /**
-   * True once the linked Programme has been archived. The link is kept on
-   * purpose (0258) — a promotion that ran inside a Programme ran inside it
-   * whether or not it is still on air — so this is what lets the screen say
-   * "archived" rather than imply it is still scheduled. Same shape and same
-   * reason as RequestSummary.songArchived (services/music.ts).
+   * Meant to be true once the linked Programme has been archived — but that
+   * state cannot currently be observed (D3a, found during this task, spec
+   * doc): nothing in this codebase ever writes shows.deleted_at, and even if
+   * something did, shows_select_music_view (0099:55-57) hides an archived
+   * row from every caller with no owner exception, unlike promotions' own
+   * select policy (0044), which deliberately admits the owner. So this flag
+   * is always false today; Task 4 renders no branch for it, on purpose. NOT
+   * the same shape as RequestSummary.songArchived (services/music.ts) — that
+   * flag genuinely renders, because list_music_requests reaches the song
+   * through a SECURITY DEFINER path shows' own policy never touches. The
+   * link itself still survives an archive regardless (0258, D3) — this flag
+   * is only the display half, which D3a found unreachable. Full finding at
+   * the read site below (getPromotionRecord).
    */
   showArchived: boolean;
   startsAt: string;
@@ -529,21 +537,25 @@ export async function getPromotionRecord(
   // Programme gets `shows: null` rather than an error, which is what
   // showName's own comment means by "or when the caller cannot read it".
   //
-  // A GAP THIS BLOCK DID NOT CLOSE, RECORDED HERE FOR WHOEVER BUILDS THE
-  // NEXT PIECE. `shows_select_music_view` (0099) is `deleted_at is null AND
+  // D3a (spec doc): the display half of D3 is unreachable, found here.
+  // `shows_select_music_view` (0099) is `deleted_at is null AND
   // has_permission('music.view', ...)` — unlike promotions' own select policy,
   // it carries no is_owner_of_company exception, so an archived show is
   // unreadable through this embed for EVERY caller, owner and platform admin
-  // included. D3 promises the record renders an archived Programme's name
-  // with a marker; today that promise cannot be kept, because nothing in
-  // this codebase yet sets shows.deleted_at (grep finds no writer) and, once
-  // something does, this embed will silently return `shows: null` rather
-  // than the archived row — indistinguishable from "no Programme linked".
-  // Verified against the local stack: an owner reading a promotion pointed at
-  // a directly-archived show gets showName null and showArchived false, not
-  // the archived name. Closing it is a `shows` RLS decision (an
-  // is_owner_of_company-shaped carve-out, or a narrower one), not a call this
-  // task makes unilaterally.
+  // included. D3 as first written promises the record renders an archived
+  // Programme's name with a marker; that promise cannot be kept, because
+  // nothing in this codebase sets shows.deleted_at (grep finds no writer)
+  // and, if something ever does, this embed will silently return `shows:
+  // null` rather than the archived row — indistinguishable from "no
+  // Programme linked". Verified against the local stack: an owner reading a
+  // promotion pointed at a directly-archived show gets showName null and
+  // showArchived false, not the archived name. D3a's ruling: the LINK still
+  // survives an archive regardless (show_id has no referential action and
+  // nothing clears it, so Block 30e can still read the schedule) — that is
+  // the half D3 still delivers. Closing the display half is a `shows` RLS
+  // decision (an is_owner_of_company-shaped carve-out, or a narrower one),
+  // not a call this task makes unilaterally, and Task 4 renders no branch
+  // for it on purpose.
   const { data: promotion, error } = await supabase
     .from('promotions')
     .select('*, shows(name, deleted_at)')
