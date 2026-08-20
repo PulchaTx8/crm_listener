@@ -149,15 +149,22 @@ test('a birthday window crossing new year finds the two listeners either side of
   await expect(rowFor(JUL_NAME)).toBeVisible();
 
   await page.getByTestId('member-date-mode').selectOption('birthday');
-  // selectOption() dispatches the change event and returns; it does not wait
-  // for the resulting router.replace() to land. Until it does, the date boxes
-  // are still rendered against the PREVIOUS state.dateMode ('registered'), so
-  // filling them right after selectOption() would submit
+  // This wait is synchronisation, not a workaround for a defect that is still
+  // live: selectOption() dispatches the change event and returns before React
+  // has necessarily committed the re-render it triggers, so the boxes below
+  // could still show the previous label for one tick. Filling them before the
+  // relabel lands is exactly the sequence that used to submit
   // startOfLocalDay/endOfLocalDay instants instead of the MM-DD slice
-  // birthday mode uses — the boxes' onChange reads dateMode from this
-  // component's own props, which only update once the navigation's RSC round
-  // trip completes and re-renders it. Waiting for the relabelled box is what
-  // waits for exactly that.
+  // birthday mode uses, and drop dates=birthday from the URL — a real race in
+  // members-filters.tsx, not a test artifact: the mode selector starts a
+  // router.replace() round trip, and until it lands, state.dateMode (a SERVER
+  // prop) still says 'registered', which is what both date boxes' onChange
+  // used to read. Fixed by holding the mode in local state resynced from the
+  // prop by effect (members-filters.tsx), the same shape fromDay/toDay
+  // already had, so the boxes and this label now update with the click rather
+  // than with the round trip. This wait now closes over React's own render
+  // commit rather than the network, but it is real synchronisation either way
+  // and stays for that reason.
   await expect(page.getByText('Birthdays from')).toBeVisible();
 
   // The year is a fixed placeholder the box renders against (members-filters.tsx,
