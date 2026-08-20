@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   LOCAL_SUPABASE_URL,
@@ -247,4 +248,139 @@ test('an operator opens one entry and reads what the listener answered', async (
   // --- and it closes --------------------------------------------------------
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('participation-listener')).toHaveCount(0);
+});
+
+/**
+ * Block 30a. The sibling case the test above covers is a listener whose four
+ * digits show; this one is the case it does not cover: a listener with a CPF
+ * on file and NO telephone number.
+ *
+ * `participation-dialog.tsx`'s own guard is `{last4 ? phone : '—'}`, where
+ * `phone` is `maskedPhone(last4)`. `maskedPhone` answers bare dots — never
+ * null — for a null `last4` (Block 30a changed its return type from
+ * `string | null` to `string`), so a phone slot rendering `phone` outright,
+ * without the ternary, would show `••••` for a listener who was never asked
+ * for a number at all — indistinguishable on screen from one who was, and
+ * masked. This display expression has already been broken once by an edit to
+ * this same file: commit f8d4c93 simplified it from `{phone ?? '—'}` to
+ * `{phone}` on the reasoning that `phone` could no longer be null, which was
+ * true of the OLD `maskedPhone` and false of the new one — exactly this bug,
+ * caught by review and fixed one commit later (1c6c501) rather than by any
+ * suite. There is no component testing here to catch a repeat (no
+ * testing-library, no jsdom, vitest `environment: 'node'`), and standing that
+ * infrastructure up for one assertion would be a larger change than the block
+ * it serves. This is the only guard this expression will ever have.
+ *
+ * A wholly separate Organization and Station, not a second row in the
+ * fixture above — the same shape music-requests.spec.ts's own second journey
+ * uses in one file: each test here provisions its own tenant and drives its
+ * own sign-in rather than share one across tests, so this needs no filter to
+ * isolate its one participation and depends on nothing the first test did.
+ */
+test('a listener with a CPF on file and no telephone number reads the phone slot as an em dash, never as dots', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+
+  const noPhoneStamp = `${stamp}-nophone`;
+  const noPhoneOwnerEmail = `e2e-partrec-nophone-owner-${noPhoneStamp}@example.test`;
+  const noPhoneOwnerPassword = `Partrec-nophone-${noPhoneStamp}-pw`;
+  const noPhoneOrgName = `Partrec Org NoPhone ${noPhoneStamp}`;
+  const noPhoneStationName = `Partrec Station NoPhone ${noPhoneStamp}`;
+  const noPhonePromotionName = `Partrec Promo NoPhone ${noPhoneStamp}`;
+  const noPhoneListenerName = `Sem Telefone ${noPhoneStamp}`;
+  // A CPF and no phone at all: create_member takes the hash and the last
+  // three digits as two independent columns (0031's own cpf_last_digits
+  // format, three digits, not four) rather than deriving one from the other,
+  // so both are supplied directly here the way services/members.ts's own
+  // hashCpf/cpfLastDigits would — reimplemented rather than imported, since
+  // no spec in this suite imports a `src/` module (draw-flow.spec.ts's own
+  // comment gives the reason: these screens are other blocks' to prove
+  // through their own path).
+  const cpfRaw = `999${String(stamp).slice(-8)}`;
+  const cpfHash = createHash('sha256').update(cpfRaw).digest('hex');
+  const cpfLast3 = cpfRaw.slice(-3);
+
+  const platformAdminClient = anonClient();
+  const adminSignIn = await platformAdminClient.auth.signInWithPassword({
+    email: platformAdminEmail,
+    password: platformAdminPassword,
+  });
+  if (adminSignIn.error) {
+    throw new Error(`could not sign the platform admin in again: ${adminSignIn.error.message}`);
+  }
+
+  const ownerCreated = await admin.auth.admin.createUser({
+    email: noPhoneOwnerEmail,
+    password: noPhoneOwnerPassword,
+    email_confirm: true,
+  });
+  if (ownerCreated.error || !ownerCreated.data.user) {
+    throw new Error(`could not create the owner: ${ownerCreated.error?.message}`);
+  }
+  createdUserIds.push(ownerCreated.data.user.id);
+  await admin.from('profiles').insert({ id: ownerCreated.data.user.id, email: noPhoneOwnerEmail });
+
+  const { company_id: noPhoneCompanyId } = await provisionCustomer(platformAdminClient, {
+    userId: ownerCreated.data.user.id,
+    organizationName: noPhoneOrgName,
+    companyName: noPhoneStationName,
+  });
+
+  const noPhoneOwner = anonClient();
+  const ownerSignIn = await noPhoneOwner.auth.signInWithPassword({
+    email: noPhoneOwnerEmail,
+    password: noPhoneOwnerPassword,
+  });
+  if (ownerSignIn.error) throw new Error(`could not sign in: ${ownerSignIn.error.message}`);
+
+  const noPhonePromotion = await noPhoneOwner.rpc('create_promotion', {
+    p_company_id: noPhoneCompanyId,
+    p_name: noPhonePromotionName,
+    p_starts_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    p_ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  });
+  if (noPhonePromotion.error) {
+    throw new Error(`create_promotion failed: ${noPhonePromotion.error.message}`);
+  }
+
+  const noPhoneMember = await noPhoneOwner.rpc('create_member', {
+    p_company_id: noPhoneCompanyId,
+    p_full_name: noPhoneListenerName,
+    p_cpf_hash: cpfHash,
+    p_cpf_last_digits: cpfLast3,
+  });
+  if (noPhoneMember.error) throw new Error(`create_member failed: ${noPhoneMember.error.message}`);
+
+  const noPhoneEntry = await noPhoneOwner.rpc('record_participation', {
+    p_promotion_id: noPhonePromotion.data as string,
+    p_member_id: noPhoneMember.data as string,
+    p_source: 'MANUAL',
+    p_participated_at: new Date().toISOString(),
+    p_answers: [],
+  });
+  if (noPhoneEntry.error) {
+    throw new Error(`record_participation failed: ${noPhoneEntry.error.message}`);
+  }
+
+  await page.goto('/login');
+  await page.getByLabel('E-mail', { exact: true }).fill(noPhoneOwnerEmail);
+  await page.getByLabel('Password', { exact: true }).fill(noPhoneOwnerPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  await expect(page).toHaveURL(/\/change-password$/);
+  const noPhoneChosen = `Partrec-nophone-${noPhoneStamp}-chosen`;
+  await page.getByPlaceholder('New password').fill(noPhoneChosen);
+  await page.getByPlaceholder('Repeat the password').fill(noPhoneChosen);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.goto(`/participations?companyId=${noPhoneCompanyId}`);
+  await expect(page.getByTestId('participation-row')).toHaveCount(1);
+
+  await page.getByTestId('participation-view').click();
+  await expect(page.getByTestId('participation-listener')).toHaveText(noPhoneListenerName);
+
+  // THE ASSERTION. An em dash, exactly — not dots, and not empty.
+  await expect(page.getByTestId('participation-phone')).toHaveText('—');
 });

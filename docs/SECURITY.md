@@ -144,6 +144,24 @@ a working export.
   an audit.
 - **Subject-driven erasure** is `anonymize_member` (`0034`): it scrubs the
   personal data and queues the storage objects that outlive the SQL.
+- **Disclosure is a door of its own, one field at a time, and audited.**
+  `reveal_member_field` (`0253`, Block 30a) hands back one whole value — phone,
+  e-mail, passport or the postal address as one string — for a listener the
+  caller already holds `members.view` for at a Station that listener is linked
+  to; the field name is checked against a closed list of four rather than
+  interpolated, so the door cannot be made to read a column it was not written
+  to read. **It returns null for a listener who has exercised erasure or been
+  archived, and the audit row is still written either way** — somebody asked,
+  and that is the fact being recorded, whether or not there was anything left
+  to disclose. It generalises `reveal_request_phone` (`0190`, Block 22), the
+  identical door built for one WhatsApp request's own listener, to the wider
+  question "may this caller read THIS listener" with no request in hand. The
+  Pickups and Participations lists (`list_pickups`/`list_participations`,
+  narrowed by `0254`) no longer carry a listener's whole telephone number at
+  all — only the last four digits travel with the list, the shape
+  `list_music_requests` has returned since Block 22 — so the whole value now
+  reaches the browser only through this one door, never with the list it sits
+  beside.
 - **How a subject asks** is `/delete-data` (Block 21), reachable with no
   account from a link inside WhatsApp. The public form **records a request and
   erases nothing** — there is no path from `data_deletion_requests` (`0188`) to
@@ -206,6 +224,17 @@ refuses the request.
 Note for anyone writing tests: **every local test shares `127.0.0.1`**, so a
 suite that grows past ten accepted invitations in a window starts failing on a
 control that is working correctly.
+
+**Neither `reveal_member_field` (§8) nor `reveal_request_phone` carries a rate
+limit.** Both are gated on a permission, not anonymous, so an operator holding
+`members.view` can call either as many times as they hold a session, one
+listener at a time, leaving one audit row per call. `PostgresRateLimiter`
+above backs the doors a stranger can reach with no account; these two are
+reached only by an authenticated, permissioned caller, which is why they sit
+outside it. That is the exposure Block 22 accepted for one request's own
+listener; Block 30a widens the same door to any listener the caller may
+already read, and the exposure travels with it, unchanged and unlimited —
+recorded here rather than left to be discovered.
 
 ## 10. API credentials (Block 15)
 
