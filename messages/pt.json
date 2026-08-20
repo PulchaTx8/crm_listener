@@ -47,7 +47,9 @@
     "themeLight": "Claro",
     "themeDark": "Escuro",
     "collapseTheSidebar": "Recolher o menu lateral",
-    "expandTheSidebar": "Expandir o menu lateral"
+    "expandTheSidebar": "Expandir o menu lateral",
+    "refresh": "Atualizar",
+    "refreshing": "Atualizando…"
   },
   "nav": {
     "administration": "Administração",

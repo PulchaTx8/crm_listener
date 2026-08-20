@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import {
   MUSIC_REQUEST_CHANNELS,
   REQUEST_LIMIT_MAX,
@@ -274,6 +275,7 @@ export function RequestsFilters({
         >
           {t('clearFilters')}</Link>
       )}
+      <RefreshButton />
     </div>
   );
 }

@@ -47,7 +47,9 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "collapseTheSidebar": "Collapse the sidebar",
-    "expandTheSidebar": "Expand the sidebar"
+    "expandTheSidebar": "Expand the sidebar",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…"
   },
   "nav": {
     "administration": "Administration",

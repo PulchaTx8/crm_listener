@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import { GENDER_VALUES, type GenderValue } from '@/lib/conversation/steps';
 import { hasActiveFilters, membersHref } from './list-params';
 import type { MemberListState } from './list-params';
@@ -323,6 +324,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
           >
             {t('clearFilters')}</Link>
         )}
+        <RefreshButton />
       </div>
     </div>
   );

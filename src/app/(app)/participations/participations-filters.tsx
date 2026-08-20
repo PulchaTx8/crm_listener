@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import { answerFilterState } from '@/lib/participations/answer-filter';
 import { PARTICIPATION_STATUSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 import type { ParticipationSource } from '@/services/participations';
@@ -596,6 +597,7 @@ export function ParticipationsFilters({
         >
           {t('clearFilters')}</Link>
       )}
+      <RefreshButton />
     </div>
   );
 }
