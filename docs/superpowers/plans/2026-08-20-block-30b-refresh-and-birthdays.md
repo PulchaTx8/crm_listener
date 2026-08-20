@@ -379,7 +379,7 @@ export function birthdayWindow(
 - [ ] **Step 4: Run it and watch it pass**
 
 Run: `npm test -- tests/unit/members-birthday.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 10 tests — count the `it()` blocks in Step 1 rather than trusting this number.
 
 - [ ] **Step 5: Commit**
 
@@ -405,11 +405,15 @@ Append to `tests/isolation/members.test.ts`, inside the existing listing describ
 
 ```ts
   /**
-   * Block 30b D2. The wrap is the case worth a live database: it is the one
-   * the two-branch predicate exists for, and folding the branches into a single
-   * `between` would answer the exact complement of the right set — every day of
-   * the year EXCEPT the ones asked for — while still looking like a working
-   * filter on a mid-year window.
+   * Block 30b D2. The wrap is the case worth a live database: it is the one the
+   * two-branch predicate exists for. Folding the branches into a single
+   * `between` returns an EMPTY page for this window — `md >= 1220 and md <= 105`
+   * cannot be satisfied — while still looking like a working filter on any
+   * mid-year window. Verified numerically before this test was written.
+   *
+   * Empty is the dangerous wrong answer here, not an obvious one: "nobody has a
+   * birthday between Christmas and Epiphany" is false but believable, so the
+   * defect would be read as data rather than as a bug.
    */
   it('finds birthdays across new year, and only those', async () => {
     const label = `birthday-${Date.now()}`;
@@ -493,8 +497,12 @@ and inside `build`, immediately after the age band block so the two read togethe
 ```ts
     // Block 30b D2. Two branches, and the second is the point: a window whose
     // end falls before its start is the end-of-year window (20 December to 5
-    // January), not an operator mistake. Collapsing these into one `between`
-    // would return the complement of the right set.
+    // January), not an operator mistake.
+    //
+    // Collapsing these into one `between` returns NOTHING for such a window —
+    // `md >= 1220 and md <= 105` is unsatisfiable — and an empty birthday list
+    // is the most plausible-looking wrong answer this screen can give, because
+    // "nobody has a birthday then" is a thing an operator will believe.
     //
     // birth_md is GENERATED from birth_date (0257) and indexed partially, so
     // this is an index scan rather than a per-row derivation — the same reason
