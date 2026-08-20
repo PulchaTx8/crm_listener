@@ -17,6 +17,17 @@
 - `src/lib/supabase/database.types.ts` is generated, never hand-edited. Regenerate with `npm run db:types` after every migration.
 - One string literal for a PostgREST `.select(...)`, never a concatenation — the types are inferred from the literal.
 - `create or replace` preserves a function's ACL; `drop` + `create` destroys it. Any function recreated here is recreated from its **live** definition, never from the migration that first created it. `psql` is **not installed**; use a Node script with the repo's `pg` dependency against `LOCAL_SUPABASE_DB_URL`.
+- **`create or replace` CANNOT rename a `returns table` column.** Postgres refuses with `42P13 cannot change return type of existing function`. Renaming one therefore requires `drop function` + `create function` + **restating every grant**, which is how a function silently loses its ACL — the defect this project shipped in Block 24. `0191_music_requests_list_triage.sql` is the precedent to copy: it does exactly this for the same reason. After any such migration, verify the ACL survived:
+
+  ```sql
+  select p.proname, p.prosecdef, array_to_string(p.proacl, ' | ')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = '<the function>';
+  ```
+
+  `authenticated=X/postgres` must be present. A `NULL` acl means owner-only and every caller gets 42501.
+
+  *(An earlier revision of this plan claimed the rename was allowed, on the strength of a probe that used a single-column function with no arguments. That probe did not replicate the shape it was meant to model, and its answer was the wrong answer to a different question. Re-probed with input parameters and multiple output columns: refused.)*
 - pgTAP `plan(N)` is the file's **running total**, not this task's addition.
 - Gate order is `npm run db:reset` → `npm run db:test` → `npm run test:isolation`. Running `db:test` after another suite gives a red that is not code.
 - Every conditionally rendered `<Button>` gets a distinct `key`. Two buttons in one position let React reuse the DOM node and the survivor inherits `type="submit"` — this project has shipped that defect.
@@ -594,7 +605,10 @@ Run the `scripts/dump-fn.mjs` snippet from the header for `list_pickups` and the
 
 - [ ] **Step 4: Write the migration**
 
-Create `supabase/migrations/0254_pickup_and_participation_phone_last4.sql`. Its header, before the two `create or replace` statements:
+Create `supabase/migrations/0254_pickup_and_participation_phone_last4.sql`. Both
+functions are renaming a `returns table` column, so both need `drop function` +
+`create function` + every grant restated — see Global Constraints, and copy
+`0191_music_requests_list_triage.sql`'s shape. Its header, before them:
 
 ```sql
 -- supabase/migrations/0254_pickup_and_participation_phone_last4.sql
