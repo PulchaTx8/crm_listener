@@ -780,6 +780,7 @@
     "testSendInvalidEmailDestination": "Informe um endereço de e-mail válido.",
     "testSendInvalidWhatsappDestination": "Informe um número de WhatsApp com o código do país.",
     "testSendFailed": "O envio de teste falhou (código: {code}).",
+    "testSendFailedWithDetail": "O envio de teste falhou (código: {code}). O provedor respondeu: {detail}",
     "youDoNotHavePermissionToViewTheCampaigns": "Você não tem permissão para ver as campanhas nesta Emissora.",
     "couldNotLoadTheCampaigns": "Não foi possível carregar as campanhas. Atualize a página e tente novamente.",
     "actionCreateACampaign": "criar uma campanha",
