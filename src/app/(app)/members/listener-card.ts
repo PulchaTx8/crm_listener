@@ -78,8 +78,14 @@ export async function getListenerCardAction(memberId: string): Promise<ListenerC
   const parsed = z.string().uuid().safeParse(memberId);
   if (!parsed.success) return { status: 'not-found' };
 
+  // OUTSIDE THE TRY. requireAccessToken redirects by THROWING a NEXT_REDIRECT
+  // error, which Next.js only honours if it propagates uncaught -- a catch
+  // around this call swallows the redirect and reports a spurious read
+  // failure instead of sending an expired session to sign in. record.ts:62-63
+  // and every call site in actions.ts keep the same order for the same reason.
+  const token = await requireAccessToken();
+
   try {
-    const token = await requireAccessToken();
     const detail = await getMember(parsed.data, token);
     if (!detail) return { status: 'not-found' };
 
@@ -128,8 +134,11 @@ export async function revealListenerFieldAction(
     return { status: 'error', message: t('couldNotRevealThisField') };
   }
 
+  // OUTSIDE THE TRY, same reasoning as getListenerCardAction above: a caught
+  // redirect() is a redirect that never happens.
+  const token = await requireAccessToken();
+
   try {
-    const token = await requireAccessToken();
     return {
       status: 'ok',
       value: await revealMemberField(parsed.data.memberId, parsed.data.field, token),
