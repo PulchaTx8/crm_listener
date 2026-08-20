@@ -264,7 +264,7 @@ that cost by restarting the server per shard.
 
 - **The `shows` permission mismatch returns** (D4), and it is now the second time this
   screen has moved. Whoever decides the `shows.view` question should know it has been
-  filed under three different sections in eighteen blocks.
+  filed under three different sections in twelve blocks.
 - **The certificate is not validated against anything.** It is a string this system
   stores and shows. If it ever needs a format, that is a rule somebody outside this
   system owns.

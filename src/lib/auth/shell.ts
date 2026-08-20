@@ -136,7 +136,7 @@ export async function getShellContext(): Promise<{
         { href: '/music/requests', label: t('requests'), icon: ICONS.music },
         // PROGRAMMES LEFT THIS SECTION IN BLOCK 27, for Catalog, on the owner's
         // ruling — reversing where Block 18 filed it. BLOCK 30c MOVED IT AGAIN,
-        // from Catalog to Promotions — its third section in eighteen blocks. Its
+        // from Catalog to Promotions — its third section in twelve blocks. Its
         // full reasoning, and what each move did to the permission mismatch
         // Block 18 recorded as a cost, is on its row under `promotions` below.
         // Noted here rather than silently absent: this section held three items
@@ -187,7 +187,7 @@ export async function getShellContext(): Promise<{
         // section entirely, so the two never appear side by side.
         { href: '/pickups', label: t('pickups'), icon: ICONS.box },
         // MOVED HERE FROM CATALOG, on the owner's ruling of 2026-08-19. This is
-        // the screen's THIRD section in eighteen blocks: Audience filed it in
+        // the screen's THIRD section in twelve blocks: Audience filed it in
         // Block 18, Catalog took it in Block 27, and this is where it lands now.
         //
         // THE PERMISSION DOES NOT MOVE WITH IT. `shows` still carries exactly

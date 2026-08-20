@@ -685,7 +685,7 @@ In `src/lib/auth/shell.ts`, remove `{ href: '/shows', label: t('programmes'), ic
 Replace the Block-27 comment that argued for filing it under Catalog — **it becomes false the moment this moves, and leaving it beside the item it no longer describes is the defect class this project has closed twelve times.** The replacement records:
 
 - the owner's ruling of 2026-08-19;
-- that this is the screen's **third** section in eighteen blocks (Audience in 18, Catalog in 27, here now);
+- that this is the screen's **third** section in twelve blocks (Audience in 18, Catalog in 27, here now);
 - that the permission does **not** move with it: `shows` carries one policy gated on `music.view`, so a member who administers promotions and holds nothing in music sees the link and finds nothing behind it;
 - and why that is not fixed here — a `shows.view` pair is a permissions migration plus every role a customer has already configured, none of which would grant it, so the screen would hide from everyone; and re-gating on `promotions.view` takes it from whoever administers the catalogue and has it today.
 
