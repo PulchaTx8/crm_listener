@@ -1371,6 +1371,7 @@ export type Database = {
           address_number: string | null
           anonymized_at: string | null
           birth_date: string | null
+          birth_md: number | null
           city: string | null
           country: string | null
           cpf_hash: string | null
@@ -1401,6 +1402,7 @@ export type Database = {
           address_number?: string | null
           anonymized_at?: string | null
           birth_date?: string | null
+          birth_md?: number | null
           city?: string | null
           country?: string | null
           cpf_hash?: string | null
@@ -1431,6 +1433,7 @@ export type Database = {
           address_number?: string | null
           anonymized_at?: string | null
           birth_date?: string | null
+          birth_md?: number | null
           city?: string | null
           country?: string | null
           cpf_hash?: string | null
