@@ -219,7 +219,8 @@ describe('list_pickups', () => {
    * "a little".
    */
   it('sends four digits to members.view, and still nothing without it', async () => {
-    const customer = await provisionCustomer('pickup-mask');
+    const label = `pickup-mask-${Date.now()}`;
+    const customer = await provisionCustomer(label);
     const seeded = await seedPickupWinner(customer, 'masked');
     const owner = await signInAs(customer.email, customer.password);
 
@@ -254,7 +255,7 @@ describe('list_pickups', () => {
     expect(row?.member_phone_last4).toBe('4985');
     expect(JSON.stringify(asOwner)).not.toContain('11985954985');
 
-    const stranger = await grantRoleWith(customer, 'pickup-mask-no-members', [
+    const stranger = await grantRoleWith(customer, `${label}-no-members`, [
       'promotions.view',
     ]);
     const strangerClient = await signInAs(stranger.email, stranger.password);

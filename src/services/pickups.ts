@@ -36,7 +36,7 @@ export interface PickupRow {
    * but not members.view (Rule 2). The generated Database type marks this
    * column non-null -- `supabase gen types` does not carry a table-returning
    * function's own nullability through -- but the SQL comment and the CASE
-   * expression that produces it (0095:147-148) are unambiguous that it is.
+   * expression that produces it (0254:138) are unambiguous that it is.
    */
   memberName: string | null;
   /**
