@@ -188,12 +188,12 @@ select is(
 -- assertion 12 above applies, for the same reason.
 --
 -- A member of its own, kept apart from 22e1, so archiving it cannot affect
--- any of this file's other assertions -- 22e1 is still in use below (the
--- list-ordering fixtures start at line 236). The request row itself is
--- soft-deleted immediately after use, below, for the same reason: Task 3's
--- list assertions count and order every UNDELETED request at Station 22c1,
--- and this one -- stamped now(), the newest possible -- would otherwise be
--- counted and sorted among them.
+-- any of this file's other assertions -- 22e1 is still in use below, in
+-- Task 3's list-ordering fixtures. The request row itself is soft-deleted
+-- immediately after use, below, for the same reason: those list assertions
+-- count and order every UNDELETED request at Station 22c1, and this one --
+-- stamped now(), the newest possible -- would otherwise be counted and
+-- sorted among them.
 insert into public.members (id, organization_id, full_name, phone) values
   ('00000000-0000-0000-0000-0000000022e2', '00000000-0000-0000-0000-0000000022f1',
    'Ouvinte Arquivada 22', '+5511977776666');

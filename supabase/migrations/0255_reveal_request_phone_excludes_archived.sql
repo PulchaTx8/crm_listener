@@ -23,8 +23,8 @@
 -- contrast 0203, where a return-type change forced a drop. The body below is
 -- 0190's LIVE definition (pg_get_functiondef, run against this branch's
 -- database before this migration was written), with exactly one predicate
--- added to the locking select; every other line, including the FOR SHARE
--- reasoning, is unchanged and is not restated here.
+-- added to the locking select and one comment beside it naming the archived
+-- case; the FOR SHARE reasoning itself is unchanged and not restated here.
 --
 -- Null for an archived listener, same as for an erased one, and the audit row
 -- is still written either way -- somebody asked, and that is the fact being
