@@ -136,9 +136,17 @@ export default async function MembersPage({
         // Left to the browser alone, that URL would apply the inactive
         // window as a silent extra filter -- narrowing the list with nothing
         // on screen to show it, since the box for the other window is not
-        // even rendered. Enforcing the one-window-at-a-time rule only in the
-        // control that edits the URL is not enforcing it: this is the one
-        // place every request the service will act on passes through.
+        // even rendered. This gate covers the request that renders THIS
+        // page's list -- it is not the only place state reaches
+        // listOrganizationMembers. memberSendListFilters below forwards
+        // registeredFrom/registeredTo ungated, and resolveMemberIds
+        // (services/send-lists.ts) replays them through the same function to
+        // materialise a send list. That is a known open item, not an
+        // oversight: MemberSendListFilters (schemas/send-lists.ts) has no
+        // birthday field at all, so gating that line would not align a send
+        // list with Birthday mode -- it would just make the list built from
+        // it silently WIDER than the screen the operator is looking at,
+        // rather than narrower. Raised to the owner; not this task's call.
         registeredFrom: state.dateMode === 'registered' ? state.registeredFrom : undefined,
         registeredTo: state.dateMode === 'registered' ? state.registeredTo : undefined,
         birthdayFrom: state.dateMode === 'birthday' ? state.birthdayFrom : undefined,
@@ -234,10 +242,17 @@ export default async function MembersPage({
   }
 
   // The filters CreateSendListDialog resolves — mirrored field-for-field from
-  // the listOrganizationMembers call above, on the same reasoning searchTerm
-  // itself was extracted for: a send list from this screen has to hold
-  // exactly what the screen is showing, not a second, independently
-  // recomputed reading of state that could disagree with it.
+  // the listOrganizationMembers call above for every field EXCEPT the date
+  // window, on the same reasoning searchTerm itself was extracted for: a send
+  // list from this screen has to hold exactly what the screen is showing, not
+  // a second, independently recomputed reading of state that could disagree
+  // with it. registeredFrom/registeredTo here are NOT gated on dateMode the
+  // way the call above now is (see the comment there): MemberSendListFilters
+  // (schemas/send-lists.ts) has no birthday field to gate them into, so a
+  // send list built in Birthday mode gets no date filter at all rather than
+  // the birthday one -- wider than the screen it was built from. Known open
+  // item raised to the owner, not an oversight; do not gate this line to
+  // "fix" it, that would only change which way the mismatch runs.
   const memberSendListFilters: MemberSendListFilters = {
     organizationId,
     search: searchTerm,
