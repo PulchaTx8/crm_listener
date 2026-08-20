@@ -137,6 +137,10 @@ export function startsAnotherNavigation(intent: ClickIntent, currentHref: string
  * entered, fixed, because that is the one ordering participations_listing_idx
  * (0052) serves and a keyset cursor must compare exactly the columns it orders
  * by. See ./list-params.ts.
+ *
+ * Refresh, beside Clear filters, is the one control on this bar that is not a
+ * filter: it edits nothing, so there is no new query and no cursor to drop —
+ * see src/components/ui/refresh-button.tsx for why it re-runs the page instead.
  */
 export function ParticipationsFilters({
   state,

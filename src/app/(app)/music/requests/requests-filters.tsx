@@ -84,6 +84,10 @@ function hasActiveRequestFilters(state: RequestListState): boolean {
  * cross-link can use (a "requests for this song" link from elsewhere), and
  * this bar stays honest about it via hasActiveRequestFilters above rather
  * than silently ignoring a filter that is doing real work.
+ *
+ * Refresh, beside Clear filters, is the one control on this bar that is not a
+ * filter: it edits nothing, so there is no new query and no cursor to drop —
+ * see src/components/ui/refresh-button.tsx for why it re-runs the page instead.
  */
 export function RequestsFilters({
   state,

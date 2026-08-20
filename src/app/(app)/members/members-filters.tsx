@@ -23,6 +23,10 @@ const DEBOUNCE_MS = 350;
  * it has to: a cursor is a position in one ordering of one result set, so
  * carrying it across a filter change resumes from a row that no longer means
  * anything.
+ *
+ * Refresh, beside Clear filters, is the one control on this bar that is not a
+ * filter: it edits nothing, so there is no new query and no cursor to drop —
+ * see src/components/ui/refresh-button.tsx for why it re-runs the page instead.
  */
 export function MembersFilters({ state }: { state: MemberListState }) {
   const t = useTranslations('members');
