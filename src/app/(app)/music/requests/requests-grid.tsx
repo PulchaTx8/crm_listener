@@ -17,7 +17,8 @@ import { SongThumb } from '@/components/music/song-thumb';
 import type { ReferenceSummary, RequestSummary } from '@/services/music';
 import { formatInstant } from '../../promotions/format';
 import { AttendDialog } from './attend-dialog';
-import { maskedPhone, PlayStatusBadge, ReadStatusBadge } from './request-status';
+import { PlayStatusBadge, ReadStatusBadge } from './request-status';
+import { maskedPhone } from '@/lib/members/mask';
 import { RecordRequestForm } from './record-request-form';
 
 /** Nine: the six that existed, the two statuses, and Attend — which every caller sees (design D10). */
