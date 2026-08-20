@@ -15,18 +15,16 @@ const DEBOUNCE_MS = 350;
 
 /**
  * The screen's one client boundary. It filters nothing itself: every control
- * here only edits the URL, which is what makes MembersPage — a Server
- * Component — re-run and ask Postgres a narrower question. What changes on a
- * keystroke is the query the database runs, not a `.filter()` in the browser.
+ * here but Refresh only edits the URL, which is what makes MembersPage — a
+ * Server Component — re-run and ask Postgres a narrower question. What
+ * changes on a keystroke is the query the database runs, not a `.filter()`
+ * in the browser.
  *
  * Changing any filter drops the cursor (membersHref, called without one), and
  * it has to: a cursor is a position in one ordering of one result set, so
  * carrying it across a filter change resumes from a row that no longer means
- * anything.
- *
- * Refresh, beside Clear filters, is the one control on this bar that is not a
- * filter: it edits nothing, so there is no new query and no cursor to drop —
- * see src/components/ui/refresh-button.tsx for why it re-runs the page instead.
+ * anything. Refresh (src/components/ui/refresh-button.tsx) drops nothing: it
+ * edits no URL and asks for no new query, so there is no cursor to drop.
  */
 export function MembersFilters({ state }: { state: MemberListState }) {
   const t = useTranslations('members');

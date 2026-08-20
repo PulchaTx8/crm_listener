@@ -65,15 +65,16 @@ function hasActiveRequestFilters(state: RequestListState): boolean {
 }
 
 /**
- * These controls filter nothing themselves: they edit the URL, and the
- * Server Component asks Postgres a narrower question — the shape every list
- * in this codebase has used since Block 3b. Block 22 (0191) added a choice of
- * ordering and a bounded batch mode alongside the fixed keyset page, so unlike
- * ParticipationsFilters this bar now offers a sort control: `requested` is
- * still the only ordering a keyset cursor can walk (it must compare exactly
- * the columns it orders by), and picking one of the other three is what
- * switches this read from paging to one bounded batch — requestUsesKeyset
- * (services/music.ts) is the single sentence that decides which.
+ * These controls — Refresh excepted — filter nothing themselves: they edit
+ * the URL, and the Server Component asks Postgres a narrower question — the
+ * shape every list in this codebase has used since Block 3b. Block 22 (0191)
+ * added a choice of ordering and a bounded batch mode alongside the fixed
+ * keyset page, so unlike ParticipationsFilters this bar now offers a sort
+ * control: `requested` is still the only ordering a keyset cursor can walk
+ * (it must compare exactly the columns it orders by), and picking one of the
+ * other three is what switches this read from paging to one bounded batch —
+ * requestUsesKeyset (services/music.ts) is the single sentence that decides
+ * which.
  *
  * No song filter is offered here on purpose. `songId` is part of the URL
  * contract (list-params.ts) and the read (listMusicRequestsPage) already
@@ -85,9 +86,8 @@ function hasActiveRequestFilters(state: RequestListState): boolean {
  * this bar stays honest about it via hasActiveRequestFilters above rather
  * than silently ignoring a filter that is doing real work.
  *
- * Refresh, beside Clear filters, is the one control on this bar that is not a
- * filter: it edits nothing, so there is no new query and no cursor to drop —
- * see src/components/ui/refresh-button.tsx for why it re-runs the page instead.
+ * Refresh (src/components/ui/refresh-button.tsx) is that one exception: it
+ * edits no URL and asks for no new query, only the same one again.
  */
 export function RequestsFilters({
   state,

@@ -126,21 +126,19 @@ export function startsAnotherNavigation(intent: ClickIntent, currentHref: string
 }
 
 /**
- * These controls filter nothing themselves: they edit the URL, and the Server
- * Component asks Postgres a narrower question — the shape every list in this
- * codebase has used since Block 3b. Changing any of them drops the cursor
- * (participationsHref, called without one), and it has to: a cursor is a
- * position in one ordering of one result set.
+ * These controls — Refresh excepted — filter nothing themselves: they edit
+ * the URL, and the Server Component asks Postgres a narrower question — the
+ * shape every list in this codebase has used since Block 3b. Changing any of
+ * them drops the cursor (participationsHref, called without one), and it has
+ * to: a cursor is a position in one ordering of one result set. Refresh
+ * (src/components/ui/refresh-button.tsx) drops nothing: it edits no URL and
+ * asks for no new query, so there is no cursor to drop.
  *
  * There is no sort control anywhere on this screen, and that is deliberate
  * rather than missing: the list is ordered newest-first by when the person
  * entered, fixed, because that is the one ordering participations_listing_idx
  * (0052) serves and a keyset cursor must compare exactly the columns it orders
  * by. See ./list-params.ts.
- *
- * Refresh, beside Clear filters, is the one control on this bar that is not a
- * filter: it edits nothing, so there is no new query and no cursor to drop —
- * see src/components/ui/refresh-button.tsx for why it re-runs the page instead.
  */
 export function ParticipationsFilters({
   state,
