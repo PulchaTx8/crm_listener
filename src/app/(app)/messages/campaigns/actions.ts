@@ -504,7 +504,33 @@ export async function testSendCampaignAction(
     );
 
     if (outcome.ok) return { status: 'sent' };
-    return { status: 'error', message: t('testSendFailed', { code: outcome.code }) };
+
+    // THE PROVIDER'S OWN WORDS SURVIVE, in the log and on the screen. A refused
+    // send comes back as a VALUE, not as a throw, so the catch below never sees
+    // it and nothing else on this path records anything: before this, `code`
+    // was all that survived, and `whatsapp_permanent_error` means only "Meta
+    // refused and repeating will not help" -- which of `(#132001)` (a name or
+    // language it does not recognise), `(#132000)` (a parameter count that
+    // disagrees with what was approved) or a number it will not deliver to was
+    // discarded at exactly the moment somebody needed it. A test send exists to
+    // diagnose a campaign before it goes to twenty thousand people; it was the
+    // one path in this system that threw the diagnosis away.
+    logger.warn(
+      {
+        companyId,
+        channel: parsed.data.channel,
+        templateId: parsed.data.templateId,
+        code: outcome.code,
+        description: outcome.description,
+      },
+      'a campaign test send was refused by the provider',
+    );
+    return {
+      status: 'error',
+      message: outcome.description
+        ? t('testSendFailedWithDetail', { code: outcome.code, detail: outcome.description })
+        : t('testSendFailed', { code: outcome.code }),
+    };
   } catch (cause) {
     if (cause instanceof SendListResolutionCappedError) {
       return { status: 'error', message: await describeResolutionCap(cause) };

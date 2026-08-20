@@ -780,6 +780,7 @@
     "testSendInvalidEmailDestination": "Give a valid e-mail address.",
     "testSendInvalidWhatsappDestination": "Give a WhatsApp number with the country code.",
     "testSendFailed": "The test send failed (code: {code}).",
+    "testSendFailedWithDetail": "The test send failed (code: {code}). The provider answered: {detail}",
     "youDoNotHavePermissionToViewTheCampaigns": "You do not have permission to view the campaigns in this Station.",
     "couldNotLoadTheCampaigns": "Could not load the campaigns. Refresh the page and try again.",
     "actionCreateACampaign": "create a campaign",
