@@ -208,9 +208,9 @@ test('registering asks before discarding a draft, the rules gate refuses a blank
     // Registering opens the new promotion's own record automatically
     // (PromotionsGrid's onCreated calls open() with no tab, which defaults to
     // PROMOTION_TABS[0] — 'data'), so the record is already open on the right
-    // tab here — no close-and-reopen detour needed before step 4's, which is
-    // the one this journey needs to prove a reopen at all. See step 4's own
-    // comment on `waitForLoadState('networkidle')` for what closing costs.
+    // tab here and nothing has to close it to get there. Step 4 proves its
+    // read-back with a reload rather than a close-and-reopen, for the reason
+    // close()'s own comment in use-record-dialog.ts gives.
     await expect(ownerPage.getByTestId('promotion-tab-data')).toHaveAttribute(
       'aria-selected',
       'true',
