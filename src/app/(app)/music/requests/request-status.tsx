@@ -56,14 +56,3 @@ export function PlayStatusBadge({ status }: { status: MusicRequestPlayStatus }) 
     </span>
   );
 }
-
-/**
- * Four digits behind four dots. Null in, null out — a null means either that the
- * caller lacks members.view or that the listener has exercised erasure, and the
- * two are deliberately indistinguishable here (0107's RULE 2 and 0034
- * respectively); rendering dots for either would claim there is a number to
- * reveal.
- */
-export function maskedPhone(last4: string | null): string | null {
-  return last4 === null ? null : `•••• ${last4}`;
-}

@@ -1,5 +1,5 @@
 begin;
-select plan(43);
+select plan(44);
 
 -- Block 6c: the filtered hat.
 --
@@ -733,6 +733,25 @@ select is(
   'the Organization''s owner still reads it, which is what 0044 keeps the row visible for');
 
 reset role;
+
+-- Block 30a D1's structural pin, mirroring 51_music_request_triage.test.sql's
+-- own idiom for list_music_requests -- its assertion 18, the
+-- pg_get_function_result probe, named here rather than by a line number that
+-- Task 8 already found gone stale once: asked of the function's RESULT shape
+-- rather than of a row, because a column that was removed cannot be selected
+-- to prove its own absence -- the query would fail to parse rather than fail
+-- an assertion, and a parse error is not a test result. The
+-- populated/withheld pair itself needs a REAL second user
+-- with a REAL, narrower grant, which is exactly why this file leaves that
+-- half to tests/isolation/participations.test.ts -- this assertion is the
+-- cheap, always-on half: the whole number has no column to travel through
+-- at all, whoever is asking.
+select is(
+  (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'list_participations'
+      and pg_get_function_result(p.oid) like '%listener_phone_last4%'
+      and pg_get_function_result(p.oid) not like '%listener_phone text%'),
+  1, 'list_participations offers four digits and no whole-number column at all');
 
 select * from finish();
 rollback;

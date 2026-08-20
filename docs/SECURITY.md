@@ -144,6 +144,40 @@ a working export.
   an audit.
 - **Subject-driven erasure** is `anonymize_member` (`0034`): it scrubs the
   personal data and queues the storage objects that outlive the SQL.
+- **Disclosure is a door of its own, one field at a time, and audited.**
+  `reveal_member_field` (`0253`, Block 30a) hands back one whole value — phone,
+  e-mail, passport or the postal address as one string — for a listener the
+  caller already holds `members.view` for at a Station that listener is linked
+  to; the field name is checked against a closed list of four rather than
+  interpolated, so the door cannot be made to read a column it was not written
+  to read. It generalises `reveal_request_phone` (`0190`, Block 22), the
+  identical door built for one WhatsApp request's own listener, to the wider
+  question "may this caller read THIS listener" with no request in hand.
+  **Both doors return null for a listener who has exercised erasure or been
+  archived, and the audit row is still written either way** — somebody asked,
+  and that is the fact being recorded, whether or not there was anything left
+  to disclose. The archived case was a real gap in both doors, not a
+  hypothetical one: each door's locking select checked `anonymized_at is null`
+  but not `deleted_at is null`, so an archived listener's row — kept
+  unselectable by `members_select_reachable` (`0035`) for everyone, owner
+  included — was still resolved and disclosed. `0253` closed it in
+  `reveal_member_field`; `0255` closed the identical gap, found the same way,
+  in `reveal_request_phone`. The Pickups, Participations and Requests lists
+  (`list_pickups`/`list_participations`, narrowed by `0254`; `list_music_requests`,
+  narrowed since Block 22 by `0191` and brought onto the same masking rule as
+  the other two by `0256`) no longer carry a listener's whole telephone number
+  at all — only the last four digits travel with each list, and the rest is
+  asked for through the doors above.
+  **That property is scoped to these three lists, not to the product.** Two
+  paths still send the whole number to the browser, on the owner's own open
+  decision rather than an oversight: the manual-entry listener pickers on
+  "Record a participation" and "Record a request"
+  (`searchStationListenersAction` / `searchRequestListenersAction`, both
+  selecting `phone` whole and rendering it, via `describeListener`, for the
+  first page of the Station's listeners as soon as either form mounts — no
+  search term typed, no audit row written), and the Members screen itself,
+  whose own list and record dialog have carried the whole number since before
+  this block and are unchanged by it.
 - **How a subject asks** is `/delete-data` (Block 21), reachable with no
   account from a link inside WhatsApp. The public form **records a request and
   erases nothing** — there is no path from `data_deletion_requests` (`0188`) to
@@ -206,6 +240,17 @@ refuses the request.
 Note for anyone writing tests: **every local test shares `127.0.0.1`**, so a
 suite that grows past ten accepted invitations in a window starts failing on a
 control that is working correctly.
+
+**Neither `reveal_member_field` (§8) nor `reveal_request_phone` carries a rate
+limit.** Both are gated on a permission, not anonymous, so an operator holding
+`members.view` can call either as many times as they hold a session, one
+listener at a time, leaving one audit row per call. `PostgresRateLimiter`
+above backs the doors a stranger can reach with no account; these two are
+reached only by an authenticated, permissioned caller, which is why they sit
+outside it. That is the exposure Block 22 accepted for one request's own
+listener; Block 30a widens the same door to any listener the caller may
+already read, and the exposure travels with it, unchanged and unlimited —
+recorded here rather than left to be discovered.
 
 ## 10. API credentials (Block 15)
 

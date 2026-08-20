@@ -14,10 +14,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { SongThumb } from '@/components/music/song-thumb';
+import { ListenerCardDialog } from '@/components/members/listener-card-dialog';
 import type { ReferenceSummary, RequestSummary } from '@/services/music';
 import { formatInstant } from '../../promotions/format';
 import { AttendDialog } from './attend-dialog';
-import { maskedPhone, PlayStatusBadge, ReadStatusBadge } from './request-status';
+import { PlayStatusBadge, ReadStatusBadge } from './request-status';
+import { maskedPhone } from '@/lib/members/mask';
 import { RecordRequestForm } from './record-request-form';
 
 /** Nine: the six that existed, the two statuses, and Attend — which every caller sees (design D10). */
@@ -132,6 +134,17 @@ export function RequestsGrid({
       setAttendingId(null);
     }
   }, [rows, attendingId]);
+
+  // The listener card's id, cleared on the same rule and for the same reason
+  // as attendingId just above: a filter that hides this row and is then
+  // undone must not reopen a window the operator already closed.
+  const [listenerId, setListenerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (listenerId !== null && !rows.some((row) => row.memberId === listenerId)) {
+      setListenerId(null);
+    }
+  }, [rows, listenerId]);
 
   return (
     <>
@@ -262,6 +275,19 @@ export function RequestsGrid({
                   <TableCell><ReadStatusBadge status={request.readStatus} /></TableCell>
                   <TableCell><PlayStatusBadge status={request.playStatus} /></TableCell>
                   <TableCell className="sticky right-0 bg-background text-right">
+                    {canFindListeners && (
+                      <Button
+                        key="view-listener"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setListenerId(request.memberId)}
+                        aria-label={t('viewTheListener')}
+                        data-testid="request-view-listener"
+                      >
+                        {t('view')}
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
@@ -317,6 +343,10 @@ export function RequestsGrid({
           canFindListeners={canFindListeners}
           onClose={() => setAttendingId(null)}
         />
+      )}
+
+      {listenerId && (
+        <ListenerCardDialog memberId={listenerId} onClose={() => setListenerId(null)} />
       )}
     </>
   );

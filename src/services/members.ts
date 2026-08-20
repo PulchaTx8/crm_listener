@@ -733,6 +733,26 @@ export async function getMember(memberId: string, accessToken: string): Promise<
   };
 }
 
+/**
+ * Block 30a. One whole value, and an audit row written by the door.
+ *
+ * Thin on purpose: every rule -- which Station decides, which field names are
+ * legal, the FOR SHARE against a racing erasure -- is reveal_member_field's
+ * (0253), and a second copy here would be a second thing to keep in step.
+ */
+export async function revealMemberField(
+  memberId: string,
+  field: 'phone' | 'email' | 'passport' | 'address',
+  accessToken: string,
+): Promise<string | null> {
+  const { data, error } = await asCaller(accessToken).rpc('reveal_member_field', {
+    p_member_id: memberId,
+    p_field: field,
+  });
+  if (error) throw mapMemberError(error.code, error.message);
+  return data ?? null;
+}
+
 /** The four members columns Block 29d-2's campaign screen needs to build a recipient's variable values and address -- see getMembersForCampaign's own header. */
 export interface CampaignRecipientDetail {
   fullName: string | null;

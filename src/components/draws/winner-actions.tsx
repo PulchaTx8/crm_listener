@@ -13,6 +13,13 @@ export interface WinnerPowers {
   return: boolean;
   writeOff: boolean;
   reopenDeadline: boolean;
+  /**
+   * `false` on Pickups only, which delivers through its own window
+   * (hand-over-dialog.tsx) rather than this generic strip. Optional, and
+   * undefined means "offer it", so draw-detail.tsx -- which builds no
+   * `handOver` field at all -- is unaffected by this opt-out.
+   */
+  handOver?: boolean;
 }
 
 /**
@@ -48,7 +55,12 @@ export function availableWinnerActions(input: {
 
   if (status === 'AWAITING_PICKUP') {
     const actions: WinnerAction[] = [];
-    if (powers.deliver) actions.push('deliver');
+    // Block 30a. Pickups delivers through its own window (hand-over-dialog.tsx),
+    // which shows the promotion, the listener and the prize before it hands
+    // anything over, and carries the receipt field this generic strip has no
+    // room for. Draws still uses the strip -- the same courtesy
+    // `reopenDeadline: false` already extends one line down.
+    if (powers.deliver && powers.handOver !== false) actions.push('deliver');
     // A prize registered as one that cannot go back to stock offers no return.
     // The RPC refuses it with a sentence naming the prize; this only keeps the
     // button from being there to press.
@@ -79,11 +91,15 @@ export function availableWinnerActions(input: {
 }
 
 // Catalogue keys, not words: a module body has no request behind it.
-const LABEL_KEYS: Record<WinnerAction, string> = {
+// Exported so tests/unit/winner-actions.test.ts can pin D5's own claim --
+// "the WinnerAction value, the door and the audit action are unchanged" by
+// the write_off relabel -- without a DOM, which this project's unit tests do
+// not have (vitest.config.ts).
+export const LABEL_KEYS: Record<WinnerAction, string> = {
   deliver: 'actionHandOver',
   cancel_delivery: 'actionUndoTheHandover',
   return: 'actionReturnToStock',
-  write_off: 'actionWriteOff',
+  write_off: 'actionWriteOffAsLost',
   reopen: 'actionReopenTheDeadline',
 };
 

@@ -243,3 +243,25 @@ The mismatch is recorded in three places that a reader will actually reach:
 `src/app/(app)/shows/page.tsx`, and §5 of the Block 18 design. Closing it is a
 block of its own, and it should start by deciding what happens to roles that
 already exist.
+
+## The listener card is governed by `members.view`, not a new permission (Block 30a)
+
+Pickups, Participations and Requests each already computed `members.view` for
+their own reason before this block — whether the search box may filter by
+listener (`canSearchPickupsByListener`, `canSearchByListener`,
+`list_music_requests`' own Rule 3) — and whichever screen a listener card is
+opened from now reuses that exact same boolean to decide whether the **View
+the listener** button renders at all. The reveal door behind it,
+`reveal_member_field` (0253, `docs/SECURITY.md` §8), asks the identical
+question again in SQL: some Station the listener is linked to where the caller
+holds `members.view`.
+
+**No `members.reveal` permission was added.** The three lists already narrowed
+what they project (0254) rather than what a permission gates, so the boundary
+a caller crosses to open the card and the boundary they cross to reveal a
+field inside it are the same one `members.view` already drew — one permission,
+computed once per screen, asked again by the door itself rather than trusted
+from the screen that rendered the button. A role that already grants
+`members.view` for the Members screen therefore also reaches the card from all
+three of these screens; nothing about who can see it changed, only where it
+can be reached from.

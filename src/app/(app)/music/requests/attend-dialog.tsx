@@ -13,7 +13,8 @@ import {
   revealRequestPhoneAction,
   type AttendRequestState,
 } from './actions';
-import { maskedPhone, PlayStatusBadge, ReadStatusBadge } from './request-status';
+import { PlayStatusBadge, ReadStatusBadge } from './request-status';
+import { maskedPhone } from '@/lib/members/mask';
 
 const INITIAL: AttendRequestState = { ok: null };
 

@@ -282,6 +282,7 @@ export default async function PickupsPage({
         total={page.total}
         timeZone={selected.timezone}
         winnerPowers={winnerPowers}
+        canFindListeners={canSearch}
         previousHref={
           page.previousCursor ? pickupsHref(state, { side: 'before', value: page.previousCursor }) : null
         }

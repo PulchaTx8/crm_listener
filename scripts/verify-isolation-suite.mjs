@@ -414,7 +414,7 @@ const REQUIRED_TEST_FILES = [
   // all before 0156, so a block written into one and not the other stops the
   // employees and leaves the owner browsing.
   { path: 'tests/isolation/organization-blocking.test.ts', minTests: 4 },
-  { path: 'tests/isolation/participations.test.ts', minTests: 29 },
+  { path: 'tests/isolation/participations.test.ts', minTests: 30 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for
   // free on list_pickups -- another Station refused, an archived promotion's
@@ -425,8 +425,11 @@ const REQUIRED_TEST_FILES = [
   // list_movements in the same file: another Station refused, the promotion
   // name returned to an inventory-only caller (the whole reason that function
   // exists), and an archived promotion's name withheld from a delegate but
-  // not from the owner.
-  { path: 'tests/isolation/pickups.test.ts', minTests: 7 },
+  // not from the owner. Block 30a D1 adds the eighth, back on list_pickups
+  // itself: the masking pair -- member_phone_last4 sent to a caller holding
+  // members.view, and withheld outright (null, not four digits) from one who
+  // does not -- Rule 2 narrowed rather than replaced.
+  { path: 'tests/isolation/pickups.test.ts', minTests: 8 },
   { path: 'tests/isolation/promotion-prizes.test.ts', minTests: 29 },
   { path: 'tests/isolation/promotions.test.ts', minTests: 21 },
   { path: 'tests/isolation/provisional-password.test.ts', minTests: 4 },

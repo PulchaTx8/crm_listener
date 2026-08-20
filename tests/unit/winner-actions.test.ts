@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { availableWinnerActions, type WinnerPowers } from '@/components/draws/winner-actions';
+import {
+  availableWinnerActions,
+  LABEL_KEYS,
+  type WinnerPowers,
+} from '@/components/draws/winner-actions';
 
 /**
  * Which buttons a winner's row offers.
@@ -131,6 +135,34 @@ describe('availableWinnerActions', () => {
         drawStatus: LIVE,
       }),
     ).toEqual([]);
+  });
+
+  // Whole-branch review F3. Task 6 added this opt-out (winner-actions.tsx:63)
+  // so Pickups can deliver through its own hand-over-dialog.tsx window rather
+  // than this generic strip -- but it broke an assertion in
+  // tests/e2e/deadline.spec.ts, which is the e2e suite catching in minutes
+  // what a unit case here would have caught in seconds. This is that case.
+  it('suppresses deliver when handOver is false, and still offers it when handOver is absent', () => {
+    expect(
+      availableWinnerActions({
+        status: 'AWAITING_PICKUP',
+        allowsReturnToStock: true,
+        powers: { ...ALL, handOver: false },
+        drawStatus: LIVE,
+      }),
+    ).toEqual(['return', 'write_off']);
+
+    // The default -- handOver simply absent from powers, the way every
+    // caller other than Pickups builds it (Draws' own draw-detail.tsx, per
+    // WinnerPowers' own comment) -- must still offer deliver.
+    expect(
+      availableWinnerActions({
+        status: 'AWAITING_PICKUP',
+        allowsReturnToStock: true,
+        powers: ALL,
+        drawStatus: LIVE,
+      }),
+    ).toContain('deliver');
   });
 
   it('offers nothing to somebody holding no delivery permission at all', () => {
@@ -273,5 +305,30 @@ describe('availableWinnerActions, RETURN_PENDING', () => {
         drawStatus: 'CANCELLED',
       }),
     ).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block 30a, D5, spec §7: "the relabelled action still maps to the unchanged
+// WinnerAction value." Whole-branch review F3 -- no task delivered this case.
+// Two buttons reading "Dar baixa" on one screen, one of which delivers and one
+// of which declares a prize lost, is the shape of a mistake nobody can undo;
+// the label is what changed, deliberately NOT the enum, because renaming the
+// enum would be a migration across winners.status history for no behaviour.
+describe('the write_off relabel', () => {
+  it('changes only the label, never the WinnerAction value the door and the audit action still key on', () => {
+    expect(LABEL_KEYS.write_off).toBe('actionWriteOffAsLost');
+
+    // The value availableWinnerActions actually returns is still the literal
+    // string 'write_off' -- WinnerActions' onAct, apply_winner_transition and
+    // the audit_logs row it writes all still key on it.
+    expect(
+      availableWinnerActions({
+        status: 'AWAITING_PICKUP',
+        allowsReturnToStock: true,
+        powers: ALL,
+        drawStatus: LIVE,
+      }),
+    ).toContain('write_off');
   });
 });

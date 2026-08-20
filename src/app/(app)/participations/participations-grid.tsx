@@ -13,6 +13,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { STATUS_CLASSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
+import { maskedPhone } from '@/lib/members/mask';
+import { ListenerCardDialog } from '@/components/members/listener-card-dialog';
 import type { ParticipationSummary } from '@/services/participations';
 // The Station-zone instant formatter comes from the promotions screen's module
 // rather than being re-derived here, on that module's own rule: an operator in
@@ -51,6 +53,7 @@ export function ParticipationsGrid({
   total,
   timeZone,
   promotionThumbs,
+  canFindListeners,
   previousHref,
   nextHref,
 }: {
@@ -66,6 +69,8 @@ export function ParticipationsGrid({
    * `requests-grid.tsx`'s `covers` map does for song artwork.
    */
   promotionThumbs: Map<string, string | null>;
+  /** members.view, resolved once by participations/page.tsx (./access.ts) rather than a second time here. */
+  canFindListeners: boolean;
   previousHref: string | null;
   nextHref: string | null;
 }) {
@@ -90,6 +95,17 @@ export function ParticipationsGrid({
       setViewingId(null);
     }
   }, [rows, viewingId]);
+
+  // The listener card's id, cleared on the same rule and for the same reason
+  // as viewingId just above: a filter that hides this row and is then undone
+  // must not reopen a window the operator already closed.
+  const [listenerId, setListenerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (listenerId !== null && !rows.some((row) => row.memberId === listenerId)) {
+      setListenerId(null);
+    }
+  }, [rows, listenerId]);
 
   return (
     <div className="mt-4 rounded-lg border">
@@ -164,10 +180,10 @@ export function ParticipationsGrid({
                     who may not read the person at all.
                   */}
                   <span className="text-sm">{entry.listenerName ?? '—'}</span>
-                  {(entry.listenerPhone || entry.listenerCpfLastDigits) && (
+                  {(entry.listenerPhoneLast4 || entry.listenerCpfLastDigits) && (
                     <span className="mt-0.5 block text-xs text-muted-foreground">
                       {[
-                        entry.listenerPhone,
+                        entry.listenerPhoneLast4 ? maskedPhone(entry.listenerPhoneLast4) : null,
                         entry.listenerCpfLastDigits ? `···${entry.listenerCpfLastDigits}` : null,
                       ]
                         .filter(Boolean)
@@ -209,6 +225,19 @@ export function ParticipationsGrid({
                   >
                     {t('view')}
                   </Button>
+                  {canFindListeners && (
+                    <Button
+                      key="view-listener"
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setListenerId(entry.memberId)}
+                      aria-label={t('viewTheListener')}
+                      data-testid="participation-view-listener"
+                    >
+                      {t('listener')}
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))
@@ -237,6 +266,10 @@ export function ParticipationsGrid({
           timeZone={timeZone}
           onClose={() => setViewingId(null)}
         />
+      )}
+
+      {listenerId && (
+        <ListenerCardDialog memberId={listenerId} onClose={() => setListenerId(null)} />
       )}
     </div>
   );

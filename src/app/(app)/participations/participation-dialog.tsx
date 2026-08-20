@@ -6,12 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { STATUS_CLASSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
 import type { ParticipationAnswerDetail, ParticipationSummary } from '@/services/participations';
-// The Station-zone instant formatter and the phone mask, both borrowed from the
-// screens that own them rather than re-derived here. formatInstant pins the zone
-// explicitly (spec L2); maskedPhone renders "•••• 1234" and is the same shape the
-// Requests screen already shows an operator.
+// The Station-zone instant formatter, borrowed from the screen that owns it
+// rather than re-derived here. formatInstant pins the zone explicitly (spec
+// L2).
 import { formatInstant } from '../promotions/format';
-import { maskedPhone } from '../music/requests/request-status';
+import { maskedPhone } from '@/lib/members/mask';
 import { readParticipationAnswersAction } from './actions';
 import { SOURCE_LABEL_KEYS } from './list-params';
 
@@ -66,7 +65,14 @@ export function ParticipationDialog({
     };
   }, [entry.id]);
 
-  const phone = maskedPhone(lastFourDigits(entry.listenerPhone));
+  // last4, not phone, is what the row-render guard below tests. phone is never
+  // falsy now that maskedPhone (Block 30a) answers bare dots instead of null
+  // when there are no four digits, and guarding on phone would render the
+  // row's dots even for a caller without members.view, whose entry carries
+  // neither listenerPhoneLast4 nor listenerCpfLastDigits (0090 nulls both
+  // together).
+  const last4 = entry.listenerPhoneLast4;
+  const phone = maskedPhone(last4);
 
   return (
     <Dialog open onClose={onClose} labelledBy={titleId} className="max-w-2xl">
@@ -87,15 +93,16 @@ export function ParticipationDialog({
         </p>
 
         {/*
-          FOUR DIGITS, on the owner's instruction, and derived here rather than
-          read from a narrower column: list_participations returns the whole
-          number to a caller holding members.view (0090), which is what the grid
-          behind this window still shows. This is the stricter rendering of the
-          same value, in the window where somebody might read it aloud.
+          FOUR DIGITS, on the owner's instruction: list_participations (0090)
+          now projects only the last four (Block 30a D1), so this window and
+          the grid behind it read the exact same value rather than one masking
+          what the other still carried whole. The whole number lives behind
+          reveal_member_field (0253) instead, asked for one listener at a
+          time, which is what records the asking.
         */}
-        {(phone || entry.listenerCpfLastDigits) && (
+        {(last4 || entry.listenerCpfLastDigits) && (
           <p className="mt-1 text-sm text-muted-foreground">
-            <span data-testid="participation-phone">{phone ?? '—'}</span>
+            <span data-testid="participation-phone">{last4 ? phone : '—'}</span>
             {entry.listenerCpfLastDigits && (
               <span className="ml-2">···{entry.listenerCpfLastDigits}</span>
             )}
@@ -222,22 +229,4 @@ export function ParticipationDialog({
       </DialogFooter>
     </Dialog>
   );
-}
-
-/**
- * The last four digits of whatever shape the number was stored in.
- *
- * Digits only, because `members.phone` holds what was typed — "+55 (11)
- * 90000-0000" as readily as "5511900000000" — and slicing four characters off
- * the end of the first would show "0000" for one and "0-0000" for the other.
- * `phone_normalized` (0031) is the column that has already done this, and it is
- * not among the three `list_participations` returns.
- *
- * Null under four digits rather than showing however many there are: a mask that
- * reveals a two-digit number is not a mask.
- */
-function lastFourDigits(phone: string | null): string | null {
-  if (!phone) return null;
-  const digits = phone.replace(/\D/g, '');
-  return digits.length >= 4 ? digits.slice(-4) : null;
 }

@@ -54,6 +54,12 @@ const ACTION_LABELS: Record<string, string> = {
   remove_member: 'Member removed',
   request_report: 'Report exported',
   reset_provisional_password: 'Provisional password reset',
+  // Block 30a, whole-branch review F9. The two most privacy-critical actions
+  // in this product had no label at all, so the audit viewer -- the screen
+  // that is the compensating control for reveal_member_field having no rate
+  // limit (spec §8) -- rendered them as raw codes.
+  reveal_member_field: 'Listener field revealed',
+  reveal_request_phone: 'Request phone revealed',
   revoke_invitation: 'Invitation revoked',
   // Block 26. One code for both registering and renaming, because 0202 is one
   // door: its `detail` carries `created`, which says which of the two happened.

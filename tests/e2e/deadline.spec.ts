@@ -276,7 +276,14 @@ test('the deadline expires, an operator reopens it and hands the prize over, and
   });
 
   // --- hand the prize over -------------------------------------------------
-  await row.getByTestId('winner-deliver').click();
+  // Block 30a: Pickups delivers through its own hand-over-dialog.tsx now, not
+  // through WinnerActions' generic strip -- pickups-grid.tsx passes it
+  // `handOver: false`, which drops `winner-deliver` from this row entirely
+  // (winner-actions.tsx's own `powers.handOver !== false` guard). The dialog
+  // is a page-level overlay, not a child of the row, so its confirm button is
+  // found on `page` rather than on `row`.
+  await row.getByTestId('pickup-hand-over').click();
+  await page.getByTestId('hand-over-confirm').click();
   await expect(row.getByTestId('pickup-status')).toHaveText('Delivered', { timeout: 15_000 });
 
   // --- /inventory/movements, the whole journey for this one prize ----------

@@ -1,5 +1,5 @@
 begin;
-select plan(28);
+select plan(29);
 
 -- Block 6d, Task 5: the pickups list, as one function.
 --
@@ -662,6 +662,25 @@ select ok(
       and actor_name is null
      from lm_all where movement_id = '00000000-0000-0000-0000-00000000d278'),
   'an actor with no full_name set returns actor_name null but actor_id non-null -- not the clock''s own row');
+
+-- Case 27. Block 30a D1's structural pin, mirroring
+-- 51_music_request_triage.test.sql's own idiom for list_music_requests -- its
+-- assertion 18, the pg_get_function_result probe, named here rather than by
+-- a line number that Task 8 already found gone stale once: asked of the
+-- function's RESULT shape rather than of a row, because a column that was
+-- removed cannot be selected to prove its own absence -- the query would
+-- fail to parse rather than fail an assertion, and a parse error is not a
+-- test result. The populated/withheld pair itself (Rule 2) needs a REAL
+-- second user with a REAL, narrower grant, exactly like the four rules this
+-- file's own header defers to tests/isolation/pickups.test.ts for -- this
+-- assertion is the cheap, always-on half: the whole number has no column to
+-- travel through at all, whoever is asking.
+select is(
+  (select count(*)::int from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'list_pickups'
+      and pg_get_function_result(p.oid) like '%member_phone_last4%'
+      and pg_get_function_result(p.oid) not like '%member_phone text%'),
+  1, 'list_pickups offers four digits and no whole-number column at all');
 
 reset role;
 

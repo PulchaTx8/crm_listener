@@ -1,5 +1,5 @@
 begin;
-select plan(37);
+select plan(39);
 
 -- Block 22, Task 1. The stamps are the truth and the two statuses are derived
 -- from them by Postgres (D1), so this file proves the derivation rather than
@@ -175,6 +175,57 @@ select is(
     where target_id = '00000000-0000-0000-0000-00000000221a'
       and action = 'reveal_request_phone'),
   1, 'a revealed telephone number leaves a trace');
+
+-- 12a-12b: an archived listener discloses nothing through this door either --
+-- members_select_reachable (0035_rls_members.sql:95-100) keeps deleted_at is
+-- null OUTSIDE its own bypass, and archive_member (0034_member_rpcs.sql:376)
+-- sets it, so an archived row is unselectable to everyone, owner included;
+-- this door refuses to disclose what the row-level policy itself would
+-- already hide. This is the identical gap Block 30a's Task 2 found and closed
+-- in reveal_member_field (0253) -- the sibling door, proved here for THIS
+-- door rather than assumed to transfer. AND THE AUDIT ROW IS STILL WRITTEN,
+-- because somebody asked and that is the fact being recorded -- the same rule
+-- assertion 12 above applies, for the same reason.
+--
+-- A member of its own, kept apart from 22e1, so archiving it cannot affect
+-- any of this file's other assertions -- 22e1 is still in use below, in
+-- Task 3's list-ordering fixtures. The request row itself is soft-deleted
+-- immediately after use, below, for the same reason: those list assertions
+-- count and order every UNDELETED request at Station 22c1, and this one --
+-- stamped now(), the newest possible -- would otherwise be counted and
+-- sorted among them.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000022e2', '00000000-0000-0000-0000-0000000022f1',
+   'Ouvinte Arquivada 22', '+5511977776666');
+insert into public.member_company_links (member_id, company_id, organization_id) values
+  ('00000000-0000-0000-0000-0000000022e2', '00000000-0000-0000-0000-0000000022c1',
+   '00000000-0000-0000-0000-0000000022f1');
+insert into public.music_requests
+  (id, organization_id, company_id, member_id, song_id, channel, requested_at)
+values
+  ('00000000-0000-0000-0000-00000000221f', '00000000-0000-0000-0000-0000000022f1',
+   '00000000-0000-0000-0000-0000000022c1', '00000000-0000-0000-0000-0000000022e2',
+   '00000000-0000-0000-0000-0000000022d1', 'MANUAL', now());
+update public.members set deleted_at = now()
+ where id = '00000000-0000-0000-0000-0000000022e2';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a2", "role": "authenticated"}';
+select is(public.reveal_request_phone('00000000-0000-0000-0000-00000000221f'),
+  null, 'reveal_request_phone discloses nothing for an archived listener');
+reset role;
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-00000000221f'
+      and action = 'reveal_request_phone'),
+  1, 'the archived listener''s reveal still leaves a trace');
+
+-- Removed from the list Task 3 below builds and counts -- see the comment
+-- above. A direct UPDATE, not a door: no RPC soft-deletes a request in this
+-- codebase, cancel_music_request (0190) stamps cancelled_at and leaves the
+-- row selectable.
+update public.music_requests set deleted_at = now()
+ where id = '00000000-0000-0000-0000-00000000221f';
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000022a4", "role": "authenticated"}';
