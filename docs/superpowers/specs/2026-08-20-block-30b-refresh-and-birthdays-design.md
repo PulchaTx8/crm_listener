@@ -1,10 +1,11 @@
 # Block 30b — a button that re-asks, and a birthday that is not a birth date
 
 **Date:** 2026-08-20
-**Depends on:** nothing. Branched from `main` at `8183a6a`.
-**Sibling in flight:** Block 30a (`block-30a-listener-privacy`, PR #90, CI green). It
-touches `src/services/members.ts` and `src/services/participations.ts` in
-regions this block does not; whichever merges first, the other rebases cleanly.
+**Depends on:** nothing.
+**Base:** rebased onto `main` at `adc4400` — the merge of Block 30a (PR #90),
+which is deploying to production. 30a holds migrations `0253`–`0256`; this block
+therefore starts at `0257` for real rather than by reservation, and at pgTAP
+`70`.
 **Parent request:** the owner's 19-item list of 2026-08-19, items **6 (Refresh
 half), 8, 9 (Refresh half)**.
 
@@ -171,15 +172,12 @@ One.
 | --- | --- | --- |
 | 0257 | `members_birth_md.sql` | the generated column, its partial index, and a `comment on column` saying why it exists |
 
-**Why 0257 and not 0253, when this branch's tree stops at 0252.** Block 30a is in
-flight and holds `0253`–`0256`. Numbering this one `0253` because that is what
-the local `ls` suggests would collide the moment either branch merges, and
-renumbering a migration during a rebase is how a migration gets applied twice or
-not at all. Numbers are **allocated**, not discovered: a gap is harmless, a
-collision is not. The same reasoning gives the pgTAP file `70_…` — 30a holds 69.
-
-If 30a is abandoned rather than merged, this migration keeps its number and the
-gap stays. That is the cheaper failure of the two.
+**On the number.** This branch was cut before 30a merged, when the tree stopped
+at `0252`, and the spec reserved `0257` rather than taking the `0253` an `ls`
+would have suggested — numbers are **allocated**, not discovered, and
+renumbering a migration during a rebase is how one gets applied twice or not at
+all. 30a has since merged; `0257` is now simply the next free number, and the
+reservation cost nothing. Same for pgTAP `70`.
 
 `alter table … add column … generated always as … stored` rewrites the table.
 `members` is the audience table and can be large in a real installation; the
