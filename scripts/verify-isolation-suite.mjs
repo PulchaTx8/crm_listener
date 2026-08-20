@@ -240,7 +240,7 @@ const REQUIRED_TEST_FILES = [
   { path: 'tests/isolation/prize-categories.test.ts', minTests: 7 },
   { path: 'tests/isolation/invitations.test.ts', minTests: 7 },
   { path: 'tests/isolation/listing.test.ts', minTests: 5 },
-  { path: 'tests/isolation/members.test.ts', minTests: 21 },
+  { path: 'tests/isolation/members.test.ts', minTests: 23 },
   // Block 7a, Task 5: the music catalogue's tenant boundary -- a cross-
   // Station song refused by assert_song_references_live with P0002 (not a
   // permission code, even for the owner, who passes every gate), the

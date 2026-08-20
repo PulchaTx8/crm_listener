@@ -130,6 +130,8 @@ export default async function MembersPage({
         gender: state.gender,
         registeredFrom: state.registeredFrom,
         registeredTo: state.registeredTo,
+        birthdayFrom: state.birthdayFrom,
+        birthdayTo: state.birthdayTo,
       },
       accessToken,
     );

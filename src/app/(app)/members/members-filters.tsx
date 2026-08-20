@@ -245,6 +245,13 @@ export function MembersFilters({ state }: { state: MemberListState }) {
                 sort: state.sort,
                 direction: state.direction,
                 blockedOnly: false,
+                // birthdayFrom/birthdayTo are simply absent from this
+                // literal, so membersHref drops them the same way it already
+                // drops registeredFrom/registeredTo above. dateMode has no
+                // such absence to fall back on -- it is required -- so it is
+                // reset explicitly, back to Registered rather than staying on
+                // Birthday with nothing left to narrow.
+                dateMode: 'registered',
               }) as Route
             }
             className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

@@ -29,6 +29,9 @@ export interface MemberListSearchParams {
   gender?: string;
   from?: string;
   to?: string;
+  dates?: string;
+  bfrom?: string;
+  bto?: string;
 }
 
 /** Everything except the cursor: what the filter form edits and what sort links preserve. */
@@ -62,6 +65,19 @@ export interface MemberListState {
   /** Instants, converted from the operator's calendar days in the browser (see members-filters.tsx). */
   registeredFrom?: string;
   registeredTo?: string;
+  /**
+   * Which question the two date boxes ask. EXPLICIT IN THE URL, and not
+   * inferred from whether `bfrom`/`bto` are present — that inference is the
+   * defect this project has already shipped once, in a different control: a
+   * selector whose value is derived from server state snaps back the moment
+   * the operator changes it and has not yet typed anything, because nothing
+   * they changed came back. Choosing Birthday with no dates yet is a real
+   * state and the URL has to be able to hold it.
+   */
+  dateMode: 'registered' | 'birthday';
+  /** `MM-DD`. A day of the year — see src/lib/members/birthday.ts. */
+  birthdayFrom?: string;
+  birthdayTo?: string;
 }
 
 export interface MemberListCursor {
@@ -135,6 +151,9 @@ export function parseMemberListState(raw: MemberListSearchParams): MemberListSta
     gender: parseGender(raw.gender),
     registeredFrom: parseInstant(raw.from),
     registeredTo: parseInstant(raw.to),
+    dateMode: raw.dates === 'birthday' ? 'birthday' : 'registered',
+    birthdayFrom: raw.bfrom,
+    birthdayTo: raw.bto,
   };
 }
 
@@ -154,7 +173,9 @@ export function hasActiveFilters(state: MemberListState): boolean {
       state.consent ||
       state.gender ||
       state.registeredFrom ||
-      state.registeredTo,
+      state.registeredTo ||
+      state.birthdayFrom ||
+      state.birthdayTo,
   );
 }
 
@@ -183,6 +204,9 @@ export function membersHref(state: MemberListState, cursor?: MemberListCursor | 
   if (state.gender) query.set('gender', state.gender);
   if (state.registeredFrom) query.set('from', state.registeredFrom);
   if (state.registeredTo) query.set('to', state.registeredTo);
+  if (state.dateMode === 'birthday') query.set('dates', 'birthday');
+  if (state.birthdayFrom) query.set('bfrom', state.birthdayFrom);
+  if (state.birthdayTo) query.set('bto', state.birthdayTo);
   if (cursor) query.set(cursor.side, cursor.value);
 
   const search = query.toString();

@@ -12,6 +12,7 @@ import {
 } from '@/lib/errors';
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
+import { birthdayWindow } from '@/lib/members/birthday';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type {
@@ -300,6 +301,14 @@ export interface MemberListParams {
   /** Instants, not calendar days: members-filters.tsx converts the operator's chosen dates in the browser. */
   registeredFrom?: string;
   registeredTo?: string;
+  /**
+   * `MM-DD`, inclusive. A DAY OF THE YEAR, not a date — see birthday.ts. The
+   * age band above answers "born between two dates"; this answers "has a
+   * birthday in this window", which is a different question and the one a
+   * greeting is sent from.
+   */
+  birthdayFrom?: string;
+  birthdayTo?: string;
 }
 
 export interface MemberListPage {
@@ -525,6 +534,28 @@ export async function listOrganizationMembers(
     // outside the band.
     if (params.ageMax !== undefined) q = q.gt('birth_date', isoDateYearsAgo(params.ageMax + 1));
     if (params.ageMin !== undefined) q = q.lte('birth_date', isoDateYearsAgo(params.ageMin));
+
+    // Block 30b D2. Two branches, and the second is the point: a window whose
+    // end falls before its start is the end-of-year window (20 December to 5
+    // January), not an operator mistake.
+    //
+    // Collapsing these into one `between` returns NOTHING for such a window —
+    // `md >= 1220 and md <= 105` is unsatisfiable — and an empty birthday list
+    // is the most plausible-looking wrong answer this screen can give, because
+    // "nobody has a birthday then" is a thing an operator will believe.
+    //
+    // birth_md is GENERATED from birth_date (0257) and indexed partially, so
+    // this is an index scan rather than a per-row derivation — the same reason
+    // the age band above is a range and not a computed age.
+    const window = birthdayWindow(params.birthdayFrom, params.birthdayTo);
+    if (window.kind === 'from') q = q.gte('birth_md', window.from);
+    else if (window.kind === 'to') q = q.lte('birth_md', window.to);
+    else if (window.kind === 'between')
+      q = q.gte('birth_md', window.from).lte('birth_md', window.to);
+    else if (window.kind === 'wraps')
+      // Interpolated without quoting because both values are integers this
+      // module produced from a matched /^\d{2}-\d{2}$/ — never operator text.
+      q = q.or(`birth_md.gte.${window.from},birth_md.lte.${window.to}`);
 
     // The gender block. A plain equality on an indexed-by-nothing column, and
     // deliberately not given an index of its own: three values over a whole
