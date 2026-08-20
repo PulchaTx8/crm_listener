@@ -478,6 +478,8 @@
     "prize": "Prêmio",
     "deadline": "Prazo",
     "actions": "Ações",
+    "view": "Ver",
+    "viewTheListener": "Ver o ouvinte",
     "noPrizeMatchesTheseFilters": "Nenhum prêmio corresponde a estes filtros.",
     "noDeadline": "sem prazo",
     "newDeadline": "Novo prazo",
@@ -1191,8 +1193,7 @@
     "showTheNumber": "Mostrar o número",
     "thisListenerHasSinceExercisedTheir": "Este ouvinte exerceu depois o direito ao apagamento — isto não está mais armazenado.",
     "couldNotReadThisListener": "Não foi possível ler este ouvinte.",
-    "couldNotRevealThisField": "Não foi possível revelar este campo.",
-    "viewTheListener": "Ver o ouvinte"
+    "couldNotRevealThisField": "Não foi possível revelar este campo."
   },
   "participations": {
     "draw": "Sorteio",
@@ -1346,6 +1347,7 @@
     "actions": "Ações",
     "view": "Ver",
     "viewTheEntryOf": "Ver a participação de {name}",
+    "viewTheListener": "Ver o ouvinte",
     "thisListener": "este ouvinte",
     "theEntry": "A participação",
     "loadingTheAnswers": "Carregando as respostas…",
@@ -1789,6 +1791,8 @@
     "registerArtist": "Cadastrar artista",
     "added": "Adicionado",
     "actions": "Ações",
+    "view": "Ver",
+    "viewTheListener": "Ver o ouvinte",
     "archiveArtist": "Arquivar artista…",
     "archiveThisArtist": "Arquivar este artista?",
     "leavesTheCatalogueAndEveryList": "sai do catálogo e de todas as listas do aplicativo.",

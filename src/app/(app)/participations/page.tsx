@@ -481,6 +481,7 @@ export default async function ParticipationsPage({
         // failure is already swallowed into an empty map (the service says why),
         // so this cannot be the thing that takes the list down.
         promotionThumbs={await promotionThumbs(page.rows.map((row) => row.promotionId))}
+        canFindListeners={canSearch}
         previousHref={
           page.previousCursor
             ? participationsHref(state, { side: 'before', value: page.previousCursor })

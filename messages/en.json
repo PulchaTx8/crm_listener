@@ -478,6 +478,8 @@
     "prize": "Prize",
     "deadline": "Deadline",
     "actions": "Actions",
+    "view": "View",
+    "viewTheListener": "View the listener",
     "noPrizeMatchesTheseFilters": "No prize matches these filters.",
     "noDeadline": "no deadline",
     "newDeadline": "New deadline",
@@ -1191,8 +1193,7 @@
     "showTheNumber": "Show the number",
     "thisListenerHasSinceExercisedTheir": "This listener has since exercised their right to erasure — this is no longer stored.",
     "couldNotReadThisListener": "This listener could not be read.",
-    "couldNotRevealThisField": "This field could not be revealed.",
-    "viewTheListener": "View the listener"
+    "couldNotRevealThisField": "This field could not be revealed."
   },
   "participations": {
     "draw": "Draw",
@@ -1346,6 +1347,7 @@
     "actions": "Actions",
     "view": "View",
     "viewTheEntryOf": "View the entry of {name}",
+    "viewTheListener": "View the listener",
     "thisListener": "this listener",
     "theEntry": "The entry",
     "loadingTheAnswers": "Loading the answers…",
@@ -1789,6 +1791,8 @@
     "registerArtist": "Register artist",
     "added": "Added",
     "actions": "Actions",
+    "view": "View",
+    "viewTheListener": "View the listener",
     "archiveArtist": "Archive artist…",
     "archiveThisArtist": "Archive this artist?",
     "leavesTheCatalogueAndEveryList": "leaves the catalogue and every list in the app.",

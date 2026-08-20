@@ -17,6 +17,8 @@ import {
   type WinnerAction,
   type WinnerPowers,
 } from '@/components/draws/winner-actions';
+import { Button } from '@/components/ui/button';
+import { ListenerCardDialog } from '@/components/members/listener-card-dialog';
 import type { PickupRow } from '@/services/pickups';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { maskedPhone } from '@/lib/members/mask';
@@ -56,6 +58,7 @@ export function PickupsGrid({
   total: initialTotal,
   timeZone,
   winnerPowers,
+  canFindListeners,
   previousHref,
   nextHref,
   onWinnerAction,
@@ -65,6 +68,8 @@ export function PickupsGrid({
   total: number;
   timeZone: string;
   winnerPowers: WinnerPowers;
+  /** members.view, resolved once by pickups/page.tsx (./access.ts) rather than a second time here. */
+  canFindListeners: boolean;
   previousHref: string | null;
   nextHref: string | null;
   onWinnerAction: (
@@ -88,6 +93,19 @@ export function PickupsGrid({
   useEffect(() => {
     setGrid({ rows: initialRows.map(toGridRow), total: initialTotal });
   }, [initialRows, initialTotal]);
+
+  const [listenerId, setListenerId] = useState<string | null>(null);
+
+  // The id outlives the row unless something clears it: `listenerId` staying
+  // set after its row leaves `grid.rows` (a filter narrowing the page) would
+  // reopen the listener card unprompted the moment that filter is cleared
+  // again — the same defect participations-grid.tsx:89 documents and fixes
+  // with this identical effect.
+  useEffect(() => {
+    if (listenerId !== null && !grid.rows.some((row) => row.memberId === listenerId)) {
+      setListenerId(null);
+    }
+  }, [grid.rows, listenerId]);
 
   function patch(winnerId: string, next: { status: PickupRow['status']; deadlineAt?: string }) {
     setGrid((current) => {
@@ -198,6 +216,19 @@ export function PickupsGrid({
                     <DeadlineText deadlineAt={row.deadlineAt} status={row.status} timeZone={timeZone} />
                   </TableCell>
                   <TableCell>
+                    {canFindListeners && (
+                      <Button
+                        key="view-listener"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setListenerId(row.memberId)}
+                        aria-label={t('viewTheListener')}
+                        data-testid="pickup-view-listener"
+                      >
+                        {t('view')}
+                      </Button>
+                    )}
                     <WinnerActions
                       status={row.status}
                       allowsReturnToStock={row.allowsReturnToStock}
@@ -224,6 +255,10 @@ export function PickupsGrid({
           )}
         </TableBody>
       </Table>
+
+      {listenerId && (
+        <ListenerCardDialog memberId={listenerId} onClose={() => setListenerId(null)} />
+      )}
 
       {/*
         `total` is the count of rows matching the same filters, from the same
