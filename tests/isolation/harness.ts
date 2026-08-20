@@ -723,3 +723,40 @@ export async function setPromotionPrizeDrawnDirectly(
     );
   }
 }
+
+/**
+ * Inserts a promotion row directly against Postgres, as its superuser — the
+ * same escape hatch seedIntegration uses above, needed here for a reason
+ * specific to Block 30c: create_promotion (0259) now refuses to CREATE a
+ * promotion that is door-on (WhatsApp or web) with blank rules, so the shape
+ * update_promotion's D2 gate must still leave EDITABLE — a promotion that
+ * reached that shape before the gate existed — has no route through any RPC
+ * any more. service_role cannot reach it either: `grant select on
+ * public.promotions to authenticated, service_role` (0044_rls_promotions.sql)
+ * is the only grant that table carries, so `admin.from('promotions').insert`
+ * is refused the same way a caller's own token would be.
+ *
+ * Bypasses every check create_promotion makes — the Station lookup,
+ * has_permission, the hashtag guards — because it writes the table directly,
+ * which is the point: this fixture has to reach a shape the door itself no
+ * longer allows anyone to reach.
+ */
+export async function seedGrandfatheredPromotion(
+  customer: ProvisionedCustomer,
+  name: string,
+): Promise<string> {
+  const rows = await superuserQuery<{ id: string }>(
+    'seedGrandfatheredPromotion',
+    `insert into public.promotions
+       (organization_id, company_id, name, starts_at, ends_at, web_enabled)
+     values ($1, $2, $3, now() - interval '1 hour', now() + interval '1 day', true)
+     returning id`,
+    [customer.organizationId, customer.companyId, name],
+  );
+  if (rows.length !== 1) {
+    throw new Error(
+      `seedGrandfatheredPromotion: expected to insert exactly one row, got ${rows.length}`,
+    );
+  }
+  return rows[0]!.id;
+}

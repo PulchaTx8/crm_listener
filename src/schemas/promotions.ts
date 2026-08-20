@@ -108,6 +108,15 @@ export const promotionFormSchema = z
       .optional()
       .transform((v) => (v === null ? undefined : v)),
 
+    /**
+     * Alphanumeric as the operator transcribes it. Trimmed, capped, and NOT
+     * pattern-checked: the format belongs to whoever issues the licence, and a
+     * rule invented here would refuse a valid number from a state that writes
+     * them differently.
+     */
+    authorizationCertificate: z.string().trim().max(60).optional(),
+    showId: z.string().uuid().optional(),
+
     // BLOCK 24 REMOVED `callToAction`, AND THE COLUMN STAYS (D2). It was the
     // sentence under the promotion's name in the WhatsApp consent message, and
     // the owner took it off the screen once the widget became the door most

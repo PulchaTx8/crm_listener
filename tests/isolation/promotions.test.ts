@@ -17,7 +17,14 @@ import {
   DEFAULT_QUESTION_MENU_TITLE,
 } from '@/lib/conversation/engine';
 import type { PromotionFormInput } from '@/schemas/promotions';
-import { addCompany, cleanupUsers, grantRoleWith, provisionCustomer, signInAs } from './harness';
+import {
+  addCompany,
+  cleanupUsers,
+  grantRoleWith,
+  provisionCustomer,
+  seedGrandfatheredPromotion,
+  signInAs,
+} from './harness';
 import type { ProvisionedCustomer } from './harness';
 
 afterAll(cleanupUsers);
@@ -105,6 +112,10 @@ describe('the promotion record', () => {
         whatsappEnabled: true,
         hashtag: '#EUQUERO',
         requestedFields: ['full_name', 'city'],
+        // Block 30c D2 (0259): create_promotion now refuses a WhatsApp- or
+        // web-enabled promotion with blank rules. Not what this test is
+        // about, so a non-blank placeholder rather than a value asserted on.
+        rules: `Read rules ${label}`,
       });
 
       const ownerToken = await tokenFor(customer.email, customer.password);
@@ -179,6 +190,7 @@ describe('the promotion record', () => {
           name: 'Delegate promotion',
           whatsappEnabled: true,
           hashtag: '#DELEGADO',
+          rules: `Create rules ${label}`,
           // No banner here as of Block 14: it is not a field of this form and
           // create_promotion does not take one. A promotion is born without
           // pictures because neither storage key exists until the row does.
@@ -294,7 +306,11 @@ describe('the promotion record', () => {
     it('refuses a hashtag already live in the Station, naming it', async () => {
       const label = `promo-hashtag-${Date.now()}`;
       const customer = await provisionCustomer(label);
-      await createAsOwner(customer, { whatsappEnabled: true, hashtag: '#EUQUERO' });
+      await createAsOwner(customer, {
+        whatsappEnabled: true,
+        hashtag: '#EUQUERO',
+        rules: `Hashtag rules ${label}`,
+      });
 
       const delegate = await grantRoleWith(customer, label, ['promotions.create']);
       const token = await tokenFor(delegate.email, delegate.password);
@@ -307,6 +323,10 @@ describe('the promotion record', () => {
             name: 'Same hashtag',
             whatsappEnabled: true,
             hashtag: '#EUQUERO',
+            // Both promotions need rules now (D2), or the SECOND create would
+            // be refused for blank rules before it ever reached the hashtag
+            // collision this test is actually about.
+            rules: `Hashtag rules ${label}`,
           }),
           token,
         ),
@@ -327,6 +347,7 @@ describe('the promotion record', () => {
         siteIntegrationCode: 4242,
         whatsappEnabled: true,
         hashtag: '#ANTES',
+        rules: `Edit rules ${label}`,
       });
 
       const delegate = await grantRoleWith(customer, label, [
@@ -341,6 +362,10 @@ describe('the promotion record', () => {
           name: 'Edited',
           whatsappEnabled: true,
           hashtag: '#DEPOIS',
+          // Carried on the update too: update_promotion replaces every field
+          // wholesale, so omitting rules here would clear them while WhatsApp
+          // stays on — exactly the transition D2 refuses.
+          rules: `Edit rules ${label}`,
         }),
         token,
       );
@@ -785,5 +810,54 @@ describe('the promotion record', () => {
       // Renumbering is deliberately not done: the survivor keeps position 2.
       expect(record?.questions[0]?.position).toBe(2);
     });
+  });
+
+  /**
+   * Block 30c D2. The gate through a real caller, because update_promotion is
+   * SECURITY DEFINER and pgTAP runs as the superuser — the pgTAP proves the
+   * rule, this proves an operator meets it.
+   *
+   * The THIRD case is the one worth the fixture: a promotion already door-on
+   * and rules-blank stays editable. A gate written as a state test rather than
+   * a transition test passes the first two and fails this one, while looking
+   * stricter and therefore better.
+   */
+  it('refuses to open a door with blank rules, and leaves an already-blank promotion editable', async () => {
+    const label = `rules-gate-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await signInAs(customer.email, customer.password);
+
+    const clean = await createAsOwner(customer, { name: `${label} clean` });
+    const opening = await owner.rpc('update_promotion', {
+      p_promotion_id: clean,
+      p_name: `${label} clean`,
+      p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+      p_ends_at: new Date(Date.now() + DAY).toISOString(),
+      p_web_enabled: true,
+      // p_rules OMITTED rather than sent as null: the generated Args type is
+      // `p_rules?: string`, not `string | null` — 0259's `default null` is
+      // what makes the parameter optional, not nullable — so a literal
+      // `null` here fails typecheck rather than expressing "blank". Omitting
+      // it reaches the same place PostgREST-side: the argument is left out
+      // of the call, and the RPC's own `default null` applies, which is the
+      // same "absent, not null" convention promotionRpcArgs documents in
+      // src/services/promotions.ts.
+    });
+    expect(opening.error?.code).toBe('22023');
+
+    // The grandfathered shape, seeded past the door through the harness's
+    // superuser connection because the door now refuses to create it, and
+    // service_role has no INSERT grant on promotions to reach it either
+    // (0044_rls_promotions.sql grants it SELECT only).
+    const legacyId = await seedGrandfatheredPromotion(customer, `${label} legacy`);
+
+    const editing = await owner.rpc('update_promotion', {
+      p_promotion_id: legacyId,
+      p_name: `${label} legacy renamed`,
+      p_starts_at: new Date(Date.now() - HOUR).toISOString(),
+      p_ends_at: new Date(Date.now() + 2 * DAY).toISOString(),
+      p_web_enabled: true,
+    });
+    expect(editing.error).toBeNull();
   });
 });

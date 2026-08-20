@@ -389,6 +389,19 @@ export interface PromotionDetail {
   frozen: boolean;
   name: string;
   siteIntegrationCode: number | null;
+  /** Free text, optional, not unique (0258). See its comment on the column for why. */
+  authorizationCertificate: string | null;
+  showId: string | null;
+  /** Null when no Programme is linked, or when the caller cannot read it. */
+  showName: string | null;
+  /**
+   * True once the linked Programme has been archived. The link is kept on
+   * purpose (0258) — a promotion that ran inside a Programme ran inside it
+   * whether or not it is still on air — so this is what lets the screen say
+   * "archived" rather than imply it is still scheduled. Same shape and same
+   * reason as RequestSummary.songArchived (services/music.ts).
+   */
+  showArchived: boolean;
   startsAt: string;
   endsAt: string;
   allowMultipleEntries: boolean;
@@ -507,9 +520,33 @@ export async function getPromotionRecord(
 ): Promise<PromotionDetail | null> {
   const supabase = asCaller(accessToken);
 
+  // Block 30c. `shows(name, deleted_at)` is embedded through the FK
+  // (`promotions_show_fk`, 0258) rather than read separately: one string
+  // literal, never a concatenation, because supabase-js infers the row shape
+  // by parsing this literal at compile time — a runtime-assembled string
+  // collapses every field to GenericStringError. RLS applies to the embed
+  // exactly as it does to a plain select, so a caller who cannot read the
+  // Programme gets `shows: null` rather than an error, which is what
+  // showName's own comment means by "or when the caller cannot read it".
+  //
+  // A GAP THIS BLOCK DID NOT CLOSE, RECORDED HERE FOR WHOEVER BUILDS THE
+  // NEXT PIECE. `shows_select_music_view` (0099) is `deleted_at is null AND
+  // has_permission('music.view', ...)` — unlike promotions' own select policy,
+  // it carries no is_owner_of_company exception, so an archived show is
+  // unreadable through this embed for EVERY caller, owner and platform admin
+  // included. D3 promises the record renders an archived Programme's name
+  // with a marker; today that promise cannot be kept, because nothing in
+  // this codebase yet sets shows.deleted_at (grep finds no writer) and, once
+  // something does, this embed will silently return `shows: null` rather
+  // than the archived row — indistinguishable from "no Programme linked".
+  // Verified against the local stack: an owner reading a promotion pointed at
+  // a directly-archived show gets showName null and showArchived false, not
+  // the archived name. Closing it is a `shows` RLS decision (an
+  // is_owner_of_company-shaped carve-out, or a narrower one), not a call this
+  // task makes unilaterally.
   const { data: promotion, error } = await supabase
     .from('promotions')
-    .select('*')
+    .select('*, shows(name, deleted_at)')
     .eq('id', promotionId)
     .maybeSingle();
 
@@ -604,6 +641,10 @@ export async function getPromotionRecord(
     frozen: participationCounts.valid + participationCounts.refused > 0,
     name: promotion.name,
     siteIntegrationCode: promotion.site_integration_code,
+    authorizationCertificate: promotion.authorization_certificate,
+    showId: promotion.show_id,
+    showName: promotion.shows?.name ?? null,
+    showArchived: promotion.shows?.deleted_at != null,
     startsAt: promotion.starts_at,
     endsAt: promotion.ends_at,
     allowMultipleEntries: promotion.allow_multiple_entries,
@@ -764,6 +805,12 @@ function promotionRpcArgs(input: PromotionFormInput) {
     // it from the shared builder is what stops the two doors drifting apart
     // again.
     p_max_entries_per_member: input.maxEntriesPerMember,
+    // Block 30c. Both `.optional()` rather than `.nullish()` in the schema, so
+    // a cleared box already arrives as `undefined` and needs no `?? undefined`
+    // of its own — PostgREST omits it and each RPC's `default null` applies,
+    // the wholesale-replace convention every field around it follows.
+    p_authorization_certificate: input.authorizationCertificate,
+    p_show_id: input.showId,
   };
 }
 

@@ -431,7 +431,7 @@ const REQUIRED_TEST_FILES = [
   // does not -- Rule 2 narrowed rather than replaced.
   { path: 'tests/isolation/pickups.test.ts', minTests: 8 },
   { path: 'tests/isolation/promotion-prizes.test.ts', minTests: 29 },
-  { path: 'tests/isolation/promotions.test.ts', minTests: 21 },
+  { path: 'tests/isolation/promotions.test.ts', minTests: 22 },
   { path: 'tests/isolation/provisional-password.test.ts', minTests: 4 },
   { path: 'tests/isolation/record.test.ts', minTests: 6 },
   { path: 'tests/isolation/roles.test.ts', minTests: 17 },
