@@ -25,10 +25,23 @@
 --
 -- smallint: the largest value this can hold is 1231.
 --
--- THIS REWRITES THE TABLE. `add column ... generated always as ... stored` takes
--- an ACCESS EXCLUSIVE lock for the duration. Accepted rather than discovered:
--- this product's installations are one Station or a small group, and 0031 did
--- the same rewrite twice for the two normalisation columns.
+-- THIS REWRITES THE TABLE, AND IT IS THE FIRST TIME THIS TABLE HAS BEEN
+-- REWRITTEN. `add column ... generated always as ... stored` takes an ACCESS
+-- EXCLUSIVE lock and recomputes every existing row.
+--
+-- The two generated columns already on `members` are NOT a precedent for that
+-- cost: phone_normalized and email_normalized were declared inside `create
+-- table` (0031:39-54), on a table that had no rows yet. The only `alter table
+-- public.members add column` statements in the history are 0213's `country` and
+-- 0220's `gender`, both plain nullable text, which Postgres adds without
+-- touching a row. The nearest real precedent for this operation is
+-- 0189_music_request_triage_columns.sql, on a different table and in a single
+-- statement.
+--
+-- Accepted rather than discovered, on the reasoning that stands on its own:
+-- this product's installations are one Station or a small group of them, and
+-- the audience table at that size rewrites in well under the time a deploy
+-- already takes.
 alter table public.members
   add column birth_md smallint
   generated always as (
