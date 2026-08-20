@@ -47,7 +47,9 @@
     "themeLight": "Light",
     "themeDark": "Dark",
     "collapseTheSidebar": "Collapse the sidebar",
-    "expandTheSidebar": "Expand the sidebar"
+    "expandTheSidebar": "Expand the sidebar",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing…"
   },
   "nav": {
     "administration": "Administration",
@@ -1063,6 +1065,11 @@
     "hasNotConsented": "Has not consented",
     "registeredFrom": "Registered from",
     "registeredTo": "Registered to",
+    "dateFilter": "Date filter",
+    "dateModeRegistered": "Registered",
+    "dateModeBirthday": "Birthday",
+    "birthdaysFrom": "Birthdays from",
+    "birthdaysTo": "Birthdays to",
     "blockedListenersOnly": "Blocked listeners only",
     "clearFilters": "Clear filters",
     "registerListener": "Register listener",

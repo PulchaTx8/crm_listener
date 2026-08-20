@@ -47,7 +47,9 @@
     "themeLight": "Claro",
     "themeDark": "Escuro",
     "collapseTheSidebar": "Recolher o menu lateral",
-    "expandTheSidebar": "Expandir o menu lateral"
+    "expandTheSidebar": "Expandir o menu lateral",
+    "refresh": "Atualizar",
+    "refreshing": "Atualizando…"
   },
   "nav": {
     "administration": "Administração",
@@ -1063,6 +1065,11 @@
     "hasNotConsented": "Não consentiu",
     "registeredFrom": "Cadastrado de",
     "registeredTo": "Cadastrado até",
+    "dateFilter": "Filtro de data",
+    "dateModeRegistered": "Cadastro",
+    "dateModeBirthday": "Aniversário",
+    "birthdaysFrom": "Aniversários de",
+    "birthdaysTo": "Aniversários até",
     "blockedListenersOnly": "Somente ouvintes bloqueados",
     "clearFilters": "Limpar filtros",
     "registerListener": "Cadastrar ouvinte",

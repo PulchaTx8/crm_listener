@@ -256,3 +256,42 @@ and new functions. Either order survives — unlike `0172`, which both orders
 broke. Apply them on merge all the same: three blocks in a row (13a, 17b, 17c)
 shipped code whose migration had not been applied, and the symptom is always a
 screen that worked in review answering "could not save".
+
+## Block 30b — a birthday is not a birth date
+
+**`members.birth_md`** (`0257`) — `smallint`, `generated always as (...)
+stored`, the day of the year a listener was born as `MMDD`: 31 December is
+`1231`, 5 January is `105` (no zero-padding to worry about), 29 February is
+`229` and needs no special case. **Generated, so it cannot be written by
+hand** — the same device `phone_normalized` and `email_normalized` already are
+on this table (`0031`), for the same reason: a value derived in three places
+(the browser, the service, SQL) is a value that drifts.
+
+**Null exactly when `birth_date` is null**, and that is not an edge case to
+patch around — it is the filter's correct behaviour. A listener nobody has
+asked for a birth date is invisible to the Birthday window, the same blind
+spot the age band already has, rather than being swept into every window by a
+default. A future "improvement" that coalesced the null to `0` would put every
+such listener into every January search.
+
+**A column rather than an expression index**, because the Members listing is
+PostgREST (`services/members.ts`, `.from('members').select(...)`), and a
+predicate there has to name a column — an expression index would be
+unreachable from the only caller, and moving the listing to an RPC to gain one
+would be a far larger change than the feature. The comparison itself is two
+branches (`src/lib/members/birthday.ts`, `services/members.ts`): a window
+whose end falls before its start — 20 December to 5 January — is the
+end-of-year window the screen exists to answer, not an operator mistake.
+Folding the two branches into one `between` makes that window unsatisfiable,
+and the screen answers with an empty page rather than an error — the dangerous
+wrong answer, because "nobody has a birthday between Christmas and Epiphany"
+reads as data. `tests/e2e/birthday-filter.spec.ts` and the isolation suite's
+`finds birthdays across new year, and only those` both assert the two listeners
+either side of the window as well as the one outside it, so the empty-page
+defect is caught by the two listeners going missing and a filter that quietly
+became a no-op is caught by the outside one showing up. Neither journey by
+itself proves the two branches are chosen correctly rather than one always
+standing in for the other — the isolation test's own second, non-wrapping
+case (the same July window, asserted to exclude both December and January) is
+what that needs, and is why it exists alongside the wrapping one rather than
+instead of it.

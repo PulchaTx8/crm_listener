@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { Input, Select } from '@/components/ui/input';
+import { RefreshButton } from '@/components/ui/refresh-button';
 import { GENDER_VALUES, type GenderValue } from '@/lib/conversation/steps';
 import { hasActiveFilters, membersHref } from './list-params';
 import type { MemberListState } from './list-params';
@@ -14,14 +15,16 @@ const DEBOUNCE_MS = 350;
 
 /**
  * The screen's one client boundary. It filters nothing itself: every control
- * here only edits the URL, which is what makes MembersPage — a Server
- * Component — re-run and ask Postgres a narrower question. What changes on a
- * keystroke is the query the database runs, not a `.filter()` in the browser.
+ * here but Refresh only edits the URL, which is what makes MembersPage — a
+ * Server Component — re-run and ask Postgres a narrower question. What
+ * changes on a keystroke is the query the database runs, not a `.filter()`
+ * in the browser.
  *
  * Changing any filter drops the cursor (membersHref, called without one), and
  * it has to: a cursor is a position in one ordering of one result set, so
  * carrying it across a filter change resumes from a row that no longer means
- * anything.
+ * anything. Refresh (src/components/ui/refresh-button.tsx) drops nothing: it
+ * edits no URL and asks for no new query, so there is no cursor to drop.
  */
 export function MembersFilters({ state }: { state: MemberListState }) {
   const t = useTranslations('members');
@@ -49,10 +52,51 @@ export function MembersFilters({ state }: { state: MemberListState }) {
   // back from those instants has to happen after mount for the same reason:
   // rendered on the server it would produce the server's calendar day and
   // mismatch what the browser hydrates.
+
+  // The mode selector's own value, for the identical reason fromDay/toDay
+  // below are local state rather than reads of state.dateMode directly.
+  // state.dateMode is a SERVER PROP: for the whole router.replace() round
+  // trip navigate() starts, it still holds whatever mode was active before
+  // the click. Both date boxes decide what to write (birthdayFrom vs.
+  // registeredFrom) from this value, and navigate() (below) spreads ...state
+  // before applying what was just picked -- so an operator who switches to
+  // Birthday and picks a date before the RSC response lands would have that
+  // date written as a registration-window instant, with dates=birthday
+  // dropped from the URL because the stale prop was spread back in. Local
+  // state closes over the click that started the round trip instead of
+  // waiting for what the server has confirmed so far, and it is what
+  // navigate() itself now reads (below) rather than state.dateMode.
+  const [dateMode, setDateMode] = useState(state.dateMode);
+  useEffect(() => setDateMode(state.dateMode), [state.dateMode]);
+
   const [fromDay, setFromDay] = useState('');
   const [toDay, setToDay] = useState('');
-  useEffect(() => setFromDay(toDayInput(state.registeredFrom)), [state.registeredFrom]);
-  useEffect(() => setToDay(toDayInput(state.registeredTo)), [state.registeredTo]);
+  // Gated on dateMode rather than firing unconditionally: parseMemberListState
+  // does not forbid a URL that carries both windows at once (registeredFrom/To
+  // alongside birthdayFrom/To), and with all four of these effects ungated
+  // they would all fire on that render, React would batch them, and whichever
+  // was declared last would win the shared fromDay/toDay state -- showing a
+  // birthday day under a "Registered from" label, or vice versa, with no box
+  // for the other window even on screen to reveal the mismatch. Only the pair
+  // matching the currently active mode may write these two boxes; dateMode is
+  // in every dependency array below because switching modes has to re-run the
+  // check even when the field itself did not change.
+  useEffect(() => {
+    if (state.dateMode === 'registered') setFromDay(toDayInput(state.registeredFrom));
+  }, [state.dateMode, state.registeredFrom]);
+  useEffect(() => {
+    if (state.dateMode === 'registered') setToDay(toDayInput(state.registeredTo));
+  }, [state.dateMode, state.registeredTo]);
+  // Same back/forward reasoning as the pair above, not the zone one: a
+  // birthday day is a slice of a string (monthDayOf, below), not an instant,
+  // so there is no clock to get wrong here -- only the URL state to resync
+  // onto after a navigation this component did not cause.
+  useEffect(() => {
+    if (state.dateMode === 'birthday') setFromDay(birthdayDayInput(state.birthdayFrom));
+  }, [state.dateMode, state.birthdayFrom]);
+  useEffect(() => {
+    if (state.dateMode === 'birthday') setToDay(birthdayDayInput(state.birthdayTo));
+  }, [state.dateMode, state.birthdayTo]);
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout> | undefined>>({});
   useEffect(() => {
@@ -74,6 +118,11 @@ export function MembersFilters({ state }: { state: MemberListState }) {
       search: search.trim() || undefined,
       ageMin: parseAgeInput(ageMin),
       ageMax: parseAgeInput(ageMax),
+      // Read from local state rather than the (possibly stale) prop, for the
+      // same reason as the three fields above: a caller of navigate() fired
+      // from an event that has not yet round-tripped must still write the
+      // mode it locally believes is active.
+      dateMode,
     };
     // typedRoutes cannot express a query string assembled at runtime as a
     // route literal, so this casts to Route — the same pattern the rest of
@@ -198,31 +247,85 @@ export function MembersFilters({ state }: { state: MemberListState }) {
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
+        <label className="flex w-40 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('dateFilter')}</span>
+          <Select
+            value={dateMode}
+            onChange={(e) => {
+              const mode = e.target.value === 'birthday' ? 'birthday' : 'registered';
+              // setDateMode does NOT make navigate()'s own typed.dateMode
+              // (above) carry the new mode for THIS call: it schedules a
+              // re-render, while navigate() runs synchronously in this same
+              // handler and closes over the OLD dateMode from the render
+              // that is still current. What actually carries the new mode
+              // into the URL here is the explicit dateMode: mode in the
+              // literal below, which wins the {...typed, ...next} spread
+              // inside navigate() -- it is NOT redundant with typed.dateMode
+              // and must not be dropped as if it were, or Birthday mode
+              // stops reaching the URL from this control.
+              //
+              // Calling setDateMode anyway is what makes this select and the
+              // two boxes below stop showing the old mode for the round trip
+              // rather than snapping back once it lands, and it is what lets
+              // a LATER navigate() call from either box -- a separate event,
+              // firing after this component has re-rendered with the new
+              // mode -- read it from typed.dateMode on its own, with no
+              // explicit dateMode of its own to pass (see their onChange,
+              // below).
+              setDateMode(mode);
+              // SWITCHING CLEARS THE OTHER WINDOW. Two live windows would show a
+              // count nobody can account for from what is on screen, and the
+              // boxes can only display one of them.
+              navigate(
+                mode === 'birthday'
+                  ? { dateMode: mode, registeredFrom: undefined, registeredTo: undefined }
+                  : { dateMode: mode, birthdayFrom: undefined, birthdayTo: undefined },
+              );
+            }}
+            data-testid="member-date-mode"
+          >
+            <option value="registered">{t('dateModeRegistered')}</option>
+            <option value="birthday">{t('dateModeBirthday')}</option>
+          </Select>
+        </label>
+
         <label className="flex w-48 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">{t('registeredFrom')}</span>
+          <span className="text-muted-foreground">
+            {dateMode === 'birthday' ? t('birthdaysFrom') : t('registeredFrom')}
+          </span>
           <Input
             type="date"
             value={fromDay}
             onChange={(e) => {
               const day = e.target.value;
               setFromDay(day);
-              navigate({ registeredFrom: startOfLocalDay(day) });
+              navigate(
+                dateMode === 'birthday'
+                  ? { birthdayFrom: monthDayOf(day) }
+                  : { registeredFrom: startOfLocalDay(day) },
+              );
             }}
-            data-testid="member-registered-from"
+            data-testid="member-date-from"
           />
         </label>
 
         <label className="flex w-48 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">{t('registeredTo')}</span>
+          <span className="text-muted-foreground">
+            {dateMode === 'birthday' ? t('birthdaysTo') : t('registeredTo')}
+          </span>
           <Input
             type="date"
             value={toDay}
             onChange={(e) => {
               const day = e.target.value;
               setToDay(day);
-              navigate({ registeredTo: endOfLocalDay(day) });
+              navigate(
+                dateMode === 'birthday'
+                  ? { birthdayTo: monthDayOf(day) }
+                  : { registeredTo: endOfLocalDay(day) },
+              );
             }}
-            data-testid="member-registered-to"
+            data-testid="member-date-to"
           />
         </label>
 
@@ -245,6 +348,27 @@ export function MembersFilters({ state }: { state: MemberListState }) {
                 sort: state.sort,
                 direction: state.direction,
                 blockedOnly: false,
+                // birthdayFrom/birthdayTo, like registeredFrom/registeredTo
+                // above, are simply absent from this literal, so membersHref
+                // drops both windows regardless of which mode is active.
+                // dateMode is carried through rather than reset, because
+                // hasActiveFilters is a single OR across every filter --
+                // Clear can appear when the only active thing is unrelated to
+                // dates (a search term, an age band), and resetting the mode
+                // then would silently flip a view the operator chose for a
+                // reason that has nothing to do with dates. Choosing Birthday
+                // with no dates yet is a real state (list-params.ts, at the
+                // dateMode field) and Clear has no more standing to overrule
+                // it than any other control on this bar does -- read from
+                // LOCAL dateMode, not state.dateMode: this Link is rendered
+                // whenever hasActiveFilters(state) is true, and that can
+                // still hold from a stale prop while the mode select's own
+                // round trip is in flight (its old window has not yet been
+                // cleared server-side). Building this href from state.dateMode
+                // would let a Clear click in that window silently revert a
+                // mode switch the operator already made -- the same race A1
+                // fixed for the two date boxes above.
+                dateMode,
               }) as Route
             }
             className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -252,6 +376,7 @@ export function MembersFilters({ state }: { state: MemberListState }) {
           >
             {t('clearFilters')}</Link>
         )}
+        <RefreshButton />
       </div>
     </div>
   );
@@ -264,6 +389,31 @@ function toDayInput(instant: string | undefined): string {
   if (Number.isNaN(parsed.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
+/**
+ * A `<input type="date">` value as the day of the year the URL carries.
+ *
+ * The year is DISCARDED here rather than on the server, for the same reason the
+ * registration range is converted here: the input's value is a wall-clock day
+ * with no zone, and anything that re-parses it elsewhere risks interpreting it
+ * in a different one. Slicing the string touches no clock at all.
+ */
+function monthDayOf(value: string): string | undefined {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.slice(5) : undefined;
+}
+
+/**
+ * The reverse of monthDayOf: `MM-DD` as an `<input type="date">` value, for
+ * the boxes' display in Birthday mode. The year is fixed rather than carried
+ * anywhere, because Birthday mode ignores it on both ends (spec D2) — 2000
+ * only so that 29 February, a value `birth_md` genuinely holds, has a year to
+ * sit on when the box renders it. String concatenation, not a Date object,
+ * for the same reason monthDayOf slices rather than parses: it never touches
+ * a clock, so it cannot be misread in a different one.
+ */
+function birthdayDayInput(monthDay: string | undefined): string {
+  return monthDay && /^\d{2}-\d{2}$/.test(monthDay) ? `2000-${monthDay}` : '';
 }
 
 /** The instant the chosen day begins, here, in the browser's own zone. */

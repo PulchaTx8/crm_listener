@@ -12,6 +12,7 @@ import {
 } from '@/lib/errors';
 import { keysetFilter, keysetPage } from '@/lib/keyset';
 import type { Cursor, SortDirection } from '@/lib/keyset';
+import { birthdayWindow } from '@/lib/members/birthday';
 import { escapeLikePattern, quoteForOrFilter } from '@/lib/postgrest';
 import type { Database } from '@/lib/supabase/database.types';
 import type {
@@ -300,6 +301,14 @@ export interface MemberListParams {
   /** Instants, not calendar days: members-filters.tsx converts the operator's chosen dates in the browser. */
   registeredFrom?: string;
   registeredTo?: string;
+  /**
+   * `MM-DD`, inclusive. A DAY OF THE YEAR, not a date — see birthday.ts. The
+   * age band above answers "born between two dates"; this answers "has a
+   * birthday in this window", which is a different question and the one a
+   * greeting is sent from.
+   */
+  birthdayFrom?: string;
+  birthdayTo?: string;
 }
 
 export interface MemberListPage {
@@ -460,9 +469,21 @@ async function latestRulesConsent(
  * the identity this block's dedup and RLS both rest on, and what lets an
  * operator find "+55 (11) 98765-4321" by typing the digits off caller ID;
  * whole-branch review I2). Verified against the running PostgREST rather than
- * assumed: two `or=` parameters on one request are ANDed, so the search
- * clause and the keyset clause narrow together instead of one replacing the
- * other.
+ * assumed: multiple `or=` parameters on one request are ANDed together, not
+ * one replacing another -- confirmed with three at once (this search clause,
+ * the keyset clause below, and Block 30b's wrapping birthday window, D2
+ * below), which still returns the intersection rather than any one clause
+ * winning.
+ *
+ * NONE OF THE THREE IS ON EVERY REQUEST, though, and a bare `/members` view
+ * sends none of them. The search clause exists only when there is a search
+ * term; the wrapping-birthday clause (D2, below) only when the mode is
+ * Birthday and the window crosses new year -- both live inside `build`,
+ * below, so both also reach the separate COUNT request `build` is called a
+ * second time for. The keyset clause is different: it is chained onto
+ * `query` only once a cursor exists, i.e. never on the first page, and it is
+ * chained AFTER `build` returns rather than inside it -- so it never reaches
+ * the count request at all, on any page.
  *
  * "Blocked only" is a condition on the query — an inner join to member_blocks
  * restricted to the active window — so a filtered page still fills and the
@@ -525,6 +546,33 @@ export async function listOrganizationMembers(
     // outside the band.
     if (params.ageMax !== undefined) q = q.gt('birth_date', isoDateYearsAgo(params.ageMax + 1));
     if (params.ageMin !== undefined) q = q.lte('birth_date', isoDateYearsAgo(params.ageMin));
+
+    // Block 30b D2. Two branches, and the second is the point: a window whose
+    // end falls before its start is the end-of-year window (20 December to 5
+    // January), not an operator mistake.
+    //
+    // Collapsing these into one `between` returns NOTHING for such a window —
+    // `md >= 1220 and md <= 105` is unsatisfiable — and an empty birthday list
+    // is the most plausible-looking wrong answer this screen can give, because
+    // "nobody has a birthday then" is a thing an operator will believe.
+    //
+    // birth_md is GENERATED from birth_date (0257): the day of the year is
+    // STORED on the row rather than computed here per row, the same reason
+    // the age band above is a range comparison and not a computed age.
+    // members_birth_md_idx (0257) is partial and available to the planner for
+    // this comparison; no query plan on this branch has been captured to
+    // confirm the planner actually chooses it for a given window
+    // (supabase/tests/70_birthday_window.test.sql says the same: a plan is
+    // not stable enough to assert, so the index is checked by name instead).
+    const window = birthdayWindow(params.birthdayFrom, params.birthdayTo);
+    if (window.kind === 'from') q = q.gte('birth_md', window.from);
+    else if (window.kind === 'to') q = q.lte('birth_md', window.to);
+    else if (window.kind === 'between')
+      q = q.gte('birth_md', window.from).lte('birth_md', window.to);
+    else if (window.kind === 'wraps')
+      // Interpolated without quoting because both values are integers this
+      // module produced from a matched /^\d{2}-\d{2}$/ — never operator text.
+      q = q.or(`birth_md.gte.${window.from},birth_md.lte.${window.to}`);
 
     // The gender block. A plain equality on an indexed-by-nothing column, and
     // deliberately not given an index of its own: three values over a whole

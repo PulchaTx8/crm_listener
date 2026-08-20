@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { cpfLastDigits, hashCpf } from '@/services/members';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { cpfLastDigits, hashCpf, listOrganizationMembers } from '@/services/members';
+import type { Database } from '@/lib/supabase/database.types';
 import {
   addCompany,
   addMemberByInvitation,
@@ -13,6 +15,17 @@ import {
 } from './harness';
 
 afterAll(cleanupUsers);
+
+/**
+ * The same idiom listing.test.ts and send-lists.test.ts already use to reach
+ * listOrganizationMembers, which — unlike every RPC this file calls directly
+ * through a signed-in client — takes an access token rather than a client.
+ */
+async function accessTokenFor(client: SupabaseClient<Database>): Promise<string> {
+  const { data, error } = await client.auth.getSession();
+  if (error || !data.session) throw new Error(`could not read an access token: ${error?.message}`);
+  return data.session.access_token;
+}
 
 // Every RPC gated in 0033/0034 is a SECURITY DEFINER (or, for member_reachable,
 // SECURITY INVOKER) body reading auth.uid(). pgTAP runs as superuser with no
@@ -1104,4 +1117,109 @@ describe('members', () => {
       expect(raw.error!.message).toMatch(/violates check constraint "members_cpf_hash_check"/);
     },
   );
+
+  describe('the birthday filter', () => {
+    /**
+     * Block 30b D2. The wrap is the case worth a live database: it is the one
+     * the two-branch predicate exists for. Folding the branches into a single
+     * `between` returns an EMPTY page for this window — `md >= 1220 and md <=
+     * 105` cannot be satisfied — while still looking like a working filter on
+     * any mid-year window. Verified numerically before this test was written.
+     *
+     * Empty is the dangerous wrong answer here, not an obvious one: "nobody
+     * has a birthday between Christmas and Epiphany" is false but believable,
+     * so the defect would be read as data rather than as a bug.
+     */
+    it('finds birthdays across new year, and only those', async () => {
+      const label = `birthday-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const owner = await signInAs(customer.email, customer.password);
+      const token = await accessTokenFor(owner);
+
+      const inWindow = [
+        await createMemberAs(customer, customer.companyId, {
+          fullName: `${label} NYE`,
+          birthDate: '1990-12-31',
+        }),
+        await createMemberAs(customer, customer.companyId, {
+          fullName: `${label} Jan`,
+          birthDate: '1988-01-05',
+        }),
+      ];
+      const outside = await createMemberAs(customer, customer.companyId, {
+        fullName: `${label} Jul`,
+        birthDate: '1979-07-04',
+      });
+
+      const wrapped = await listOrganizationMembers(
+        {
+          organizationId: customer.organizationId,
+          sort: 'created',
+          direction: 'desc',
+          cursor: null,
+          cursorSide: 'after',
+          birthdayFrom: '12-20',
+          birthdayTo: '01-05',
+        },
+        token,
+      );
+      const ids = wrapped.rows.map((r) => r.id);
+      for (const id of inWindow) expect(ids).toContain(id);
+      expect(ids).not.toContain(outside);
+
+      // The same predicate, not wrapping, must NOT behave like the wrap branch.
+      const plain = await listOrganizationMembers(
+        {
+          organizationId: customer.organizationId,
+          sort: 'created',
+          direction: 'desc',
+          cursor: null,
+          cursorSide: 'after',
+          birthdayFrom: '07-01',
+          birthdayTo: '07-31',
+        },
+        token,
+      );
+      const plainIds = plain.rows.map((r) => r.id);
+      expect(plainIds).toContain(outside);
+      for (const id of inWindow) expect(plainIds).not.toContain(id);
+    });
+
+    /**
+     * A listener nobody asked for a birth date is absent, not wrongly
+     * included. The column is null for them (0257) and null satisfies
+     * neither branch.
+     *
+     * ONLY `birthdayTo` IS SET, DELIBERATELY — not the `between` a From-and-To
+     * window would compile to. A `between` window's lower bound alone
+     * (`gte(101)`) already rejects a coalesced 0 (0 < 101), so a future
+     * "improvement" that replaced null with 0 would still pass this
+     * assertion even though it had started sweeping every such listener into
+     * every window. A `to`-only window compiles to `lte(1231)` alone, which a
+     * coalesced 0 WOULD satisfy (0 <= 1231) — so this is the shape that
+     * actually fails when that regression lands.
+     */
+    it('leaves out a listener with no birth date on file', async () => {
+      const label = `birthday-none-${Date.now()}`;
+      const customer = await provisionCustomer(label);
+      const owner = await signInAs(customer.email, customer.password);
+      const token = await accessTokenFor(owner);
+      const nameless = await createMemberAs(customer, customer.companyId, {
+        fullName: `${label} unknown`,
+      });
+
+      const page = await listOrganizationMembers(
+        {
+          organizationId: customer.organizationId,
+          sort: 'created',
+          direction: 'desc',
+          cursor: null,
+          cursorSide: 'after',
+          birthdayTo: '12-31',
+        },
+        token,
+      );
+      expect(page.rows.map((r) => r.id)).not.toContain(nameless);
+    });
+  });
 });

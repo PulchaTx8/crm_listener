@@ -311,6 +311,8 @@ export async function createMemberAs(
     cpfHash?: string;
     cpfLastDigits?: string;
     passport?: string;
+    /** `YYYY-MM-DD`, passed through to create_member's own `p_birth_date` (0034:68) unconverted — a `date` column accepts it as-is. */
+    birthDate?: string;
   },
 ): Promise<string> {
   const ownerClient = await signInAs(customer.email, customer.password);
@@ -322,6 +324,7 @@ export async function createMemberAs(
     p_cpf_hash: fields.cpfHash,
     p_cpf_last_digits: fields.cpfLastDigits,
     p_passport: fields.passport,
+    p_birth_date: fields.birthDate,
   });
   if (error) throw new Error(`create_member failed: ${error.message}`);
   return data as string;
