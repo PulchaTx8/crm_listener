@@ -1,5 +1,5 @@
 begin;
-select plan(7);
+select plan(9);
 
 -- Block 30c. Two fields a promotion gains, and the rule that the entry text
 -- cannot be blank once a door is open. This task covers the columns; the gate's
@@ -12,7 +12,12 @@ insert into public.companies (id, organization_id, name, timezone) values
   ('00000000-0000-0000-0000-0000000030b1', '00000000-0000-0000-0000-0000000030c1', 'Station B', 'America/Sao_Paulo');
 
 insert into public.shows (id, organization_id, company_id, name) values
-  ('00000000-0000-0000-0000-0000000030f1', '00000000-0000-0000-0000-0000000030c1', '00000000-0000-0000-0000-0000000030a1', 'Manha de A');
+  ('00000000-0000-0000-0000-0000000030f1', '00000000-0000-0000-0000-0000000030c1', '00000000-0000-0000-0000-0000000030a1', 'Manha de A'),
+  -- A second Station A show, used only by assertions 8-9 below so the update
+  -- case can move show_id to a genuinely DIFFERENT value rather than leaving
+  -- the one create_promotion already wrote -- a body that dropped p_show_id
+  -- from its SET list would pass the "leave it unchanged" case by accident.
+  ('00000000-0000-0000-0000-0000000030f3', '00000000-0000-0000-0000-0000000030c1', '00000000-0000-0000-0000-0000000030a1', 'Tarde de A');
 
 insert into public.promotions
   (id, organization_id, company_id, name, starts_at, ends_at)
@@ -68,7 +73,12 @@ insert into public.roles (id, organization_id, name) values
   ('00000000-0000-0000-0000-0000000030e1', '00000000-0000-0000-0000-0000000030c1', 'Promotions Manager 30c');
 insert into public.role_permissions (role_id, permission_code) values
   ('00000000-0000-0000-0000-0000000030e1', 'promotions.create'),
-  ('00000000-0000-0000-0000-0000000030e1', 'promotions.edit');
+  ('00000000-0000-0000-0000-0000000030e1', 'promotions.edit'),
+  -- promotions_select_promotions_view (0044) gates every SELECT on
+  -- promotions.view -- without it, assertions 8-9's read-back below sees zero
+  -- rows under RLS rather than the row the RPC just wrote, the same reason
+  -- 47_promotion_hashtag_collision.test.sql grants it.
+  ('00000000-0000-0000-0000-0000000030e1', 'promotions.view');
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000030e2', 'promo-rules-gate-30c@example.test');
 insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
@@ -109,7 +119,8 @@ select throws_ok($$
     null, null, false, null, false, false, null, null, null, '{}', null,
     true,  -- p_web_enabled
     null)  -- p_rules
-$$, '22023', null, 'a promotion cannot be created with a door open and no rules');
+$$, '22023', 'a promotion that takes part by WhatsApp or on the website needs its rules',
+  'a promotion cannot be created with a door open and no rules');
 
 -- 5: turning a door on with blank rules is refused.
 -- (Seed a promotion with both doors off and no rules first, then update it.)
@@ -119,7 +130,8 @@ select throws_ok($$
     now(), now() + interval '10 days',
     null, null, false, null, false, true, '#hash30c', null, null, '{}', null,
     false, null)
-$$, '22023', null, 'a door cannot be opened while the rules are blank');
+$$, '22023', 'a promotion that takes part by WhatsApp or on the website needs its rules',
+  'a door cannot be opened while the rules are blank');
 
 -- 6: clearing the rules while a door is on is refused.
 select throws_ok($$
@@ -128,7 +140,8 @@ select throws_ok($$
     now(), now() + interval '10 days',
     null, null, false, null, false, false, null, null, null, '{}', null,
     true, null)
-$$, '22023', null, 'the rules cannot be cleared while a door is open');
+$$, '22023', 'a promotion that takes part by WhatsApp or on the website needs its rules',
+  'the rules cannot be cleared while a door is open');
 
 -- 7: AND THE ONE THAT MUST BE ALLOWED, which is the decision this gate exists
 -- to express. A promotion already door-on and rules-blank -- a shape reachable
@@ -141,6 +154,44 @@ select lives_ok($$
     null, null, false, null, false, false, null, null, null, '{}', null,
     true, null)
 $$, 'a promotion already door-on and rules-blank stays editable');
+
+-- 8: create_promotion actually writes p_authorization_certificate and
+-- p_show_id rather than accepting and dropping them on the floor -- the
+-- failure mode 52_inventory_tabs.test.sql:294 names for p_show_id on a
+-- different RPC ("a door that drops p_show_id on the floor leaves this
+-- column null here too"). Both doors off here so the gate above is not what
+-- this assertion is exercising.
+create temporary table t30c_written as
+select public.create_promotion(
+  '00000000-0000-0000-0000-0000000030a1', 'Promo com certificado',
+  now(), now() + interval '10 days',
+  null, null, false, null, false, false, null, null, null, '{}', null,
+  false, null,
+  'CERT-30C2', '00000000-0000-0000-0000-0000000030f1') as id;
+
+select is(
+  (select array[authorization_certificate, show_id::text]
+     from public.promotions where id = (select id from t30c_written)),
+  array['CERT-30C2', '00000000-0000-0000-0000-0000000030f1'],
+  'create_promotion writes authorization_certificate and show_id rather than dropping them');
+
+-- 9: update_promotion writes the same two fields, checked on the write door
+-- that replaces wholesale rather than the one that inserts -- and to a
+-- DIFFERENT certificate and a DIFFERENT show (...30f3, seeded above for
+-- exactly this), so a body that just left the old values in place could not
+-- pass by coincidence.
+select public.update_promotion(
+  (select id from t30c_written), 'Promo com certificado renomeada',
+  now(), now() + interval '20 days',
+  null, null, false, null, false, false, null, null, null, '{}', null,
+  false, null,
+  'CERT-30C2-B', '00000000-0000-0000-0000-0000000030f3');
+
+select is(
+  (select array[authorization_certificate, show_id::text]
+     from public.promotions where id = (select id from t30c_written)),
+  array['CERT-30C2-B', '00000000-0000-0000-0000-0000000030f3'],
+  'update_promotion writes authorization_certificate and show_id rather than dropping them');
 
 select * from finish();
 rollback;

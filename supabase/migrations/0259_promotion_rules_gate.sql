@@ -2,12 +2,19 @@
 
 -- Block 30c, items 15 and (the plumbing for) 10 and 17.
 --
--- BOTH BODIES BELOW ARE THE LIVE DEFINITIONS (pg_get_functiondef), with the
--- edits listed here and nothing else. These two functions have been redefined
--- SIX times -- 0042, 0050, 0055, 0144, 0172, 0184 -- and 0172's own header
--- records what retyping one costs: "Retyping a shipped body is how 0168
--- silently reverted 0163's public-key pin one block ago." Re-deriving from 0172
--- would revert 0184's hashtag collision guard; from 0144, five rounds at once.
+-- BOTH BODIES BELOW ARE BYTE-IDENTICAL TO pg_get_functiondef's OUTPUT for the
+-- live functions -- confirmed by diff, not assumed. Built from 0184's own
+-- source rather than retyped from the dump: pg_get_functiondef normalises a
+-- parameter list onto one line and drops any comment sitting inside it, which
+-- would have silently dropped the "Block 17c." note beside
+-- p_web_enabled/p_rules below -- so the surrounding source (the parameter
+-- list, its comments) is 0184's own text, and only the two functions' bodies
+-- are the thing verified against the dump. These two functions have been
+-- redefined SIX times -- 0042, 0050, 0055, 0144, 0172, 0184 -- and 0172's own
+-- header records what retyping one costs: "Retyping a shipped body is how
+-- 0168 silently reverted 0163's public-key pin one block ago." Re-deriving
+-- from 0172 would revert 0184's hashtag collision guard; from 0144, two
+-- rounds at once.
 -- Nothing would turn red.
 --
 -- The edits are only these:
@@ -34,8 +41,9 @@ drop function if exists public.create_promotion(
   boolean, text, text, text, public.promotion_requested_field[], integer,
   boolean, text);
 
--- ===== update_promotion (live definition, pg_get_functiondef, confirmed byte
--- for byte identical to 0184's body before the edits below) =====
+-- ===== update_promotion. Body confirmed byte-for-byte identical to
+-- pg_get_functiondef's live output before the edits below; the signature and
+-- its comments are 0184's own source (see the file header for why). =====
 create function public.update_promotion(
   p_promotion_id              uuid,
   p_name                      text,
@@ -319,8 +327,9 @@ begin
 end;
 $$;
 
--- ===== create_promotion (live definition, pg_get_functiondef, confirmed byte
--- for byte identical to 0184's body before the edits below) =====
+-- ===== create_promotion. Body confirmed byte-for-byte identical to
+-- pg_get_functiondef's live output before the edits below; the signature and
+-- its comments are 0184's own source (see the file header for why). =====
 create function public.create_promotion(
   p_company_id                uuid,
   p_name                      text,
@@ -491,3 +500,24 @@ grant execute on function public.create_promotion(
   uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean,
   boolean, text, text, text, public.promotion_requested_field[], integer,
   boolean, text, text, uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- comment on function, restated for the same reason the grants are: a drop
+-- takes it with it. 0042 first documented these two, kept current through
+-- 0055 and 0144; 0172's drop+create lost both and nobody noticed; 0184
+-- restored both, against the 17-argument signature that was then current.
+-- This drop loses them a second time -- carried forward from 0184's own text
+-- (0184:409-419), against the new 19-argument signature, plus one sentence
+-- for what Block 30c adds.
+-- ---------------------------------------------------------------------------
+comment on function public.update_promotion(
+  uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean,
+  boolean, text, text, text, public.promotion_requested_field[], integer,
+  boolean, text, text, uuid) is
+  'Replaces a promotion''s fields wholesale, gated on promotions.edit. Freezes the hashtag and the start date once a participation exists (Block 4c). Final review fix wave, Important #5: also refuses a hashtag equal to THIS Station''s own music_hashtag or service_hashtag (0177) -- the reverse of the guard set_service_hashtags already carries -- because D3 matches a promotion''s hashtag ahead of the Station''s two general ones, so this direction was open to the identical silent collision until now. Mirrors 0177''s own window, `ends_at > now()` (its header has the full reasoning: an ended promotion cannot shadow anything, because ingest_whatsapp_event never matches outside a promotion''s own window, so refusing reuse forever is worse than the collision it prevents) -- without it this guard made any promotion whose hashtag a Station later claimed permanently unsaveable, since every call re-posts every field including the unchanged hashtag. Also skipped whenever the hashtag itself is unchanged, independent of the window: a save that does not touch it cannot be what introduces a collision. Block 30c: also writes authorization_certificate and show_id straight through (no normalisation beyond the usual blank-to-null for the certificate), and refuses a write that would leave a WhatsApp- or web-enabled promotion with blank rules UNLESS the existing row already had that shape -- the gate refuses the transition into it, not the state itself.';
+
+comment on function public.create_promotion(
+  uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean,
+  boolean, text, text, text, public.promotion_requested_field[], integer,
+  boolean, text, text, uuid) is
+  'Creates a promotion, gated on promotions.create. Born without pictures -- set_promotion_thumb/set_promotion_art are separate calls against the id this returns. Final review fix wave, Important #5: refuses a hashtag equal to THIS Station''s own music_hashtag or service_hashtag (0177), the same guard update_promotion now carries and for the same reason -- a promotion born with the Station''s own word would silently close that door. Carries the same window as 0177''s own clash check and update_promotion''s mirror of it, `p_ends_at > now()`: a promotion created with an end date already in the past cannot shadow the Station''s hashtag either. Block 30c: also writes authorization_certificate and show_id straight through, and refuses being born with a door on (WhatsApp or web) and rules blank -- there is no previous row to compare against, so this half of the gate is unconditional.';

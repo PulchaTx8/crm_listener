@@ -17,13 +17,16 @@ select plan(10);
 -- makes for set_service_hashtags itself, mirrored here for the reverse
 -- direction.
 --
--- Block 30c D2. Every call below carries WhatsApp on with no rules, which the
--- new rules gate (0259) now refuses outright for a fresh promotion and, for
--- an update, refuses whenever the door was not already on with rules blank --
--- neither of which is what this file exists to test. `p_rules` is the 17th
--- parameter, so it is passed by name on every call below rather than filling
--- every positional slot in between, and only so the collision guard is what
--- actually gets exercised.
+-- Block 30c D2. Every call below turns WhatsApp on with no rules. Six of the
+-- ten have nothing standing between them and the new rules gate's (0259)
+-- 22023, which is not what this file exists to test. The other four -- the
+-- two create and two update throws_ok pairs testing the collision guard
+-- itself -- would be refused by THAT guard first regardless, since it runs
+-- before the gate. `p_rules` is the 17th parameter, so it is passed by name
+-- on every call below rather than filling every positional slot in between,
+-- and on all ten uniformly rather than only the six that strictly need it, so
+-- which four those are is not something a future edit to this file has to
+-- keep track of.
 
 insert into public.organizations (id, name) values
   ('00000000-0000-0000-0000-000000000701', 'Org promotion hashtag collision');

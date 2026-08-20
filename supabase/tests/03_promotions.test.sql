@@ -322,8 +322,9 @@ select is(public.is_owner_of_company(gen_random_uuid()), false,
 -- entirely, so a stray grant on either is a direct read into another Station's
 -- prize names and figures, restrained only by the has_permission call in the
 -- body.
--- FIFTEEN argument types as of 0144, having been seventeen as of 0055 and
--- sixteen before that. Each move corrected this pair, and each time the same way:
+-- NINETEEN argument types as of 0259, having been seventeen as of 0172 and of
+-- 0055 alike, fifteen as of 0144, and sixteen before that. Each move
+-- corrected this pair, and each time the same way:
 -- has_function_privilege RAISES rather than returning false when handed a
 -- signature that does not exist, so a stale pin aborts the whole file at this
 -- line. That is the good failure — the grid notices the signature has moved
@@ -337,7 +338,7 @@ select ok(
   has_function_privilege('authenticated', 'public.create_promotion(uuid, text, timestamptz, timestamptz, integer, text, boolean, integer, boolean, boolean, text, text, text, public.promotion_requested_field[], integer, boolean, text, text, uuid)', 'EXECUTE'),
   'authenticated may call create_promotion');
 
--- Fifteen here too, for the reason above. The bad failure this pair cannot see
+-- Nineteen here too, for the reason above. The bad failure this pair cannot see
 -- is a pin that goes on passing against a SEVENTEEN-argument twin a drop forgot
 -- to remove — which is why 02_permissions.test.sql counts pg_proc entries by
 -- name for this function: no signature pin, here or there, can see a twin.
