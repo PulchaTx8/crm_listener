@@ -1188,8 +1188,16 @@ describe('members', () => {
     /**
      * A listener nobody asked for a birth date is absent, not wrongly
      * included. The column is null for them (0257) and null satisfies
-     * neither branch — but a future "improvement" that coalesced it to 0
-     * would sweep every such listener into every January window.
+     * neither branch.
+     *
+     * ONLY `birthdayTo` IS SET, DELIBERATELY — not the `between` a From-and-To
+     * window would compile to. A `between` window's lower bound alone
+     * (`gte(101)`) already rejects a coalesced 0 (0 < 101), so a future
+     * "improvement" that replaced null with 0 would still pass this
+     * assertion even though it had started sweeping every such listener into
+     * every window. A `to`-only window compiles to `lte(1231)` alone, which a
+     * coalesced 0 WOULD satisfy (0 <= 1231) — so this is the shape that
+     * actually fails when that regression lands.
      */
     it('leaves out a listener with no birth date on file', async () => {
       const label = `birthday-none-${Date.now()}`;
@@ -1207,7 +1215,6 @@ describe('members', () => {
           direction: 'desc',
           cursor: null,
           cursorSide: 'after',
-          birthdayFrom: '01-01',
           birthdayTo: '12-31',
         },
         token,
