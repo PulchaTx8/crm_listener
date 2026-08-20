@@ -10,7 +10,8 @@ import { maskedPhone } from '@/lib/members/mask';
  * Block 30a, item 5. What is being handed over, before it is handed over.
  *
  * IT DELIVERS. The button reads "Dar baixa" because that is what an operator
- * says when a prize leaves the shelf -- the owner's ruling of 2026-08-19 -- and
+ * says when a prize leaves the shelf -- D5 of
+ * docs/superpowers/specs/2026-08-20-block-30a-listener-privacy-design.md -- and
  * the action it runs is `deliver`, not `write_off`. The destructive write-off
  * was relabelled "Baixa por perda" in the same change, because two buttons
  * reading the same words on one screen, one of which cannot be undone, is the
@@ -19,11 +20,14 @@ import { maskedPhone } from '@/lib/members/mask';
  * THE NOTE ITSELF IS NOT NEW; THE PLACE TO WRITE ONE IS. deliver_prize (0084)
  * has taken `p_note` since Block 6b, and pickupWinnerAction has passed this
  * screen's `reason` through as `p_note` since Block 6d -- but WinnerActions'
- * own generic strip never exposed a way to write one for `deliver`:
- * `NEEDS_REASON.deliver` is false there, so its Deliver button always sent an
- * empty reason. This window is the first place that field is actually
- * reachable; a second column beside the promotion/listener/prize block above
- * would be two places to look for one sentence.
+ * own generic strip never gave an operator a field to write one FOR THE
+ * HANDOVER. `NEEDS_REASON.deliver` is false there, so clicking Deliver went
+ * straight to `run()` with whatever the row's one shared `reason` state
+ * happened to hold at that moment -- empty, or a leftover from typing into
+ * `return`'s or `write_off`'s box first and pressing Deliver instead. This
+ * window is the first place a delivery note is reachable on purpose; a
+ * second column beside the promotion/listener/prize block above would be two
+ * places to look for one sentence.
  *
  * The listener's number is the four digits the list already carries. This
  * window deliberately offers NO reveal: an operator who needs to telephone
