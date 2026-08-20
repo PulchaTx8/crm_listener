@@ -1647,3 +1647,99 @@ git push -u origin block-30a-listener-privacy
   all three screens already compute.
 - **`MemberRecordDialog` is untouched.** Its fields stay unmasked, because it is
   reached from the screen whose purpose is administering a listener.
+
+---
+
+### Task 8: The same leak, one door over
+
+Added on the owner's ruling of 2026-08-20, after Task 2's review found the
+archived-listener disclosure in `reveal_member_field` and the controller
+confirmed the identical gap in Block 22's door.
+
+**Files:**
+- Create: `supabase/migrations/0255_reveal_request_phone_excludes_archived.sql`
+- Modify: `supabase/tests/51_music_request_triage.test.sql`
+
+**Interfaces:**
+- Consumes: nothing. Produces: no signature change — `public.reveal_request_phone(uuid) returns text` is unchanged in shape.
+
+- [ ] **Step 1: Write the failing pgTAP**
+
+In `supabase/tests/51_music_request_triage.test.sql`, beside the existing
+`reveal_request_phone` assertions (~line 165), add two: an **archived** listener
+(`deleted_at` set, the way `archive_member` sets it — `0034_member_rpcs.sql:375-378`)
+discloses **null**, and the audit row is **still written**. Raise `plan(N)` to match.
+
+Model both on `supabase/tests/69_listener_reveal.test.sql`'s archived case, which
+Task 2 wrote for the sibling door — same shape, same reasoning, so the two files
+cannot come to disagree about what "archived" means.
+
+- [ ] **Step 2: Run it and watch it fail**
+
+Run: `npm run db:reset && npm run db:test`
+Expected: FAIL — the door returns the whole number for an archived listener.
+**That failure is the bug being fixed. Record its exact output in the report.**
+
+- [ ] **Step 3: Dump the live definition**
+
+```sql
+select pg_get_functiondef('public.reveal_request_phone'::regproc);
+```
+
+`psql` is not installed; use a Node script with the repo's `pg` dependency
+against `LOCAL_SUPABASE_DB_URL`. **The migration body is that dump with one
+predicate added** — not `0190`'s body retyped.
+
+- [ ] **Step 4: Write the migration**
+
+`create or replace` is correct here and `drop` is **not** needed: the function
+returns `text`, so nothing about its result type changes and the ACL is
+preserved. (Contrast Task 3, where a `returns table` column rename forced
+drop + create.)
+
+The one change is in the locking select:
+
+```sql
+  select phone into v_phone
+    from public.members
+   where id = v_member and anonymized_at is null and deleted_at is null
+   for share;
+```
+
+The header must say why, and must be true at this commit:
+
+- `members_select_reachable` (`0035_rls_members.sql:95-100`) gates on
+  `deleted_at is null` **outside** `member_reachable`'s bypass, and 0035's own
+  comment states the rule: an archived Member "becomes unselectable to everyone,
+  owner included … That is by design."
+- `archive_member` (`0034`) sets `deleted_at`; the `music_requests` row and the
+  `member_company_links` row both survive it, so the door still resolved a
+  listener and still read the row.
+- The same gap was found in `reveal_member_field` by Block 30a's Task 2 review,
+  proved against the database with a mutation control, and closed by `0253`.
+  This door is its sibling and had it too.
+- Null for an archived listener, **and the audit row is still written** —
+  somebody asked, and that is the fact being recorded. Same rule as erasure.
+
+- [ ] **Step 5: Run it and watch it pass**
+
+Run: `npm run db:reset && npm run db:test`
+Expected: PASS.
+
+- [ ] **Step 6: Regenerate types and check nothing moved**
+
+Run: `npm run db:types && npm run typecheck`
+Expected: **no diff** in `database.types.ts` — the signature did not change. A
+diff here means something else moved and must be explained.
+
+- [ ] **Step 7: Document it**
+
+In `docs/SECURITY.md` §8, extend the sentence Task 7 added so it covers **both**
+reveal doors rather than only `reveal_member_field`.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add supabase/migrations/0255_reveal_request_phone_excludes_archived.sql supabase/tests/51_music_request_triage.test.sql docs/SECURITY.md
+git commit -m "fix(30a): the request reveal door stops disclosing an archived listener"
+```
