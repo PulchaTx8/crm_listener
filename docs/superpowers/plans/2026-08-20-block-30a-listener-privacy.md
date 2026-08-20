@@ -1220,11 +1220,16 @@ Items 4, 7 and 9's View half.
 
 **Catalogue keys this task needs**, checked against `messages/en.json`:
 
-| namespace | already there | add |
+| namespace | already there | add **in this task** |
 |---|---|---|
-| `pickups` | `actions` | `view`, `viewTheListener` (added in Task 6's edit — do them together if Task 6 runs first) |
+| `pickups` | `actions`, `promotion`, `listener`, `prize` | `view`, `viewTheListener` |
 | `participations` | `view`, `listener`, `viewTheEntryOf` | `viewTheListener` |
 | `music` | `listener`, `actions` | `view`, `viewTheListener` |
+
+**Task 5 owns `pickups.view` and `pickups.viewTheListener`, not Task 6.** Task 6
+adds only `pickups.deliveryNotes` and `pickups.cancel`. Task 5 runs first and
+its buttons need these keys; a note in an earlier draft said otherwise and was
+wrong.
 
 `viewTheListener` — en *View the listener* / pt *Ver o ouvinte* / es *Ver el oyente*.
 `music.view` — en *View* / pt *Ver* / es *Ver*.
@@ -1497,12 +1502,11 @@ Add to the `pickups` namespace in all three catalogues:
 |---|---|---|---|
 | `deliveryNotes` | Delivery notes | Recibo da entrega | Recibo de la entrega |
 | `cancel` | Cancel | Cancelar | Cancelar |
-| `view` | View | Ver | Ver |
-| `viewTheListener` | View the listener | Ver o ouvinte | Ver el oyente |
 
 **Already in `pickups` — reuse, do not re-add:** `promotion`, `listener`,
-`prize`. (Checked against `messages/en.json`. `cancel` and `view` are **not**
-there, despite being everywhere else in the product.)
+`prize`, and `view` / `viewTheListener` (Task 5 added those two). Checked
+against `messages/en.json`: `cancel` is **not** there, despite being everywhere
+else in the product.
 
 - [ ] **Step 4: Mount it**
 
@@ -1563,12 +1567,16 @@ Expected: PASS.
 
 - [ ] **Step 3: Write down what changed about the boundary**
 
-In `docs/SECURITY.md` §9 (the section that already states the hashing rule for
-limiter subjects), add the reveal door beside `reveal_request_phone`: what it
-discloses, what it audits, and that it has **no rate limit** — an operator
-holding `members.view` can enumerate one listener at a time, leaving a row each
-time. That is the same exposure Block 22 accepted, now on a wider door, and it
-is recorded rather than hidden.
+In `docs/SECURITY.md` **§8 (LGPD)** — verified: §8 is LGPD, §9 is Rate limiting,
+and the disclosure belongs beside erasure rather than beside the limiters. Add
+`reveal_member_field` next to `reveal_request_phone`: what it discloses, that it
+returns null for an erased listener while still writing the audit row, and that
+the two list doors no longer carry the number at all.
+
+Then add one line to **§9** recording that neither reveal door is rate-limited:
+an operator holding `members.view` can enumerate one listener at a time, leaving
+an audit row each time. That is the exposure Block 22 accepted, now on a wider
+door, and it is written down rather than hidden.
 
 In `docs/PERMISSIONS.md`, note that `members.view` now also governs the listener
 card on Pickups, Participations and Requests, and that no new permission was
