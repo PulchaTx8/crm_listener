@@ -51,14 +51,32 @@ export function MembersFilters({ state }: { state: MemberListState }) {
   // mismatch what the browser hydrates.
   const [fromDay, setFromDay] = useState('');
   const [toDay, setToDay] = useState('');
-  useEffect(() => setFromDay(toDayInput(state.registeredFrom)), [state.registeredFrom]);
-  useEffect(() => setToDay(toDayInput(state.registeredTo)), [state.registeredTo]);
+  // Gated on dateMode rather than firing unconditionally: parseMemberListState
+  // does not forbid a URL that carries both windows at once (registeredFrom/To
+  // alongside birthdayFrom/To), and with all four of these effects ungated
+  // they would all fire on that render, React would batch them, and whichever
+  // was declared last would win the shared fromDay/toDay state -- showing a
+  // birthday day under a "Registered from" label, or vice versa, with no box
+  // for the other window even on screen to reveal the mismatch. Only the pair
+  // matching the currently active mode may write these two boxes; dateMode is
+  // in every dependency array below because switching modes has to re-run the
+  // check even when the field itself did not change.
+  useEffect(() => {
+    if (state.dateMode === 'registered') setFromDay(toDayInput(state.registeredFrom));
+  }, [state.dateMode, state.registeredFrom]);
+  useEffect(() => {
+    if (state.dateMode === 'registered') setToDay(toDayInput(state.registeredTo));
+  }, [state.dateMode, state.registeredTo]);
   // Same back/forward reasoning as the pair above, not the zone one: a
   // birthday day is a slice of a string (monthDayOf, below), not an instant,
   // so there is no clock to get wrong here -- only the URL state to resync
   // onto after a navigation this component did not cause.
-  useEffect(() => setFromDay(birthdayDayInput(state.birthdayFrom)), [state.birthdayFrom]);
-  useEffect(() => setToDay(birthdayDayInput(state.birthdayTo)), [state.birthdayTo]);
+  useEffect(() => {
+    if (state.dateMode === 'birthday') setFromDay(birthdayDayInput(state.birthdayFrom));
+  }, [state.dateMode, state.birthdayFrom]);
+  useEffect(() => {
+    if (state.dateMode === 'birthday') setToDay(birthdayDayInput(state.birthdayTo));
+  }, [state.dateMode, state.birthdayTo]);
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout> | undefined>>({});
   useEffect(() => {

@@ -128,10 +128,21 @@ export default async function MembersPage({
         blockedOnly: state.blockedOnly || undefined,
         hasRulesConsent: state.consent === undefined ? undefined : state.consent === 'yes',
         gender: state.gender,
-        registeredFrom: state.registeredFrom,
-        registeredTo: state.registeredTo,
-        birthdayFrom: state.birthdayFrom,
-        birthdayTo: state.birthdayTo,
+        // dateMode decides which pair reaches the service, not just which
+        // pair the boxes show: parseMemberListState reads registeredFrom/To
+        // and birthdayFrom/To independently of dateMode, so a hand-edited URL
+        // can carry both, and listOrganizationMembers ANDs whatever windows it
+        // is given (services/members.ts has no dateMode of its own to check).
+        // Left to the browser alone, that URL would apply the inactive
+        // window as a silent extra filter -- narrowing the list with nothing
+        // on screen to show it, since the box for the other window is not
+        // even rendered. Enforcing the one-window-at-a-time rule only in the
+        // control that edits the URL is not enforcing it: this is the one
+        // place every request the service will act on passes through.
+        registeredFrom: state.dateMode === 'registered' ? state.registeredFrom : undefined,
+        registeredTo: state.dateMode === 'registered' ? state.registeredTo : undefined,
+        birthdayFrom: state.dateMode === 'birthday' ? state.birthdayFrom : undefined,
+        birthdayTo: state.dateMode === 'birthday' ? state.birthdayTo : undefined,
       },
       accessToken,
     );
