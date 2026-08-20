@@ -26,6 +26,7 @@ import { formatInstant } from '../promotions/format';
 import { describeDeadline, STATUS_CLASSES, STATUS_LABEL_KEYS } from './list-params';
 import type { PickupActionResult } from './actions';
 import { ReopenForm } from './reopen-form';
+import { HandOverDialog } from './hand-over-dialog';
 
 /** How many columns the empty-state row has to span. */
 const COLUMN_COUNT = 6;
@@ -82,6 +83,10 @@ export function PickupsGrid({
   const t = useTranslations('pickups');
   // The shared enum vocabulary, which several screens render.
   const tv = useTranslations('vocab');
+  // Only for actionHandOver, which HandOverDialog's own title also reads off
+  // this same key -- the trigger below and the window it opens say the same
+  // word, deliberately.
+  const td = useTranslations('draws');
   const [grid, setGrid] = useState<RowState<PickupGridRow>>({
     rows: initialRows.map(toGridRow),
     total: initialTotal,
@@ -106,6 +111,24 @@ export function PickupsGrid({
       setListenerId(null);
     }
   }, [grid.rows, listenerId]);
+
+  const [handOverWinnerId, setHandOverWinnerId] = useState<string | null>(null);
+
+  // The same defect, on the window this task adds: `handOverWinnerId`
+  // staying set after its row leaves `grid.rows` (a filter narrowing the
+  // page) would reopen Hand over unprompted the moment that filter is
+  // cleared again, exactly as `listenerId` just above.
+  useEffect(() => {
+    if (handOverWinnerId !== null && !grid.rows.some((row) => row.winnerId === handOverWinnerId)) {
+      setHandOverWinnerId(null);
+    }
+  }, [grid.rows, handOverWinnerId]);
+
+  // Only the id lives in state, the same choice `listenerId` makes above:
+  // the row itself is read fresh off `grid.rows` on every render, so the
+  // promotion/listener/prize this window shows can never drift from what
+  // the table behind it is currently showing for that winner.
+  const handOverRow = grid.rows.find((row) => row.winnerId === handOverWinnerId);
 
   function patch(winnerId: string, next: { status: PickupRow['status']; deadlineAt?: string }) {
     setGrid((current) => {
@@ -173,16 +196,22 @@ export function PickupsGrid({
             </TableRow>
           ) : (
             grid.rows.map((row) => {
-              // Whether the reopen belongs on this row at all — the same
-              // canonical function the generic button beneath uses, asked
-              // once more so the rule for "when is reopen legal" lives in
-              // exactly one place rather than being re-derived here.
-              const canReopen = availableWinnerActions({
+              // Whether reopen and Hand over belong on this row at all — the
+              // canonical function, asked with the UNMODIFIED powers, so the
+              // rule for "when is X legal" lives in exactly one place rather
+              // than being re-derived here. This is the same call `canReopen`
+              // alone used to make; `deliver` rides along because the
+              // `handOver: false` passed to WinnerActions below only
+              // suppresses the generic strip's own button, never what
+              // `deliver` is actually legal for.
+              const rowActions = availableWinnerActions({
                 status: row.status,
                 allowsReturnToStock: row.allowsReturnToStock,
                 powers: winnerPowers,
                 drawStatus: row.drawStatus,
-              }).includes('reopen');
+              });
+              const canReopen = rowActions.includes('reopen');
+              const canDeliver = rowActions.includes('deliver');
 
               return (
                 <TableRow key={row.winnerId} data-testid="pickup-row">
@@ -229,6 +258,17 @@ export function PickupsGrid({
                         {t('view')}
                       </Button>
                     )}
+                    {canDeliver && (
+                      <Button
+                        key="hand-over"
+                        type="button"
+                        size="sm"
+                        onClick={() => setHandOverWinnerId(row.winnerId)}
+                        data-testid="pickup-hand-over"
+                      >
+                        {td('actionHandOver')}
+                      </Button>
+                    )}
                     <WinnerActions
                       status={row.status}
                       allowsReturnToStock={row.allowsReturnToStock}
@@ -238,7 +278,13 @@ export function PickupsGrid({
                       // actually offers it — the same courtesy draws/page.tsx
                       // already uses to keep this exact button off a screen
                       // with no date field.
-                      powers={{ ...winnerPowers, reopenDeadline: false }}
+                      //
+                      // handOver forced false: hand-over-dialog.tsx is this
+                      // screen's own window for the same action, mounted
+                      // through the button just above rather than through
+                      // this generic strip — draws/draw-detail.tsx passes no
+                      // such flag and keeps the strip's own Hand over button.
+                      powers={{ ...winnerPowers, reopenDeadline: false, handOver: false }}
                       drawStatus={row.drawStatus}
                       onAct={(action, reason) => handleWinnerAction(row.winnerId, action, reason)}
                     />
@@ -258,6 +304,17 @@ export function PickupsGrid({
 
       {listenerId && (
         <ListenerCardDialog memberId={listenerId} onClose={() => setListenerId(null)} />
+      )}
+
+      {handOverRow && (
+        <HandOverDialog
+          promotionName={handOverRow.promotionName}
+          listenerName={handOverRow.memberName}
+          listenerPhoneLast4={handOverRow.memberPhoneLast4}
+          prizeName={handOverRow.prizeName}
+          onConfirm={(note) => handleWinnerAction(handOverRow.winnerId, 'deliver', note)}
+          onClose={() => setHandOverWinnerId(null)}
+        />
       )}
 
       {/*
