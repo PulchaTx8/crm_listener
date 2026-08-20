@@ -1,8 +1,13 @@
 -- supabase/migrations/0254_pickup_and_participation_phone_last4.sql
 
 -- Block 30a D1. The pickups and participations lists stop returning a
--- listener's telephone number and return its last four digits, which is what
--- list_music_requests has returned since Block 22 (0191).
+-- listener's telephone number and return its last four digits -- the same
+-- SHAPE list_music_requests has returned since Block 22 (0191). The RULE is
+-- not yet shared with it here: 0191's own masking is its own inline
+-- `right(normalize_phone(...), 4)`, which disagrees with member_phone_last4
+-- below at the under-four-digit edge (0256, whole-branch review F2, moves
+-- 0191 onto this same function; see that migration's header for the case
+-- probed live).
 --
 -- MASKING IN REACT WOULD NOT HAVE DONE THIS. The whole number would still be in
 -- the HTML payload, in the browser's memory and in any error report the page
@@ -24,10 +29,13 @@
 -- total_count still comes from the same CTE the rows come from. The change is
 -- to the projection only; a page and its count cannot narrow differently.
 
--- The rule, in one place, so the two lists cannot drift from each other or from
--- src/lib/members/mask.ts. Digits only, because normalize_phone (0031) is
--- digits only; null under four, because a mask that reveals a two-digit number
--- is not a mask.
+-- The rule, in one place, so list_pickups and list_participations below
+-- cannot drift from each other or from src/lib/members/mask.ts. Digits only,
+-- because normalize_phone (0031) is digits only; null under four, because a
+-- mask that reveals a two-digit number is not a mask. list_music_requests
+-- (0191) does not move onto this same function until 0256 -- three lists
+-- share it only once this branch's last migration has run, not as of this
+-- one.
 create or replace function public.member_phone_last4(p_phone text)
 returns text
 language sql
@@ -201,7 +209,7 @@ end;
 $$;
 
 comment on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) is
-  'One keyset page of the pickups list: every winner across every promotion of a Station, soonest deadline first (nulls -- no deadline at all -- last), with the status and promotion filters and a listener search the screen carries. SECURITY DEFINER, so what RLS used to do is done here by hand, in four rules: (1) promotions.view or a 42501 rather than an empty page (winners_select_by_promotion_view, 0075); (2) the listener''s name and phone returned only to a caller holding members.view -- without it the list still lists, every row, with those two null; (3) a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle (0090 argues this in full for the participants list); (4) an archived promotion''s winners hidden from everybody but the platform admin and the Organization''s owner, through the same is_owner_of_company predicate 0044''s policy names -- the exact rule Block 6c''s list_participations lost for five commits, caught only by tests/isolation. Plus a fifth fact that is not a fifth rule: a winner whose draw was CANCELLED is excluded outright, because cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and RLS never hid that either -- this function is simply the first reader to treat AWAITING_PICKUP as "live" and so the first that has to say so. draw_status is returned alongside it (Task 9, edited in place) precisely because that fifth fact is a filter and not a promise: availableWinnerActions (src/components/draws/winner-actions.tsx) requires a drawStatus to decide whether a row''s actions may render at all, and a caller reading the real column here stays correct if this function''s own filtering ever changes, where a caller assuming COMPLETED by construction would not. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
+  'One keyset page of the pickups list: every winner across every promotion of a Station, soonest deadline first (nulls -- no deadline at all -- last), with the status and promotion filters and a listener search the screen carries. SECURITY DEFINER, so what RLS used to do is done here by hand, in four rules: (1) promotions.view or a 42501 rather than an empty page (winners_select_by_promotion_view, 0075); (2) the listener''s name and the last four digits of the phone returned only to a caller holding members.view -- without it the list still lists, every row, with those two null; (3) a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle (0090 argues this in full for the participants list); (4) an archived promotion''s winners hidden from everybody but the platform admin and the Organization''s owner, through the same is_owner_of_company predicate 0044''s policy names -- the exact rule Block 6c''s list_participations lost for five commits, caught only by tests/isolation. Plus a fifth fact that is not a fifth rule: a winner whose draw was CANCELLED is excluded outright, because cancel_draw (0079) reverses the unit but deliberately leaves winners.status at AWAITING_PICKUP, and RLS never hid that either -- this function is simply the first reader to treat AWAITING_PICKUP as "live" and so the first that has to say so. draw_status is returned alongside it (Task 9, edited in place) precisely because that fifth fact is a filter and not a promise: availableWinnerActions (src/components/draws/winner-actions.tsx) requires a drawStatus to decide whether a row''s actions may render at all, and a caller reading the real column here stays correct if this function''s own filtering ever changes, where a caller assuming COMPLETED by construction would not. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
 
 revoke execute on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) from public;
 grant execute on function public.list_pickups(uuid, public.winner_status, uuid, text, timestamptz, uuid, boolean, integer) to authenticated;
@@ -382,7 +390,7 @@ end;
 $$;
 
 comment on function public.list_participations(uuid, uuid, public.participation_status, public.participation_source, timestamptz, timestamptz, text, boolean, uuid, timestamptz, uuid, boolean, integer) is
-  'One keyset page of the participants list, with every filter the screen carries: Station, promotion, status, source, date range, listener search, and Block 6c''s two -- answered correctly, and chose a given option -- which AND with each other and with the rest. Also returns already_won, which is what explains a listener vanishing between draw rounds. SECURITY DEFINER, so what RLS used to do is done here by hand: participations.view AND promotions.view or a 42501 rather than an empty page; an archived promotion''s entries only to the platform admin and the Organization''s owner (0044''s rule, which 0053 used to inherit through a sub-select); the listener''s name, phone and document only to a caller holding members.view, and the list still lists without it; and a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle -- which is precisely what the old query''s !inner embed produced. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
+  'One keyset page of the participants list, with every filter the screen carries: Station, promotion, status, source, date range, listener search, and Block 6c''s two -- answered correctly, and chose a given option -- which AND with each other and with the rest. Also returns already_won, which is what explains a listener vanishing between draw rounds. SECURITY DEFINER, so what RLS used to do is done here by hand: participations.view AND promotions.view or a 42501 rather than an empty page; an archived promotion''s entries only to the platform admin and the Organization''s owner (0044''s rule, which 0053 used to inherit through a sub-select); the listener''s name, the last four digits of the phone, and the document only to a caller holding members.view, and the list still lists without it; and a SEARCH without members.view returns nothing at all, because searching a field you may not read is an oracle -- which is precisely what the old query''s !inner embed produced. total_count is computed from the same CTE the rows come from, so a page and its count cannot narrow differently.';
 
 revoke execute on function public.list_participations(uuid, uuid, public.participation_status, public.participation_source, timestamptz, timestamptz, text, boolean, uuid, timestamptz, uuid, boolean, integer) from public;
 grant execute on function public.list_participations(uuid, uuid, public.participation_status, public.participation_source, timestamptz, timestamptz, text, boolean, uuid, timestamptz, uuid, boolean, integer) to authenticated;

@@ -1,5 +1,5 @@
 begin;
-select plan(11);
+select plan(18);
 
 -- Block 30a. One listener's whole value, asked for one at a time, recorded
 -- every time. Generalises reveal_request_phone (0190) from one request to one
@@ -95,6 +95,31 @@ select is(
       and action = 'reveal_member_field'),
   4, 'every reveal leaves a trace');
 
+-- 6b-6c: whole-branch review F4. Assertions 6, 9 and 11 (as they stood before
+-- this fix) counted rows by target_id and action alone -- a regression writing
+-- `{"field": null}` or stamping the wrong Station would pass every one of
+-- them. With no rate limit on this door (spec §8), the audit row IS the
+-- record that a disclosure happened, so its SHAPE is asserted here rather
+-- than merely its count: which field was asked for, in the order asked, and
+-- that every row names members as target_table and the Station
+-- reveal_member_field actually SELECTed rather than merely tested (0253's own
+-- comment on why v_company is selected into, not just checked with exists).
+select is(
+  (select array_agg(detail->>'field' order by id)
+     from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d1'
+      and action = 'reveal_member_field'),
+  array['phone', 'email', 'passport', 'address'],
+  'the audit trail names which field was asked for, in the order it was asked');
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d1'
+      and action = 'reveal_member_field'
+      and target_table = 'members'
+      and organization_id = '00000000-0000-0000-0000-0000000030f1'
+      and company_id = '00000000-0000-0000-0000-0000000030c1'),
+  4, 'every row names members as the target table, at the Station the door resolved');
+
 -- 7: an actor holding some other permission, but not members.view, at this
 -- Station is refused.
 set local role authenticated;
@@ -125,6 +150,23 @@ select is(
       and action = 'reveal_member_field'),
   1, 'the archived listener''s reveal still leaves a trace');
 
+-- 9b-9c: the same shape check as 6b-6c, for the one row a disclosure that
+-- returned null still leaves -- the row this door's whole "audited either
+-- way" claim depends on being examined rather than merely counted.
+select is(
+  (select detail->>'field' from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d2'
+      and action = 'reveal_member_field'),
+  'phone', 'the archived listener''s audit row still names the field that was asked for');
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d2'
+      and action = 'reveal_member_field'
+      and target_table = 'members'
+      and organization_id = '00000000-0000-0000-0000-0000000030f1'
+      and company_id = '00000000-0000-0000-0000-0000000030c1'),
+  1, 'the archived listener''s audit row still names members as the target table, at the Station the door resolved');
+
 -- 10-11: an erased listener discloses nothing -- AND THE AUDIT ROW IS STILL
 -- WRITTEN, because somebody asked and that is the fact being recorded.
 update public.members set anonymized_at = now(), phone = null
@@ -139,6 +181,30 @@ select is(
     where target_id = '00000000-0000-0000-0000-0000000030d1'
       and action = 'reveal_member_field'),
   5, 'the erased listener''s reveal still leaves a trace');
+
+-- 11b-11c: the same shape check as 6b-6c and 9b-9c, for the fifth row --
+-- ordered by id so the assertion names the row this call just wrote rather
+-- than one of the four legitimate reveals from assertions 1-4 above, which
+-- share this same target_id.
+select is(
+  (select detail->>'field' from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d1'
+      and action = 'reveal_member_field'
+    order by id desc limit 1),
+  'phone', 'the erased listener''s audit row still names the field that was asked for');
+select is(
+  (select target_table from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d1'
+      and action = 'reveal_member_field'
+    order by id desc limit 1),
+  'members', 'the erased listener''s audit row still names members as the target table');
+select is(
+  (select (organization_id, company_id) from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d1'
+      and action = 'reveal_member_field'
+    order by id desc limit 1),
+  row('00000000-0000-0000-0000-0000000030f1'::uuid, '00000000-0000-0000-0000-0000000030c1'::uuid),
+  'the erased listener''s audit row still names the Station the door resolved');
 
 select * from finish();
 rollback;

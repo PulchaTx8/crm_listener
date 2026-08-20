@@ -9,6 +9,15 @@ describe('action labels', () => {
     expect(actionLabel('configure_integration')).toBe('WhatsApp integration configured');
   });
 
+  // Whole-branch review F9. Both reveal doors were missing from this map, so
+  // the audit viewer -- the compensating control for reveal_member_field
+  // having no rate limit (spec §8) -- rendered the two most privacy-critical
+  // actions in this product as raw codes.
+  it('names both reveal doors', () => {
+    expect(actionLabel('reveal_member_field')).toBe('Listener field revealed');
+    expect(actionLabel('reveal_request_phone')).toBe('Request phone revealed');
+  });
+
   /**
    * The fallback is the whole reason this is a lookup rather than a renderer
    * per action. A later block adds a code, nobody updates this map, and the

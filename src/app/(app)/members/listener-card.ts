@@ -5,8 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { createUserClient } from '@/lib/supabase/user-client';
-import { getMember } from '@/services/members';
-import { revealMemberField } from '@/services/members';
+import { getMember, revealMemberField } from '@/services/members';
 import {
   lastFourDigits,
   maskedAddress,

@@ -50,6 +50,15 @@ export function ListenerCardDialog({
   const [revealError, setRevealError] = useState<string | null>(null);
   const [revealing, startReveal] = useTransition();
 
+  // Whole-branch review F7. anonymize_member (0034) scrubs but does not
+  // soft-delete, so an erased listener is still selectable from all three
+  // calling screens, and every field on this card comes back masked-to-null
+  // for one -- the same "nothing" a listener who never filled anything in
+  // would show. Without this line the two are indistinguishable here, even
+  // though requests-grid.tsx already draws the same distinction for the same
+  // fact with `members.thisListenerHasSinceExercisedTheir`.
+  const erased = Boolean(card?.anonymizedAt);
+
   useEffect(() => {
     let current = true;
     setCard(null);
@@ -89,6 +98,11 @@ export function ListenerCardDialog({
       <DialogBody>
         {failure && <p className="text-sm text-destructive">{failure}</p>}
         {!card && !failure && <p className="text-sm text-muted-foreground">{t('loading')}</p>}
+        {card && erased && (
+          <p className="mb-3 text-sm text-muted-foreground" data-testid="listener-card-erased">
+            {t('thisListenerHasSinceExercisedTheir')}
+          </p>
+        )}
         {card && (
           <dl className="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-3 text-sm">
             <Row label={t('name')} value={card.fullName ?? '—'} />

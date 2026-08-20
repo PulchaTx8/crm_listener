@@ -734,12 +734,14 @@ select is(
 
 reset role;
 
--- Block 30a D1's structural pin, mirroring 51_music_request_triage's own
--- idiom (lines 283-284 there) for list_music_requests: asked of the
--- function's RESULT shape rather than of a row, because a column that was
--- removed cannot be selected to prove its own absence -- the query would
--- fail to parse rather than fail an assertion, and a parse error is not a
--- test result. The populated/withheld pair itself needs a REAL second user
+-- Block 30a D1's structural pin, mirroring 51_music_request_triage.test.sql's
+-- own idiom for list_music_requests -- its assertion 18, the
+-- pg_get_function_result probe, named here rather than by a line number that
+-- Task 8 already found gone stale once: asked of the function's RESULT shape
+-- rather than of a row, because a column that was removed cannot be selected
+-- to prove its own absence -- the query would fail to parse rather than fail
+-- an assertion, and a parse error is not a test result. The
+-- populated/withheld pair itself needs a REAL second user
 -- with a REAL, narrower grant, which is exactly why this file leaves that
 -- half to tests/isolation/participations.test.ts -- this assertion is the
 -- cheap, always-on half: the whole number has no column to travel through

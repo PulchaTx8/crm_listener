@@ -162,12 +162,22 @@ a working export.
   unselectable by `members_select_reachable` (`0035`) for everyone, owner
   included — was still resolved and disclosed. `0253` closed it in
   `reveal_member_field`; `0255` closed the identical gap, found the same way,
-  in `reveal_request_phone`. The Pickups and Participations lists
-  (`list_pickups`/`list_participations`, narrowed by `0254`) no longer carry a
-  listener's whole telephone number at all — only the last four digits travel
-  with the list, the shape `list_music_requests` has returned since Block 22
-  — so the whole value now reaches the browser only through these two doors,
-  never with the list it sits beside.
+  in `reveal_request_phone`. The Pickups, Participations and Requests lists
+  (`list_pickups`/`list_participations`, narrowed by `0254`; `list_music_requests`,
+  narrowed since Block 22 by `0191` and brought onto the same masking rule as
+  the other two by `0256`) no longer carry a listener's whole telephone number
+  at all — only the last four digits travel with each list, and the rest is
+  asked for through the doors above.
+  **That property is scoped to these three lists, not to the product.** Two
+  paths still send the whole number to the browser, on the owner's own open
+  decision rather than an oversight: the manual-entry listener pickers on
+  "Record a participation" and "Record a request"
+  (`searchStationListenersAction` / `searchRequestListenersAction`, both
+  selecting `phone` whole and rendering it, via `describeListener`, for the
+  first page of the Station's listeners as soon as either form mounts — no
+  search term typed, no audit row written), and the Members screen itself,
+  whose own list and record dialog have carried the whole number since before
+  this block and are unchanged by it.
 - **How a subject asks** is `/delete-data` (Block 21), reachable with no
   account from a link inside WhatsApp. The public form **records a request and
   erases nothing** — there is no path from `data_deletion_requests` (`0188`) to

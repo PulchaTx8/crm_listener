@@ -141,11 +141,18 @@ Today the Pickups row runs `deliver` through `WinnerActions`' generic
 reason-only confirm strip. It becomes a window showing **Promotion, Listener
 (masked, revealable), Prize**, a **Delivery notes** field, and a confirm button.
 
-- **Delivery notes is the field that already exists.** `deliver_prize(p_winner_id,
-  p_note)` (0084) already takes it, and `receiptOfTheHandover` / *Recibo da
-  entrega* is what renders it today. It moves into the window and is relabelled —
-  a second free-text column beside it would be two places to look for the same
-  sentence. **No migration is needed for item 5.**
+- **Delivery notes is a field for a value `deliver_prize` already takes, not a
+  field moved from somewhere else.** `deliver_prize(p_winner_id, p_note)`
+  (0084) has taken it since Block 6b, and `pickupWinnerAction` has passed the
+  screen's `reason` through as `p_note` since Block 6d — but `WinnerActions`'
+  own generic strip never gave an operator anywhere to write one FOR THE
+  HANDOVER (`NEEDS_REASON.deliver` is false there), so this window is the
+  FIRST place a delivery note is reachable on purpose. `receiptOfTheHandover`
+  / *Comprovante da entrega* is a different field entirely — the `aria-label`
+  on the receipt DOCUMENT upload input on the Draws screen
+  (`draw-detail.tsx`) — and this item neither moves nor relabels it; the new
+  field carries its own key and its own pt value, `deliveryNotes` /
+  *Recibo da entrega*. **No migration is needed for item 5.**
 - **The confirm button reads "Write off" / "Dar baixa"**, on the owner's ruling
   of 2026-08-19: that is what the operator says when a prize is handed over.
 - **Therefore the existing destructive `write_off` action is relabelled** to

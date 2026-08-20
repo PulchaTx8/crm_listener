@@ -663,8 +663,10 @@ select ok(
      from lm_all where movement_id = '00000000-0000-0000-0000-00000000d278'),
   'an actor with no full_name set returns actor_name null but actor_id non-null -- not the clock''s own row');
 
--- Case 27. Block 30a D1's structural pin, mirroring 51_music_request_triage's
--- own idiom (lines 283-284 there) for list_music_requests: asked of the
+-- Case 27. Block 30a D1's structural pin, mirroring
+-- 51_music_request_triage.test.sql's own idiom for list_music_requests -- its
+-- assertion 18, the pg_get_function_result probe, named here rather than by
+-- a line number that Task 8 already found gone stale once: asked of the
 -- function's RESULT shape rather than of a row, because a column that was
 -- removed cannot be selected to prove its own absence -- the query would
 -- fail to parse rather than fail an assertion, and a parse error is not a

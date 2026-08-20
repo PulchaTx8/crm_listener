@@ -91,7 +91,11 @@ export function availableWinnerActions(input: {
 }
 
 // Catalogue keys, not words: a module body has no request behind it.
-const LABEL_KEYS: Record<WinnerAction, string> = {
+// Exported so tests/unit/winner-actions.test.ts can pin D5's own claim --
+// "the WinnerAction value, the door and the audit action are unchanged" by
+// the write_off relabel -- without a DOM, which this project's unit tests do
+// not have (vitest.config.ts).
+export const LABEL_KEYS: Record<WinnerAction, string> = {
   deliver: 'actionHandOver',
   cancel_delivery: 'actionUndoTheHandover',
   return: 'actionReturnToStock',
