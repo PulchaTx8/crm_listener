@@ -161,12 +161,13 @@ Create `src/lib/members/mask.ts`:
  * folders to import it — which is the shape that says a rule has outgrown the
  * screen that first needed it. Three screens render these now.
  *
- * NONE OF THIS IS A BOUNDARY. The boundary is `list_*`'s projection, which no
- * longer sends the whole value, and `reveal_member_field`, which records who
- * asked for it. These functions decide what a value LOOKS like once the door
- * has already decided the operator may have it — masking a value the page
- * already carries would be a lock on a door standing in an open field
- * (`services/music.ts` says the same about the number this replaces).
+ * NONE OF THIS IS A BOUNDARY, and it must never be mistaken for one. What a
+ * caller may KNOW is decided in SQL — by what the list doors project, and by an
+ * audited door that hands over a whole value on request. This module decides
+ * only what an already-permitted value LOOKS like on screen. Masking a value the
+ * page already carries would be a lock on a door standing in an open field;
+ * `services/music.ts` says exactly that about the number Block 22 stopped
+ * sending, and it is why the narrowing belongs in the door rather than here.
  */
 
 /** Four of them, so a mask reads as a mask at any font size. */
@@ -228,9 +229,8 @@ export function maskedPassport(passport: string | null): string | null {
  * Dots, or null.
  *
  * ONE FACT, NOT THREE. A street, a number and a flat identify a household
- * together and disclose it together, so the card shows one row and the reveal
- * asks for one value — which is why `reveal_member_field` takes `address`
- * rather than three field names.
+ * together and disclose it together, so the card shows one row for them and the
+ * reveal asks for one value rather than three.
  */
 export function maskedAddress(parts: {
   line: string | null;
