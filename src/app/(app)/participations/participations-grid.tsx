@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { STATUS_CLASSES, STATUS_LABEL_KEYS } from '@/lib/participation-status';
+import { maskedPhone } from '@/lib/members/mask';
 import type { ParticipationSummary } from '@/services/participations';
 // The Station-zone instant formatter comes from the promotions screen's module
 // rather than being re-derived here, on that module's own rule: an operator in
@@ -164,10 +165,10 @@ export function ParticipationsGrid({
                     who may not read the person at all.
                   */}
                   <span className="text-sm">{entry.listenerName ?? '—'}</span>
-                  {(entry.listenerPhone || entry.listenerCpfLastDigits) && (
+                  {(entry.listenerPhoneLast4 || entry.listenerCpfLastDigits) && (
                     <span className="mt-0.5 block text-xs text-muted-foreground">
                       {[
-                        entry.listenerPhone,
+                        entry.listenerPhoneLast4 ? maskedPhone(entry.listenerPhoneLast4) : null,
                         entry.listenerCpfLastDigits ? `···${entry.listenerCpfLastDigits}` : null,
                       ]
                         .filter(Boolean)

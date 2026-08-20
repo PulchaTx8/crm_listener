@@ -19,6 +19,7 @@ import {
 } from '@/components/draws/winner-actions';
 import type { PickupRow } from '@/services/pickups';
 import { applyRowPatch, type RowState } from '@/lib/row-patch';
+import { maskedPhone } from '@/lib/members/mask';
 import { formatInstant } from '../promotions/format';
 import { describeDeadline, STATUS_CLASSES, STATUS_LABEL_KEYS } from './list-params';
 import type { PickupActionResult } from './actions';
@@ -177,9 +178,9 @@ export function PickupsGrid({
                       from here, on purpose.
                     */}
                     <span className="text-sm">{row.memberName ?? '—'}</span>
-                    {row.memberPhone && (
+                    {row.memberPhoneLast4 && (
                       <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {row.memberPhone}
+                        {maskedPhone(row.memberPhoneLast4)}
                       </span>
                     )}
                   </TableCell>

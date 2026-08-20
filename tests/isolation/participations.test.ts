@@ -1590,7 +1590,7 @@ describe('the participations list read', () => {
     expect(blindPlain.total).toBe(2);
     expect(blindPlain.rows).toHaveLength(2);
     expect(blindPlain.rows.map((r) => r.listenerName)).toEqual([null, null]);
-    expect(blindPlain.rows.map((r) => r.listenerPhone)).toEqual([null, null]);
+    expect(blindPlain.rows.map((r) => r.listenerPhoneLast4)).toEqual([null, null]);
     // The row itself is still fully readable — this is a hidden name, not a hidden row.
     expect(new Set(blindPlain.rows.map((r) => r.memberId))).toEqual(new Set([ana, bruno]));
 
@@ -1808,6 +1808,47 @@ describe('the participations list read', () => {
       .eq('promotion_id', archivedId);
     expect(answers.error).toBeNull();
     expect(answers.data).toEqual([]);
+  });
+
+  /**
+   * Block 30a D1, the mirror of list_pickups' own case. The whole number
+   * stopped travelling here too, and the pair matters more than either half:
+   * WITHHELD and MASKED are different facts. A caller without members.view
+   * still gets null -- not four digits -- because list_participations' own
+   * branch (0090) is about whether they may know the listener at all, and
+   * narrowing the projection must not quietly answer that question with
+   * "a little".
+   */
+  it('sends four digits to members.view, and still nothing without it', async () => {
+    const label = `plist-mask-${Date.now()}`;
+    const customer = await provisionCustomer(label);
+    const owner = await clientFor(customer);
+
+    const promotionId = await promotionAt(owner, customer.companyId, 'Promo mask');
+    const memberId = await createMemberAs(customer, customer.companyId, {
+      fullName: 'Ouvinte mascarado',
+      phone: '11985954985',
+    });
+    await recordAsOwner(owner, promotionId, memberId);
+
+    const { data: asOwner } = await owner.rpc('list_participations', {
+      p_company_id: customer.companyId,
+    });
+    const row = (asOwner ?? []).find((r) => r.member_id === memberId);
+    expect(row?.listener_phone_last4).toBe('4985');
+    expect(JSON.stringify(asOwner)).not.toContain('11985954985');
+
+    const stranger = await grantRoleWith(customer, `${label}-stranger`, [
+      'promotions.view',
+      'participations.view',
+    ]);
+    const strangerClient = await signInAs(stranger.email, stranger.password);
+    const { data: asStranger } = await strangerClient.rpc('list_participations', {
+      p_company_id: customer.companyId,
+    });
+    const withheld = (asStranger ?? []).find((r) => r.member_id === memberId);
+    expect(withheld).toBeDefined();
+    expect(withheld?.listener_phone_last4).toBeNull();
   });
 });
 

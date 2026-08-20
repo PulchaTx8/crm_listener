@@ -5428,7 +5428,7 @@ export type Database = {
           id: string
           listener_cpf_last_digits: string
           listener_name: string
-          listener_phone: string
+          listener_phone_last4: string
           member_id: string
           participated_at: string
           promotion_id: string
@@ -5455,7 +5455,7 @@ export type Database = {
           draw_status: Database["public"]["Enums"]["draw_status"]
           member_id: string
           member_name: string
-          member_phone: string
+          member_phone_last4: string
           prize_id: string
           prize_name: string
           promotion_id: string
@@ -5504,6 +5504,7 @@ export type Database = {
         Args: { p_company_id: string; p_member_id: string }
         Returns: boolean
       }
+      member_phone_last4: { Args: { p_phone: string }; Returns: string }
       member_place_key: {
         Args: {
           p_city: string

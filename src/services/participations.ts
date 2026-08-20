@@ -73,7 +73,17 @@ export interface ParticipationSummary {
    * (0090), which withholds the three listener fields and still lists the rows.
    */
   listenerName: string | null;
-  listenerPhone: string | null;
+  /**
+   * The last four digits, or null — withheld with listenerName and
+   * listenerCpfLastDigits from a caller without members.view, the same
+   * branch inside list_participations (0090) that withholds all three
+   * listener fields together. The whole number is NOT here on purpose (Block
+   * 30a D1): it is asked for one listener at a time through
+   * reveal_member_field (0253), which records the asking. Masking a number
+   * the page already carries would be a lock on a door standing in an open
+   * field.
+   */
+  listenerPhoneLast4: string | null;
   listenerCpfLastDigits: string | null;
   status: ParticipationStatus;
   source: ParticipationSource;
@@ -186,7 +196,7 @@ export async function listParticipationsPage(
       promotionName: row.promotion_name,
       memberId: row.member_id,
       listenerName: row.listener_name,
-      listenerPhone: row.listener_phone,
+      listenerPhoneLast4: row.listener_phone_last4,
       listenerCpfLastDigits: row.listener_cpf_last_digits,
       status: row.status,
       source: row.source,

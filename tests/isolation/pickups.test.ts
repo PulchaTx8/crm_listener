@@ -183,7 +183,7 @@ describe('list_pickups', () => {
     expect(result.error).toBeNull();
     expect((result.data ?? []).length).toBeGreaterThan(0);
     expect((result.data ?? []).every((row) => row.member_name === null)).toBe(true);
-    expect((result.data ?? []).every((row) => row.member_phone === null)).toBe(true);
+    expect((result.data ?? []).every((row) => row.member_phone_last4 === null)).toBe(true);
   });
 
   it('returns nothing at all when a caller without members.view searches', async () => {
@@ -206,6 +206,64 @@ describe('list_pickups', () => {
     });
     expect(result.error).toBeNull();
     expect(result.data ?? []).toHaveLength(0);
+  });
+
+  /**
+   * Block 30a D1. The whole number stopped travelling, and this is the
+   * assertion that fails the day somebody "restores" the column.
+   *
+   * The pair matters more than either half: WITHHELD and MASKED are different
+   * facts. A caller without members.view still gets null -- not four digits --
+   * because 0095's Rule 2 is about whether they may know the listener at all,
+   * and narrowing the projection must not quietly answer that question with
+   * "a little".
+   */
+  it('sends four digits to members.view, and still nothing without it', async () => {
+    const customer = await provisionCustomer('pickup-mask');
+    const seeded = await seedPickupWinner(customer, 'masked');
+    const owner = await signInAs(customer.email, customer.password);
+
+    // NOT admin.from('members').update(...): service_role holds no direct
+    // UPDATE grant on members in this schema ("permission denied for table
+    // members", 42501, confirmed against this exact call before this test was
+    // written) -- every write to a listener's own fields goes through an RPC,
+    // the same door the app itself uses. update_member is that door; the
+    // owner client clears its members.edit gate the same way it clears every
+    // other permission check in this fixture (member_reachable's own
+    // is_owner bypass).
+    const listener = await admin
+      .from('members')
+      .select('full_name')
+      .eq('id', seeded.memberId)
+      .single();
+    if (listener.error || !listener.data) {
+      throw new Error(`fixture listener missing: ${listener.error?.message}`);
+    }
+
+    const updated = await owner.rpc('update_member', {
+      p_member_id: seeded.memberId,
+      p_full_name: listener.data.full_name ?? 'Listener masked',
+      p_phone: '11985954985',
+    });
+    if (updated.error) throw new Error(`update_member failed: ${updated.error.message}`);
+
+    const { data: asOwner } = await owner.rpc('list_pickups', {
+      p_company_id: customer.companyId,
+    });
+    const row = (asOwner ?? []).find((r) => r.winner_id === seeded.winnerId);
+    expect(row?.member_phone_last4).toBe('4985');
+    expect(JSON.stringify(asOwner)).not.toContain('11985954985');
+
+    const stranger = await grantRoleWith(customer, 'pickup-mask-no-members', [
+      'promotions.view',
+    ]);
+    const strangerClient = await signInAs(stranger.email, stranger.password);
+    const { data: asStranger } = await strangerClient.rpc('list_pickups', {
+      p_company_id: customer.companyId,
+    });
+    const withheld = (asStranger ?? []).find((r) => r.winner_id === seeded.winnerId);
+    expect(withheld).toBeDefined();
+    expect(withheld?.member_phone_last4).toBeNull();
   });
 });
 

@@ -414,7 +414,7 @@ const REQUIRED_TEST_FILES = [
   // all before 0156, so a block written into one and not the other stops the
   // employees and leaves the owner browsing.
   { path: 'tests/isolation/organization-blocking.test.ts', minTests: 4 },
-  { path: 'tests/isolation/participations.test.ts', minTests: 29 },
+  { path: 'tests/isolation/participations.test.ts', minTests: 30 },
   { path: 'tests/isolation/permissions.test.ts', minTests: 11 },
   // Block 6d, Task 5: the four rules SECURITY DEFINER stopped enforcing for
   // free on list_pickups -- another Station refused, an archived promotion's
@@ -426,7 +426,7 @@ const REQUIRED_TEST_FILES = [
   // name returned to an inventory-only caller (the whole reason that function
   // exists), and an archived promotion's name withheld from a delegate but
   // not from the owner.
-  { path: 'tests/isolation/pickups.test.ts', minTests: 7 },
+  { path: 'tests/isolation/pickups.test.ts', minTests: 8 },
   { path: 'tests/isolation/promotion-prizes.test.ts', minTests: 29 },
   { path: 'tests/isolation/promotions.test.ts', minTests: 21 },
   { path: 'tests/isolation/provisional-password.test.ts', minTests: 4 },

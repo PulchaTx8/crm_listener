@@ -10,7 +10,7 @@ import type { ParticipationAnswerDetail, ParticipationSummary } from '@/services
 // rather than re-derived here. formatInstant pins the zone explicitly (spec
 // L2).
 import { formatInstant } from '../promotions/format';
-import { lastFourDigits, maskedPhone } from '@/lib/members/mask';
+import { maskedPhone } from '@/lib/members/mask';
 import { readParticipationAnswersAction } from './actions';
 import { SOURCE_LABEL_KEYS } from './list-params';
 
@@ -69,8 +69,9 @@ export function ParticipationDialog({
   // falsy now that maskedPhone (Block 30a) answers bare dots instead of null
   // when there are no four digits, and guarding on phone would render the
   // row's dots even for a caller without members.view, whose entry carries
-  // neither listenerPhone nor listenerCpfLastDigits (0090 nulls both together).
-  const last4 = lastFourDigits(entry.listenerPhone);
+  // neither listenerPhoneLast4 nor listenerCpfLastDigits (0090 nulls both
+  // together).
+  const last4 = entry.listenerPhoneLast4;
   const phone = maskedPhone(last4);
 
   return (
@@ -92,11 +93,12 @@ export function ParticipationDialog({
         </p>
 
         {/*
-          FOUR DIGITS, on the owner's instruction, and derived here rather than
-          read from a narrower column: list_participations returns the whole
-          number to a caller holding members.view (0090), which is what the grid
-          behind this window still shows. This is the stricter rendering of the
-          same value, in the window where somebody might read it aloud.
+          FOUR DIGITS, on the owner's instruction: list_participations (0090)
+          now projects only the last four (Block 30a D1), so this window and
+          the grid behind it read the exact same value rather than one masking
+          what the other still carried whole. The whole number lives behind
+          reveal_member_field (0253) instead, asked for one listener at a
+          time, which is what records the asking.
         */}
         {(last4 || entry.listenerCpfLastDigits) && (
           <p className="mt-1 text-sm text-muted-foreground">

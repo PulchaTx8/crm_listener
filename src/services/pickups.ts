@@ -39,7 +39,15 @@ export interface PickupRow {
    * expression that produces it (0095:147-148) are unambiguous that it is.
    */
   memberName: string | null;
-  memberPhone: string | null;
+  /**
+   * The last four digits, or null — withheld with memberName from a caller
+   * without members.view, exactly as the whole number was (0095's RULE 2).
+   * The whole number is NOT here on purpose (Block 30a D1): it is asked for
+   * one listener at a time through reveal_member_field (0253), which records
+   * the asking. Masking a number the page already carries would be a lock on
+   * a door standing in an open field.
+   */
+  memberPhoneLast4: string | null;
   prizeId: string;
   prizeName: string;
   allowsReturnToStock: boolean;
@@ -148,7 +156,7 @@ export async function listPickups(
       winnerId: row.winner_id,
       memberId: row.member_id,
       memberName: row.member_name,
-      memberPhone: row.member_phone,
+      memberPhoneLast4: row.member_phone_last4,
       prizeId: row.prize_id,
       prizeName: row.prize_name,
       allowsReturnToStock: row.allows_return_to_stock,
