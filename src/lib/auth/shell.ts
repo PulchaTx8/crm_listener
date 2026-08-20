@@ -135,12 +135,13 @@ export async function getShellContext(): Promise<{
         // the better one for the row regardless.
         { href: '/music/requests', label: t('requests'), icon: ICONS.music },
         // PROGRAMMES LEFT THIS SECTION IN BLOCK 27, for Catalog, on the owner's
-        // ruling — reversing where Block 18 filed it. Its full reasoning, and
-        // what the move did to the permission mismatch Block 18 recorded as a
-        // cost, is on its new row under `catalog` below. Noted here rather than
-        // silently absent: this section held three items for eight blocks, and a
-        // reader comparing against an older screenshot should find out why it
-        // holds two, in the file that decides it.
+        // ruling — reversing where Block 18 filed it. BLOCK 30c MOVED IT AGAIN,
+        // from Catalog to Promotions — its third section in eighteen blocks. Its
+        // full reasoning, and what each move did to the permission mismatch
+        // Block 18 recorded as a cost, is on its row under `promotions` below.
+        // Noted here rather than silently absent: this section held three items
+        // for eight blocks, and a reader comparing against an older screenshot
+        // should find out why it holds two, in the file that decides it.
       ],
     },
     {
@@ -185,6 +186,38 @@ export async function getShellContext(): Promise<{
         // read as one link rendered twice, while Inventory is a different
         // section entirely, so the two never appear side by side.
         { href: '/pickups', label: t('pickups'), icon: ICONS.box },
+        // MOVED HERE FROM CATALOG, on the owner's ruling of 2026-08-19. This is
+        // the screen's THIRD section in eighteen blocks: Audience filed it in
+        // Block 18, Catalog took it in Block 27, and this is where it lands now.
+        //
+        // THE PERMISSION DOES NOT MOVE WITH IT. `shows` still carries exactly
+        // one policy, gated on `music.view` — which was Catalog's own
+        // permission and is not this section's. A member who administers
+        // promotions and holds nothing in music sees this link and finds
+        // nothing behind it.
+        //
+        // THE MISMATCH HAS A SECOND SURFACE, found during this block's Task 4
+        // review and not anticipated when the move was decided: `listShowOptions`
+        // (services/shows.ts) reads through the caller's own client, so
+        // `shows_select_music_view`'s music.view gate applies there too — the
+        // same member sees item 17's Programme combobox on the promotion form
+        // with NO OPTIONS AT ALL, permanently reading "No programme". A dead
+        // link is visibly broken; an empty combobox looks like a Station with
+        // no Programmes, and the operator has no way to tell the two apart.
+        //
+        // NEITHER IS FIXED HERE, and the reason is the fix's shape rather than
+        // its size. A `shows.view` / `shows.manage` pair is a permissions
+        // migration plus every role a customer has already configured — none of
+        // which would grant it, so the screen would hide from everyone.
+        // Re-gating on `promotions.view` instead is cheaper but takes the screen
+        // away from whoever administers the catalogue and has it today. Both are
+        // product decisions with blast radius, and neither is item 11.
+        //
+        // ICONS.radio travels with it and collides with nothing here: this
+        // section holds megaphone, ticket and box. The file's own convention
+        // only forbids a repeat on ADJACENT ROWS OF THE SAME SECTION — the
+        // distinction Pickups' reuse of ICONS.box, just above, relies on.
+        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
       ],
     },
     {
@@ -334,26 +367,6 @@ export async function getShellContext(): Promise<{
         { href: '/catalog/songwriters', label: t('songwriters'), icon: ICONS.pen },
         { href: '/catalog/genres', label: t('genres'), icon: ICONS.tag },
         { href: '/catalog/labels', label: t('labels'), icon: ICONS.building },
-        // MOVED HERE FROM AUDIENCE IN BLOCK 27, on the owner's ruling, reversing
-        // where Block 18 filed it. Both readings are true — a programme is made
-        // for listeners, and it is also the slot the catalogue is played in — and
-        // what settles it is the neighbour: a programme is edited when the
-        // schedule is, which is the same errand as curating the songs above it.
-        // Under Audience it sat beside Members, where the shared word was
-        // "people" and nothing followed on from it.
-        //
-        // THE PERMISSION STILL DOES NOT MOVE WITH THE SCREEN, and now it agrees
-        // with where the screen sits. `shows` carries one policy, gated on
-        // music.view — which is THIS section's permission. Block 18's §5 recorded
-        // the mismatch as a cost of filing it under Audience (a member who
-        // administers the audience and holds nothing in music saw the link and
-        // found nothing behind it); the move removes it rather than working
-        // around it, and no permissions migration was needed to do so.
-        //
-        // ICONS.radio travels with it and collides with nothing here: this
-        // section holds music, users, disc, folder, tag, building and shield. Its
-        // only other use is Overview > My stations, a distant section.
-        { href: '/shows', label: t('programmes'), icon: ICONS.radio },
         // Last in the section on purpose: it is the destructive one, and a
         // sidebar is read top to bottom. Every other Catalog item above is a
         // place to build (register a song, an artist, a label, a genre, an

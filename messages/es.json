@@ -1770,7 +1770,6 @@
     "takePartByWeb": "Participar por el sitio",
     "rules": "Reglamento",
     "whatAListenerAgreesToBeforeEntering": "Con qué acepta el oyente antes de participar. Aparece en el widget sobre la casilla de aceptación.",
-    "withoutRulesThisDoesNotAppearOnTheSite": "Sin reglamento escrito aquí, esta promoción no aparece en el sitio.",
     "moderationGuidelines": "Pautas de moderación",
     "internalOnlyNeverSentToThe": "Solo interno — nunca se envía al oyente. Orienta a quien lea las respuestas.",
     "someoneHasAlreadyEnteredThisPromotion": "Alguien ya participó en esta promoción, así que la pregunta en sí ya no puede cambiarse — eso dejaría respuestas apuntando a un texto que nadie leyó.",
@@ -1782,7 +1781,6 @@
     "optionalAsIssued": "Opcional, tal como fue emitido",
     "programme": "Programa",
     "noProgramme": "Sin programa",
-    "programmeArchived": "archivado",
     "rulesRequiredWhenADoorIsOpen": "Las reglas son obligatorias cuando la participación por WhatsApp o por el sitio está activada."
   },
   "music": {

@@ -39,14 +39,30 @@ export function RegisterPromotionForm({
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
   const [webEnabled, setWebEnabled] = useState(false);
   const [repeats, setRepeats] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    if (state.status === 'saved' && state.promotionId) onCreated(state.promotionId);
+    if (state.status === 'saved' && state.promotionId) {
+      setDirty(false);
+      onCreated(state.promotionId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
+  /**
+   * Same machinery as PromotionRecordDialog's own `requestClose`: both the
+   * Cancel button and the Dialog's own dismissal (backdrop, Escape) go
+   * through this one function, so neither can skip the confirmation the
+   * other honours.
+   */
+  function requestClose() {
+    if (dirty && !window.confirm(t('discardTheChangesYouHaveNotSaved'))) return;
+    setDirty(false);
+    onClose();
+  }
+
   return (
-    <Dialog open={open} onClose={onClose} labelledBy={titleId}>
+    <Dialog open={open} onClose={requestClose} labelledBy={titleId}>
       <DialogHeader>
         <DialogTitle id={titleId}>{t('registerAPromotion')}</DialogTitle>
       </DialogHeader>
@@ -61,7 +77,7 @@ export function RegisterPromotionForm({
               disabled={false}
               repeats={repeats}
               onRepeatsChange={setRepeats}
-              onDirty={() => undefined}
+              onDirty={() => setDirty(true)}
               shows={shows}
             />
 
@@ -75,7 +91,7 @@ export function RegisterPromotionForm({
                 onWebEnabledChange={setWebEnabled}
                 onEnabledChange={setWhatsappEnabled}
                 disabled={false}
-                onDirty={() => undefined}
+                onDirty={() => setDirty(true)}
               />
             </div>
           </div>
@@ -87,7 +103,7 @@ export function RegisterPromotionForm({
           )}
         </DialogBody>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={requestClose}>
             {t('cancel')}</Button>
           <Button type="submit" disabled={pending} data-testid="promotion-create-submit">
             {pending ? t('registering') : t('registerAction')}
