@@ -126,7 +126,7 @@ export function startsAnotherNavigation(intent: ClickIntent, currentHref: string
 }
 
 /**
- * These controls — Refresh excepted — filter nothing themselves: they edit
+ * These controls filter nothing themselves: every one but Refresh only edits
  * the URL, and the Server Component asks Postgres a narrower question — the
  * shape every list in this codebase has used since Block 3b. Changing any of
  * them drops the cursor (participationsHref, called without one), and it has

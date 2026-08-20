@@ -26,7 +26,16 @@ export const SEND_LIST_SOURCES = ['members', 'participations', 'requests'] as co
 export const sendListSourceSchema = z.enum(SEND_LIST_SOURCES);
 export type SendListSource = z.infer<typeof sendListSourceSchema>;
 
-/** Mirrors MemberListParams (services/members.ts), minus sort/direction/cursor -- see this file's header. */
+/**
+ * Mirrors MemberListParams (services/members.ts), minus sort/direction/cursor
+ * -- see this file's header -- and minus the birthday window. Block 30b gave
+ * MemberListParams birthdayFrom/birthdayTo; this schema was not widened to
+ * match, so a send list built in Birthday mode is cut without either date
+ * window rather than the one the screen was showing. That gap, and the
+ * owner's decision it is waiting on, are documented where the filters are
+ * actually assembled -- src/app/(app)/members/page.tsx:139-147 and :244-254
+ * -- not here; this comment only says the mirror is incomplete, not why.
+ */
 export const memberSendListFiltersSchema = z.object({
   organizationId: z.string().uuid(),
   search: z.string().trim().min(1).optional(),

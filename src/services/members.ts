@@ -469,9 +469,13 @@ async function latestRulesConsent(
  * the identity this block's dedup and RLS both rest on, and what lets an
  * operator find "+55 (11) 98765-4321" by typing the digits off caller ID;
  * whole-branch review I2). Verified against the running PostgREST rather than
- * assumed: two `or=` parameters on one request are ANDed, so the search
- * clause and the keyset clause narrow together instead of one replacing the
- * other.
+ * assumed: multiple `or=` parameters on one request are ANDed together, not
+ * one replacing another. Two of them are on every request that reaches
+ * Postgres — the search clause above and the keyset clause below — and
+ * Block 30b's wrapping birthday window (D2, below) is a third whenever the
+ * mode is Birthday and the window crosses new year: verified again with all
+ * three present at once, which still returns the intersection rather than
+ * any one clause winning.
  *
  * "Blocked only" is a condition on the query — an inner join to member_blocks
  * restricted to the active window — so a filtered page still fills and the
@@ -544,9 +548,14 @@ export async function listOrganizationMembers(
     // is the most plausible-looking wrong answer this screen can give, because
     // "nobody has a birthday then" is a thing an operator will believe.
     //
-    // birth_md is GENERATED from birth_date (0257) and indexed partially, so
-    // this is an index scan rather than a per-row derivation — the same reason
-    // the age band above is a range and not a computed age.
+    // birth_md is GENERATED from birth_date (0257): the day of the year is
+    // STORED on the row rather than computed here per row, the same reason
+    // the age band above is a range comparison and not a computed age.
+    // members_birth_md_idx (0257) is partial and available to the planner for
+    // this comparison; no query plan on this branch has been captured to
+    // confirm the planner actually chooses it for a given window
+    // (supabase/tests/70_birthday_window.test.sql says the same: a plan is
+    // not stable enough to assert, so the index is checked by name instead).
     const window = birthdayWindow(params.birthdayFrom, params.birthdayTo);
     if (window.kind === 'from') q = q.gte('birth_md', window.from);
     else if (window.kind === 'to') q = q.lte('birth_md', window.to);

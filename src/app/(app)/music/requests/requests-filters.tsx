@@ -65,7 +65,7 @@ function hasActiveRequestFilters(state: RequestListState): boolean {
 }
 
 /**
- * These controls — Refresh excepted — filter nothing themselves: they edit
+ * These controls filter nothing themselves: every one but Refresh only edits
  * the URL, and the Server Component asks Postgres a narrower question — the
  * shape every list in this codebase has used since Block 3b. Block 22 (0191)
  * added a choice of ordering and a bounded batch mode alongside the fixed
