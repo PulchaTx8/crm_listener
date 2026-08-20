@@ -810,8 +810,17 @@ export async function getListenerCardAction(memberId: string): Promise<ListenerC
   const parsed = z.string().uuid().safeParse(memberId);
   if (!parsed.success) return { status: 'not-found' };
 
+  // ABOVE THE `try`, NEVER INSIDE IT. `requireAccessToken` calls
+  // `redirect('/login')`, and in Next 15 `redirect` works by THROWING an error
+  // carrying a NEXT_REDIRECT digest that has to propagate uncaught to be
+  // honoured. Inside a `try` it is swallowed by the catch below, logged as a
+  // spurious read failure, and the visitor sits on the page with a generic
+  // error instead of being sent to sign in. Every other call site in this
+  // project already does it this way — `record.ts:62-63`, all seven in
+  // `members/actions.ts`, and `revealRequestPhoneAction` itself.
+  const token = await requireAccessToken();
+
   try {
-    const token = await requireAccessToken();
     const detail = await getMember(parsed.data, token);
     if (!detail) return { status: 'not-found' };
 
@@ -860,8 +869,10 @@ export async function revealListenerFieldAction(
     return { status: 'error', message: t('couldNotRevealThisField') };
   }
 
+  // Above the `try` for the same reason as the read action — see its comment.
+  const token = await requireAccessToken();
+
   try {
-    const token = await requireAccessToken();
     return {
       status: 'ok',
       value: await revealMemberField(parsed.data.memberId, parsed.data.field, token),
