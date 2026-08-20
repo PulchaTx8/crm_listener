@@ -79,7 +79,7 @@ function localWallClock(offsetDays: number): string {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
-test('registering asks before discarding a draft, the rules gate refuses a blank-rules door by name, and the certificate and Programme survive a reopen', async ({
+test('registering asks before discarding a draft, the rules gate refuses a blank-rules door by name, and the certificate and Programme survive a reload', async ({
   page,
   browser,
 }) => {
@@ -245,47 +245,40 @@ test('registering asks before discarding a draft, the rules gate refuses a blank
     await expect(ownerPage.getByTestId('promotion-save-error')).toHaveCount(0);
   });
 
-  // --- step 4: the certificate and the Programme survive a reopen ----------
-  await test.step('the certificate and the Programme read back after a close and reopen', async () => {
+  // --- step 4: the certificate and the Programme survive a reload ----------
+  await test.step('the certificate and the Programme read back after a reload', async () => {
     await ownerPage.getByTestId('promotion-tab-data').click();
     await ownerPage.getByTestId('promotion-certificate').fill(certificate);
     await ownerPage.getByTestId('promotion-show').selectOption({ label: showName });
     await ownerPage.getByTestId('promotion-save').click();
     await expect(ownerPage.getByTestId('promotion-saved')).toBeVisible();
 
-    // Closed and reopened rather than trusted from the form still on screen:
-    // an uncontrolled input's `defaultValue` is set once at mount and does not
+    // Reloaded rather than trusted from the form still on screen: an
+    // uncontrolled input's `defaultValue` is set once at mount and does not
     // pick up a later prop change, so the dialog's own post-save `refresh()`
     // would leave these fields showing exactly what was just typed whether or
-    // not the write actually reached the database. A full close unmounts the
-    // dialog's content (dialog.tsx); reopening remounts it from a fresh read,
-    // which is what a "reads back" claim has to survive.
-    await ownerPage.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(ownerPage).not.toHaveURL(/record=/);
+    // not the write actually reached the database. Only a fresh mount forces
+    // the values shown to come from the database rather than from what the
+    // operator just typed.
+    //
+    // A RELOAD, NOT A CLOSE-AND-REOPEN. promotions/page.tsx:186 seeds
+    // `initialRecord` from the URL's `record=`/`tab=` through
+    // parseRecordParam, so with those still in the address a full
+    // page.reload() re-renders the whole page from the server and mounts the
+    // dialog from a cold read — proving strictly more than a reopen would,
+    // since the WHOLE page re-renders rather than just the dialog. Nothing
+    // calls history.back(), no popstate fires, and there is no background RSC
+    // fetch in flight for this read to lose a dispatch inside — the window
+    // close()'s own doc comment (use-record-dialog.ts) records for the
+    // close-and-reopen path an earlier draft of this step took, and where it
+    // intermittently hung (one run in three, with a networkidle wait already
+    // in place — narrowing that window turned out not to be enough, so this
+    // step stopped racing the hook rather than racing it more slowly). See
+    // that comment for the mechanism and the evidence; this stays the pointer
+    // rather than a second account of it.
+    await expect(ownerPage).toHaveURL(/record=/);
+    await ownerPage.reload();
 
-    // useRecordDialog's close() calls history.back() (use-record-dialog.ts),
-    // which races Next's App Router's own background RSC fetch for the bare
-    // /promotions URL against this journey's own reopen — traced with
-    // request/response logging while this test was written, after an early
-    // draft of the click below intermittently left the reopened dialog stuck
-    // on "Loading…" past a 15s wait. close()'s own comment now carries the
-    // full record of this — the mechanism, the evidence that the read is
-    // dropped rather than merely slow, and why it is a hook-wide fix rather
-    // than one made here — so this stays the pointer rather than a second
-    // account of the same thing. Settling network first is what makes the
-    // reopen below land on every run rather than most of them.
-    await ownerPage.waitForLoadState('networkidle');
-
-    const promotionRow = ownerPage.locator('[data-testid="promotion-row"]', {
-      hasText: promotionName,
-    });
-    await promotionRow.getByRole('button', { name: promotionName, exact: true }).click({
-      timeout: 15_000,
-    });
-    // A generous timeout, matching the sibling specs' idiom for a record
-    // opening (e.g. promotion-prizes.spec.ts's own `prize-row` wait): the read
-    // behind it is five queries deep — the promotion plus its shows embed, the
-    // quiz, the linked prizes RPC and the participation counts RPC.
     await expect(ownerPage.getByTestId('promotion-tab-data')).toHaveAttribute(
       'aria-selected',
       'true',

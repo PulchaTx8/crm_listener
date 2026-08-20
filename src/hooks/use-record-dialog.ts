@@ -152,15 +152,17 @@ export function useRecordDialog(
    * dispatched from an effect that can race a Save in flight — and there the
    * resolution was to remove the window rather than narrow it, reading the
    * participation counts with the record instead of fetching them on mount.
-   * That fix does not generalise here: this hook is what Members, Promotions,
-   * Songs, Programmes, Inventory, Team and Roles close their records through —
-   * `grep -rln '= useRecordDialog(' src/app` names the current callers —
-   * so changing how close() talks to the router is a change to all of them at
-   * once, each needing its own journey to show the change did not break the
-   * one thing this hook exists to guarantee: a list that never re-renders
-   * when a record opens. That is a block of its own, not a line changed in
-   * passing here. (Participations, Pickups and Requests do NOT use this hook
-   * — their record dialogs are plain local state — so they do not carry this
+   * That fix does not generalise here: thirteen screens close their records
+   * through this hook today (`grep -rln '= useRecordDialog(' src/app` —
+   * re-run it rather than trust this count, which is only as current as the
+   * day this paragraph was written) — Members, Promotions, Songs, Programmes,
+   * Inventory, Team and Roles among them — so changing how close() talks to
+   * the router is a change to all of them at once, each needing its own
+   * journey to show the change did not break the one thing this hook exists
+   * to guarantee: a list that never re-renders when a record opens. That is a
+   * block of its own, not a line changed in passing here. (Participations,
+   * Pickups and Requests do NOT use this hook — their record dialogs are
+   * plain local state — so they do not carry this
    * particular hazard.)
    */
   const close = useCallback(() => {
