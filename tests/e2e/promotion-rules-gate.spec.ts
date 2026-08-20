@@ -264,16 +264,16 @@ test('registering asks before discarding a draft, the rules gate refuses a blank
     await expect(ownerPage).not.toHaveURL(/record=/);
 
     // useRecordDialog's close() calls history.back() (use-record-dialog.ts),
-    // and the resulting popstate sends the App Router a background RSC fetch
-    // of its own for the bare /promotions URL — traced with request/response
-    // logging while this test was written, after an early draft of the click
-    // below intermittently left the reopened dialog stuck on "Loading…" past
-    // a 15s wait. Racing this journey's own reopen against that fetch is the
-    // same class of hazard record.ts's own header names for a different pair
-    // of actions on this same dialog: "a server action dispatched in that
-    // window is silently dropped when the navigation aborts". Settling
-    // network first is what makes the reopen below land on every run rather
-    // than most of them.
+    // which races Next's App Router's own background RSC fetch for the bare
+    // /promotions URL against this journey's own reopen — traced with
+    // request/response logging while this test was written, after an early
+    // draft of the click below intermittently left the reopened dialog stuck
+    // on "Loading…" past a 15s wait. close()'s own comment now carries the
+    // full record of this — the mechanism, the evidence that the read is
+    // dropped rather than merely slow, and why it is a hook-wide fix rather
+    // than one made here — so this stays the pointer rather than a second
+    // account of the same thing. Settling network first is what makes the
+    // reopen below land on every run rather than most of them.
     await ownerPage.waitForLoadState('networkidle');
 
     const promotionRow = ownerPage.locator('[data-testid="promotion-row"]', {

@@ -134,6 +134,34 @@ export function useRecordDialog(
    * Neither branch reaches for useRouter().push. See this file's doc comment:
    * that is the one move that would re-run the list's keyset query, which is
    * the whole thing this hook exists to avoid.
+   *
+   * A RELATED HAZARD, FOUND RATHER THAN FIXED HERE. history.back() fires a
+   * popstate that Next's App Router answers with a background RSC fetch of
+   * its own for the bare URL closing lands on. A record read dispatched by
+   * open() while that fetch is still in flight — closing one record and
+   * reopening another quickly enough — can be silently dropped rather than
+   * merely delayed: traced with request/response logging
+   * (promotion-rules-gate.spec.ts), the dropped case never shows a second
+   * request for the read at all, which is what tells it apart from slow.
+   * What an operator sees is a record dialog stuck on "Loading…", reached by
+   * closing a record and reopening one quickly, with whatever they had just
+   * saved already sitting in the database behind it.
+   *
+   * The same class of hazard src/services/promotions.ts:630-646 names for a
+   * different pair of actions on this same dialog — a server action
+   * dispatched from an effect that can race a Save in flight — and there the
+   * resolution was to remove the window rather than narrow it, reading the
+   * participation counts with the record instead of fetching them on mount.
+   * That fix does not generalise here: this hook is what Members, Promotions,
+   * Songs, Programmes, Inventory, Team and Roles close their records through —
+   * `grep -rln '= useRecordDialog(' src/app` names the current callers —
+   * so changing how close() talks to the router is a change to all of them at
+   * once, each needing its own journey to show the change did not break the
+   * one thing this hook exists to guarantee: a list that never re-renders
+   * when a record opens. That is a block of its own, not a line changed in
+   * passing here. (Participations, Pickups and Requests do NOT use this hook
+   * — their record dialogs are plain local state — so they do not carry this
+   * particular hazard.)
    */
   const close = useCallback(() => {
     setRecordId(null);
