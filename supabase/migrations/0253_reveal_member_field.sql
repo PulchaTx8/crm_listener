@@ -11,9 +11,11 @@
 -- of decisions this wider door has to make on its own -- which Station decides,
 -- and which columns are namable.
 --
--- IT EXISTS BECAUSE 0254 STOPS SENDING THE NUMBER TO THE BROWSER. Four digits
--- travel with the list; the rest is asked for. Without the narrowing this door
--- would be a lock on a door standing in an open field.
+-- IT EXISTS SO THE PICKUPS AND PARTICIPATIONS LISTS NEED NOT SEND THE WHOLE
+-- NUMBER TO THE BROWSER. Four digits travel with the list; the rest is asked
+-- for, one field at a time, through this door. 0254, in this same block, is
+-- what narrows those lists -- a separate change, not yet this one; without it
+-- this door is a lock on a door standing in an open field.
 
 create function public.reveal_member_field(p_member_id uuid, p_field text)
 returns text
@@ -38,10 +40,15 @@ begin
   -- WHICH STATION DECIDES. A listener belongs to an Organization and is LINKED
   -- to Stations (member_company_links, 0031), so there is no single company to
   -- ask about -- the question is whether the caller holds members.view at ANY
-  -- Station this listener is linked to. That is the same reach
-  -- members_select_reachable (0035) already grants for reading the row, so this
-  -- door widens nobody: it discloses one column of a row the caller could
-  -- already select.
+  -- Station this listener is linked to.
+  --
+  -- NARROWER THAN members_select_reachable (0035), DELIBERATELY. That policy
+  -- calls member_reachable (0033): is_platform_admin() OR is_owner(org) OR
+  -- exists(a link where has_permission holds) -- three arms. This door only
+  -- ever evaluates the third. A platform admin or an owner whose only link to
+  -- this listener runs through a suspended or archived Station can still
+  -- SELECT the row under 0035 but gets 42501 here. That is a dead end, not a
+  -- leak, so it is left as is rather than matched to 0035 arm for arm.
   --
   -- The company it settles on is also what stamps the audit row, which is why
   -- it is selected rather than merely tested with `exists`.
@@ -77,14 +84,17 @@ begin
            -- for the same reason. concat_ws skips nulls but not empty strings,
            -- so each part is nullif'd first -- otherwise a blank complement
            -- renders as a trailing ", ".
-           else concat_ws(', ',
+           when 'address'  then concat_ws(', ',
                   nullif(btrim(coalesce(m.address_line, '')), ''),
                   nullif(btrim(coalesce(m.address_number, '')), ''),
                   nullif(btrim(coalesce(m.address_complement, '')), ''))
+           else null
          end
     into v_value
     from public.members m
-   where m.id = p_member_id and m.anonymized_at is null
+   where m.id = p_member_id
+     and m.anonymized_at is null
+     and m.deleted_at is null
    for share;
 
   insert into public.audit_logs
@@ -101,7 +111,7 @@ end;
 $$;
 
 comment on function public.reveal_member_field(uuid, text) is
-  'Returns one whole value -- phone, email, passport or the postal address as one string -- for one listener, and writes an audit row for the asking. Exists because 0254 stops sending the telephone number to the browser with the pickups and participations lists (Block 30a D1); four digits travel, and the rest is asked for. Gated on members.view at any Station the listener is linked to, which is the reach members_select_reachable (0035) already grants for the row itself, so this door discloses a column of a row the caller could already select rather than widening anybody. The field name is checked against a closed list, because a door that selects a column named by its argument selects any column. Null for a listener who has exercised erasure, and null for a field with nothing in it; the audit row is written either way.';
+  'Returns one whole value -- phone, email, passport or the postal address as one string -- for one listener, and writes an audit row for the asking. Exists so the pickups and participations lists need not send the whole telephone number to the browser (Block 30a D1); four digits travel, and the rest is asked for one field at a time. 0254, in this same block, is what narrows those lists. Gated on members.view at an active Station the listener is linked to -- narrower than members_select_reachable (0035) on purpose, since it does not honour the platform-admin or owner arms of member_reachable (0033): a caller who could SELECT the row through one of those arms alone is refused here rather than disclosed to, which fails closed rather than open. The field name is checked against a closed list, because a door that selects a column named by its argument selects any column. Null for a listener who has exercised erasure or been archived, and null for a field with nothing in it; the audit row is written either way.';
 
 revoke execute on function public.reveal_member_field(uuid, text) from public;
 grant execute on function public.reveal_member_field(uuid, text) to authenticated;

@@ -1,5 +1,5 @@
 begin;
-select plan(8);
+select plan(11);
 
 -- Block 30a. One listener's whole value, asked for one at a time, recorded
 -- every time. Generalises reveal_request_phone (0190) from one request to one
@@ -25,10 +25,21 @@ insert into public.member_company_links (member_id, company_id, organization_id)
 values ('00000000-0000-0000-0000-0000000030d1', '00000000-0000-0000-0000-0000000030c1',
         '00000000-0000-0000-0000-0000000030f1');
 
--- Two actors: one holding members.view at this Station, one holding nothing.
--- (Seeded with this file's usual role/grant idiom -- see
--- 51_music_request_triage.test.sql's attendant/onlooker setup for the exact
--- shape, reused verbatim rather than invented afresh.)
+-- A second listener, linked the same way, kept apart from the first so the
+-- archived-listener case (assertions 8-9 below) does not have to share an
+-- audit trail with the four reveals already recorded against the first.
+insert into public.members (id, organization_id, full_name, phone) values
+  ('00000000-0000-0000-0000-0000000030d2', '00000000-0000-0000-0000-0000000030f1',
+   'Ouvinte Arquivada 30a', '11977776666');
+insert into public.member_company_links (member_id, company_id, organization_id)
+values ('00000000-0000-0000-0000-0000000030d2', '00000000-0000-0000-0000-0000000030c1',
+        '00000000-0000-0000-0000-0000000030f1');
+
+-- Two actors, seeded with this file's usual role/grant idiom -- see
+-- 51_music_request_triage.test.sql's attendant/onlooker setup, reused
+-- verbatim rather than invented afresh.
+--
+-- The attendant: members.view at this Station.
 insert into public.roles (id, organization_id, name) values
   ('00000000-0000-0000-0000-0000000030b1', '00000000-0000-0000-0000-0000000030f1',
    'Members Viewer 30a');
@@ -40,11 +51,21 @@ insert into public.company_memberships (user_id, company_id, organization_id, ro
   ('00000000-0000-0000-0000-0000000030a1', '00000000-0000-0000-0000-0000000030c1',
    '00000000-0000-0000-0000-0000000030f1', '00000000-0000-0000-0000-0000000030b1');
 
--- The second actor holds no role and no membership anywhere -- nothing at this
--- Station, deliberately, rather than some other permission that is merely not
--- members.view.
+-- The onlooker: music.view alone, at the same Station -- some permission, but
+-- not members.view. A user with zero memberships would short-circuit inside
+-- has_company_access_for (0121_permission_for.sql:168) before the permission
+-- code is ever examined, which would prove only that a stranger is refused,
+-- not that members.view specifically is what gates this door.
+insert into public.roles (id, organization_id, name) values
+  ('00000000-0000-0000-0000-0000000030b2', '00000000-0000-0000-0000-0000000030f1',
+   'Onlooker 30a');
+insert into public.role_permissions (role_id, permission_code) values
+  ('00000000-0000-0000-0000-0000000030b2', 'music.view');
 insert into auth.users (id, email) values
-  ('00000000-0000-0000-0000-0000000030a2', 'bystander-30a@example.test');
+  ('00000000-0000-0000-0000-0000000030a2', 'onlooker-30a@example.test');
+insert into public.company_memberships (user_id, company_id, organization_id, role_id) values
+  ('00000000-0000-0000-0000-0000000030a2', '00000000-0000-0000-0000-0000000030c1',
+   '00000000-0000-0000-0000-0000000030f1', '00000000-0000-0000-0000-0000000030b2');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000030a1", "role": "authenticated"}';
@@ -74,22 +95,50 @@ select is(
       and action = 'reveal_member_field'),
   4, 'every reveal leaves a trace');
 
--- 7: an actor holding nothing at this Station is refused.
+-- 7: an actor holding some other permission, but not members.view, at this
+-- Station is refused.
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000030a2", "role": "authenticated"}';
 select throws_ok($$
   select public.reveal_member_field('00000000-0000-0000-0000-0000000030d1', 'phone')
-$$, '42501', null, 'members.view somewhere the listener is linked is required');
+$$, '42501', null, 'members.view specifically, not just some Station permission, is required');
 
--- 8: an erased listener discloses nothing -- AND THE AUDIT ROW IS STILL
--- WRITTEN, because somebody asked and that is the fact being recorded.
+-- 8-9: an archived listener discloses nothing -- members_select_reachable
+-- (0035_rls_members.sql:95-100) keeps deleted_at is null OUTSIDE its own
+-- bypass, and archive_member (0034_member_rpcs.sql) sets it, so an archived
+-- row is unselectable to everyone, owner included; this door refuses to
+-- disclose what the row-level policy itself would already hide. AND THE
+-- AUDIT ROW IS STILL WRITTEN, because somebody asked and that is the fact
+-- being recorded -- the same rule the erased case below applies, for the
+-- same reason.
 reset role;
+update public.members set deleted_at = now()
+ where id = '00000000-0000-0000-0000-0000000030d2';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000030a1", "role": "authenticated"}';
+select is(public.reveal_member_field('00000000-0000-0000-0000-0000000030d2', 'phone'),
+  null, 'an archived listener discloses nothing');
+reset role;
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d2'
+      and action = 'reveal_member_field'),
+  1, 'the archived listener''s reveal still leaves a trace');
+
+-- 10-11: an erased listener discloses nothing -- AND THE AUDIT ROW IS STILL
+-- WRITTEN, because somebody asked and that is the fact being recorded.
 update public.members set anonymized_at = now(), phone = null
  where id = '00000000-0000-0000-0000-0000000030d1';
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000030a1", "role": "authenticated"}';
 select is(public.reveal_member_field('00000000-0000-0000-0000-0000000030d1', 'phone'),
   null, 'an erased listener discloses nothing');
+reset role;
+select is(
+  (select count(*)::int from public.audit_logs
+    where target_id = '00000000-0000-0000-0000-0000000030d1'
+      and action = 'reveal_member_field'),
+  5, 'the erased listener''s reveal still leaves a trace');
 
 select * from finish();
 rollback;
