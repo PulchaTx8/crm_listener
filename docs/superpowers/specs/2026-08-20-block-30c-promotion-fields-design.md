@@ -98,8 +98,38 @@ It also keeps Block 30e possible: item 18 reads the Programme's schedule to boun
 participation window, and a link cleared on archive would silently disable that filter
 for exactly the historical promotions somebody is most likely to be auditing.
 
-The combobox lists only **live** Programmes of the promotion's own Station. An archived
-one can be kept, never newly chosen.
+The combobox lists only **live** Programmes of the promotion's own Station.
+
+### D3a — Correction, found during Task 3: the display half of D3 is unreachable
+
+D3 as written above says the record renders an archived Programme's name with an
+**archived** marker. **It cannot, and shipping a branch for it would be dead code
+that reads as a working feature.** Two independent reasons, both verified:
+
+- **Nothing archives a Programme.** `grep` over every migration finds no statement
+  setting `shows.deleted_at`. There is no door, no RPC and no screen that does it.
+- **Even if one existed, the row would be invisible.** `shows_select_music_view`
+  (`0099:55-57`) is `deleted_at is null and has_permission('music.view', company_id)`
+  — **no owner exception**. Contrast `promotions`' own policy (`0044:47`),
+  `deleted_at is null or is_owner_of_company(company_id)`, which 0044 comments on as
+  a deliberate difference. So an archived Programme is unreadable by everyone,
+  the embed returns null, and the screen would show **no Programme at all** — not a
+  marked one.
+
+**What D3 still delivers, and it is the half that matters:** the *link* survives.
+`show_id` has no referential action and nothing clears it, so the column keeps
+pointing at the archived Programme and Block 30e can still read its schedule
+through a privileged path. That was the load-bearing half.
+
+**What changes:** Task 4 does **not** render an archived option, and
+`PromotionDetail.showArchived` stays in the shape as the honest answer to "is the
+linked Programme still live", derived from the embed rather than guessed. Today it
+is always false because the state it names cannot occur.
+
+**Debt:** making the display half real needs two things this block does not do — a
+way to archive a Programme at all, and an owner exception on `shows`' select policy
+so an archived one can still be read. Both belong to whoever owns the Programmes
+screen, not to a promotion field.
 
 ### D4 — Programmes moves to PROMOTIONS, and the permission does not move with it
 

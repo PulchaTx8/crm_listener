@@ -623,17 +623,15 @@ Add it to `promotion-fields.tsx` beside the certificate. It lists the **live** P
           >
             <option value="">{t('noProgramme')}</option>
             {/*
-              The archived one is offered ONLY when it is the record's own
-              current choice: keeping a link that already exists is not the same
-              as making a new one, and D3 keeps the link because a promotion
-              that ran inside a Programme ran inside it whether or not the
-              Programme is still on air.
+              NO ARCHIVED OPTION, and D3a of the spec says why: an archived
+              Programme cannot be read at all. `shows_select_music_view`
+              (0099:55-57) is `deleted_at is null and has_permission(...)` with
+              no owner exception -- unlike promotions' own policy (0044:47) --
+              so the embed returns null and the name never arrives. Nothing in
+              the codebase sets `shows.deleted_at` either. A branch rendering
+              "archived" here would be dead code that reads as a working
+              feature.
             */}
-            {record?.showArchived && record.showId && (
-              <option value={record.showId}>
-                {record.showName} — {t('programmeArchived')}
-              </option>
-            )}
             {shows.map((show) => (
               <option key={show.id} value={show.id}>
                 {show.name}
