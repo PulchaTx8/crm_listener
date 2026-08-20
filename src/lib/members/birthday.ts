@@ -66,9 +66,11 @@ export function birthdayWindow(
   if (end === null) return { kind: 'from', from: start };
 
   // EQUAL IS A RANGE OF ONE, NOT A WRAP. `from > to` is the wrap; `from === to`
-  // is somebody asking about a single day, and routing it through the wrap
-  // branch would answer "every day of the year except the ones in between",
-  // which is the exact opposite.
+  // is somebody asking about a single day. A wrap reads as "on or after `from`,
+  // OR on or before `to`" — with `from` and `to` equal, every value satisfies
+  // one side or the other, so routing this case through the wrap branch would
+  // not narrow at all. It would match every listener with any birthday on
+  // file, the opposite of the one day that was asked for.
   return start <= end
     ? { kind: 'between', from: start, to: end }
     : { kind: 'wraps', from: start, to: end };
