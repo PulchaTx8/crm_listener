@@ -150,18 +150,24 @@ a working export.
   caller already holds `members.view` for at a Station that listener is linked
   to; the field name is checked against a closed list of four rather than
   interpolated, so the door cannot be made to read a column it was not written
-  to read. **It returns null for a listener who has exercised erasure or been
+  to read. It generalises `reveal_request_phone` (`0190`, Block 22), the
+  identical door built for one WhatsApp request's own listener, to the wider
+  question "may this caller read THIS listener" with no request in hand.
+  **Both doors return null for a listener who has exercised erasure or been
   archived, and the audit row is still written either way** — somebody asked,
   and that is the fact being recorded, whether or not there was anything left
-  to disclose. It generalises `reveal_request_phone` (`0190`, Block 22), the
-  identical door built for one WhatsApp request's own listener, to the wider
-  question "may this caller read THIS listener" with no request in hand. The
-  Pickups and Participations lists (`list_pickups`/`list_participations`,
-  narrowed by `0254`) no longer carry a listener's whole telephone number at
-  all — only the last four digits travel with the list, the shape
-  `list_music_requests` has returned since Block 22 — so the whole value now
-  reaches the browser only through this one door, never with the list it sits
-  beside.
+  to disclose. The archived case was a real gap in both doors, not a
+  hypothetical one: each door's locking select checked `anonymized_at is null`
+  but not `deleted_at is null`, so an archived listener's row — kept
+  unselectable by `members_select_reachable` (`0035`) for everyone, owner
+  included — was still resolved and disclosed. `0253` closed it in
+  `reveal_member_field`; `0255` closed the identical gap, found the same way,
+  in `reveal_request_phone`. The Pickups and Participations lists
+  (`list_pickups`/`list_participations`, narrowed by `0254`) no longer carry a
+  listener's whole telephone number at all — only the last four digits travel
+  with the list, the shape `list_music_requests` has returned since Block 22
+  — so the whole value now reaches the browser only through these two doors,
+  never with the list it sits beside.
 - **How a subject asks** is `/delete-data` (Block 21), reachable with no
   account from a link inside WhatsApp. The public form **records a request and
   erases nothing** — there is no path from `data_deletion_requests` (`0188`) to
