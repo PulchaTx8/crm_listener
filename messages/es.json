@@ -1777,7 +1777,13 @@
     "saveGuidelines": "Guardar pautas",
     "theQuestionWasSavedButItsModerationGuidelines": "La pregunta se guardó, pero sus pautas de moderación no. Edita la pregunta para escribirlas de nuevo.",
     "requestedFieldCountry": "País",
-    "requestedFieldGender": "Sexo"
+    "requestedFieldGender": "Sexo",
+    "authorizationCertificate": "Número del certificado de autorización",
+    "optionalAsIssued": "Opcional, tal como fue emitido",
+    "programme": "Programa",
+    "noProgramme": "Sin programa",
+    "programmeArchived": "archivado",
+    "rulesRequiredWhenADoorIsOpen": "Las reglas son obligatorias cuando la participación por WhatsApp o por el sitio está activada."
   },
   "music": {
     "closeRecord": "Cerrar ficha",

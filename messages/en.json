@@ -1777,7 +1777,13 @@
     "saveGuidelines": "Save guidelines",
     "theQuestionWasSavedButItsModerationGuidelines": "The question was saved, but its moderation guidelines were not. Edit the question to write them again.",
     "requestedFieldCountry": "Country",
-    "requestedFieldGender": "Sex"
+    "requestedFieldGender": "Sex",
+    "authorizationCertificate": "Authorization certificate number",
+    "optionalAsIssued": "Optional, exactly as it was issued",
+    "programme": "Programme",
+    "noProgramme": "No programme",
+    "programmeArchived": "archived",
+    "rulesRequiredWhenADoorIsOpen": "The rules are required once entry by WhatsApp or on the website is on."
   },
   "music": {
     "closeRecord": "Close record",

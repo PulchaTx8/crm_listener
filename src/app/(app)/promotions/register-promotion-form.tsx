@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState, useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import type { ShowOption } from '@/services/shows';
 import { createPromotionAction, type PromotionFormState } from './actions';
 import { PromotionFields } from './promotion-fields';
 import { WhatsappFields } from './whatsapp-fields';
@@ -20,12 +21,15 @@ export function RegisterPromotionForm({
   open,
   companyId,
   timeZone,
+  shows,
   onClose,
   onCreated,
 }: {
   open: boolean;
   companyId: string;
   timeZone: string;
+  /** This Station's live Programmes (item 17), read by the page — see PromotionFields' own prop doc. */
+  shows: ShowOption[];
   onClose: () => void;
   onCreated: (promotionId: string) => void;
 }) {
@@ -58,6 +62,7 @@ export function RegisterPromotionForm({
               repeats={repeats}
               onRepeatsChange={setRepeats}
               onDirty={() => undefined}
+              shows={shows}
             />
 
             <div className="border-t pt-6">

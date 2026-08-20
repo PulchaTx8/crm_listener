@@ -8,6 +8,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { PromotionDetail } from '@/services/promotions';
+import type { ShowOption } from '@/services/shows';
 import { situationOf } from '@/lib/promotion-situation';
 // The tab tuple is declared with parseRecordParam rather than here, because the
 // page that validates `tab=` against it is a Server Component and cannot import
@@ -131,6 +132,7 @@ export function PromotionRecordDialog({
   tab,
   companyId,
   timeZone,
+  shows,
   powers,
   onTab,
   onClose,
@@ -148,6 +150,8 @@ export function PromotionRecordDialog({
    */
   companyId: string;
   timeZone: string;
+  /** This Station's live Programmes (item 17), read by the page — see PromotionFields' own prop doc. */
+  shows: ShowOption[];
   powers: PromotionRecordPowers;
   onTab: (tab: PromotionTab) => void;
   onClose: () => void;
@@ -415,6 +419,7 @@ export function PromotionRecordDialog({
                     setDirty(true);
                   }}
                   onDirty={() => setDirty(true)}
+                  shows={shows}
                 />
               </div>
 

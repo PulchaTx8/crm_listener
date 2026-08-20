@@ -90,12 +90,14 @@ export function WhatsappFields({
 
       {conversational && (
         <>
-          {/* THE RULES ARE NOT REQUIRED BY THIS FORM, and that is the owner's
-              ruling: a promotion can be marked for the web while somebody is
-              still writing the wording. What it cannot do is appear in the
-              widget with an agreement box above nothing — so the hint below
-              says exactly which half is missing rather than letting an
-              operator wonder why the site shows nothing. */}
+          {/* Item 15. `required` here is a COURTESY, not the boundary: 0259's
+              gate lives in `update_promotion` and refuses a door-on,
+              rules-blank write regardless — including one made by a client
+              that skips or works around this attribute entirely. Also NOT
+              the boundary: the two checkboxes above stay enabled either way,
+              on purpose. Disabling one to make the blank-rules state
+              unreachable would hide the very thing the operator is being
+              asked for, rather than let them see it and fill it in. */}
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted-foreground">{t('rules')}</span>
             <textarea
@@ -103,13 +105,14 @@ export function WhatsappFields({
               defaultValue={record?.rules ?? ''}
               rows={8}
               maxLength={20000}
+              required={conversational}
               disabled={disabled}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               data-testid="promotion-rules"
             />
             <span className="text-xs text-muted-foreground">
-              {webEnabled && !record?.rules
-                ? t('withoutRulesThisDoesNotAppearOnTheSite')
+              {conversational && !record?.rules
+                ? t('rulesRequiredWhenADoorIsOpen')
                 : t('whatAListenerAgreesToBeforeEntering')}
             </span>
           </label>

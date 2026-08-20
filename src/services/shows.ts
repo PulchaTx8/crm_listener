@@ -237,6 +237,34 @@ export async function listReservableShows(companyId: string): Promise<Reservable
   return data ?? [];
 }
 
+export interface ShowOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * Programmes a promotion's own combobox can offer (Block 30c, item 17): every
+ * Programme of the Station that is LIVE, meaning `deleted_at is null` and
+ * nothing else — design D3's own word for the state the combobox lists, kept
+ * apart from `listReservableShows`' narrower "and still on or upcoming"
+ * business rule, which belongs to Reservas alone. A promotion may legitimately
+ * point at a Programme whose own run has already ended; D3 only withholds an
+ * ARCHIVED one from new choices, not an ended one.
+ */
+export async function listShowOptions(companyId: string): Promise<ShowOption[]> {
+  const supabase = await createUserClient();
+
+  const { data, error } = await supabase
+    .from('shows')
+    .select('id, name')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .order('name');
+
+  if (error) throw new InternalError(`Could not read programmes: ${error.message}`);
+  return data ?? [];
+}
+
 /** One programme by id. RLS already scopes this, so an unreachable one comes back null. */
 export async function getShowById(showId: string): Promise<ShowSummary | null> {
   const supabase = await createUserClient();

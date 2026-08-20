@@ -2,9 +2,10 @@
 
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { ImageUploadField } from '@/components/media/image-upload-field';
 import type { PromotionDetail } from '@/services/promotions';
+import type { ShowOption } from '@/services/shows';
 import { fromZonedWallClock, toZonedDateTime } from './zone';
 
 /**
@@ -20,6 +21,7 @@ export function PromotionFields({
   repeats,
   onRepeatsChange,
   onDirty,
+  shows,
 }: {
   record: PromotionDetail | null;
   timeZone: string;
@@ -27,6 +29,14 @@ export function PromotionFields({
   repeats: boolean;
   onRepeatsChange: (next: boolean) => void;
   onDirty: () => void;
+  /**
+   * The promotion's own Station's live Programmes (item 17) — read by the
+   * page that already resolves that Station for the list behind this form,
+   * and passed down rather than looked up again here. See `promotions/page.tsx`
+   * and `promotion-record-dialog.tsx`'s own `companyId` prop for the same
+   * "the Station is already in scope, do not re-resolve it" reasoning.
+   */
+  shows: ShowOption[];
 }) {
   const t = useTranslations('promotions');
   // The visible inputs speak the Station's wall-clock; the hidden ones beside
@@ -82,7 +92,52 @@ export function PromotionFields({
             {t('howTheStationSOwnWebsite')}</span>
         </label>
 
-        <div className="hidden sm:block" aria-hidden="true" />
+        {/* Item 10. This cell held a spacer that existed only to keep the
+            two-column grid aligned after Site integration code; the field the
+            owner asked for goes exactly where the spacer was, which is what
+            "to the right of Site integration code" means in a two-column grid. */}
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">{t('authorizationCertificate')}</span>
+          <Input
+            name="authorizationCertificate"
+            maxLength={60}
+            defaultValue={record?.authorizationCertificate ?? ''}
+            disabled={disabled}
+            data-testid="promotion-certificate"
+          />
+          <span className="text-xs text-muted-foreground">{t('optionalAsIssued')}</span>
+        </label>
+
+        {/* Item 17. Its own full-width row directly under the certificate —
+            the grid is only two columns, and the cell truly beside the
+            certificate does not exist; the alternative (falling into row 3
+            col 1 as the next item in source order) would have shoved Starts
+            into col 2 of that same row and stranded Ends alone below it,
+            breaking a pairing nothing in this task asked to change. NO
+            ARCHIVED OPTION, and D3a of the spec says why: an archived
+            Programme cannot be read at all. `shows_select_music_view`
+            (0099:55-57) is `deleted_at is null and has_permission(...)` with
+            no owner exception -- unlike promotions' own policy (0044:47) --
+            so the embed returns null and the name never arrives. Nothing in
+            the codebase sets `shows.deleted_at` either. A branch rendering
+            "archived" here would be dead code that reads as a working
+            feature. */}
+        <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+          <span className="text-muted-foreground">{t('programme')}</span>
+          <Select
+            name="showId"
+            defaultValue={record?.showId ?? ''}
+            disabled={disabled}
+            data-testid="promotion-show"
+          >
+            <option value="">{t('noProgramme')}</option>
+            {shows.map((show) => (
+              <option key={show.id} value={show.id}>
+                {show.name}
+              </option>
+            ))}
+          </Select>
+        </label>
 
         {/* Both instants are typed and read in the STATION's timezone, which is
             the one the promotion actually runs in — an operator in another
@@ -140,58 +195,64 @@ export function PromotionFields({
         {/* Shown only when repetition is on, and required then. Unticked, the
             promotion takes one entry per listener for its whole run; ticked
             with no interval, one person could send the hashtag five hundred
-            times and occupy five hundred places in the draw. */}
+            times and occupy five hundred places in the draw.
+
+            Item 16. One `flex-wrap` row for both this field and the ceiling
+            beside it, replacing what used to be two separate `{repeats && …}`
+            guards stacked in the enclosing `flex-col` box — `flex-wrap` so the
+            two `w-64` fields drop to two rows on a narrow screen rather than
+            overflowing it. */}
         {repeats && (
-          <label className="flex w-64 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">{t('atLeastThisManyHoursApart')}</span>
-            <Input
-              name="minHoursBetweenEntries"
-              type="number"
-              min={1}
-              max={8760}
-              step={1}
-              defaultValue={record?.minHoursBetweenEntries ?? 24}
-              required
-              disabled={disabled}
-              data-testid="promotion-min-hours"
-            />
-          </label>
-        )}
+          <div className="flex flex-wrap gap-4">
+            <label className="flex w-64 flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">{t('atLeastThisManyHoursApart')}</span>
+              <Input
+                name="minHoursBetweenEntries"
+                type="number"
+                min={1}
+                max={8760}
+                step={1}
+                defaultValue={record?.minHoursBetweenEntries ?? 24}
+                required
+                disabled={disabled}
+                data-testid="promotion-min-hours"
+              />
+            </label>
 
-        {/* The per-person ceiling (design spec D1), beside the interval it
-            depends on.
+            {/* The per-person ceiling (design spec D1), beside the interval it
+                depends on.
 
-            Rendered only while repetition is on, and unmounted rather than
-            disabled when it is off, because an unmounted input posts nothing:
-            promotions_entry_ceiling_shape (0052) and promotionFormSchema both
-            refuse a ceiling without `allow_multiple_entries`, so offering the
-            field there would be offering something the database will reject —
-            and worse, a value left in a disabled input would still be in the
-            DOM for a stale form to post.
+                Rendered only while repetition is on, and unmounted rather than
+                disabled when it is off, because an unmounted input posts nothing:
+                promotions_entry_ceiling_shape (0052) and promotionFormSchema both
+                refuse a ceiling without `allow_multiple_entries`, so offering the
+                field there would be offering something the database will reject —
+                and worse, a value left in a disabled input would still be in the
+                DOM for a stale form to post.
 
-            Optional where the interval is required, and the asymmetry is the
-            constraint's own: a promotion that allows repeats without any limit
-            is the ordinary case, while one that allows them with no interval is
-            the five-hundred-entries-in-a-minute case the interval exists to
-            stop. Blank means no ceiling.
+                Optional where the interval is required, and the asymmetry is the
+                constraint's own: a promotion that allows repeats without any limit
+                is the ordinary case, while one that allows them with no interval is
+                the five-hundred-entries-in-a-minute case the interval exists to
+                stop. Blank means no ceiling.
 
-            `min={2}` matches the schema's message rather than the column's
-            type: a ceiling of one is what turning repeats off already says. */}
-        {repeats && (
-          <label className="flex w-64 flex-col gap-1 text-sm">
-            <span className="text-muted-foreground">{t('atMostThisManyEntriesEach')}</span>
-            <Input
-              name="maxEntriesPerMember"
-              type="number"
-              min={2}
-              step={1}
-              defaultValue={record?.maxEntriesPerMember ?? ''}
-              disabled={disabled}
-              data-testid="promotion-max-entries"
-            />
-            <span className="text-xs text-muted-foreground">
-              {t('optionalLeaveItBlankForNo')}</span>
-          </label>
+                `min={2}` matches the schema's message rather than the column's
+                type: a ceiling of one is what turning repeats off already says. */}
+            <label className="flex w-64 flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">{t('atMostThisManyEntriesEach')}</span>
+              <Input
+                name="maxEntriesPerMember"
+                type="number"
+                min={2}
+                step={1}
+                defaultValue={record?.maxEntriesPerMember ?? ''}
+                disabled={disabled}
+                data-testid="promotion-max-entries"
+              />
+              <span className="text-xs text-muted-foreground">
+                {t('optionalLeaveItBlankForNo')}</span>
+            </label>
+          </div>
         )}
       </div>
 

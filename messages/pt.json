@@ -1777,7 +1777,13 @@
     "saveGuidelines": "Salvar diretrizes",
     "theQuestionWasSavedButItsModerationGuidelines": "A pergunta foi salva, mas as diretrizes de moderação não. Edite a pergunta para escrevê-las de novo.",
     "requestedFieldCountry": "País",
-    "requestedFieldGender": "Sexo"
+    "requestedFieldGender": "Sexo",
+    "authorizationCertificate": "Número do certificado de autorização",
+    "optionalAsIssued": "Opcional, exatamente como foi emitido",
+    "programme": "Programa",
+    "noProgramme": "Sem programa",
+    "programmeArchived": "arquivado",
+    "rulesRequiredWhenADoorIsOpen": "As regras passam a ser obrigatórias quando a participação por WhatsApp ou pelo site está ligada."
   },
   "music": {
     "closeRecord": "Fechar ficha",

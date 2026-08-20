@@ -23,6 +23,7 @@ import { applyRowPatch, type RowState } from '@/lib/row-patch';
 import { situationOf } from '@/lib/promotion-situation';
 import { PROMOTION_TABS, type PromotionTab } from '@/lib/record-params';
 import type { PromotionDetail, PromotionSummary } from '@/services/promotions';
+import type { ShowOption } from '@/services/shows';
 import {
   archivePromotionAction,
   cancelPromotionAction,
@@ -97,6 +98,7 @@ export function PromotionsGrid({
   nextHref,
   powers,
   initialRecord,
+  shows,
 }: {
   initialRows: PromotionSummary[];
   initialTotal: number;
@@ -106,6 +108,13 @@ export function PromotionsGrid({
   nextHref: string | null;
   powers: PromotionGridPowers;
   initialRecord: { recordId: string | null; tab: string | null };
+  /**
+   * This Station's live Programmes (item 17), read once by the Server
+   * Component page from the same `selected.id` that already resolves
+   * `state.companyId`/`timeZone`/`powers` below — not a second Station lookup
+   * here or inside either dialog.
+   */
+  shows: ShowOption[];
 }) {
   const t = useTranslations('promotions');
   const [grid, setGrid] = useState<RowState<PromotionSummary>>({
@@ -277,6 +286,7 @@ export function PromotionsGrid({
         // elsewhere would be rendered against all of them.
         companyId={state.companyId}
         timeZone={timeZone}
+        shows={shows}
         powers={{
           edit: powers.edit,
           prizes: powers.prizes,
@@ -341,6 +351,7 @@ export function PromotionsGrid({
         open={creating}
         companyId={state.companyId}
         timeZone={timeZone}
+        shows={shows}
         onClose={() => setCreating(false)}
         onCreated={(promotionId) => {
           setCreating(false);

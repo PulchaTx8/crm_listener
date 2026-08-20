@@ -10,6 +10,8 @@ import { decodeCursor } from '@/lib/keyset';
 import { parseRecordParam, PROMOTION_TABS } from '@/lib/record-params';
 import { listPromotionsPage, PROMOTION_SEARCH_MAX_LENGTH } from '@/services/promotions';
 import type { PromotionListPage } from '@/services/promotions';
+import { listShowOptions } from '@/services/shows';
+import type { ShowOption } from '@/services/shows';
 import { listCompanyAccess, STATION_SEARCH_MAX_LENGTH } from '../inventory/station-access';
 import type { SuspendedCompany, ViewableCompany } from '../inventory/station-access';
 import { StationSearchForm } from '../inventory/station-search-form';
@@ -79,6 +81,7 @@ export default async function PromotionsPage({
 
   let powers: PromotionPowers;
   let page: PromotionListPage;
+  let shows: ShowOption[];
   try {
     powers = await getPromotionPowers(supabase, selected.id);
 
@@ -99,6 +102,11 @@ export default async function PromotionsPage({
       cursor,
       cursorSide: cursorParam?.side ?? 'after',
     });
+
+    // Item 17's combobox. Read here, off the same Station already resolved
+    // above, and handed down through PromotionsGrid to both the record dialog
+    // and the register form — neither re-resolves a Station of its own for it.
+    shows = await listShowOptions(selected.id);
   } catch (cause) {
     logger.error({ err: cause, companyId: selected.id }, 'could not load the promotions list');
     return <LoadError message={describePromotionsReadError(cause, await getTranslations('promotions'))} />;
@@ -165,6 +173,7 @@ export default async function PromotionsPage({
         initialTotal={page.total}
         state={state}
         timeZone={selected.timezone}
+        shows={shows}
         previousHref={
           page.previousCursor
             ? promotionsHref(state, { side: 'before', value: page.previousCursor })
