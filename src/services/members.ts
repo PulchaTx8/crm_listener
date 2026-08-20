@@ -470,12 +470,20 @@ async function latestRulesConsent(
  * operator find "+55 (11) 98765-4321" by typing the digits off caller ID;
  * whole-branch review I2). Verified against the running PostgREST rather than
  * assumed: multiple `or=` parameters on one request are ANDed together, not
- * one replacing another. Two of them are on every request that reaches
- * Postgres — the search clause above and the keyset clause below — and
- * Block 30b's wrapping birthday window (D2, below) is a third whenever the
- * mode is Birthday and the window crosses new year: verified again with all
- * three present at once, which still returns the intersection rather than
- * any one clause winning.
+ * one replacing another -- confirmed with three at once (this search clause,
+ * the keyset clause below, and Block 30b's wrapping birthday window, D2
+ * below), which still returns the intersection rather than any one clause
+ * winning.
+ *
+ * NONE OF THE THREE IS ON EVERY REQUEST, though, and a bare `/members` view
+ * sends none of them. The search clause exists only when there is a search
+ * term; the wrapping-birthday clause (D2, below) only when the mode is
+ * Birthday and the window crosses new year -- both live inside `build`,
+ * below, so both also reach the separate COUNT request `build` is called a
+ * second time for. The keyset clause is different: it is chained onto
+ * `query` only once a cursor exists, i.e. never on the first page, and it is
+ * chained AFTER `build` returns rather than inside it -- so it never reaches
+ * the count request at all, on any page.
  *
  * "Blocked only" is a condition on the query — an inner join to member_blocks
  * restricted to the active window — so a filtered page still fills and the

@@ -253,10 +253,25 @@ export function MembersFilters({ state }: { state: MemberListState }) {
             value={dateMode}
             onChange={(e) => {
               const mode = e.target.value === 'birthday' ? 'birthday' : 'registered';
-              // Set before navigate() is called, so the round trip navigate()
-              // starts already carries the new mode (typed.dateMode, above) and
-              // so this select and the two boxes below stop showing the old
-              // mode for the round trip rather than snapping back once it lands.
+              // setDateMode does NOT make navigate()'s own typed.dateMode
+              // (above) carry the new mode for THIS call: it schedules a
+              // re-render, while navigate() runs synchronously in this same
+              // handler and closes over the OLD dateMode from the render
+              // that is still current. What actually carries the new mode
+              // into the URL here is the explicit dateMode: mode in the
+              // literal below, which wins the {...typed, ...next} spread
+              // inside navigate() -- it is NOT redundant with typed.dateMode
+              // and must not be dropped as if it were, or Birthday mode
+              // stops reaching the URL from this control.
+              //
+              // Calling setDateMode anyway is what makes this select and the
+              // two boxes below stop showing the old mode for the round trip
+              // rather than snapping back once it lands, and it is what lets
+              // a LATER navigate() call from either box -- a separate event,
+              // firing after this component has re-rendered with the new
+              // mode -- read it from typed.dateMode on its own, with no
+              // explicit dateMode of its own to pass (see their onChange,
+              // below).
               setDateMode(mode);
               // SWITCHING CLEARS THE OTHER WINDOW. Two live windows would show a
               // count nobody can account for from what is on screen, and the
@@ -344,8 +359,16 @@ export function MembersFilters({ state }: { state: MemberListState }) {
                 // reason that has nothing to do with dates. Choosing Birthday
                 // with no dates yet is a real state (list-params.ts, at the
                 // dateMode field) and Clear has no more standing to overrule
-                // it than any other control on this bar does.
-                dateMode: state.dateMode,
+                // it than any other control on this bar does -- read from
+                // LOCAL dateMode, not state.dateMode: this Link is rendered
+                // whenever hasActiveFilters(state) is true, and that can
+                // still hold from a stale prop while the mode select's own
+                // round trip is in flight (its old window has not yet been
+                // cleared server-side). Building this href from state.dateMode
+                // would let a Clear click in that window silently revert a
+                // mode switch the operator already made -- the same race A1
+                // fixed for the two date boxes above.
+                dateMode,
               }) as Route
             }
             className="rounded-md border px-3 py-1.5 text-sm ring-offset-background hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
