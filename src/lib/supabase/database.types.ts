@@ -2787,6 +2787,7 @@ export type Database = {
         Row: {
           allow_multiple_entries: boolean
           art_url: string | null
+          authorization_certificate: string | null
           call_to_action: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
@@ -2809,6 +2810,7 @@ export type Database = {
           requested_fields: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer: boolean
           rules: string | null
+          show_id: string | null
           site_integration_code: number | null
           starts_at: string
           thumb_url: string | null
@@ -2821,6 +2823,7 @@ export type Database = {
         Insert: {
           allow_multiple_entries?: boolean
           art_url?: string | null
+          authorization_certificate?: string | null
           call_to_action?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -2843,6 +2846,7 @@ export type Database = {
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           rules?: string | null
+          show_id?: string | null
           site_integration_code?: number | null
           starts_at: string
           thumb_url?: string | null
@@ -2855,6 +2859,7 @@ export type Database = {
         Update: {
           allow_multiple_entries?: boolean
           art_url?: string | null
+          authorization_certificate?: string | null
           call_to_action?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
@@ -2877,6 +2882,7 @@ export type Database = {
           requested_fields?: Database["public"]["Enums"]["promotion_requested_field"][]
           require_correct_answer?: boolean
           rules?: string | null
+          show_id?: string | null
           site_integration_code?: number | null
           starts_at?: string
           thumb_url?: string | null
@@ -2900,6 +2906,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotions_show_fk"
+            columns: ["show_id", "company_id"]
+            isOneToOne: false
+            referencedRelation: "shows"
+            referencedColumns: ["id", "company_id"]
           },
         ]
       }
