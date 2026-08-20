@@ -177,7 +177,7 @@ create index members_birth_md_idx on public.members (birth_md)
 Run: `npm run db:reset && npm run db:test`
 Expected: PASS, including `70_birthday_window`.
 
-> If assertion 5 fails with a different SQLSTATE than `428C9`, report the code you actually saw and use it — the point of that assertion is that the column refuses a direct write, not that Postgres names the refusal a particular way.
+> `428C9` is verified, not assumed: probed against the local database on a throwaway generated column, Postgres answers `428C9 — column "md" can only be updated to DEFAULT`.
 
 - [ ] **Step 5: Regenerate the types**
 
